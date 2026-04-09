@@ -1,0 +1,47 @@
+schema: feature
+status: active
+description: "Extract dev workflow system into standalone repo (HL-253)"
+phase: complete
+step_id: run-feature-verification
+workflow_plan:
+  complete:
+    active: [run-feature-verification, compute-prediction-accuracy, run-learn-cycle, archive-completed-change, remove-worktree]
+    filtered: []
+worktree_path: ~/code/feature_worktrees/hl-253-extract-dev-workflow-system-into-standalone-repo
+flags:
+  tdd_required: false
+  design: false
+  ux_design: false
+  auto: false
+  agents: false
+  linear: true
+started_at: "2026-04-09T10:55:00Z"
+updated_at: "2026-04-09T10:55:00Z"
+step_history:
+  - step_id: create-worktree
+    phase: specify
+    status: completed
+    agent: inline
+  - step_id: load-project-context
+    phase: specify
+    status: completed
+    agent: inline
+  - step_id: explore
+    phase: specify
+    status: completed
+    agent: discoverer
+    artifacts: [discovery.md]
+  - step_id: create-or-refresh-artifacts
+    phase: specify
+    status: completed
+    agent: architect
+    artifacts: [spec.md]
+  - step_id: generate-or-refresh-tasks
+    phase: specify
+    status: completed
+    agent: architect
+    artifacts: [tasks.md]
+  - step_id: phase-signoff
+    phase: specify
+    status: completed
+    agent: inline
