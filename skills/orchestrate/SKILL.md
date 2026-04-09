@@ -114,7 +114,16 @@ flags: <resolved flags>
 started_at: <ISO timestamp>
 updated_at: <ISO timestamp>
 step_history: []
+workflow_plan:
+  - phase: <phase-name>
+    active: [<step-id>, ...]       # pre-filtered against resolved flags
+    filtered: [{step: <step-id>, reason: "<flag>=false"}, ...]
+  - phase: <next-phase-name>
+    active: [<step-id>, ...]
+    filtered: []
 ```
+
+Compute `workflow_plan` by iterating every phase in the schema and evaluating all step conditions against resolved flags. This is the canonical execution plan — written once, never recomputed.
 
 ### 3. Walk Phases and Steps
 
@@ -130,20 +139,13 @@ For each phase in `phases:` (in order):
    - Schema-level `rules:` (evaluate `when:` conditions against flags)
    - Phase-level `rules:`
 
-3. **Pre-filter steps** — resolve the active step list once per phase, before execution:
+3. **Read active steps from workflow_plan** — do not re-derive from the schema:
 
-   Parse all step entries in `phases[].steps` and evaluate conditions against resolved flags:
-   - `step-name` → include
-   - `step-name if flag` → include only if flag is truthy
-   - `step-name if not flag` → include only if flag is falsy
-   - `{id: step-name, if: flag, ...}` → include only if flag is truthy
+   Read `workflow_plan` from state.yaml. Find the entry for the current phase.
+   Its `active:` list is the canonical step sequence — walk it in order.
+   Never infer or reconstruct the step list from the schema in memory.
 
-   Log the filter result once to state.yaml under the phase entry:
-   ```yaml
-   phase_plan:
-     active: [load-project-context, explore, create-or-refresh-artifacts, ...]
-     filtered: [{step: design-exploration, reason: "design=false"}, ...]
-   ```
+   On resume: find the current `step_id` in the phase's `active:` list and continue from there.
 
    Special handling for `final-signoff`: if `auto` flag is true, keep the step in the active list
    but mark it for auto-approval (the step's SKIP CONDITIONS handles the behavior).
@@ -195,7 +197,12 @@ For each phase in `phases:` (in order):
 
    **f. Check step verify:** — if step has `verify:`, confirm each assertion is true before advancing. If any fails, the step is not done.
 
-   **g. Continue** to next step. If step was last in phase → run phase verification.
+   **g. Advance via state.yaml** — after updating state.yaml in step (e):
+   Read `workflow_plan[current_phase].active` from state.yaml. Find the current step_id
+   in that list. The next entry is the next step to execute.
+   If no next entry exists in the current phase → run phase verification, then advance
+   to the next phase's `active:` list.
+   Never determine the next step from memory or by re-reading the schema.
 
 4. **Phase verification** (after all steps in a phase complete):
    - Run `verify.commands` from the phase definition (all must exit 0)
