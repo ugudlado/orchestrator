@@ -17,24 +17,24 @@ else
 fi
 
 # 2. Symlink agents
-if [ -L "${HOME}/.claude/agents" ]; then
-  echo "  ~/.claude/agents already symlinked"
-elif [ -d "${HOME}/.claude/agents" ]; then
+if [ -L "${HOME}/.claude/agents" ] && [ "$(readlink "${HOME}/.claude/agents")" = "$ORCHESTRATOR_DIR/agents" ]; then
+  echo "  ~/.claude/agents already points to orchestrator"
+elif [ -d "${HOME}/.claude/agents" ] && [ ! -L "${HOME}/.claude/agents" ]; then
   echo "  WARNING: ~/.claude/agents is a real directory -- please back it up and remove it, then re-run"
   exit 1
 else
-  ln -s "$ORCHESTRATOR_DIR/agents" "${HOME}/.claude/agents"
+  ln -sf "$ORCHESTRATOR_DIR/agents" "${HOME}/.claude/agents"
   echo "  Symlinked ~/.claude/agents -> $ORCHESTRATOR_DIR/agents"
 fi
 
 # 3. Symlink skills
-if [ -L "${HOME}/.claude/skills" ]; then
-  echo "  ~/.claude/skills already symlinked"
-elif [ -d "${HOME}/.claude/skills" ]; then
+if [ -L "${HOME}/.claude/skills" ] && [ "$(readlink "${HOME}/.claude/skills")" = "$ORCHESTRATOR_DIR/skills" ]; then
+  echo "  ~/.claude/skills already points to orchestrator"
+elif [ -d "${HOME}/.claude/skills" ] && [ ! -L "${HOME}/.claude/skills" ]; then
   echo "  WARNING: ~/.claude/skills is a real directory -- please back it up and remove it, then re-run"
   exit 1
 else
-  ln -s "$ORCHESTRATOR_DIR/skills" "${HOME}/.claude/skills"
+  ln -sf "$ORCHESTRATOR_DIR/skills" "${HOME}/.claude/skills"
   echo "  Symlinked ~/.claude/skills -> $ORCHESTRATOR_DIR/skills"
 fi
 
