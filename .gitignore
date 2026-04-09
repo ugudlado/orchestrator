@@ -1,0 +1,6 @@
+.DS_Store
+*.log
+.tooling-state.json
+
+# Per-change workflow state (ephemeral)
+spec/changes/*/state.yaml

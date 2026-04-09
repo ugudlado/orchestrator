@@ -1,0 +1,105 @@
+version: 1
+
+project:
+  name: orchestrator
+  repo: orchestrator
+  summary: LLM-agnostic configuration layer for deterministic, repeatable workflow execution across any AI coding tool.
+
+vision:
+  purpose: >
+    LLM-agnostic configuration layer that drives any multi-step workflow in a
+    deterministic, repeatable way — schemas, steps, and quality gates defined
+    once, executed consistently by any LLM-powered tool.
+  target_users: >
+    Anyone running structured, repeatable workflows with LLMs — software engineers,
+    researchers, content creators, ops teams — who want deterministic process
+    execution rather than ad-hoc prompt-driven results.
+  valuable_means:
+    - Makes any workflow deterministic and portable across LLM tools
+    - Decouples workflow definition (config) from execution (any LLM)
+    - Enables new workflow types beyond software development
+    - Moves the engine forward — better schemas, steps, quality gates
+  direction: >
+    A universal workflow engine for LLMs — define any process as config,
+    run it on any tool, learn from outcomes, and refine schemas automatically.
+
+architecture:
+  overview: >
+    Config-driven workflow engine. Agents read WORKFLOW_HOME for schemas, step
+    contracts, and templates. Skills are the entry points. install.sh wires
+    per-tool symlinks. No runtime coupling to shell repo or any specific LLM tool.
+  structure:
+    config/workflows: Workflow schemas (feature, bugfix, chore, spike, bootstrap)
+    config/steps: Step contracts — YAML spec for each workflow step
+    config/templates: Output templates per workflow type
+    agents: Agent definitions (developer, reviewer, architect, discoverer, etc.)
+    skills: Skill definitions (orchestrate, specify, implement, learn, autopilot, etc.)
+    install.sh: Per-tool symlink installer (Claude Code, Cursor, Codex CLI, etc.)
+    guidelines.yaml: LLM-driven workflow selection (replaces keyword matching)
+    spec: Per-project workflow config (this file)
+
+gotchas: []
+
+learnings: []
+
+context:
+  tech_stack: [bash, zsh, yaml]
+  conventions:
+    - Minimal diffs.
+    - Spec-first workflow.
+    - Evidence-based completion claims.
+    - Keep workflow rules agent-agnostic — no tool-specific instructions in schemas or steps.
+    - WORKFLOW_HOME is the canonical env var (replacing SPEC_HOME from shell repo).
+
+verify_commands: []
+
+quality_bar:
+  min_phase_review_score: 9
+  max_retry_rounds: 3
+  scoring:
+    critical_cap: 5
+    important_cap: 7
+    green_base: 9
+
+storage:
+  active_changes_root: $SPEC_CHANGES_DIR
+  repo_archive_root: spec/changes/archive
+  archive_on:
+    - merged_to_main
+    - user_signoff_approved
+
+state_contract:
+  file: $SPEC_CHANGES_DIR/$CHANGE_ID/state.yaml
+  required: [schema, flags]
+  merge_precedence: [cli_flags, state_flags, schema_defaults]
+
+schemas:
+  - feature
+  - bugfix
+  - chore
+  - spike
+
+signoff_policy:
+  specify: required
+  diagnose: required
+  implement: required
+  complete: required
+  explore: optional
+  prototype: optional
+  summarize: optional
+
+rules:
+  - id: evidence-based
+    rule: Never claim completion without running verification. Show output.
+  - id: minimal-diffs
+    rule: Keep changes scoped to the current task. No "while I'm here" improvements.
+  - id: spec-first
+    rule: Artifacts must exist before implementation begins.
+  - id: state-sync
+    rule: Update state.yaml after every step. This enables pause/resume.
+  - id: retry-limit
+    rule: Max 3 retry attempts per step. After that, pause and report.
+  - id: signoff-required
+    rule: User approval required at phase boundaries per signoff_policy.
+  - id: agent-agnostic
+    rule: Schemas and step contracts must not reference any specific LLM tool. All tool-specific wiring belongs in install.sh or per-tool config.
