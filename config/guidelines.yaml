@@ -1,0 +1,27 @@
+# Workflow selection guidelines — LLM picks best match by semantic similarity.
+# Each entry describes the intent and context where that schema should be used.
+
+feature: >
+  Use when building a new capability, adding functionality that does not yet exist,
+  or making a substantial change that requires discovery, spec, and implementation phases.
+  Examples: new API endpoint, new UI component, new workflow schema.
+
+bugfix: >
+  Use when something is broken, regressing, or producing incorrect output.
+  Examples: test failure, runtime error, wrong calculation, broken integration.
+  Triggers: "fix", "broken", "regression", "crash", "error when doing X".
+
+chore: >
+  Use for housekeeping tasks with no new functionality: dependency updates, renames,
+  config changes, typo fixes, CI changes, or cleanup.
+  Examples: bump library version, rename variable, update .gitignore.
+
+spike: >
+  Use when exploring an unknown problem space before committing to a solution.
+  Produces a time-boxed findings document, not production code.
+  Examples: "prototype X", "explore Y", "POC for Z", "try approach A".
+
+bootstrap: >
+  Use only to initialize a new project repo with standard tooling (Makefile, CLAUDE.md,
+  spec/project.yaml, .gitignore). Runs in-place, no worktree, no Linear ticket.
+  Triggers: "setup tooling", "bootstrap this repo", "initialize project".

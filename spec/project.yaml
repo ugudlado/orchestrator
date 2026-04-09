@@ -25,7 +25,7 @@ vision:
 
 architecture:
   overview: >
-    Config-driven workflow engine. Agents read WORKFLOW_HOME for schemas, step
+    Config-driven workflow engine. Agents read ORCHESTRATOR_HOME for schemas, step
     contracts, and templates. Skills are the entry points. install.sh wires
     per-tool symlinks. No runtime coupling to shell repo or any specific LLM tool.
   structure:
@@ -38,9 +38,16 @@ architecture:
     guidelines.yaml: LLM-driven workflow selection (replaces keyword matching)
     spec: Per-project workflow config (this file)
 
-gotchas: []
+gotchas:
+  - install.sh uses ln -sf to re-point existing symlinks — running make setup from the worktree sets ORCHESTRATOR_HOME to the worktree path, not the main repo. Always run make setup from ~/code/orchestrator after merge.
 
-learnings: []
+learnings:
+  - id: workflow-plan-upfront
+    learned: 2026-04-09
+    rule: Write full workflow_plan (all phases + pre-filtered steps) to state.yaml at init time. Advance by reading state.yaml, never by reconstructing from schema in memory.
+  - id: file-level-symlinks
+    learned: 2026-04-09
+    rule: Use file-level symlinks for agents (.md per file) and skill-dir-level symlinks for skills (one per skill directory). Directory-level symlinks silently skip re-pointing when the target changes.
 
 context:
   tech_stack: [bash, zsh, yaml]
@@ -49,7 +56,7 @@ context:
     - Spec-first workflow.
     - Evidence-based completion claims.
     - Keep workflow rules agent-agnostic — no tool-specific instructions in schemas or steps.
-    - WORKFLOW_HOME is the canonical env var (replacing SPEC_HOME from shell repo).
+    - ORCHESTRATOR_HOME is the canonical env var (replacing SPEC_HOME from shell repo).
 
 verify_commands: []
 
