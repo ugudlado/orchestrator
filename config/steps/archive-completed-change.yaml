@@ -19,14 +19,14 @@ rules:
 
 instruction: |
   1. Read storage config from project.yaml:
-     - active_changes_root: $SPEC_HOME/changes/$REPO_NAME
+     - active_changes_root: $WORKFLOW_HOME/changes/$REPO_NAME
      - repo_archive_root: spec/changes/archive
 
   2. **Compute SWE metrics**:
-     a. Check if $SPEC_HOME/scripts/compute-swe-metrics.sh exists.
+     a. Check if $WORKFLOW_HOME/scripts/compute-swe-metrics.sh exists.
      b. If yes: run it and validate the output contains a `metrics:` YAML block.
         ```bash
-        $SPEC_HOME/scripts/compute-swe-metrics.sh "$SPEC_CHANGES_DIR/$CHANGE_ID" [transcript_paths...]
+        $WORKFLOW_HOME/scripts/compute-swe-metrics.sh "$SPEC_CHANGES_DIR/$CHANGE_ID" [transcript_paths...]
         ```
         The script parses JSONL transcripts, computes costs, resolution stats,
         and git churn. Append the output to state.yaml before archiving.

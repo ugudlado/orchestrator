@@ -9,8 +9,8 @@ description: >
 
 uses:
   project: $REPO_ROOT/spec/project.yaml
-  steps: $SPEC_HOME/steps/
-  templates: $SPEC_HOME/templates/bootstrap/
+  steps: $WORKFLOW_HOME/config/steps/
+  templates: $WORKFLOW_HOME/config/templates/bootstrap/
 
 defaults:
   auto_approve_phases: true

@@ -28,7 +28,7 @@ instruction: |
      - rules (named rules with id, rule, optional when)
      - signoff_policy
 
-  3. Read $SPEC_HOME/schemas/$SCHEMA.yaml for schema rules, phase definitions, and outputs.
+  3. Read $WORKFLOW_HOME/config/workflows/$SCHEMA.yaml for schema rules, phase definitions, and outputs.
 
   4. Compute runtime feature profile by merging schema defaults with state.flags.
 

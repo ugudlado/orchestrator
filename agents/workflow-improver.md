@@ -15,8 +15,8 @@ You analyze how the workflow performed during a feature and improve it for next 
 - `state.yaml` step_history — every step's status, retries, duration, artifacts
 - `feature-metrics.jsonl` — per-feature telemetry across completed features
 - `error-patterns.jsonl` — per-session error counts by type
-- Step contracts in `$SPEC_HOME/steps/` — current rules and instructions
-- Schemas in `$SPEC_HOME/schemas/` — phase definitions and step lists
+- Step contracts in `$WORKFLOW_HOME/config/steps/` — current rules and instructions
+- Schemas in `$WORKFLOW_HOME/config/workflows/` — phase definitions and step lists
 
 ### Metrics to Track
 - **Retry rate by step** — which steps fail most often?

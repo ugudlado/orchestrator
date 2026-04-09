@@ -691,7 +691,7 @@ Rules come from 5 sources, listed in precedence order (highest to lowest):
 | Source | Location | Format | Precedence |
 |--------|----------|--------|------------|
 | Step entry injections | Schema `phases[].steps[]` — `rules_when:` and `extra_rules:` | Plain strings | 1 (highest) |
-| Step contract rules | `$SPEC_HOME/steps/<step>.yaml` — `rules:` | Plain strings | 2 |
+| Step contract rules | `$WORKFLOW_HOME/config/steps/<step>.yaml` — `rules:` | Plain strings | 2 |
 | Phase rules | Schema `phases[].rules:` | Plain strings | 3 |
 | Schema rules | Schema top-level `rules:` | Named (`id:`, `rule:`, optional `when:`) | 4 |
 | Project rules | `project.yaml` `rules:` | Named (`id:`, `rule:`, optional `when:`) | 5 (lowest) |

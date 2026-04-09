@@ -7,8 +7,8 @@ description: >
 
 uses:
   project: $REPO_ROOT/spec/project.yaml
-  steps: $SPEC_HOME/steps/
-  templates: $SPEC_HOME/templates/spike/
+  steps: $WORKFLOW_HOME/config/steps/
+  templates: $WORKFLOW_HOME/config/templates/spike/
 
 defaults:
   tdd_required: false

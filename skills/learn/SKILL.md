@@ -11,8 +11,8 @@ args:
 ## Variables
 
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
-SPEC_HOME=${SPEC_HOME:-$HOME/.config/spec}
-SPEC_CHANGES_DIR=$SPEC_HOME/changes/$REPO_NAME
+WORKFLOW_HOME=${WORKFLOW_HOME:-$HOME/.config/spec}
+SPEC_CHANGES_DIR=$WORKFLOW_HOME/changes/$REPO_NAME
 
 ## Learn from Last Feature
 
@@ -20,7 +20,7 @@ $ARGUMENTS
 
 ## Overview
 
-`/learn` runs the evaluation + self-improvement loop after a feature is completed. It spawns the workflow-evaluator to assess compliance, route learned rules to step contracts in `$SPEC_HOME/steps/` and project-specific learnings to `spec/project.yaml` `learnings:` section. Rules go into step contracts (deterministic, enforced at execution time). Project-specific learnings go into project.yaml (agent-agnostic, persists across sessions).
+`/learn` runs the evaluation + self-improvement loop after a feature is completed. It spawns the workflow-evaluator to assess compliance, route learned rules to step contracts in `$WORKFLOW_HOME/config/steps/` and project-specific learnings to `spec/project.yaml` `learnings:` section. Rules go into step contracts (deterministic, enforced at execution time). Project-specific learnings go into project.yaml (agent-agnostic, persists across sessions).
 
 ## Process
 
@@ -78,7 +78,7 @@ Before spawning the evaluator, scan archived state.yaml files across recent feat
        feature_count: N
        total_retries: M
        feature_ids: [...]
-       suggested_target: <path to $SPEC_HOME/steps/<step_id>.yaml>
+       suggested_target: <path to $WORKFLOW_HOME/config/steps/<step_id>.yaml>
    ```
 
 5. **Pass to evaluator**: Include `systemic_retry_patterns` in the evaluator prompt (step 3). If no systemic patterns are found, omit the section. When patterns exist, instruct the evaluator to:
@@ -93,8 +93,8 @@ Launch the `workflow-evaluator` agent with:
 - Per-step learnings aggregated by type (mistakes, insights, retries, decisions, skips)
 - Aggregate metrics for pattern detection
 - **Systemic retry patterns** from step 2b (if any) — include the full `systemic_retry_patterns` list with step IDs, reasons, counts, and suggested target contracts
-- The step contracts directory path: `$SPEC_HOME/steps/`
-- The step contract conventions: `$SPEC_HOME/steps/CONVENTIONS.md` (must read before suggesting changes)
+- The step contracts directory path: `$WORKFLOW_HOME/config/steps/`
+- The step contract conventions: `$WORKFLOW_HOME/config/steps/CONVENTIONS.md` (must read before suggesting changes)
 - Instruction to run all 5 parts: compliance → step analysis → pattern detection → step contract updates → metrics write
 
 **Step analysis**: The evaluator examines:
@@ -104,21 +104,21 @@ Launch the `workflow-evaluator` agent with:
 - **Insights**: Which should become rules in the appropriate step contract?
 - **Duration outliers**: Steps taking >2x average may need decomposition
 - **Drift events**: `skip_reason: "model drift"` entries indicate the workflow lost the model — tighten instructions
-- **SRP violations**: Flag step contracts where the intent has multiple unrelated verbs, or where instruction contains rule-like paragraphs that belong in `rules:`. See `$SPEC_HOME/steps/CONVENTIONS.md`.
+- **SRP violations**: Flag step contracts where the intent has multiple unrelated verbs, or where instruction contains rule-like paragraphs that belong in `rules:`. See `$WORKFLOW_HOME/config/steps/CONVENTIONS.md`.
 
 ### 4. Route Findings
 
 Classify each finding and route it to the right handler.
 
 **Routing targets:**
-- **Workflow rules** → step contracts in `$SPEC_HOME/steps/` (deterministic, enforced at execution time, shared across repos)
+- **Workflow rules** → step contracts in `$WORKFLOW_HOME/config/steps/` (deterministic, enforced at execution time, shared across repos)
 - **Project-specific learnings** → `spec/project.yaml` `learnings:` section (agent-agnostic, persists across sessions, repo-scoped)
 - **Never write to CLAUDE.md** — it's a pointer file only.
 
 **Routing decision tree:**
 
 **Workflow issues** (schema gaps, step contract bugs, agent instructions, hook problems):
-- Spawn the `workflow-fixer` agent with those suggestions + `$SPEC_HOME/steps/CONVENTIONS.md`
+- Spawn the `workflow-fixer` agent with those suggestions + `$WORKFLOW_HOME/config/steps/CONVENTIONS.md`
 - The fixer MUST read CONVENTIONS.md before editing any step contract
 - Fix is applied immediately to disk — improves the next workflow execution
 
@@ -129,7 +129,7 @@ Classify each finding and route it to the right handler.
 
 **Learned rules** (patterns to remember, gotchas discovered, quality checks):
 - Determine WHEN the rule should be enforced (which step in the workflow)
-- Route to the appropriate step contract in `$SPEC_HOME/steps/`:
+- Route to the appropriate step contract in `$WORKFLOW_HOME/config/steps/`:
 
   | When to enforce | Target step contract | Where in the file |
   |---|---|---|
@@ -147,7 +147,7 @@ Classify each finding and route it to the right handler.
   `<!-- learned: YYYY-MM-DD, source: FEATURE-ID, cycle: N, repo: REPO_NAME -->`
   Where: `YYYY-MM-DD` = today's date, `FEATURE-ID` = the feature being evaluated, `N` = current cycle count (from feature-metrics.jsonl line count), `REPO_NAME` = `basename $(git rev-parse --show-toplevel)` (the repo that generated this rule).
   **Repo scoping**: Default to `repo: $REPO_NAME` (repo-scoped). Only use `repo: *` (universal) when the rule is about workflow mechanics itself (e.g., "always write next_step before spawn") and NOT about tech-stack, domain, or repo-specific patterns.
-  This is required by `$SPEC_HOME/steps/CONVENTIONS.md` § Rule Lifecycle Convention.
+  This is required by `$WORKFLOW_HOME/config/steps/CONVENTIONS.md` § Rule Lifecycle Convention.
   Permanent (hand-written) rules already in the step contract MUST NOT receive a metadata comment.
 
 **Tooling rules** (eslint, knip config, build settings):
@@ -173,7 +173,7 @@ learned rules based on the just-completed feature's step retry data.
 1. Read the just-completed feature's `step_history[]` from state.yaml.
 2. Build a map: `step_retries[step_id] = total retry count for that step`.
    A step with no retries has count 0.
-3. List all `$SPEC_HOME/steps/*.yaml` files.
+3. List all `$WORKFLOW_HOME/config/steps/*.yaml` files.
 4. For each file, grep for lines matching `<!-- learned:`. For each learned rule:
    - Parse the metadata fields: `learned`, `source`, `cycle`, `hits` (default 0), `misses` (default 0).
    - Determine the step_id from the filename (e.g., `execute-next-task.yaml` → `execute-next-task`).
@@ -194,7 +194,7 @@ step contracts for ineffective learned rules and routes flagged rules to workflo
 3. If `K % 5 == 0`: proceed.
 
 **Scan**:
-1. List all `$SPEC_HOME/steps/*.yaml` files.
+1. List all `$WORKFLOW_HOME/config/steps/*.yaml` files.
 2. For each file, grep for lines matching `<!-- learned:` to collect all learned rules.
 3. For each learned rule found, parse the metadata:
    - `date` from `learned: YYYY-MM-DD`

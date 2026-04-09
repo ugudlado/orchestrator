@@ -43,8 +43,8 @@ args:
 ```
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
 REPO_ROOT=$(git rev-parse --show-toplevel)
-SPEC_HOME=${SPEC_HOME:-$HOME/.config/spec}
-SPEC_CHANGES_DIR=$SPEC_HOME/changes/$REPO_NAME
+WORKFLOW_HOME=${WORKFLOW_HOME:-$HOME/.config/spec}
+SPEC_CHANGES_DIR=$WORKFLOW_HOME/changes/$REPO_NAME
 ```
 
 ## Input
@@ -59,7 +59,7 @@ Scan `$SPEC_CHANGES_DIR/*/state.yaml` for active workflow matching description o
 
 If found with `status: active`:
 1. Read state.yaml → extract `schema`, `phase`, `step_id`, `flags`
-2. Load schema: `$SPEC_HOME/schemas/$SCHEMA.yaml`
+2. Load schema: `$WORKFLOW_HOME/config/workflows/$SCHEMA.yaml`
 3. Jump directly to that phase and step (skip to step 3)
 
 If no active workflow → proceed to step 2.
@@ -84,7 +84,7 @@ Keyword suggestion (confirm with user):
 When a keyword match suggests a schema, confirm with the user before proceeding.
 When an explicit flag is provided, use it directly without confirmation.
 
-**Load schema:** `$SPEC_HOME/schemas/$SCHEMA.yaml`
+**Load schema:** `$WORKFLOW_HOME/config/workflows/$SCHEMA.yaml`
 
 **Bootstrap shortcut:** If schema = `bootstrap`, skip state creation, worktree, and Linear.
 Load the schema and jump directly to step 3 (Walk Phases and Steps). Bootstrap runs
@@ -118,7 +118,7 @@ step_history: []
 
 ### 3. Walk Phases and Steps
 
-Read the schema file: `$SPEC_HOME/schemas/$SCHEMA.yaml`
+Read the schema file: `$WORKFLOW_HOME/config/workflows/$SCHEMA.yaml`
 Read project config: `$REPO_ROOT/spec/project.yaml`
 
 For each phase in `phases:` (in order):
@@ -152,7 +152,7 @@ For each phase in `phases:` (in order):
 
    For each active step:
 
-   **a. Load step contract:** `$SPEC_HOME/steps/<step-id>.yaml`
+   **a. Load step contract:** `$WORKFLOW_HOME/config/steps/<step-id>.yaml`
 
    **b. Merge rules** per CONVENTIONS.md § Rule Merge Contract:
    Collect from all 5 sources, deduplicate named rules by id, filter by
@@ -331,7 +331,7 @@ The main thread is automatically notified when the agent completes — do NOT po
 #### Pre-work During Background Execution
 
 While an agent runs in the background, the orchestrator **MAY**:
-- Pre-read the next step contract from `$SPEC_HOME/steps/<next-step-id>.yaml`
+- Pre-read the next step contract from `$WORKFLOW_HOME/config/steps/<next-step-id>.yaml`
 - Validate state.yaml integrity (schema field present, flags consistent, step_history well-formed)
 - Log spawn metadata (agent role, step_id, spawn timestamp) to state.yaml
 

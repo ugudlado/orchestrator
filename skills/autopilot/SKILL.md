@@ -16,8 +16,8 @@ args:
 ```
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
 REPO_ROOT=$(git rev-parse --show-toplevel)
-SPEC_HOME=${SPEC_HOME:-$HOME/.config/spec}
-SPEC_CHANGES_DIR=$SPEC_HOME/changes/$REPO_NAME
+WORKFLOW_HOME=${WORKFLOW_HOME:-$HOME/.config/spec}
+SPEC_CHANGES_DIR=$WORKFLOW_HOME/changes/$REPO_NAME
 ```
 
 ## Autonomous Development Loop
@@ -74,7 +74,7 @@ Run ALL checks before any iteration. If fixable, auto-remediate by walking the b
 
 3. Project bootstrapped?
    - Check: spec/project.yaml exists, spec/project.yaml has `vision:` section,
-     $SPEC_HOME/schemas/*.yaml exist, $SPEC_CHANGES_DIR is writable
+     $WORKFLOW_HOME/config/workflows/*.yaml exist, $SPEC_CHANGES_DIR is writable
    - If ANY fail -> run: Skill({ skill: "develop", args: "--bootstrap" })
    - After bootstrap, RE-CHECK all conditions. If still failing -> ABORT with specifics.
 

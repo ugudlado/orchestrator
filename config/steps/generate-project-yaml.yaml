@@ -6,7 +6,7 @@ intent: Create spec/project.yaml by selecting a stack template and customizing w
 inputs:
   - detect-language outputs (languages, package_manager, web_project, backend_project)
   - install-tooling outputs (scripts_added)
-  - Templates: $SPEC_HOME/templates/bootstrap/project-yaml/
+  - Templates: $WORKFLOW_HOME/config/templates/bootstrap/project-yaml/
 
 rules:
   - If spec/project.yaml already exists, skip entirely — never overwrite.
@@ -19,7 +19,7 @@ instruction: |
      `[bootstrap] spec/project.yaml already exists — skipping generation`
      and return immediately.
 
-  2. List available templates from `$SPEC_HOME/templates/bootstrap/project-yaml/`:
+  2. List available templates from `$WORKFLOW_HOME/config/templates/bootstrap/project-yaml/`:
 
      | Template | Stack | verify_commands |
      |----------|-------|-----------------|
@@ -48,7 +48,7 @@ instruction: |
      ```
 
   5. Read the selected template from
-     `$SPEC_HOME/templates/bootstrap/project-yaml/<selection>.yaml`.
+     `$WORKFLOW_HOME/config/templates/bootstrap/project-yaml/<selection>.yaml`.
 
   6. Fill in project-specific fields:
      - `project.name` — basename of $REPO_ROOT
