@@ -14,8 +14,8 @@ schema:
     version: integer
     uses:
       project: path                 # $REPO_ROOT/spec/project.yaml
-      steps: path                   # $WORKFLOW_HOME/config/steps/
-      templates: path               # $WORKFLOW_HOME/config/templates/<name>/
+      steps: path                   # $ORCHESTRATOR_HOME/config/steps/
+      templates: path               # $ORCHESTRATOR_HOME/config/templates/<name>/
     phases: list<phase>             # Ordered execution phases
 
   optional:

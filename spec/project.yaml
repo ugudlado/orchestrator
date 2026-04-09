@@ -25,7 +25,7 @@ vision:
 
 architecture:
   overview: >
-    Config-driven workflow engine. Agents read WORKFLOW_HOME for schemas, step
+    Config-driven workflow engine. Agents read ORCHESTRATOR_HOME for schemas, step
     contracts, and templates. Skills are the entry points. install.sh wires
     per-tool symlinks. No runtime coupling to shell repo or any specific LLM tool.
   structure:
@@ -49,7 +49,7 @@ context:
     - Spec-first workflow.
     - Evidence-based completion claims.
     - Keep workflow rules agent-agnostic — no tool-specific instructions in schemas or steps.
-    - WORKFLOW_HOME is the canonical env var (replacing SPEC_HOME from shell repo).
+    - ORCHESTRATOR_HOME is the canonical env var (replacing SPEC_HOME from shell repo).
 
 verify_commands: []
 

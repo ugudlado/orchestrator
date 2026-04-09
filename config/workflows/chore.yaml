@@ -8,8 +8,8 @@ description: >
 
 uses:
   project: $REPO_ROOT/spec/project.yaml
-  steps: $WORKFLOW_HOME/config/steps/
-  templates: $WORKFLOW_HOME/config/templates/chore/
+  steps: $ORCHESTRATOR_HOME/config/steps/
+  templates: $ORCHESTRATOR_HOME/config/templates/chore/
 
 defaults:
   tdd_required: false

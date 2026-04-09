@@ -45,7 +45,7 @@ Read existing code to understand what's actually there (not just what's document
 
 ```bash
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
-SPEC_CHANGES_DIR=$WORKFLOW_HOME/changes/$REPO_NAME
+SPEC_CHANGES_DIR=$ORCHESTRATOR_HOME/changes/$REPO_NAME
 ls $SPEC_CHANGES_DIR/       # active changes
 ls spec/changes/archive/    # completed changes
 ```

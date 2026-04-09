@@ -24,7 +24,7 @@ instruction: |
        `refresh_artifacts: true` for this phase → regenerate.
      - **Current**: file exists and no refresh signal → skip.
   3. For each file needing generation:
-     a. Read the template from $WORKFLOW_HOME/config/templates/$SCHEMA/<template>.
+     a. Read the template from $ORCHESTRATOR_HOME/config/templates/$SCHEMA/<template>.
      b. Read the artifact's format contract from CONVENTIONS.md:
         - spec.md → § Specification Format Contract
         - design.md → § Design Format Contract

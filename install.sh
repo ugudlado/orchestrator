@@ -6,14 +6,14 @@ SHELL_PROFILE="${HOME}/.zshrc"
 
 echo "Installing orchestrator..."
 
-# 1. Export WORKFLOW_HOME (idempotent)
-if ! grep -q 'WORKFLOW_HOME' "$SHELL_PROFILE"; then
+# 1. Export ORCHESTRATOR_HOME (idempotent)
+if ! grep -q 'ORCHESTRATOR_HOME' "$SHELL_PROFILE"; then
   echo "" >> "$SHELL_PROFILE"
   echo "# Orchestrator workflow engine" >> "$SHELL_PROFILE"
-  echo "export WORKFLOW_HOME=\"$ORCHESTRATOR_DIR\"" >> "$SHELL_PROFILE"
-  echo "  Added WORKFLOW_HOME to $SHELL_PROFILE"
+  echo "export ORCHESTRATOR_HOME=\"$ORCHESTRATOR_DIR\"" >> "$SHELL_PROFILE"
+  echo "  Added ORCHESTRATOR_HOME to $SHELL_PROFILE"
 else
-  echo "  WORKFLOW_HOME already in $SHELL_PROFILE"
+  echo "  ORCHESTRATOR_HOME already in $SHELL_PROFILE"
 fi
 
 # 2. Symlink agents
