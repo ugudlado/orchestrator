@@ -45,7 +45,7 @@ quality_bar:
     green_base: 9
 
 storage:
-  active_changes_root: $WORKFLOW_STATE_DIR
+  active_changes_root: $REPO_ROOT/.state
   repo_archive_root: spec/changes/archive
   archive_on:
     - merged_to_main

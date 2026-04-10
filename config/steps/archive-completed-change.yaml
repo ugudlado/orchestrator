@@ -18,7 +18,7 @@ rules:
 
 instruction: |
   1. Read storage config from project.yaml:
-     - active_changes_root: $ORCHESTRATOR_HOME/changes/$REPO_NAME
+     - active_changes_root: $WORKFLOW_STATE_DIR
      - repo_archive_root: spec/changes/archive
 
   2. Update state.yaml per State Field Registry (CONVENTIONS.md):

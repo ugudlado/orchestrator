@@ -13,7 +13,10 @@ rules:
 
 instruction: |
   1. Read existing `.gitignore` (or create empty if missing).
-  2. Always add if missing: `.tooling-state.json`
+  2. Always add if missing:
+     - `.tooling-state.json`
+     - `.tmp/`
+     - `.state/` and `!.state/.gitkeep` (workflow state, ephemeral)
   3. Per detected language, append missing entries:
 
      | Language | Required entries |
@@ -28,6 +31,7 @@ instruction: |
 verify:
   - .gitignore exists
   - .tooling-state.json is in .gitignore
+  - .state/ and .tmp/ are in .gitignore
   - Language-specific entries present
 
 outputs:

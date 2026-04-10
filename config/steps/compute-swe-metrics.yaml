@@ -15,7 +15,7 @@ rules:
 
 instruction: |
   1. Read storage config from project.yaml:
-     - active_changes_root: $ORCHESTRATOR_HOME/changes/$REPO_NAME
+     - active_changes_root: $WORKFLOW_STATE_DIR
 
   2. **Compute SWE metrics**:
      a. Check if $ORCHESTRATOR_HOME/scripts/compute-swe-metrics.sh exists.
