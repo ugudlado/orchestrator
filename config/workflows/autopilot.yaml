@@ -1,0 +1,65 @@
+name: autopilot
+version: 1
+
+description: >
+  Autonomous self-improving development loop. Picks work from backlog, executes
+  each feature via /develop (with full autonomy and agents), records selection
+  rationale per iteration, clears context between iterations, and archives
+  completed sessions. Runs fully unattended — no signoff gates.
+
+uses:
+  project: $REPO_ROOT/spec/project.yaml
+  steps: $ORCHESTRATOR_HOME/config/steps/
+  templates: $ORCHESTRATOR_HOME/config/templates/
+
+defaults:
+  iterations: 1
+  focus: ""
+
+flags:
+  --focus:
+    sets: { focus: "<value>" }
+    description: Steering hint for ideator prioritization
+
+rules:
+  - Context budget per iteration is <200 tokens. No full file reads — use grep or targeted reads.
+  - All durable state (checkpoint, session record) goes to disk before any agent is spawned.
+  - Never re-derive state from memory — always read _checkpoint.json or sessions.yaml.
+
+phases:
+  - name: preflight
+    goal: Verify the repo is ready for autonomous execution and initialize the session.
+    verify:
+      assertions:
+        - Git repo exists and working tree is clean
+        - spec/project.yaml exists with a non-placeholder vision.purpose
+        - $ORCHESTRATOR_HOME/config/workflows/ contains at least one schema
+        - Session entry written to $AUTOPILOT_SESSIONS_DIR/sessions.yaml
+        - _checkpoint.json written to $AUTOPILOT_SESSIONS_DIR/
+      max_retries: 1
+      on_max_retries: escalate to user with the specific failing check and remediation steps
+    steps:
+      - autopilot-preflight
+      - autopilot-session-init
+
+  - name: iterate
+    goal: Run N iterations — pick work, execute, record outcome, clear context.
+    requires: preflight
+    rules:
+      - Each iteration must write its record to sessions.yaml before /clear.
+      - If backlog is empty, stop the loop cleanly — not an error.
+      - On 2 consecutive spawn failures, stop and write a checkpoint with stop_reason.
+    verify:
+      assertions:
+        - _checkpoint.json reflects latest completed iteration
+        - Each completed iteration has a record in sessions.yaml
+      max_retries: 0
+    steps:
+      - id: autopilot-iterate
+        repeat_until: all_iterations_completed
+
+  - name: report
+    goal: Read session file and print summary table with resume instructions.
+    requires: iterate
+    steps:
+      - autopilot-session-report

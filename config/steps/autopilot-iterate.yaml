@@ -1,0 +1,115 @@
+id: autopilot-iterate
+version: 1
+
+intent: One iteration of the autopilot loop — pick the most valuable ticket, execute it via /develop with full autonomy, record outcome, then clear context.
+
+inputs:
+  - SESSION_ID (from autopilot-session-init output or _checkpoint.json on resume)
+  - _checkpoint.json (current iteration number)
+  - sessions.yaml (session context)
+  - spec/project.yaml vision section
+
+rules:
+  - Write checkpoint to disk BEFORE spawning any agent.
+  - Capture selection_reason verbatim from ideator output — do not paraphrase.
+  - Write session iteration record BEFORE /clear.
+  - Archive session to archive/sessions_archive.yaml if this was the last iteration.
+  - On 2 consecutive spawn failures: write stop_reason to checkpoint, stop loop cleanly.
+  - Context budget: <200 tokens net added per iteration. No full file reads.
+
+instruction: |
+  Read current state from $AUTOPILOT_SESSIONS_DIR/_checkpoint.json:
+    I = checkpoint.iteration + 1
+    N = checkpoint.total
+    SESSION_ID = checkpoint.session_id
+    FOCUS = checkpoint.focus
+  Record ITER_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+  STEP A — Write checkpoint (BEFORE spawning anything):
+  Overwrite $AUTOPILOT_SESSIONS_DIR/_checkpoint.json:
+  ```json
+  {
+    "session_id": "$SESSION_ID",
+    "iteration": $I,
+    "total": $N,
+    "focus": "$FOCUS",
+    "started_at": "$ITER_STARTED",
+    "status": "in_progress"
+  }
+  ```
+
+  STEP B — Pick work (spawn ideator):
+  Spawn the ideator agent with:
+  > You are running in autopilot mode. Read spec/project.yaml vision section.
+  > Evaluate the backlog against the vision to pick the most valuable next ticket.
+  > [If focus non-empty]: Additional steering: "$FOCUS"
+  >
+  > Return ONLY:
+  > TICKET: <ID or "EMPTY">
+  > SCHEMA: <feature|bugfix|chore|spike>
+  > REASON: <2-3 sentences explaining why this is the most valuable ticket>
+  >
+  > If backlog is empty and Linear has no actionable tickets, return TICKET: EMPTY.
+
+  Parse TICKET, SCHEMA, REASON from ideator output.
+  If TICKET is EMPTY → set all_iterations_completed = true, skip to STEP E.
+
+  STEP C — Execute (invoke /develop with full autonomy):
+  Skill({ skill: "develop", args: "$TICKET --auto --agents" })
+  Wait for it to return synchronously.
+
+  STEP D — Validate outcome:
+  TICKET_SLUG=$(echo "$TICKET" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
+  grep -m1 "^status:" $SPEC_CHANGES_DIR/$TICKET_SLUG/state.yaml
+  - "status: completed" → ITER_STATUS=completed
+  - anything else → read only the last error_events: block (grep -A 20 "error_events:" ...),
+    set ITER_STATUS=failed, create a Linear ticket with the failure summary.
+
+  STEP E — Append iteration record to sessions.yaml:
+  Under the SESSION_ID entry's iterations: key, append:
+  ```yaml
+        - number: $I
+          ticket: $TICKET
+          schema: $SCHEMA
+          selection_reason: "$REASON"
+          started_at: $ITER_STARTED
+          completed_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          status: $ITER_STATUS
+  ```
+  (If TICKET was EMPTY, append with ticket: EMPTY, status: empty_backlog)
+
+  STEP F — Update checkpoint:
+  ```json
+  {
+    "session_id": "$SESSION_ID",
+    "iteration": $I,
+    "total": $N,
+    "focus": "$FOCUS",
+    "completed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+    "status": "completed"
+  }
+  ```
+
+  If this was the last iteration (I == N) OR backlog was empty:
+    - Update sessions.yaml: find SESSION_ID entry, set status: completed, add completed_at
+    - Archive: copy the SESSION_ID block from sessions.yaml to
+      $AUTOPILOT_SESSIONS_DIR/archive/sessions_archive.yaml (append)
+    - Remove the SESSION_ID entry from sessions.yaml (so only in_progress entries remain)
+    - Set all_iterations_completed = true
+
+  STEP G — Clear context (if more iterations remain):
+  If all_iterations_completed is false:
+    Run /clear
+    After /clear, re-read $AUTOPILOT_SESSIONS_DIR/_checkpoint.json to restore context.
+    Then proceed to next iteration (this step repeats via repeat_until).
+
+  STATUS: completed
+
+verify:
+  - _checkpoint.json updated with current iteration number and status
+  - Iteration record appended to sessions.yaml (or archive if last iteration)
+  - If last iteration: session archived and removed from sessions.yaml
+  - If more iterations remain: context cleared before next iteration
+
+outputs:
+  - all_iterations_completed (bool — controls repeat_until in schema)

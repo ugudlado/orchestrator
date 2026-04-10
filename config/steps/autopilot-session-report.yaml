@@ -1,0 +1,60 @@
+id: autopilot-session-report
+version: 1
+
+intent: Read the completed (or archived) session and print a summary table with resume instructions.
+
+inputs:
+  - SESSION_ID (from $AUTOPILOT_SESSIONS_DIR/_checkpoint.json)
+  - $AUTOPILOT_SESSIONS_DIR/archive/sessions_archive.yaml (completed sessions)
+  - $AUTOPILOT_SESSIONS_DIR/sessions.yaml (interrupted sessions)
+
+rules:
+  - Read only the SESSION_ID block — do not load the full archive file into context.
+  - Always print resume instructions regardless of completion status.
+  - Use grep -A N to extract just the session block, not a full file read.
+
+instruction: |
+  1. Read SESSION_ID from $AUTOPILOT_SESSIONS_DIR/_checkpoint.json.
+
+  2. Locate the session block:
+     - Try archive/sessions_archive.yaml first (completed sessions live here)
+     - Fall back to sessions.yaml (interrupted sessions)
+     Use: grep -A 100 "id: $SESSION_ID" <file> to extract just that block.
+
+  3. Parse from the block: focus, iterations_requested, iterations[]
+     (each: number, ticket, status, selection_reason)
+
+  4. Compute:
+     COMPLETED = count of iterations with status: completed
+     FAILED    = count with status: failed
+     REMAINING = iterations_requested - (COMPLETED + FAILED)
+
+  5. Print summary:
+  ```
+  [autopilot] Session $SESSION_ID
+    Focus: $FOCUS (or "none")
+    Iterations: $COMPLETED completed, $FAILED failed, of $N requested
+
+    #   Ticket     Status     Why it was picked
+    ─── ────────── ────────── ────────────────────────────────────────
+    1   HL-255     completed  <selection_reason, first 60 chars>
+    2   HL-257     failed     <selection_reason, first 60 chars>
+
+    Session log: $AUTOPILOT_SESSIONS_DIR/archive/sessions_archive.yaml
+  ```
+
+  6. Print resume instructions (always):
+  ```
+  To continue: /autopilot $REMAINING [--focus "$FOCUS"]
+  (Each /autopilot run creates a new session — prior work preserved in archive)
+  ```
+
+  STATUS: completed
+
+verify:
+  - Session block found in archive or sessions.yaml
+  - Summary table printed with correct counts
+  - Resume instructions printed
+
+outputs:
+  - session_summary (printed to user)
