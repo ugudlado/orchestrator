@@ -225,6 +225,36 @@ Before marking task complete with TDD:
 - **Design conflict**: If the task seems to contradict design.md, flag it — don't silently deviate
 - **After 3 failed attempts**: Escalate to orchestrator with what you tried and why it didn't work
 
+## Architectural Escalation
+
+When you hit a genuine design conflict during implementation, escalate to the architect.
+Do NOT guess. Do NOT silently deviate from design.md.
+
+**Escalate when you encounter:**
+1. **Design contradiction** — task instruction conflicts with design.md or spec.md
+2. **Missing design coverage** — task requires a decision design.md does not address
+3. **Scope ambiguity** — genuinely unclear whether a behavior is in or out of scope, with cascade risk
+4. **Architectural dependency** — implementing requires a structural decision affecting other tasks
+
+**Do NOT escalate:** implementation details, test strategy, library usage, minor uncertainty
+answerable by re-reading the spec.
+
+Full protocol: `contracts/architect-escalation.md`
+
+Return this structured block to the orchestrator:
+
+```
+STATUS: escalate_to_architect
+type: <contradiction|missing_coverage|scope_ambiguity|architectural_dependency>
+task_id: T-<N>
+context: |
+  <2-4 sentences: what the task requires, what spec/design says, why they conflict>
+question: |
+  <single, concrete question the architect must answer to unblock you>
+attempted: |
+  <what you already tried or considered>
+```
+
 ## What You Don't Do
 
 - Don't make architectural decisions — those were made in spec/design
