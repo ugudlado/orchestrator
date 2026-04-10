@@ -192,6 +192,8 @@ find data where they expect it.
 | `refresh_artifacts` | boolean | run-phase-review (on fail) | `true` when artifacts need regeneration |
 | `change_type` | string | create-or-refresh-artifacts (after task creation) | `code` or `config_docs` — per `contracts/rule-merge.md` § Change Type Detection |
 | `flag_adaptations` | list | create-or-refresh-artifacts (when change_type adapts flags) | `[{ flag, original, effective, reason }]` |
+| `task_checkpoint` | object | execute-next-task | `{ task_id: "T-3", status: "completed", committed_at: "<ISO>" }` |
+| `workflow_plan` | object | load-project-context | `{ <phase>: { active: [...], filtered: [...] } }` |
 
 ### Rules
 
