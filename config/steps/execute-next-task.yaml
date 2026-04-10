@@ -30,9 +30,17 @@ instruction: |
      as defined in project.yaml quality_bar.
   6. If verification passes:
      - Mark task complete in tasks.md: [ ] → [x]
+     - Write task_checkpoint to state.yaml (per CONVENTIONS.md § State Field Registry):
+       ```yaml
+       task_checkpoint:
+         task_id: "T-<N>"
+         status: "completed"
+         committed_at: "<ISO timestamp>"
+       ```
      - Commit per contracts/auto-commit.md:
-       Stage only the task's changed files + tasks.md, then commit with message:
-       `<prefix>(<change-id>): T-<N> <task title>`
+       Stage only the task's changed files + tasks.md + state.yaml (checkpoint),
+       then commit with message: `<prefix>(<change-id>): T-<N> <task title>`
+       The checkpoint and tasks.md MUST be committed atomically in the same commit.
        Skip commit if git status shows no changes (verification-only task).
      - Update state.yaml step_history per CONVENTIONS.md § State Updates.
   7. If verification fails:
