@@ -14,10 +14,10 @@ args:
 ## Variables
 
 ```
-REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
-REPO_ROOT=$(git rev-parse --show-toplevel)
+REPO_ROOT=${REPO_ROOT:-$(git rev-parse --show-toplevel)}
+REPO_NAME=${REPO_NAME:-$(basename "$REPO_ROOT")}
 ORCHESTRATOR_HOME=${ORCHESTRATOR_HOME:-$HOME/.config/spec}
-WORKFLOW_STATE_DIR=$ORCHESTRATOR_HOME/changes/$REPO_NAME
+WORKFLOW_STATE_DIR=${WORKFLOW_STATE_DIR:-$ORCHESTRATOR_HOME/changes/$REPO_NAME}
 ```
 
 ## Input
