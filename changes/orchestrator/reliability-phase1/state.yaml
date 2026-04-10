@@ -1,0 +1,85 @@
+schema: chore
+slug: reliability-phase1
+status: completed
+phase: complete
+flags:
+  auto: true
+  agents: true
+  linear: false
+  tdd_required: false
+  design: false
+workflow_plan:
+  specify:
+    active:
+      - create-worktree
+      - load-project-context
+      - create-or-refresh-artifacts
+      - run-phase-review
+    filtered:
+      - create-linear-ticket  # linear=false
+      - phase-signoff  # auto=true
+  implement:
+    active:
+      - execute-next-task
+      - run-simplify
+      - run-phase-review
+    filtered:
+      - final-signoff  # auto=true
+  complete:
+    active:
+      - run-feature-verification
+      - compute-prediction-accuracy
+      - run-learn-cycle
+      - compute-swe-metrics
+      - archive-completed-change
+      - remove-worktree
+    filtered: []
+worktree_path: /Users/spidey/code/feature_worktrees/reliability-phase1
+project_context_loaded: true
+project_context_at: "2026-04-10T21:08:30Z"
+next_step:
+  skill: orchestrate
+  phase: complete
+  step_id: run-feature-verification
+  instruction: Final verification for reliability-phase1
+step_history:
+  - step_id: create-worktree
+    phase: specify
+    status: completed
+    started_at: "2026-04-10T21:07:30Z"
+    completed_at: "2026-04-10T21:08:00Z"
+  - step_id: load-project-context
+    phase: specify
+    status: completed
+    started_at: "2026-04-10T21:08:00Z"
+    completed_at: "2026-04-10T21:08:30Z"
+  - step_id: create-or-refresh-artifacts
+    phase: specify
+    status: completed
+    started_at: "2026-04-10T21:09:00Z"
+    completed_at: "2026-04-10T21:10:00Z"
+  - step_id: run-phase-review
+    phase: specify
+    status: completed
+    review_score: 9
+    started_at: "2026-04-10T21:10:00Z"
+    completed_at: "2026-04-10T21:10:30Z"
+  - step_id: execute-next-task
+    phase: implement
+    status: completed
+    agent: developer
+    started_at: "2026-04-10T21:11:00Z"
+    completed_at: "2026-04-10T21:14:00Z"
+  - step_id: run-simplify
+    phase: implement
+    status: completed
+    agent: inline
+    started_at: "2026-04-10T21:14:00Z"
+    completed_at: "2026-04-10T21:15:00Z"
+  - step_id: run-phase-review
+    phase: implement
+    status: completed
+    review_score: 9
+    started_at: "2026-04-10T21:15:00Z"
+    completed_at: "2026-04-10T21:15:30Z"
+error_events: []
