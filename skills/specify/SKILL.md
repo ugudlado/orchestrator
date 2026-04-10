@@ -19,15 +19,8 @@ args:
 
 ## Execution
 
-This is a thin wrapper around `/develop`. It runs only the first phase (specify for feature, diagnose for bugfix).
+Route to `/orchestrate` with a `--phase specify` constraint. The schema owns all execution logic.
 
-1. Follow `/develop` steps 1-3 (resolve schema, check resume, init state).
-2. Execute only the **first phase** from the schema's `phases:` array.
-3. When that phase completes, stop and report. Do NOT advance to implement.
-4. Set `next_step` to hand off:
-   ```yaml
-   next_step:
-     phase: implement
-     step_id: <first step of implement phase>
-     instruction: "Specify complete — run /develop or /implement to continue"
-   ```
+```
+/orchestrate $ARGUMENTS --phase specify
+```

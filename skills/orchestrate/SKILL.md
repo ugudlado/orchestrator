@@ -6,7 +6,7 @@ args:
   - name: request
     description: >
       What to work on — a description, Linear ticket ID (e.g. HL-170), or a feature ID to resume.
-      Schema-specific flags (--no-tdd, --auto, --agents, --focus, etc.) are passed through to the schema.
+      All flags are passed through as-is to the resolved schema.
     required: false
 ---
 
@@ -21,17 +21,4 @@ SPEC_CHANGES_DIR=$ORCHESTRATOR_HOME/changes/$REPO_NAME
 
 ## Execution
 
-### 1. Resume Check
-
-Scan `$SPEC_CHANGES_DIR/*/state.yaml` for `status: active` matching the request.
-If found → load that schema and jump directly to the recorded phase and step.
-
-### 2. Detect Schema
-
-Read `$ORCHESTRATOR_HOME/config/guidelines.yaml` and classify the request by semantic intent.
-Pass any flags from `$ARGUMENTS` through to the schema — flags not declared in the schema are ignored.
-
-### 3. Load and Walk Schema
-
-Load `$ORCHESTRATOR_HOME/config/workflows/$SCHEMA.yaml`.
-Execute its phases and steps per the schema's own rules and step contracts.
+Load `$ORCHESTRATOR_HOME/config/guidelines.yaml` to resolve the correct workflow schema for the request, then load and walk that schema. All resume logic, phase gating, and step execution is owned by the schema and its step contracts.
