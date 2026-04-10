@@ -13,6 +13,6 @@
   Verify: execute-next-task.yaml instruction includes a step 0 that reads task_checkpoint from state.yaml and resumes from the correct task on re-entry
   depends: T-2
 
-- [ ] T-5: Add workflow_plan enforcement to load-project-context.yaml
+- [x] T-5: Add workflow_plan enforcement to load-project-context.yaml
   Verify: load-project-context.yaml instruction includes writing full workflow_plan to state.yaml with all phases and their active/filtered step lists, plus validation on resume
   depends: T-1
