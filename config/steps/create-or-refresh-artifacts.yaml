@@ -29,7 +29,7 @@ instruction: |
 
   1. Read the current phase's `outputs:` from the schema.
   2. For each output file (in dependency order), determine action:
-     - **Missing**: file does not exist in $SPEC_CHANGES_DIR/$CHANGE_ID/ → generate.
+     - **Missing**: file does not exist in $WORKFLOW_STATE_DIR/$CHANGE_ID/ → generate.
      - **Stale**: file exists but state.yaml records a review rejection or
        `refresh_artifacts: true` for this phase → regenerate.
      - **Current**: file exists and no refresh signal → skip.
@@ -45,7 +45,7 @@ instruction: |
         - If discovery/diagnosis artifact exists: use it as primary input.
         - If no discovery context (e.g., chore/spike schemas): generate
           directly from the change description in state.yaml.
-     d. Write the artifact to $SPEC_CHANGES_DIR/$CHANGE_ID/<file>.
+     d. Write the artifact to $WORKFLOW_STATE_DIR/$CHANGE_ID/<file>.
   4. Verify all outputs satisfy their `requires:` dependencies.
 
   ## Part 2: Tasks
@@ -56,7 +56,7 @@ instruction: |
      If neither exists, use the change description from state.yaml.
   6. Read design.md (feature) per § Design Format Contract or diagnosis.md
      (bugfix) per § Diagnosis Format Contract for approach, if available.
-  7. If ux-artifacts.yaml exists in $SPEC_CHANGES_DIR/$CHANGE_ID/:
+  7. If ux-artifacts.yaml exists in $WORKFLOW_STATE_DIR/$CHANGE_ID/:
      Read it per CONVENTIONS.md § UX Artifact Contract. For UI tasks,
      reference ux-prototype.html in the task description so the developer
      agent can reference the approved visual design during implementation.
@@ -64,7 +64,7 @@ instruction: |
      Heuristic: each task should be a single focused change. If a task
      requires touching many unrelated areas, split it. If two tasks do
      the same thing, merge them.
-  9. Write tasks.md to $SPEC_CHANGES_DIR/$CHANGE_ID/ using the exact format
+  9. Write tasks.md to $WORKFLOW_STATE_DIR/$CHANGE_ID/ using the exact format
      from CONVENTIONS.md § Task Format Contract:
      - `- [ ] T-N: <description>` with `Verify:`, optional `depends:`
 
@@ -75,7 +75,7 @@ instruction: |
   10. Update state.yaml step_history per CONVENTIONS.md § State Updates.
 
 verify:
-  - Every file listed in phase outputs: exists in $SPEC_CHANGES_DIR/$CHANGE_ID/
+  - Every file listed in phase outputs: exists in $WORKFLOW_STATE_DIR/$CHANGE_ID/
   - Each artifact's requires: dependencies were created before it
   - Artifacts are non-empty and follow template structure
   - tasks.md follows the Task Format Contract (CONVENTIONS.md)

@@ -37,7 +37,7 @@ instruction: |
      step entry injections), deduplicate named rules by id (higher precedence wins),
      filter by when-conditions against state.flags, and assemble in precedence order.
 
-  6. Check existing artifacts in $SPEC_CHANGES_DIR/$CHANGE_ID/ for progress.
+  6. Check existing artifacts in $WORKFLOW_STATE_DIR/$CHANGE_ID/ for progress.
 
   7. Evaluate `rules_when:` conditions per CONVENTIONS.md § Rules-When Evaluation.
 

@@ -60,7 +60,7 @@ phases:
       - Resolve major design decisions before implementation.
     verify:
       assertions:
-        - All phase outputs exist in $SPEC_CHANGES_DIR/$CHANGE_ID/
+        - All phase outputs exist in $WORKFLOW_STATE_DIR/$CHANGE_ID/
         - tasks.md exists with at least one task
         - spec.md has Acceptance Criteria section with testable criteria
         - Each acceptance criterion traces to a discovery use case

@@ -69,7 +69,7 @@ When invoked for telemetry/metrics display, generate a benchmark-comparable dash
 
 ### Data Sources
 - `~/.claude/logs/feature-metrics.jsonl` — one JSON line per completed feature
-- `$SPEC_CHANGES_DIR/*/state.yaml` — active/completed features with metrics blocks
+- `$WORKFLOW_STATE_DIR/*/state.yaml` — active/completed features with metrics blocks
 - `~/.claude/logs/error-patterns.jsonl` — session-level error data
 
 ### Benchmark Reference Values (April 2026)

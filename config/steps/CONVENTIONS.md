@@ -104,7 +104,7 @@ step_history:
 - **Use exact field names** — `step_id`, `phase`, `status`, `agent`, `artifacts`.
 - **Status values**: `completed`, `failed`, `blocked` — no other values.
 - **Artifacts field**: only include files the step created or modified in
-  `$SPEC_CHANGES_DIR/$CHANGE_ID/`. Omit for steps that don't produce artifacts.
+  `$WORKFLOW_STATE_DIR/$CHANGE_ID/`. Omit for steps that don't produce artifacts.
 - **`review_score`**: only present on `run-phase-review` entries.
 
 ### In step contracts

@@ -27,8 +27,8 @@ instruction: |
   6. Record final UI direction in the discovery brief's "UI Direction" section.
   7. Persist UX artifacts per CONVENTIONS.md § UX Artifact Contract:
      a. Save the final polished prototype HTML to
-        $SPEC_CHANGES_DIR/$CHANGE_ID/ux-prototype.html
-     b. Write $SPEC_CHANGES_DIR/$CHANGE_ID/ux-artifacts.yaml with:
+        $WORKFLOW_STATE_DIR/$CHANGE_ID/ux-prototype.html
+     b. Write $WORKFLOW_STATE_DIR/$CHANGE_ID/ux-artifacts.yaml with:
         - prototype.file: ux-prototype.html
         - prototype.description: one-line summary of the design direction
         - prototype.options_considered: number of options generated (typically 3)
@@ -40,7 +40,7 @@ instruction: |
 verify:
   - UI Direction section updated in discovery brief
   - At least 3 options were generated and one selected
-  - ux-prototype.html exists in $SPEC_CHANGES_DIR/$CHANGE_ID/
+  - ux-prototype.html exists in $WORKFLOW_STATE_DIR/$CHANGE_ID/
   - ux-artifacts.yaml exists and follows § UX Artifact Contract format
 
 outputs:

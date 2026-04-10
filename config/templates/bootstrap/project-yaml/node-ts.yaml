@@ -48,14 +48,14 @@ quality_bar:
     green_base: 9
 
 storage:
-  active_changes_root: $SPEC_CHANGES_DIR
+  active_changes_root: $WORKFLOW_STATE_DIR
   repo_archive_root: spec/changes/archive
   archive_on:
     - merged_to_main
     - user_signoff_approved
 
 state_contract:
-  file: $SPEC_CHANGES_DIR/$CHANGE_ID/state.yaml
+  file: $WORKFLOW_STATE_DIR/$CHANGE_ID/state.yaml
   required: [schema, flags]
   merge_precedence: [cli_flags, state_flags, schema_defaults]
 

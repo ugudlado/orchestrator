@@ -60,7 +60,7 @@ instruction: |
 
   STEP D — Validate outcome:
   TICKET_SLUG=$(echo "$TICKET" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
-  grep -m1 "^status:" $SPEC_CHANGES_DIR/$TICKET_SLUG/state.yaml
+  grep -m1 "^status:" $WORKFLOW_STATE_DIR/$TICKET_SLUG/state.yaml
   - "status: completed" → ITER_STATUS=completed
   - anything else → read only the last error_events: block (grep -A 20 "error_events:" ...),
     set ITER_STATUS=failed, create a Linear ticket with the failure summary.

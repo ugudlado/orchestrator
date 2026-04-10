@@ -40,7 +40,7 @@ phases:
       - Keep scope tight — one concern per chore.
     verify:
       assertions:
-        - spec.md exists in $SPEC_CHANGES_DIR/$CHANGE_ID/
+        - spec.md exists in $WORKFLOW_STATE_DIR/$CHANGE_ID/
         - tasks.md exists with at least one task
       metrics:
         review_score: { min: 7 }

@@ -17,7 +17,7 @@ args:
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
 REPO_ROOT=$(git rev-parse --show-toplevel)
 ORCHESTRATOR_HOME=${ORCHESTRATOR_HOME:-$HOME/.config/spec}
-SPEC_CHANGES_DIR=$ORCHESTRATOR_HOME/changes/$REPO_NAME
+WORKFLOW_STATE_DIR=$ORCHESTRATOR_HOME/changes/$REPO_NAME
 AUTOPILOT_SESSIONS_DIR=$ORCHESTRATOR_HOME/autopilot_sessions/$REPO_NAME
 ```
 

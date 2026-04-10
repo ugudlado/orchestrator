@@ -43,7 +43,7 @@ instruction: |
   For multi-language: use array `["node-ts", "python"]`.
 
   4. Derive the change slug: `<repo-name>-bootstrap` (e.g. `orchestrator-bootstrap`).
-     Write `$SPEC_CHANGES_DIR/<slug>/state.yaml` as the canonical workflow run record:
+     Write `$WORKFLOW_STATE_DIR/<slug>/state.yaml` as the canonical workflow run record:
 
   ```yaml
   schema: bootstrap
@@ -84,14 +84,14 @@ instruction: |
     Tools: <tool list with versions>
     Scripts: <added script names>
     Baseline: <pass/fail summary>
-    State: .tooling-state.json + $SPEC_CHANGES_DIR/<slug>/state.yaml written
+    State: .tooling-state.json + $WORKFLOW_STATE_DIR/<slug>/state.yaml written
   ```
 
 verify:
   - .tooling-state.json exists with checks_passed: true
-  - $SPEC_CHANGES_DIR/<slug>/state.yaml exists with status: completed
+  - $WORKFLOW_STATE_DIR/<slug>/state.yaml exists with status: completed
   - version field in .tooling-state.json matches schema version (1)
 
 outputs:
   - .tooling-state.json
-  - $SPEC_CHANGES_DIR/<slug>/state.yaml
+  - $WORKFLOW_STATE_DIR/<slug>/state.yaml

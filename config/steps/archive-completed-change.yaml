@@ -10,7 +10,7 @@ inputs:
   - project_storage_config
 
 rules:
-  - Source from active root ($SPEC_CHANGES_DIR/$CHANGE_ID).
+  - Source from active root ($WORKFLOW_STATE_DIR/$CHANGE_ID).
   - Archive to repo (spec/changes/archive/YYYY-MM-DD-<change-id>).
   - Preserve .spec.yaml, all generated artifacts, and state.yaml (with metrics).
   - Metrics MUST be computed before archiving so the archived state.yaml includes them.
@@ -26,7 +26,7 @@ instruction: |
      a. Check if $ORCHESTRATOR_HOME/scripts/compute-swe-metrics.sh exists.
      b. If yes: run it and validate the output contains a `metrics:` YAML block.
         ```bash
-        $ORCHESTRATOR_HOME/scripts/compute-swe-metrics.sh "$SPEC_CHANGES_DIR/$CHANGE_ID" [transcript_paths...]
+        $ORCHESTRATOR_HOME/scripts/compute-swe-metrics.sh "$WORKFLOW_STATE_DIR/$CHANGE_ID" [transcript_paths...]
         ```
         The script parses JSONL transcripts, computes costs, resolution stats,
         and git churn. Append the output to state.yaml before archiving.
@@ -109,14 +109,14 @@ instruction: |
 
   5. Create archive directory: spec/changes/archive/YYYY-MM-DD-$CHANGE_ID/
 
-  6. Copy all artifacts from $SPEC_CHANGES_DIR/$CHANGE_ID/ to archive:
+  6. Copy all artifacts from $WORKFLOW_STATE_DIR/$CHANGE_ID/ to archive:
      - .spec.yaml (change metadata)
      - All generated artifacts (spec.md, design.md, tasks.md, etc.)
      - state.yaml (workflow audit trail — includes metrics + completion status)
 
   7. Commit the archive to the repo.
 
-  8. Clean up the active change directory ($SPEC_CHANGES_DIR/$CHANGE_ID/).
+  8. Clean up the active change directory ($WORKFLOW_STATE_DIR/$CHANGE_ID/).
      If cleanup fails (permission error, file lock), log a warning but do not
      fail — the archive is already committed.
 

@@ -15,7 +15,7 @@ rules:
   - Never skip compute-prediction-accuracy or run-learn-cycle steps during autopilot — these feed the self-improving loop and must run even when --auto is set. <!-- learned: 2026-04-05, source: HL-203, cycle: 6 -->
 
 instruction: |
-  1. Read state.yaml from $SPEC_CHANGES_DIR/$CHANGE_ID/ to confirm the change
+  1. Read state.yaml from $WORKFLOW_STATE_DIR/$CHANGE_ID/ to confirm the change
      is approved (final_signoff_decision exists with approval).
 
   2. Extract the change ID from state.yaml (feature_id field or directory name).

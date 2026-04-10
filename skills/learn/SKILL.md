@@ -12,7 +12,7 @@ args:
 
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
 ORCHESTRATOR_HOME=${ORCHESTRATOR_HOME:-$HOME/.config/spec}
-SPEC_CHANGES_DIR=$ORCHESTRATOR_HOME/changes/$REPO_NAME
+WORKFLOW_STATE_DIR=$ORCHESTRATOR_HOME/changes/$REPO_NAME
 
 ## Learn from Last Feature
 
@@ -27,8 +27,8 @@ This skill runs the evaluation + self-improvement loop after a feature is comple
 ### 1. Find Context
 
 Locate the most recent completed feature:
-- Scan `$SPEC_CHANGES_DIR/*/state.yaml` for the most recent file with `status: completed` or `phase: complete`
-- Also check `$SPEC_CHANGES_DIR/*/state.yaml` (state files are no longer in worktree-relative paths)
+- Scan `$WORKFLOW_STATE_DIR/*/state.yaml` for the most recent file with `status: completed` or `phase: complete`
+- Also check `$WORKFLOW_STATE_DIR/*/state.yaml` (state files are no longer in worktree-relative paths)
 - Read the state.yaml for feature_id, schema, quality scores, phases
 - Find the project root from the state.yaml path or cwd
 - Read git log for the feature's commits and diff

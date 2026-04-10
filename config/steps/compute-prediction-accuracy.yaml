@@ -20,7 +20,7 @@ rules:
   - Do not fail or block the complete phase over accuracy computation errors.
 
 instruction: |
-  1. Read state.yaml from $SPEC_CHANGES_DIR/$CHANGE_ID/ to get feature_id, schema, and branch info.
+  1. Read state.yaml from $WORKFLOW_STATE_DIR/$CHANGE_ID/ to get feature_id, schema, and branch info.
 
   2. **Count predicted tasks**:
      Read tasks.md. Count all task lines (lines matching `^- \[`).

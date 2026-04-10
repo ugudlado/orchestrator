@@ -20,7 +20,7 @@ instruction: |
      - Description: summary from spec.md or diagnosis.md
      - Labels: product label + type (Feature/Bug) + complexity estimate
      - Assignee: from config or current user
-  4. Store the ticket ID in $SPEC_CHANGES_DIR/$CHANGE_ID/.spec.yaml:
+  4. Store the ticket ID in $WORKFLOW_STATE_DIR/$CHANGE_ID/.spec.yaml:
      ```yaml
      linear-ticket: HL-XXX
      ```

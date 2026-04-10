@@ -46,8 +46,8 @@ Read existing code to understand what's actually there (not just what's document
 
 ```bash
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel)")
-SPEC_CHANGES_DIR=$ORCHESTRATOR_HOME/changes/$REPO_NAME
-ls $SPEC_CHANGES_DIR/       # active changes
+WORKFLOW_STATE_DIR=$ORCHESTRATOR_HOME/changes/$REPO_NAME
+ls $WORKFLOW_STATE_DIR/       # active changes
 ls spec/changes/archive/    # completed changes
 ```
 
@@ -139,7 +139,7 @@ Effort divisor: small=1, medium=2, large=3
 For each idea, create a Spec change directory:
 
 ```bash
-mkdir -p $SPEC_CHANGES_DIR/[ID]
+mkdir -p $WORKFLOW_STATE_DIR/[ID]
 ```
 
 Write `.spec.yaml`:
@@ -205,7 +205,7 @@ When invoked with `--next`, don't just sort by score. Think about what's most va
 
 1. **Read Product Vision** from the project's CLAUDE.md. Understand: purpose, target users, what "valuable" means, strategic direction.
 2. **If --focus hint provided**: layer it on top as a focus filter.
-3. **Scan backlog**: Read all `$SPEC_CHANGES_DIR/*/.spec.yaml` with `status: proposed`, plus Linear tickets in Backlog.
+3. **Scan backlog**: Read all `$WORKFLOW_STATE_DIR/*/.spec.yaml` with `status: proposed`, plus Linear tickets in Backlog.
 4. **Evaluate each candidate** against:
    - Does it align with the Product Vision's definition of "valuable"?
    - What's the current project state — what's built, what's broken, what's missing?

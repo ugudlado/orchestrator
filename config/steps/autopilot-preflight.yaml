@@ -6,7 +6,7 @@ intent: Verify the repo is in a state that supports autonomous execution. Auto-r
 inputs:
   - $REPO_ROOT
   - $ORCHESTRATOR_HOME
-  - $SPEC_CHANGES_DIR
+  - $WORKFLOW_STATE_DIR
 
 rules:
   - Run ALL checks before taking any action. Collect failures, then decide.
@@ -28,7 +28,7 @@ instruction: |
     - spec/project.yaml exists
     - spec/project.yaml has `vision:` key (grep -q "^vision:" spec/project.yaml)
     - $ORCHESTRATOR_HOME/config/workflows/ directory contains at least one .yaml file
-    - $SPEC_CHANGES_DIR is writable (mkdir -p $SPEC_CHANGES_DIR)
+    - $WORKFLOW_STATE_DIR is writable (mkdir -p $WORKFLOW_STATE_DIR)
     If ANY fail → invoke: Skill({ skill: "develop", args: "--bootstrap" })
     Then RE-RUN checks 3. If still failing → ABORT with specific check that failed.
 
