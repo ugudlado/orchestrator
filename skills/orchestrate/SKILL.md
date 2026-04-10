@@ -84,6 +84,26 @@ ELSE (inline step — no agent: field):
 
 RECORD completed_at = current ISO 8601 timestamp
 
+IF agent returns STATUS: escalate_to_architect:
+  READ $ORCHESTRATOR_HOME/config/steps/contracts/architect-escalation.md
+  READ $ORCHESTRATOR_HOME/agents/architect.md
+  SPAWN architect agent (Mode 3: Implementation Consultation) with:
+    - spec.md (from $WORKFLOW_STATE_DIR/$CHANGE_ID/spec.md)
+    - design.md (from $WORKFLOW_STATE_DIR/$CHANGE_ID/design.md)
+    - escalation block (type, task_id, context, question, attempted from agent result)
+    - tasks.md with current completion status
+  WAIT for architect response
+  IF architect response contains DESIGN_AMENDMENT (not "none"):
+    WRITE updated design.md to $WORKFLOW_STATE_DIR/$CHANGE_ID/design.md
+  IF architect response contains TASK_CHANGES (not "none"):
+    UPDATE $WORKFLOW_STATE_DIR/$CHANGE_ID/tasks.md per architect instructions
+  RECORD in state.yaml escalation_events (per contracts/architect-escalation.md § State Recording):
+    - task_id, type, question, decision, design_amended, tasks_changed, timestamp
+  RE-SPAWN developer agent with original step prompt plus architect decision appended:
+    "Architect Decision (escalation resolved): <DECISION field>"
+  CONTINUE same step (do NOT advance next_step; do NOT increment retries for the task)
+  SKIP the AFTER step completes block below for this iteration
+
 AFTER step completes:
   APPEND to state.yaml step_history: {step_id, phase, status, agent, started_at, completed_at}
   WRITE next_step to state.yaml pointing to the next step
