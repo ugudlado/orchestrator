@@ -1,6 +1,6 @@
 ---
 name: specify
-description: "Create feature specification. Alias for /develop that runs only the specify (or diagnose) phase. Use when the user says 'specify', 'create spec', 'write specification'."
+description: "Create feature specification. Runs only the specify (or diagnose) phase of the orchestrate workflow. This skill should be used when the user says 'specify', 'create spec', 'write specification'."
 user-invocable: true
 args:
   - name: description
@@ -19,8 +19,8 @@ args:
 
 ## Execution
 
-Route to `/orchestrate` with a `--phase specify` constraint. The schema owns all execution logic.
+Route to the orchestrate skill with a `--phase specify` constraint. The schema owns all execution logic.
 
 ```
-/orchestrate $ARGUMENTS --phase specify
+orchestrate $ARGUMENTS --phase specify
 ```

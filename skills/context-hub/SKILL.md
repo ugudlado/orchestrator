@@ -1,6 +1,7 @@
 ---
 name: context-hub
 description: Fetch curated, agent-optimized library documentation via Context Hub (chub). Use when implementing features that use external libraries, when Context7 returns noisy/incomplete docs, when you need language-specific or version-specific API docs, or when the user says "chub", "context hub", "get docs for X". Prefer this over Context7 for libraries in chub's registry — curated docs have less noise and better code examples.
+user-invocable: true
 ---
 
 # Context Hub — Curated Library Documentation

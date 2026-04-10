@@ -20,7 +20,7 @@ $ARGUMENTS
 
 ## Overview
 
-`/learn` runs the evaluation + self-improvement loop after a feature is completed. It spawns the workflow-evaluator to assess compliance, route learned rules to step contracts in `$ORCHESTRATOR_HOME/config/steps/` and project-specific learnings to `spec/project.yaml` `learnings:` section. Rules go into step contracts (deterministic, enforced at execution time). Project-specific learnings go into project.yaml (agent-agnostic, persists across sessions).
+This skill runs the evaluation + self-improvement loop after a feature is completed. It assesses workflow compliance, routes learned rules to step contracts in `$ORCHESTRATOR_HOME/config/steps/` and project-specific learnings to `spec/project.yaml` `learnings:` section. Rules go into step contracts (deterministic, enforced at execution time). Project-specific learnings go into project.yaml (agent-agnostic, persists across sessions).
 
 ## Process
 
@@ -48,7 +48,7 @@ Collect the evaluator's inputs from state.yaml:
 
 ### 2b. Cross-Feature Retry Analysis
 
-Before spawning the evaluator, scan archived state.yaml files across recent features to detect systemic retry patterns.
+Before evaluating, scan archived state.yaml files across recent features to detect systemic retry patterns.
 
 1. **Collect archive data**: Find the last 10 completed features by listing `spec/changes/archive/*/state.yaml` sorted by modification time (most recent first, limit 10). For each, read the file and extract:
    - `feature_id`
@@ -86,9 +86,9 @@ Before spawning the evaluator, scan archived state.yaml files across recent feat
    - For each: propose a concrete rule addition to the target step contract that would prevent the root cause
    - Route the fix to `workflow-fixer` (same as other workflow issues)
 
-### 3. Spawn Workflow Evaluator
+### 3. Run Workflow Evaluation
 
-Launch the `workflow-evaluator` agent with:
+Evaluate the feature with:
 - The step_history audit trail (not a reconstructed report — the raw data)
 - Per-step learnings aggregated by type (mistakes, insights, retries, decisions, skips)
 - Aggregate metrics for pattern detection
@@ -118,13 +118,13 @@ Classify each finding and route it to the right handler.
 **Routing decision tree:**
 
 **Workflow issues** (schema gaps, step contract bugs, agent instructions, hook problems):
-- Spawn the `workflow-fixer` agent with those suggestions + `$ORCHESTRATOR_HOME/config/steps/CONVENTIONS.md`
-- The fixer MUST read CONVENTIONS.md before editing any step contract
+- Apply fixes using `$ORCHESTRATOR_HOME/config/steps/CONVENTIONS.md` as guidance
+- MUST read CONVENTIONS.md before editing any step contract
 - Fix is applied immediately to disk — improves the next workflow execution
 
 **Code/functionality issues** (bugs discovered, missing features, tech debt, test gaps):
 - Create a Linear ticket with description, evidence, and suggested approach
-- Do NOT fix inline — let the ideator prioritize it and `/develop` execute it properly
+- Do NOT fix inline — let the ideator prioritize it and the develop workflow execute it properly
 - This ensures code changes go through full spec-first discipline
 
 **Learned rules** (patterns to remember, gotchas discovered, quality checks):
@@ -141,8 +141,7 @@ Classify each finding and route it to the right handler.
   | During artifact creation | `create-or-refresh-artifacts.yaml` | `rules:` list |
   | During task generation | `generate-or-refresh-tasks.yaml` | `rules:` list |
 
-- Spawn the `workflow-fixer` agent with the rule text and target step contract
-- The workflow-fixer appends the rule to the right section of the step contract
+- Apply the rule to the appropriate section of the target step contract
 - **IMPORTANT — Rule metadata**: When the workflow-fixer writes a learned rule, it MUST append the metadata comment inline on the same line as the rule text:
   `<!-- learned: YYYY-MM-DD, source: FEATURE-ID, cycle: N, repo: REPO_NAME -->`
   Where: `YYYY-MM-DD` = today's date, `FEATURE-ID` = the feature being evaluated, `N` = current cycle count (from feature-metrics.jsonl line count), `REPO_NAME` = `basename $(git rev-parse --show-toplevel)` (the repo that generated this rule).
@@ -166,7 +165,7 @@ Classify each finding and route it to the right handler.
 
 ### 5b. Rule Effectiveness Update (every invocation)
 
-This sub-step runs on every `/learn` invocation. It updates hit/miss counters on
+This sub-step runs on every learn invocation. It updates hit/miss counters on
 learned rules based on the just-completed feature's step retry data.
 
 **Update counters**:
@@ -186,7 +185,7 @@ learned rules based on the just-completed feature's step retry data.
 ### 5b-decay. Rule Decay Evaluation (every 5th invocation)
 
 This sub-step runs only when the current cycle count is a multiple of 5. It scans all
-step contracts for ineffective learned rules and routes flagged rules to workflow-fixer.
+step contracts for ineffective learned rules and removes flagged rules.
 
 **Trigger check**:
 1. Count lines in `~/.claude/logs/feature-metrics.jsonl` as cycle count K.
@@ -218,17 +217,15 @@ step contracts for ineffective learned rules and routes flagged rules to workflo
 **Prune**:
 1. Collect all flagged rules (removal + resolution candidates) with their file paths and line context.
 2. If no rules are flagged: log `[learn] Rule decay: scanned N rules, nothing flagged` and stop.
-3. Spawn the `workflow-fixer` agent with:
-   - The list of flagged rules (file path, rule text, metadata, reason for flagging)
-   - Include hit/miss data so the fixer understands why the rule was flagged
-   - Instruction to remove or resolve each flagged rule from the step contract
-   - Reminder to read CONVENTIONS.md § Rule Lifecycle Convention before editing
-   - Constraint: ONLY remove rules with `<!-- learned:` metadata — never touch permanent rules
+3. For each flagged rule:
+   - Read CONVENTIONS.md § Rule Lifecycle Convention before editing
+   - Remove or resolve the flagged rule from the step contract
+   - ONLY remove rules with `<!-- learned:` metadata — never touch permanent rules
 4. Log: `[learn] Rule decay: scanned N rules, flagged M for removal, K for resolution`
 
 ### 5c. Adaptive Quality Bar (every invocation)
 
-This sub-step runs after §5b on every `/learn` invocation. It reads recent performance metrics and adjusts `quality_bar.scoring.green_base` in `spec/project.yaml` when trends warrant it.
+This sub-step runs after §5b on every learn invocation. It reads recent performance metrics and adjusts `quality_bar.scoring.green_base` in `spec/project.yaml` when trends warrant it.
 
 **Read metrics**:
 1. Read `~/.claude/logs/feature-metrics.jsonl` — take the last 5 lines (most recent features).

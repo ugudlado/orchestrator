@@ -14,8 +14,8 @@ args:
     type: flag
 ---
 
-## Orchestration
+## Execution
 
 1. Parse `$ARGUMENTS` for topic, --next, or --refresh flags
-2. Spawn `ideator` agent with the target context
+2. Brainstorm ideas and build prioritized backlog for the target context
 3. Present results to user

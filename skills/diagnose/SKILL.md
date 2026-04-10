@@ -8,8 +8,8 @@ args:
     required: false
 ---
 
-## Orchestration
+## Execution
 
 1. Parse `$ARGUMENTS` for specific error or area focus
-2. Spawn `reviewer` agent to analyze error patterns from logs and metrics
+2. Analyze error patterns from logs and metrics
 3. Present findings and recommended step contract improvements

@@ -1,6 +1,6 @@
 ---
 name: humanizer
-description: "Remove AI writing patterns from text. Spawns the humanizer agent for staff-level editing. Use when editing text to sound more natural and human-written."
+description: "Remove AI writing patterns from text. This skill should be used when the user says 'humanize', 'make this sound human', 'remove AI patterns', 'rewrite naturally', or asks to edit text to sound less AI-generated."
 user-invocable: true
 args:
   - name: target
@@ -11,9 +11,9 @@ args:
     type: option
 ---
 
-## Orchestration
+## Execution
 
 1. Parse `$ARGUMENTS` for target text or file path
 2. If `--voice` provided, include the writing sample for voice calibration
-3. Spawn `humanizer` agent with the target text
-4. Present the agent's scored output to the user
+3. Use the humanizer agent with the target text
+4. Present the scored output to the user

@@ -1,6 +1,6 @@
 ---
 name: complete-feature
-description: "Complete feature — verify, signoff, archive. Alias for /develop that runs only the complete phase. Use when the user says 'complete feature', 'finish feature', 'merge to main'."
+description: "Complete feature — verify, signoff, archive. Runs only the complete phase of the orchestrate workflow. This skill should be used when the user says 'complete feature', 'finish feature', 'merge to main'."
 user-invocable: true
 args:
   - name: feature-id
@@ -10,8 +10,8 @@ args:
 
 ## Execution
 
-Route to `/orchestrate` with a `--phase complete` constraint. The schema owns all verification and archive logic.
+Route to the orchestrate skill with a `--phase complete` constraint. The schema owns all verification and archive logic.
 
 ```
-/orchestrate $ARGUMENTS --phase complete
+orchestrate $ARGUMENTS --phase complete
 ```

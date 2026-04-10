@@ -1,6 +1,6 @@
 ---
 name: implement
-description: "Execute implementation tasks. Alias for /develop that runs only the implement phase. Use when the user says 'implement', 'start building', 'continue feature'."
+description: "Execute implementation tasks. Runs only the implement phase of the orchestrate workflow. This skill should be used when the user says 'implement', 'start building', 'continue feature'."
 user-invocable: true
 args:
   - name: feature-id
@@ -10,8 +10,8 @@ args:
 
 ## Execution
 
-Route to `/orchestrate` with a `--phase implement` constraint. The schema owns all phase-gate and execution logic.
+Route to the orchestrate skill with a `--phase implement` constraint. The schema owns all phase-gate and execution logic.
 
 ```
-/orchestrate $ARGUMENTS --phase implement
+orchestrate $ARGUMENTS --phase implement
 ```

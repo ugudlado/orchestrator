@@ -1,6 +1,6 @@
 ---
 name: autopilot
-description: "Autonomous self-improving development loop. Picks work from backlog, runs /develop with full autonomy flags (--auto --agents), learns and improves workflow. Use when user says \"autopilot\", \"autonomous\", \"run N iterations\", \"self-improve\"."
+description: "Autonomous self-improving development loop. Picks work from backlog, runs the develop workflow with full autonomy flags (--auto --agents), learns and improves workflow. This skill should be used when user says 'autopilot', 'autonomous', 'run N iterations', 'self-improve'."
 user-invocable: true
 args:
   - name: iterations
@@ -27,7 +27,7 @@ $ARGUMENTS
 
 ## Overview
 
-`/autopilot` is the entry point for the autonomous development loop. It delegates
+This skill is the entry point for the autonomous development loop. It delegates
 entirely to the `autopilot` workflow schema — no loop logic lives in this skill.
 
 The schema (`$ORCHESTRATOR_HOME/config/workflows/autopilot.yaml`) owns all execution:
@@ -44,13 +44,13 @@ Each phase's steps are defined as step contracts in `$ORCHESTRATOR_HOME/config/s
 - Extract iteration count (default: 1). Must be a positive integer.
 - Extract `--focus` hint if provided (passed through to schema flags).
 
-### 2. Invoke autopilot schema via /orchestrate
+### 2. Invoke autopilot schema via orchestrate
 
 ```
 Skill({ skill: "orchestrate", args: "autopilot [N] [--focus \"$FOCUS\"]" })
 ```
 
-The word "autopilot" in the request is the intent signal — `/orchestrate` detects it,
+The word "autopilot" in the request is the intent signal — orchestrate detects it,
 loads the autopilot schema, and passes `N` and `--focus` through as schema flags.
 The schema walks its three phases using the step contracts — all logic is in the contracts.
 
@@ -59,7 +59,7 @@ The schema walks its three phases using the step contracts — all logic is in t
 - Does not implement the iteration loop — that's `autopilot-iterate.yaml`
 - Does not manage session files — that's `autopilot-session-init.yaml`
 - Does not pick work — that's the ideator step inside `autopilot-iterate.yaml`
-- Does not duplicate logic from `/develop` or `/orchestrate`
+- Does not duplicate logic from the develop or orchestrate skills
 
 ## Error Handling
 

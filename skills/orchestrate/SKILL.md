@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: "Workflow router — detects intent and loads the right schema. Use for any development work: features, bugfixes, chores, spikes, bootstrap, autopilot."
+description: "Workflow router — detects intent and loads the right schema. This skill should be used when the user says 'orchestrate', 'start a feature', 'fix a bug', 'do a chore', 'run a spike', 'bootstrap this repo', or describes development work that maps to a workflow type (feature, bugfix, chore, spike, bootstrap, autopilot)."
 user-invocable: true
 args:
   - name: request

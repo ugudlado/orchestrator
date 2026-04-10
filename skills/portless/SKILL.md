@@ -1,7 +1,7 @@
 ---
 name: portless
 description: Set up portless named .localhost dev URLs for any project. Detects project type (static, Vite, Next.js, Express, etc.), adds the dev script with portless, installs dependencies, and verifies the setup works. Use when adding a new project to the portless dev environment or when the user says "add portless", "set up dev server", "named localhost", or "portless".
-user-invokable: true
+user-invocable: true
 args:
   - name: project
     description: Path to the project or project name (optional — defaults to current directory)

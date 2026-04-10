@@ -1,6 +1,6 @@
 ---
 name: develop
-description: "Alias for /orchestrate. Delegates to the orchestrate skill for backward compatibility."
+description: "Alias for orchestrate. This skill should be used when the user says 'develop', 'start developing', or 'dev'. Delegates to the orchestrate skill for backward compatibility."
 user-invocable: true
 args:
   - name: description
@@ -8,12 +8,6 @@ args:
     required: false
 ---
 
-# /develop
-
-Alias for /orchestrate. Delegates to the orchestrate skill for backward compatibility.
-
-Use `/orchestrate` as the canonical command going forward.
-
 ## Execution
 
-Run `/orchestrate` with the same arguments passed to this command.
+Delegate to the orchestrate skill with the same arguments passed to this skill.

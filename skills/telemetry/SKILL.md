@@ -5,7 +5,7 @@ user-invocable: true
 args: []
 ---
 
-## Orchestration
+## Execution
 
-1. Spawn `workflow-improver` agent in telemetry dashboard mode to read feature-metrics.jsonl, state.yaml archives, and error-patterns.jsonl
+1. Read feature-metrics.jsonl, state.yaml archives, and error-patterns.jsonl for telemetry data
 2. Present formatted metrics dashboard with benchmark comparisons to user

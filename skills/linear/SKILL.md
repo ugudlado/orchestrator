@@ -1,6 +1,7 @@
 ---
 name: linear
-description: This skill should be used when the user asks to "create a Linear issue", "file a ticket", "open a Linear ticket", "update a Linear issue", "check a Linear ticket", "add a label to a ticket", "assign an issue", "close a ticket", or any time a Spec workflow step invokes create-linear-ticket, check-linear-config, load-context, store-commit-report, or wrap-up with Linear fields. Also use when reading or writing linear-ticket in .spec.yaml.
+description: This skill should be used when the user asks to "create a Linear issue", "file a ticket", "open a Linear ticket", "update a Linear issue", "check a Linear ticket", "add a label to a ticket", "assign an issue", "close a ticket", or any time a workflow step invokes create-linear-ticket, check-linear-config, load-context, store-commit-report, or wrap-up with Linear fields. Also use when reading or writing linear-ticket in state.yaml.
+user-invocable: true
 ---
 
 # Linear Issue Tracking

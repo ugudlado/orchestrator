@@ -1,6 +1,6 @@
 ---
 name: critique
-description: UX design critique. Spawns the ux-reviewer agent for staff-level evaluation. Use when reviewing UI, before shipping, or when user says "critique", "review this design".
+description: "UX design critique with staff-level evaluation. This skill should be used when the user says 'critique', 'review this design', 'UX review', or before shipping a UI feature."
 user-invocable: true
 args:
   - name: target
@@ -8,8 +8,8 @@ args:
     required: false
 ---
 
-## Orchestration
+## Execution
 
 1. Identify target from `$ARGUMENTS` (file path, URL, or auto-detect recent UI files)
-2. Spawn `ux-reviewer` agent with the target
-3. Present the agent's report to the user
+2. Perform UX review of the target
+3. Present the review report to the user
