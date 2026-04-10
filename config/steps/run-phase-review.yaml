@@ -1,5 +1,5 @@
 id: run-phase-review
-version: 3
+version: 4
 
 intent: Run phase quality checks and decide pass/retry.
 
@@ -20,7 +20,7 @@ rules:
   - Fix tasks must be minimal and scoped to the specific failure — no refactoring, no improvements.
   - Score of 10 is a first-pass bonus — only achievable when no retries were used this round.
   - Operate at staff-level review quality — catch architectural issues, not just surface bugs.
-  - Artifact structural compliance with CONVENTIONS.md format contracts is a review criterion.
+  - Artifact structural compliance with contracts/artifact-formats.md format contracts is a review criterion.
 
 instruction: |
   1. Load scoring config from project.yaml quality_bar.scoring. Apply defaults
@@ -46,14 +46,14 @@ instruction: |
   6. If score >= phase verify.metrics.review_score.min and no critical findings: PASS.
      Update state.yaml step_history per CONVENTIONS.md § State Updates.
   7. If FAIL:
-     a. Generate exactly one fix task per finding containing:
-        - Finding: the specific failure (command output or assertion text)
-        - Scope: only the files directly related to the failure
-        - Approach: the minimal change to make the assertion/command pass
+     a. Generate fix tasks per Fix Task Protocol (contracts/error-recovery.md):
+        one fix task per finding, each with Finding, Scope, and Approach.
         Do NOT suggest refactoring or unrelated improvements.
-     b. Increment retry counter in state.yaml (field: retries.<step_id>).
-     c. If retries >= phase verify.max_retries (default: 3): execute on_max_retries action.
-     d. Otherwise: execute fix tasks, then re-run this review step.
+     b. Follow Error Recovery Contract (contracts/error-recovery.md):
+        - Increment retries.<step_id> in state.yaml.
+        - If retries >= phase verify.max_retries (default 3):
+          execute on_max_retries action per § Escalation Protocol.
+        - Otherwise: execute fix tasks, then re-run this review step.
 
 verify:
   - Review score recorded in state.yaml under step_history as {step_id: run-phase-review, phase: <current>, status: completed, review_score: <N>}
