@@ -15,7 +15,6 @@ args:
 ---
 
 ## Execution
-
 1. Parse `$ARGUMENTS` for topic, --next, or --refresh flags
 2. Brainstorm ideas and build prioritized backlog for the target context
 3. Present results to user

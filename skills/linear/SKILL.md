@@ -5,7 +5,6 @@ user-invocable: true
 ---
 
 # Linear Issue Tracking
-
 Provides Linear issue management via the `plugin:linear` MCP server, backed by a centralized config at `~/.config/linear/config.yaml`. Used both directly (user-initiated) and by Spec workflow steps.
 
 ---

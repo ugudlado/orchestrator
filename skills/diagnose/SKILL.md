@@ -9,7 +9,6 @@ args:
 ---
 
 ## Execution
-
 1. Parse `$ARGUMENTS` for specific error or area focus
 2. Analyze error patterns from logs and metrics
 3. Present findings and recommended step contract improvements

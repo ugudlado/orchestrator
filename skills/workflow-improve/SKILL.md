@@ -9,7 +9,6 @@ args:
 ---
 
 ## Execution
-
 1. Parse `$ARGUMENTS` for specific target or default to full validation
 2. Analyze metrics and identify improvements to workflow infrastructure
 3. Present findings and applied changes to user

@@ -9,7 +9,6 @@ args:
 ---
 
 ## Execution
-
 1. Parse `$ARGUMENTS` for bug description or failing test
-2. Use the debugger agent for systematic root cause analysis
+2. Run systematic root cause analysis
 3. Present root cause analysis and suggested fix to user

@@ -12,7 +12,6 @@ args:
 ---
 
 ## Execution
-
 1. Parse `$ARGUMENTS` for diagram type and subject
 2. Analyze the codebase to produce diagram content
 3. Render via draw.io MCP (mermaid or CSV format)

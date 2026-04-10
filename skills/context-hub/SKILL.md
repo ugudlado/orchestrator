@@ -5,7 +5,6 @@ user-invocable: true
 ---
 
 # Context Hub — Curated Library Documentation
-
 Fetch agent-optimized documentation for libraries via the `chub` CLI. Curated docs are cleaner than auto-indexed alternatives — less marketing prose, more code examples and parameter tables.
 
 ## When to Use

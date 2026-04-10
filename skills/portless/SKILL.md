@@ -9,7 +9,6 @@ args:
 ---
 
 # Portless Setup
-
 Add named `.localhost` dev URLs to any project using [portless](https://port1355.dev/).
 
 ## How Portless Works

@@ -9,7 +9,6 @@ args:
 ---
 
 ## Execution
-
 1. Identify target session from `$ARGUMENTS` or default to current
 2. Analyze session logs and extract learnings
 3. Present findings and route learnings to `spec/project.yaml` learnings section

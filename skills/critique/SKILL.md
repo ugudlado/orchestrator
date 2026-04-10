@@ -9,7 +9,6 @@ args:
 ---
 
 ## Execution
-
 1. Identify target from `$ARGUMENTS` (file path, URL, or auto-detect recent UI files)
 2. Perform UX review of the target
 3. Present the review report to the user
