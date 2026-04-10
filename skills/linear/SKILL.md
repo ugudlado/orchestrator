@@ -84,7 +84,7 @@ All Linear operations go through the `plugin:linear` MCP server. Use the full to
    - `teamId`: `team.id` from config
    - `projectId`: `team.project_id` from config
    - `labelIds`: product label from `repos.<repo>.label_ids` + type label + complexity label
-5. Update `$ORCHESTRATOR_HOME/changes/<repo>/<feature>/state.yaml` field `linear_ticket_id: HL-XXX` per State Field Registry.
+5. Update `$WORKFLOW_STATE_DIR/<feature>/state.yaml` field `linear_ticket_id: HL-XXX` per State Field Registry.
 
 ### Required Labels on Every New Ticket
 

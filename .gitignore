@@ -1,6 +1,11 @@
 .DS_Store
 *.log
 .tooling-state.json
+.tmp/
+
+# Workflow state (ephemeral, per-repo)
+.state/
+!.state/.gitkeep
 
 # Per-change workflow state (ephemeral)
 spec/changes/*/state.yaml
