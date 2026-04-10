@@ -32,16 +32,35 @@ instruction: |
 
   4. Compute runtime feature profile by merging schema defaults with state.flags.
 
-  5. Merge rules per CONVENTIONS.md § Rule Merge Contract:
+  5. Write or validate workflow_plan in state.yaml (per CONVENTIONS.md § State Field Registry):
+     a. If workflow_plan does NOT exist in state.yaml (fresh start):
+        Build the full workflow_plan from the loaded schema: for each phase, record
+        the active step list (steps that pass if: conditions given resolved flags)
+        and the filtered step list (steps excluded by if: conditions).
+        Write to state.yaml:
+        ```yaml
+        workflow_plan:
+          <phase_name>:
+            active: [<step_id>, ...]
+            filtered: [<step_id>, ...]
+        ```
+     b. If workflow_plan already exists in state.yaml (resume):
+        Validate the existing plan against the current schema and resolved flags.
+        If any active step is now filtered (or vice versa), log a warning:
+        "workflow_plan drift detected: <step_id> changed from <old> to <new>"
+        Do NOT overwrite the plan — preserve the original for resume continuity.
+        Surface the drift warning in the context bundle for downstream steps.
+
+  6. Merge rules per CONVENTIONS.md § Rule Merge Contract:
      Collect rules from all 5 sources (project, schema, phase, step contract,
      step entry injections), deduplicate named rules by id (higher precedence wins),
      filter by when-conditions against state.flags, and assemble in precedence order.
 
-  6. Check existing artifacts in $WORKFLOW_STATE_DIR/$CHANGE_ID/ for progress.
+  7. Check existing artifacts in $WORKFLOW_STATE_DIR/$CHANGE_ID/ for progress.
 
-  7. Evaluate `rules_when:` conditions per CONVENTIONS.md § Rules-When Evaluation.
+  8. Evaluate `rules_when:` conditions per CONVENTIONS.md § Rules-When Evaluation.
 
-  8. Build a context bundle containing:
+  9. Build a context bundle containing:
      - Project vision and architecture (for agent prompts)
      - Project learnings and gotchas (for agent prompts)
      - Merged active rules (deduplicated by id, when-conditions evaluated)
@@ -49,12 +68,13 @@ instruction: |
      - Runtime feature profile (resolved flags)
      - Artifact status (which exist, which are pending)
      - Verify commands (for phase boundary checks)
+     - workflow_plan drift warnings (if any, from step 5b)
 
-  9. Write context-loaded confirmation to state.yaml:
-     ```yaml
-     project_context_loaded: true
-     project_context_at: <ISO timestamp>
-     ```
+  10. Write context-loaded confirmation to state.yaml:
+      ```yaml
+      project_context_loaded: true
+      project_context_at: <ISO timestamp>
+      ```
 
 verify:
   - Project config loaded (vision, quality_bar, rules, signoff_policy present)
@@ -62,6 +82,7 @@ verify:
   - Runtime feature profile computed from merged flags
   - Active rules list has no duplicate ids
   - rules_when conditions evaluated per CONVENTIONS.md § Rules-When Evaluation
+  - state.yaml contains workflow_plan with active and filtered lists for each phase
   - state.yaml contains project_context_loaded: true
 
 outputs:

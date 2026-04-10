@@ -192,6 +192,8 @@ find data where they expect it.
 | `refresh_artifacts` | boolean | run-phase-review (on fail) | `true` when artifacts need regeneration |
 | `change_type` | string | create-or-refresh-artifacts (after task creation) | `code` or `config_docs` — per `contracts/rule-merge.md` § Change Type Detection |
 | `flag_adaptations` | list | create-or-refresh-artifacts (when change_type adapts flags) | `[{ flag, original, effective, reason }]` |
+| `task_checkpoint` | object | execute-next-task | `{ task_id: "T-3", status: "completed", committed_at: "<ISO>" }` |
+| `workflow_plan` | object | load-project-context | `{ <phase>: { active: [...], filtered: [...] } }` |
 
 ### Rules
 
@@ -199,6 +201,42 @@ find data where they expect it.
 - **Exact field names**: Use the paths above verbatim. Do not invent aliases.
 - **Null means absent**: If a field has no value yet, omit it entirely — do not write `null`.
 - **Timestamps**: Use ISO 8601 format (`2026-04-04T20:00:00Z`).
+
+## Idempotent Re-Entry
+
+Steps may be re-executed after partial completion (e.g., crash mid-step, session
+interrupted, agent restarted). Every step contract MUST be safe to run again without
+producing duplicate or inconsistent effects.
+
+### Rules
+
+- **Check outputs on entry**: At the start of a step, check whether its outputs already
+  exist in `state.yaml` or on disk. If the output is present and valid, skip the work
+  and continue.
+- **Skip completed sub-work**: When a step has multiple sub-operations (e.g., write file,
+  commit, update state), check each individually before re-executing. Only re-execute
+  the sub-operations that did not complete.
+- **Handle stale/incomplete state**: If a prior run left partial output (e.g., file
+  written but not committed, checkpoint recorded but tasks.md not updated), detect
+  the inconsistency and resolve it before proceeding with new work.
+- **Never duplicate step_history entries**: Before appending to `step_history`, check
+  whether an entry with the same `step_id` and `phase` for the current execution already
+  exists. If it does, skip the append.
+- **Idempotent writes**: Writing the same value to `state.yaml` a second time is safe.
+  Prefer overwriting scalar fields rather than guarding them, unless the field is
+  append-only (e.g., `step_history`).
+
+### In step contracts
+
+Steps that have meaningful re-entry risk SHOULD document their re-entry check in a
+dedicated step 0 in `instruction:`:
+
+```yaml
+instruction: |
+  0. Re-entry check: read state.yaml for <output_field>. If present and valid, skip
+     to step N (post-completion). If present but incomplete, resolve inconsistency first.
+  1. ...
+```
 
 ## Phase Name Matching
 
