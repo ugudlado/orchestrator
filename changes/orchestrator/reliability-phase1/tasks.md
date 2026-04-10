@@ -3,7 +3,7 @@
 - [x] T-1: Add `task_checkpoint` and `workflow_plan` fields to CONVENTIONS.md State Field Registry
   Verify: grep for `task_checkpoint` and `workflow_plan` in CONVENTIONS.md State Field Registry section — both present with type, producer, and example columns
 
-- [ ] T-2: Add Idempotent Re-Entry section to CONVENTIONS.md
+- [x] T-2: Add Idempotent Re-Entry section to CONVENTIONS.md
   Verify: CONVENTIONS.md contains "## Idempotent Re-Entry" section with rules for checking partial completion on entry, skipping completed work, and avoiding duplicate step_history entries
 
 - [ ] T-3: Add per-task checkpoint write to execute-next-task.yaml
