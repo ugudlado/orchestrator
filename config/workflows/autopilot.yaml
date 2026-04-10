@@ -34,8 +34,8 @@ phases:
         - Git repo exists and working tree is clean
         - spec/project.yaml exists with a non-placeholder vision.purpose
         - $ORCHESTRATOR_HOME/config/workflows/ contains at least one schema
-        - Session entry written to $AUTOPILOT_SESSIONS_DIR/sessions.yaml
-        - _checkpoint.json written to $AUTOPILOT_SESSIONS_DIR/
+        - Session entry written to $WORKFLOW_STATE_DIR/autopilot/sessions.yaml
+        - _checkpoint.json written to $WORKFLOW_STATE_DIR/autopilot/
       max_retries: 1
       on_max_retries: escalate to user with the specific failing check and remediation steps
     steps:

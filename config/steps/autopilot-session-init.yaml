@@ -4,7 +4,7 @@ version: 1
 intent: Create a new session entry in sessions.yaml and write the initial checkpoint. Sets SESSION_ID for the entire run.
 
 inputs:
-  - $AUTOPILOT_SESSIONS_DIR  ($ORCHESTRATOR_HOME/autopilot_sessions/$REPO_NAME)
+  - $WORKFLOW_STATE_DIR/autopilot
   - iterations (from schema flags)
   - focus (from schema flags)
 
@@ -16,10 +16,10 @@ rules:
 
 instruction: |
   1. Create the sessions directory:
-     mkdir -p $AUTOPILOT_SESSIONS_DIR/archive
+     mkdir -p $WORKFLOW_STATE_DIR/autopilot/archive
 
   2. Compute SESSION_ID:
-     COUNT=$(grep -c '^  - id:' $AUTOPILOT_SESSIONS_DIR/sessions.yaml 2>/dev/null || echo 0)
+     COUNT=$(grep -c '^  - id:' $WORKFLOW_STATE_DIR/autopilot/sessions.yaml 2>/dev/null || echo 0)
      SESSION_ID="autopilot-$(date -u +%Y-%m-%d)-$(printf '%03d' $(( COUNT + 1 )))"
      SESSION_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -29,7 +29,7 @@ instruction: |
        - Set RESUMED_FROM field in the new entry (see step 4b)
 
   4a. If sessions.yaml does not exist, create it:
-      echo "sessions: []" > $AUTOPILOT_SESSIONS_DIR/sessions.yaml
+      echo "sessions: []" > $WORKFLOW_STATE_DIR/autopilot/sessions.yaml
 
   4b. Append the new session entry under sessions: in sessions.yaml:
       ```yaml
@@ -53,14 +53,14 @@ instruction: |
        "status": "initialized"
      }
      ```
-     Write to: $AUTOPILOT_SESSIONS_DIR/_checkpoint.json
+     Write to: $WORKFLOW_STATE_DIR/autopilot/_checkpoint.json
 
   6. Output SESSION_ID so the iterate step can reference it:
      STATUS: completed
      SESSION_ID: $SESSION_ID
 
 verify:
-  - sessions.yaml exists at $AUTOPILOT_SESSIONS_DIR/sessions.yaml
+  - sessions.yaml exists at $WORKFLOW_STATE_DIR/autopilot/sessions.yaml
   - New session entry with correct id appears in sessions.yaml
   - _checkpoint.json exists with session_id matching new entry
   - archive/ subdirectory exists

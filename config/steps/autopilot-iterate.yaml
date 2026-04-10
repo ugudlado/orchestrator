@@ -18,7 +18,7 @@ rules:
   - Context budget: <200 tokens net added per iteration. No full file reads.
 
 instruction: |
-  Read current state from $AUTOPILOT_SESSIONS_DIR/_checkpoint.json:
+  Read current state from $WORKFLOW_STATE_DIR/autopilot/_checkpoint.json:
     I = checkpoint.iteration + 1
     N = checkpoint.total
     SESSION_ID = checkpoint.session_id
@@ -26,7 +26,7 @@ instruction: |
   Record ITER_STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   STEP A — Write checkpoint (BEFORE spawning anything):
-  Overwrite $AUTOPILOT_SESSIONS_DIR/_checkpoint.json:
+  Overwrite $WORKFLOW_STATE_DIR/autopilot/_checkpoint.json:
   ```json
   {
     "session_id": "$SESSION_ID",
@@ -93,14 +93,14 @@ instruction: |
   If this was the last iteration (I == N) OR backlog was empty:
     - Update sessions.yaml: find SESSION_ID entry, set status: completed, add completed_at
     - Archive: copy the SESSION_ID block from sessions.yaml to
-      $AUTOPILOT_SESSIONS_DIR/archive/sessions_archive.yaml (append)
+      $WORKFLOW_STATE_DIR/autopilot/archive/sessions_archive.yaml (append)
     - Remove the SESSION_ID entry from sessions.yaml (so only in_progress entries remain)
     - Set all_iterations_completed = true
 
   STEP G — Clear context (if more iterations remain):
   If all_iterations_completed is false:
     Run /clear
-    After /clear, re-read $AUTOPILOT_SESSIONS_DIR/_checkpoint.json to restore context.
+    After /clear, re-read $WORKFLOW_STATE_DIR/autopilot/_checkpoint.json to restore context.
     Then proceed to next iteration (this step repeats via repeat_until).
 
   STATUS: completed
