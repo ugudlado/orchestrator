@@ -21,6 +21,16 @@ rules:
   - When a security hook rejects test code for using a standard library primitive in a legitimately controlled test context, rewrite the test to exercise the same behavior through a higher-level API and add an inline comment explaining why the direct form was avoided. Do not silently drop the assertion intent. <!-- learned: 2026-04-10, source: evaluate-processpoolexecutor-for-true-profile-isolation-in-daemon, cycle: 12, repo: algotrade -->
 
 instruction: |
+  0. Re-entry check (per CONVENTIONS.md § Idempotent Re-Entry):
+     Read state.yaml for `task_checkpoint`. If it exists:
+     a. Check whether the checkpointed task (task_checkpoint.task_id) is already
+        marked complete ([x]) in tasks.md.
+     b. If NOT marked complete: mark it [x] in tasks.md now. This reconciles a
+        crash that occurred after the checkpoint write but before the tasks.md
+        update was committed. Commit tasks.md + state.yaml together to close the gap.
+     c. If already marked complete: no action needed; continue to step 1.
+     If task_checkpoint does not exist in state.yaml, skip to step 1.
+
   1. Read tasks.md to find the next unchecked task (- [ ]) whose
      dependencies (depends: T-N) are all marked complete.
   2. If no unchecked tasks remain: this step's repeat condition is met — advance.
