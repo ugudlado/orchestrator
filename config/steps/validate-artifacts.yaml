@@ -1,0 +1,78 @@
+id: validate-artifacts
+version: 1
+
+intent: Check phase artifacts for structural compliance before review.
+
+inputs:
+  - phase_context_bundle
+
+rules:
+  - Blocking failures (required sections missing, malformed frontmatter) must be reported and halt advancement to run-phase-review.
+  - Non-blocking warnings (optional sections missing) are reported but do not halt advancement.
+  - Validate only artifacts produced in the current phase — do not re-validate prior-phase artifacts.
+  - Report all findings together in one pass — do not stop at the first failure.
+
+instruction: |
+  0. Re-entry check: if state.yaml step_history already has a completed validate-artifacts
+     entry for this phase from this execution, skip to post-completion.
+  1. Identify the artifacts to validate based on the current phase outputs (from schema):
+     - feature/specify phase: discovery.md, spec.md, design.md (if design=true), tasks.md
+     - bugfix/diagnose phase: diagnosis.md, fix-plan.md, tasks.md
+     - For other phases: tasks.md only.
+  2. For each artifact, run the checks below. Collect all findings before reporting.
+
+  ### discovery.md checks
+  - REQUIRED: frontmatter block present with `feature-id` and `linear-ticket` fields
+  - REQUIRED: sections present — Feature Summary, Personas & Actors, Use Cases, Scope (In/Out), UI Direction, Open Questions
+  - REQUIRED: Happy Path use cases — at least 2 entries, IDs follow pattern UC-<N> (sequential, no gaps)
+  - REQUIRED: Error & Edge Cases — at least 1 entry, IDs follow pattern UC-E<N>
+  - REQUIRED: In Scope and Out of Scope each have at least one bulleted item
+  - WARNING: Key Decisions section absent or empty (contextual — only warn if design=true)
+
+  ### spec.md checks
+  - REQUIRED: frontmatter block present with `feature-id` and `linear-ticket` fields
+  - REQUIRED: sections present — Motivation, What Changes, Requirements (Functional + Non-Functional), Architecture, Acceptance Criteria, Alternatives Considered, Impact
+  - REQUIRED: Functional Requirements list has at least one entry with format `N. **FR-N**:`
+  - REQUIRED: Acceptance Criteria list has at least one entry; each AC item includes `[traces: UC-N]`
+  - REQUIRED: AC identifiers are sequential (AC-1, AC-2, ...) with no gaps
+  - REQUIRED: Each UC-N referenced in `[traces:]` exists in discovery.md
+  - WARNING: Test Strategy section absent (contextual — only warn if code changes present)
+
+  ### design.md checks (only if produced)
+  - REQUIRED: sections present — Context, Goals/Non-Goals, Approaches Considered, High-Level Design, Constraints, Trade-offs, Open Questions
+  - REQUIRED: Goals and Non-Goals each have at least one bulleted item
+  - REQUIRED: Approaches Considered has at least 2 named approaches
+  - REQUIRED: Selected Approach section present
+
+  ### diagnosis.md checks
+  - REQUIRED: sections present — Symptoms, Reproduction Steps, Expected vs Actual, Investigation, Root Cause, Impact (Severity/Affected Areas/Since When), Linear Ticket
+  - REQUIRED: Root Cause references a file path (contains a file path pattern)
+  - REQUIRED: Severity is one of: critical, high, medium, low
+
+  ### fix-plan.md checks
+  - REQUIRED: sections present — Fix Strategy, Affected Files, Regression Test, Risk Assessment, Out of Scope
+  - REQUIRED: Regression Test block includes Test file, Test name, Asserts, Must fail before fix, Must pass after fix
+
+  ### tasks.md checks (all schemas)
+  - REQUIRED: at least one task entry
+  - REQUIRED: task IDs follow pattern T-<N> (sequential, no gaps)
+  - REQUIRED: each task has a Verify line
+  - REQUIRED: checkbox format is `- [ ]` or `- [x]`
+
+  3. Report findings:
+     - Blocking findings (REQUIRED failures): list each with artifact name, section/field, and what is missing or malformed.
+     - Non-blocking findings (WARNING): list each with artifact name and note.
+  4. If any blocking findings: set step status to failed. Do NOT advance to run-phase-review.
+     The orchestrator will route to create-or-refresh-artifacts for corrections.
+  5. If no blocking findings: set step status to completed.
+     Update state.yaml step_history per CONVENTIONS.md § State Updates.
+
+verify:
+  - validate-artifacts entry present in state.yaml step_history for the current phase
+  - If step status is completed: no blocking structural violations in current phase artifacts
+  - If step status is failed: at least one blocking finding documented in the report
+  - All required sections checked for each artifact type produced in this phase
+  - tasks.md task IDs are sequential T-<N> with no gaps
+
+outputs:
+  - artifact_validation_report
