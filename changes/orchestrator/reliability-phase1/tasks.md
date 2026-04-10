@@ -9,7 +9,7 @@
 - [x] T-3: Add per-task checkpoint write to execute-next-task.yaml
   Verify: execute-next-task.yaml instruction includes writing `task_checkpoint` to state.yaml after task completion and committing state.yaml + tasks.md atomically
 
-- [ ] T-4: Add idempotent re-entry check to execute-next-task.yaml
+- [x] T-4: Add idempotent re-entry check to execute-next-task.yaml
   Verify: execute-next-task.yaml instruction includes a step 0 that reads task_checkpoint from state.yaml and resumes from the correct task on re-entry
   depends: T-2
 
