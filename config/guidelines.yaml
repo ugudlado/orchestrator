@@ -25,3 +25,9 @@ bootstrap: >
   Use only to initialize a new project repo with standard tooling (Makefile, CLAUDE.md,
   spec/project.yaml, .gitignore). Runs in-place, no worktree, no Linear ticket.
   Triggers: "setup tooling", "bootstrap this repo", "initialize project".
+
+autopilot: >
+  Use to run an autonomous multi-iteration development loop — picks work from the
+  backlog, executes each ticket via /develop with full autonomy, and records a session
+  log across context resets. No worktree, no per-change state.yaml in the main flow.
+  Triggers: "autopilot", "autonomous", "run N iterations", "self-improve".
