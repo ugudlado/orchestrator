@@ -138,8 +138,7 @@ Classify each finding and route it to the right handler.
   | During review | `run-phase-review.yaml` | `rules:` or `instruction:` |
   | During final verification | `run-feature-verification.yaml` | `instruction:` section |
   | At phase boundaries | `phase-signoff.yaml` | `instruction:` pre-conditions |
-  | During artifact creation | `create-or-refresh-artifacts.yaml` | `rules:` list |
-  | During task generation | `generate-or-refresh-tasks.yaml` | `rules:` list |
+  | During artifact/task creation | `create-or-refresh-artifacts.yaml` | `rules:` list |
 
 - Apply the rule to the appropriate section of the target step contract
 - **IMPORTANT — Rule metadata**: When the workflow-fixer writes a learned rule, it MUST append the metadata comment inline on the same line as the rule text:

@@ -16,7 +16,7 @@ rules:
   - Global retry cap: if total retries across all tasks in this phase exceeds 10, STOP and escalate to user. Prevents infinite retry loops across many tasks.
   - When keeping an intentionally broad pattern (e.g., `except Exception`), annotate it inline with a justification comment (e.g., `# Intentionally broad: <reason>`). Silent exceptions must never be ambiguous.
   - When replacing a tool or artifact (e.g., poetry→uv, webpack→vite), delete the old tool's generated files from disk — even if gitignored. Stale artifacts cause confusion.
-  - When a task's Files field includes ux-prototype.html, read it as a visual reference for the approved design direction. Match layout, styling, and interaction patterns from the prototype. If ux-prototype.html does not exist, proceed from spec text alone.
+  - When the task references ux-prototype.html, read it as a visual reference for the approved design direction. Match layout, styling, and interaction patterns from the prototype. If ux-prototype.html does not exist, proceed from spec text alone.
   - In TypeScript projects, never use the `Function` type in test mocks or anywhere else — use explicit signatures like `(...args: unknown[]) => unknown`. The `Function` type is banned by @typescript-eslint/no-unsafe-function-type. <!-- learned: 2026-04-07, source: full-text-vault-search, cycle: 9, repo: valet -->
   - When a security hook rejects test code for using a standard library primitive in a legitimately controlled test context, rewrite the test to exercise the same behavior through a higher-level API and add an inline comment explaining why the direct form was avoided. Do not silently drop the assertion intent. <!-- learned: 2026-04-10, source: evaluate-processpoolexecutor-for-true-profile-isolation-in-daemon, cycle: 12, repo: algotrade -->
 
@@ -24,21 +24,21 @@ instruction: |
   1. Read tasks.md to find the next unchecked task (- [ ]) whose
      dependencies (depends: T-N) are all marked complete.
   2. If no unchecked tasks remain: this step's repeat condition is met — advance.
-  3. Read the task's Files list and any referenced context artifacts.
+  3. Identify which files are relevant to the task from spec/design context.
   4. Implement the changes described in the task.
   5. Run project verification commands (type-check, test, build)
      as defined in project.yaml quality_bar.
   6. If verification passes:
      - Mark task complete in tasks.md: [ ] → [x]
      - Commit per CONVENTIONS.md § Auto-Commit Convention:
-       Stage only the task's Files + tasks.md, then commit with message:
+       Stage only the task's changed files + tasks.md, then commit with message:
        `<prefix>(<change-id>): T-<N> <task title>`
        Skip commit if git status shows no changes (verification-only task).
      - Update state.yaml step_history per CONVENTIONS.md § State Updates.
   7. If verification fails:
      a. Leave task unchecked (- [ ]).
      b. Diagnose the failure from command output / test results.
-     c. Attempt an in-place fix scoped to the task's Files.
+     c. Attempt an in-place fix scoped to the task's changes.
      d. Re-run verification.
      e. Track retries in state.yaml (field: retries.T-N). Increment per attempt.
      f. If retries.T-N >= 3: STOP — record failure evidence in state.yaml

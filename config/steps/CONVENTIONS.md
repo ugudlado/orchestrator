@@ -69,7 +69,7 @@ flags_read:
 ### Example
 
 ```yaml
-id: generate-or-refresh-tasks
+id: create-or-refresh-artifacts
 flags_read:
   - name: tdd_required
     effect: "Every implementation task must have a preceding test task"
@@ -121,7 +121,7 @@ verification status."
 
 ## Task Format Contract
 
-The `tasks.md` file is a structural contract between `generate-or-refresh-tasks`
+The `tasks.md` file is a structural contract between `create-or-refresh-artifacts`
 (producer) and `execute-next-task` (consumer). Both steps MUST use this exact format.
 
 ### Format
@@ -129,20 +129,12 @@ The `tasks.md` file is a structural contract between `generate-or-refresh-tasks`
 ```markdown
 # Tasks — <Change Title>
 
-## Phase N: <Phase Name>
-
 - [ ] T-1: <one-line description>
-  Files: <comma-separated file paths>
   Verify: <concrete verification check>
 
 - [ ] T-2: <one-line description>
-  Files: <comma-separated file paths>
   Verify: <concrete verification check>
   depends: T-1
-
-- [ ] T-3: <one-line description> [P]
-  Files: <comma-separated file paths>
-  Verify: <concrete verification check>
 ```
 
 ### Field rules
@@ -152,32 +144,8 @@ The `tasks.md` file is a structural contract between `generate-or-refresh-tasks`
 | Checkbox | Yes | `- [ ]` (pending) or `- [x]` (done) |
 | ID | Yes | `T-<N>:` sequential within the file |
 | Description | Yes | One line, imperative verb |
-| Files | Yes | Indented 2 spaces, comma-separated paths |
 | Verify | Yes | Indented 2 spaces, concrete check (command output, file exists, etc.) |
 | depends | No | Indented 2 spaces, `depends: T-N` or `depends: T-N, T-M` |
-| Parallel | No | `[P]` suffix on description line = safe to run concurrently with other ready `[P]` tasks |
-
-### Phase grouping
-
-Tasks are grouped under `## Phase N: <Name>` headers. Phases execute sequentially;
-tasks within a phase execute in dependency order (or in parallel if marked `[P]`
-with no unmet dependencies).
-
-### Parallel execution rules
-
-1. A task marked `[P]` can run concurrently with **other `[P]` tasks whose
-   `depends:` are all satisfied**.
-2. `depends:` is always honored — even between two `[P]` tasks. If T-2 `[P]`
-   depends on T-1 `[P]`, T-1 must complete before T-2 starts.
-3. Non-`[P]` tasks always run sequentially, one at a time.
-4. Orchestrator pseudo-logic:
-   ```
-   ready = [T for T in unchecked if all depends(T) are [x]]
-   parallel_batch = [T for T in ready if T.has_marker("[P]")]
-   sequential = [T for T in ready if not T.has_marker("[P]")]
-   if parallel_batch: run all in parallel, wait for all
-   elif sequential: run sequential[0], wait
-   ```
 
 ## Discovery Brief Format Contract
 
@@ -260,8 +228,7 @@ UC-E1: {title} — what happens when {error condition}.
 
 ### Consumers
 
-- `create-or-refresh-artifacts` — reads UC-N identifiers for spec.md traceability
-- `generate-or-refresh-tasks` — reads scope and use cases for task derivation
+- `create-or-refresh-artifacts` — reads UC-N identifiers for spec.md traceability and scope/use cases for task derivation
 - `run-phase-review` — verifies structural compliance
 
 ---
@@ -269,7 +236,7 @@ UC-E1: {title} — what happens when {error condition}.
 ## Specification Format Contract
 
 The `spec.md` file is a structural contract between `create-or-refresh-artifacts`
-(producer) and `generate-or-refresh-tasks` / `run-phase-review` / `run-feature-verification`
+(producer and task consumer) and `run-phase-review` / `run-feature-verification`
 (consumers).
 
 ### Format
@@ -363,7 +330,6 @@ Rejected. {Why rejected or why chosen approach is better.}
 
 ### Consumers
 
-- `generate-or-refresh-tasks` — reads Acceptance Criteria and Architecture for task derivation
 - `run-feature-verification` — reads Acceptance Criteria for final verification
 - `run-phase-review` — verifies structural compliance and traceability
 
@@ -372,7 +338,7 @@ Rejected. {Why rejected or why chosen approach is better.}
 ## Design Format Contract
 
 The `design.md` file is a structural contract between `create-or-refresh-artifacts`
-(producer) and `generate-or-refresh-tasks` / `run-phase-review` (consumers).
+(producer and task consumer) and `run-phase-review` (consumer).
 Only produced in the feature schema when `design=true`.
 
 ### Format
@@ -475,7 +441,6 @@ Only produced in the feature schema when `design=true`.
 
 ### Consumers
 
-- `generate-or-refresh-tasks` — reads Components and Data Flow for task derivation
 - `run-phase-review` — verifies structural compliance
 
 ---
@@ -565,8 +530,8 @@ Reference: `file_path:line_number`
 ## Fix Plan Format Contract
 
 The `fix-plan.md` file is a structural contract between `create-or-refresh-artifacts`
-(producer) and `generate-or-refresh-tasks` / `run-phase-review` (consumers). Only
-produced in the bugfix schema.
+(producer and task consumer) and `run-phase-review` (consumer). Only produced in
+the bugfix schema.
 
 ### Format
 
@@ -618,7 +583,6 @@ Root cause reference: {from diagnosis.md Root Cause section}
 
 ### Consumers
 
-- `generate-or-refresh-tasks` — reads Affected Files and Regression Test for task derivation
 - `run-phase-review` — verifies structural compliance and diagnosis.md reference
 
 ---
@@ -652,8 +616,8 @@ find data where they expect it.
 | `rejection` | object | phase-signoff, final-signoff | `{ phase: <name>, feedback: "...", fix_tasks_created: [T-N, ...] }` |
 | `retries` | object | run-phase-review, execute-next-task | `{ <step_id_or_task_id>: <count> }` — per-step/task retry counter |
 | `refresh_artifacts` | boolean | run-phase-review (on fail) | `true` when artifacts need regeneration |
-| `change_type` | string | generate-or-refresh-tasks (after task creation) | `code` or `config_docs` — per § Change Type Detection |
-| `flag_adaptations` | list | generate-or-refresh-tasks (when change_type adapts flags) | `[{ flag, original, effective, reason }]` |
+| `change_type` | string | create-or-refresh-artifacts (after task creation) | `code` or `config_docs` — per § Change Type Detection |
+| `flag_adaptations` | list | create-or-refresh-artifacts (when change_type adapts flags) | `[{ flag, original, effective, reason }]` |
 
 ### Rules
 
@@ -1073,7 +1037,7 @@ When `ux_design=false` or the ux-design step was filtered out:
 
 ### Consumers
 
-- `generate-or-refresh-tasks` — reads `ux-artifacts.yaml` to create UI-specific tasks referencing `ux-prototype.html`
+- `create-or-refresh-artifacts` — reads `ux-artifacts.yaml` to create UI-specific tasks referencing `ux-prototype.html`
 - `execute-next-task` — developer reads `ux-prototype.html` as visual reference when implementing UI tasks
 - `run-phase-review` — verifies UX artifacts exist when ux-design step completed
 - `run-feature-verification` — verifies implementation matches prototype direction
@@ -1105,7 +1069,7 @@ session interruptions — each completed task is durably saved.
 
 - **Commit only on success**: Only commit after the task's verification passes and
   it is marked `[x]` in tasks.md. Never commit failing state.
-- **Scope**: Stage only files listed in the task's `Files:` field plus `tasks.md`.
+- **Scope**: Stage only files changed by the task plus `tasks.md`.
   Do not `git add -A` — this prevents accidentally committing unrelated changes.
 - **Squash-friendly**: These per-task commits may be squashed during
   `archive-completed-change` or at merge time. The granularity is for resilience,

@@ -66,7 +66,7 @@ Read the actual diff (`git diff` for the task's changes). Review against:
 - [ ] Clean separation of concerns
 
 **Scope Discipline**
-- [ ] Changes are limited to files in the task's Files section (or justified additions)
+- [ ] Changes are scoped to the task — no unrelated modifications
 - [ ] No drive-by refactors of surrounding code
 - [ ] No new conventions introduced without justification
 
@@ -170,7 +170,7 @@ After all tasks in a phase are complete, perform a comprehensive review of the f
 ### Verdict: PASS (>= 9) or NEEDS WORK (< 9)
 ```
 
-If NEEDS WORK: generate fix tasks in tasks.md format (T-N+1, etc.) with Why, Files, Verify.
+If NEEDS WORK: generate fix tasks in tasks.md format (T-N+1, etc.) with description and Verify.
 
 ---
 

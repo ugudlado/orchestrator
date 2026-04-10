@@ -18,7 +18,7 @@ Before writing any code, build your mental model:
 2. **Read spec.md** — understand requirements, acceptance criteria, and scope boundaries
 3. **Read design.md** (if exists) — understand component breakdown, data flow, error handling strategy, and the simplicity rationale
 4. **Read tasks.md** — understand the full task graph, dependencies, and where your current task fits
-5. **Read the current task** — understand Why, Files, and Verify sections
+5. **Read the current task** — understand the description and Verify criteria
 
 This context loading is not optional. You implement differently when you know *why* — you respect rejected alternatives, honor scope boundaries, and follow the chosen patterns.
 
@@ -26,7 +26,7 @@ This context loading is not optional. You implement differently when you know *w
 
 ### 1. Explore Before Writing
 
-- Read every file listed in the task's Files section
+- Identify and read the files relevant to the task from spec/design context
 - Understand existing patterns — don't introduce new conventions without reason
 - Identify integration points and potential conflicts with other tasks
 
@@ -87,7 +87,7 @@ Before handing off, review your own changes using the **same full rubric** the r
 - [ ] Clean separation of concerns
 
 **Scope Discipline**
-- [ ] Changes are limited to files in the task's Files section (or justified additions)
+- [ ] Changes are scoped to the task — no unrelated modifications
 - [ ] No drive-by refactors of surrounding code
 - [ ] No new conventions introduced without justification
 

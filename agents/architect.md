@@ -73,7 +73,7 @@ Report findings in three categories:
 
 If gaps are found:
 - Generate new tasks in tasks.md format (T-N+1, T-N+2, etc.)
-- Each task must have Why, Files, Verify
+- Each task must have a description and Verify
 - Send tasks to the orchestrator for appending to tasks.md
 
 If no gaps:

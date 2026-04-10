@@ -90,7 +90,7 @@ After EVERY significant action:
 
 3. **Task Execution**:
    - Mark task [→] before starting
-   - Implement with verification (Why, Files, Verify fields in tasks.md)
+   - Implement with verification (check Verify field in tasks.md)
    - If verification reveals bugs, add new tasks (T-6b pattern)
    - Mark task [x] when done
    - On failure: invoke `systematic-debugging` skill — no guess-fixes
