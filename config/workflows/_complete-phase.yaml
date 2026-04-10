@@ -1,0 +1,25 @@
+# Shared complete phase — included by feature, bugfix, and chore schemas.
+# Changes here apply to all three workflows.
+#
+# Usage in schema: include: _complete-phase
+# The orchestrator inlines this phase definition when it encounters the include directive.
+
+name: complete
+goal: Verify final quality and archive.
+rules:
+  - Verify all acceptance criteria with evidence.
+  - Archive only from canonical active state.
+verify:
+  commands: $project.verify_commands
+  assertions:
+    - All acceptance criteria verified with evidence
+    - No critical findings from final review unresolved
+  metrics:
+    review_score: { min: 9 }
+steps:
+  - run-feature-verification
+  - compute-prediction-accuracy
+  - run-learn-cycle
+  - compute-swe-metrics
+  - archive-completed-change
+  - remove-worktree

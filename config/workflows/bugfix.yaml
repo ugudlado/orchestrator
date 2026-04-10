@@ -115,23 +115,9 @@ phases:
       - run-phase-review
       - final-signoff if not auto
 
-  - name: complete
-    goal: Verify fix and archive.
+  - include: _complete-phase
     requires: implement
-    rules:
-      - Verify all acceptance criteria with evidence.
-      - Archive only from canonical active state.
     verify:
-      commands: $project.verify_commands
       assertions:
         - All acceptance criteria from fix-plan.md verified with evidence
         - Regression test passes in final test run
-        - No critical findings from final review unresolved
-      metrics:
-        review_score: { min: 9 }
-    steps:
-      - run-feature-verification
-      - compute-prediction-accuracy
-      - run-learn-cycle
-      - archive-completed-change
-      - remove-worktree
