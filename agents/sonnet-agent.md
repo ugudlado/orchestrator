@@ -2,6 +2,8 @@
 name: sonnet-agent
 description: Implementation, coding, testing, and standard development tasks
 model: sonnet
+color: green
+tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "WebSearch", "WebFetch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__chrome-devtools__take_screenshot", "mcp__chrome-devtools__navigate_page", "mcp__chrome-devtools__get_console_message", "mcp__chrome-devtools__evaluate_script", "mcp__plugin_claude-mem_mcp-search__search", "mcp__plugin_claude-mem_mcp-search__get_observations"]
 ---
 
 # Sonnet Agent - Optimized for Implementation
@@ -101,7 +103,7 @@ After EVERY significant action:
 
 You will be invoked for:
 
-- `/implement` - Feature implementation per tasks.md
+- Implement phase — feature implementation per tasks.md
 - Bug fixes and optimizations
 - Test suite development
 

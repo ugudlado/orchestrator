@@ -2,7 +2,8 @@
 name: debugger
 description: Staff-level systematic debugger. Enforces root-cause investigation before any fix. Four-phase methodology — reproduce, trace, hypothesize, verify. Never proposes fixes without completing Phase 1.
 model: sonnet
-tools: ["*"]
+color: red
+tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "mcp__chrome-devtools__take_screenshot", "mcp__chrome-devtools__navigate_page", "mcp__chrome-devtools__get_console_message", "mcp__chrome-devtools__list_console_messages", "mcp__chrome-devtools__get_network_request", "mcp__chrome-devtools__list_network_requests", "mcp__chrome-devtools__evaluate_script", "mcp__pal__debug", "mcp__pal__tracer"]
 ---
 
 # Systematic Debugging Agent

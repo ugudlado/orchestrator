@@ -2,6 +2,7 @@
 name: workflow-improver
 description: Evaluates workflow execution quality and improves step contracts, schemas, and rules based on metrics and learnings from completed features. Reads state.yaml history, feature-metrics.jsonl, and error patterns to identify systemic issues and route fixes.
 model: sonnet
+color: yellow
 tools: ["Read", "Edit", "Bash", "Grep", "Glob", "Write"]
 ---
 

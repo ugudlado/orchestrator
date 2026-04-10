@@ -2,6 +2,8 @@
 name: haiku-agent
 description: Simple tasks, file operations, quick scripts, and routine maintenance
 model: haiku
+color: cyan
+tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash"]
 ---
 
 # Haiku Agent - Fast Execution for Simple Tasks
@@ -79,7 +81,7 @@ Don't spin endlessly - escalate efficiently.
 
 You will be invoked for:
 
-- `/complete-feature` - Merging and cleanup tasks
+- Complete-feature phase — merging and cleanup tasks
 - Simple file operations and routine maintenance
 - Quick status checks
 
