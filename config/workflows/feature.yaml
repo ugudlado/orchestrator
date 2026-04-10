@@ -73,8 +73,7 @@ phases:
       - explore
       - design-exploration if design
       - ux-design if ux_design
-      - create-or-refresh-artifacts
-      - id: generate-or-refresh-tasks
+      - id: create-or-refresh-artifacts
         rules_when:
           tdd_required:
             - Every implementation task has a preceding test task.

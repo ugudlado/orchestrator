@@ -1,12 +1,17 @@
 id: create-or-refresh-artifacts
-version: 2
+version: 3
 
-intent: Create or update the current phase's output artifacts.
+intent: Create or update the current phase's output artifacts and generate tasks.
 
 agent: architect
 
 inputs:
   - phase_context_bundle (includes phase outputs definition)
+  - ux-artifacts.yaml (optional, per CONVENTIONS.md § UX Artifact Contract)
+
+flags_read:
+  - name: tdd_required
+    effect: "Every implementation task must have a preceding test task"
 
 rules:
   - Follow output dependency order from the schema phase definition.
@@ -14,9 +19,14 @@ rules:
   - Artifacts with `requires: [X, Y]` must not generate until X and Y exist on disk.
   - Detect cycles: if artifact A requires B and B requires A (directly or transitively), STOP and report the cycle.
   - Keep artifact content traceable to accepted requirements.
-  - Avoid implementation details — those belong in tasks.
+  - Avoid implementation details in spec/design — those belong in tasks.
+  - Tasks must be small, verifiable, and ordered.
+  - Attach verification criteria per task.
+  - Output MUST follow the Task Format Contract in CONVENTIONS.md § Task Format Contract.
 
 instruction: |
+  ## Part 1: Artifacts
+
   1. Read the current phase's `outputs:` from the schema.
   2. For each output file (in dependency order), determine action:
      - **Missing**: file does not exist in $SPEC_CHANGES_DIR/$CHANGE_ID/ → generate.
@@ -37,15 +47,40 @@ instruction: |
           directly from the change description in state.yaml.
      d. Write the artifact to $SPEC_CHANGES_DIR/$CHANGE_ID/<file>.
   4. Verify all outputs satisfy their `requires:` dependencies.
-  5. Update state.yaml step_history per CONVENTIONS.md § State Updates.
 
-  Note: This step creates non-task artifacts only (spec, design, diagnosis, etc.).
-  The generate-or-refresh-tasks step creates tasks.md separately.
+  ## Part 2: Tasks
+
+  5. Read spec.md (feature/chore) or fix-plan.md (bugfix) for requirements,
+     using the format defined in CONVENTIONS.md § Specification Format Contract
+     or § Fix Plan Format Contract respectively.
+     If neither exists, use the change description from state.yaml.
+  6. Read design.md (feature) per § Design Format Contract or diagnosis.md
+     (bugfix) per § Diagnosis Format Contract for approach, if available.
+  7. If ux-artifacts.yaml exists in $SPEC_CHANGES_DIR/$CHANGE_ID/:
+     Read it per CONVENTIONS.md § UX Artifact Contract. For UI tasks,
+     reference ux-prototype.html in the task description so the developer
+     agent can reference the approved visual design during implementation.
+  8. Generate the fewest tasks that cover all acceptance criteria.
+     Heuristic: each task should be a single focused change. If a task
+     requires touching many unrelated areas, split it. If two tasks do
+     the same thing, merge them.
+  9. Write tasks.md to $SPEC_CHANGES_DIR/$CHANGE_ID/ using the exact format
+     from CONVENTIONS.md § Task Format Contract:
+     - `- [ ] T-N: <description>` with `Verify:`, optional `depends:`
+
+  FLAG-DEPENDENT BEHAVIOR (per flags_read):
+  - When tdd_required: every implementation task has a preceding test task.
+  - When bugfix: regression test task precedes fix task.
+
+  10. Update state.yaml step_history per CONVENTIONS.md § State Updates.
 
 verify:
   - Every file listed in phase outputs: exists in $SPEC_CHANGES_DIR/$CHANGE_ID/
   - Each artifact's requires: dependencies were created before it
   - Artifacts are non-empty and follow template structure
+  - tasks.md follows the Task Format Contract (CONVENTIONS.md)
+  - tasks.md covers every acceptance criterion from spec
+  - Every task has a Verify field with concrete check
 
 outputs:
   - updated_artifact_set

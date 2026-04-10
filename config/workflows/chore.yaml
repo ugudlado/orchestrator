@@ -49,7 +49,6 @@ phases:
       - create-worktree
       - load-project-context
       - create-or-refresh-artifacts
-      - generate-or-refresh-tasks
       - run-phase-review
       - create-linear-ticket if linear
       - phase-signoff if not auto

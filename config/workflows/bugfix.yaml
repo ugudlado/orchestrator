@@ -78,8 +78,7 @@ phases:
       - id: diagnose
         extra_rules:
           - "Step 1: Write and run a reproduction script. Step 2: Trace the code path to find exact root cause. Step 3: Assess impact on other callers. Do NOT propose implementation details yet."
-      - create-or-refresh-artifacts
-      - id: generate-or-refresh-tasks
+      - id: create-or-refresh-artifacts
         extra_rules:
           - First task must be regression test. Second task must be the fix. Order matters.
       - run-phase-review

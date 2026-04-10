@@ -53,8 +53,7 @@ You analyze how the workflow performed during a feature and improve it for next 
 | During implementation | `execute-next-task.yaml` rules |
 | During review | `run-phase-review.yaml` rules |
 | During verification | `run-feature-verification.yaml` rules |
-| During artifact creation | `create-or-refresh-artifacts.yaml` rules |
-| During task generation | `generate-or-refresh-tasks.yaml` rules |
+| During artifact/task creation | `create-or-refresh-artifacts.yaml` rules |
 | Project-specific | `spec/project.yaml` learnings section |
 
 ### Rule Metadata

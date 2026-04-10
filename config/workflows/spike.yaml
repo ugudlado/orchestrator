@@ -48,7 +48,6 @@ phases:
       - Move fast — prototype, don't polish.
       - Document surprises and blockers inline.
     steps:
-      - generate-or-refresh-tasks
       - id: execute-next-task
         repeat_until: all_tasks_completed
 
