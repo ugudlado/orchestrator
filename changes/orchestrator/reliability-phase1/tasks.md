@@ -6,7 +6,7 @@
 - [x] T-2: Add Idempotent Re-Entry section to CONVENTIONS.md
   Verify: CONVENTIONS.md contains "## Idempotent Re-Entry" section with rules for checking partial completion on entry, skipping completed work, and avoiding duplicate step_history entries
 
-- [ ] T-3: Add per-task checkpoint write to execute-next-task.yaml
+- [x] T-3: Add per-task checkpoint write to execute-next-task.yaml
   Verify: execute-next-task.yaml instruction includes writing `task_checkpoint` to state.yaml after task completion and committing state.yaml + tasks.md atomically
 
 - [ ] T-4: Add idempotent re-entry check to execute-next-task.yaml
