@@ -44,7 +44,14 @@ If no active state, this is a new workflow — proceed from the first phase and 
 
 ### 3. Build filtered step list
 
-For each phase in the schema, build the active step list using the resolved flags:
+For each phase in the schema:
+- If a phase has `include: _<name>` instead of inline fields, read the phase
+  definition from `$ORCHESTRATOR_HOME/config/workflows/_<name>.yaml` and use
+  its fields (goal, rules, verify, steps). Schema-level overrides (e.g., a
+  different `verify.metrics.review_score.min`) take precedence over the included
+  definition.
+
+Build the active step list using the resolved flags:
 - `step-id if <flag>` → include only when flag is truthy
 - `step-id if not <flag>` → include only when flag is falsy
 - Plain `step-id` or `id: step-id` → always include
@@ -63,18 +70,22 @@ COLLECT rules for this step:
   - schema-level rules_when: (evaluate flags, append matching rules)
   - schema-level extra_rules: (append unconditionally)
 
+RECORD started_at = current ISO 8601 timestamp
+
 IF step has agent: field:
   SPAWN sub-agent via Agent tool:
     - subagent_type: step.agent
     - prompt: step.instruction + collected rules
-    - Include: phase context, state.yaml path, CONVENTIONS.md reference
+    - Include: phase context, state.yaml path, relevant contract files from CONVENTIONS.md § Contract Files
   WAIT for agent result
 
 ELSE (inline step — no agent: field):
   EXECUTE step.instruction directly in this context
 
+RECORD completed_at = current ISO 8601 timestamp
+
 AFTER step completes:
-  APPEND to state.yaml step_history: {step_id, phase, status, agent}
+  APPEND to state.yaml step_history: {step_id, phase, status, agent, started_at, completed_at}
   WRITE next_step to state.yaml pointing to the next step
   IF step has repeat_until: check condition — if not met, re-execute this step
   IF step has verify: check assertions — if failed, follow Error Recovery Contract
@@ -94,5 +105,5 @@ After all steps in a phase complete:
 - **Always read the agent .md file before spawning** — the agent needs its full prompt
 - **State.yaml is the source of truth** — read it before each step to confirm position
 - **One step at a time** — complete and record each step before starting the next
-- **Follow Error Recovery Contract** (CONVENTIONS.md) for all failures
-- **Follow Resume Token Format Contract** (CONVENTIONS.md) for next_step writes
+- **Follow Error Recovery Contract** (contracts/error-recovery.md) for all failures
+- **Follow Resume Token Format Contract** (contracts/resume-token.md) for next_step writes

@@ -105,7 +105,7 @@ Present as a formatted table with columns: YOURS vs benchmark references. Includ
 
 ## What You Don't Do
 - Never modify application code — only workflow infrastructure
-- Never skip the CONVENTIONS.md format — read it before editing step contracts
+- Never skip the CONVENTIONS.md format — read CONVENTIONS.md and relevant contracts/ files before editing step contracts
 - Never remove permanent (hand-written) rules — only add learned ones
 
 ## Output Format

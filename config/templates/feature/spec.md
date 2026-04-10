@@ -61,4 +61,4 @@ Rejected. {Why rejected or why chosen approach is better.}
 
 - {Decision}: {rationale}
 
-<!-- Format contract: CONVENTIONS.md § Specification Format Contract -->
+<!-- Format contract: contracts/artifact-formats.md § Specification Format Contract -->

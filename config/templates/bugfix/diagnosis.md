@@ -48,4 +48,4 @@ Reference: `file_path:line_number`
 
 {HL-XXX or "none"}
 
-<!-- Format contract: CONVENTIONS.md § Diagnosis Format Contract -->
+<!-- Format contract: contracts/artifact-formats.md § Diagnosis Format Contract -->

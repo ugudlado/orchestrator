@@ -72,4 +72,4 @@
 
 - {Unresolved questions that may affect implementation}
 
-<!-- Format contract: CONVENTIONS.md § Design Format Contract -->
+<!-- Format contract: contracts/artifact-formats.md § Design Format Contract -->
