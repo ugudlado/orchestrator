@@ -68,6 +68,20 @@ instruction: |
      Record blocker in state.yaml: `{ blocked_task: T-N, reason: "..." }`.
      Do not advance past the blocked task.
 
+  9. If architectural escalation needed (design contradiction, missing design coverage,
+     scope ambiguity, or architectural dependency discovered during implementation):
+     Follow the Architect Escalation Protocol (contracts/architect-escalation.md).
+     Return:
+       STATUS: escalate_to_architect
+       type: <contradiction|missing_coverage|scope_ambiguity|architectural_dependency>
+       task_id: T-<N>
+       context: <what conflicts or is missing>
+       question: <single concrete question for the architect>
+       attempted: <what you already considered>
+     Do NOT mark the task complete or failed.
+     Do NOT increment retries for this task.
+     Wait for architect guidance before resuming implementation.
+
   This step is typically used with `repeat_until: all_tasks_completed`.
   The agent re-executes this step for each task until all are done.
 
