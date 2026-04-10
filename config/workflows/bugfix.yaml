@@ -81,6 +81,7 @@ phases:
       - id: create-or-refresh-artifacts
         extra_rules:
           - First task must be regression test. Second task must be the fix. Order matters.
+      - validate-artifacts
       - run-phase-review
       - create-linear-ticket if linear
       - phase-signoff if not auto

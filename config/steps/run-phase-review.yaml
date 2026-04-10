@@ -35,16 +35,27 @@ instruction: |
   4. Check the phase's verify.metrics (from schema):
      Compare actual values against thresholds.
      Apply `when:` conditions on metrics (e.g., test_coverage only when tdd_required).
-  5. Score the phase 1-10 using caps and rubric:
-     - Critical finding (unmet assertion) → caps score at scoring.critical_cap
-     - Important finding (command failure) → caps score at scoring.important_cap
-     - All green → score = scoring.green_base. Award +1 ONLY if ALL of:
+  5. Score each dimension separately on 1-10 using the same caps and rubric:
+     - Dimensions: spec_compliance, correctness, security, simplicity, code_quality
+     - For each dimension:
+       - Critical finding in this dimension → caps dimension score at scoring.critical_cap
+       - Important finding in this dimension → caps dimension score at scoring.important_cap
+       - All green for this dimension → dimension score = scoring.green_base
+     - Compute overall = minimum of all dimension scores.
+     - Award overall +1 (max 10) ONLY if ALL of:
        a. Every artifact exceeds minimum requirements (not just meets them)
        b. No TODO, FIXME, or placeholder text remains in outputs
        c. All verify assertions passed on first attempt (no retries used this round)
-     - Score never exceeds 10.
-  6. If score >= phase verify.metrics.review_score.min and no critical findings: PASS.
-     Update state.yaml step_history per CONVENTIONS.md § State Updates.
+  5b. Baseline comparison (non-blocking):
+     - Read $WORKFLOW_STATE_DIR/feature-metrics.jsonl if it exists.
+     - Filter entries matching current schema (e.g., feature) and current phase.
+     - Compute average review_score.overall across those entries (skip entries missing this field).
+     - If current overall is 2 or more points below that average: emit a warning in the report
+       ("Quality regression: current score N is 2+ below historical average M for this schema/phase").
+     - If file does not exist or no matching entries: skip silently.
+  6. If overall >= phase verify.metrics.review_score.min and no critical findings: PASS.
+     Write structured review_score object to state.yaml step_history entry per CONVENTIONS.md § State Updates:
+       review_score: { overall: <N>, dimensions: { spec_compliance: <N>, correctness: <N>, security: <N>, simplicity: <N>, code_quality: <N> } }
   7. If FAIL:
      a. Generate fix tasks per Fix Task Protocol (contracts/error-recovery.md):
         one fix task per finding, each with Finding, Scope, and Approach.
@@ -56,7 +67,7 @@ instruction: |
         - Otherwise: execute fix tasks, then re-run this review step.
 
 verify:
-  - Review score recorded in state.yaml under step_history as {step_id: run-phase-review, phase: <current>, status: completed, review_score: <N>}
+  - Review score recorded in state.yaml under step_history as {step_id: run-phase-review, phase: <current>, status: completed, review_score: { overall: <N>, dimensions: { spec_compliance: <N>, correctness: <N>, security: <N>, simplicity: <N>, code_quality: <N> } }}
   - All critical findings have either a fix task or are resolved
   - phase-signoff will BLOCK if this step's entry is missing from step_history — this step is not optional
 

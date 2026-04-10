@@ -80,6 +80,7 @@ phases:
             - Keep explicit red-green-refactor order in task text.
           not tdd_required:
             - Tests are optional unless task-level verification explicitly requires them.
+      - validate-artifacts
       - run-phase-review
       - create-linear-ticket if linear
       - phase-signoff if not auto

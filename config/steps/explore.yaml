@@ -29,6 +29,8 @@ verify:
   - Discovery brief written to change dir
   - Brief covers constraints and integration points (not design approaches — those belong in design-exploration)
   - Unresolved questions explicitly listed (not hidden)
+  - At least 2 use cases defined (minimum 1 happy path UC-N, minimum 1 error/edge UC-EN)
+  - Build-or-reuse decision is explicitly stated (Key Decisions section addresses whether to build new or reuse/extend existing)
 
 outputs:
   - discovery_result

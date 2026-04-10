@@ -132,7 +132,7 @@ step_history:
     status: completed          # or: failed, blocked
     agent: <agent name or "inline">
     artifacts: [<files created or modified>]  # optional, list artifact filenames
-    review_score: <N>          # only for run-phase-review
+    review_score: <object>     # only for run-phase-review; see State Field Registry for structure
     started_at: <ISO 8601>     # when step execution began
     completed_at: <ISO 8601>   # when step execution finished
 ```
@@ -144,7 +144,7 @@ step_history:
 - **Status values**: `completed`, `failed`, `blocked` — no other values.
 - **Artifacts field**: only include files the step created or modified in
   `$WORKFLOW_STATE_DIR/$CHANGE_ID/`. Omit for steps that don't produce artifacts.
-- **`review_score`**: only present on `run-phase-review` entries.
+- **`review_score`**: only present on `run-phase-review` entries. Must be a structured object — see State Field Registry for format.
 - **Timestamps**: `started_at` and `completed_at` use ISO 8601 format (`2026-04-04T20:00:00Z`).
   Both are required on all entries. The orchestrator records `started_at` before
   dispatching the step and `completed_at` after the step finishes.
@@ -194,6 +194,7 @@ find data where they expect it.
 | `flag_adaptations` | list | create-or-refresh-artifacts (when change_type adapts flags) | `[{ flag, original, effective, reason }]` |
 | `task_checkpoint` | object | execute-next-task | `{ task_id: "T-3", status: "completed", committed_at: "<ISO>" }` |
 | `workflow_plan` | object | load-project-context | `{ <phase>: { active: [...], filtered: [...] } }` |
+| `step_history[].review_score` | object | run-phase-review | `{ overall: 9, dimensions: { spec_compliance: 9, correctness: 10, security: 9, simplicity: 9, code_quality: 9 } }` |
 
 ### Rules
 
