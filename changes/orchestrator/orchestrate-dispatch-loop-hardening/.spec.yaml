@@ -1,0 +1,7 @@
+schema: feature
+feature-id: orchestrate-dispatch-loop-hardening
+status: proposed
+category: improvement
+priority: 7.0
+source: ideator
+created: 2026-04-11
