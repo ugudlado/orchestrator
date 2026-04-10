@@ -1,0 +1,51 @@
+schema: chore
+slug: quality-gates-phase2
+status: active
+phase: implement
+flags:
+  auto: true
+  agents: true
+  linear: false
+  tdd_required: false
+  design: false
+worktree_path: /Users/spidey/code/feature_worktrees/quality-gates-phase2
+project_context_loaded: true
+project_context_at: "2026-04-10T21:26:00Z"
+workflow_plan:
+  specify:
+    active: [create-worktree, load-project-context, create-or-refresh-artifacts, run-phase-review]
+    filtered: [create-linear-ticket, phase-signoff]
+  implement:
+    active: [execute-next-task, run-simplify, run-phase-review]
+    filtered: [final-signoff]
+  complete:
+    active: [run-feature-verification, compute-prediction-accuracy, run-learn-cycle, compute-swe-metrics, archive-completed-change, remove-worktree]
+    filtered: []
+next_step:
+  skill: orchestrate
+  phase: implement
+  step_id: execute-next-task
+  instruction: Execute tasks for quality-gates-phase2
+step_history:
+  - step_id: create-worktree
+    phase: specify
+    status: completed
+    started_at: "2026-04-10T21:25:30Z"
+    completed_at: "2026-04-10T21:25:45Z"
+  - step_id: load-project-context
+    phase: specify
+    status: completed
+    started_at: "2026-04-10T21:25:45Z"
+    completed_at: "2026-04-10T21:26:00Z"
+  - step_id: create-or-refresh-artifacts
+    phase: specify
+    status: completed
+    started_at: "2026-04-10T21:26:00Z"
+    completed_at: "2026-04-10T21:26:30Z"
+  - step_id: run-phase-review
+    phase: specify
+    status: completed
+    review_score: 9
+    started_at: "2026-04-10T21:26:30Z"
+    completed_at: "2026-04-10T21:26:45Z"
+error_events: []
