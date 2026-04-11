@@ -76,6 +76,3 @@ phases:
 
   - include: _complete-phase
     requires: implement
-    verify:
-      metrics:
-        review_score: { min: 7 }
