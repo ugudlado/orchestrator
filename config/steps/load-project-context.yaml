@@ -31,6 +31,19 @@ instruction: |
   3. Read $ORCHESTRATOR_HOME/config/workflows/$SCHEMA.yaml for schema rules, phase definitions, and outputs.
 
   4. Compute runtime feature profile by merging schema defaults with state.flags.
+     Then apply ux_design auto-detection:
+     a. Check whether `ux_design` was explicitly set via a CLI flag (e.g., --no-ux
+        or any flag that directly sets ux_design). If it was, skip auto-detection
+        and keep the explicit value.
+     b. If ux_design was NOT explicitly set, read `tech_stack` from project.yaml
+        and check for any known frontend technology:
+          react, nextjs, next, vue, svelte, angular, html, css, tailwind,
+          scss, sass, less, webpack, vite, typescript-frontend, flutter, swift-ui
+        If none of the tech_stack entries match this list, set `ux_design: false`
+        in the resolved flags.
+        # Heuristic: a project with no frontend tech never needs UX design steps.
+        # To override, pass --no-ux false (or the equivalent explicit flag) on the
+        # CLI — that takes precedence and skips this auto-detection entirely.
 
   5. Write or validate workflow_plan in state.yaml (per CONVENTIONS.md § State Field Registry):
      a. If workflow_plan does NOT exist in state.yaml (fresh start):
