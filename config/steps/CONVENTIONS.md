@@ -147,6 +147,10 @@ step_history:
     review_score: <object>     # only for run-phase-review; see State Field Registry for structure
     started_at: <ISO 8601>     # when step execution began
     completed_at: <ISO 8601>   # when step execution finished
+    usage:                       # only for agent-spawned steps
+      total_tokens: 18500
+      tool_uses: 7
+      duration_ms: 42000
 ```
 
 ### Rules
@@ -207,6 +211,7 @@ find data where they expect it.
 | `task_checkpoint` | object | execute-next-task | `{ task_id: "T-3", status: "completed", committed_at: "<ISO>" }` |
 | `workflow_plan` | object | load-project-context | `{ <phase>: { active: [...], filtered: [...] } }` |
 | `step_history[].review_score` | object | run-phase-review | `{ overall: 9, dimensions: { spec_compliance: 9, correctness: 10, security: 9, simplicity: 9, code_quality: 9 } }` |
+| `step_history[].usage` | object | orchestrate skill (dispatch loop) | `{ total_tokens: N, tool_uses: N, duration_ms: N }`. Only for steps with agent: field. |
 | `escalation_events` | list | orchestrate skill (escalation routing) | See `contracts/architect-escalation.md` § State Recording. Each entry: `{ task_id, type, question, decision, design_amended, tasks_changed, timestamp }` |
 
 ### Rules
