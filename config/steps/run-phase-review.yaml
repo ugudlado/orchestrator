@@ -53,6 +53,26 @@ instruction: |
      - If current overall is 2 or more points below that average: emit a warning in the report
        ("Quality regression: current score N is 2+ below historical average M for this schema/phase").
      - If file does not exist or no matching entries: skip silently.
+  5c. AC verification with evidence (implement phase only):
+     - If current phase is not implement: skip this step.
+     - Read spec.md (feature/chore) or fix-plan.md (bugfix) for acceptance criteria,
+       using the format defined in CONVENTIONS.md § Specification Format Contract
+       or § Fix Plan Format Contract respectively.
+     - For each acceptance criterion:
+       a. Run the verification check (test, manual check, build gate, or file inspection).
+       b. Record pass/fail with evidence (command output, file check result, etc.).
+       c. If a criterion uses ALL/EVERY/EACH:
+          - Define scope: what "all" means for this criterion (e.g., "all .ts files in src/").
+          - Count programmatically: use grep/find/ast to get the total N.
+          - Verify each target with evidence.
+          - Report: "Verified N/N <target type>" (e.g., "Verified 47/47 API routes").
+          - If N differs from any earlier count in spec: note the discrepancy and
+            use the fresh count as authoritative.
+       d. If a criterion contains FIXED/RESOLVED/COMPLETE claims:
+          - Re-run the original search against the ENTIRE source tree from scratch.
+          - Do not trust earlier phase counts.
+          - Record fresh search result as evidence.
+     - If any AC fails: treat as a critical finding in spec_compliance dimension.
   6. If overall >= phase verify.metrics.review_score.min and no critical findings: PASS.
      Write structured review_score object to state.yaml step_history entry per CONVENTIONS.md § State Updates:
        review_score: { overall: <N>, dimensions: { spec_compliance: <N>, correctness: <N>, security: <N>, simplicity: <N>, code_quality: <N> } }
