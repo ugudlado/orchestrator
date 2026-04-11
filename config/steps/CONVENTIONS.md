@@ -59,6 +59,18 @@ Every step contract has exactly 4 sections, each with a distinct purpose:
 | `verify:` | Assertions that the one thing was done correctly | Checkable conditions. Must be evaluable without re-reading instruction. |
 | `outputs:` | What the step produces | Artifact names only. |
 
+## Step-Level Model Override
+
+A step contract may include an optional `model:` field (e.g., `model: sonnet`).
+When present, the dispatch loop passes it as the `model` parameter to the Agent
+tool, overriding the agent definition's model frontmatter for that step only.
+
+Use this for non-critical steps where a cheaper/faster model is sufficient (e.g.,
+code simplification, formatting checks). The agent definition's model remains the
+default for all other steps that use the same agent.
+
+Valid values: `opus`, `sonnet`, `haiku` (must match the Agent tool's model enum).
+
 ## Where learned rules go
 
 When `/learn` discovers a new rule, route it to the right section:

@@ -4,6 +4,7 @@ version: 2
 intent: Simplify and clean up implementation code before review — staff-level code quality.
 
 agent: developer
+model: sonnet
 
 inputs:
   - All files modified during execute-next-task steps
