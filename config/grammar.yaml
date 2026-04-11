@@ -309,6 +309,16 @@ swe_metrics:
       input_output_ratio: number        # tokens.input / tokens.output
       cache_hit_rate: number            # cache_read / (input + cache_creation + cache_read)
 
+    # ── Per-Agent Attribution ─────────────────────────────────────────
+    # Computed by compute-swe-metrics.sh from step_history[].usage entries.
+    # Grouped by agent name (e.g., "developer", "reviewer").
+    per_agent_tokens: string            # JSON object: { agent: { total_tokens, tool_uses, duration_ms, steps } }
+                                        # Example: '{"developer":{"total_tokens":18500,"tool_uses":7,"duration_ms":42000,"steps":1}}'
+    per_agent_tools: string             # JSON object: { agent: { ToolName: count, ... } }
+                                        # Example: '{"developer":{"Read":89,"Bash":45,"Grep":30,"Edit":12}}'
+                                        # Tool names are as-is from agent results (no enum). Sum of values equals tool_uses for that agent.
+                                        # Entries without tools: sub-map in state.yaml are skipped (backward compatible with pre-HL-276).
+
 # ─── EVOLUTION ─────────────────────────────────────────────────────
 #
 # Two things evolve at different rates:
