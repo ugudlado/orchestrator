@@ -1,7 +1,7 @@
 id: compute-swe-metrics
 version: 1
 
-intent: Compute SWE metrics and persist to state.yaml and feature-metrics.jsonl.
+intent: Compute SWE metrics and persist to state.yaml.
 
 agent: developer
 
@@ -38,36 +38,10 @@ instruction: |
         ```
         Do NOT fail — metrics are non-blocking.
 
-  3. **Write to feature-metrics.jsonl**:
-     Append a single JSON line to ~/.claude/logs/feature-metrics.jsonl with
-     the SWE-bench-comparable format (see archive-completed-change.yaml v4
-     for the full JSON schema — same format, just computed in this step now).
-     The JSONL entry MUST include a `tokens` object with at minimum:
-     `{ input, output, cache_creation, cache_read, total }` from the metrics
-     block in state.yaml. Also include `cost: { net_usd, gross_usd }`.
-     These fields are required for telemetry dashboards and workflow improvement.
-
-     3a. **Per-agent token and tool attribution**:
-         Read `step_history` from state.yaml. For each entry that has both an
-         `agent:` field and a `usage:` sub-object, group by agent type and sum:
-         `total_tokens`, `tool_uses`, `duration_ms`, and count `steps`.
-         Include a `per_agent_tokens` object in the JSONL output:
-         `{ developer: { total_tokens: N, tool_uses: N, duration_ms: N, steps: N }, ... }`
-         Skip entries that have no `usage:` field (backward compatible with older
-         state.yaml files that predate this field).
-         Also aggregate the `tools:` sub-map within each `usage:` block by agent name.
-         Include a `per_agent_tools` object in the JSONL output:
-         `{ developer: { Read: N, Bash: N, Grep: N, ... }, reviewer: { Read: N }, ... }`
-         The format is a JSON object keyed by agent name, each value a map of tool type
-         to count. Skip entries without a `tools:` sub-map (backward compatible with
-         state.yaml files that predate HL-276). If no entries have `tools:` data,
-         emit `per_agent_tools: {}` (not null).
-
-  4. Update state.yaml step_history per CONVENTIONS.md § State Updates.
+  3. Update state.yaml step_history per CONVENTIONS.md § State Updates.
 
 verify:
   - state.yaml contains a `metrics:` block (even if placeholder)
-  - feature-metrics.jsonl has a new entry for this feature
 
 outputs:
   - swe_metrics
