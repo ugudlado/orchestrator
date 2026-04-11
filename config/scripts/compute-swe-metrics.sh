@@ -1,24 +1,24 @@
 #!/bin/bash
-# compute-swe-metrics.sh — Extract SWE-bench-aligned metrics from session transcripts + git history.
+# compute-swe-metrics.sh — Extract SWE-bench-aligned metrics from state.yaml + git history.
 #
-# Usage: compute-swe-metrics.sh <state_dir> [transcript_path...]
+# Usage: compute-swe-metrics.sh <state_dir>
 #
-# Reads:  state.yaml, session JSONL transcripts, git log
+# Reads:  state.yaml (step_history[].usage for tokens/cost, step_history for resolution)
+#         git log (for churn metrics)
 # Writes: metrics block to stdout as YAML (for injection into state.yaml)
 #
+# Token/cost data comes from step_history[].usage, written by the orchestrator
+# dispatch loop after each agent step. No transcript parsing needed.
+#
 # Methodology references:
-#   - Token counting: sum message.usage{} from assistant entries (SWE-bench HAL method)
-#   - Cost: gross = no cache discount, net = with cache discount (HAL reports gross)
+#   - Token counting: sum step_history[].usage fields (input_tokens, output_tokens, etc.)
+#   - Cost: gross = no cache discount, net = with cache discount
 #   - Resolution: binary per-task (F2P=1 AND P2P=1 maps to task acceptance + no regressions)
 #   - pass@k: Aider methodology (k=1 first attempt, k=2 within two attempts)
 
 set -uo pipefail
-# Note: not using set -e because grep returning no matches (exit 1) in pipelines
-# causes false failures with pipefail. We handle errors explicitly instead.
 
-STATE_DIR="${1:?Usage: compute-swe-metrics.sh <state_dir> [transcript_path...]}"
-shift
-TRANSCRIPTS=("$@")
+STATE_DIR="${1:?Usage: compute-swe-metrics.sh <state_dir>}"
 
 STATE_FILE="$STATE_DIR/state.yaml"
 if [[ ! -f "$STATE_FILE" ]]; then
@@ -42,97 +42,49 @@ get_pricing() {
   esac
 }
 
-# ── Parse Transcripts ────────────────────────────────────────────────────
-# If no transcripts provided, try to find them from the session
-if [[ ${#TRANSCRIPTS[@]} -eq 0 ]]; then
-  # Look for transcript references in state dir or recent session files
-  PROJECT_SLUG=$(pwd | sed 's|/|-|g')
-  TRANSCRIPT_DIR="$HOME/.claude/projects/$PROJECT_SLUG"
-  if [[ -d "$TRANSCRIPT_DIR" ]]; then
-    # Find JSONL files modified during the feature's time window
-    STARTED_AT=$(grep 'started_at:' "$STATE_FILE" | head -1 | sed 's/.*: *"*//' | sed 's/"*$//')
-    if [[ -n "$STARTED_AT" ]]; then
-      while IFS= read -r f; do
-        TRANSCRIPTS+=("$f")
-      done < <(find "$TRANSCRIPT_DIR" -maxdepth 1 -name "*.jsonl" -newer "$STATE_FILE" -o -name "*.jsonl" 2>/dev/null | head -10)
-    fi
-    # Fallback: most recent JSONL
-    if [[ ${#TRANSCRIPTS[@]} -eq 0 ]]; then
-      LATEST=$(ls -t "$TRANSCRIPT_DIR"/*.jsonl 2>/dev/null | head -1)
-      [[ -n "$LATEST" ]] && TRANSCRIPTS+=("$LATEST")
-    fi
-  fi
-fi
-
-# Aggregate token counts across all transcripts
+# ── Token Counting (from state.yaml step_history) ───────────────────────
+# Primary source: step_history[].usage written by the orchestrator after each agent step.
+# Each entry has: input_tokens, output_tokens, cache_creation_input_tokens,
+# cache_read_input_tokens, total_tokens, tool_uses, duration_ms.
 TOTAL_INPUT=0
 TOTAL_OUTPUT=0
 TOTAL_CACHE_CREATION=0
 TOTAL_CACHE_READ=0
-TOTAL_TURNS=0
+TOTAL_TOKENS=0
 TOTAL_TOOL_CALLS=0
+TOTAL_TURNS=0
 MODEL="unknown"
 
-for transcript in "${TRANSCRIPTS[@]}"; do
-  [[ ! -f "$transcript" ]] && continue
+STATE_USAGE=$(awk '
+  /^step_history:/ { in_sh=1; next }
+  in_sh && /^[^ ]/ && !/^  / { in_sh=0 }
+  in_sh && /^  - / { flush() }
+  in_sh && /^    usage:/ { in_u=1; next }
+  in_sh && in_u && /^      input_tokens:/                 { gsub(/.*: */, ""); inp+=$0+0 }
+  in_sh && in_u && /^      output_tokens:/                { gsub(/.*: */, ""); out+=$0+0 }
+  in_sh && in_u && /^      cache_creation_input_tokens:/  { gsub(/.*: */, ""); cc+=$0+0 }
+  in_sh && in_u && /^      cache_read_input_tokens:/      { gsub(/.*: */, ""); cr+=$0+0 }
+  in_sh && in_u && /^      total_tokens:/                 { gsub(/.*: */, ""); t+=$0+0 }
+  in_sh && in_u && /^      tool_uses:/                    { gsub(/.*: */, ""); u+=$0+0 }
+  in_sh && in_u && /^      duration_ms:/                  { gsub(/.*: */, ""); d+=$0+0 }
+  in_sh && in_u && /^    [a-z]/ && !/^      / { in_u=0 }
+  function flush() { if (in_u) in_u=0; s++ }
+  END { flush(); printf "%d %d %d %d %d %d %d %d", inp+0, out+0, cc+0, cr+0, t+0, u+0, d+0, s+0 }
+' "$STATE_FILE")
 
-  # Extract token metrics from assistant messages using jq
-  # Each assistant message has message.usage with token counts
-  METRICS=$(jq -s '
-    [.[] | select(.type == "assistant" and .message.usage != null)] |
-    {
-      input: (map(.message.usage.input_tokens // 0) | add // 0),
-      output: (map(.message.usage.output_tokens // 0) | add // 0),
-      cache_creation: (map(.message.usage.cache_creation_input_tokens // 0) | add // 0),
-      cache_read: (map(.message.usage.cache_read_input_tokens // 0) | add // 0),
-      turns: length,
-      tool_calls: ([.[] | .message.content[]? | select(.type == "tool_use")] | length),
-      model: (map(select(.message.model != null) | .message.model) | last // "unknown")
-    }
-  ' "$transcript" 2>/dev/null || echo '{"input":0,"output":0,"cache_creation":0,"cache_read":0,"turns":0,"tool_calls":0,"model":"unknown"}')
+TOTAL_INPUT=$(echo "$STATE_USAGE" | awk '{print $1}')
+TOTAL_OUTPUT=$(echo "$STATE_USAGE" | awk '{print $2}')
+TOTAL_CACHE_CREATION=$(echo "$STATE_USAGE" | awk '{print $3}')
+TOTAL_CACHE_READ=$(echo "$STATE_USAGE" | awk '{print $4}')
+TOTAL_TOKENS=$(echo "$STATE_USAGE" | awk '{print $5}')
+TOTAL_TOOL_CALLS=$(echo "$STATE_USAGE" | awk '{print $6}')
+TOTAL_DURATION_MS=$(echo "$STATE_USAGE" | awk '{print $7}')
+TOTAL_STEPS=$(echo "$STATE_USAGE" | awk '{print $8}')
 
-  TOTAL_INPUT=$((TOTAL_INPUT + $(echo "$METRICS" | jq '.input')))
-  TOTAL_OUTPUT=$((TOTAL_OUTPUT + $(echo "$METRICS" | jq '.output')))
-  TOTAL_CACHE_CREATION=$((TOTAL_CACHE_CREATION + $(echo "$METRICS" | jq '.cache_creation')))
-  TOTAL_CACHE_READ=$((TOTAL_CACHE_READ + $(echo "$METRICS" | jq '.cache_read')))
-  TOTAL_TURNS=$((TOTAL_TURNS + $(echo "$METRICS" | jq '.turns')))
-  TOTAL_TOOL_CALLS=$((TOTAL_TOOL_CALLS + $(echo "$METRICS" | jq '.tool_calls')))
-
-  DETECTED_MODEL=$(echo "$METRICS" | jq -r '.model')
-  [[ "$DETECTED_MODEL" != "unknown" ]] && MODEL="$DETECTED_MODEL"
-done
-
-TOTAL_TOKENS=$((TOTAL_INPUT + TOTAL_OUTPUT + TOTAL_CACHE_CREATION))
-
-# Also count subagent transcripts if they exist
-for transcript in "${TRANSCRIPTS[@]}"; do
-  SUBAGENT_DIR="${transcript%.jsonl}"
-  if [[ -d "$SUBAGENT_DIR/subagents" ]]; then
-    for sub in "$SUBAGENT_DIR/subagents"/*.jsonl; do
-      [[ ! -f "$sub" ]] && continue
-      SUB_METRICS=$(jq -s '
-        [.[] | select(.type == "assistant" and .message.usage != null)] |
-        {
-          input: (map(.message.usage.input_tokens // 0) | add // 0),
-          output: (map(.message.usage.output_tokens // 0) | add // 0),
-          cache_creation: (map(.message.usage.cache_creation_input_tokens // 0) | add // 0),
-          cache_read: (map(.message.usage.cache_read_input_tokens // 0) | add // 0),
-          turns: length,
-          tool_calls: ([.[] | .message.content[]? | select(.type == "tool_use")] | length)
-        }
-      ' "$sub" 2>/dev/null || echo '{"input":0,"output":0,"cache_creation":0,"cache_read":0,"turns":0,"tool_calls":0}')
-
-      TOTAL_INPUT=$((TOTAL_INPUT + $(echo "$SUB_METRICS" | jq '.input')))
-      TOTAL_OUTPUT=$((TOTAL_OUTPUT + $(echo "$SUB_METRICS" | jq '.output')))
-      TOTAL_CACHE_CREATION=$((TOTAL_CACHE_CREATION + $(echo "$SUB_METRICS" | jq '.cache_creation')))
-      TOTAL_CACHE_READ=$((TOTAL_CACHE_READ + $(echo "$SUB_METRICS" | jq '.cache_read')))
-      TOTAL_TURNS=$((TOTAL_TURNS + $(echo "$SUB_METRICS" | jq '.turns')))
-      TOTAL_TOOL_CALLS=$((TOTAL_TOOL_CALLS + $(echo "$SUB_METRICS" | jq '.tool_calls')))
-    done
-  fi
-done
-
-TOTAL_TOKENS=$((TOTAL_INPUT + TOTAL_OUTPUT + TOTAL_CACHE_CREATION))
+# If total_tokens is 0 but we have input+output, compute it
+if [[ "$TOTAL_TOKENS" -eq 0 && "$TOTAL_INPUT" -gt 0 ]]; then
+  TOTAL_TOKENS=$((TOTAL_INPUT + TOTAL_OUTPUT + TOTAL_CACHE_CREATION))
+fi
 
 # ── Cost Calculation ─────────────────────────────────────────────────────
 PRICING=$(get_pricing "$MODEL")
@@ -141,13 +93,9 @@ OUTPUT_PRICE=$(echo "$PRICING" | awk '{print $2}')
 CACHE_READ_PRICE=$(echo "$PRICING" | awk '{print $3}')
 
 # gross_usd: SWE-bench HAL style — ALL tokens at full price, no cache discount.
-# Treats cache_read as if they were regular input (for apples-to-apples SWE-bench comparison).
-# Formula: (input + cache_creation + cache_read) * input_price + output * output_price
 GROSS_USD=$(echo "scale=4; ($TOTAL_INPUT + $TOTAL_CACHE_CREATION + $TOTAL_CACHE_READ) * $INPUT_PRICE / 1000000 + $TOTAL_OUTPUT * $OUTPUT_PRICE / 1000000" | bc)
 
 # net_usd: Actual billed cost with cache discounts applied.
-# cache_read tokens are billed at 10% of input price (cache_read_price).
-# Formula: (input + cache_creation) * input_price + cache_read * cache_read_price + output * output_price
 NET_USD=$(echo "scale=4; ($TOTAL_INPUT + $TOTAL_CACHE_CREATION) * $INPUT_PRICE / 1000000 + $TOTAL_CACHE_READ * $CACHE_READ_PRICE / 1000000 + $TOTAL_OUTPUT * $OUTPUT_PRICE / 1000000" | bc)
 
 # ── Wall Clock ───────────────────────────────────────────────────────────
@@ -187,14 +135,25 @@ if [[ -n "$SEARCH_TERM" ]]; then
   GREP_PATTERN="$SEARCH_TERM"
   # Also include ticket ID if different from slug
   [[ -n "$CHANGE_ID" && "$CHANGE_ID" != "$SEARCH_TERM" ]] && GREP_PATTERN="${SEARCH_TERM}\|${CHANGE_ID}"
-  STATS=$(git log --grep="$GREP_PATTERN" --no-merges --shortstat 2>/dev/null || true)
-  if [[ -n "$STATS" ]]; then
-    FILES_CHANGED=$(echo "$STATS" | grep "file" | awk '{s+=$1} END {print s+0}')
-    INSERTIONS=$(echo "$STATS" | grep "file" | awk '{s+=$4} END {print s+0}')
-    DELETIONS=$(echo "$STATS" | grep "file" | awk '{s+=$6} END {print s+0}')
-    TOTAL_COMMITS=$(git log --grep="$GREP_PATTERN" --no-merges --format="%h" 2>/dev/null | wc -l | tr -d ' ')
+
+  COMMIT_HASHES=$(git log --grep="$GREP_PATTERN" --no-merges --format="%H" 2>/dev/null || true)
+  if [[ -n "$COMMIT_HASHES" ]]; then
+    TOTAL_COMMITS=$(echo "$COMMIT_HASHES" | wc -l | tr -d ' ')
     REWORK_COMMITS=$(git log --grep="$GREP_PATTERN" --no-merges --format="%s" 2>/dev/null | grep -c "^fix:" || true)
     REWORK_COMMITS=${REWORK_COMMITS:-0}
+
+    # Unique files changed across the feature's commits only
+    FIRST_COMMIT=$(echo "$COMMIT_HASHES" | tail -1)
+    LAST_COMMIT=$(echo "$COMMIT_HASHES" | head -1)
+    FILES_CHANGED=$(git diff --name-only "${FIRST_COMMIT}^".."$LAST_COMMIT" -- 2>/dev/null | sort -u | wc -l | tr -d ' ')
+    # Aggregate insertions/deletions via combined diff
+    DIFF_STAT=$(git diff --stat "${FIRST_COMMIT}^".."$LAST_COMMIT" -- 2>/dev/null | tail -1 || true)
+    if [[ -n "$DIFF_STAT" ]]; then
+      INSERTIONS=$(echo "$DIFF_STAT" | grep -o '[0-9]* insertion' | awk '{print $1}')
+      DELETIONS=$(echo "$DIFF_STAT" | grep -o '[0-9]* deletion' | awk '{print $1}')
+    fi
+    INSERTIONS=${INSERTIONS:-0}
+    DELETIONS=${DELETIONS:-0}
   fi
 fi
 

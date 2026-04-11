@@ -21,12 +21,11 @@ instruction: |
      a. Check if $ORCHESTRATOR_HOME/scripts/compute-swe-metrics.sh exists.
      b. If yes: run it and validate the output contains a `metrics:` YAML block.
         ```bash
-        $ORCHESTRATOR_HOME/scripts/compute-swe-metrics.sh "$WORKFLOW_STATE_DIR/$CHANGE_ID" [transcript_paths...]
+        $ORCHESTRATOR_HOME/scripts/compute-swe-metrics.sh "$WORKFLOW_STATE_DIR/$CHANGE_ID"
         ```
-        The script parses JSONL transcripts, computes costs, resolution stats,
-        and git churn. Append the output to state.yaml.
-        If the transcript path is not known, the script auto-discovers recent
-        session files from ~/.claude/projects/<project-slug>/*.jsonl.
+        The script reads token/cost data from step_history[].usage in state.yaml,
+        computes resolution stats from tasks.md, and git churn from commit history.
+        Append the output to state.yaml.
      c. If script missing or fails: write a minimal metrics block with null placeholders
         so downstream consumers can read the structure:
         ```yaml
