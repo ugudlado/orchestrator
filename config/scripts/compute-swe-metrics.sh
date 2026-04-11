@@ -7,8 +7,8 @@
 #         git log (for churn metrics)
 # Writes: metrics block to stdout as YAML (for injection into state.yaml)
 #
-# Token/cost data comes from step_history[].usage, written by the orchestrator
-# dispatch loop after each agent step. No transcript parsing needed.
+# Token/cost data: primary source is Claude Code session JSONL files (via jq).
+# Fallback: state.yaml step_history (only has total_tokens from Agent footer).
 #
 # Methodology references:
 #   - Token counting: sum step_history[].usage fields (input_tokens, output_tokens, etc.)
@@ -42,10 +42,96 @@ get_pricing() {
   esac
 }
 
+# ── Session JSONL Parser ─────────────────────────────────────────────────
+# Parses Claude Code session JSONL files to extract the full token breakdown.
+# Sets TOTAL_INPUT, TOTAL_OUTPUT, TOTAL_CACHE_CREATION, TOTAL_CACHE_READ,
+# TOTAL_TURNS, and MODEL from real API usage data.
+# Returns 0 on success (caller trusts the updated globals), 1 on any failure.
+# Requires: STARTED_AT and COMPLETED_AT to be set before calling.
+parse_session_jsonl() {
+  local repo_root
+  repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+
+  # Compute Claude Code project slug: /path/to/repo -> -path-to-repo -> path-to-repo
+  local slug="${repo_root//\//-}"
+  slug="${slug#-}"
+  local project_dir="$HOME/.claude/projects/$slug"
+
+  [[ -d "$project_dir" ]] || return 1
+
+  # Convert time window to epoch for entry filtering.
+  # Supports macOS (date -j -f) and Linux (date -d) formats.
+  local start_epoch end_epoch
+  start_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$STARTED_AT" "+%s" 2>/dev/null \
+    || date -j -f "%Y-%m-%dT%H:%M:%S" "${STARTED_AT%Z}" "+%s" 2>/dev/null \
+    || date -d "$STARTED_AT" "+%s" 2>/dev/null) || return 1
+  end_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$COMPLETED_AT" "+%s" 2>/dev/null \
+    || date -j -f "%Y-%m-%dT%H:%M:%S" "${COMPLETED_AT%Z}" "+%s" 2>/dev/null \
+    || date -d "$COMPLETED_AT" "+%s" 2>/dev/null) || return 1
+
+  # Enumerate all JSONL files: parent sessions and subagent sessions.
+  local jsonl_files
+  jsonl_files=$(find "$project_dir" -name "*.jsonl" 2>/dev/null)
+  [[ -n "$jsonl_files" ]] || return 1
+
+  # Parse with jq in a single pass:
+  # - Filter to final assistant entries: type==assistant, has message.usage, has message.usage.iterations
+  # - Filter to entries within the feature time window via .timestamp (epoch)
+  # - Sum all token fields across qualifying entries
+  # - Select dominant model (most input tokens)
+  local result
+  result=$(echo "$jsonl_files" | xargs cat 2>/dev/null | jq -s \
+    --argjson start "$start_epoch" --argjson end "$end_epoch" '
+    [.[] | select(
+      .type == "assistant" and
+      .message.usage != null and
+      .message.usage.iterations != null and
+      (.timestamp // 0) >= $start and
+      (.timestamp // 0) <= $end
+    )]
+    | if length == 0 then error("no entries in time window") else . end
+    | {
+        input_tokens:  (map(.message.usage.input_tokens // 0) | add // 0),
+        output_tokens: (map(.message.usage.output_tokens // 0) | add // 0),
+        cache_creation: (map(.message.usage.cache_creation_input_tokens // 0) | add // 0),
+        cache_read:    (map(.message.usage.cache_read_input_tokens // 0) | add // 0),
+        turns: length,
+        model: (group_by(.message.model)
+                | map({model: .[0].message.model,
+                       total: (map(.message.usage.input_tokens // 0) | add // 0)})
+                | sort_by(-.total)
+                | .[0].model // "unknown")
+      }
+  ' 2>/dev/null) || return 1
+
+  # Extract values from jq result JSON object
+  local parsed_input parsed_output parsed_cache_creation parsed_cache_read parsed_turns parsed_model
+  parsed_input=$(echo "$result" | jq -r '.input_tokens')
+  parsed_output=$(echo "$result" | jq -r '.output_tokens')
+  parsed_cache_creation=$(echo "$result" | jq -r '.cache_creation')
+  parsed_cache_read=$(echo "$result" | jq -r '.cache_read')
+  parsed_turns=$(echo "$result" | jq -r '.turns')
+  parsed_model=$(echo "$result" | jq -r '.model')
+
+  # Only overwrite globals when we got real data (non-zero input tokens)
+  [[ "$parsed_input" =~ ^[0-9]+$ && "$parsed_input" -gt 0 ]] || return 1
+
+  TOTAL_INPUT="$parsed_input"
+  TOTAL_OUTPUT="$parsed_output"
+  TOTAL_CACHE_CREATION="$parsed_cache_creation"
+  TOTAL_CACHE_READ="$parsed_cache_read"
+  TOTAL_TURNS="$parsed_turns"
+  MODEL="$parsed_model"
+  TOTAL_TOKENS=$((TOTAL_INPUT + TOTAL_OUTPUT + TOTAL_CACHE_CREATION))
+
+  return 0
+}
+
 # ── Token Counting (from state.yaml step_history) ───────────────────────
-# Primary source: step_history[].usage written by the orchestrator after each agent step.
-# Each entry has: input_tokens, output_tokens, cache_creation_input_tokens,
-# cache_read_input_tokens, total_tokens, tool_uses, duration_ms.
+# Fallback source: step_history[].usage written by the orchestrator after each agent step.
+# The Agent tool footer provides only: total_tokens, tool_uses, duration_ms.
+# Granular breakdown (input/output/cache) is always 0 here; JSONL parsing above
+# overwrites these if session files are available.
 TOTAL_INPUT=0
 TOTAL_OUTPUT=0
 TOTAL_CACHE_CREATION=0
@@ -86,6 +172,18 @@ if [[ "$TOTAL_TOKENS" -eq 0 && "$TOTAL_INPUT" -gt 0 ]]; then
   TOTAL_TOKENS=$((TOTAL_INPUT + TOTAL_OUTPUT + TOTAL_CACHE_CREATION))
 fi
 
+# ── Wall Clock Timestamps (needed by parse_session_jsonl) ────────────────
+# Extracted early so parse_session_jsonl can use them for time-window filtering.
+STARTED_AT=$(grep '^started_at:' "$STATE_FILE" | head -1 | sed 's/^started_at: *//' | tr -d '"')
+COMPLETED_AT=$(grep '^completed_at:' "$STATE_FILE" | head -1 | sed 's/^completed_at: *//' | tr -d '"')
+
+# ── Session JSONL Token Enrichment ──────────────────────────────────────
+# Attempt to read full token breakdown from Claude Code session JONLs.
+# Falls back to state.yaml values (zeros for granular fields) if unavailable.
+if command -v jq >/dev/null 2>&1 && [[ -n "$STARTED_AT" && -n "$COMPLETED_AT" ]]; then
+  parse_session_jsonl || true  # failure is non-blocking
+fi
+
 # ── Cost Calculation ─────────────────────────────────────────────────────
 PRICING=$(get_pricing "$MODEL")
 INPUT_PRICE=$(echo "$PRICING" | awk '{print $1}')
@@ -99,9 +197,7 @@ GROSS_USD=$(echo "scale=4; ($TOTAL_INPUT + $TOTAL_CACHE_CREATION + $TOTAL_CACHE_
 NET_USD=$(echo "scale=4; ($TOTAL_INPUT + $TOTAL_CACHE_CREATION) * $INPUT_PRICE / 1000000 + $TOTAL_CACHE_READ * $CACHE_READ_PRICE / 1000000 + $TOTAL_OUTPUT * $OUTPUT_PRICE / 1000000" | bc)
 
 # ── Wall Clock ───────────────────────────────────────────────────────────
-STARTED_AT=$(grep '^started_at:' "$STATE_FILE" | head -1 | sed 's/^started_at: *//' | tr -d '"')
-COMPLETED_AT=$(grep '^completed_at:' "$STATE_FILE" | head -1 | sed 's/^completed_at: *//' | tr -d '"')
-
+# STARTED_AT and COMPLETED_AT already extracted above (before JSONL enrichment).
 WALL_CLOCK=0
 if [[ -n "$STARTED_AT" && -n "$COMPLETED_AT" ]]; then
   # Try multiple date formats (macOS and Linux)
