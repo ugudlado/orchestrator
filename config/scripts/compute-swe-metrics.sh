@@ -272,24 +272,19 @@ PER_AGENT_TOKENS=$(awk '
 PER_AGENT_TOOLS=$(awk '
   /^step_history:/ { in_history=1; next }
   in_history && /^[^ ]/ && !/^  / { in_history=0 }
-  function flush_entry() {
-    agent=""; in_usage=0; in_tools=0
-  }
-  in_history && /^  - / { flush_entry() }
+  in_history && /^  - / { agent=""; in_usage=0; in_tools=0 }
   in_history && /^    agent:/ { gsub(/.*agent: */, ""); gsub(/"/, ""); agent=$0 }
   in_history && /^    usage:/ { in_usage=1 }
   in_history && in_usage && /^      tools:/        { in_tools=1; next }
   in_history && in_usage && in_tools && /^        [A-Za-z]/ {
-    line=$0; gsub(/^ */, "", line); gsub(/:.*/, "", line); tool_name=line
-    gsub(/.*: */, ""); count=$0+0
+    sub(/^ +/, ""); tool_name=$1; sub(/:$/, "", tool_name)
     key=agent "\t" tool_name
-    tool_count[key] += count
+    tool_count[key] += $2
     agent_list[agent]=1
   }
   in_history && in_usage && in_tools && /^      [a-z]/ { in_tools=0 }
   in_history && in_usage && /^    [a-z]/ && !/^    usage:/ { in_usage=0; in_tools=0 }
   END {
-    flush_entry()
     agent_sep=""
     printf "{"
     for (a in agent_list) {
@@ -297,9 +292,8 @@ PER_AGENT_TOOLS=$(awk '
       tool_sep=""
       for (key in tool_count) {
         idx=index(key, "\t")
-        if (idx > 0 && substr(key, 1, idx-1) == a) {
-          t=substr(key, idx+1)
-          printf "%s\"%s\":%d", tool_sep, t, tool_count[key]
+        if (substr(key, 1, idx-1) == a) {
+          printf "%s\"%s\":%d", tool_sep, substr(key, idx+1), tool_count[key]
           tool_sep=","
         }
       }
