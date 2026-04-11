@@ -16,6 +16,7 @@ rules:
   - Archive session to archive/sessions_archive.yaml if this was the last iteration.
   - On 2 consecutive spawn failures: write stop_reason to checkpoint, stop loop cleanly.
   - Context budget: <200 tokens net added per iteration. No full file reads.
+  - "The /develop invocation MUST execute the full workflow including the complete phase (learn cycle, metrics collection). Never merge-and-skip — the complete phase feeds the self-improving loop. <!-- learned: 2026-04-11, source: autopilot-session-001, cycle: 14, hits: 0, misses: 0, repo: orchestrator -->"
 
 instruction: |
   Read current state from $WORKFLOW_STATE_DIR/autopilot/_checkpoint.json:

@@ -50,6 +50,11 @@ instruction: |
         Build the full workflow_plan from the loaded schema: for each phase, record
         the active step list (steps that pass if: conditions given resolved flags)
         and the filtered step list (steps excluded by if: conditions).
+        IMPORTANT: Resolve `include:` directives NOW — read the included file
+        (e.g., `_complete-phase.yaml`) and inline its steps into workflow_plan.
+        The workflow_plan in state.yaml is the EXHAUSTIVE dispatch manifest.
+        The dispatch loop MUST walk every phase and every active step in this plan
+        before the workflow is considered complete. No phase may be skipped.
         Write to state.yaml:
         ```yaml
         workflow_plan:

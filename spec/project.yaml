@@ -48,6 +48,9 @@ learnings:
   - id: file-level-symlinks
     learned: 2026-04-09
     rule: Use file-level symlinks for agents (.md per file) and skill-dir-level symlinks for skills (one per skill directory). Directory-level symlinks silently skip re-pointing when the target changes.
+  - id: autopilot-must-complete
+    learned: 2026-04-11
+    rule: Autopilot iterations must run the full workflow including the complete phase (learn + metrics). Skipping the complete phase breaks the self-improving feedback loop and loses per-feature telemetry data.
 
 context:
   tech_stack: [bash, zsh, yaml]
