@@ -1,0 +1,75 @@
+schema: chore
+slug: track-per-agent-token-attribution
+change_id: hl-273
+title: "Track per-agent token attribution"
+status: completed
+completed_at: "2026-04-11T17:32:00Z"
+phase: complete
+flags:
+  tdd_required: false
+  design: false
+  auto: true
+  agents: true
+  linear: true
+worktree_path: ~/code/feature_worktrees/track-per-agent-token-attribution
+linear_ticket_id: HL-273
+workflow_plan:
+  specify:
+    active: [create-worktree, load-project-context, create-or-refresh-artifacts, run-phase-review, create-linear-ticket]
+    filtered: [phase-signoff]
+  implement:
+    active: [execute-next-task, run-simplify, run-phase-review]
+    filtered: [final-signoff]
+  complete:
+    active: [compute-prediction-accuracy, run-learn-cycle, compute-swe-metrics, archive-completed-change, remove-worktree]
+    filtered: []
+project_context_loaded: true
+project_context_at: "2026-04-11T17:26:00Z"
+next_step: implement/execute-next-task
+started_at: "2026-04-11T17:26:00Z"
+step_history:
+  - step_id: create-worktree
+    phase: specify
+    status: completed
+    started_at: "2026-04-11T17:26:00Z"
+    completed_at: "2026-04-11T17:26:05Z"
+  - step_id: load-project-context
+    phase: specify
+    status: completed
+    started_at: "2026-04-11T17:26:05Z"
+    completed_at: "2026-04-11T17:26:10Z"
+  - step_id: create-or-refresh-artifacts
+    phase: specify
+    status: completed
+    agent: architect
+    started_at: "2026-04-11T17:26:10Z"
+    completed_at: "2026-04-11T17:26:30Z"
+  - step_id: run-phase-review
+    phase: specify
+    status: completed
+    agent: reviewer
+    started_at: "2026-04-11T17:26:30Z"
+    completed_at: "2026-04-11T17:26:40Z"
+    review_score:
+      overall: 9
+      dimensions:
+        spec_compliance: 9
+        correctness: 9
+        security: 10
+        simplicity: 9
+        code_quality: 9
+  - step_id: create-linear-ticket
+    phase: specify
+    status: completed
+    started_at: "2026-04-11T17:26:40Z"
+    completed_at: "2026-04-11T17:26:45Z"
+prediction_accuracy:
+  computed_at: "2026-04-12T01:52:00Z"
+  status: computation_failed
+  error: "worktree removed before complete phase ran — no branch to diff"
+metrics:
+  status: script_deferred
+  reason: "compute-swe-metrics.sh has known bugs (HL-269/HL-275) — placeholder until fix lands"
+  resolution: { resolve_rate: null, pass_at_1: null, pass_at_2: null, regression_rate: null }
+  cost: { net_usd: null, gross_usd: null }
+  tokens: { total: null, input: null, output: null }
