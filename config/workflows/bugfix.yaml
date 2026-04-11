@@ -120,5 +120,4 @@ phases:
     requires: implement
     verify:
       assertions:
-        - All acceptance criteria from fix-plan.md verified with evidence
         - Regression test passes in final test run

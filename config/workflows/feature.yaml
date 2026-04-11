@@ -119,6 +119,3 @@ phases:
 
   - include: _complete-phase
     requires: implement
-    verify:
-      assertions:
-        - All acceptance criteria from spec.md verified with evidence

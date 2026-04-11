@@ -124,8 +124,7 @@ UC-E1: {title} — what happens when {error condition}.
 ## Specification Format Contract
 
 The `spec.md` file is a structural contract between `create-or-refresh-artifacts`
-(producer and task consumer) and `run-phase-review` / `run-feature-verification`
-(consumers).
+(producer and task consumer) and `run-phase-review` (consumer).
 
 ### Format
 
@@ -218,8 +217,7 @@ Rejected. {Why rejected or why chosen approach is better.}
 
 ### Consumers
 
-- `run-feature-verification` — reads Acceptance Criteria for final verification
-- `run-phase-review` — verifies structural compliance and traceability
+- `run-phase-review` — reads Acceptance Criteria for AC verification (implement phase) and verifies structural compliance and traceability
 
 ---
 
