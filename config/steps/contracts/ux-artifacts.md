@@ -45,5 +45,4 @@ When `ux_design=false` or the ux-design step was filtered out:
 
 - `create-or-refresh-artifacts` — reads `ux-artifacts.yaml` to create UI-specific tasks referencing `ux-prototype.html`
 - `execute-next-task` — developer reads `ux-prototype.html` as visual reference when implementing UI tasks
-- `run-phase-review` — verifies UX artifacts exist when ux-design step completed
-- `run-feature-verification` — verifies implementation matches prototype direction
+- `run-phase-review` — verifies UX artifacts exist when ux-design step completed and that implementation matches prototype direction

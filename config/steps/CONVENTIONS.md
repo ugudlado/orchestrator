@@ -10,7 +10,7 @@ Load only the contracts relevant to your step:
 
 | Contract | File | Used By |
 |----------|------|---------|
-| Artifact formats (Task, Discovery, Spec, Design, Diagnosis, Fix Plan) | `contracts/artifact-formats.md` | create-or-refresh-artifacts, explore, run-phase-review, run-feature-verification |
+| Artifact formats (Task, Discovery, Spec, Design, Diagnosis, Fix Plan) | `contracts/artifact-formats.md` | create-or-refresh-artifacts, explore, run-phase-review |
 | Error Recovery (state transitions, blocked protocol, escalation) | `contracts/error-recovery.md` | orchestrate skill, execute-next-task, run-phase-review, phase-signoff |
 | Rule Merge (evaluation, merge algorithm, change type detection) | `contracts/rule-merge.md` | orchestrate skill, /learn |
 | Resume Token | `contracts/resume-token.md` | orchestrate skill, workflow-state.sh, auto-continue.sh |

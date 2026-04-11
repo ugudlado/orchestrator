@@ -17,7 +17,7 @@ rules:
 instruction: |
   SKIP CONDITIONS:
   - If auto flag is true:
-    a. Check that run-feature-verification completed (step_history entry exists).
+    a. Check that run-phase-review completed (step_history entry exists).
     b. Read the verification report for unresolved_risks or critical findings.
     c. If NO critical/high unresolved risks → auto-approve and log to state.yaml
        (field: approval with type: auto).
