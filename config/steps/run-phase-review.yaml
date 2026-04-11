@@ -47,12 +47,12 @@ instruction: |
        b. No TODO, FIXME, or placeholder text remains in outputs
        c. All verify assertions passed on first attempt (no retries used this round)
   5b. Baseline comparison (non-blocking):
-     - Read $WORKFLOW_STATE_DIR/feature-metrics.jsonl if it exists.
-     - Filter entries matching current schema (e.g., feature) and current phase.
-     - Compute average review_score.overall across those entries (skip entries missing this field).
+     - Read archived state.yaml files: `spec/changes/archive/*/state.yaml`.
+     - Filter entries matching current schema (e.g., feature) via the `schema:` field.
+     - Compute average `metrics.review_score_avg` across those entries (skip entries missing this field).
      - If current overall is 2 or more points below that average: emit a warning in the report
        ("Quality regression: current score N is 2+ below historical average M for this schema/phase").
-     - If file does not exist or no matching entries: skip silently.
+     - If no archived state.yaml files exist or no matching entries: skip silently.
   5c. AC verification with evidence (implement phase only):
      - If current phase is not implement: skip this step.
      - Read spec.md (feature/chore) or fix-plan.md (bugfix) for acceptance criteria,

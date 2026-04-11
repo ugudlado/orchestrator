@@ -17,7 +17,6 @@ REPO_ROOT=${REPO_ROOT:-$(git rev-parse --show-toplevel)}
 REPO_NAME=${REPO_NAME:-$(basename "$REPO_ROOT")}
 ORCHESTRATOR_HOME=${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}
 WORKFLOW_STATE_DIR=${WORKFLOW_STATE_DIR:-$REPO_ROOT/.state}
-METRICS_FILE=${METRICS_FILE:-$HOME/.claude/logs/feature-metrics.jsonl}
 ```
 
 ## Execution
@@ -26,39 +25,41 @@ METRICS_FILE=${METRICS_FILE:-$HOME/.claude/logs/feature-metrics.jsonl}
 
 Read from these sources (skip any that don't exist):
 
-- **`$METRICS_FILE`** — one JSON line per completed feature (primary source)
+- **`spec/changes/archive/*/state.yaml`** — archived workflows with full metrics (primary source)
 - **`$WORKFLOW_STATE_DIR/*/state.yaml`** — active/recent workflows with step_history
-- **`spec/changes/archive/*/state.yaml`** — archived workflows with full metrics
+
+Each archived state.yaml contains a `metrics:` block with tokens, cost, resolution,
+churn, review_scores, per_agent_tokens, and per_agent_tools data.
 
 Filter by scope:
-- `recent` (default): last 5 entries from feature-metrics.jsonl
-- `all`: all entries
-- `<feature-id>`: single feature match
+- `recent` (default): last 5 archived state.yaml files (sorted by modification time)
+- `all`: all archived state.yaml files
+- `<feature-id>`: single feature match by change_id or slug
 
 ### 2. Compute dashboard metrics
 
-From feature-metrics.jsonl entries:
+From archived state.yaml `metrics:` blocks:
 
 **Cost & Tokens**
-- Total cost (USD) — sum of `swe_comparable.cost_usd`
+- Total cost (USD) — sum of `metrics.cost.net_usd`
 - Average cost per feature
-- Total tokens — sum of `efficiency.tokens_input` + `efficiency.tokens_output`
-- Average cache hit rate — mean of `efficiency.cache_hit_rate`
+- Total tokens — sum of `metrics.tokens.total` (with input/output/cache breakdown)
+- Average cache hit rate — `metrics.benchmarks.cache_hit_rate`
 
 **Time**
-- Total wall clock minutes — sum of `swe_comparable.wall_clock_minutes`
+- Total wall clock minutes — sum of `metrics.wall_clock_minutes`
 - Average time per feature
 
 **Quality**
-- Average review score — mean of `workflow_quality.review_score_avg`
-- Pass@1 rate — fraction of features where `workflow_quality.pass_at_1` is true
-- Average rework rate — mean of `workflow_quality.rework_rate`
-- Regression rate — mean of `workflow_quality.regression_rate`
+- Average review score — `metrics.review_score_avg`
+- Pass@1 rate — fraction of features where `metrics.resolution.pass_at_1` > 0
+- Average rework rate — `metrics.rework_rate`
+- Regression rate — `metrics.resolution.regression_rate`
 
 **Efficiency**
-- Average turns per feature — mean of `efficiency.turns`
-- Average tool calls per feature — mean of `efficiency.tool_calls`
-- Total retries — sum of `retries.total_retries`
+- Average turns per feature — `metrics.turns`
+- Average tool calls per feature — `metrics.tool_calls`
+- Total retries — sum of `metrics.retries.total`
 - Retry hotspots — steps with highest retry counts across features
 
 **Code Churn**
@@ -138,7 +139,7 @@ Compare the first half vs second half of features in the dataset.
 
 ### Key rules
 
-- If `$METRICS_FILE` doesn't exist or is empty, report "No telemetry data yet. Complete a feature workflow to generate metrics."
+- If no archived state.yaml files exist, report "No telemetry data yet. Complete a feature workflow to generate metrics."
 - Use `null` values gracefully — skip metrics where the data field is null rather than showing "null"
 - Round costs to 2 decimal places, percentages to integers, times to nearest minute
 - For per-step timing: only show if at least one state.yaml has `started_at`/`completed_at` in step_history

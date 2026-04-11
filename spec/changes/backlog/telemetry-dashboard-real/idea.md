@@ -1,10 +1,10 @@
 # Real Telemetry Dashboard Implementation
 
 ## Idea
-The `/telemetry` skill exists as a 2-line stub ("Read feature-metrics.jsonl, state.yaml archives, and error-patterns.jsonl for telemetry data; Present formatted metrics dashboard"). It has no real implementation. Build it out to parse `feature-metrics.jsonl`, compute trends across features, and render a structured dashboard showing: (1) cost trend (USD per feature over time), (2) pass@1 and pass@2 rates, (3) rework rate trend, (4) retry hotspots by step contract, (5) resolution rate by schema type, (6) review score distribution. This directly consumes the SWE metrics that `archive-completed-change` already produces.
+The `/telemetry` skill reads archived state.yaml files (`spec/changes/archive/*/state.yaml`) for metrics data. Build it out to compute trends across features and render a structured dashboard showing: (1) cost trend (USD per feature over time), (2) pass@1 and pass@2 rates, (3) rework rate trend, (4) retry hotspots by step contract, (5) resolution rate by schema type, (6) review score distribution. This directly consumes the SWE metrics that `compute-swe-metrics` writes to state.yaml.
 
 ## Why Now
-The metrics pipeline is complete -- `archive-completed-change` writes to `feature-metrics.jsonl`, `/learn` reads it for quality bar adjustment, and `compute-prediction-accuracy` adds prediction data. The only missing piece is a human-readable dashboard. Without it, the metrics data accumulates but nobody sees the trends.
+The metrics pipeline is complete -- `compute-swe-metrics` writes to state.yaml, archived state.yaml files contain full metrics blocks, `/learn` reads them for quality bar adjustment, and `compute-prediction-accuracy` adds prediction data. The only missing piece is a human-readable dashboard. Without it, the metrics data accumulates but nobody sees the trends.
 
 ## Prototype
 ```

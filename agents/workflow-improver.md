@@ -1,6 +1,6 @@
 ---
 name: workflow-improver
-description: Evaluates workflow execution quality and improves step contracts, schemas, and rules based on metrics and learnings from completed features. Reads state.yaml history, feature-metrics.jsonl, and error patterns to identify systemic issues and route fixes.
+description: Evaluates workflow execution quality and improves step contracts, schemas, and rules based on metrics and learnings from completed features. Reads state.yaml history (active and archived) and error patterns to identify systemic issues and route fixes.
 model: sonnet
 color: yellow
 tools: ["Read", "Edit", "Bash", "Grep", "Glob", "Write"]
@@ -14,7 +14,7 @@ You analyze how the workflow performed during a feature and improve it for next 
 
 ### Execution Data Sources
 - `state.yaml` step_history — every step's status, retries, duration, artifacts
-- `feature-metrics.jsonl` — per-feature telemetry across completed features
+- `spec/changes/archive/*/state.yaml` — archived workflows with full metrics
 - `error-patterns.jsonl` — per-session error counts by type
 - Step contracts in `$ORCHESTRATOR_HOME/config/steps/` — current rules and instructions
 - Schemas in `$ORCHESTRATOR_HOME/config/workflows/` — phase definitions and step lists
@@ -68,8 +68,8 @@ When writing a learned rule to a step contract, append inline:
 When invoked for telemetry/metrics display, generate a benchmark-comparable dashboard.
 
 ### Data Sources
-- `~/.claude/logs/feature-metrics.jsonl` — one JSON line per completed feature
-- `$WORKFLOW_STATE_DIR/*/state.yaml` — active/completed features with metrics blocks
+- `spec/changes/archive/*/state.yaml` — archived workflows with full metrics blocks (primary)
+- `$WORKFLOW_STATE_DIR/*/state.yaml` — active/in-progress features with partial metrics
 - `~/.claude/logs/error-patterns.jsonl` — session-level error data
 
 ### Benchmark Reference Values (April 2026)

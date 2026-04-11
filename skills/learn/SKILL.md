@@ -144,7 +144,7 @@ Classify each finding and route it to the right handler.
 - Apply the rule to the appropriate section of the target step contract
 - **IMPORTANT — Rule metadata**: When the workflow-fixer writes a learned rule, it MUST append the metadata comment inline on the same line as the rule text:
   `<!-- learned: YYYY-MM-DD, source: FEATURE-ID, cycle: N, repo: REPO_NAME -->`
-  Where: `YYYY-MM-DD` = today's date, `FEATURE-ID` = the feature being evaluated, `N` = current cycle count (from feature-metrics.jsonl line count), `REPO_NAME` = `basename $(git rev-parse --show-toplevel)` (the repo that generated this rule).
+  Where: `YYYY-MM-DD` = today's date, `FEATURE-ID` = the feature being evaluated, `N` = current cycle count (count of `spec/changes/archive/*/state.yaml` files), `REPO_NAME` = `basename $(git rev-parse --show-toplevel)` (the repo that generated this rule).
   **Repo scoping**: Default to `repo: $REPO_NAME` (repo-scoped). Only use `repo: *` (universal) when the rule is about workflow mechanics itself (e.g., "always write next_step before spawn") and NOT about tech-stack, domain, or repo-specific patterns.
   This is required by `$ORCHESTRATOR_HOME/config/steps/CONVENTIONS.md` § Rule Lifecycle Convention.
   Permanent (hand-written) rules already in the step contract MUST NOT receive a metadata comment.
@@ -188,7 +188,7 @@ This sub-step runs only when the current cycle count is a multiple of 5. It scan
 step contracts for ineffective learned rules and removes flagged rules.
 
 **Trigger check**:
-1. Count lines in `~/.claude/logs/feature-metrics.jsonl` as cycle count K.
+1. Count archived state.yaml files: `ls spec/changes/archive/*/state.yaml 2>/dev/null | wc -l` as cycle count K.
 2. If `K % 5 != 0`: skip this sub-step entirely. Log: `[learn] Rule decay: skipped (cycle K, next at cycle M)`.
 3. If `K % 5 == 0`: proceed.
 
@@ -228,10 +228,10 @@ step contracts for ineffective learned rules and removes flagged rules.
 This sub-step runs after §5b on every learn invocation. It reads recent performance metrics and adjusts `quality_bar.scoring.green_base` in `spec/project.yaml` when trends warrant it.
 
 **Read metrics**:
-1. Read `~/.claude/logs/feature-metrics.jsonl` — take the last 5 lines (most recent features).
-2. For each entry, extract review score and retry rate using this field priority:
-   - **Review score**: `workflow_quality.review_score_avg` → fallback to `quality.overall` → fallback to omit entry
-   - **Retry rate**: `retries.total_retries / tasks.total` if `retries` block exists → fallback to `tasks.reviewFixes / tasks.total` if `tasks.total > 0` → fallback to `0`
+1. Read the last 5 archived state.yaml files: `ls -t spec/changes/archive/*/state.yaml | head -5`.
+2. For each state.yaml, extract review score and retry rate from the `metrics:` block:
+   - **Review score**: `metrics.review_score_avg` → fallback to omit entry
+   - **Retry rate**: `metrics.retries.total / metrics.resolution.tasks_total` if both exist → fallback to `0`
 3. Compute aggregates from entries that yielded a valid score:
    - `avg_review_score` = mean of all extracted review scores
    - `avg_retry_rate` = mean of all extracted retry rates
