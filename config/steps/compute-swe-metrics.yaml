@@ -47,7 +47,7 @@ instruction: |
      block in state.yaml. Also include `cost: { net_usd, gross_usd }`.
      These fields are required for telemetry dashboards and workflow improvement.
 
-     3a. **Per-agent token attribution**:
+     3a. **Per-agent token and tool attribution**:
          Read `step_history` from state.yaml. For each entry that has both an
          `agent:` field and a `usage:` sub-object, group by agent type and sum:
          `total_tokens`, `tool_uses`, `duration_ms`, and count `steps`.
@@ -55,6 +55,13 @@ instruction: |
          `{ developer: { total_tokens: N, tool_uses: N, duration_ms: N, steps: N }, ... }`
          Skip entries that have no `usage:` field (backward compatible with older
          state.yaml files that predate this field).
+         Also aggregate the `tools:` sub-map within each `usage:` block by agent name.
+         Include a `per_agent_tools` object in the JSONL output:
+         `{ developer: { Read: N, Bash: N, Grep: N, ... }, reviewer: { Read: N }, ... }`
+         The format is a JSON object keyed by agent name, each value a map of tool type
+         to count. Skip entries without a `tools:` sub-map (backward compatible with
+         state.yaml files that predate HL-276). If no entries have `tools:` data,
+         emit `per_agent_tools: {}` (not null).
 
   4. Update state.yaml step_history per CONVENTIONS.md § State Updates.
 
