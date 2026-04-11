@@ -108,6 +108,11 @@ AFTER step completes:
   APPEND to state.yaml step_history: {step_id, phase, status, agent, started_at, completed_at}
   IF step had agent: field, parse the agent result footer for usage data and add:
     usage: {input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, total_tokens, tool_uses, duration_ms}
+  Also count tool invocations by type name (Read, Bash, Edit, Grep, Write, Glob,
+  WebSearch, WebFetch, SendMessage, etc.) from the agent result, and write as:
+    tools: {ToolName: count, ...}
+  under usage:. The sum of all tools values must equal tool_uses.
+  If no tool calls were made, omit tools: or write tools: {}.
   WRITE next_step to state.yaml pointing to the next step
   IF step has repeat_until: check condition — if not met, re-execute this step
   IF step has verify: check assertions — if failed, follow Error Recovery Contract
