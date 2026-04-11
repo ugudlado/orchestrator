@@ -270,6 +270,42 @@ CACHE_DENOM=$((TOTAL_INPUT + TOTAL_CACHE_CREATION + TOTAL_CACHE_READ))
 CACHE_HIT_RATE=0
 [[ "$CACHE_DENOM" -gt 0 ]] && CACHE_HIT_RATE=$(echo "scale=4; $TOTAL_CACHE_READ / $CACHE_DENOM" | bc)
 
+# ── Per-Agent Token Attribution ──────────────────────────────────────────
+# Parse step_history entries that have both agent: and usage: sub-fields.
+# Uses awk to walk the YAML structure without jq (state.yaml is YAML, not JSON).
+# Entries without a usage: block are silently skipped (backward compatible).
+PER_AGENT_TOKENS=$(awk '
+  /^step_history:/ { in_history=1; next }
+  in_history && /^[^ ]/ && !/^  / { in_history=0 }
+  function flush_entry() {
+    if (agent != "" && total_tokens > 0) {
+      tok[agent]  += total_tokens
+      uses[agent] += tool_uses
+      dur[agent]  += duration_ms
+      cnt[agent]  += 1
+    }
+    agent=""; total_tokens=0; tool_uses=0; duration_ms=0; in_usage=0
+  }
+  in_history && /^  - / { flush_entry() }
+  in_history && /^    agent:/ { gsub(/.*agent: */, ""); gsub(/"/, ""); agent=$0 }
+  in_history && /^    usage:/ { in_usage=1 }
+  in_history && in_usage && /^      total_tokens:/ { gsub(/.*total_tokens: */, ""); total_tokens=$0+0 }
+  in_history && in_usage && /^      tool_uses:/    { gsub(/.*tool_uses: */, "");    tool_uses=$0+0 }
+  in_history && in_usage && /^      duration_ms:/  { gsub(/.*duration_ms: */, "");  duration_ms=$0+0 }
+  in_history && in_usage && /^    [a-z]/ && !/^    usage:/ { in_usage=0 }
+  END {
+    flush_entry()
+    sep=""
+    printf "{"
+    for (a in tok) {
+      printf "%s\"%s\":{\"total_tokens\":%d,\"tool_uses\":%d,\"duration_ms\":%d,\"steps\":%d}",
+        sep, a, tok[a], uses[a], dur[a], cnt[a]
+      sep=","
+    }
+    printf "}"
+  }
+' "$STATE_FILE")
+
 # ── Schema and Complexity ────────────────────────────────────────────────
 SCHEMA=$(grep '^schema:' "$STATE_FILE" | awk '{print $2}')
 
@@ -326,4 +362,5 @@ metrics:
     tokens_per_resolution: $TOKENS_PER_RESOLUTION
     input_output_ratio: $IO_RATIO
     cache_hit_rate: $CACHE_HIT_RATE
+  per_agent_tokens: '$PER_AGENT_TOKENS'
 YAML
