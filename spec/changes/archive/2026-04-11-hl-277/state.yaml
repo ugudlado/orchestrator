@@ -1,0 +1,116 @@
+change_id: hl-277
+title: "Parse Claude Code session JSONL for full token breakdown in compute-swe-metrics"
+schema: feature
+status: active
+phase: specify
+next_step: complete/archive-completed-change
+phase: complete
+status: completed
+worktree_path: /Users/spidey/code/feature_worktrees/hl-277
+project_context_loaded: true
+project_context_at: "2026-04-11T22:01:00Z"
+slug: hl-277
+ticket: HL-277
+flags:
+  tdd_required: true
+  design: true
+  ux_design: false
+  auto: true
+  agents: true
+  linear: true
+workflow_plan:
+  specify:
+    active:
+      - create-worktree
+      - load-project-context
+      - explore
+      - design-exploration
+      - create-or-refresh-artifacts
+      - validate-artifacts
+      - run-phase-review
+      - create-linear-ticket
+    filtered:
+      - ux-design
+      - phase-signoff
+  implement:
+    active:
+      - execute-next-task
+      - run-simplify
+      - run-phase-review
+    filtered:
+      - run-ux-critique
+      - final-signoff
+  complete:
+    active:
+      - compute-prediction-accuracy
+      - run-learn-cycle
+      - compute-swe-metrics
+      - archive-completed-change
+      - remove-worktree
+    filtered: []
+step_history:
+  - step_id: create-worktree
+    phase: specify
+    status: completed
+    started_at: "2026-04-11T22:00:30Z"
+    completed_at: "2026-04-11T22:00:45Z"
+  - step_id: load-project-context
+    phase: specify
+    status: completed
+    started_at: "2026-04-11T22:00:50Z"
+    completed_at: "2026-04-11T22:01:00Z"
+  - step_id: explore
+    phase: specify
+    status: completed
+    agent: discoverer
+    started_at: "2026-04-11T22:01:05Z"
+    completed_at: "2026-04-11T22:06:10Z"
+    usage:
+      total_tokens: 48669
+      tool_uses: 45
+      duration_ms: 308810
+  - step_id: design-exploration
+    phase: specify
+    status: completed
+    agent: architect
+    started_at: "2026-04-11T22:06:15Z"
+    completed_at: "2026-04-11T22:11:00Z"
+    usage:
+      total_tokens: 49662
+      tool_uses: 30
+      duration_ms: 287977
+  - step_id: create-or-refresh-artifacts
+    phase: specify
+    status: completed
+    agent: architect
+    started_at: "2026-04-11T22:11:05Z"
+    completed_at: "2026-04-11T22:14:40Z"
+    usage:
+      total_tokens: 41771
+      tool_uses: 11
+      duration_ms: 214143
+  - step_id: validate-artifacts
+    phase: specify
+    status: completed
+    started_at: "2026-04-11T22:14:45Z"
+    completed_at: "2026-04-11T22:15:00Z"
+  - step_id: run-phase-review
+    phase: specify
+    status: completed
+    agent: reviewer
+    started_at: "2026-04-11T22:15:05Z"
+    completed_at: "2026-04-11T22:16:30Z"
+    review_score:
+      overall: 9
+      dimensions:
+        spec_compliance: 9
+        correctness: 9
+        security: 10
+        simplicity: 9
+        code_quality: 9
+  - step_id: create-linear-ticket
+    phase: specify
+    status: completed
+    started_at: "2026-04-11T22:16:35Z"
+    completed_at: "2026-04-11T22:16:45Z"
+created_at: "2026-04-11T22:00:30Z"
