@@ -171,8 +171,9 @@ if [[ -n "$STARTED_AT" && -n "$COMPLETED_AT" ]]; then
 fi
 
 # ── Git Churn ────────────────────────────────────────────────────────────
-CHANGE_ID=$(grep -E '^(change_id|linear_ticket):' "$STATE_FILE" | head -1 | awk '{print $2}' | tr -d '"')
-FEATURE_BRANCH="feature/${CHANGE_ID}"
+CHANGE_ID=$(grep -E '^(change_id|linear_ticket_id|linear_ticket):' "$STATE_FILE" | head -1 | awk '{print $2}' | tr -d '"')
+SLUG=$(grep '^slug:' "$STATE_FILE" 2>/dev/null | awk '{print $2}' | tr -d '"')
+FEATURE_BRANCH="feature/${SLUG:-$CHANGE_ID}"
 
 FILES_CHANGED=0
 INSERTIONS=0
@@ -180,15 +181,19 @@ DELETIONS=0
 TOTAL_COMMITS=0
 REWORK_COMMITS=0
 
-if [[ -n "$CHANGE_ID" ]]; then
-  # Try to get stats from feature branch
-  STATS=$(git log --grep="$CHANGE_ID" --no-merges --shortstat 2>/dev/null || true)
+SEARCH_TERM="${SLUG:-$CHANGE_ID}"
+if [[ -n "$SEARCH_TERM" ]]; then
+  # Search commit messages for the feature slug (preferred) or Linear ticket ID
+  GREP_PATTERN="$SEARCH_TERM"
+  # Also include ticket ID if different from slug
+  [[ -n "$CHANGE_ID" && "$CHANGE_ID" != "$SEARCH_TERM" ]] && GREP_PATTERN="${SEARCH_TERM}\|${CHANGE_ID}"
+  STATS=$(git log --grep="$GREP_PATTERN" --no-merges --shortstat 2>/dev/null || true)
   if [[ -n "$STATS" ]]; then
     FILES_CHANGED=$(echo "$STATS" | grep "file" | awk '{s+=$1} END {print s+0}')
     INSERTIONS=$(echo "$STATS" | grep "file" | awk '{s+=$4} END {print s+0}')
     DELETIONS=$(echo "$STATS" | grep "file" | awk '{s+=$6} END {print s+0}')
-    TOTAL_COMMITS=$(git log --grep="$CHANGE_ID" --no-merges --format="%h" 2>/dev/null | wc -l | tr -d ' ')
-    REWORK_COMMITS=$(git log --grep="$CHANGE_ID" --no-merges --format="%s" 2>/dev/null | grep -c "^fix:" || true)
+    TOTAL_COMMITS=$(git log --grep="$GREP_PATTERN" --no-merges --format="%h" 2>/dev/null | wc -l | tr -d ' ')
+    REWORK_COMMITS=$(git log --grep="$GREP_PATTERN" --no-merges --format="%s" 2>/dev/null | grep -c "^fix:" || true)
     REWORK_COMMITS=${REWORK_COMMITS:-0}
   fi
 fi
@@ -243,7 +248,8 @@ if [[ "$TOTAL_COMMITS" -gt 0 ]]; then
 fi
 
 # ── Review Scores ────────────────────────────────────────────────────────
-REVIEW_SCORES=$(grep 'review_score:' "$STATE_FILE" 2>/dev/null | awk '{print $2}' | tr '\n' ',' | sed 's/,$//')
+# Extract review scores: look for "overall: N" under review_score blocks
+REVIEW_SCORES=$(grep -A1 'review_score:' "$STATE_FILE" 2>/dev/null | grep 'overall:' | awk '{print $2}' | tr '\n' ',' | sed 's/,$//')
 SCORE_AVG=0
 if [[ -n "$REVIEW_SCORES" ]]; then
   SCORE_AVG=$(echo "$REVIEW_SCORES" | tr ',' '\n' | awk '{s+=$1; c++} END {if(c>0) printf "%.1f", s/c; else print 0}')

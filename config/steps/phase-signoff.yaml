@@ -36,9 +36,9 @@ instruction: |
   6. Update state.yaml step_history per CONVENTIONS.md § State Updates.
 
 verify:
-  - If schema has run-phase-review for this phase: step_history contains {step_id: run-phase-review, phase: <current>, status: completed}
-  - User approval (field: approval) or rejection (field: rejection) recorded in state.yaml
-  - If rejected: fix tasks created in tasks.md with sequential IDs, descriptions, and Verify fields
+  - "If schema has run-phase-review for this phase: step_history contains {step_id: run-phase-review, phase: <current>, status: completed}"
+  - "User approval (field: approval) or rejection (field: rejection) recorded in state.yaml"
+  - "If rejected: fix tasks created in tasks.md with sequential IDs, descriptions, and Verify fields"
 
 outputs:
   - phase_signoff_state

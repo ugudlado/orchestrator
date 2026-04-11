@@ -15,8 +15,8 @@ flags_read:
 
 rules:
   - Follow output dependency order from the schema phase definition.
-  - Artifacts with no `requires:` may be generated in any order.
-  - Artifacts with `requires: [X, Y]` must not generate until X and Y exist on disk.
+  - "Artifacts with no `requires:` may be generated in any order."
+  - "Artifacts with `requires: [X, Y]` must not generate until X and Y exist on disk."
   - Detect cycles: if artifact A requires B and B requires A (directly or transitively), STOP and report the cycle.
   - Keep artifact content traceable to accepted requirements.
   - Avoid implementation details in spec/design — those belong in tasks.

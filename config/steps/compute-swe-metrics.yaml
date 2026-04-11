@@ -43,6 +43,10 @@ instruction: |
      Append a single JSON line to ~/.claude/logs/feature-metrics.jsonl with
      the SWE-bench-comparable format (see archive-completed-change.yaml v4
      for the full JSON schema — same format, just computed in this step now).
+     The JSONL entry MUST include a `tokens` object with at minimum:
+     `{ input, output, cache_creation, cache_read, total }` from the metrics
+     block in state.yaml. Also include `cost: { net_usd, gross_usd }`.
+     These fields are required for telemetry dashboards and workflow improvement.
 
   4. Update state.yaml step_history per CONVENTIONS.md § State Updates.
 

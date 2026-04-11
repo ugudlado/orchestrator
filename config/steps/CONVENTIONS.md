@@ -280,8 +280,10 @@ Every rule added by `/learn` MUST include a metadata comment on the same line, i
 
 ```yaml
 rules:
-  - When keeping an intentionally broad catch, annotate with a justification comment. <!-- learned: 2026-04-05, source: HL-194, cycle: 5, hits: 3, misses: 0, repo: shell -->
+  - "When keeping an intentionally broad catch, annotate with a justification comment. <!-- learned: 2026-04-05, source: HL-194, cycle: 5, hits: 3, misses: 0, repo: shell -->"
 ```
+
+**IMPORTANT**: Learned rules with metadata comments MUST be quoted (double quotes around the entire string). The `<!-- learned: ... -->` comment contains colons followed by spaces (e.g., `source: HL-194`) which YAML parsers interpret as mapping values, breaking the file. Always wrap the full rule + metadata in double quotes.
 
 | Field | Format | Required | Default |
 |-------|--------|----------|---------|

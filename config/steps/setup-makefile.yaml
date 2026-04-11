@@ -194,8 +194,8 @@ instruction: |
 verify:
   - Makefile exists at project root
   - All verify_commands from project.yaml have corresponding Makefile targets
-  - `make doctor` target exists and runs all verify commands
-  - `make setup` target exists
+  - "`make doctor` target exists and runs all verify commands"
+  - "`make setup` target exists"
 
 outputs:
   - makefile_created: boolean (true if new, false if updated)

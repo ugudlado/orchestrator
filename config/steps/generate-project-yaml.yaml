@@ -101,8 +101,7 @@ instruction: |
 
 verify:
   - spec/project.yaml exists with version 1 schema
-  - File has all required fields: verify_commands, quality_bar, context.tech_stack,
-    rules, signoff_policy, schemas, storage, state_contract
+  - "File has all required fields: verify_commands, quality_bar, context.tech_stack, rules, signoff_policy, schemas, storage, state_contract"
   - User reviewed and approved the content
 
 outputs:

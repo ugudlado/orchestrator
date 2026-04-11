@@ -48,8 +48,8 @@ instruction: |
   5. Log: `[bootstrap] Initial commit created: <commit hash>`
 
 verify:
-  - `git log --oneline -1` shows the bootstrap commit
-  - `git status --porcelain` is clean (no unstaged bootstrap files)
+  - "`git log --oneline -1` shows the bootstrap commit"
+  - "`git status --porcelain` is clean (no unstaged bootstrap files)"
 
 outputs:
   - commit_hash: string
