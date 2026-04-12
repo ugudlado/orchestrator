@@ -16,6 +16,7 @@ Load only the contracts relevant to your step:
 | Resume Token | `contracts/resume-token.md` | orchestrate skill, workflow-state.sh, auto-continue.sh |
 | UX Artifacts | `contracts/ux-artifacts.md` | ux-design, create-or-refresh-artifacts, execute-next-task |
 | Auto-Commit | `contracts/auto-commit.md` | execute-next-task |
+| Metrics Schema | `contracts/metrics-schema.md` | compute-swe-metrics, autopilot-session-report, telemetry, learn, workflow-improver |
 
 When step contracts reference `CONVENTIONS.md § <Section>`, check whether the
 section now lives in a contract file above. The `§` references in step contracts
@@ -37,6 +38,7 @@ use short names that map to the contract files:
 - `§ Resume Token Format Contract` → `contracts/resume-token.md`
 - `§ UX Artifact Contract` → `contracts/ux-artifacts.md`
 - `§ Auto-Commit Convention` → `contracts/auto-commit.md`
+- `§ Metrics Schema` → `contracts/metrics-schema.md`
 
 Sections that remain in this file are referenced directly (e.g., `CONVENTIONS.md § State Updates`).
 
@@ -358,3 +360,19 @@ A learned rule is flagged for resolution when:
 ### Evaluation Trigger
 
 Decay evaluation runs every 5th `/learn` invocation (see `/learn` skill § Rule Decay Evaluation). Flagged rules are routed to workflow-fixer for pruning — never removed inline. Rules without metadata are never touched.
+
+## Metrics Schema
+
+Every workflow that runs `compute-swe-metrics` produces a `metrics:` block in its
+archived `state.yaml`. The canonical definition of this block — field registry,
+per-schema field variants (required / null / omitted), and consumer contracts for
+null-skip and key-absence — is in `contracts/metrics-schema.md`.
+
+When writing or evaluating a step that reads or writes `metrics:` fields, load
+`contracts/metrics-schema.md` for the authoritative field list and the explicit-null
+vs omit contract. Key rules summarized:
+
+- `resolution.*` fields are explicit YAML null (`~`) for spike and autopilot; real values for feature/bugfix/chore.
+- `review_scores` is omitted entirely (no key) for spike and autopilot.
+- `tokens`, `cost`, `churn`, `per_agent_*` are always present for all schemas.
+- `category` identifies the schema so consumers can group across schema types.
