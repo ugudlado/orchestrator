@@ -429,8 +429,41 @@ PER_AGENT_TOOLS=$(awk '
   }
 ' "$STATE_FILE")
 
+# ── Schema-dispatched output blocks ──────────────────────────────────────
+# Resolution block and review_scores differ by schema:
+#   spike/autopilot  → resolution fields are explicit null (~), no review_scores
+#   feature/bugfix/chore → full resolution block with real values, review_scores included
+# Pre-compute both blocks as strings so the final output is a single heredoc.
+case "$SCHEMA" in
+  spike|autopilot)
+    RESOLUTION_BLOCK="  resolution:
+    resolve_rate: ~
+    pass_at_1: ~
+    pass_at_2: ~
+    regression_rate: ~
+    tasks_total: ~"
+    REVIEW_BLOCK=""
+    ;;
+  *)
+    RESOLUTION_BLOCK="  resolution:
+    tasks_total: $TASKS_TOTAL
+    tasks_planned: $TASKS_TOTAL
+    tasks_added: 0
+    tasks_completed: $TASKS_COMPLETED
+    tasks_failed: $TASKS_FAILED
+    resolve_rate: $RESOLVE_RATE
+    pass_at_1: $PASS_AT_1
+    pass_at_2: $PASS_AT_2
+    regressions: 0
+    regression_rate: 0.0"
+    # Trailing newline baked in so the heredoc interpolates a clean block or nothing.
+    REVIEW_BLOCK="  review_scores: [$REVIEW_SCORES]
+  review_score_avg: $SCORE_AVG
+"
+    ;;
+esac
+
 # ── Output YAML ──────────────────────────────────────────────────────────
-# Common header: tokens, cost, timing — emitted for all schemas.
 cat <<YAML
 metrics:
   tokens:
@@ -451,43 +484,7 @@ metrics:
   tool_calls: $TOTAL_TOOL_CALLS
   api_calls: $TOTAL_TURNS
   wall_clock_minutes: $WALL_CLOCK
-YAML
-
-# Schema-dispatch: resolution block and review_scores differ by schema.
-case "$SCHEMA" in
-  spike|autopilot)
-    # Resolution fields are structurally inapplicable for spike/autopilot.
-    # Emit explicit YAML null (~) to keep block shape stable for consumers.
-    # review_scores is omitted entirely — no review gates in these schemas.
-    cat <<YAML
-  resolution:
-    resolve_rate: ~
-    pass_at_1: ~
-    pass_at_2: ~
-    regression_rate: ~
-    tasks_total: ~
-YAML
-    ;;
-  *)
-    # feature / bugfix / chore: full resolution block with real values.
-    cat <<YAML
-  resolution:
-    tasks_total: $TASKS_TOTAL
-    tasks_planned: $TASKS_TOTAL
-    tasks_added: 0
-    tasks_completed: $TASKS_COMPLETED
-    tasks_failed: $TASKS_FAILED
-    resolve_rate: $RESOLVE_RATE
-    pass_at_1: $PASS_AT_1
-    pass_at_2: $PASS_AT_2
-    regressions: 0
-    regression_rate: 0.0
-YAML
-    ;;
-esac
-
-# Common tail: retries, churn, lint, category, benchmarks, per-agent — all schemas.
-cat <<YAML
+$RESOLUTION_BLOCK
   retries:
     total: $RETRY_TOTAL
   human_interventions: 0
@@ -498,24 +495,7 @@ cat <<YAML
     insertions: $INSERTIONS
     deletions: $DELETIONS
     total_commits: $TOTAL_COMMITS
-YAML
-
-# Schema-dispatch: review_scores emitted only for feature/bugfix/chore.
-case "$SCHEMA" in
-  spike|autopilot)
-    # review_scores key omitted entirely for spike/autopilot.
-    ;;
-  *)
-    cat <<YAML
-  review_scores: [$REVIEW_SCORES]
-  review_score_avg: $SCORE_AVG
-YAML
-    ;;
-esac
-
-# Common footer: lint, category, benchmarks, per-agent — all schemas.
-cat <<YAML
-  lint_delta: 0
+$REVIEW_BLOCK  lint_delta: 0
   category: $SCHEMA
   benchmarks:
     cost_per_task_usd: $COST_PER_TASK

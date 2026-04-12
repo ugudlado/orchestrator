@@ -25,60 +25,49 @@ fi
 # ── Aggregate iteration metrics ───────────────────────────────────────────
 # Uses yq to extract values then awk to sum (yq v4 mikefarah doesn't support
 # reduce in this version; pipe to awk is the portable approach).
+sum_iteration_field() {
+  local yq_path="$1"
+  yq ".iterations[].metrics.$yq_path // 0" "$SESSION_STATE" 2>/dev/null \
+    | awk '{s+=$1} END {print s+0}'
+}
 
-# Sum tokens.total across all iterations
-TOKENS_TOTAL=$(yq '.iterations[].metrics.tokens.total // 0' "$SESSION_STATE" 2>/dev/null \
-  | awk '{s+=$1} END {print s+0}')
-TOKENS_TOTAL=$((TOKENS_TOTAL + 0))
-
-# Sum duration_ms across all iterations
-DURATION_TOTAL=$(yq '.iterations[].metrics.duration_ms // 0' "$SESSION_STATE" 2>/dev/null \
-  | awk '{s+=$1} END {print s+0}')
-DURATION_TOTAL=$((DURATION_TOTAL + 0))
-
-# Sum churn.files_changed across all iterations
-CHURN_TOTAL=$(yq '.iterations[].metrics.churn.files_changed // 0' "$SESSION_STATE" 2>/dev/null \
-  | awk '{s+=$1} END {print s+0}')
-CHURN_TOTAL=$((CHURN_TOTAL + 0))
+TOKENS_TOTAL=$(sum_iteration_field "tokens.total")
+DURATION_TOTAL=$(sum_iteration_field "duration_ms")
+CHURN_TOTAL=$(sum_iteration_field "churn.files_changed")
 
 # Count iterations by status
-ITERS_COMPLETED=$(yq '.iterations[] | select(.status == "completed") | .status' "$SESSION_STATE" 2>/dev/null \
-  | wc -l | tr -d ' ')
-ITERS_COMPLETED=$((ITERS_COMPLETED + 0))
+count_iterations() {
+  local status="$1"
+  yq ".iterations[] | select(.status == \"$status\") | .status" "$SESSION_STATE" 2>/dev/null \
+    | wc -l | tr -d ' '
+}
 
-ITERS_FAILED=$(yq '.iterations[] | select(.status == "failed") | .status' "$SESSION_STATE" 2>/dev/null \
-  | wc -l | tr -d ' ')
-ITERS_FAILED=$((ITERS_FAILED + 0))
-
-ITERS_EMPTY=$(yq '.iterations[] | select(.status == "empty_backlog") | .status' "$SESSION_STATE" 2>/dev/null \
-  | wc -l | tr -d ' ')
-ITERS_EMPTY=$((ITERS_EMPTY + 0))
+ITERS_COMPLETED=$(count_iterations "completed")
+ITERS_FAILED=$(count_iterations "failed")
+ITERS_EMPTY=$(count_iterations "empty_backlog")
 
 COMPLETED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # ── Write finalized metrics block using yq ────────────────────────────────
-# Use yq to write each field atomically into the existing file.
-# Schema and change_id remain as-is (already set when file was created).
-
-yq -i '.status = "completed"' "$SESSION_STATE"
-yq -i ".completed_at = \"$COMPLETED_AT\"" "$SESSION_STATE"
-
-# Write top-level metrics block
-yq -i ".metrics.category = \"autopilot\"" "$SESSION_STATE"
-yq -i ".metrics.tokens.total = $TOKENS_TOTAL" "$SESSION_STATE"
-yq -i ".metrics.duration_ms = $DURATION_TOTAL" "$SESSION_STATE"
-yq -i ".metrics.churn.files_changed = $CHURN_TOTAL" "$SESSION_STATE"
-
-# Resolution block: spike/autopilot fields are explicit null; iteration counts are real values
-yq -i '.metrics.resolution.resolve_rate = null' "$SESSION_STATE"
-yq -i '.metrics.resolution.pass_at_1 = null' "$SESSION_STATE"
-yq -i '.metrics.resolution.pass_at_2 = null' "$SESSION_STATE"
-yq -i '.metrics.resolution.regression_rate = null' "$SESSION_STATE"
-yq -i '.metrics.resolution.tasks_total = null' "$SESSION_STATE"
-yq -i ".metrics.resolution.iterations_completed = $ITERS_COMPLETED" "$SESSION_STATE"
-yq -i ".metrics.resolution.iterations_failed = $ITERS_FAILED" "$SESSION_STATE"
-yq -i ".metrics.resolution.iterations_empty = $ITERS_EMPTY" "$SESSION_STATE"
-
-# review_scores is intentionally omitted for autopilot
+# Single yq invocation chains all assignments with `|` — schema and change_id
+# remain untouched (already set when the file was created).
+# Resolution block: spike/autopilot null fields mirror compute-swe-metrics.sh;
+# iteration counts carry real values. review_scores is intentionally omitted.
+yq -i "
+  .status = \"completed\" |
+  .completed_at = \"$COMPLETED_AT\" |
+  .metrics.category = \"autopilot\" |
+  .metrics.tokens.total = $TOKENS_TOTAL |
+  .metrics.duration_ms = $DURATION_TOTAL |
+  .metrics.churn.files_changed = $CHURN_TOTAL |
+  .metrics.resolution.resolve_rate = null |
+  .metrics.resolution.pass_at_1 = null |
+  .metrics.resolution.pass_at_2 = null |
+  .metrics.resolution.regression_rate = null |
+  .metrics.resolution.tasks_total = null |
+  .metrics.resolution.iterations_completed = $ITERS_COMPLETED |
+  .metrics.resolution.iterations_failed = $ITERS_FAILED |
+  .metrics.resolution.iterations_empty = $ITERS_EMPTY
+" "$SESSION_STATE"
 
 echo "Session $SESSION_ID rollup complete: tokens=$TOKENS_TOTAL completed=$ITERS_COMPLETED failed=$ITERS_FAILED empty=$ITERS_EMPTY" >&2
