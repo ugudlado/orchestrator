@@ -253,46 +253,74 @@ if [[ -n "$SEARCH_TERM" ]]; then
   fi
 fi
 
+# ── Schema and Complexity ────────────────────────────────────────────────
+# Read schema early so task-resolution section can skip inapplicable work
+# for spike/autopilot. The variable is also used later in the output block.
+SCHEMA=$(grep '^schema:' "$STATE_FILE" | head -1 | awk '{print $2}')
+
 # ── Task Resolution (from state.yaml) ────────────────────────────────────
-# Parse verification_results for task pass/fail/retry counts
+# Parse verification_results for task pass/fail/retry counts.
+# For spike/autopilot: task resolution is structurally inapplicable —
+# these schemas have no task outcomes to resolve. Safe defaults prevent
+# division-by-zero; the output block emits explicit null (~) for these fields.
 TASKS_FILE="$STATE_DIR/tasks.md"
 TASKS_TOTAL=0
 TASKS_COMPLETED=0
 TASKS_FAILED=0
 FIRST_ATTEMPT_PASS=0
+RESOLVE_RATE=0
+PASS_AT_1=0
+PASS_AT_2=0
 
-if [[ -f "$TASKS_FILE" ]]; then
-  # Count checked tasks [x] and unchecked [ ]
-  TASKS_TOTAL=$(grep -cE '^\s*-\s*\[' "$TASKS_FILE" 2>/dev/null || echo 0)
-  TASKS_COMPLETED=$(grep -cE '^\s*-\s*\[x\]' "$TASKS_FILE" 2>/dev/null || echo 0)
-  TASKS_FAILED=$((TASKS_TOTAL - TASKS_COMPLETED))
-fi
+case "$SCHEMA" in
+  spike|autopilot)
+    # Skip task resolution calculations — not applicable for these schemas.
+    # TASKS_TOTAL=1 prevents division-by-zero in benchmark calculations below.
+    TASKS_TOTAL=1
+    TASKS_COMPLETED=0
+    ;;
+  *)
+    # feature / bugfix / chore: compute real resolution metrics.
+    if [[ -f "$TASKS_FILE" ]]; then
+      # Count checked tasks [x] and unchecked [ ]
+      TASKS_TOTAL=$(grep -cE '^\s*-\s*\[' "$TASKS_FILE" 2>/dev/null || true)
+      TASKS_TOTAL=${TASKS_TOTAL//[$'\n\r ']/}  # strip whitespace/newlines
+      TASKS_TOTAL=$((TASKS_TOTAL + 0))
+      TASKS_COMPLETED=$(grep -cE '^\s*-\s*\[x\]' "$TASKS_FILE" 2>/dev/null || true)
+      TASKS_COMPLETED=${TASKS_COMPLETED//[$'\n\r ']/}
+      TASKS_COMPLETED=$((TASKS_COMPLETED + 0))
+      TASKS_FAILED=$((TASKS_TOTAL - TASKS_COMPLETED))
+    fi
 
-# Parse verification_results from state.yaml for retry info
-TASK_RETRIES=$(grep -A2 'task_T' "$STATE_FILE" 2>/dev/null | grep 'retries:' | awk '{print $2}' || true)
-if [[ -n "$TASK_RETRIES" ]]; then
-  FIRST_ATTEMPT_PASS=$(echo "$TASK_RETRIES" | awk '$1==0{c++} END{print c+0}')
-fi
+    # Parse verification_results from state.yaml for retry info
+    TASK_RETRIES=$(grep -A2 'task_T' "$STATE_FILE" 2>/dev/null | grep 'retries:' | awk '{print $2}' || true)
+    if [[ -n "$TASK_RETRIES" ]]; then
+      FIRST_ATTEMPT_PASS=$(echo "$TASK_RETRIES" | awk '$1==0{c++} END{print c+0}')
+    fi
 
-# Fallback: if no task data, use step history
-if [[ "$TASKS_TOTAL" -eq 0 ]]; then
-  # Count execute-next-task entries in step_history
-  TASKS_TOTAL=$(grep -c 'step_id: execute-next-task' "$STATE_FILE" 2>/dev/null || echo 0)
-  TASKS_COMPLETED=$TASKS_TOTAL  # If we got here, they all completed
-  FIRST_ATTEMPT_PASS=$TASKS_TOTAL
-fi
+    # Fallback: if no task data, use step history
+    if [[ "$TASKS_TOTAL" -eq 0 ]]; then
+      # Count execute-next-task entries in step_history
+      TASKS_TOTAL=$(grep -c 'step_id: execute-next-task' "$STATE_FILE" 2>/dev/null || true)
+      TASKS_TOTAL=${TASKS_TOTAL//[$'\n\r ']/}
+      TASKS_TOTAL=$((TASKS_TOTAL + 0))
+      TASKS_COMPLETED=$TASKS_TOTAL  # If we got here, they all completed
+      FIRST_ATTEMPT_PASS=$TASKS_TOTAL
+    fi
 
-[[ "$TASKS_TOTAL" -eq 0 ]] && TASKS_TOTAL=1  # Avoid division by zero
+    [[ "$TASKS_TOTAL" -eq 0 ]] && TASKS_TOTAL=1  # Avoid division by zero
 
-RESOLVE_RATE=$(echo "scale=4; $TASKS_COMPLETED / $TASKS_TOTAL" | bc)
-PASS_AT_1=$(echo "scale=4; $FIRST_ATTEMPT_PASS / $TASKS_TOTAL" | bc)
+    RESOLVE_RATE=$(echo "scale=4; $TASKS_COMPLETED / $TASKS_TOTAL" | bc)
+    PASS_AT_1=$(echo "scale=4; $FIRST_ATTEMPT_PASS / $TASKS_TOTAL" | bc)
 
-# pass@2: tasks that succeeded within 2 attempts
-PASS_AT_2_COUNT=$TASKS_COMPLETED  # All completed tasks passed within some number of attempts
-if [[ -n "$TASK_RETRIES" ]]; then
-  PASS_AT_2_COUNT=$(echo "$TASK_RETRIES" | awk '$1<=1{c++} END{print c+0}')
-fi
-PASS_AT_2=$(echo "scale=4; $PASS_AT_2_COUNT / $TASKS_TOTAL" | bc)
+    # pass@2: tasks that succeeded within 2 attempts
+    PASS_AT_2_COUNT=$TASKS_COMPLETED  # All completed tasks passed within some number of attempts
+    if [[ -n "${TASK_RETRIES:-}" ]]; then
+      PASS_AT_2_COUNT=$(echo "$TASK_RETRIES" | awk '$1<=1{c++} END{print c+0}')
+    fi
+    PASS_AT_2=$(echo "scale=4; $PASS_AT_2_COUNT / $TASKS_TOTAL" | bc)
+    ;;
+esac
 
 # ── Retries ──────────────────────────────────────────────────────────────
 RETRY_TOTAL=$(grep 'retries:' "$STATE_FILE" 2>/dev/null | awk '{s+=$2} END {print s+0}')
@@ -303,7 +331,8 @@ if [[ "$TOTAL_COMMITS" -gt 0 ]]; then
 fi
 
 # ── Review Scores ────────────────────────────────────────────────────────
-# Extract review scores: look for "overall: N" under review_score blocks
+# Extract review scores: look for "overall: N" under review_score blocks.
+# For spike/autopilot: review_scores are omitted from output entirely.
 REVIEW_SCORES=$(grep -A1 'review_score:' "$STATE_FILE" 2>/dev/null | grep 'overall:' | awk '{print $2}' | tr '\n' ',' | sed 's/,$//')
 SCORE_AVG=0
 if [[ -n "$REVIEW_SCORES" ]]; then
@@ -400,10 +429,8 @@ PER_AGENT_TOOLS=$(awk '
   }
 ' "$STATE_FILE")
 
-# ── Schema and Complexity ────────────────────────────────────────────────
-SCHEMA=$(grep '^schema:' "$STATE_FILE" | awk '{print $2}')
-
 # ── Output YAML ──────────────────────────────────────────────────────────
+# Common header: tokens, cost, timing — emitted for all schemas.
 cat <<YAML
 metrics:
   tokens:
@@ -424,6 +451,26 @@ metrics:
   tool_calls: $TOTAL_TOOL_CALLS
   api_calls: $TOTAL_TURNS
   wall_clock_minutes: $WALL_CLOCK
+YAML
+
+# Schema-dispatch: resolution block and review_scores differ by schema.
+case "$SCHEMA" in
+  spike|autopilot)
+    # Resolution fields are structurally inapplicable for spike/autopilot.
+    # Emit explicit YAML null (~) to keep block shape stable for consumers.
+    # review_scores is omitted entirely — no review gates in these schemas.
+    cat <<YAML
+  resolution:
+    resolve_rate: ~
+    pass_at_1: ~
+    pass_at_2: ~
+    regression_rate: ~
+    tasks_total: ~
+YAML
+    ;;
+  *)
+    # feature / bugfix / chore: full resolution block with real values.
+    cat <<YAML
   resolution:
     tasks_total: $TASKS_TOTAL
     tasks_planned: $TASKS_TOTAL
@@ -435,6 +482,12 @@ metrics:
     pass_at_2: $PASS_AT_2
     regressions: 0
     regression_rate: 0.0
+YAML
+    ;;
+esac
+
+# Common tail: retries, churn, lint, category, benchmarks, per-agent — all schemas.
+cat <<YAML
   retries:
     total: $RETRY_TOTAL
   human_interventions: 0
@@ -445,8 +498,23 @@ metrics:
     insertions: $INSERTIONS
     deletions: $DELETIONS
     total_commits: $TOTAL_COMMITS
+YAML
+
+# Schema-dispatch: review_scores emitted only for feature/bugfix/chore.
+case "$SCHEMA" in
+  spike|autopilot)
+    # review_scores key omitted entirely for spike/autopilot.
+    ;;
+  *)
+    cat <<YAML
   review_scores: [$REVIEW_SCORES]
   review_score_avg: $SCORE_AVG
+YAML
+    ;;
+esac
+
+# Common footer: lint, category, benchmarks, per-agent — all schemas.
+cat <<YAML
   lint_delta: 0
   category: $SCHEMA
   benchmarks:
