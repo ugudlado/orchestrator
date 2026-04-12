@@ -1,0 +1,251 @@
+change_id: hl-278
+title: "Unify metric collection across all workflow schemas"
+schema: feature
+status: completed
+phase: complete
+next_step: complete/archive-completed-change
+archive_path: spec/changes/archive/2026-04-12-hl-278/
+slug: hl-278
+ticket: HL-278
+worktree_path: /Users/spidey/code/feature_worktrees/hl-278
+flags:
+  tdd_required: true
+  design: true
+  ux_design: false
+  auto: true
+  agents: true
+  linear: true
+workflow_plan:
+  specify:
+    active:
+      - create-worktree
+      - load-project-context
+      - explore
+      - design-exploration
+      - create-or-refresh-artifacts
+      - validate-artifacts
+      - run-phase-review
+      - create-linear-ticket
+    filtered:
+      - ux-design
+      - phase-signoff
+  implement:
+    active:
+      - execute-next-task
+      - run-simplify
+      - run-phase-review
+    filtered:
+      - run-ux-critique
+      - final-signoff
+  complete:
+    active:
+      - compute-swe-metrics
+      - signoff-review
+      - merge-to-main
+      - archive-completed-change
+      - update-linear-ticket
+step_history:
+  - step_id: create-worktree
+    phase: specify
+    status: completed
+    started_at: 2026-04-12T09:52:00Z
+    completed_at: 2026-04-12T09:52:05Z
+  - step_id: explore
+    phase: specify
+    status: completed
+    agent: discoverer
+    artifacts: [discovery.md]
+    started_at: "2026-04-12T09:52:10Z"
+    completed_at: "2026-04-12T09:55:00Z"
+  - step_id: load-project-context
+    phase: specify
+    status: completed
+    started_at: 2026-04-12T09:52:10Z
+    completed_at: 2026-04-12T09:52:15Z
+  - step_id: explore
+    phase: specify
+    status: completed
+    agent: discoverer
+    started_at: 2026-04-12T09:53:00Z
+    completed_at: 2026-04-12T10:01:30Z
+    usage:
+      total_tokens: 57485
+      tool_uses: 54
+      duration_ms: 505907
+  - step_id: design-exploration
+    phase: specify
+    status: completed
+    agent: architect
+    artifacts: [discovery.md]
+    started_at: 2026-04-12T10:02:00Z
+    completed_at: 2026-04-12T10:04:30Z
+  - step_id: create-or-refresh-artifacts
+    phase: specify
+    status: completed
+    agent: architect
+    artifacts: [spec.md, design.md, tasks.md]
+    started_at: 2026-04-12T10:05:00Z
+    completed_at: 2026-04-12T10:09:00Z
+  - step_id: validate-artifacts
+    phase: specify
+    status: completed
+    started_at: 2026-04-12T10:10:00Z
+    completed_at: 2026-04-12T10:10:30Z
+  - step_id: run-phase-review
+    phase: specify
+    status: completed
+    agent: reviewer
+    started_at: 2026-04-12T10:12:00Z
+    completed_at: 2026-04-12T10:18:00Z
+    review_score:
+      overall: 9
+      dimensions:
+        spec_compliance: 9
+        correctness: 9
+        security: 10
+        simplicity: 9
+        code_quality: 9
+  - step_id: create-linear-ticket
+    phase: specify
+    status: completed
+    started_at: 2026-04-12T10:18:30Z
+    completed_at: 2026-04-12T10:18:31Z
+    note: "Linear ticket HL-278 already exists (pre-created before autopilot); no new ticket needed"
+  - step_id: run-phase-review
+    phase: implement
+    status: completed
+    agent: reviewer
+    started_at: 2026-04-12T11:16:00Z
+    completed_at: 2026-04-12T11:28:00Z
+    review_score:
+      overall: 9
+      dimensions:
+        spec_compliance: 9
+        correctness: 9
+        security: 10
+        simplicity: 9
+        code_quality: 9
+  - step_id: compute-prediction-accuracy
+    phase: complete
+    status: completed
+    started_at: "2026-04-12T12:00:00Z"
+    completed_at: "2026-04-12T12:00:30Z"
+  - step_id: run-learn-cycle
+    phase: complete
+    status: completed
+    started_at: "2026-04-12T12:01:00Z"
+    completed_at: "2026-04-12T12:01:30Z"
+    learn_skipped: true
+    learn_error: "no /learn skill invocation available in developer agent context; learning deferred to orchestrator"
+  - step_id: compute-swe-metrics
+    phase: complete
+    status: completed
+    started_at: "2026-04-12T12:02:00Z"
+    completed_at: "2026-04-12T12:02:30Z"
+  - step_id: archive-completed-change
+    phase: complete
+    status: completed
+    started_at: "2026-04-12T12:03:00Z"
+    completed_at: "2026-04-12T12:03:30Z"
+linear_ticket_id: HL-278
+task_checkpoint:
+  task_id: T-15
+  status: completed
+  committed_at: "2026-04-12T11:14:00Z"
+
+prediction_accuracy:
+  computed_at: "2026-04-12T12:00:00Z"
+  tasks:
+    predicted: 15
+    actual: 15
+    delta: 0
+    accuracy_pct: 100.0
+    fix_task_count: 0
+    rework_rate: 0.0
+  files:
+    predicted: 8
+    actual: 18
+    delta: 10
+    overlap_pct: 38.9
+    predicted_list:
+      - config/workflows/_complete-phase-spike.yaml
+      - config/workflows/spike.yaml
+      - config/scripts/compute-swe-metrics.sh
+      - config/steps/autopilot-iterate.yaml
+      - config/workflows/autopilot.yaml
+      - config/steps/contracts/metrics-schema.md
+      - config/steps/CONVENTIONS.md
+      - agents/workflow-improver.md
+    actual_list:
+      - agents/workflow-improver.md
+      - config/scripts/__tests__/compute-swe-metrics.test.sh
+      - config/scripts/__tests__/fixtures/metrics.feature.golden.yaml
+      - config/scripts/__tests__/fixtures/state.feature.yaml
+      - config/scripts/__tests__/fixtures/state.spike.yaml
+      - config/scripts/autopilot-session-rollup.sh
+      - config/scripts/compute-swe-metrics.sh
+      - config/scripts/read-sub-state-metrics.sh
+      - config/steps/CONVENTIONS.md
+      - config/steps/__tests__/autopilot-iterate-metrics.test.sh
+      - config/steps/autopilot-iterate.yaml
+      - config/steps/autopilot-session-report.yaml
+      - config/steps/contracts/metrics-schema.md
+      - config/workflows/__tests__/autopilot-session-close.test.sh
+      - config/workflows/__tests__/complete-phase-spike.test.sh
+      - config/workflows/__tests__/spike.test.sh
+      - config/workflows/_complete-phase-spike.yaml
+      - config/workflows/spike.yaml
+
+metrics:
+  tokens:
+    input: 0
+    output: 0
+    cache_creation: 0
+    cache_read: 0
+    total: 57485
+  cost:
+    gross_usd: 0
+    net_usd: 0
+    model: unknown
+    pricing:
+      input: 15.00
+      output: 75.00
+      cache_read: 1.50
+  turns: 0
+  tool_calls: 54
+  api_calls: 0
+  wall_clock_minutes: 0
+  resolution:
+    tasks_total: 15
+    tasks_planned: 15
+    tasks_added: 0
+    tasks_completed: 15
+    tasks_failed: 0
+    resolve_rate: 1.0000
+    pass_at_1: 0
+    pass_at_2: 1.0000
+    regressions: 0
+    regression_rate: 0.0
+  retries:
+    total: 0
+  human_interventions: 0
+  rework_commits: 0
+  rework_rate: 0
+  churn:
+    files_changed: 0
+    insertions: 0
+    deletions: 0
+    total_commits: 0
+  review_scores: [9,9]
+  review_score_avg: 9.0
+  lint_delta: 0
+  category: feature
+  benchmarks:
+    cost_per_task_usd: 0
+    cost_per_resolution_usd: 0
+    tokens_per_task: 3832
+    tokens_per_resolution: 3832
+    input_output_ratio: 0
+    cache_hit_rate: 0
+  per_agent_tokens: '{"discoverer":{"total_tokens":57485,"tool_uses":54,"duration_ms":505907,"steps":1}}'
+  per_agent_tools: '{}'
