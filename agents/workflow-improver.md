@@ -90,18 +90,29 @@ Present as a formatted table with columns: YOURS vs benchmark references. Includ
 - Trend (last 5 features) showing direction arrows
 - Per-feature breakdown table (ID, schema, tasks, resolve, pass@1, cost, tokens, time)
 
+**Schema-specific notes for the per-feature table:**
+- For `schema: spike` and `schema: autopilot`: `resolve`, `pass@1`, `pass@2` fields are N/A
+  (their `metrics.resolution.*` fields are explicit YAML null — see `CONVENTIONS.md § Metrics Schema`).
+  Display "N/A" in those columns rather than a numeric value.
+- For `schema: autopilot`: `tasks` column shows `iterations_completed/iterations_total` instead of task counts.
+- When computing aggregate resolve rate or pass@1, exclude spike and autopilot rows —
+  their null values must not contaminate the average. Group by `metrics.category` first.
+
 ### Action Suggestions
-- resolve rate < 90% → review failed tasks for spec clarity
-- pass@1 < 70% → improve spec acceptance criteria
+- resolve rate < 90% → review failed tasks for spec clarity (feature/bugfix/chore only)
+- pass@1 < 70% → improve spec acceptance criteria (feature/bugfix/chore only)
 - rework rate > 10% → review fix commits for systemic issues
 - cost/task > $1.00 → check token efficiency
 - cache hit rate < 50% → context changing too frequently
 - regression rate > 0% → add regression test suite
+- autopilot iterations_failed > 20% → investigate iteration failure patterns
 
 ### Context Notes
 - SWE-bench resolves 500 diverse GitHub issues; your workflow has structured specs — expect higher rates
 - Your cost includes full workflow overhead (discovery, spec, review), not just implementation
 - If <3 features in data, show individual features without trends
+- Spike and autopilot sessions appear in `spec/changes/archive/*/state.yaml` alongside feature entries;
+  filter by `metrics.category` to separate schema types for meaningful cross-schema comparisons
 
 ## What You Don't Do
 - Never modify application code — only workflow infrastructure
