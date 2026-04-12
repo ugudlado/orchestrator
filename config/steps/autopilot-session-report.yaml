@@ -16,6 +16,14 @@ rules:
 instruction: |
   1. Read SESSION_ID from $WORKFLOW_STATE_DIR/autopilot/_checkpoint.json.
 
+  1.5. Finalize session metrics (before printing summary):
+  Run:
+    REPO_ROOT=$(git rev-parse --show-toplevel) \
+      bash $ORCHESTRATOR_HOME/config/scripts/autopilot-session-rollup.sh "$SESSION_ID"
+  This writes the aggregated metrics: block into
+  spec/changes/archive/autopilot-$SESSION_ID/state.yaml and sets status: completed.
+  If the session state.yaml does not exist (session was never iterated), skip this step.
+
   2. Locate the session block:
      - Try archive/sessions_archive.yaml first (completed sessions live here)
      - Fall back to sessions.yaml (interrupted sessions)
@@ -53,6 +61,7 @@ instruction: |
 
 verify:
   - Session block found in archive or sessions.yaml
+  - spec/changes/archive/autopilot-$SESSION_ID/state.yaml exists with schema: autopilot, status: completed, metrics: block
   - Summary table printed with correct counts
   - Resume instructions printed
 
