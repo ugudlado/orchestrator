@@ -66,6 +66,41 @@ instruction: |
   - anything else → read only the last error_events: block (grep -A 20 "error_events:" ...),
     set ITER_STATUS=failed, create a Linear ticket with the failure summary.
 
+  STEP D.5 — Capture per-iteration metrics from sub-feature state.yaml:
+  TICKET_SLUG computed in STEP D above.
+  Run:
+    ITER_METRICS=$(REPO_ROOT=$(git rev-parse --show-toplevel) \
+      bash $ORCHESTRATOR_HOME/config/scripts/read-sub-state-metrics.sh "$TICKET_SLUG" 2>/dev/null || echo "metrics:\n  tokens:\n    total: 0\n  duration_ms: 0\n  churn:\n    files_changed: 0")
+  If TICKET was EMPTY, use zero-filled metrics block instead.
+
+  Ensure the autopilot session state.yaml exists at
+  spec/changes/archive/autopilot-$SESSION_ID/state.yaml. If it does not yet
+  exist, create it with this scaffold:
+  ```yaml
+  change_id: autopilot-$SESSION_ID
+  schema: autopilot
+  status: active
+  started_at: $ITER_STARTED
+  iterations: []
+  ```
+
+  Append the completed iteration (including captured metrics) to the
+  session state.yaml under the top-level iterations: key:
+  ```yaml
+  - number: $I
+    ticket: $TICKET
+    schema: $SCHEMA
+    status: $ITER_STATUS
+    started_at: $ITER_STARTED
+    completed_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+    metrics:
+      tokens:
+        total: <from ITER_METRICS>
+      duration_ms: <from ITER_METRICS>
+      churn:
+        files_changed: <from ITER_METRICS>
+  ```
+
   STEP E — Append iteration record to sessions.yaml:
   Under the SESSION_ID entry's iterations: key, append:
   ```yaml
@@ -109,6 +144,7 @@ instruction: |
 verify:
   - _checkpoint.json updated with current iteration number and status
   - Iteration record appended to sessions.yaml (or archive if last iteration)
+  - Iteration metrics appended to spec/changes/archive/autopilot-$SESSION_ID/state.yaml
   - If last iteration: session archived and removed from sessions.yaml
   - If more iterations remain: context cleared before next iteration
 

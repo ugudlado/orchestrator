@@ -127,8 +127,7 @@ check_contains "archive: tokens.total = 8000" "$OUT_ARCHIVE" "total: 8000"
 
 # ── Test 3: Neither path exists — helper exits non-zero ───────────────────
 echo "--- Test 3: missing state.yaml ---"
-OUT_MISSING=$(HOME="$TMPDIR_BASE/nohome2" REPO_ROOT="$TMPDIR_BASE/norepo" bash "$HELPER" "nonexistent-slug" 2>&1 || true)
-EXIT_MISSING=$?
+OUT_MISSING=$(HOME="$TMPDIR_BASE/nohome2" REPO_ROOT="$TMPDIR_BASE/norepo" bash "$HELPER" "nonexistent-slug" 2>&1) && EXIT_MISSING=0 || EXIT_MISSING=$?
 
 if [[ "$EXIT_MISSING" -ne 0 ]]; then
   echo "PASS: helper exits non-zero when state.yaml missing"
