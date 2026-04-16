@@ -1,10 +1,17 @@
 name: feature
-version: 3
+version: 4
 
 description: >
   Canonical feature development. Two signoff gates: spec approval (before
   implementation) and final signoff (before archive). --auto skips both
   for fully autonomous execution.
+
+  Use --light for small, well-scoped changes where the "spec" is a short
+  idea document and the whole flow should fit in an afternoon: dependency
+  bumps, config tweaks, renames, typo fixes, small UI polish, adding a
+  flag, and similar tight-scope work. Light mode replaces the former
+  chore schema — compose it with other flags (e.g. --light --tdd) when
+  you want the tight scope without giving up a specific gate.
 
 uses:
   project: $REPO_ROOT/spec/project.yaml
@@ -15,9 +22,14 @@ defaults:
   tdd_required: true
   design: true
   ux_design: true
+  discovery: true
+  simplify: true
+  phase_review: true
+  worktree: true
   auto: false
   agents: false
   linear: true
+  light: false
 
 flags:
   --no-tdd:
@@ -32,6 +44,25 @@ flags:
     sets: { auto: true }
   --agents:
     sets: { agents: true }
+  --light:
+    sets:
+      light: true
+      tdd_required: false
+      design: false
+      ux_design: false
+      discovery: false
+      simplify: false
+      phase_review: false
+      worktree: false
+      linear: false
+    description: >
+      Lightweight path for tight-scope changes. Skips discovery, design,
+      UX design, TDD, simplify, phase-reviews, worktree creation, and
+      Linear ticket. Keeps spec + tasks artifacts, execute-next-task,
+      and final archive so there is still a paper trail. Lowers review
+      score threshold from 9 to 7. Compose with other flags to re-enable
+      a specific gate (e.g. --light --tdd keeps tests without the full
+      feature cycle).
 
 rules:
   - id: tdd-default
@@ -41,6 +72,9 @@ rules:
     rule: Run type-check + test + build at every phase boundary.
   - id: verification-bugs
     rule: Issues found during verification become new tasks in the current phase. Never skip ahead.
+  - id: light-scope
+    when: light
+    rule: Keep changes minimal and focused. No scope creep. One concern per change.
 
 phases:
   - name: specify
@@ -48,29 +82,33 @@ phases:
     outputs:
       - file: discovery.md
         template: discovery.md
+        when: discovery
       - file: spec.md
         template: spec.md
-        requires: [discovery.md]
       - file: design.md
         template: design.md
-        requires: [spec.md]
+        when: design
     rules:
       - Keep scope explicit (in-scope and out-of-scope).
       - Make acceptance criteria testable.
       - Resolve major design decisions before implementation.
     verify:
       assertions:
-        - All phase outputs exist in $WORKFLOW_STATE_DIR/$CHANGE_ID/
+        - spec.md exists in $WORKFLOW_STATE_DIR/$CHANGE_ID/
         - tasks.md exists with at least one task
         - spec.md has Acceptance Criteria section with testable criteria
-        - Each acceptance criterion traces to a discovery use case
       metrics:
         review_score: { min: 9 }
       max_retries: 3
+    verify_when:
+      light:
+        metrics:
+          review_score: { min: 7 }
+        max_retries: 2
     steps:
-      - create-worktree
+      - create-worktree if worktree
       - load-project-context
-      - explore
+      - explore if discovery
       - design-exploration if design
       - ux-design if ux_design
       - id: create-or-refresh-artifacts
@@ -80,8 +118,10 @@ phases:
             - Keep explicit red-green-refactor order in task text.
           not tdd_required:
             - Tests are optional unless task-level verification explicitly requires them.
+          light:
+            - Keep spec.md terse — one paragraph of context, a short acceptance list. No discovery section when discovery was skipped.
       - validate-artifacts
-      - run-phase-review
+      - run-phase-review if phase_review
       - create-linear-ticket if linear
       - phase-signoff if not auto
 
@@ -103,6 +143,11 @@ phases:
         test_coverage: { min: 90, when: tdd_required }
       max_retries: 3
       on_max_retries: escalate to user with remaining gaps listed
+    verify_when:
+      light:
+        metrics:
+          review_score: { min: 7 }
+        max_retries: 2
     steps:
       - id: execute-next-task
         repeat_until: all_tasks_completed
@@ -112,9 +157,9 @@ phases:
             - Keep coverage at or above schema target.
           not tdd_required:
             - Keep implementation slices minimal and verification-focused.
-      - run-simplify
+      - run-simplify if simplify
       - run-ux-critique if ux_design
-      - run-phase-review
+      - run-phase-review if phase_review
       - final-signoff if not auto
 
   - include: _complete-phase

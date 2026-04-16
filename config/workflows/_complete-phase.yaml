@@ -1,5 +1,5 @@
-# Shared complete phase — included by feature, bugfix, and chore schemas.
-# Changes here apply to all three workflows.
+# Shared complete phase — included by feature and bugfix schemas.
+# Changes here apply to both workflows.
 #
 # Usage in schema: include: _complete-phase
 # The orchestrator inlines this phase definition when it encounters the include directive.

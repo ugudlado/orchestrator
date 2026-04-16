@@ -2,19 +2,26 @@
 # Each entry describes the intent and context where that schema should be used.
 
 feature: >
-  Use when building a new capability, adding functionality that does not yet exist,
-  or making a substantial change that requires discovery, spec, and implementation phases.
-  Examples: new API endpoint, new UI component, new workflow schema.
+  Use for any change that adds, modifies, or cleans up production behavior.
+  The schema scales from full discovery-through-archive for substantial new
+  capabilities down to a lightweight path for tight-scope work via the
+  --light flag.
+
+  Full path (default): new API endpoint, new UI component, new workflow
+  schema — anything that benefits from discovery, design, and phased review.
+
+  Light path (--light): dependency bumps, renames, config tweaks, typo
+  fixes, small UI polish, adding a single flag, and other housekeeping
+  where the spec is a short idea doc and the whole thing ships in an
+  afternoon. Triggers: "bump", "rename", "tweak", "small change", "quick
+  fix", "cleanup". Light mode skips discovery/design/UX/TDD/simplify/
+  phase-reviews/worktree/Linear by default; add --tdd or similar to
+  re-enable a specific gate.
 
 bugfix: >
   Use when something is broken, regressing, or producing incorrect output.
   Examples: test failure, runtime error, wrong calculation, broken integration.
   Triggers: "fix", "broken", "regression", "crash", "error when doing X".
-
-chore: >
-  Use for housekeeping tasks with no new functionality: dependency updates, renames,
-  config changes, typo fixes, CI changes, or cleanup.
-  Examples: bump library version, rename variable, update .gitignore.
 
 spike: >
   Use when exploring an unknown problem space before committing to a solution.
