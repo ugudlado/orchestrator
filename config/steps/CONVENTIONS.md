@@ -258,7 +258,7 @@ definition so all agents evaluate it identically.
 
 | Condition | Definition |
 |-----------|------------|
-| `all_tasks_completed` | No task in tasks.md has an unchecked checkbox (`- [ ]`) remaining. A task marked `- [x]` is complete. A task marked `- [skip]` does not block completion. Evaluate by reading tasks.md and checking: zero lines match `^- \[ \]`. |
+| `all_tasks_completed` | No task in tasks.md has an unchecked checkbox (`- [ ]`) remaining. A task marked `- [x]` is complete. A task marked `- [skip]` does not block completion. A task marked `- [!]` is quarantined (per contracts/error-recovery.md § Quarantine Protocol) — terminal for loop advancement, but surfaced as critical in run-phase-review. Evaluate by reading tasks.md and checking: zero lines match `^- \[ \]`. |
 
 ## State Field Registry
 

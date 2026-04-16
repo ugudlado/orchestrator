@@ -53,6 +53,20 @@ instruction: |
      - If current overall is 2 or more points below that average: emit a warning in the report
        ("Quality regression: current score N is 2+ below historical average M for this schema/phase").
      - If no archived state.yaml files exist or no matching entries: skip silently.
+  5bb. Quarantine review (implement phase only):
+     - If current phase is not implement: skip this step.
+     - Read state.yaml for `quarantine_events` (may be absent or empty).
+     - For each entry, treat as a **critical finding** in the correctness dimension
+       — quarantined tasks are by definition unresolved regressions or test
+       failures that autopilot could not self-heal within max_retries.
+     - Include in the review report under "Quarantined tasks":
+       `T-<N> (reason: <category>, attempts: <K>): <last_detail>`
+     - Caps correctness dimension score at scoring.critical_cap until each
+       quarantined task either:
+         a. Has a fix task appended to tasks.md, OR
+         b. Is explicitly accepted by the user (state.yaml contains
+            `quarantine_accepted: ["T-<N>", ...]` — an interactive signoff).
+
   5c. AC verification with evidence (implement phase only):
      - If current phase is not implement: skip this step.
      - Read spec.md (feature) or fix-plan.md (bugfix) for acceptance criteria,

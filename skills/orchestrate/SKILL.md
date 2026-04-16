@@ -101,6 +101,11 @@ IF step has agent: field:
         sonnet-agent      -> worker
         haiku-agent       -> default
     - If no mapping exists, use worker and record the fallback in step_history.
+  IF this is a re-spawn after failure (step_history[-1].retry_context exists
+     and retries.<step_id> > 0):
+    READ step_history[-1].retry_context and build the RETRY_CONTEXT block
+    per contracts/error-recovery.md § Retry Context Contract. This block
+    will be appended to the prompt below.
   SPAWN sub-agent via the host's agent/subagent tool:
     - subagent_type: resolved host subagent type
     - prompt:
@@ -109,6 +114,8 @@ IF step has agent: field:
            when using a compatibility fallback; native hosts may rely on the
            registered agent definition.
         3. step.instruction + collected rules
+        4. RETRY_CONTEXT block (if this is a re-spawn), appended verbatim
+           after a blank line.
     - Include: phase context, state.yaml path, relevant contract files from CONVENTIONS.md § Contract Files
   WAIT for agent result
 

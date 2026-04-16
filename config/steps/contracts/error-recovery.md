@@ -57,6 +57,61 @@ When `retries.<key> >= max_retries`, execute the `on_max_retries` action:
 | `ticket` | Create a Linear ticket with failure details. Set `status: paused`. Continue to next phase if possible, or stop. | Used when `auto` flag is true — autonomous mode cannot pause for user input. |
 | *(absent)* | Default to `escalate` if `auto` is false, `ticket` if `auto` is true. | When schema omits `on_max_retries`. |
 
+## Retry Context Contract
+
+When a step is re-spawned after failure, the dispatch loop must pass the agent
+enough information to avoid repeating the same mistake. The re-spawn prompt
+includes a `RETRY_CONTEXT:` block built from `step_history[-1].retry_context`
+(set by the failing step, per its own retry recording convention).
+
+Block format:
+
+```
+RETRY_CONTEXT:
+  attempt: <K>                  # 1-based; K=2 means this is the second attempt
+  previous_failure: <category>  # regression | test_failure | verify_assertion | blocked
+  detail: <string>              # failing test names + stdout tail (≤ 20 lines), or regression delta
+  baseline: <N or null>         # baseline.passing at regression time, or null
+```
+
+The dispatch loop:
+1. Before re-spawn, reads `step_history[-1].retry_context` from state.yaml.
+2. If present, appends the block verbatim to the agent prompt *after* the
+   step instruction, separated by a blank line.
+3. If absent (first attempt, or a step that does not record context), no block
+   is appended — behavior matches pre-retry-context dispatch.
+
+Steps that produce retry context must write it under `retry_context:` in the
+step_history entry at failure time, alongside the existing `regression:` or
+`error:` block. This keeps retry context durable across resume.
+
+## Quarantine Protocol
+
+When a task hits `max_retries` under `auto: true` (autopilot / lenient mode),
+the feature is not paused. Instead:
+
+1. Mark the task quarantined in tasks.md by changing `- [ ]` to `- [!]` and
+   appending `<!-- quarantined: attempt <K>, reason: <category> -->` to the
+   task line. Subsequent `all_tasks_completed` checks treat `[!]` as terminal
+   (task is no longer blocking), but not as complete.
+2. Append to state.yaml `quarantine_events`:
+   ```yaml
+   quarantine_events:
+     - task_id: "T-<N>"
+       attempts: <K>
+       reason: <regression | test_failure | blocked>
+       last_detail: <one-line failure summary>
+       quarantined_at: "<ISO 8601 timestamp>"
+   ```
+3. Pop the last retry's stash (`git stash pop <ref>`) so the broken state is
+   in the working tree — the phase reviewer needs to see what was left behind.
+4. Proceed to the next task. Do NOT advance the phase while quarantined tasks
+   remain unexamined — `run-phase-review` reads `quarantine_events` and treats
+   each as a critical finding that gates phase pass.
+
+Quarantine is inactive when `auto: false`. Under interactive mode, retry
+exhaustion follows § Escalation Protocol as before.
+
 ## Missing STATUS Rule
 
 If an agent's output does not contain a `STATUS:` field (either `completed` or `blocked`),

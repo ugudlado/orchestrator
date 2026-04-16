@@ -88,14 +88,36 @@ instruction: |
      - Update state.yaml step_history per CONVENTIONS.md § State Updates.
   7. If verification fails:
      a. Leave task unchecked (- [ ]).
-     b. Diagnose the failure from command output / test results.
-     c. Attempt an in-place fix scoped to the task's changes.
-     d. Re-run verification.
+     b. Rollback (self-healing): stash the working-tree changes made by this
+        attempt so the retry starts from a clean baseline instead of trying to
+        patch buggy code in place:
+          git stash push -u -m "pre-retry: T-<N> attempt <K>"
+        The stash is named and recoverable. Record the stash ref to state.yaml:
+          step_history[-1].rollback: { stash_ref: "stash@{0}", attempt: <K> }
+     c. Diagnose the failure from command output / test results and build a
+        RETRY_CONTEXT block the dispatch loop will pass into the re-spawned
+        agent (per CONVENTIONS.md § Retry Context Contract):
+          RETRY_CONTEXT:
+            attempt: <K>
+            previous_failure: <regression | test_failure | verify_assertion>
+            detail: <regression delta, or failing test names + stdout tail (20 lines max)>
+            baseline: <baseline.passing value if regression>
+        Write the block to step_history[-1].retry_context so the dispatch loop
+        can find it on re-spawn.
+     d. Re-run verification from the rolled-back baseline with the augmented
+        prompt in place.
      e. Follow Error Recovery Contract (contracts/error-recovery.md):
         - Increment retries.T-N in state.yaml per attempt.
+        - On success: drop the stash (`git stash drop <ref>`) and proceed to step 6.
         - If retries.T-N >= max_retries (from phase verify, default 3):
-          execute on_max_retries action per § Escalation Protocol.
-        - Do not skip the task.
+          * Restore the final failed state: `git stash pop <ref>` so the broken
+            code is visible in the working tree for debugging.
+          * Under `auto: true` (autopilot / lenient mode): mark the task
+            `quarantined: true` in tasks.md per § Quarantine Protocol below,
+            record a quarantine_events entry in state.yaml, and advance to the
+            next task. Do NOT escalate.
+          * Otherwise: execute on_max_retries action per § Escalation Protocol.
+        - Do not skip the task unless it is quarantined.
   8. If blocked (external dependency, missing input, ambiguous spec):
      Follow Agent Blocked Protocol (contracts/error-recovery.md).
      Record blocker in state.yaml: `{ blocked_task: T-N, reason: "..." }`.
