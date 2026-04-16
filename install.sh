@@ -107,6 +107,15 @@ setup_codex() {
   echo "  Codex: $agent_count agents, $skill_count skills linked"
 }
 
+setup_git_hooks() {
+  echo "Installing git pre-commit hook..."
+  local hook_src="$ORCHESTRATOR_DIR/scripts/pre-commit.sh"
+  local hook_dst="$ORCHESTRATOR_DIR/.git/hooks/pre-commit"
+  [ -f "$hook_src" ] || { echo "  skipped: $hook_src not found"; return 0; }
+  [ -d "$ORCHESTRATOR_DIR/.git/hooks" ] || { echo "  skipped: not a git repo"; return 0; }
+  safe_ln "$hook_src" "$hook_dst"
+}
+
 setup_global_hub() {
   echo "Syncing global hub (~/.agents)..."
   mkdir -p "${HOME}/.agents"
@@ -164,6 +173,7 @@ main() {
   setup_core
   setup_claude
   setup_codex
+  setup_git_hooks
   setup_global_hub
   # setup_tool_antigravity
   echo "Done. Run: source $SHELL_PROFILE"
