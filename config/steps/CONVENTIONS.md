@@ -155,6 +155,7 @@ step_history:
       cache_creation_input_tokens: 2800
       cache_read_input_tokens: 200
       total_tokens: 18500
+      cost_usd: 0.0023           # from proxy pricing lookup; omit if unavailable
       tool_uses: 7
       tools:
         Read: 3

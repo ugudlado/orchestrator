@@ -151,11 +151,12 @@ STATE_USAGE=$(awk '
   in_sh && in_u && /^      cache_creation_input_tokens:/  { gsub(/.*: */, ""); cc+=$0+0 }
   in_sh && in_u && /^      cache_read_input_tokens:/      { gsub(/.*: */, ""); cr+=$0+0 }
   in_sh && in_u && /^      total_tokens:/                 { gsub(/.*: */, ""); t+=$0+0 }
+  in_sh && in_u && /^      cost_usd:/                     { gsub(/.*: */, ""); cost+=$0+0 }
   in_sh && in_u && /^      tool_uses:/                    { gsub(/.*: */, ""); u+=$0+0 }
   in_sh && in_u && /^      duration_ms:/                  { gsub(/.*: */, ""); d+=$0+0 }
   in_sh && in_u && /^    [a-z]/ && !/^      / { in_u=0 }
   function flush() { if (in_u) in_u=0; s++ }
-  END { flush(); printf "%d %d %d %d %d %d %d %d", inp+0, out+0, cc+0, cr+0, t+0, u+0, d+0, s+0 }
+  END { flush(); printf "%d %d %d %d %d %.6f %d %d %d", inp+0, out+0, cc+0, cr+0, t+0, cost+0, u+0, d+0, s+0 }
 ' "$STATE_FILE")
 
 TOTAL_INPUT=$(echo "$STATE_USAGE" | awk '{print $1}')
@@ -163,9 +164,10 @@ TOTAL_OUTPUT=$(echo "$STATE_USAGE" | awk '{print $2}')
 TOTAL_CACHE_CREATION=$(echo "$STATE_USAGE" | awk '{print $3}')
 TOTAL_CACHE_READ=$(echo "$STATE_USAGE" | awk '{print $4}')
 TOTAL_TOKENS=$(echo "$STATE_USAGE" | awk '{print $5}')
-TOTAL_TOOL_CALLS=$(echo "$STATE_USAGE" | awk '{print $6}')
-TOTAL_DURATION_MS=$(echo "$STATE_USAGE" | awk '{print $7}')
-TOTAL_STEPS=$(echo "$STATE_USAGE" | awk '{print $8}')
+PROXY_COST_USD=$(echo "$STATE_USAGE" | awk '{print $6}')
+TOTAL_TOOL_CALLS=$(echo "$STATE_USAGE" | awk '{print $7}')
+TOTAL_DURATION_MS=$(echo "$STATE_USAGE" | awk '{print $8}')
+TOTAL_STEPS=$(echo "$STATE_USAGE" | awk '{print $9}')
 
 # If total_tokens is 0 but we have input+output, compute it
 if [[ "$TOTAL_TOKENS" -eq 0 && "$TOTAL_INPUT" -gt 0 ]]; then
@@ -185,6 +187,9 @@ if command -v jq >/dev/null 2>&1 && [[ -n "$STARTED_AT" && -n "$COMPLETED_AT" ]]
 fi
 
 # ── Cost Calculation ─────────────────────────────────────────────────────
+# Two cost sources:
+#   1. PROXY_COST_USD: summed from step_history[].usage.cost_usd (from LiteLLM pricing lookup)
+#   2. Model-based: computed from token counts × hardcoded per-model rates (fallback for native agents)
 PRICING=$(get_pricing "$MODEL")
 INPUT_PRICE=$(echo "$PRICING" | awk '{print $1}')
 OUTPUT_PRICE=$(echo "$PRICING" | awk '{print $2}')
@@ -193,8 +198,14 @@ CACHE_READ_PRICE=$(echo "$PRICING" | awk '{print $3}')
 # gross_usd: SWE-bench HAL style — ALL tokens at full price, no cache discount.
 GROSS_USD=$(echo "scale=4; ($TOTAL_INPUT + $TOTAL_CACHE_CREATION + $TOTAL_CACHE_READ) * $INPUT_PRICE / 1000000 + $TOTAL_OUTPUT * $OUTPUT_PRICE / 1000000" | bc)
 
-# net_usd: Actual billed cost with cache discounts applied.
-NET_USD=$(echo "scale=4; ($TOTAL_INPUT + $TOTAL_CACHE_CREATION) * $INPUT_PRICE / 1000000 + $TOTAL_CACHE_READ * $CACHE_READ_PRICE / 1000000 + $TOTAL_OUTPUT * $OUTPUT_PRICE / 1000000" | bc)
+# net_usd: Use proxy cost when available (more accurate), fall back to model-based.
+MODEL_NET_USD=$(echo "scale=4; ($TOTAL_INPUT + $TOTAL_CACHE_CREATION) * $INPUT_PRICE / 1000000 + $TOTAL_CACHE_READ * $CACHE_READ_PRICE / 1000000 + $TOTAL_OUTPUT * $OUTPUT_PRICE / 1000000" | bc)
+HAS_PROXY_COST=$(echo "$PROXY_COST_USD > 0" | bc)
+if [[ "$HAS_PROXY_COST" -eq 1 ]]; then
+  NET_USD=$PROXY_COST_USD
+else
+  NET_USD=$MODEL_NET_USD
+fi
 
 # ── Wall Clock ───────────────────────────────────────────────────────────
 # STARTED_AT and COMPLETED_AT already extracted above (before JSONL enrichment).
@@ -364,16 +375,18 @@ PER_AGENT_TOKENS=$(awk '
   function flush_entry() {
     if (agent != "" && total_tokens > 0) {
       tok[agent]  += total_tokens
+      cost[agent] += cost_usd
       uses[agent] += tool_uses
       dur[agent]  += duration_ms
       cnt[agent]  += 1
     }
-    agent=""; total_tokens=0; tool_uses=0; duration_ms=0; in_usage=0
+    agent=""; total_tokens=0; cost_usd=0; tool_uses=0; duration_ms=0; in_usage=0
   }
   in_history && /^  - / { flush_entry() }
   in_history && /^    agent:/ { gsub(/.*agent: */, ""); gsub(/"/, ""); agent=$0 }
   in_history && /^    usage:/ { in_usage=1 }
   in_history && in_usage && /^      total_tokens:/ { gsub(/.*total_tokens: */, ""); total_tokens=$0+0 }
+  in_history && in_usage && /^      cost_usd:/     { gsub(/.*cost_usd: */, "");     cost_usd=$0+0 }
   in_history && in_usage && /^      tool_uses:/    { gsub(/.*tool_uses: */, "");    tool_uses=$0+0 }
   in_history && in_usage && /^      duration_ms:/  { gsub(/.*duration_ms: */, "");  duration_ms=$0+0 }
   in_history && in_usage && /^    [a-z]/ && !/^    usage:/ { in_usage=0 }
@@ -382,8 +395,8 @@ PER_AGENT_TOKENS=$(awk '
     sep=""
     printf "{"
     for (a in tok) {
-      printf "%s\"%s\":{\"total_tokens\":%d,\"tool_uses\":%d,\"duration_ms\":%d,\"steps\":%d}",
-        sep, a, tok[a], uses[a], dur[a], cnt[a]
+      printf "%s\"%s\":{\"total_tokens\":%d,\"cost_usd\":%.6f,\"tool_uses\":%d,\"duration_ms\":%d,\"steps\":%d}",
+        sep, a, tok[a], cost[a], uses[a], dur[a], cnt[a]
       sep=","
     }
     printf "}"

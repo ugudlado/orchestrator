@@ -130,12 +130,32 @@ AFTER step completes:
   APPEND to state.yaml step_history: {step_id, phase, status, agent, started_at, completed_at}
   If a compatibility fallback was used, preserve the configured agent name in
   `agent:` and add `runtime_agent: <resolved host subagent type>`.
-  IF step had agent: field, parse the agent result footer for usage data and add:
-    usage: {total_tokens, tool_uses, duration_ms}
+  IF step had agent: field, extract usage data from the agent result and add a usage: block.
+  Two sources — check both:
+    a) **Proxy agents (llm_submit)**: look for a `---llm_usage---` / `---end_usage---` block
+       in the result text. Copy the fields directly: input_tokens, output_tokens, total_tokens.
+    b) **Native agents (Agent tool)**: the result summary includes token counts
+       (e.g. "tokens: 12345 input, 3456 output"). Extract input_tokens, output_tokens,
+       and compute total_tokens = input_tokens + output_tokens.
   Also count tool invocations by type name (Read, Bash, Edit, Grep, Write, Glob,
   WebSearch, WebFetch, SendMessage, etc.) from the agent result, and write as:
     tools: {ToolName: count, ...}
-  under usage:. The sum of all tools values must equal tool_uses.
+  Sum all tool counts as tool_uses.
+  Write the complete block:
+    ```yaml
+    usage:
+      input_tokens: <N>
+      output_tokens: <N>
+      total_tokens: <N>
+      cost_usd: <N>
+      tool_uses: <N>
+      tools:
+        Read: <N>
+        Bash: <N>
+        ...
+    ```
+  cost_usd comes from the `---llm_usage---` block (proxy agents) or can be omitted (native agents).
+  If token data is unavailable, still write what you have (even just tool counts).
   If no tool calls were made, omit tools: or write tools: {}.
   WRITE next_step to state.yaml pointing to the next step
   IF step has repeat_until: check condition — if not met, re-execute this step
