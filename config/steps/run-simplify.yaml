@@ -6,6 +6,9 @@ intent: Simplify and clean up implementation code before review — staff-level 
 agent: developer
 model: sonnet
 
+pre_execute:
+  approach_required: true
+
 inputs:
   - All files modified during execute-next-task steps
   - project context (conventions, verify_commands from project.yaml)

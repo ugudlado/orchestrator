@@ -5,6 +5,9 @@ intent: Generate solution-space design approaches and select one.
 
 agent: architect
 
+pre_execute:
+  approach_required: true
+
 inputs:
   - phase_context_bundle
   - discovery_result

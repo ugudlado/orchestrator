@@ -72,6 +72,17 @@ COLLECT rules for this step:
 
 RECORD started_at = current ISO 8601 timestamp
 
+IF step contract has pre_execute.approach_required: true:
+  REQUIRE the agent (or inline executor) to emit an APPROACH block before any
+  other action, per CONVENTIONS.md § Pre-Execute Approach Statement:
+    APPROACH:
+      files: <paths>
+      approach: <one sentence>
+      not_doing: <scope exclusion>
+  CAPTURE the block into state.yaml step_history[-1].approach verbatim.
+  Under --auto, proceed immediately after emitting. Under interactive mode,
+  wait for user confirmation unless the parent step has already been approved.
+
 IF step has agent: field:
   RESOLVE host subagent type:
     - Default: subagent_type = step.agent

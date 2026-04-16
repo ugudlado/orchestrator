@@ -5,6 +5,9 @@ intent: Execute the next ready task and update progress state.
 
 agent: developer
 
+pre_execute:
+  approach_required: true
+
 inputs:
   - tasks.md (format: contracts/artifact-formats.md § Task Format Contract)
   - phase_context_bundle

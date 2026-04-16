@@ -5,6 +5,9 @@ intent: Create or update the current phase's output artifacts and generate tasks
 
 agent: architect
 
+pre_execute:
+  approach_required: true
+
 inputs:
   - phase_context_bundle (includes phase outputs definition)
   - ux-artifacts.yaml (optional, per contracts/ux-artifacts.md)

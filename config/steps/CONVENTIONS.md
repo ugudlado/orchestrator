@@ -61,6 +61,37 @@ Every step contract has exactly 4 sections, each with a distinct purpose:
 | `verify:` | Assertions that the one thing was done correctly | Checkable conditions. Must be evaluable without re-reading instruction. |
 | `outputs:` | What the step produces | Artifact names only. |
 
+## Pre-Execute Approach Statement
+
+Implementation-heavy steps — any step that writes code, runs destructive commands,
+or produces multi-file artifacts — must emit an approach statement before executing
+their `instruction:` block. This guards against the #1 friction type (wrong-approach),
+which a rear-view review or test gate cannot catch (the wasted work already happened).
+
+Mark applicable steps with:
+
+```yaml
+pre_execute:
+  approach_required: true
+```
+
+When present, the orchestrate dispatch loop requires the agent to emit three lines
+before any other action:
+
+```
+APPROACH:
+  files: <comma-separated paths that will be created or modified>
+  approach: <one sentence describing the mechanism, not the goal>
+  not_doing: <what's deliberately out of scope>
+```
+
+The dispatch loop records this block verbatim in `state.yaml` under the step's
+`step_history` entry as `approach:`, so the decision is durable across resume.
+
+**When to require it**: any step whose agent is `developer`, `architect`, `reviewer`
+with edit authority, or any inline step that calls `git`, `rm`, or writes more than
+one file. Exploration, read-only review, and single-field state updates do not need it.
+
 ## Step-Level Model Override
 
 A step contract may include an optional `model:` field (e.g., `model: sonnet`).
