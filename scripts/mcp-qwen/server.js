@@ -8,7 +8,7 @@ import YAML from "yaml";
 
 const ROUTES_PATH = process.argv[2] || process.env.LLM_ROUTES || new URL("../llm-proxy/routes.yaml", import.meta.url).pathname;
 
-let config = { agents: {}, model_list: [] };
+let config = { agents: {}, models: {} };
 
 async function loadConfig() {
   const raw = await readFile(ROUTES_PATH, "utf8");
@@ -22,26 +22,20 @@ function resolveAgent(name) {
   return { mode: isNative ? "native" : "proxy", model: isNative ? mapping.slice(7) : mapping };
 }
 
-// Resolve os.environ/VAR_NAME — LiteLLM convention
 function resolveEnvVar(v) {
-  if (typeof v !== "string") return v;
-  if (v.startsWith("os.environ/")) {
-    const envName = v.slice(11);
-    const envVal = process.env[envName];
-    if (!envVal) throw new Error(`Env var ${envName} is not set`);
-    return envVal;
-  }
-  return v;
+  if (typeof v !== "string" || !v.startsWith("$")) return v;
+  const envVal = process.env[v.slice(1)];
+  if (!envVal) throw new Error(`Env var ${v.slice(1)} is not set`);
+  return envVal;
 }
 
 function resolveModel(alias) {
-  const entry = config.model_list?.find((m) => m.model_name === alias);
-  if (!entry?.litellm_params) return null;
-  const p = entry.litellm_params;
+  const m = config.models?.[alias];
+  if (!m) return null;
   return {
-    api_base: resolveEnvVar(p.api_base),
-    model: resolveEnvVar(p.model),
-    api_key: p.api_key ? resolveEnvVar(p.api_key) : null,
+    url: m.url,
+    model: m.model,
+    api_key: m.api_key ? resolveEnvVar(m.api_key) : null,
   };
 }
 
@@ -65,12 +59,11 @@ server.tool(
     if (!agentConfig) throw new Error(`Unknown agent "${agent}". Available: ${Object.keys(config.agents).join(", ")}`);
     if (agentConfig.mode === "native") throw new Error(`Agent "${agent}" is native (${agentConfig.model}). Use host sub-agent.`);
 
-    const modelNames = config.model_list?.map((m) => m.model_name) || [];
     const modelConfig = resolveModel(agentConfig.model);
-    if (!modelConfig) throw new Error(`No model config for "${agentConfig.model}". Available: ${modelNames.join(", ")}`);
+    if (!modelConfig) throw new Error(`No model config for "${agentConfig.model}". Available: ${Object.keys(config.models || {}).join(", ")}`);
 
-    const url = (modelConfig.api_base || "").replace(/\/$/, "");
-    if (!url) throw new Error(`No api_base for model "${agentConfig.model}"`);
+    const url = (modelConfig.url || "").replace(/\/$/, "");
+    if (!url) throw new Error(`No url for model "${agentConfig.model}"`);
     const headers = { "Content-Type": "application/json" };
     if (modelConfig.api_key) headers.Authorization = `Bearer ${modelConfig.api_key}`;
 
