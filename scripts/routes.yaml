@@ -1,3 +1,5 @@
+# Agent routing — WHO does the work
+# native_<model> = host sub-agent, anything else = proxy via model_list
 agents:
   architect:    native_opus
   ideator:      native_opus
@@ -7,18 +9,21 @@ agents:
   sonnet-agent: qwen
   haiku-agent:  qwen
 
-models:
-  qwen:
-    url: https://openrouter.ai/api/v1
-    args:
-      api_key: $OPENROUTER_API_KEY
-      model: qwen/qwen3-coder-30b-a3b-instruct
+# Model backends — WHERE it runs
+# Compatible with LiteLLM config format (model_list + litellm_params)
+model_list:
+  - model_name: qwen
+    litellm_params:
+      model: openrouter/qwen/qwen3-coder-30b-a3b-instruct
+      api_key: os.environ/OPENROUTER_API_KEY
+      api_base: https://openrouter.ai/api/v1
 
-  qwen-local:
-    url: http://localhost:3456/v1
-    args:
-      api_key: $LLM_MANAGER_KEY
+  - model_name: qwen-local
+    litellm_params:
       model: coder
+      api_key: os.environ/LLM_MANAGER_KEY
+      api_base: http://localhost:3456/v1
 
-  klm-local:
-    url: http://localhost:8000/v1
+  - model_name: klm-local
+    litellm_params:
+      api_base: http://localhost:8000/v1

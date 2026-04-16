@@ -8,7 +8,7 @@ import YAML from "yaml";
 
 const ROUTES_PATH = process.argv[2] || process.env.LLM_ROUTES || new URL("../llm-proxy/routes.yaml", import.meta.url).pathname;
 
-let config = { agents: {}, models: {} };
+let config = { agents: {}, model_list: [] };
 
 async function loadConfig() {
   const raw = await readFile(ROUTES_PATH, "utf8");
@@ -22,22 +22,27 @@ function resolveAgent(name) {
   return { mode: isNative ? "native" : "proxy", model: isNative ? mapping.slice(7) : mapping };
 }
 
-function resolveModel(alias) {
-  const m = config.models[alias];
-  if (!m) return null;
-  const resolved = { url: m.url, args: {} };
-  if (m.args) {
-    for (const [k, v] of Object.entries(m.args)) {
-      if (typeof v === "string" && v.startsWith("$")) {
-        const envVal = process.env[v.slice(1)];
-        if (!envVal) throw new Error(`Env var ${v.slice(1)} is not set`);
-        resolved.args[k] = envVal;
-      } else {
-        resolved.args[k] = v;
-      }
-    }
+// Resolve os.environ/VAR_NAME — LiteLLM convention
+function resolveEnvVar(v) {
+  if (typeof v !== "string") return v;
+  if (v.startsWith("os.environ/")) {
+    const envName = v.slice(11);
+    const envVal = process.env[envName];
+    if (!envVal) throw new Error(`Env var ${envName} is not set`);
+    return envVal;
   }
-  return resolved;
+  return v;
+}
+
+function resolveModel(alias) {
+  const entry = config.model_list?.find((m) => m.model_name === alias);
+  if (!entry?.litellm_params) return null;
+  const p = entry.litellm_params;
+  return {
+    api_base: resolveEnvVar(p.api_base),
+    model: resolveEnvVar(p.model),
+    api_key: p.api_key ? resolveEnvVar(p.api_key) : null,
+  };
 }
 
 // --- MCP Server ---
@@ -60,15 +65,17 @@ server.tool(
     if (!agentConfig) throw new Error(`Unknown agent "${agent}". Available: ${Object.keys(config.agents).join(", ")}`);
     if (agentConfig.mode === "native") throw new Error(`Agent "${agent}" is native (${agentConfig.model}). Use host sub-agent.`);
 
+    const modelNames = config.model_list?.map((m) => m.model_name) || [];
     const modelConfig = resolveModel(agentConfig.model);
-    if (!modelConfig) throw new Error(`No model config for "${agentConfig.model}". Available: ${Object.keys(config.models).join(", ")}`);
+    if (!modelConfig) throw new Error(`No model config for "${agentConfig.model}". Available: ${modelNames.join(", ")}`);
 
-    const url = modelConfig.url.replace(/\/$/, "");
+    const url = (modelConfig.api_base || "").replace(/\/$/, "");
+    if (!url) throw new Error(`No api_base for model "${agentConfig.model}"`);
     const headers = { "Content-Type": "application/json" };
-    if (modelConfig.args.api_key) headers.Authorization = `Bearer ${modelConfig.args.api_key}`;
+    if (modelConfig.api_key) headers.Authorization = `Bearer ${modelConfig.api_key}`;
 
     const body = { messages, temperature: temperature ?? 0.2, max_tokens: max_tokens ?? 4096 };
-    if (modelConfig.args.model) body.model = modelConfig.args.model;
+    if (modelConfig.model) body.model = modelConfig.model;
 
     const resp = await fetch(`${url}/chat/completions`, {
       method: "POST",
@@ -84,7 +91,7 @@ server.tool(
     return {
       content: [{
         type: "text",
-        text: `${content}\n\n---\n_Agent: ${agent} | Model: ${modelConfig.args.model || "server-default"} | Tokens: ${usage.prompt_tokens ?? "?"}in/${usage.completion_tokens ?? "?"}out_`,
+        text: `${content}\n\n---\n_Agent: ${agent} | Model: ${modelConfig.model || "?"} | Tokens: ${usage.prompt_tokens ?? "?"}in/${usage.completion_tokens ?? "?"}out_`,
       }],
     };
   }
