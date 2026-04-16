@@ -317,6 +317,12 @@ discover_or_create_volume() {
     return
   fi
 
+  # VOLUME_NAME=none skips network volume entirely (ephemeral disk only)
+  if [ "$VOLUME_NAME" = "none" ]; then
+    echo "VOLUME_NAME=none — skipping network volume, using ephemeral disk."
+    return
+  fi
+
   echo "Looking for existing network volume named '$VOLUME_NAME'..."
   local volumes_json matched_id matched_dc
   volumes_json="$("$RUNPOD_BIN" network-volume list 2>/dev/null || true)"

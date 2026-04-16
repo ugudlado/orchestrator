@@ -10,16 +10,17 @@ VLLM_PORT="${VLLM_PORT:-8000}"
 VOLUME_MOUNT_PATH="${VOLUME_MOUNT_PATH:-/workspace}"
 VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.9}"
 VLLM_TOOL_PARSER="${VLLM_TOOL_PARSER:-qwen3_coder}"
+VLLM_REASONING_PARSER="${VLLM_REASONING_PARSER:-}"
 VLLM_LOG="${VLLM_LOG:-$VOLUME_MOUNT_PATH/vllm.log}"
 
 verify_volume_mount() {
-  if ! awk -v p="$VOLUME_MOUNT_PATH" '$2 == p {found=1} END {exit !found}' /proc/mounts; then
-    echo "ERROR: $VOLUME_MOUNT_PATH is not a mounted filesystem."
-    echo "All caches (model, triton, torch) need to live on the network volume"
-    echo "to avoid filling the 30GB ephemeral disk. Aborting."
-    exit 1
+  if awk -v p="$VOLUME_MOUNT_PATH" '$2 == p {found=1} END {exit !found}' /proc/mounts; then
+    echo "Verified $VOLUME_MOUNT_PATH is mounted."
+  else
+    echo "WARNING: $VOLUME_MOUNT_PATH is not a mounted filesystem."
+    echo "Running on ephemeral disk — caches will not persist across pod recreates."
+    mkdir -p "$VOLUME_MOUNT_PATH"
   fi
-  echo "Verified $VOLUME_MOUNT_PATH is mounted."
 }
 
 ensure_cache_dirs() {
@@ -65,6 +66,16 @@ stop_existing_vllm() {
 
 serve_model() {
   echo "Starting vLLM: model=$VLLM_MODEL max_len=$VLLM_MAX_LEN port=$VLLM_PORT"
+
+  local extra_args=()
+  if [ -n "$VLLM_TOOL_PARSER" ]; then
+    extra_args+=(--enable-auto-tool-choice --tool-call-parser "$VLLM_TOOL_PARSER")
+  fi
+  if [ -n "$VLLM_REASONING_PARSER" ]; then
+    extra_args+=(--enable-reasoning --reasoning-parser "$VLLM_REASONING_PARSER")
+  fi
+  echo "  extra flags: ${extra_args[*]:-none}"
+
   cd /root
   HF_HUB_DISABLE_XET=1 \
   HF_HOME="$VOLUME_MOUNT_PATH/hf_cache" \
@@ -76,8 +87,7 @@ serve_model() {
   nohup vllm serve "$VLLM_MODEL" \
     --max-model-len "$VLLM_MAX_LEN" \
     --gpu-memory-utilization "$VLLM_GPU_UTIL" \
-    --enable-auto-tool-choice \
-    --tool-call-parser "$VLLM_TOOL_PARSER" \
+    "${extra_args[@]}" \
     --host 127.0.0.1 \
     --port "$VLLM_PORT" \
     > "$VLLM_LOG" 2>&1 &
