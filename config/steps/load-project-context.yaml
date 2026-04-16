@@ -17,7 +17,13 @@ instruction: |
   1. Read $REPO_ROOT/spec/project.yaml. If it does not exist, STOP with error:
      "spec/project.yaml not found. Run /develop --bootstrap to initialize."
 
-  2. Load project context sections:
+  2. Check if project.yaml is older than 30 days and warn if so:
+     - Get the modification time of spec/project.yaml
+     - Calculate the difference in days between current date and modification time
+     - If difference is greater than 30 days, output a warning:
+       "WARNING: spec/project.yaml is 31+ days old (last modified: <date>). Consider refreshing project context."
+
+  3. Load project context sections:
      - vision (purpose, target_users, valuable_means, direction)
      - architecture (overview, structure)
      - gotchas (list)
