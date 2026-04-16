@@ -73,9 +73,31 @@ COLLECT rules for this step:
 RECORD started_at = current ISO 8601 timestamp
 
 IF step has agent: field:
-  SPAWN sub-agent via Agent tool:
-    - subagent_type: step.agent
-    - prompt: step.instruction + collected rules
+  RESOLVE host subagent type:
+    - Default: subagent_type = step.agent
+    - If the current host rejects or does not expose repo-defined agent names,
+      use the Codex compatibility map below and inject the full agent definition
+      into the prompt:
+        architect         -> worker
+        developer         -> worker
+        workflow-improver -> worker
+        debugger          -> worker
+        reviewer          -> explorer
+        discoverer        -> explorer
+        ux-reviewer       -> explorer
+        ideator           -> explorer
+        humanizer         -> worker
+        sonnet-agent      -> worker
+        haiku-agent       -> default
+    - If no mapping exists, use worker and record the fallback in step_history.
+  SPAWN sub-agent via the host's agent/subagent tool:
+    - subagent_type: resolved host subagent type
+    - prompt:
+        1. "You are executing orchestrator agent `<step.agent>`."
+        2. Full contents of `$ORCHESTRATOR_HOME/agents/<step.agent>.md`
+           when using a compatibility fallback; native hosts may rely on the
+           registered agent definition.
+        3. step.instruction + collected rules
     - Include: phase context, state.yaml path, relevant contract files from CONVENTIONS.md § Contract Files
   WAIT for agent result
 
@@ -106,6 +128,8 @@ IF agent returns STATUS: escalate_to_architect:
 
 AFTER step completes:
   APPEND to state.yaml step_history: {step_id, phase, status, agent, started_at, completed_at}
+  If a compatibility fallback was used, preserve the configured agent name in
+  `agent:` and add `runtime_agent: <resolved host subagent type>`.
   IF step had agent: field, parse the agent result footer for usage data and add:
     usage: {total_tokens, tool_uses, duration_ms}
   Also count tool invocations by type name (Read, Bash, Edit, Grep, Write, Glob,
