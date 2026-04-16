@@ -43,11 +43,13 @@ instruction: |
   6. Update state.yaml step_history per CONVENTIONS.md § State Updates.
 
 verify:
-  - Every acceptance criterion has pass/fail with evidence
-  - Criteria using ALL/EVERY/EACH have exhaustive count: "Verified N/N"
-  - FIXED/RESOLVED claims verified by fresh search of entire source tree, not earlier counts
-  - All phase verify.commands pass (exit 0)
-  - Verification report written to state.yaml
+  evidence_required: true
+  assertions:
+    - Every acceptance criterion has pass/fail with evidence
+    - Criteria using ALL/EVERY/EACH have exhaustive count: "Verified N/N"
+    - FIXED/RESOLVED claims verified by fresh search of entire source tree, not earlier counts
+    - All phase verify.commands pass (exit 0)
+    - Verification report written to state.yaml
 
 outputs:
   - final_verification_report

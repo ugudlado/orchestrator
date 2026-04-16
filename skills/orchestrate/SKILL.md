@@ -168,6 +168,11 @@ AFTER step completes:
   cost_usd comes from the `---llm_usage---` block (proxy agents) or can be omitted (native agents).
   If token data is unavailable, still write what you have (even just tool counts).
   If no tool calls were made, omit tools: or write tools: {}.
+  IF step's verify block has evidence_required: true:
+    Check step_history[-1].evidence exists and is non-empty (at least one of
+    commands/file_checks/counts has content). If missing, treat the step as
+    STATUS: blocked per CONVENTIONS.md § Evidence-Required Verification and
+    follow Agent Blocked Protocol. Do NOT advance to the next step.
   WRITE next_step to state.yaml pointing to the next step
   IF step has repeat_until: check condition — if not met, re-execute this step
   IF step has verify: check assertions — if failed, follow Error Recovery Contract

@@ -61,6 +61,37 @@ Every step contract has exactly 4 sections, each with a distinct purpose:
 | `verify:` | Assertions that the one thing was done correctly | Checkable conditions. Must be evaluable without re-reading instruction. |
 | `outputs:` | What the step produces | Artifact names only. |
 
+## Evidence-Required Verification
+
+Verify assertions are normally prose checked by the agent itself — the dispatch
+loop trusts the agent's self-report. For high-stakes steps, we can require
+machine-visible evidence that survives the step's return.
+
+Mark applicable steps with:
+
+```yaml
+verify:
+  evidence_required: true
+  assertions:
+    - <existing assertions unchanged>
+```
+
+When present, the orchestrate dispatch loop refuses to advance past the step
+unless `state.yaml step_history[-1].evidence` is populated with one or more of:
+
+- `commands`: list of `{cmd, exit_code, stdout_tail}` — stdout_tail is last 20 lines
+- `file_checks`: list of `{path, exists, sha256, lines}` proving artifacts were written
+- `counts`: map of named integer counts (e.g., `{tests_passing: 47, tasks_marked: 3}`)
+
+At least one of the three must be non-empty. If the step's agent returns without
+an evidence block, treat as `STATUS: blocked` per Error Recovery Contract.
+
+**When to require it**: any step whose verify assertions make quantitative or
+behavioral claims the agent cannot fulfill by narration alone — test runs, AC
+verification, artifact creation at specific paths, metric computation. Skip for
+steps whose verify only checks state.yaml field presence (tautological for the
+dispatch loop).
+
 ## Pre-Execute Approach Statement
 
 Implementation-heavy steps — any step that writes code, runs destructive commands,
