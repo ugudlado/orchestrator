@@ -61,7 +61,7 @@ instruction: |
 
 verify:
   - Session block found in archive or sessions.yaml
-  - spec/changes/archive/autopilot-$SESSION_ID/state.yaml exists with schema: autopilot, status: completed, metrics: block
+  - "spec/changes/archive/autopilot-$SESSION_ID/state.yaml exists with schema: autopilot, status: completed, metrics: block"
   - Summary table printed with correct counts
   - Resume instructions printed
 

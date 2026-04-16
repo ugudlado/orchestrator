@@ -47,16 +47,24 @@ instruction: |
   >
   > Return ONLY:
   > TICKET: <ID or "EMPTY">
-  > SCHEMA: <feature|bugfix|chore|spike>
+  > SCHEMA: <feature|bugfix|spike>
+  > FLAGS: <space-separated flag list, or "none">
   > REASON: <2-3 sentences explaining why this is the most valuable ticket>
+  >
+  > Emit FLAGS: --light when the ticket is tight-scope housekeeping (rename,
+  > bump, small config tweak, typo, single-flag add). Include any other
+  > schema flags that fit the ticket (e.g. --no-tdd for a repo without a
+  > test runner). Use "none" when no flags apply.
   >
   > If backlog is empty and Linear has no actionable tickets, return TICKET: EMPTY.
 
-  Parse TICKET, SCHEMA, REASON from ideator output.
+  Parse TICKET, SCHEMA, FLAGS, REASON from ideator output.
   If TICKET is EMPTY → set all_iterations_completed = true, skip to STEP E.
+  If FLAGS is "none" or empty → treat as no extra flags.
 
   STEP C — Execute (invoke /develop with full autonomy):
-  Skill({ skill: "develop", args: "$TICKET --auto --agents" })
+  EXTRA_FLAGS=$(if [ "$FLAGS" = "none" ] || [ -z "$FLAGS" ]; then echo ""; else echo "$FLAGS"; fi)
+  Skill({ skill: "develop", args: "$TICKET --auto --agents $EXTRA_FLAGS" })
   Wait for it to return synchronously.
 
   STEP D — Validate outcome:

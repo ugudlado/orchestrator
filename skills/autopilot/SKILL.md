@@ -4,10 +4,10 @@ description: "Autonomous self-improving development loop. Picks work from backlo
 user-invocable: true
 args:
   - name: iterations
-    description: Number of iterations to run (default: 1)
+    description: "Number of iterations to run (default: 1)"
     required: false
-  - name: --focus
-    description: Steering hint for ideator prioritization (e.g., "focus on workflow reliability")
+  - name: "--focus"
+    description: "Steering hint for ideator prioritization (e.g., focus on workflow reliability)"
     type: option
 ---
 
