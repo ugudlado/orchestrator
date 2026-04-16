@@ -55,7 +55,7 @@ instruction: |
      - If no archived state.yaml files exist or no matching entries: skip silently.
   5c. AC verification with evidence (implement phase only):
      - If current phase is not implement: skip this step.
-     - Read spec.md (feature/chore) or fix-plan.md (bugfix) for acceptance criteria,
+     - Read spec.md (feature) or fix-plan.md (bugfix) for acceptance criteria,
        using the format defined in CONVENTIONS.md § Specification Format Contract
        or § Fix Plan Format Contract respectively.
      - For each acceptance criterion:

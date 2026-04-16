@@ -50,7 +50,7 @@ All fields under `metrics:` — their type, description, and source:
 | `review_scores` | array | Overall scores from run-phase-review steps | step_history |
 | `review_score_avg` | decimal | Mean of review_scores | computed |
 | `lint_delta` | integer | Lint finding delta (always 0; future use) | — |
-| `category` | string | Schema name (feature, bugfix, chore, spike, autopilot) | state.yaml schema field |
+| `category` | string | Schema name (feature, bugfix, spike, autopilot) | state.yaml schema field |
 | `benchmarks.cost_per_task_usd` | decimal | net_usd / tasks_total | computed |
 | `benchmarks.cost_per_resolution_usd` | decimal | net_usd / tasks_completed | computed |
 | `benchmarks.tokens_per_task` | integer | tokens.total / tasks_total | computed |
@@ -65,28 +65,34 @@ All fields under `metrics:` — their type, description, and source:
 Which fields are **required** (R), **null** (~, explicit YAML null), or **omitted** (—)
 for each workflow schema:
 
-| Field | feature | bugfix | chore | spike | autopilot |
-|-------|---------|--------|-------|-------|-----------|
-| `tokens.*` | R | R | R | R | R |
-| `cost.*` | R | R | R | R | R |
-| `turns` | R | R | R | R | R |
-| `tool_calls` | R | R | R | R | R |
-| `wall_clock_minutes` | R | R | R | R | R |
-| `resolution.tasks_total` | R | R | R | ~ | ~ |
-| `resolution.resolve_rate` | R | R | R | ~ | ~ |
-| `resolution.pass_at_1` | R | R | R | ~ | ~ |
-| `resolution.pass_at_2` | R | R | R | ~ | ~ |
-| `resolution.regression_rate` | R | R | R | ~ | ~ |
-| `resolution.iterations_completed` | — | — | — | — | R |
-| `resolution.iterations_failed` | — | — | — | — | R |
-| `resolution.iterations_empty` | — | — | — | — | R |
-| `churn.*` | R | R | R | R | R |
-| `review_scores` | R | R | R | — | — |
-| `review_score_avg` | R | R | R | — | — |
-| `category` | R | R | R | R | R |
-| `benchmarks.*` | R | R | R | R | R |
-| `per_agent_tokens` | R | R | R | R | R |
-| `per_agent_tools` | R | R | R | R | R |
+| Field | feature | bugfix | spike | autopilot |
+|-------|---------|--------|-------|-----------|
+| `tokens.*` | R | R | R | R |
+| `cost.*` | R | R | R | R |
+| `turns` | R | R | R | R |
+| `tool_calls` | R | R | R | R |
+| `wall_clock_minutes` | R | R | R | R |
+| `resolution.tasks_total` | R | R | ~ | ~ |
+| `resolution.resolve_rate` | R | R | ~ | ~ |
+| `resolution.pass_at_1` | R | R | ~ | ~ |
+| `resolution.pass_at_2` | R | R | ~ | ~ |
+| `resolution.regression_rate` | R | R | ~ | ~ |
+| `resolution.iterations_completed` | — | — | — | R |
+| `resolution.iterations_failed` | — | — | — | R |
+| `resolution.iterations_empty` | — | — | — | R |
+| `churn.*` | R | R | R | R |
+| `review_scores` | R | R | — | — |
+| `review_score_avg` | R | R | — | — |
+| `category` | R | R | R | R |
+| `benchmarks.*` | R | R | R | R |
+| `per_agent_tokens` | R | R | R | R |
+| `per_agent_tools` | R | R | R | R |
+
+When `feature` runs with `--light`, all required fields remain required —
+review scores and task counts are still emitted, just against a lower
+threshold (7 vs 9). `metrics.category` stays `feature` regardless of the
+light flag; consumers that need to distinguish can inspect `state.yaml`'s
+`flags.light` field.
 
 **R** = required, present with a real value
 **~** = explicit YAML null (key is present, value is `~`)
@@ -133,7 +139,7 @@ Example: spike output does not contain a `review_scores:` line at all.
 The `metrics.category` field contains the schema name from `state.yaml`. Consumers
 that aggregate across schemas MUST group by `metrics.category` before computing
 cross-schema statistics. Resolution fields are only meaningful for
-`category: feature|bugfix|chore`.
+`category: feature|bugfix`.
 
 ### Stable Block Shape
 
@@ -157,7 +163,7 @@ of task resolution metrics:
 When adding a new workflow schema, choose the appropriate contract:
 
 - If the schema executes discrete tasks with pass/fail outcomes → use the
-  feature/bugfix/chore path (full resolution block, real values).
+  feature/bugfix path (full resolution block, real values).
 - If the schema is exploratory or composite with no discrete task outcomes →
   use the spike/autopilot path (null resolution, omit review_scores).
 

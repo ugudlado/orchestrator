@@ -23,6 +23,7 @@ rules:
   - Tasks must be small, verifiable, and ordered.
   - Attach verification criteria per task.
   - Output MUST follow the Task Format Contract in contracts/artifact-formats.md.
+  - "When spec or design introduces a new archive/state path for any producer (autopilot, spike, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`) and confirm the new path is matched before committing the artifact. Otherwise downstream consumers (telemetry, learn, workflow-improver) silently skip the new producer. <!-- learned: 2026-04-16, source: HL-278, cycle: 10, hits: 0, misses: 0, repo: orchestrator -->"
 
 instruction: |
   ## Part 1: Artifacts
@@ -43,14 +44,14 @@ instruction: |
      c. Generate the artifact using available context as input, following
         the format contract's required sections and field rules:
         - If discovery/diagnosis artifact exists: use it as primary input.
-        - If no discovery context (e.g., chore/spike schemas): generate
+        - If no discovery context (e.g., --light feature or spike): generate
           directly from the change description in state.yaml.
      d. Write the artifact to $WORKFLOW_STATE_DIR/$CHANGE_ID/<file>.
   4. Verify all outputs satisfy their `requires:` dependencies.
 
   ## Part 2: Tasks
 
-  5. Read spec.md (feature/chore) or fix-plan.md (bugfix) for requirements,
+  5. Read spec.md (feature) or fix-plan.md (bugfix) for requirements,
      using the format defined in contracts/artifact-formats.md § Specification Format Contract
      or § Fix Plan Format Contract respectively.
      If neither exists, use the change description from state.yaml.

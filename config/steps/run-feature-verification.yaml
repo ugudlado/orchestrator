@@ -8,7 +8,7 @@ agent: reviewer
 inputs:
   - phase_context_bundle
   - completed_tasks
-  - spec.md (feature/chore) or fix-plan.md (bugfix)
+  - spec.md (feature) or fix-plan.md (bugfix)
 
 rules:
   - Verify every acceptance criterion with evidence.
