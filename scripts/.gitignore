@@ -3,3 +3,4 @@
 .tunnel-pid
 .spend-log
 .supervisor.log
+node_modules/
