@@ -1,0 +1,24 @@
+agents:
+  architect:    native_opus
+  ideator:      native_opus
+  reviewer:     native_sonnet
+  developer:    qwen
+  discoverer:   qwen
+  sonnet-agent: qwen
+  haiku-agent:  qwen
+
+models:
+  qwen:
+    url: https://openrouter.ai/api/v1
+    args:
+      api_key: $OPENROUTER_API_KEY
+      model: qwen/qwen3-coder-30b-a3b-instruct
+
+  qwen-local:
+    url: http://localhost:3456/v1
+    args:
+      api_key: $LLM_MANAGER_KEY
+      model: coder
+
+  klm-local:
+    url: http://localhost:8000/v1
