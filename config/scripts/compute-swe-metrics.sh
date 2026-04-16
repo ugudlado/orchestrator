@@ -442,6 +442,23 @@ PER_AGENT_TOOLS=$(awk '
   }
 ' "$STATE_FILE")
 
+# ── Regression Count ──────────────────────────────────────────────────────
+# A regression is a step_history entry with a `regression:` block (written by
+# execute-next-task step 5a when a task drops the full-suite pass count).
+# If no baseline was captured or no regressions were recorded, this is 0.
+REGRESSIONS=$(awk '
+  /^step_history:/ { in_history=1; next }
+  in_history && /^[^ ]/ && !/^  / { in_history=0 }
+  in_history && /^    regression:/ { count++ }
+  END { print count+0 }
+' "$STATE_FILE")
+
+if [ "$TASKS_TOTAL" -gt 0 ]; then
+  REGRESSION_RATE=$(awk -v r="$REGRESSIONS" -v t="$TASKS_TOTAL" 'BEGIN { printf "%.4f", r/t }')
+else
+  REGRESSION_RATE="0.0"
+fi
+
 # ── Schema-dispatched output blocks ──────────────────────────────────────
 # Resolution block and review_scores differ by schema:
 #   spike/autopilot  → resolution fields are explicit null (~), no review_scores
@@ -467,8 +484,8 @@ case "$SCHEMA" in
     resolve_rate: $RESOLVE_RATE
     pass_at_1: $PASS_AT_1
     pass_at_2: $PASS_AT_2
-    regressions: 0
-    regression_rate: 0.0"
+    regressions: $REGRESSIONS
+    regression_rate: $REGRESSION_RATE"
     # Trailing newline baked in so the heredoc interpolates a clean block or nothing.
     REVIEW_BLOCK="  review_scores: [$REVIEW_SCORES]
   review_score_avg: $SCORE_AVG

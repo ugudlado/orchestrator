@@ -43,6 +43,34 @@ instruction: |
   4. Implement the changes described in the task.
   5. Run project verification commands (type-check, test, build)
      as defined in project.yaml quality_bar.
+
+  5a. Regression gate (if state.yaml has `baseline:` and `baseline.skipped` is not true):
+     a. Re-run the full test command from baseline.test_command and parse counts
+        using the same patterns as capture-test-baseline step 3.
+     b. Compare current passing count to baseline.passing.
+     c. If current.passing < baseline.passing (new failures introduced by this task):
+        - Mark this as a regression, not a test failure. Record to state.yaml:
+          ```yaml
+          step_history[-1]:
+            regression:
+              task_id: "T-<N>"
+              baseline_passing: <N>
+              current_passing: <N>
+              delta: -<N>
+              detected_at: "<ISO timestamp>"
+          ```
+        - Treat as verification failure for recovery (continue to step 7).
+        - Do NOT mark the task complete. Do NOT commit.
+     d. If current.passing == baseline.passing and current.failing == baseline.failing:
+        no regression — proceed to step 6.
+     e. If current.passing > baseline.passing (new tests added, all passing):
+        update baseline in-place: baseline.passing = current.passing,
+        baseline.total = current.total. This makes the new tests part of the
+        floor for subsequent tasks.
+     f. If the test command cannot be run or output cannot be parsed this time,
+        log `step_history[-1].regression_check: skipped` with a reason and proceed
+        to step 6. Do not block on a broken gate.
+
   6. If verification passes:
      - Mark task complete in tasks.md: [ ] → [x]
      - Write task_checkpoint to state.yaml (per CONVENTIONS.md § State Field Registry):
@@ -91,11 +119,13 @@ instruction: |
   The agent re-executes this step for each task until all are done.
 
 verify:
+  evidence_required: true
   after_each:
     - The completed task is marked [x] in tasks.md
     - Task's verification criteria (from Verify field) are met with evidence
     - type-check passes
     - test passes (if tests exist for changed files)
+    - No regression: baseline.passing (if captured) equals current passing count
     - Changes committed per § Auto-Commit Convention (or skipped if no changes)
   repeat_done_when:
     - No unchecked tasks (- [ ]) remain in tasks.md

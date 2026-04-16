@@ -149,6 +149,7 @@ phases:
           review_score: { min: 7 }
         max_retries: 2
     steps:
+      - capture-test-baseline
       - id: execute-next-task
         repeat_until: all_tasks_completed
         rules_when:
