@@ -1,0 +1,5 @@
+.env
+.runpod-pod-id
+.tunnel-pid
+.spend-log
+.supervisor.log

@@ -9,3 +9,5 @@
 
 # Per-change workflow state (ephemeral)
 spec/changes/*/state.yaml
+
+.env
