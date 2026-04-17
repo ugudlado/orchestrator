@@ -91,6 +91,15 @@ case "$QUERY_ID" in
   recent-features)
     SQL="SELECT change_id, status, completed_at, payload_json FROM features WHERE ${SCOPE} ORDER BY completed_at DESC${LIMIT_CLAUSE}"
     ;;
+  step-cost-hotspots)
+    SQL="SELECT step_id, SUM(total_tokens) AS total_tokens, SUM(cost_usd) AS cost_usd, SUM(duration_ms) AS duration_ms FROM per_step_metrics WHERE ${SCOPE} GROUP BY step_id ORDER BY cost_usd DESC NULLS LAST, total_tokens DESC${LIMIT_CLAUSE}"
+    ;;
+  agent-cost-hotspots)
+    SQL="SELECT agent, SUM(total_tokens) AS total_tokens, SUM(cost_usd) AS cost_usd, SUM(tool_uses) AS tool_uses FROM per_agent_metrics WHERE ${SCOPE} GROUP BY agent ORDER BY total_tokens DESC${LIMIT_CLAUSE}"
+    ;;
+  agent-duration-outliers)
+    SQL="WITH agg AS (SELECT agent, AVG(duration_ms) AS avg_ms FROM per_agent_metrics WHERE ${SCOPE} GROUP BY agent), baseline AS (SELECT AVG(duration_ms) AS overall_avg FROM per_agent_metrics WHERE ${SCOPE}) SELECT agg.agent, agg.avg_ms, baseline.overall_avg FROM agg, baseline WHERE agg.avg_ms > 2 * baseline.overall_avg ORDER BY agg.avg_ms DESC${LIMIT_CLAUSE}"
+    ;;
   *)
     exit 2
     ;;

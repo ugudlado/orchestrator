@@ -153,6 +153,59 @@ VALUES
   ('$REPO_A', 'feature-alpha', 'feature', 'completed', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z', '$Q_PAYLOAD_A'),
   ('$REPO_A', 'feature-beta',  'feature', 'completed', '2026-01-03T00:00:00Z', '2026-01-04T00:00:00Z', '$Q_PAYLOAD_A'),
   ('$REPO_B', 'feature-gamma', 'feature', 'completed', '2026-01-05T00:00:00Z', '2026-01-06T00:00:00Z', '$Q_PAYLOAD_B');
+
+CREATE TABLE IF NOT EXISTS step_history (
+  repo_root     VARCHAR NOT NULL,
+  change_id     VARCHAR NOT NULL,
+  step_ord      INTEGER NOT NULL,
+  step_id       VARCHAR,
+  phase         VARCHAR,
+  status        VARCHAR,
+  agent         VARCHAR,
+  started_at    VARCHAR,
+  completed_at  VARCHAR,
+  total_tokens  BIGINT,
+  tool_uses     INTEGER,
+  duration_ms   BIGINT,
+  PRIMARY KEY (repo_root, change_id, step_ord)
+);
+
+CREATE TABLE IF NOT EXISTS per_agent_metrics (
+  repo_root     VARCHAR NOT NULL,
+  change_id     VARCHAR NOT NULL,
+  agent         VARCHAR NOT NULL,
+  total_tokens  BIGINT,
+  cost_usd      DOUBLE,
+  tool_uses     INTEGER,
+  duration_ms   BIGINT,
+  steps         INTEGER,
+  PRIMARY KEY (repo_root, change_id, agent)
+);
+
+CREATE TABLE IF NOT EXISTS per_step_metrics (
+  repo_root     VARCHAR NOT NULL,
+  change_id     VARCHAR NOT NULL,
+  step_id       VARCHAR NOT NULL,
+  total_tokens  BIGINT,
+  tool_uses     INTEGER,
+  duration_ms   BIGINT,
+  cost_usd      DOUBLE,
+  PRIMARY KEY (repo_root, change_id, step_id)
+);
+
+-- Seed per_step_metrics for REPO_A/feature-alpha (2 rows with distinct costs)
+INSERT INTO per_step_metrics (repo_root, change_id, step_id, total_tokens, tool_uses, duration_ms, cost_usd)
+VALUES
+  ('$REPO_A', 'feature-alpha', 'implement', 8000, 40, 2000000, 0.50),
+  ('$REPO_A', 'feature-alpha', 'review',    2000, 10, 1000000, 0.20);
+
+-- Seed per_agent_metrics for REPO_A/feature-alpha (3 agents: 2 normal, 1 outlier)
+-- Mean duration: (1000 + 2000 + 8000) / 3 = 3666ms; outlier (agent-c at 8000) > 2x mean (7333)
+INSERT INTO per_agent_metrics (repo_root, change_id, agent, total_tokens, cost_usd, tool_uses, duration_ms, steps)
+VALUES
+  ('$REPO_A', 'feature-alpha', 'agent-a', 3000, 0.20, 15, 1000, 2),
+  ('$REPO_A', 'feature-alpha', 'agent-b', 4000, 0.30, 20, 2000, 3),
+  ('$REPO_A', 'feature-alpha', 'agent-c', 1000, 0.20,  5, 8000, 1);
 SQL
 
 cleanup() { rm -f "$TEST_DB"; }
@@ -264,6 +317,42 @@ if [[ -e "$FRESH_DB" ]]; then
 else
   echo "PASS: fresh-clone fallback — no DB file created as side-effect"
   ((pass++))
+fi
+
+# ── Named query: step-cost-hotspots ─────────────────────────────────────────
+echo "--- step-cost-hotspots ---"
+OUT=$(bash "$SCRIPT" step-cost-hotspots --repo "$REPO_A" 2>/dev/null); EXIT=$?
+check_zero_exit    "step-cost-hotspots --repo repo-a: exits 0" "$EXIT"
+check_nonempty     "step-cost-hotspots --repo repo-a: non-empty stdout" "$OUT"
+
+# Fleet aggregation
+FLEET_STEP=$(bash "$SCRIPT" step-cost-hotspots --fleet 2>/dev/null); EXIT=$?
+check_zero_exit    "step-cost-hotspots --fleet: exits 0" "$EXIT"
+check_nonempty     "step-cost-hotspots --fleet: non-empty stdout" "$FLEET_STEP"
+
+# Zero-row path: REPO_B has no per_step_metrics rows
+ZERO_STEP=$(bash "$SCRIPT" step-cost-hotspots --repo "$REPO_B" 2>/dev/null); EXIT=$?
+check_nonzero_exit "step-cost-hotspots --repo repo-b (no rows): exits non-zero" "$EXIT"
+check_empty        "step-cost-hotspots --repo repo-b (no rows): empty stdout" "$ZERO_STEP"
+
+# ── Named query: agent-cost-hotspots ─────────────────────────────────────────
+echo "--- agent-cost-hotspots ---"
+OUT=$(bash "$SCRIPT" agent-cost-hotspots --repo "$REPO_A" 2>/dev/null); EXIT=$?
+check_zero_exit "agent-cost-hotspots --repo repo-a: exits 0" "$EXIT"
+check_nonempty  "agent-cost-hotspots --repo repo-a: non-empty stdout" "$OUT"
+
+# ── Named query: agent-duration-outliers ────────────────────────────────────
+echo "--- agent-duration-outliers ---"
+OUT=$(bash "$SCRIPT" agent-duration-outliers --repo "$REPO_A" 2>/dev/null); EXIT=$?
+check_zero_exit "agent-duration-outliers --repo repo-a: exits 0" "$EXIT"
+check_nonempty  "agent-duration-outliers --repo repo-a: non-empty stdout" "$OUT"
+# agent-c has duration 8000ms; mean is (1000+2000+8000)/3=3666ms; 2x mean=7333ms; agent-c qualifies
+if echo "$OUT" | grep -q "agent-c"; then
+  echo "PASS: agent-duration-outliers returns the outlier agent (agent-c)"
+  ((pass++))
+else
+  echo "FAIL: agent-duration-outliers — expected agent-c in output, got: $OUT"
+  ((fail++))
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────
