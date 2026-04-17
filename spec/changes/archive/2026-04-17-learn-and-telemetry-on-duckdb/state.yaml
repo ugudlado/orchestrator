@@ -1,0 +1,337 @@
+change_id: learn-and-telemetry-on-duckdb
+schema: feature
+version: 4
+status: active
+phase: complete
+slug: learn-and-telemetry-on-duckdb
+started_at: 2026-04-17T13:53:00Z
+flags:
+  tdd_required: true
+  design: true
+  ux_design: false
+  discovery: true
+  simplify: true
+  phase_review: true
+  worktree: true
+  auto: true
+  agents: true
+  linear: true
+  light: false
+worktree_path: ~/code/feature_worktrees/learn-and-telemetry-on-duckdb
+linear_ticket: HL-282
+linear_url: https://linear.app/home-labs-experiments/issue/HL-282/learn-and-telemetry-read-from-metricsduckdb
+workflow_plan:
+  specify:
+    active: [create-worktree, load-project-context, explore, design-exploration, create-or-refresh-artifacts, validate-artifacts, preview-route, run-phase-review, create-linear-ticket]
+    filtered: [ux-design, phase-signoff]
+  implement:
+    active: [capture-test-baseline, execute-next-task, run-simplify, run-phase-review, run-feature-verification]
+    filtered: [run-ux-critique, final-signoff]
+  complete:
+    active: [compute-prediction-accuracy, run-learn-cycle, compute-swe-metrics, archive-completed-change, remove-worktree]
+    filtered: []
+next_step:
+  phase: complete
+  step_id: run-learn-cycle
+prediction_accuracy:
+  computed_at: 2026-04-17T22:30:00Z
+  tasks:
+    predicted: 9
+    actual: 12
+    delta: 3
+    accuracy_pct: 75.0
+    fix_task_count: 3
+    rework_rate: 0.25
+  files:
+    predicted: 4
+    actual: 4
+    delta: 0
+    overlap_pct: 100.0
+    predicted_list: [config/scripts/metrics-query.sh, config/scripts/metrics-query.test.sh, skills/learn/SKILL.md, skills/telemetry/SKILL.md]
+    actual_list: [config/scripts/metrics-query.sh, config/scripts/metrics-query.test.sh, skills/learn/SKILL.md, skills/telemetry/SKILL.md]
+linear_ticket_id: HL-282
+baseline:
+  captured_at: 2026-04-17T21:07:00Z
+  skipped: true
+  reason: "spec/project.yaml verify_commands is [] — no test command for bash/yaml infra repo"
+project_context_loaded: true
+project_context_at: 2026-04-17T13:54:00Z
+step_history:
+  - step_id: create-worktree
+    phase: specify
+    status: completed
+    started_at: 2026-04-17T13:53:00Z
+    completed_at: 2026-04-17T13:53:30Z
+  - step_id: load-project-context
+    phase: specify
+    status: completed
+    started_at: 2026-04-17T13:53:30Z
+    completed_at: 2026-04-17T13:54:00Z
+  - step_id: explore
+    phase: specify
+    status: completed
+    agent: discoverer
+    started_at: 2026-04-17T13:54:00Z
+    completed_at: 2026-04-17T14:13:00Z
+    usage:
+      total_tokens: 47056
+      tool_uses: 37
+      duration_ms: 1126753
+  - step_id: design-exploration
+    phase: specify
+    status: completed
+    agent: architect
+    started_at: 2026-04-17T14:13:00Z
+    completed_at: 2026-04-17T14:14:00Z
+    approach:
+      files: discovery.md
+      approach: append Key Decisions section with 3 approaches, auto-select lowest-complexity
+      not_doing: writing spec.md or tasks.md (later step)
+    selected_approach: "A (JSON unnest, per-repo default, silent fallback)"
+    note: "architect flagged KD-3 divergence from idea.md: per-repo default vs idea's fleet-wide default. Keep A as selected; final spec should make --fleet flag behavior explicit."
+    usage:
+      total_tokens: 31362
+      tool_uses: 2
+      duration_ms: 62003
+  - step_id: create-or-refresh-artifacts
+    phase: specify
+    status: completed
+    agent: architect
+    started_at: 2026-04-17T14:14:00Z
+    completed_at: 2026-04-17T14:17:00Z
+    usage:
+      total_tokens: 45669
+      tool_uses: 7
+      duration_ms: 170343
+  - step_id: validate-artifacts
+    phase: specify
+    status: completed
+    started_at: 2026-04-17T14:17:00Z
+    completed_at: 2026-04-17T14:17:30Z
+    evidence:
+      file_checks:
+        - spec.md exists, 9 tasks with Verify lines
+        - design.md + discovery.md + tasks.md exist
+  - step_id: preview-route
+    phase: specify
+    status: skipped
+    reason: "no UI routes in bash/yaml infra repo"
+    started_at: 2026-04-17T14:17:30Z
+    completed_at: 2026-04-17T14:17:31Z
+  - step_id: run-phase-review
+    phase: specify
+    status: completed
+    started_at: 2026-04-17T21:00:00Z
+    completed_at: 2026-04-17T21:05:00Z
+    agent: reviewer
+    retry_round: 2
+    review_score:
+      overall: 9
+      spec_compliance: 10
+      correctness: 9
+      security: 10
+      simplicity: 10
+      code_quality: 9
+    verdict: PASS
+    findings:
+      - prior_finding_1: RESOLVED - all-features undefined query ID. spec.md FR-6 and design.md line 149 now use recent-features (no --limit) for all mode. grep all-features in spec.md and design.md returns zero matches.
+      - prior_finding_2: RESOLVED - retry-hotspots SQL sketch corrected. design.md line 162 now uses $.retries for count, adds second json_each(json_extract(s.value, $.retry_reasons)) r unnest, r.value AS reason, GROUP BY (step_id, reason). Structurally valid.
+      - no_new_regressions: confirmed. Named Queries table (5 entries), FR-1 list, /learn and /telemetry consumption tables all internally consistent. TDD ordering T-1..T-9 preserved.
+  - step_id: create-linear-ticket
+    phase: specify
+    status: completed
+    note: "HL-282 already exists from backlog; .spec.yaml written to change dir"
+    started_at: 2026-04-17T21:05:30Z
+    completed_at: 2026-04-17T21:06:00Z
+  - step_id: capture-test-baseline
+    phase: implement
+    status: completed
+    started_at: 2026-04-17T21:07:00Z
+    completed_at: 2026-04-17T21:07:10Z
+    evidence:
+      commands: ["grep ^verify_commands spec/project.yaml"]
+      counts: {baseline_skipped: true}
+  - step_id: execute-next-task
+    phase: implement
+    task_id: T-1
+    status: completed
+    started_at: 2026-04-17T21:10:00Z
+    completed_at: 2026-04-17T21:15:00Z
+    agent: developer
+    evidence:
+      file_created: config/scripts/metrics-query.test.sh
+      red_failure: "FAIL: metrics-query.sh does not exist (exit 1)"
+      assertions_coded: 22
+      named_queries_covered: [cost-trend, quality-trend, cycle-count, recent-features, retry-hotspots]
+      paths_covered: [per-repo, fleet, missing-db, missing-binary, zero-row]
+  - step_id: execute-next-task
+    phase: implement
+    task_id: T-2
+    status: completed
+    started_at: 2026-04-17T22:00:00Z
+    completed_at: 2026-04-17T22:10:00Z
+    agent: developer
+    evidence:
+      file_created: config/scripts/metrics-query.sh
+      test_results: "23 passed, 0 failed"
+      shellcheck: not installed (skipped — binary absent from system)
+      assertions_passing: 23
+      named_queries_implemented: [cost-trend, quality-trend, cycle-count, recent-features, retry-hotspots]
+  - step_id: execute-next-task
+    phase: implement
+    task_id: T-3
+    status: completed
+    started_at: 2026-04-17T22:15:00Z
+    completed_at: 2026-04-17T22:20:00Z
+    agent: reviewer
+    evidence:
+      test_results: "23 passed, 0 failed"
+      shellcheck: not installed (binary absent — noted, not blocking)
+      producer_scripts_unchanged: true
+      design_conformance:
+        named_queries: [cost-trend, quality-trend, retry-hotspots, cycle-count, recent-features]
+        env_contract: [ORCHESTRATOR_HOME, METRICS_DB]
+        flags: [--fleet, --repo, --limit]
+        silent_fallback: verified (missing binary, missing DB, zero-row all exit non-zero + empty stdout + no stderr)
+        retry_hotspots_sql: uses json_each unnest of retry_reasons array per design.md correction
+      exit_codes:
+        missing_or_empty: 1
+        unknown_query_id: 2
+      security: no eval, no unquoted user input, stderr redirected to /dev/null in duckdb invocation
+    verdict: PASS
+  - step_id: execute-next-task
+    phase: implement
+    task_id: T-4
+    status: completed
+    started_at: 2026-04-17T22:25:00Z
+    completed_at: 2026-04-17T22:30:00Z
+    agent: developer
+    evidence:
+      file_modified: config/scripts/metrics-query.test.sh
+      new_assertions: 4
+      total_assertions: 27
+      all_pass: true
+      new_case: fresh_clone_silent_fallback
+      assertions_covered: [exit-non-zero, empty-stdout, no-stderr, no-file-created]
+      note: all 4 assertions passed immediately — T-5 will be a no-op verification pass
+      commit: ca9be72
+  - step_id: execute-next-task
+    phase: implement
+    task_id: T-5
+    status: completed
+    started_at: 2026-04-17T22:35:00Z
+    completed_at: 2026-04-17T22:40:00Z
+    agent: developer
+    evidence:
+      code_changed: false
+      audit_result: all exit paths and duckdb invocations already correct
+      manual_test: "rm METRICS_DB; metrics-query.sh cost-trend; echo exit=$? → exit=1 only"
+      test_results: "27 passed, 0 failed"
+      discrepancies: none
+  - step_id: execute-next-task
+    phase: implement
+    task_id: T-6
+    status: completed
+    started_at: 2026-04-17T23:00:00Z
+    completed_at: 2026-04-17T23:10:00Z
+    agent: developer
+    evidence:
+      file_modified: skills/learn/SKILL.md
+      sites_updated: 5
+      sites: [§2b retry-hotspots, rule-metadata cycle-count, §5b recent-features, §5b-decay cycle-count, §5c quality-trend]
+      fallback_preserved: true
+      original_globs_in_else: true
+  - step_id: execute-next-task
+    phase: implement
+    task_id: T-7
+    status: completed
+    started_at: 2026-04-17T23:15:00Z
+    completed_at: 2026-04-17T23:25:00Z
+    agent: developer
+    evidence:
+      file_modified: skills/telemetry/SKILL.md
+      modes_migrated: 3
+      modes: [recent (recent-features --limit 5), all (recent-features no-limit), trend (cost-trend + quality-trend)]
+      archive_glob_removed: true
+      active_state_yaml_merge_preserved: true
+      dashboard_fields_preserved: true
+      fleet_doc_added: true
+      invocation_section_added: true
+  - step_id: execute-next-task
+    phase: implement
+    task_id: T-8
+    status: completed
+    started_at: 2026-04-17T23:30:00Z
+    completed_at: 2026-04-17T23:35:00Z
+    agent: developer
+    evidence:
+      code_changed: false
+      behavioral_tests:
+        - "METRICS_DB=/tmp/nope.duckdb metrics-query.sh cost-trend → exit=1, empty stdout, no stderr"
+        - "METRICS_DB=/tmp/nope.duckdb metrics-query.sh recent-features → exit=1, empty stdout, no stderr"
+      test_suite: "27 passed, 0 failed"
+      learn_fallback_sites: 5 (retry-hotspots, cycle-count x2, recent-features, quality-trend)
+      telemetry_fallback_sites: 2 (data-gather block, trend block)
+      fallback_prose_present: true
+  - step_id: run-phase-review
+    phase: implement
+    status: completed
+    started_at: 2026-04-17T23:50:00Z
+    completed_at: 2026-04-17T23:55:00Z
+    agent: reviewer
+    retry_round: 2
+    review_score:
+      overall: 9
+      spec_compliance: 9
+      correctness: 10
+      security: 9
+      simplicity: 10
+      code_quality: 9
+    verdict: PASS
+    findings:
+      - F-1_RESOLVED: "dangling 'YAML glob below' reference replaced with explicit archive-glob fallback for both recent and all modes in skills/telemetry/SKILL.md lines 48-51, matching learn/SKILL.md pattern. grep confirm: 0 dangling refs, 2 archive glob lines present."
+      - F-2_ACCEPTED: "LIMIT numeric validation — local CLI tool, trusted invocation context (agent/human only, no network boundary). Not upgraded to Critical. One-line fix recommended but non-blocking."
+      - verification_checks:
+          grep_archive: "2 matches (lines 50-51)"
+          grep_dangling: "0 matches"
+          fallback_pattern_matches_learn: true
+          dashboard_render_block_unchanged: true
+          test_suite: "27 passed, 0 failed"
+          register_repo_sh_diff: empty
+          compute_swe_metrics_diff: empty
+metrics:
+  tokens:
+    input: 0
+    output: 0
+    cache_creation: 0
+    cache_read: 0
+    total: 124087
+  cost:
+    gross_usd: 0
+    net_usd: 0
+    model: unknown
+  tool_calls: 46
+  resolution:
+    tasks_total: 12
+    tasks_planned: 12
+    tasks_added: 0
+    tasks_completed: 12
+    tasks_failed: 0
+    resolve_rate: 1.0000
+    pass_at_1: 0
+    pass_at_2: 1.0000
+    regressions: 0
+    regression_rate: 0.0000
+  retries:
+    total: 0
+  churn:
+    files_changed: 1
+    insertions: 12
+    deletions: 0
+    total_commits: 1
+  review_scores: [9, 9]
+  review_score_avg: 9.0
+  category: feature
+completed_at: 2026-04-17T23:58:00Z
+archive_path: spec/changes/archive/2026-04-17-learn-and-telemetry-on-duckdb/
+status: completed
