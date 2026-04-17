@@ -467,6 +467,67 @@ PER_AGENT_TOOLS=$(awk '
   }
 ' "$STATE_FILE")
 
+# ── Per-Step Aggregation ─────────────────────────────────────────────────
+# Aggregate step_history by step_id: sum total_tokens, tool_uses, duration_ms,
+# and count executions (retry-inclusive). Inline steps (agent: inline) appear
+# with zero token fields but non-zero duration/tool_uses, consistent with the
+# per_agent_tokens bucket for "inline".
+# Uses macOS/POSIX-compatible awk (no GNU extensions).
+PER_STEP_YAML=$(awk '
+  /^step_history:/ { in_history=1; next }
+  in_history && /^[a-z]/ { in_history=0 }
+  function flush_entry() {
+    if (step_id != "") {
+      tok[step_id]  += total_tokens
+      uses[step_id] += tool_uses
+      dur[step_id]  += duration_ms
+      cnt[step_id]  += 1
+      if (!(step_id in seen_order)) {
+        seen_order[step_id] = ++order_seq
+      }
+    }
+    step_id=""; total_tokens=0; tool_uses=0; duration_ms=0; in_usage=0
+  }
+  in_history && /^  - step_id:/ {
+    flush_entry()
+    line=$0; gsub(/^  - step_id: */, "", line); gsub(/"/, "", line); step_id=line
+  }
+  in_history && /^  - / && !/step_id:/ { flush_entry() }
+  in_history && /^    usage:/ { in_usage=1; next }
+  in_history && in_usage && /^      total_tokens:/ { gsub(/.*total_tokens: */, ""); total_tokens=$0+0 }
+  in_history && in_usage && /^      tool_uses:/    { gsub(/.*tool_uses: */, "");    tool_uses=$0+0 }
+  in_history && in_usage && /^      duration_ms:/  { gsub(/.*duration_ms: */, "");  duration_ms=$0+0 }
+  in_history && in_usage && /^    [a-z]/ { in_usage=0 }
+  END {
+    flush_entry()
+    # Build per_step YAML — iterate in insertion order by sorting on seen_order value
+    n = 0
+    for (s in seen_order) {
+      n++
+      order_arr[n] = seen_order[s]
+      step_arr[n] = s
+    }
+    # Simple insertion sort by order value (macOS/POSIX awk compatible)
+    for (i = 2; i <= n; i++) {
+      key_o = order_arr[i]; key_s = step_arr[i]
+      j = i - 1
+      while (j >= 1 && order_arr[j] > key_o) {
+        order_arr[j+1] = order_arr[j]; step_arr[j+1] = step_arr[j]; j--
+      }
+      order_arr[j+1] = key_o; step_arr[j+1] = key_s
+    }
+    printf "  per_step:\n"
+    for (i = 1; i <= n; i++) {
+      s = step_arr[i]
+      printf "    %s:\n", s
+      printf "      total_tokens: %d\n", tok[s]+0
+      printf "      tool_uses: %d\n", uses[s]+0
+      printf "      duration_ms: %d\n", dur[s]+0
+      printf "      executions: %d\n", cnt[s]+0
+    }
+  }
+' "$STATE_FILE")
+
 # ── Estimate vs Actual ────────────────────────────────────────────────────
 # Read route_preview.estimate from state.yaml (written by preview-route step
 # in the specify/diagnose phase). Compute deltas against actuals so the
@@ -597,4 +658,5 @@ $REVIEW_BLOCK  lint_delta: 0
     cache_hit_rate: $CACHE_HIT_RATE
 ${ESTIMATE_BLOCK_YAML}  per_agent_tokens: '$PER_AGENT_TOKENS'
   per_agent_tools: '$PER_AGENT_TOOLS'
+$PER_STEP_YAML
 YAML

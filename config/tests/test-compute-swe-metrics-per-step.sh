@@ -175,7 +175,7 @@ echo "metrics.tokens.total = $TOTAL_TOKENS"
 # Per-step block uses "    total_tokens: N" indented under each step_id key
 PER_STEP_SUM=$(echo "$OUTPUT" | awk '
   /^  per_step:/{in_ps=1; next}
-  in_ps && /^    total_tokens:/{gsub(/.*: */,""); sum+=$0+0}
+  in_ps && /^      total_tokens:/{gsub(/.*: */,""); sum+=$0+0}
   in_ps && /^  [a-z]/ && !/^  per_step:/{in_ps=0}
   END{print sum+0}
 ')
