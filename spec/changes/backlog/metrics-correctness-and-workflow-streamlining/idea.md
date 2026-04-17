@@ -134,6 +134,67 @@ Rules:
 - Add a CONVENTIONS.md § entry: "Every step writes a complete usage: block"
 - Keep the existing proxy/native extraction logic; add inline-step timing as the default source
 
+### Task D: Surface new metrics in DuckDB
+
+Currently `features.payload_json` is the only column that holds metrics
+detail — every consumer pays the `json_extract` tax on every query.
+With per_step, per_agent, and full step_history capture landing in this
+ticket, the query surface grows. Three deliverables:
+
+**D.1 — Materialized views** (not new tables — zero re-ingest):
+```sql
+CREATE OR REPLACE VIEW step_history AS
+SELECT
+  f.repo_root, f.change_id, f.schema, f.completed_at,
+  s.value->>'step_id'        AS step_id,
+  s.value->>'phase'          AS phase,
+  s.value->>'status'         AS status,
+  s.value->>'agent'          AS agent,
+  (s.value->'usage'->>'duration_ms')::BIGINT     AS duration_ms,
+  (s.value->'usage'->>'tool_uses')::BIGINT       AS tool_uses,
+  (s.value->'usage'->>'total_tokens')::BIGINT    AS total_tokens,
+  (s.value->'usage'->>'input_tokens')::BIGINT    AS input_tokens,
+  (s.value->'usage'->>'output_tokens')::BIGINT   AS output_tokens,
+  (s.value->'usage'->>'cost_usd')::DOUBLE        AS cost_usd
+FROM features f,
+     LATERAL json_each(json_extract(f.payload_json, '$.step_history')) s;
+
+CREATE OR REPLACE VIEW per_agent_rollup AS
+SELECT repo_root, change_id, agent,
+       SUM(total_tokens) AS total_tokens,
+       SUM(cost_usd)     AS cost_usd,
+       SUM(duration_ms)  AS duration_ms,
+       COUNT(*)          AS step_count
+FROM step_history
+WHERE agent IS NOT NULL
+GROUP BY 1, 2, 3;
+
+CREATE OR REPLACE VIEW per_step_rollup AS
+SELECT repo_root, change_id, step_id,
+       SUM(total_tokens) AS total_tokens,
+       SUM(cost_usd)     AS cost_usd,
+       SUM(duration_ms)  AS duration_ms,
+       COUNT(*)          AS exec_count
+FROM step_history
+GROUP BY 1, 2, 3;
+```
+
+**D.2 — View creation on register-repo.sh + ingest**:
+- View DDL runs at the top of `register-repo.sh` (idempotent — `CREATE OR REPLACE VIEW`)
+- No schema migration; existing rows work unchanged since views read `payload_json`
+
+**D.3 — New named queries in metrics-query.sh**:
+- `step-cost-hotspots` — `SELECT step_id, SUM(cost_usd) ... GROUP BY step_id ORDER BY 2 DESC LIMIT 10`
+- `agent-cost-hotspots` — same for agent
+- `agent-duration-outliers` — agents with avg duration > 2x fleet median
+- Keep existing 5 named queries untouched
+
+**Why views instead of new tables**
+- Zero re-ingest: existing 12 archived features work immediately
+- `payload_json` stays source of truth; no dual-write risk
+- DuckDB JSON extraction is fast enough for fleet-sized query loads (< 100 features)
+- If volume grows past 10K+ features, switch to materialized tables; the view DDL is the migration path
+
 ## Scope
 
 **In-scope:**
@@ -145,12 +206,14 @@ Rules:
 - `config/steps/execute-next-task.yaml` (append developer simplify pass after last task)
 - `config/scripts/compute-swe-metrics.sh` (per-step aggregation pass + schema validator warning)
 - Backfill archived features with zero-cost metrics (list as evidence in PR)
-- Update metrics-query.sh if new fields should be queryable (may add per-step-cost named query later — decide during design)
+- `config/scripts/register-repo.sh` (add `CREATE OR REPLACE VIEW` DDL at top)
+- `config/scripts/metrics-query.sh` (add 3 new named queries backed by views)
+- New tests in `config/scripts/metrics-query.test.sh` covering the new named queries + views
 
 **Out-of-scope:**
 - Changes to the Agent tool itself
 - JSONL ingest script changes
-- DuckDB schema migration (new fields live inside `payload_json` and are query-accessible via `json_extract`)
+- Physical table schema changes (only views added; re-ingest not required)
 - Touching `run-phase-review.yaml` for the specify phase (that stays)
 
 ## Acceptance criteria
@@ -166,6 +229,10 @@ Rules:
 - AC-9: State-schema validator emits a stderr warning (not an error) when step_history entries are missing required fields; does not block the complete phase; prints coverage ratio ("N/M entries complete")
 - AC-10: `per_agent_tokens` covers all spawned agents (not just 2-3) on a fresh autopilot run — verified by cross-checking against `grep '^    agent:' state.yaml | sort -u`
 - AC-11: `orchestrate.md` and `CONVENTIONS.md` document the required usage: schema so future step writers know the contract
+- AC-12: `register-repo.sh` creates (or replaces) `step_history`, `per_agent_rollup`, `per_step_rollup` views; running it against an existing DB is idempotent
+- AC-13: Views expose per-step and per-agent metrics via SQL (not `json_extract`): `SELECT agent, total_tokens FROM per_agent_rollup WHERE change_id = 'X'` returns one row per agent
+- AC-14: `metrics-query.sh` supports `step-cost-hotspots`, `agent-cost-hotspots`, `agent-duration-outliers` named queries backed by the new views
+- AC-15: All existing metrics-query.sh tests still pass (27+); new tests added for the 3 new queries
 
 ## Why one ticket
 

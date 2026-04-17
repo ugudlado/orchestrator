@@ -8,6 +8,7 @@ created: 2026-04-17
 bundles:
   - task-a: split-mark-completed-from-archive (fix zero-cost metrics bug)
   - task-b: consolidate-implement-review-and-move-simplify
-  - task-c: enforce-step-history-usage-and-per-step-metrics
+  - task-c: enforce-step-history-usage-and-per-step-metrics (every step)
+  - task-d: surface step_history + per_agent + per_step as DuckDB views
 related:
   - HL-282 (learn-and-telemetry-on-duckdb) — this ticket unblocks fleet-wide cost queries by ensuring metrics are populated
