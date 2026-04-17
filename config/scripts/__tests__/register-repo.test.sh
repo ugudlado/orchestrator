@@ -266,8 +266,9 @@ check_zero_exit "T-5b: register-repo.sh exits 0 on no-usage fixture" "$EXIT_NO_U
 check_empty     "T-5b: no stderr on no-usage fixture" "$STDERR_NO_USAGE"
 
 # The single step should have NULL numeric columns
+# DuckDB CSV outputs literal 'NULL' for null values
 NULL_CHECK=$(duckdb -csv "$TEST_DB" "SELECT total_tokens, tool_uses, duration_ms FROM step_history WHERE change_id='feature-no-usage'" 2>/dev/null | tail -n +2)
-check "T-5b: step_history row has NULL numerics (empty CSV)" "$NULL_CHECK" ",,"
+check "T-5b: step_history row has NULL numerics" "$NULL_CHECK" "NULL,NULL,NULL"
 
 # ── T-7: Idempotency ──────────────────────────────────────────────────────────
 echo ""
