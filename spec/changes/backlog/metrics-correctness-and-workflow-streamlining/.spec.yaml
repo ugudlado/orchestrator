@@ -1,0 +1,13 @@
+schema: feature
+feature-id: metrics-correctness-and-workflow-streamlining
+status: proposed
+category: refactor
+priority: 9.0
+source: user
+created: 2026-04-17
+bundles:
+  - task-a: split-mark-completed-from-archive (fix zero-cost metrics bug)
+  - task-b: consolidate-implement-review-and-move-simplify
+  - task-c: enforce-step-history-usage-and-per-step-metrics
+related:
+  - HL-282 (learn-and-telemetry-on-duckdb) — this ticket unblocks fleet-wide cost queries by ensuring metrics are populated
