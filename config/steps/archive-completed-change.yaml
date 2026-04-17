@@ -23,9 +23,13 @@ instruction: |
 
   2. Update state.yaml per State Field Registry (CONVENTIONS.md):
      - Set `status: completed`
+     - Set `completed_at: <ISO 8601 timestamp>` (top-level, not under any nested block)
      - Set `archive_path: spec/changes/archive/YYYY-MM-DD-$CHANGE_ID/`
      This MUST happen before the archive copy so the archived state.yaml
-     reflects the final completion status.
+     reflects the final completion status. `completed_at` is required by
+     compute-swe-metrics.sh — without it, parse_session_jsonl cannot bound
+     the JSONL time window and falls back to step_history (which lacks
+     granular token data for native agents, producing $0 cost).
 
   3. Create archive directory: spec/changes/archive/YYYY-MM-DD-$CHANGE_ID/
 

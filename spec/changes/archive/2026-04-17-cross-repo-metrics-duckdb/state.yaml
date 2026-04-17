@@ -6,6 +6,7 @@ phase: complete
 slug: cross-repo-metrics-duckdb
 archive_path: spec/changes/archive/2026-04-17-cross-repo-metrics-duckdb/
 started_at: 2026-04-17T03:45:00Z
+completed_at: 2026-04-17T05:35:00Z
 flags:
   tdd_required: false
   design: true
@@ -456,23 +457,23 @@ route_preview:
     archive_sample_size: 2
 metrics:
   tokens:
-    input: 0
-    output: 0
-    cache_creation: 0
-    cache_read: 0
-    total: 483237
+    input: 16193
+    output: 81398
+    cache_creation: 941251
+    cache_read: 11180577
+    total: 1038842
   cost:
-    gross_usd: 0
-    net_usd: 0
-    model: unknown
+    gross_usd: 37.6349
+    net_usd: 7.4473
+    model: claude-sonnet-4-6
     pricing:
-      input: 15.00
-      output: 75.00
-      cache_read: 1.50
-  turns: 0
+      input: 3.00
+      output: 15.00
+      cache_read: 0.30
+  turns: 163
   tool_calls: 286
-  api_calls: 0
-  wall_clock_minutes: 0
+  api_calls: 163
+  wall_clock_minutes: 110.0
   resolution:
     tasks_total: 9
     tasks_planned: 9
@@ -490,27 +491,27 @@ metrics:
   rework_commits: 0
   rework_rate: 0
   churn:
-    files_changed: 0
-    insertions: 0
-    deletions: 0
-    total_commits: 0
+    files_changed: 17
+    insertions: 1382
+    deletions: 4
+    total_commits: 7
   review_scores: [7,9,9]
   review_score_avg: 8.3
   lint_delta: 0
   category: feature
   benchmarks:
-    cost_per_task_usd: 0
-    cost_per_resolution_usd: 0
-    tokens_per_task: 53693
-    tokens_per_resolution: 53693
-    input_output_ratio: 0
-    cache_hit_rate: 0
+    cost_per_task_usd: .8274
+    cost_per_resolution_usd: .8274
+    tokens_per_task: 115426
+    tokens_per_resolution: 115426
+    input_output_ratio: 11.7
+    cache_hit_rate: .9211
   estimate_vs_actual:
     tokens_predicted: 289394
-    tokens_actual: 483237
-    tokens_delta_pct: 0.6698
+    tokens_actual: 1038842
+    tokens_delta_pct: 2.5897
     cost_predicted_usd: 1.5152
-    cost_actual_usd: 0
-    cost_delta_pct: -1.0000
+    cost_actual_usd: 7.4473
+    cost_delta_pct: 3.9151
   per_agent_tokens: '{"reviewer":{"total_tokens":102412,"cost_usd":0.000000,"tool_uses":36,"duration_ms":208491,"steps":3},"architect":{"total_tokens":132323,"cost_usd":0.000000,"tool_uses":25,"duration_ms":3547356,"steps":3},"workflow-improver":{"total_tokens":75447,"cost_usd":0.000000,"tool_uses":68,"duration_ms":272978,"steps":1},"developer":{"total_tokens":122027,"cost_usd":0.000000,"tool_uses":117,"duration_ms":542996,"steps":2},"discoverer":{"total_tokens":51028,"cost_usd":0.000000,"tool_uses":40,"duration_ms":214407,"steps":1}}'
   per_agent_tools: '{}'

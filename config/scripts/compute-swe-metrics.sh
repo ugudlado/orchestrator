@@ -70,22 +70,26 @@ parse_session_jsonl() {
   local repo_root
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
 
-  # Compute Claude Code project slug: /path/to/repo -> -path-to-repo -> path-to-repo
+  # Compute Claude Code project slug: /path/to/repo -> -path-to-repo
+  # Claude Code preserves the leading dash from the path's leading slash —
+  # don't strip it. Stripping breaks the lookup.
   local slug="${repo_root//\//-}"
-  slug="${slug#-}"
   local project_dir="$HOME/.claude/projects/$slug"
 
   [[ -d "$project_dir" ]] || return 1
 
   # Convert time window to epoch for entry filtering.
   # Supports macOS (date -j -f) and Linux (date -d) formats.
+  # Force UTC interpretation — input strings are ISO 8601 UTC ("...Z"), but
+  # macOS `date -j -f` defaults to local TZ, shifting the window and missing
+  # all JSONL entries. JSONL timestamps are also UTC; both must be compared in UTC.
   local start_epoch end_epoch
-  start_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$STARTED_AT" "+%s" 2>/dev/null \
-    || date -j -f "%Y-%m-%dT%H:%M:%S" "${STARTED_AT%Z}" "+%s" 2>/dev/null \
-    || date -d "$STARTED_AT" "+%s" 2>/dev/null) || return 1
-  end_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" "$COMPLETED_AT" "+%s" 2>/dev/null \
-    || date -j -f "%Y-%m-%dT%H:%M:%S" "${COMPLETED_AT%Z}" "+%s" 2>/dev/null \
-    || date -d "$COMPLETED_AT" "+%s" 2>/dev/null) || return 1
+  start_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$STARTED_AT" "+%s" 2>/dev/null \
+    || TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%S" "${STARTED_AT%Z}" "+%s" 2>/dev/null \
+    || TZ=UTC date -d "$STARTED_AT" "+%s" 2>/dev/null) || return 1
+  end_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$COMPLETED_AT" "+%s" 2>/dev/null \
+    || TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%S" "${COMPLETED_AT%Z}" "+%s" 2>/dev/null \
+    || TZ=UTC date -d "$COMPLETED_AT" "+%s" 2>/dev/null) || return 1
 
   # Enumerate all JSONL files: parent sessions and subagent sessions.
   local jsonl_files
@@ -98,14 +102,17 @@ parse_session_jsonl() {
   # - Sum all token fields across qualifying entries
   # - Select dominant model (most input tokens)
   local result
+  # NOTE: .timestamp in JSONL is an ISO 8601 string (e.g. "2026-04-17T03:45:00.123Z").
+  # We parse it via fromdateiso8601 then compare against epoch ints.
+  # Also: drop the .iterations requirement — current Claude Code JSONL doesn't emit it,
+  # and requiring it filters everything out.
   result=$(echo "$jsonl_files" | xargs cat 2>/dev/null | jq -s \
     --argjson start "$start_epoch" --argjson end "$end_epoch" '
     [.[] | select(
       .type == "assistant" and
       .message.usage != null and
-      .message.usage.iterations != null and
-      (.timestamp // 0) >= $start and
-      (.timestamp // 0) <= $end
+      ((.timestamp // "1970-01-01T00:00:00Z") | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $start and
+      ((.timestamp // "1970-01-01T00:00:00Z") | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) <= $end
     )]
     | if length == 0 then error("no entries in time window") else . end
     | {
