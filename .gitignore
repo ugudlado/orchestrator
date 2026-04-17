@@ -13,4 +13,8 @@ spec/changes/*/state.yaml
 .env
 .mcp.json
 .pricing-cache.json
+
+# Cross-repo metrics runtime artifacts (per-machine, never gitted)
 *.duckdb
+/metrics-registry.yaml
+.claude/metrics.jsonl
