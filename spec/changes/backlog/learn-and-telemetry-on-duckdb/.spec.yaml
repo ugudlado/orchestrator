@@ -1,0 +1,12 @@
+schema: feature
+feature-id: learn-and-telemetry-on-duckdb
+status: proposed
+category: refactor
+priority: 8.0
+source: ideator
+linear_ticket: HL-282
+linear_url: https://linear.app/home-labs-experiments/issue/HL-282/learn-and-telemetry-read-from-metricsduckdb
+created: 2026-04-17
+supersedes:
+  - learn-uses-duckdb-index
+  - telemetry-dashboard-real
