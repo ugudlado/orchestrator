@@ -112,71 +112,92 @@ Evaluate the feature with:
 Classify each finding and route it to the right handler.
 
 **Routing targets:**
-- **Workflow rules** → step contracts in `$ORCHESTRATOR_HOME/config/steps/` (deterministic, enforced at execution time, shared across repos)
+- **Agent prompts** → `agents/<name>.md` (tighten instructions when the agent skipped something a contract already enforces)
+- **Workflow rules** → step contracts in `$ORCHESTRATOR_HOME/config/steps/` (deterministic, enforced at execution time, shared across repos) — or `.orchestrator/` override for repo-specific shape changes
 - **Project-specific learnings** → `spec/project.yaml` `learnings:` section (agent-agnostic, persists across sessions, repo-scoped)
 - **Never write to CLAUDE.md** — it's a pointer file only.
 
-#### 4a. Classifier (workflow vs. repo-learning)
+#### 4a. Classifier (three axes)
 
-Before routing, classify each finding into one of four buckets:
+Every finding belongs to exactly one of three buckets. The axes are
+**who owns the miss**, not *what the fix looks like*.
 
-| Bucket               | Target                                                  |
-|----------------------|---------------------------------------------------------|
-| `workflow_mechanic`  | Global step contract: `$ORCHESTRATOR_HOME/config/steps/<step>.yaml` |
-| `workflow_shape`     | Repo workflow override: `$REPO_ROOT/.orchestrator/...`  |
-| `repo_learning`      | `spec/project.yaml` `learnings[]`                       |
-| `ambiguous`          | Present to user with classification question            |
+| Bucket               | Owner of the miss                                   | Target                                                  |
+|----------------------|-----------------------------------------------------|---------------------------------------------------------|
+| `agent_improvement`  | Agent ignored or skipped an existing contract rule  | `agents/<name>.md` — tighten prompt/instructions        |
+| `workflow_improvement` | Step/phase/gate is missing or wrong                | Step contract (global by default) or `.orchestrator/` override |
+| `project_learning`   | Tech-stack / command / domain / path fact needed    | `spec/project.yaml` `learnings[]` or `rules[]`          |
 
-**Classification rules** (apply in order — first match wins):
+**Classification order** — check in this order, first match wins. The
+order matters: most misrouting happens when an agent miss gets rewritten
+as a new workflow rule, which silently duplicates existing contract text.
 
-1. **Tool/command/path tied to this repo** (`pnpm`, `pytest`, file paths,
-   stack-specific commands, named modules) → `repo_learning`. Tool gates
-   never become workflow files; the workflow stays generic and the
-   learning supplies the command.
+1. **Does an existing step contract already cover this concern?**
+   Read the relevant step contract (`run-feature-verification.yaml`,
+   `run-phase-review.yaml`, `execute-next-task.yaml`, etc.) before
+   classifying. If the rule is already there and the agent's output
+   shows it was skipped or handled incorrectly → **`agent_improvement`**.
+   Do NOT add a duplicate rule to the contract. Fix the agent prompt.
 
-2. **Names a specific repo subsystem** (legacy areas, domain entities,
-   per-team conventions) → `repo_learning`.
+   Signals: spec said X, step contract says "verify X", agent's review
+   never mentioned X. That's an agent miss, not a workflow gap.
 
-3. **Cross-repo workflow mechanic** — a finding qualifies only if BOTH:
-   (a) it's about workflow execution (gates, order, retries, metrics,
-       state, resume, agent dispatch), AND
-   (b) it would apply identically in any repo (no tool/path/domain refs).
-   → `workflow_mechanic`.
-   Single-repo systemic retry patterns do NOT qualify — even if they
-   appear in `systemic_retry_patterns`, route them to `repo_learning`
-   unless the same pattern is also seen in 2+ other repos' archives.
+2. **Is the finding about a tool, command, path, domain entity, or
+   repo subsystem?** (`pnpm`, `pytest`, a specific module name, legacy
+   areas, per-team conventions) → **`project_learning`**. The workflow
+   stays generic; the learning supplies the repo-specific fact the
+   agent reads at runtime.
 
-4. **Structural workflow change for this repo only** (different phase
-   ordering, an extra gating step, a custom verify block) →
-   `workflow_shape`. Rare. Prefer `repo_learning` if the same outcome
-   can be achieved by a learning the agent reads.
+3. **Otherwise, the step/phase/gate is genuinely missing or wrong** →
+   **`workflow_improvement`**. Then decide scope:
+   - **Global** (default): the gap would affect any repo running this
+     schema. Write to `$ORCHESTRATOR_HOME/config/steps/<step>.yaml` or
+     the relevant schema in `config/workflows/`.
+   - **Repo override** (rare): the change only makes sense for this
+     repo (different phase ordering, an extra gating step this repo
+     needs). Write to `$REPO_ROOT/.orchestrator/<path>` per the
+     workflow-override contract. If a learning would solve it, prefer
+     that instead.
 
-5. **Default (anything else)** → `repo_learning`. Reversible, low-risk,
-   and easy to promote later.
+**If unsure between buckets 1 and 3** — grep the target step contract
+for the concern. If any rule already mentions it, bucket 1 wins.
 
-6. **Escalate to `ambiguous` only if** the finding could plausibly
-   change workflow mechanics for all repos AND you cannot rule out
-   tool/repo-specific framing. These deserve a human call.
+**If unsure between buckets 2 and 3** — if the fix names a specific
+command, file path, or stack tool, it's bucket 2. Workflow files stay
+tool-agnostic.
 
 After classification:
-- `workflow_mechanic` → use the routing table below (step contract +
-  `<!-- learned: ... repo: * -->` metadata).
-- `workflow_shape` → write to `$REPO_ROOT/.orchestrator/` per the
-  workflow-override contract (`config/steps/contracts/workflow-override.md`).
-- `repo_learning` → append to `spec/project.yaml` `learnings[]` with
+- `agent_improvement` → edit `agents/<name>.md` directly. No metadata
+  comment, no `<!-- learned: -->` stamp. Agent prompts aren't subject to
+  decay evaluation the way contract rules are.
+- `workflow_improvement` (global) → spawn `workflow-improver` per the
+  routing table below. Learned rule gets `<!-- learned: ... -->` metadata.
+- `workflow_improvement` (repo override) → spawn `workflow-improver`
+  with `$REPO_ROOT/.orchestrator/<path>` target; copy global file first
+  if the override doesn't exist. Read `config/steps/contracts/workflow-override.md`.
+- `project_learning` → append to `spec/project.yaml` `learnings[]` with
   `id`, `learned`, and `rule` fields. Never modify global step contracts.
-- `ambiguous` → present finding + suggested classification to user.
 
 **Routing decision tree:**
 
-**Workflow issues** (schema gaps, step contract bugs, agent instructions, hook problems):
+**Agent misses** (contract already enforces the concern, agent skipped it):
+- Identify which agent owned the skipped step (reviewer, developer,
+  architect, etc.) — check `state.yaml` step_history for the agent
+  assigned to the failing step.
+- Edit `agents/<name>.md` to make the existing requirement harder to
+  skip: add an explicit checklist item, name the artifact to inspect,
+  or move the check earlier in the prompt.
+- Do NOT add a rule to the step contract — the contract already has one.
+
+**Workflow issues** (schema gaps, step contract bugs, hook problems):
 - Spawn the `workflow-improver` agent with:
-  - The finding and its classifier bucket (`workflow_mechanic` or `workflow_shape`)
-  - The target file path resolved per the bucket:
-    - `workflow_mechanic` → `$ORCHESTRATOR_HOME/config/steps/<step>.yaml` (global)
-    - `workflow_shape` → `$REPO_ROOT/.orchestrator/steps/<step>.yaml` (repo override; copy global first if missing)
+  - The finding and its classifier bucket (always `workflow_improvement`)
+  - Scope decision: global or repo override
+  - The target file path resolved per the scope:
+    - Global → `$ORCHESTRATOR_HOME/config/steps/<step>.yaml`
+    - Repo override → `$REPO_ROOT/.orchestrator/steps/<step>.yaml` (copy global first if missing)
 - Agent MUST read `$ORCHESTRATOR_HOME/config/steps/CONVENTIONS.md` before editing any step contract
-- For `workflow_shape`, agent MUST also read `$ORCHESTRATOR_HOME/config/steps/contracts/workflow-override.md` before writing under `.orchestrator/`
+- For repo overrides, agent MUST also read `$ORCHESTRATOR_HOME/config/steps/contracts/workflow-override.md` before writing under `.orchestrator/`
 - Fix is applied immediately to disk — improves the next workflow execution
 
 **Code/functionality issues** (bugs discovered, missing features, tech debt, test gaps):
@@ -185,13 +206,13 @@ After classification:
 - This ensures code changes go through full spec-first discipline
 
 **Learned rules** (patterns to remember, gotchas discovered, quality checks):
-- Apply the §4a classifier first. The routing table below tells you
-  WHICH step contract the rule belongs in; the bucket tells you WHICH
-  directory (global vs. `.orchestrator/`) to write to.
-- `workflow_mechanic` → write to `$ORCHESTRATOR_HOME/config/steps/<step>.yaml`
-- `workflow_shape` → write to `$REPO_ROOT/.orchestrator/steps/<step>.yaml`
-  (copy from global first if the override file doesn't exist)
-- `repo_learning` → append to `spec/project.yaml` `learnings[]` — skip
+- Apply the §4a classifier first. The bucket tells you WHERE to write;
+  the routing table below (for `workflow_improvement` only) tells you
+  WHICH step contract the rule belongs in.
+- `agent_improvement` → edit `agents/<name>.md` — skip this table entirely
+- `workflow_improvement` (global) → `$ORCHESTRATOR_HOME/config/steps/<step>.yaml`
+- `workflow_improvement` (repo override) → `$REPO_ROOT/.orchestrator/steps/<step>.yaml`
+- `project_learning` → append to `spec/project.yaml` `learnings[]` — skip
   this table entirely (no step contract involved)
 
   | When to enforce | Target step contract | Where in the file |

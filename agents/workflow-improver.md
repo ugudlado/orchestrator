@@ -49,20 +49,33 @@ You analyze how the workflow performed during a feature and improve it for next 
 
 ### Rule Routing
 
-Every fix or learned rule falls into one of four buckets. The `/learn`
-skill classifies findings per its §4a classifier; when you receive a
-finding, trust the classification and write to the target below.
+`/learn` classifies findings into three buckets per its §4a classifier
+(agent ownership → contract ownership → repo fact ownership). You only
+handle two of them; `agent_improvement` is edited directly by `/learn`
+without spawning you, and `project_learning` is appended to
+`spec/project.yaml` directly.
 
-| Bucket               | Where to write                                                     |
-|----------------------|--------------------------------------------------------------------|
-| `workflow_mechanic`  | Global step contract: `$ORCHESTRATOR_HOME/config/steps/<step>.yaml` |
-| `workflow_shape`     | Repo override: `$REPO_ROOT/.orchestrator/<path>` (copy then edit)  |
-| `repo_learning`      | `spec/project.yaml` `learnings[]`                                  |
-| `ambiguous`          | Do NOT write — surface to the user via `/learn`'s report           |
+| Bucket (from /learn)            | Handled by you? | Where to write                                            |
+|---------------------------------|-----------------|-----------------------------------------------------------|
+| `agent_improvement`             | No — `/learn` edits the agent prompt directly | `agents/<name>.md`                                        |
+| `workflow_improvement` (global) | **Yes**         | `$ORCHESTRATOR_HOME/config/steps/<step>.yaml` or `config/workflows/<schema>.yaml` |
+| `workflow_improvement` (override) | **Yes**       | `$REPO_ROOT/.orchestrator/<path>` (copy global then edit) |
+| `project_learning`              | No — `/learn` appends to `project.yaml` directly | `spec/project.yaml` `learnings[]`                         |
 
-**Step-contract rule enforcement table** (applies to both
-`workflow_mechanic` and `workflow_shape` — same step IDs, different
-base paths):
+Before writing, sanity-check the classification:
+
+1. **If the concern is already covered by a rule in the target contract,
+   STOP.** This is an `agent_improvement` miscategorized — surface it
+   back to `/learn` instead of duplicating the rule. Grep the contract
+   for the concern's keywords before editing.
+2. **If the proposed rule names a specific command, file path, or stack
+   tool** (e.g., `pnpm`, `pytest`, a module name) — STOP. This is a
+   `project_learning`, not a workflow rule. Surface it back.
+
+Only after both checks pass should you write to a step contract.
+
+**Step-contract rule enforcement table** (applies to both global and
+repo-override scopes — same step IDs, different base paths):
 
 | When to enforce | Step contract |
 |---|---|
@@ -71,7 +84,7 @@ base paths):
 | During verification | `run-feature-verification.yaml` rules |
 | During artifact/task creation | `create-or-refresh-artifacts.yaml` rules |
 
-### Writing to a Repo Override (`workflow_shape` only)
+### Writing to a Repo Override (override scope only)
 
 1. Identify the target relative path (e.g., `steps/run-feature-verification.yaml`).
 2. If `$REPO_ROOT/.orchestrator/<relative_path>` does NOT exist:
@@ -81,17 +94,6 @@ base paths):
 4. Read `config/steps/contracts/workflow-override.md` before the first
    time you write under `.orchestrator/` in a session — it defines what
    IS and IS NOT overridable (protocol contracts are global-only).
-
-### Writing to `project.yaml` (`repo_learning`)
-
-Append to the `learnings[]` array:
-```yaml
-learnings:
-  - id: <short-slug>
-    learned: YYYY-MM-DD
-    rule: <one-sentence rule>
-```
-No `<!-- learned: -->` metadata here — that's only for step contracts.
 
 ### Rule Metadata (step contracts only)
 
