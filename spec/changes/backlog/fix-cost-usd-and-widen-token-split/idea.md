@@ -14,6 +14,16 @@ Every downstream report (`/telemetry`, `/learn`, proposed regression detection, 
 2. Add post-ingest assertion: `total_tokens > 10000 AND cost_usd = 0` must fail.
 3. Verify with `SELECT COUNT(*) FROM per_agent_metrics WHERE cost_usd > 0` — goes from 0 to non-zero after re-ingest.
 
+## Additional Scope (T-4 archive patches)
+
+Five archived state.yaml files were directly patched to inject cost_usd into their per_agent_tokens JSON using the same formula the script fix applies (`total_tokens × input_per_1m / 1_000_000`). JSONL source data has aged out so a pipeline re-run would yield different totals; the stored total_tokens in these archives are authoritative. Affected archives:
+
+- `spec/changes/archive/2026-04-17-cross-repo-metrics-duckdb/state.yaml`
+- `spec/changes/archive/2026-04-17-duckdb-ingest-normalized-metrics-tables/state.yaml`
+- `spec/changes/archive/2026-04-17-metrics-capture-and-workflow-streamlining/state.yaml`
+- `spec/changes/archive/2026-04-11-hl-276/state.yaml`
+- `spec/changes/archive/2026-04-12-hl-278/state.yaml`
+
 ## Out of scope (deferred — file separately if still needed after #1 lands)
 - Widening `step_history.usage`, `per_step_metrics`, `per_agent_metrics` with `input_tokens` / `output_tokens` / `cache_read_tokens` / `cache_creation_tokens`. Re-evaluate after a token×price estimate restores cost_usd — the split may or may not be worth the schema migration at that point.
 - `cache_hit_rate` derived view.

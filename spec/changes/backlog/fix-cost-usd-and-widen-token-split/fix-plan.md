@@ -15,6 +15,11 @@ Root cause reference: `config/scripts/compute-swe-metrics.sh:427` — `cost[agen
 - `config/scripts/compute-swe-metrics.sh:421-453` — add post-awk cost inference block: after PER_AGENT_TOKENS awk completes, for each agent with `total_tokens > 0` and `cost_usd = 0`, query `agent_pricing` via duckdb and inject inferred cost into the JSON before writing.
 - `config/scripts/register-repo.sh:76-148` — add `CREATE TABLE IF NOT EXISTS agent_pricing (agent VARCHAR PRIMARY KEY, model VARCHAR, backend VARCHAR, input_per_1m DOUBLE, output_per_1m DOUBLE, cache_read_per_1m DOUBLE)` DDL and corresponding `INSERT OR REPLACE` seed rows (derived from `config/pricing.yaml` × `scripts/routes.yaml` agent→model mapping).
 - `config/scripts/__tests__/` or `config/scripts/test-fixtures/` — add fixture state.yaml with at least one step_history entry where `total_tokens > 10000` and `cost_usd` is absent, to enable deterministic regression testing.
+- `spec/changes/archive/2026-04-17-cross-repo-metrics-duckdb/state.yaml` — per_agent_tokens JSON patched: cost_usd injected using `total_tokens × input_per_1m / 1_000_000` (JSONL source data aged out; stored total_tokens are authoritative).
+- `spec/changes/archive/2026-04-17-duckdb-ingest-normalized-metrics-tables/state.yaml` — same patch rationale.
+- `spec/changes/archive/2026-04-17-metrics-capture-and-workflow-streamlining/state.yaml` — same patch rationale.
+- `spec/changes/archive/2026-04-11-hl-276/state.yaml` — same patch rationale.
+- `spec/changes/archive/2026-04-12-hl-278/state.yaml` — same patch rationale.
 
 ## Regression Test
 
