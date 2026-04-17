@@ -406,7 +406,7 @@ CACHE_HIT_RATE=0
 # Entries without a usage: block are silently skipped (backward compatible).
 PER_AGENT_TOKENS=$(awk '
   /^step_history:/ { in_history=1; next }
-  in_history && /^[^ ]/ && !/^  / { in_history=0 }
+  in_history && /^[^ -]/ { in_history=0 }
   function flush_entry() {
     if (agent != "" && (total_tokens > 0 || tool_uses > 0 || duration_ms > 0)) {
       tok[agent]  += total_tokens
@@ -417,14 +417,14 @@ PER_AGENT_TOKENS=$(awk '
     }
     agent=""; total_tokens=0; cost_usd=0; tool_uses=0; duration_ms=0; in_usage=0
   }
-  in_history && /^  - / { flush_entry() }
-  in_history && /^    agent:/ { gsub(/.*agent: */, ""); gsub(/"/, ""); agent=$0 }
-  in_history && /^    usage:/ { in_usage=1 }
-  in_history && in_usage && /^      total_tokens:/ { gsub(/.*total_tokens: */, ""); total_tokens=$0+0 }
-  in_history && in_usage && /^      cost_usd:/     { gsub(/.*cost_usd: */, "");     cost_usd=$0+0 }
-  in_history && in_usage && /^      tool_uses:/    { gsub(/.*tool_uses: */, "");    tool_uses=$0+0 }
-  in_history && in_usage && /^      duration_ms:/  { gsub(/.*duration_ms: */, "");  duration_ms=$0+0 }
-  in_history && in_usage && /^    [a-z]/ && !/^    usage:/ { in_usage=0 }
+  in_history && /^[[:space:]]*- / { flush_entry() }
+  in_history && /^[[:space:]]+agent:/ { gsub(/.*agent: */, ""); gsub(/"/, ""); agent=$0 }
+  in_history && /^[[:space:]]+usage:/ { in_usage=1 }
+  in_history && in_usage && /^[[:space:]]+total_tokens:/ { gsub(/.*total_tokens: */, ""); total_tokens=$0+0 }
+  in_history && in_usage && /^[[:space:]]+cost_usd:/     { gsub(/.*cost_usd: */, "");     cost_usd=$0+0 }
+  in_history && in_usage && /^[[:space:]]+tool_uses:/    { gsub(/.*tool_uses: */, "");    tool_uses=$0+0 }
+  in_history && in_usage && /^[[:space:]]+duration_ms:/  { gsub(/.*duration_ms: */, "");  duration_ms=$0+0 }
+  in_history && in_usage && /^[[:space:]]+[a-z]/ && !/usage:/ { in_usage=0 }
   END {
     flush_entry()
     sep=""
@@ -444,19 +444,19 @@ PER_AGENT_TOKENS=$(awk '
 # Uses "agent\tTool" composite keys (tab-separated) compatible with all awk variants.
 PER_AGENT_TOOLS=$(awk '
   /^step_history:/ { in_history=1; next }
-  in_history && /^[^ ]/ && !/^  / { in_history=0 }
-  in_history && /^  - / { agent=""; in_usage=0; in_tools=0 }
-  in_history && /^    agent:/ { gsub(/.*agent: */, ""); gsub(/"/, ""); agent=$0 }
-  in_history && /^    usage:/ { in_usage=1 }
-  in_history && in_usage && /^      tools:/        { in_tools=1; next }
-  in_history && in_usage && in_tools && /^        [A-Za-z]/ {
+  in_history && /^[^ -]/ { in_history=0 }
+  in_history && /^[[:space:]]*- / { agent=""; in_usage=0; in_tools=0 }
+  in_history && /^[[:space:]]+agent:/ { gsub(/.*agent: */, ""); gsub(/"/, ""); agent=$0 }
+  in_history && /^[[:space:]]+usage:/ { in_usage=1 }
+  in_history && in_usage && /^[[:space:]]+tools:/        { in_tools=1; next }
+  in_history && in_usage && in_tools && /^[[:space:]]+[A-Za-z]/ {
     sub(/^ +/, ""); tool_name=$1; sub(/:$/, "", tool_name)
     key=agent "\t" tool_name
     tool_count[key] += $2
     agent_list[agent]=1
   }
-  in_history && in_usage && in_tools && /^      [a-z]/ { in_tools=0 }
-  in_history && in_usage && /^    [a-z]/ && !/^    usage:/ { in_usage=0; in_tools=0 }
+  in_history && in_usage && in_tools && /^[[:space:]]+[a-z]/ && !/[A-Z]/ { in_tools=0 }
+  in_history && in_usage && /^[[:space:]]+[a-z]/ && !/usage:/ { in_usage=0; in_tools=0 }
   END {
     agent_sep=""
     printf "{"
@@ -485,7 +485,7 @@ PER_AGENT_TOOLS=$(awk '
 # Uses macOS/POSIX-compatible awk (no GNU extensions).
 PER_STEP_YAML=$(awk '
   /^step_history:/ { in_history=1; next }
-  in_history && /^[a-z]/ { in_history=0 }
+  in_history && /^[^ -]/ { in_history=0 }
   function flush_entry() {
     if (step_id != "") {
       tok[step_id]  += total_tokens
@@ -498,16 +498,16 @@ PER_STEP_YAML=$(awk '
     }
     step_id=""; total_tokens=0; tool_uses=0; duration_ms=0; in_usage=0
   }
-  in_history && /^  - step_id:/ {
+  in_history && /^[[:space:]]*- step_id:/ {
     flush_entry()
-    line=$0; gsub(/^  - step_id: */, "", line); gsub(/"/, "", line); step_id=line
+    line=$0; gsub(/^[[:space:]]*- step_id: */, "", line); gsub(/"/, "", line); step_id=line
   }
-  in_history && /^  - / && !/step_id:/ { flush_entry() }
-  in_history && /^    usage:/ { in_usage=1; next }
-  in_history && in_usage && /^      total_tokens:/ { gsub(/.*total_tokens: */, ""); total_tokens=$0+0 }
-  in_history && in_usage && /^      tool_uses:/    { gsub(/.*tool_uses: */, "");    tool_uses=$0+0 }
-  in_history && in_usage && /^      duration_ms:/  { gsub(/.*duration_ms: */, "");  duration_ms=$0+0 }
-  in_history && in_usage && /^    [a-z]/ { in_usage=0 }
+  in_history && /^[[:space:]]*- / && !/step_id:/ { flush_entry() }
+  in_history && /^[[:space:]]+usage:/ { in_usage=1; next }
+  in_history && in_usage && /^[[:space:]]+total_tokens:/ { gsub(/.*total_tokens: */, ""); total_tokens=$0+0 }
+  in_history && in_usage && /^[[:space:]]+tool_uses:/    { gsub(/.*tool_uses: */, "");    tool_uses=$0+0 }
+  in_history && in_usage && /^[[:space:]]+duration_ms:/  { gsub(/.*duration_ms: */, "");  duration_ms=$0+0 }
+  in_history && in_usage && /^[[:space:]]+[a-z]/ && !/usage:/ { in_usage=0 }
   END {
     flush_entry()
     # Build per_step YAML — iterate in insertion order by sorting on seen_order value

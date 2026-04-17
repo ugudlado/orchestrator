@@ -336,6 +336,86 @@ metrics:
     tokens_per_resolution: 43287
     input_output_ratio: 8.6
     cache_hit_rate: 0.9741
-  per_agent_tokens: '{}'
+  per_agent_tokens: '{"reviewer":{"total_tokens":82524,"cost_usd":0.000000,"tool_uses":37,"duration_ms":155063,"steps":2},"architect":{"total_tokens":100507,"cost_usd":0.000000,"tool_uses":18,"duration_ms":309082,"steps":3},"workflow-improver":{"total_tokens":43894,"cost_usd":0.000000,"tool_uses":34,"duration_ms":118271,"steps":2},"developer":{"total_tokens":152155,"cost_usd":0.000000,"tool_uses":208,"duration_ms":1552128,"steps":1},"discoverer":{"total_tokens":67554,"cost_usd":0.000000,"tool_uses":30,"duration_ms":194456,"steps":1}}'
   per_agent_tools: '{}'
-  per_step: null
+  per_step:
+    create-worktree:
+      total_tokens: 0
+      tool_uses: 0
+      duration_ms: 0
+      executions: 1
+    load-project-context:
+      total_tokens: 0
+      tool_uses: 3
+      duration_ms: 10000
+      executions: 1
+    design-exploration:
+      total_tokens: 33978
+      tool_uses: 7
+      duration_ms: 90965
+      executions: 2
+    explore:
+      total_tokens: 67554
+      tool_uses: 30
+      duration_ms: 194456
+      executions: 1
+    create-or-refresh-artifacts:
+      total_tokens: 66529
+      tool_uses: 11
+      duration_ms: 218117
+      executions: 1
+    validate-artifacts:
+      total_tokens: 0
+      tool_uses: 4
+      duration_ms: 15000
+      executions: 1
+    preview-route:
+      total_tokens: 0
+      tool_uses: 1
+      duration_ms: 60000
+      executions: 1
+    run-phase-review:
+      total_tokens: 41974
+      tool_uses: 24
+      duration_ms: 92351
+      executions: 1
+    create-linear-ticket:
+      total_tokens: 0
+      tool_uses: 2
+      duration_ms: 30000
+      executions: 1
+    capture-test-baseline:
+      total_tokens: 0
+      tool_uses: 2
+      duration_ms: 1000
+      executions: 1
+    execute-next-task:
+      total_tokens: 152155
+      tool_uses: 208
+      duration_ms: 1552128
+      executions: 1
+    run-implement-review:
+      total_tokens: 40550
+      tool_uses: 13
+      duration_ms: 62712
+      executions: 1
+    compute-prediction-accuracy:
+      total_tokens: 0
+      tool_uses: 3
+      duration_ms: 500
+      executions: 1
+    run-learn-cycle:
+      total_tokens: 43894
+      tool_uses: 31
+      duration_ms: 117771
+      executions: 1
+    mark-change-completed:
+      total_tokens: 0
+      tool_uses: 2
+      duration_ms: 500
+      executions: 1
+    compute-swe-metrics:
+      total_tokens: 0
+      tool_uses: 2
+      duration_ms: 1000
+      executions: 1
