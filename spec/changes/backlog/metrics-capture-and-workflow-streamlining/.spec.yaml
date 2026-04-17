@@ -5,6 +5,8 @@ category: refactor
 priority: 9.0
 source: user
 created: 2026-04-17
+linear_ticket: HL-283
+linear_url: https://linear.app/home-labs-experiments/issue/HL-283/metrics-capture-implement-phase-streamlining
 bundles:
   - task-a: split-mark-completed-from-archive (fix zero-cost metrics bug)
   - task-b: consolidate-implement-review-and-move-simplify
