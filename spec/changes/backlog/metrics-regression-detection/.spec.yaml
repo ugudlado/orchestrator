@@ -1,0 +1,7 @@
+schema: feature
+feature-id: metrics-regression-detection
+status: proposed
+category: observability
+priority: 8.2
+source: ideator
+created: 2026-04-18
