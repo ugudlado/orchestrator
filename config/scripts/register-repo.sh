@@ -230,7 +230,7 @@ SQL
       # Numeric: NULL as unquoted, otherwise bare integer
       SH_TOKENS=$(  [[ "$total_tokens_val" == "null" ]] && echo "NULL" || echo "$total_tokens_val")
       SH_TOOLS=$(   [[ "$tool_uses_val"    == "null" ]] && echo "NULL" || echo "$tool_uses_val")
-      SH_DURATION=$([ "$duration_ms_val"  == "null" ]  && echo "NULL" || echo "$duration_ms_val")
+      SH_DURATION=$([[ "$duration_ms_val" == "null" ]] && echo "NULL" || echo "$duration_ms_val")
 
       duckdb "$DB" <<SQL 2>/dev/null || true
 INSERT INTO step_history (repo_root, change_id, step_ord, step_id, phase, status, agent, started_at, completed_at, total_tokens, tool_uses, duration_ms)

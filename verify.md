@@ -31,3 +31,7 @@ Row counts after rebuild:
 branch merges, re-running `register-repo.sh --rebuild` will populate `per_step_metrics`.
 `step_history > 0` (112 rows) and `per_agent_metrics > 0` (10 rows) confirm the new ingest
 logic is working correctly.
+
+**Note on skipped=3:** Three archive directories were skipped due to missing or empty `change_id`
+fields in their `state.yaml` files (in-progress or malformed archives). This is pre-existing
+behavior in the script's validation logic — not a regression introduced by this change.
