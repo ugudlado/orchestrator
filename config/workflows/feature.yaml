@@ -121,6 +121,7 @@ phases:
           light:
             - Keep spec.md terse — one paragraph of context, a short acceptance list. No discovery section when discovery was skipped.
       - validate-artifacts
+      - preview-route
       - run-phase-review if phase_review
       - create-linear-ticket if linear
       - phase-signoff if not auto

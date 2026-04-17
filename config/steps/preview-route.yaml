@@ -1,0 +1,43 @@
+id: preview-route
+version: 1
+
+intent: Show which agent→model routes will run this feature and an estimate from archive history.
+
+inputs:
+  - state.yaml
+  - tasks.md
+
+rules:
+  - Non-blocking. A script failure or missing pricing.yaml must not halt the phase.
+  - Informational only — never gate on estimate size. No budget caps here.
+  - Estimate source is descriptive (archive median), not predictive. Callers tune future estimates by comparing estimate_vs_actual after complete phase.
+
+instruction: |
+  0. Re-entry check: if state.yaml already has a `route_preview:` block for this
+     change, skip re-running the estimator. Append a step_history entry marking
+     this re-entry and exit.
+  1. Run the estimator:
+     `$ORCHESTRATOR_HOME/config/scripts/estimate-cost.sh $WORKFLOW_STATE_DIR/$CHANGE_ID`
+     - stdout: `route_preview:` YAML block
+     - stderr: human-readable preview table (relay to the user)
+  2. If the script exits non-zero or stdout is empty, write a fallback block to
+     state.yaml:
+       ```yaml
+       route_preview:
+         status: estimate_unavailable
+         reason: <stderr or 'exit code N'>
+       ```
+     Append a step_history entry with status: completed (NOT failed — this step
+     is non-blocking).
+  3. Otherwise append the captured `route_preview:` block to state.yaml as a
+     top-level key. Idempotent — overwrite if the block already exists.
+  4. Update state.yaml step_history per CONVENTIONS.md § State Updates with
+     status: completed and artifacts: [state.yaml].
+
+verify:
+  assertions:
+    - state.yaml contains a top-level `route_preview:` block (either full estimate or `status: estimate_unavailable`)
+    - step_history[-1].step_id is `preview-route` with status: completed
+
+outputs:
+  - state.yaml route_preview block

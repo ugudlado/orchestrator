@@ -82,6 +82,7 @@ phases:
         extra_rules:
           - First task must be regression test. Second task must be the fix. Order matters.
       - validate-artifacts
+      - preview-route
       - run-phase-review
       - create-linear-ticket if linear
       - phase-signoff if not auto

@@ -59,6 +59,12 @@ All fields under `metrics:` — their type, description, and source:
 | `benchmarks.cache_hit_rate` | decimal | cache_read / (input + cache_creation + cache_read) | computed |
 | `per_agent_tokens` | JSON string | Per-agent token/tool/duration totals | step_history |
 | `per_agent_tools` | JSON string | Per-agent tool breakdown | step_history |
+| `estimate_vs_actual.tokens_predicted` | integer | Token count projected by preview-route before the run | route_preview.estimate.tokens |
+| `estimate_vs_actual.tokens_actual` | integer | Token count billed after the run | tokens.total |
+| `estimate_vs_actual.tokens_delta_pct` | decimal | (actual − predicted) / predicted. Negative = overestimate. | computed |
+| `estimate_vs_actual.cost_predicted_usd` | decimal | Cost projected by preview-route before the run | route_preview.estimate.cost_usd |
+| `estimate_vs_actual.cost_actual_usd` | decimal | Net cost after the run | cost.net_usd |
+| `estimate_vs_actual.cost_delta_pct` | decimal | (actual − predicted) / predicted. Negative = overestimate. | computed |
 
 ## Per-Schema Variants
 
@@ -87,6 +93,7 @@ for each workflow schema:
 | `benchmarks.*` | R | R | R | R |
 | `per_agent_tokens` | R | R | R | R |
 | `per_agent_tools` | R | R | R | R |
+| `estimate_vs_actual.*` | O | O | O | O |
 
 When `feature` runs with `--light`, all required fields remain required —
 review scores and task counts are still emitted, just against a lower
@@ -97,6 +104,7 @@ light flag; consumers that need to distinguish can inspect `state.yaml`'s
 **R** = required, present with a real value
 **~** = explicit YAML null (key is present, value is `~`)
 **—** = key is omitted entirely from the block
+**O** = optional; key is present only when the upstream data exists (see `estimate_vs_actual` below)
 
 ## Consumer Contract
 
@@ -157,6 +165,25 @@ of task resolution metrics:
 - `resolution.iterations_failed` — count of iterations with `status: failed`
 - `resolution.iterations_empty` — count of iterations with `status: empty_backlog`
 - Other `resolution.*` fields remain null (`~`)
+
+### Estimate vs Actual
+
+`estimate_vs_actual` is emitted only when the `preview-route` step ran during
+the specify/diagnose phase and produced a non-null estimate (i.e., archive
+history existed at that time). When absent, the entire block — including the
+`estimate_vs_actual:` key — is omitted, not null. Consumers MUST check for key
+existence before accessing any field under it.
+
+The `*_delta_pct` fields are signed decimals in the range (−1.0, +∞):
+
+- `0.0`  → prediction matched actual exactly
+- `+0.25` → actual was 25% over prediction (underestimate)
+- `-0.25` → actual was 25% under prediction (overestimate)
+- `-1.0` → actual was zero (e.g., native agents with no proxy cost recorded)
+
+Use these deltas as the learning signal for future estimates. No action is
+taken automatically — telemetry surfaces the trend so humans (or a future
+workflow-improver rule) can tune `config/pricing.yaml` or the estimator.
 
 ## Future Schemas
 

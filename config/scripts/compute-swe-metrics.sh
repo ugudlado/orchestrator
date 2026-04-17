@@ -27,19 +27,37 @@ if [[ ! -f "$STATE_FILE" ]]; then
 fi
 
 # ── Model Pricing ($/1M tokens) ──────────────────────────────────────────
-# Updated as of 2026-04. Add new models as needed.
+# Source of truth: $ORCHESTRATOR_HOME/config/pricing.yaml (shared with
+# estimate-cost.sh so pre-flight and post-flight use identical rates).
+# Fallback when the file is missing keeps CI and old-checkout archives working.
+PRICING_FILE="${PRICING_FILE:-${ORCHESTRATOR_HOME:-$(git rev-parse --show-toplevel 2>/dev/null)}/config/pricing.yaml}"
+
 get_pricing() {
   local model="$1"
-  case "$model" in
-    claude-opus-4-6*|claude-opus-4-5*)
-      echo "15.00 75.00 1.50" ;;  # input output cache_read
-    claude-sonnet-4-6*|claude-sonnet-4-5*)
-      echo "3.00 15.00 0.30" ;;
-    claude-haiku-4-5*)
-      echo "0.80 4.00 0.08" ;;
-    *)
-      echo "15.00 75.00 1.50" ;;  # default to opus pricing (conservative)
-  esac
+  if [[ -f "$PRICING_FILE" ]]; then
+    # Match the key exactly, fall back to `default:` block.
+    awk -v target="$model" '
+      /^models:/    { in_models=1; in_default=0; next }
+      /^default:/   { in_default=1; in_models=0; next }
+      /^[a-z]/ && !/^default:/ && !/^models:/ { in_models=0; in_default=0 }
+      (in_models || in_default) && /^  [^ ]/ {
+        gsub(/:/, ""); gsub(/^  /, ""); current=$0
+      }
+      in_models && current == target && /^    input:/      { gsub(/^    input: */, ""); in_v=$0 }
+      in_models && current == target && /^    output:/     { gsub(/^    output: */, ""); out_v=$0 }
+      in_models && current == target && /^    cache_read:/ { gsub(/^    cache_read: */, ""); cr_v=$0 }
+      in_default && /^  input:/      { gsub(/^  input: */, "");      if (in_v=="")  in_v=$0 }
+      in_default && /^  output:/     { gsub(/^  output: */, "");     if (out_v=="") out_v=$0 }
+      in_default && /^  cache_read:/ { gsub(/^  cache_read: */, ""); if (cr_v=="")  cr_v=$0 }
+      END {
+        if (in_v=="" || out_v=="" || cr_v=="") { print "15.00 75.00 1.50"; exit }
+        print in_v, out_v, cr_v
+      }
+    ' "$PRICING_FILE"
+  else
+    # pricing.yaml absent — conservative opus-tier default (same as prior behavior).
+    echo "15.00 75.00 1.50"
+  fi
 }
 
 # ── Session JSONL Parser ─────────────────────────────────────────────────
@@ -442,6 +460,42 @@ PER_AGENT_TOOLS=$(awk '
   }
 ' "$STATE_FILE")
 
+# ── Estimate vs Actual ────────────────────────────────────────────────────
+# Read route_preview.estimate from state.yaml (written by preview-route step
+# in the specify/diagnose phase). Compute deltas against actuals so the
+# learning loop can tune future estimates. Emits an empty block when no
+# estimate exists (cold-start or pre-preview-route feature).
+ESTIMATE_TOKENS=$(awk '
+  /^route_preview:/ { in_rp=1; next }
+  in_rp && /^[a-z]/ { in_rp=0 }
+  in_rp && /^  estimate:/ && !/null/ { in_est=1; next }
+  in_rp && in_est && /^    tokens:/ { gsub(/^    tokens: */, ""); print; exit }
+  in_rp && /^[a-z]/ { in_est=0 }
+' "$STATE_FILE")
+ESTIMATE_COST=$(awk '
+  /^route_preview:/ { in_rp=1; next }
+  in_rp && /^[a-z]/ { in_rp=0 }
+  in_rp && /^  estimate:/ && !/null/ { in_est=1; next }
+  in_rp && in_est && /^    cost_usd:/ { gsub(/^    cost_usd: */, ""); print; exit }
+  in_rp && /^[a-z]/ { in_est=0 }
+' "$STATE_FILE")
+
+ESTIMATE_BLOCK_YAML=""
+if [[ -n "$ESTIMATE_TOKENS" && "$ESTIMATE_TOKENS" != "0" ]]; then
+  TOKENS_DELTA_PCT=$(awk -v p="$ESTIMATE_TOKENS" -v a="$TOTAL_TOKENS" \
+    'BEGIN { if (p == 0) { print "0.0000"; exit } printf "%.4f", (a - p) / p }')
+  COST_DELTA_PCT=$(awk -v p="$ESTIMATE_COST" -v a="$NET_USD" \
+    'BEGIN { if (p == 0) { print "0.0000"; exit } printf "%.4f", (a - p) / p }')
+  ESTIMATE_BLOCK_YAML="  estimate_vs_actual:
+    tokens_predicted: $ESTIMATE_TOKENS
+    tokens_actual: $TOTAL_TOKENS
+    tokens_delta_pct: $TOKENS_DELTA_PCT
+    cost_predicted_usd: $ESTIMATE_COST
+    cost_actual_usd: $NET_USD
+    cost_delta_pct: $COST_DELTA_PCT
+"
+fi
+
 # ── Regression Count ──────────────────────────────────────────────────────
 # A regression is a step_history entry with a `regression:` block (written by
 # execute-next-task step 5a when a task drops the full-suite pass count).
@@ -534,6 +588,6 @@ $REVIEW_BLOCK  lint_delta: 0
     tokens_per_resolution: $TOKENS_PER_RESOLUTION
     input_output_ratio: $IO_RATIO
     cache_hit_rate: $CACHE_HIT_RATE
-  per_agent_tokens: '$PER_AGENT_TOKENS'
+${ESTIMATE_BLOCK_YAML}  per_agent_tokens: '$PER_AGENT_TOKENS'
   per_agent_tools: '$PER_AGENT_TOOLS'
 YAML
