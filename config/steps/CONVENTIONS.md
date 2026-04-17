@@ -194,6 +194,65 @@ instruction: |
   - When tdd_required: every implementation task has a preceding test task.
 ```
 
+## Usage Block Contract
+
+Every `step_history` entry MUST include a `usage:` block. Minimum required fields differ
+by step type:
+
+| Field | Agent step | Inline step |
+|-------|-----------|-------------|
+| `duration_ms` | Required | Required |
+| `tool_uses` | Required | Required |
+| `total_tokens` | Required (0 if unavailable) | Omit (treated as 0) |
+| `input_tokens` | Optional | Omit |
+| `output_tokens` | Optional | Omit |
+| `cost_usd` | Optional | Omit |
+
+### Agent step usage block
+
+```yaml
+usage:
+  input_tokens: 12000
+  output_tokens: 3500
+  cache_creation_input_tokens: 2800
+  cache_read_input_tokens: 200
+  total_tokens: 18500
+  cost_usd: 0.0023
+  tool_uses: 7
+  tools:
+    Read: 3
+    Bash: 2
+    Edit: 1
+    Grep: 1
+  duration_ms: 42000
+```
+
+### Inline step usage block
+
+Inline steps (no `agent:` field, or `agent: inline`) record duration and tool uses only.
+Token fields are omitted — consumers treat them as 0.
+
+```yaml
+agent: inline
+usage:
+  tool_uses: 2
+  duration_ms: 5000
+```
+
+- `duration_ms` = milliseconds between the step's `started_at` and `completed_at`.
+- `tool_uses` = count of tool invocations made by the dispatch loop while executing
+  the inline step's `instruction:` block.
+- The `agent: inline` marker allows `compute-swe-metrics.sh` to bucket inline steps
+  separately in `per_agent_tokens` and `per_step` aggregations.
+
+### Rules
+
+- **Every entry must have a usage: block.** Entries without it are flagged by the
+  `mark-change-completed` validator (non-blocking stderr warning).
+- **Required fields are `duration_ms` and `tool_uses`** for all step types.
+- **Token fields are agent-step only.** Never write token fields on inline entries.
+- **Inline steps use `agent: inline`.** Do not use a real agent name for inline steps.
+
 ## State Updates
 
 Every step that modifies `state.yaml` MUST use the standardized `step_history` entry
@@ -268,14 +327,15 @@ find data where they expect it.
 
 | Field Path | Type | Written By | Values / Format |
 |------------|------|-----------|-----------------|
-| `status` | string | check-bootstrap-state, archive-completed-change, final-signoff | `active`, `paused`, `completed` |
+| `status` | string | check-bootstrap-state, mark-change-completed, final-signoff | `active`, `paused`, `completed` |
 | `phase` | string | load-project-context, phase-signoff | Current phase name (lowercase, e.g., `specify`, `implement`, `complete`) |
 | `next_step` | object | phase-signoff, any step advancing flow | See `contracts/resume-token.md` |
 | `step_history` | list | All steps (append-only) | See § State Updates above |
 | `flags` | object | load-project-context | Resolved runtime flags (e.g., `{ tdd_required: true, ff: true }`) |
 | `linear_ticket_id` | string | create-linear-ticket | Linear issue ID (e.g., `HL-123`). Also stored in `.spec.yaml`. |
-| `archive_path` | string | archive-completed-change | Relative to repo root (e.g., `spec/changes/archive/2026-04-04-HL-123/`) |
-| `metrics` | object | archive-completed-change | Full metrics block or `{ status: script_unavailable, reason: "..." }` |
+| `archive_path` | string | mark-change-completed | Relative to repo root (e.g., `spec/changes/archive/2026-04-04-HL-123/`) |
+| `completed_at` | string | mark-change-completed | ISO 8601 UTC timestamp when the change completed |
+| `metrics` | object | compute-swe-metrics (via archive-completed-change) | Full metrics block or `{ status: script_unavailable, reason: "..." }` |
 | `approval` | object | phase-signoff, final-signoff | `{ type: user|auto, phase: <name>, timestamp: <ISO> }` |
 | `rejection` | object | phase-signoff, final-signoff | `{ phase: <name>, feedback: "...", fix_tasks_created: [T-N, ...] }` |
 | `retries` | object | run-phase-review, execute-next-task | `{ <step_id_or_task_id>: <count> }` — per-step/task retry counter |
