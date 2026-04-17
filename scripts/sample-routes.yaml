@@ -1,0 +1,24 @@
+# Agent routing — native_<model> = host sub-agent, else = proxy
+agents:
+  architect: native_opus
+  ideator: native_opus
+  reviewer: native_sonnet
+  developer: native_sonnet
+  discoverer: native_sonnet
+  sonnet-agent: native_sonnet
+  haiku-agent: native_haiku
+
+# Model backends
+models:
+  qwen:
+    url: https://openrouter.ai/api/v1
+    model: qwen/qwen3-coder-30b-a3b-instruct
+    api_key: $OPENROUTER_API_KEY
+
+  qwen-local:
+    url: http://localhost:3456/v1
+    model: coder
+    api_key: $LLM_MANAGER_KEY
+
+  klm-local:
+    url: http://localhost:8000/v1
