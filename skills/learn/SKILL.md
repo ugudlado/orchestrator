@@ -85,7 +85,7 @@ Before evaluating, scan archived state.yaml files across recent features to dete
 5. **Pass to evaluator**: Include `systemic_retry_patterns` in the evaluator prompt (step 3). If no systemic patterns are found, omit the section. When patterns exist, instruct the evaluator to:
    - Treat each pattern as a workflow design issue requiring a preventive rule or pre-check
    - For each: propose a concrete rule addition to the target step contract that would prevent the root cause
-   - Route the fix to `workflow-fixer` (same as other workflow issues)
+   - Route the fix to `workflow-improver` (same as other workflow issues)
 
 ### 3. Run Workflow Evaluation
 
@@ -116,11 +116,67 @@ Classify each finding and route it to the right handler.
 - **Project-specific learnings** → `spec/project.yaml` `learnings:` section (agent-agnostic, persists across sessions, repo-scoped)
 - **Never write to CLAUDE.md** — it's a pointer file only.
 
+#### 4a. Classifier (workflow vs. repo-learning)
+
+Before routing, classify each finding into one of four buckets:
+
+| Bucket               | Target                                                  |
+|----------------------|---------------------------------------------------------|
+| `workflow_mechanic`  | Global step contract: `$ORCHESTRATOR_HOME/config/steps/<step>.yaml` |
+| `workflow_shape`     | Repo workflow override: `$REPO_ROOT/.orchestrator/...`  |
+| `repo_learning`      | `spec/project.yaml` `learnings[]`                       |
+| `ambiguous`          | Present to user with classification question            |
+
+**Classification rules** (apply in order — first match wins):
+
+1. **Tool/command/path tied to this repo** (`pnpm`, `pytest`, file paths,
+   stack-specific commands, named modules) → `repo_learning`. Tool gates
+   never become workflow files; the workflow stays generic and the
+   learning supplies the command.
+
+2. **Names a specific repo subsystem** (legacy areas, domain entities,
+   per-team conventions) → `repo_learning`.
+
+3. **Cross-repo workflow mechanic** — a finding qualifies only if BOTH:
+   (a) it's about workflow execution (gates, order, retries, metrics,
+       state, resume, agent dispatch), AND
+   (b) it would apply identically in any repo (no tool/path/domain refs).
+   → `workflow_mechanic`.
+   Single-repo systemic retry patterns do NOT qualify — even if they
+   appear in `systemic_retry_patterns`, route them to `repo_learning`
+   unless the same pattern is also seen in 2+ other repos' archives.
+
+4. **Structural workflow change for this repo only** (different phase
+   ordering, an extra gating step, a custom verify block) →
+   `workflow_shape`. Rare. Prefer `repo_learning` if the same outcome
+   can be achieved by a learning the agent reads.
+
+5. **Default (anything else)** → `repo_learning`. Reversible, low-risk,
+   and easy to promote later.
+
+6. **Escalate to `ambiguous` only if** the finding could plausibly
+   change workflow mechanics for all repos AND you cannot rule out
+   tool/repo-specific framing. These deserve a human call.
+
+After classification:
+- `workflow_mechanic` → use the routing table below (step contract +
+  `<!-- learned: ... repo: * -->` metadata).
+- `workflow_shape` → write to `$REPO_ROOT/.orchestrator/` per the
+  workflow-override contract (`config/steps/contracts/workflow-override.md`).
+- `repo_learning` → append to `spec/project.yaml` `learnings[]` with
+  `id`, `learned`, and `rule` fields. Never modify global step contracts.
+- `ambiguous` → present finding + suggested classification to user.
+
 **Routing decision tree:**
 
 **Workflow issues** (schema gaps, step contract bugs, agent instructions, hook problems):
-- Apply fixes using `$ORCHESTRATOR_HOME/config/steps/CONVENTIONS.md` as guidance
-- MUST read CONVENTIONS.md before editing any step contract
+- Spawn the `workflow-improver` agent with:
+  - The finding and its classifier bucket (`workflow_mechanic` or `workflow_shape`)
+  - The target file path resolved per the bucket:
+    - `workflow_mechanic` → `$ORCHESTRATOR_HOME/config/steps/<step>.yaml` (global)
+    - `workflow_shape` → `$REPO_ROOT/.orchestrator/steps/<step>.yaml` (repo override; copy global first if missing)
+- Agent MUST read `$ORCHESTRATOR_HOME/config/steps/CONVENTIONS.md` before editing any step contract
+- For `workflow_shape`, agent MUST also read `$ORCHESTRATOR_HOME/config/steps/contracts/workflow-override.md` before writing under `.orchestrator/`
 - Fix is applied immediately to disk — improves the next workflow execution
 
 **Code/functionality issues** (bugs discovered, missing features, tech debt, test gaps):
@@ -129,8 +185,14 @@ Classify each finding and route it to the right handler.
 - This ensures code changes go through full spec-first discipline
 
 **Learned rules** (patterns to remember, gotchas discovered, quality checks):
-- Determine WHEN the rule should be enforced (which step in the workflow)
-- Route to the appropriate step contract in `$ORCHESTRATOR_HOME/config/steps/`:
+- Apply the §4a classifier first. The routing table below tells you
+  WHICH step contract the rule belongs in; the bucket tells you WHICH
+  directory (global vs. `.orchestrator/`) to write to.
+- `workflow_mechanic` → write to `$ORCHESTRATOR_HOME/config/steps/<step>.yaml`
+- `workflow_shape` → write to `$REPO_ROOT/.orchestrator/steps/<step>.yaml`
+  (copy from global first if the override file doesn't exist)
+- `repo_learning` → append to `spec/project.yaml` `learnings[]` — skip
+  this table entirely (no step contract involved)
 
   | When to enforce | Target step contract | Where in the file |
   |---|---|---|
@@ -142,7 +204,7 @@ Classify each finding and route it to the right handler.
   | During artifact/task creation | `create-or-refresh-artifacts.yaml` | `rules:` list |
 
 - Apply the rule to the appropriate section of the target step contract
-- **IMPORTANT — Rule metadata**: When the workflow-fixer writes a learned rule, it MUST append the metadata comment inline on the same line as the rule text:
+- **IMPORTANT — Rule metadata**: When the workflow-improver writes a learned rule, it MUST append the metadata comment inline on the same line as the rule text:
   `<!-- learned: YYYY-MM-DD, source: FEATURE-ID, cycle: N, repo: REPO_NAME -->`
   Where: `YYYY-MM-DD` = today's date, `FEATURE-ID` = the feature being evaluated, `N` = current cycle count (count of `spec/changes/archive/*/state.yaml` files), `REPO_NAME` = `basename $(git rev-parse --show-toplevel)` (the repo that generated this rule).
   **Repo scoping**: Default to `repo: $REPO_NAME` (repo-scoped). Only use `repo: *` (universal) when the rule is about workflow mechanics itself (e.g., "always write next_step before spawn") and NOT about tech-stack, domain, or repo-specific patterns.

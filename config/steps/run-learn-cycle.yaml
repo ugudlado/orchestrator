@@ -25,7 +25,7 @@ instruction: |
 
      /learn will:
      - Spawn the workflow-evaluator agent (opus) to assess compliance
-     - Route findings to step contracts via workflow-fixer
+     - Route findings to step contracts via workflow-improver
      - Create Linear tickets for code issues
      - Write cycle metrics
 

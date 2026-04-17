@@ -16,8 +16,32 @@ args:
 REPO_ROOT=${REPO_ROOT:-$(git rev-parse --show-toplevel)}
 REPO_NAME=${REPO_NAME:-$(basename "$REPO_ROOT")}
 ORCHESTRATOR_HOME=${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}
+REPO_WORKFLOW_DIR=${REPO_WORKFLOW_DIR:-$REPO_ROOT/.orchestrator}
 WORKFLOW_STATE_DIR=${WORKFLOW_STATE_DIR:-$REPO_ROOT/.state}
 ```
+
+## Workflow file resolution
+
+Every read of a workflow file (schema, step contract, template, included
+phase, guidelines) MUST use the resolver defined in
+`config/steps/contracts/workflow-override.md`:
+
+```
+RESOLVE_WORKFLOW_FILE(relative_path):
+  repo_override = $REPO_WORKFLOW_DIR/<relative_path>
+  IF exists(repo_override):
+    RETURN repo_override
+  RETURN $ORCHESTRATOR_HOME/config/<relative_path>
+```
+
+Repo overrides **fully replace** the global file (no YAML merge). Protocol
+contracts under `steps/contracts/` (error-recovery, resume-token,
+rule-merge, metrics-schema, workflow-override itself) are universal and
+NOT subject to override — always read from `$ORCHESTRATOR_HOME/config/`.
+
+When reading any path written below as `$ORCHESTRATOR_HOME/config/<...>`,
+apply `RESOLVE_WORKFLOW_FILE(<...>)` unless it is a universal invariant
+contract listed above.
 
 ## Execution
 

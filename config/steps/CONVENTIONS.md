@@ -1,7 +1,7 @@
 # Step Contract Conventions
 
 Rules for designing, evaluating, and modifying step contracts.
-Read by workflow-evaluator (when auditing) and workflow-fixer (when editing).
+Read by workflow-improver (when auditing and when editing).
 
 ## Contract Files
 
@@ -363,7 +363,7 @@ Don't split when:
 
 ## Rule Lifecycle Convention
 
-Rules in step contracts have two classes: **permanent** (hand-written, original to the step) and **learned** (added by `/learn` via workflow-fixer). Only learned rules are subject to decay evaluation.
+Rules in step contracts have two classes: **permanent** (hand-written, original to the step) and **learned** (added by `/learn` via workflow-improver). Only learned rules are subject to decay evaluation.
 
 ### Metadata Comment Format
 
@@ -422,7 +422,7 @@ A learned rule is flagged for resolution when:
 
 ### Evaluation Trigger
 
-Decay evaluation runs every 5th `/learn` invocation (see `/learn` skill § Rule Decay Evaluation). Flagged rules are routed to workflow-fixer for pruning — never removed inline. Rules without metadata are never touched.
+Decay evaluation runs every 5th `/learn` invocation (see `/learn` skill § Rule Decay Evaluation). Flagged rules are routed to workflow-improver for pruning — never removed inline. Rules without metadata are never touched.
 
 ## Metrics Schema
 

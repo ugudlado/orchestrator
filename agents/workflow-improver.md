@@ -16,8 +16,9 @@ You analyze how the workflow performed during a feature and improve it for next 
 - `state.yaml` step_history — every step's status, retries, duration, artifacts
 - `spec/changes/archive/*/state.yaml` — archived workflows with full metrics
 - `error-patterns.jsonl` — per-session error counts by type
-- Step contracts in `$ORCHESTRATOR_HOME/config/steps/` — current rules and instructions
-- Schemas in `$ORCHESTRATOR_HOME/config/workflows/` — phase definitions and step lists
+- Step contracts in `$ORCHESTRATOR_HOME/config/steps/` — global rules and instructions
+- Schemas in `$ORCHESTRATOR_HOME/config/workflows/` — global phase definitions and step lists
+- Repo overrides in `$REPO_ROOT/.orchestrator/{workflows,steps,templates}/` — if present, these take precedence at dispatch time (see `config/steps/contracts/workflow-override.md`)
 
 ### Metrics to Track
 - **Retry rate by step** — which steps fail most often?
@@ -48,20 +49,67 @@ You analyze how the workflow performed during a feature and improve it for next 
 
 ### Rule Routing
 
-| When to enforce | Target |
+Every fix or learned rule falls into one of four buckets. The `/learn`
+skill classifies findings per its §4a classifier; when you receive a
+finding, trust the classification and write to the target below.
+
+| Bucket               | Where to write                                                     |
+|----------------------|--------------------------------------------------------------------|
+| `workflow_mechanic`  | Global step contract: `$ORCHESTRATOR_HOME/config/steps/<step>.yaml` |
+| `workflow_shape`     | Repo override: `$REPO_ROOT/.orchestrator/<path>` (copy then edit)  |
+| `repo_learning`      | `spec/project.yaml` `learnings[]`                                  |
+| `ambiguous`          | Do NOT write — surface to the user via `/learn`'s report           |
+
+**Step-contract rule enforcement table** (applies to both
+`workflow_mechanic` and `workflow_shape` — same step IDs, different
+base paths):
+
+| When to enforce | Step contract |
 |---|---|
 | During implementation | `execute-next-task.yaml` rules |
 | During review | `run-phase-review.yaml` rules |
 | During verification | `run-feature-verification.yaml` rules |
 | During artifact/task creation | `create-or-refresh-artifacts.yaml` rules |
-| Project-specific | `spec/project.yaml` learnings section |
 
-### Rule Metadata
+### Writing to a Repo Override (`workflow_shape` only)
 
-When writing a learned rule to a step contract, append inline:
+1. Identify the target relative path (e.g., `steps/run-feature-verification.yaml`).
+2. If `$REPO_ROOT/.orchestrator/<relative_path>` does NOT exist:
+   - Copy the global file first: `cp $ORCHESTRATOR_HOME/config/<relative_path> $REPO_ROOT/.orchestrator/<relative_path>`
+   - The override is a whole-file replacement; never ship a partial file.
+3. Edit the override to encode the repo-specific change.
+4. Read `config/steps/contracts/workflow-override.md` before the first
+   time you write under `.orchestrator/` in a session — it defines what
+   IS and IS NOT overridable (protocol contracts are global-only).
+
+### Writing to `project.yaml` (`repo_learning`)
+
+Append to the `learnings[]` array:
+```yaml
+learnings:
+  - id: <short-slug>
+    learned: YYYY-MM-DD
+    rule: <one-sentence rule>
+```
+No `<!-- learned: -->` metadata here — that's only for step contracts.
+
+### Rule Metadata (step contracts only)
+
+When writing a learned rule to a step contract — global or repo-overridden —
+append inline on the same line as the rule:
 ```
 <!-- learned: YYYY-MM-DD, source: FEATURE-ID, cycle: N, repo: REPO_NAME -->
 ```
+
+Repo scope semantics:
+- `repo: REPO_NAME` — rule applies only when run from this repo (default).
+- `repo: *` — rule applies universally. Use ONLY for workflow mechanics
+  (e.g., "always write next_step before spawn"). Never for tool/command
+  or domain rules.
+
+For repo overrides under `.orchestrator/`, repo scope is implicit (the
+file is only read for this repo), but keep the metadata anyway for
+effectiveness tracking and decay.
 
 ## Telemetry Dashboard Mode
 
