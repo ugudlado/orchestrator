@@ -81,12 +81,12 @@ repo-override scopes — same step IDs, different base paths):
 |---|---|
 | During implementation | `execute-next-task.yaml` rules |
 | During review | `run-phase-review.yaml` rules |
-| During verification | `run-feature-verification.yaml` rules |
+| During implement review | `run-implement-review.yaml` rules |
 | During artifact/task creation | `create-or-refresh-artifacts.yaml` rules |
 
 ### Writing to a Repo Override (override scope only)
 
-1. Identify the target relative path (e.g., `steps/run-feature-verification.yaml`).
+1. Identify the target relative path (e.g., `steps/run-implement-review.yaml`).
 2. If `$REPO_ROOT/.orchestrator/<relative_path>` does NOT exist:
    - Copy the global file first: `cp $ORCHESTRATOR_HOME/config/<relative_path> $REPO_ROOT/.orchestrator/<relative_path>`
    - The override is a whole-file replacement; never ship a partial file.
