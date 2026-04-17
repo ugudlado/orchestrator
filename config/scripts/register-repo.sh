@@ -13,7 +13,7 @@
 
 set -uo pipefail
 
-# --- Parse flags ---
+# ── Parse flags ──────────────────────────────────────────────────────────
 DRY_RUN=false
 REBUILD=false
 POSITIONAL_REPO=""
@@ -27,7 +27,7 @@ for arg in "$@"; do
   esac
 done
 
-# --- Block 1: preflight ---
+# ── Preflight ────────────────────────────────────────────────────────────
 ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:?ORCHESTRATOR_HOME must be set}"
 
 if [[ -n "$POSITIONAL_REPO" ]]; then
@@ -44,7 +44,6 @@ fi
 REGISTRY="$ORCHESTRATOR_HOME/metrics-registry.yaml"
 DB="${METRICS_DB:-$ORCHESTRATOR_HOME/metrics.duckdb}"
 
-# --dry-run: print planned actions and exit without touching disk
 if [[ "$DRY_RUN" == true ]]; then
   ARCHIVE_COUNT=0
   ARCHIVE_GLOB="$REPO_ROOT/spec/changes/archive/*/state.yaml"
@@ -62,7 +61,7 @@ fi
 command -v yq    >/dev/null 2>&1 || { echo "skip: yq not installed";    exit 0; }
 command -v duckdb >/dev/null 2>&1 || { echo "skip: duckdb not installed"; exit 0; }
 
-# --- Block 2: register repo (idempotent) ---
+# ── Register repo (idempotent) ───────────────────────────────────────────
 if [[ ! -f "$REGISTRY" ]]; then
   printf '# Cross-repo metrics registry\nrepos:\n' > "$REGISTRY"
 fi
@@ -73,7 +72,7 @@ else
   echo "registry: appended $REPO_ROOT"
 fi
 
-# --- Block 3: ensure schema ---
+# ── Ensure schema ────────────────────────────────────────────────────────
 duckdb "$DB" <<'SQL'
 CREATE TABLE IF NOT EXISTS features (
   repo_root      VARCHAR NOT NULL,
@@ -88,7 +87,7 @@ CREATE TABLE IF NOT EXISTS features (
 );
 SQL
 
-# --- Block 4: optional rebuild ---
+# ── Optional rebuild ─────────────────────────────────────────────────────
 if [[ "$REBUILD" == true ]]; then
   q_repo_rb="${REPO_ROOT//\'/\'\'}"
   duckdb "$DB" <<SQL
@@ -97,11 +96,11 @@ SQL
   echo "rebuild: deleted existing rows for $REPO_ROOT"
 fi
 
-# --- Block 5: sql_quote helper ---
+# ── sql_quote helper ─────────────────────────────────────────────────────
 # Doubles single-quotes for safe interpolation into SQL string literals.
 sql_quote() { printf "%s" "${1//\'/\'\'}"; }
 
-# --- Block 6: walk archive + ingest ---
+# ── Walk archive + ingest ────────────────────────────────────────────────
 ARCHIVE_GLOB="$REPO_ROOT/spec/changes/archive/*/state.yaml"
 ingested=0
 skipped=0
@@ -110,14 +109,12 @@ failed=0
 for state_file in $ARCHIVE_GLOB; do
   [[ -f "$state_file" ]] || continue
 
-  # Extract typed columns first (for slug guard)
   change_id=$(yq -r '.change_id // ""' "$state_file" 2>/dev/null) || {
     failed=$((failed + 1))
     echo "warn: parse failed (change_id) $state_file" >&2
     continue
   }
 
-  # Skip entries with no change_id
   if [[ -z "$change_id" ]]; then
     skipped=$((skipped + 1))
     continue
@@ -130,7 +127,6 @@ for state_file in $ARCHIVE_GLOB; do
     continue
   fi
 
-  # Convert full file to JSON for payload
   json=$(yq -o json '.' "$state_file" 2>/dev/null) || {
     failed=$((failed + 1))
     echo "warn: parse failed (json) $state_file" >&2
@@ -142,7 +138,6 @@ for state_file in $ARCHIVE_GLOB; do
   started=$(yq   -r '.started_at  // ""' "$state_file" 2>/dev/null || echo "")
   completed=$(yq -r '.completed_at // ""' "$state_file" 2>/dev/null || echo "")
 
-  # Escape ALL interpolated values before SQL heredoc
   q_repo=$(sql_quote "$REPO_ROOT")
   q_change=$(sql_quote "$change_id")
   q_schema=$(sql_quote "$schema")
@@ -158,6 +153,6 @@ SQL
   ingested=$((ingested + 1))
 done
 
-# --- Block 7: report ---
+# ── Report ───────────────────────────────────────────────────────────────
 echo "metrics: ingested=$ingested skipped=$skipped failed=$failed db=$DB"
 exit 0
