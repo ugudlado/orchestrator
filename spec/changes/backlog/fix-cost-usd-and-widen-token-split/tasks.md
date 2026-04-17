@@ -7,7 +7,7 @@
   Verify: `rm -f /tmp/test-metrics.duckdb && METRICS_DB=/tmp/test-metrics.duckdb bash config/scripts/register-repo.sh --rebuild 2>/dev/null; duckdb /tmp/test-metrics.duckdb "SELECT COUNT(*) FROM agent_pricing;"` returns >= 1.
   depends: T-1
 
-- [ ] T-3: Modify PER_AGENT_TOKENS block in compute-swe-metrics.sh to infer cost_usd from agent_pricing when step cost is absent
+- [x] T-3: Modify PER_AGENT_TOKENS block in compute-swe-metrics.sh to infer cost_usd from agent_pricing when step cost is absent
   Verify: `bash config/scripts/__tests__/compute-swe-metrics-cost.test.sh` exits 0 (test PASSES); regression test `cost_usd_inferred_from_agent_pricing_when_step_cost_absent` reports success.
   depends: T-1, T-2
 

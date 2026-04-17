@@ -452,6 +452,66 @@ PER_AGENT_TOKENS=$(awk '
   }
 ' "$STATE_FILE")
 
+# ── Per-Agent Cost Inference from agent_pricing ───────────────────────────
+# When native agent steps omit cost_usd (no LiteLLM proxy), infer it from
+# agent_pricing: cost_usd = total_tokens × input_per_1m / 1_000_000.
+# Uses a single batched duckdb query (one subprocess, not one per agent).
+# Falls through silently if the DB is missing, the table doesn't exist, or
+# the agent is unknown — cost_usd stays 0, script does not halt.
+_METRICS_DB="${METRICS_DB:-${ORCHESTRATOR_HOME:-$(git rev-parse --show-toplevel 2>/dev/null)}/metrics.duckdb}"
+if [[ -f "$_METRICS_DB" ]] && command -v duckdb >/dev/null 2>&1; then
+  _PRICING_FILE="${TMPDIR:-/tmp}/swe-agent-pricing-$$.csv"
+  duckdb -csv "$_METRICS_DB" \
+    "SELECT agent, input_per_1m FROM agent_pricing" > "$_PRICING_FILE" 2>/dev/null || true
+  if [[ -s "$_PRICING_FILE" ]]; then
+    # Write per-agent JSON to a temp file so awk can read two files via NR==FNR.
+    _JSON_FILE="${TMPDIR:-/tmp}/swe-per-agent-json-$$.tmp"
+    echo "$PER_AGENT_TOKENS" > "$_JSON_FILE"
+    # Apply pricing to agents where cost_usd == 0.000000 and total_tokens > 0.
+    # JSON format: "agent":{"total_tokens":N,"cost_usd":0.000000,...}
+    # NR==FNR reads the pricing CSV first, then processes the JSON on second pass.
+    PER_AGENT_TOKENS=$(awk '
+      NR == FNR {
+        # First file: pricing CSV (agent,input_per_1m header + data rows)
+        if (FNR == 1) next  # skip header
+        split($0, f, ",")
+        gsub(/"/, "", f[1])
+        price[f[1]] = f[2] + 0
+        next
+      }
+      {
+        line = $0
+        # For each agent entry with cost_usd:0.000000 and total_tokens > 0,
+        # replace the cost_usd value with the inferred cost.
+        while (match(line, /"[^"]+":{"total_tokens":[0-9]+,"cost_usd":0\.000000/)) {
+          seg  = substr(line, RSTART, RLENGTH)
+          pre  = substr(line, 1, RSTART - 1)
+          rest = substr(line, RSTART + RLENGTH)
+          # Extract agent name and total_tokens from the segment.
+          agent_name = seg
+          gsub(/^"|":.*/, "", agent_name)
+          tok_val = seg
+          gsub(/.*"total_tokens":/, "", tok_val)
+          gsub(/,.*/, "", tok_val)
+          tok_val = tok_val + 0
+          if (tok_val > 0 && (agent_name in price)) {
+            inferred = tok_val * price[agent_name] / 1000000
+            gsub(/0\.000000/, sprintf("%.6f", inferred), seg)
+            line = pre seg rest
+          } else {
+            # Unknown agent or zero tokens: break to avoid infinite loop.
+            # The regex would re-match indefinitely if cost_usd stays 0.
+            break
+          }
+        }
+        print line
+      }
+    ' "$_PRICING_FILE" "$_JSON_FILE")
+    rm -f "$_JSON_FILE"
+  fi
+  rm -f "$_PRICING_FILE"
+fi
+
 # ── Per-Agent Tool Attribution ────────────────────────────────────────────
 # Aggregate tools: sub-maps from step_history by agent name.
 # Uses python3 for reliable YAML parsing (awk indent assumptions break on PyYAML output).
