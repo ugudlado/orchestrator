@@ -1,0 +1,293 @@
+change_id: duckdb-ingest-normalized-metrics-tables
+schema: feature
+status: completed
+phase: complete
+started_at: 2026-04-17 17:52:12+00:00
+flags:
+  auto: true
+  agents: true
+  tdd_required: true
+  design: true
+  ux_design: false
+  discovery: true
+  simplify: true
+  phase_review: true
+  worktree: true
+  linear: true
+  light: false
+next_step: complete/archive-completed-change
+step_history:
+- step_id: create-worktree
+  phase: specify
+  status: completed
+  started_at: '2026-04-17T17:52:37Z'
+  completed_at: '2026-04-17T17:52:37Z'
+  usage:
+    duration_ms: 3000
+    tool_uses: 2
+- step_id: load-project-context
+  phase: specify
+  status: completed
+  started_at: '2026-04-17T17:52:37Z'
+  completed_at: '2026-04-17T17:52:37Z'
+  usage:
+    duration_ms: 2000
+    tool_uses: 3
+- step_id: explore
+  phase: specify
+  status: completed
+  agent: discoverer
+  started_at: '2026-04-17T17:52:37Z'
+  completed_at: '2026-04-17T18:10:00Z'
+  evidence:
+    file_checks:
+    - path: .state/duckdb-ingest-normalized-metrics-tables/discovery.md
+      exists: true
+  usage:
+    total_tokens: 0
+    tool_uses: 35
+    duration_ms: 0
+- step_id: explore
+  phase: specify
+  status: completed
+  agent: discoverer
+  started_at: '2026-04-17T17:58:19Z'
+  completed_at: '2026-04-17T17:58:19Z'
+  usage:
+    total_tokens: 62836
+    tool_uses: 71
+    duration_ms: 321092
+- step_id: design-exploration
+  phase: specify
+  status: completed
+  agent: architect
+  started_at: '2026-04-17T17:59:16Z'
+  completed_at: '2026-04-17T17:59:16Z'
+  usage:
+    total_tokens: 32071
+    tool_uses: 2
+    duration_ms: 38730
+- step_id: create-or-refresh-artifacts
+  phase: specify
+  status: completed
+  agent: architect
+  started_at: '2026-04-17T18:07:41Z'
+  completed_at: '2026-04-17T18:07:41Z'
+  usage:
+    total_tokens: 54587
+    tool_uses: 7
+    duration_ms: 180230
+- step_id: validate-artifacts
+  phase: specify
+  status: completed
+  started_at: '2026-04-17T18:07:41Z'
+  completed_at: '2026-04-17T18:07:41Z'
+  usage:
+    duration_ms: 3000
+    tool_uses: 4
+- step_id: preview-route
+  phase: specify
+  status: completed
+  started_at: '2026-04-17T18:07:41Z'
+  completed_at: '2026-04-17T18:07:41Z'
+  usage:
+    duration_ms: 1000
+    tool_uses: 1
+- step_id: run-phase-review
+  phase: specify
+  status: completed
+  agent: reviewer
+  started_at: '2026-04-17T18:07:41Z'
+  completed_at: '2026-04-17T18:07:41Z'
+  usage:
+    total_tokens: 73634
+    tool_uses: 28
+    duration_ms: 160000
+  review_score:
+    overall: 9
+    dimensions:
+      spec_compliance: 9
+      correctness: 9
+      security: 9
+      simplicity: 9
+      code_quality: 9
+- step_id: create-linear-ticket
+  phase: specify
+  status: completed
+  started_at: '2026-04-17T18:07:41Z'
+  completed_at: '2026-04-17T18:07:41Z'
+  usage:
+    duration_ms: 2000
+    tool_uses: 1
+  linear_ticket_id: HL-286
+- step_id: capture-test-baseline
+  phase: implement
+  status: completed
+  started_at: '2026-04-17T18:07:53Z'
+  completed_at: '2026-04-17T18:07:53Z'
+  usage:
+    duration_ms: 500
+    tool_uses: 1
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  started_at: '2026-04-17T18:09:00Z'
+  completed_at: '2026-04-17T18:40:14Z'
+  usage:
+    total_tokens: 89403
+    tool_uses: 82
+    duration_ms: 771701
+  review_score:
+    overall: 9
+    dimensions:
+      correctness: 10
+      robustness: 9
+      security: 10
+      maintainability: 9
+      test_coverage: 9
+  evidence:
+    commands:
+    - 'register-repo.test.sh: 33 passed, 0 failed'
+    - 'metrics-query.test.sh: 38 passed, 0 failed'
+- step_id: run-implement-review
+  phase: implement
+  status: completed
+  agent: reviewer
+  started_at: '2026-04-17T18:40:14Z'
+  completed_at: '2026-04-17T18:40:14Z'
+  usage:
+    total_tokens: 51788
+    tool_uses: 33
+    duration_ms: 134547
+  review_score:
+    overall: 9
+    dimensions:
+      correctness: 10
+      robustness: 9
+      security: 10
+      maintainability: 9
+      test_coverage: 9
+  evidence:
+    ac_verdicts: 'AC-1..AC-8: all PASS'
+- step_id: compute-prediction-accuracy
+  phase: complete
+  status: completed
+  agent: workflow-improver
+  started_at: '2026-04-17T18:40:22Z'
+  completed_at: '2026-04-17T18:40:22Z'
+  usage:
+    duration_ms: 500
+    tool_uses: 2
+- step_id: run-learn-cycle
+  phase: complete
+  status: completed
+  agent: workflow-improver
+  started_at: '2026-04-17T18:55:37Z'
+  completed_at: '2026-04-17T18:55:37Z'
+  usage:
+    total_tokens: 36499
+    tool_uses: 25
+    duration_ms: 182412
+  learn_completed: true
+- step_id: mark-change-completed
+  phase: complete
+  status: completed
+  started_at: '2026-04-17T18:55:37Z'
+  completed_at: '2026-04-17T18:55:37Z'
+  usage:
+    duration_ms: 500
+    tool_uses: 2
+- step_id: compute-swe-metrics
+  phase: complete
+  status: completed
+  started_at: '2026-04-17T18:55:37Z'
+  completed_at: '2026-04-17T18:55:37Z'
+  usage:
+    duration_ms: 500
+    tool_uses: 1
+  note: "JSONL enrichment skipped \u2014 worktree slug mismatch; step_history totals\
+    \ used"
+worktree_path: /Users/spidey/code/feature_worktrees/duckdb-ingest-normalized-metrics-tables
+workflow_plan:
+  specify:
+    active:
+    - create-worktree
+    - load-project-context
+    - explore
+    - design-exploration
+    - create-or-refresh-artifacts
+    - validate-artifacts
+    - preview-route
+    - run-phase-review
+    - create-linear-ticket
+    filtered:
+    - ux-design
+    - phase-signoff
+  implement:
+    active:
+    - capture-test-baseline
+    - execute-next-task
+    - run-simplify
+    - run-phase-review
+    - run-feature-verification
+    filtered:
+    - run-ux-critique
+    - final-signoff
+  complete:
+    active:
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+project_context_loaded: true
+project_context_at: '2026-04-17T17:52:37Z'
+linear_ticket_id: HL-286
+baseline:
+  captured_at: '2026-04-17T18:07:53Z'
+  skipped: true
+  reason: no test command in project.yaml
+prediction_accuracy:
+  computed_at: '2026-04-17T18:40:22Z'
+  tasks:
+    predicted: 16
+    actual: 16
+    delta: 0
+    accuracy_pct: 100.0
+    fix_task_count: 0
+    rework_rate: 0.0
+  files:
+    predicted: 4
+    actual: 5
+    delta: 1
+    overlap_pct: 80.0
+completed_at: '2026-04-17T18:55:37Z'
+archive_path: spec/changes/archive/2026-04-17-duckdb-ingest-normalized-metrics-tables/
+metrics:
+  tokens:
+    input: 0
+    output: 0
+    cache_creation: 0
+    cache_read: 0
+    total: 400818
+  cost:
+    gross_usd: 0
+    net_usd: 0
+    note: step_history totals only; JSONL path skipped
+  resolution:
+    tasks_total: 16
+    tasks_completed: 16
+    tasks_failed: 0
+    resolve_rate: 1.0
+  retries:
+    total: 0
+  review_scores:
+  - 9
+  - 9
+  review_score_avg: 9.0
+  churn:
+    files_changed: 5
+  category: feature
