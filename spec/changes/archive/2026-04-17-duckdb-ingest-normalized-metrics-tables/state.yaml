@@ -268,26 +268,58 @@ completed_at: '2026-04-17T18:55:37Z'
 archive_path: spec/changes/archive/2026-04-17-duckdb-ingest-normalized-metrics-tables/
 metrics:
   tokens:
-    input: 0
-    output: 0
-    cache_creation: 0
-    cache_read: 0
-    total: 400818
+    input: 12392
+    output: 106299
+    cache_creation: 943510
+    cache_read: 24281442
+    total: 1062201
   cost:
-    gross_usd: 0
-    net_usd: 0
-    note: step_history totals only; JSONL path skipped
+    gross_usd: 77.3064
+    net_usd: 11.7465
+    model: claude-sonnet-4-6
+    pricing:
+      input: 3.0
+      output: 15.0
+      cache_read: 0.3
+  turns: 416
+  tool_calls: 0
+  api_calls: 416
+  wall_clock_minutes: 0
   resolution:
     tasks_total: 16
+    tasks_planned: 16
+    tasks_added: 0
     tasks_completed: 16
     tasks_failed: 0
     resolve_rate: 1.0
+    pass_at_1: 0
+    pass_at_2: 1.0
+    regressions: 0
+    regression_rate: 0.0
   retries:
     total: 0
+  human_interventions: 0
+  rework_commits: 0
+  rework_rate: 0
+  churn:
+    files_changed: 17
+    insertions: 2328
+    deletions: 317
+    total_commits: 9
   review_scores:
   - 9
   - 9
+  - 9
   review_score_avg: 9.0
-  churn:
-    files_changed: 5
+  lint_delta: 0
   category: feature
+  benchmarks:
+    cost_per_task_usd: 0.7341
+    cost_per_resolution_usd: 0.7341
+    tokens_per_task: 66387
+    tokens_per_resolution: 66387
+    input_output_ratio: 8.9
+    cache_hit_rate: 0.9621
+  per_agent_tokens: '{}'
+  per_agent_tools: '{}'
+  per_step: null

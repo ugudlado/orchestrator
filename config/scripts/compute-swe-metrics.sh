@@ -68,7 +68,12 @@ get_pricing() {
 # Requires: STARTED_AT and COMPLETED_AT to be set before calling.
 parse_session_jsonl() {
   local repo_root
-  repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || return 1
+  # When running from a git worktree, --show-toplevel returns the worktree path,
+  # not the main repo. JSONL is stored under the main repo slug, so use
+  # --show-superproject-working-tree (non-empty only inside a worktree) first.
+  repo_root=$(git rev-parse --show-superproject-working-tree 2>/dev/null)
+  [[ -z "$repo_root" ]] && repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+  [[ -n "$repo_root" ]] || return 1
 
   # Compute Claude Code project slug: /path/to/repo -> -path-to-repo
   # Claude Code preserves the leading dash from the path's leading slash —
@@ -83,13 +88,18 @@ parse_session_jsonl() {
   # Force UTC interpretation — input strings are ISO 8601 UTC ("...Z"), but
   # macOS `date -j -f` defaults to local TZ, shifting the window and missing
   # all JSONL entries. JSONL timestamps are also UTC; both must be compared in UTC.
+  # Normalize timestamps: PyYAML serializes datetimes as "YYYY-MM-DD HH:MM:SS+00:00"
+  # instead of ISO 8601 "YYYY-MM-DDTHH:MM:SSZ". Normalize to the T/Z form before parsing.
+  local norm_start norm_end
+  norm_start=$(echo "$STARTED_AT"   | sed 's/ /T/; s/+00:00$/Z/')
+  norm_end=$(echo   "$COMPLETED_AT" | sed 's/ /T/; s/+00:00$/Z/')
   local start_epoch end_epoch
-  start_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$STARTED_AT" "+%s" 2>/dev/null \
-    || TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%S" "${STARTED_AT%Z}" "+%s" 2>/dev/null \
-    || TZ=UTC date -d "$STARTED_AT" "+%s" 2>/dev/null) || return 1
-  end_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$COMPLETED_AT" "+%s" 2>/dev/null \
-    || TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%S" "${COMPLETED_AT%Z}" "+%s" 2>/dev/null \
-    || TZ=UTC date -d "$COMPLETED_AT" "+%s" 2>/dev/null) || return 1
+  start_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$norm_start" "+%s" 2>/dev/null \
+    || TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%S" "${norm_start%Z}" "+%s" 2>/dev/null \
+    || TZ=UTC date -d "$norm_start" "+%s" 2>/dev/null) || return 1
+  end_epoch=$(TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%SZ" "$norm_end" "+%s" 2>/dev/null \
+    || TZ=UTC date -j -f "%Y-%m-%dT%H:%M:%S" "${norm_end%Z}" "+%s" 2>/dev/null \
+    || TZ=UTC date -d "$norm_end" "+%s" 2>/dev/null) || return 1
 
   # Enumerate all JSONL files: parent sessions and subagent sessions.
   local jsonl_files
@@ -201,8 +211,8 @@ fi
 
 # ── Wall Clock Timestamps (needed by parse_session_jsonl) ────────────────
 # Extracted early so parse_session_jsonl can use them for time-window filtering.
-STARTED_AT=$(grep '^started_at:' "$STATE_FILE" | head -1 | sed 's/^started_at: *//' | tr -d '"')
-COMPLETED_AT=$(grep '^completed_at:' "$STATE_FILE" | head -1 | sed 's/^completed_at: *//' | tr -d '"')
+STARTED_AT=$(grep '^started_at:' "$STATE_FILE" | head -1 | sed "s/^started_at: *//; s/['\"]//g")
+COMPLETED_AT=$(grep '^completed_at:' "$STATE_FILE" | head -1 | sed "s/^completed_at: *//; s/['\"]//g")
 
 # ── Session JSONL Token Enrichment ──────────────────────────────────────
 # Attempt to read full token breakdown from Claude Code session JONLs.

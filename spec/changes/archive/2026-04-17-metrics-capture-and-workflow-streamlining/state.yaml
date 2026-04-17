@@ -284,29 +284,58 @@ completed_at: '2026-04-17T17:47:08Z'
 archive_path: spec/changes/archive/2026-04-17-metrics-capture-and-workflow-streamlining/
 metrics:
   tokens:
-    input: 0
-    output: 0
-    cache_creation: 0
-    cache_read: 0
-    total: 446634
+    input: 28138
+    output: 135133
+    cache_creation: 1135359
+    cache_read: 43785530
+    total: 1298630
   cost:
-    gross_usd: 0
-    net_usd: 0
-    note: "JSONL enrichment unavailable \u2014 worktree slug mismatch; step_history\
-      \ totals used"
+    gross_usd: 136.8739
+    net_usd: 18.6529
+    model: claude-sonnet-4-6
+    pricing:
+      input: 3.0
+      output: 15.0
+      cache_read: 0.3
+  turns: 551
+  tool_calls: 0
+  api_calls: 551
+  wall_clock_minutes: 0
   resolution:
-    tasks_total: 30
+    tasks_total: 31
+    tasks_planned: 31
+    tasks_added: 0
     tasks_completed: 30
-    tasks_failed: 0
-    resolve_rate: 1.0
+    tasks_failed: 1
+    resolve_rate: 0.9677
+    pass_at_1: 0
+    pass_at_2: 0.9677
+    regressions: 0
+    regression_rate: 0.0
   retries:
     total: 0
+  human_interventions: 0
+  rework_commits: 0
+  rework_rate: 0
+  churn:
+    files_changed: 16
+    insertions: 2082
+    deletions: 318
+    total_commits: 33
   review_scores:
   - 9
   - 9
   - 9
   review_score_avg: 9.0
-  churn:
-    files_changed: 25
+  lint_delta: 0
   category: feature
-  tool_uses_total: 341
+  benchmarks:
+    cost_per_task_usd: 0.6017
+    cost_per_resolution_usd: 0.6217
+    tokens_per_task: 41891
+    tokens_per_resolution: 43287
+    input_output_ratio: 8.6
+    cache_hit_rate: 0.9741
+  per_agent_tokens: '{}'
+  per_agent_tools: '{}'
+  per_step: null
