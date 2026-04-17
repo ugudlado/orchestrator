@@ -133,7 +133,7 @@ order matters: most misrouting happens when an agent miss gets rewritten
 as a new workflow rule, which silently duplicates existing contract text.
 
 1. **Does an existing step contract already cover this concern?**
-   Read the relevant step contract (`run-feature-verification.yaml`,
+   Read the relevant step contract (`run-implement-review.yaml`,
    `run-phase-review.yaml`, `execute-next-task.yaml`, etc.) before
    classifying. If the rule is already there and the agent's output
    shows it was skipped or handled incorrectly → **`agent_improvement`**.
@@ -220,7 +220,7 @@ After classification:
   | During diagnosis/investigation | `diagnose.yaml` | `instruction:` section |
   | During implementation | `execute-next-task.yaml` | `rules:` list |
   | During review | `run-phase-review.yaml` | `rules:` or `instruction:` |
-  | During final verification | `run-feature-verification.yaml` | `instruction:` section |
+  | During implement review | `run-implement-review.yaml` | `instruction:` section |
   | At phase boundaries | `phase-signoff.yaml` | `instruction:` pre-conditions |
   | During artifact/task creation | `create-or-refresh-artifacts.yaml` | `rules:` list |
 
