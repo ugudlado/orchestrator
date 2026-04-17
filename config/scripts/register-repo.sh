@@ -85,6 +85,45 @@ CREATE TABLE IF NOT EXISTS features (
   ingested_at    TIMESTAMP DEFAULT current_timestamp,
   PRIMARY KEY (repo_root, change_id)
 );
+
+CREATE TABLE IF NOT EXISTS step_history (
+  repo_root     VARCHAR NOT NULL,
+  change_id     VARCHAR NOT NULL,
+  step_ord      INTEGER NOT NULL,
+  step_id       VARCHAR,
+  phase         VARCHAR,
+  status        VARCHAR,
+  agent         VARCHAR,
+  started_at    VARCHAR,
+  completed_at  VARCHAR,
+  total_tokens  BIGINT,
+  tool_uses     INTEGER,
+  duration_ms   BIGINT,
+  PRIMARY KEY (repo_root, change_id, step_ord)
+);
+
+CREATE TABLE IF NOT EXISTS per_agent_metrics (
+  repo_root     VARCHAR NOT NULL,
+  change_id     VARCHAR NOT NULL,
+  agent         VARCHAR NOT NULL,
+  total_tokens  BIGINT,
+  cost_usd      DOUBLE,
+  tool_uses     INTEGER,
+  duration_ms   BIGINT,
+  steps         INTEGER,
+  PRIMARY KEY (repo_root, change_id, agent)
+);
+
+CREATE TABLE IF NOT EXISTS per_step_metrics (
+  repo_root     VARCHAR NOT NULL,
+  change_id     VARCHAR NOT NULL,
+  step_id       VARCHAR NOT NULL,
+  total_tokens  BIGINT,
+  tool_uses     INTEGER,
+  duration_ms   BIGINT,
+  cost_usd      DOUBLE,
+  PRIMARY KEY (repo_root, change_id, step_id)
+);
 SQL
 
 # ── Optional rebuild ─────────────────────────────────────────────────────
