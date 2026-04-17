@@ -145,6 +145,7 @@ IF step has agent: field:
 
 ELSE (inline step — no agent: field):
   EXECUTE step.instruction directly in this context
+  COUNT tool invocations made during execution (Read, Bash, Edit, etc.) — this is tool_uses for the inline step.
 
 RECORD completed_at = current ISO 8601 timestamp
 
@@ -172,6 +173,24 @@ AFTER step completes:
   APPEND to state.yaml step_history: {step_id, phase, status, agent, started_at, completed_at}
   If a compatibility fallback was used, preserve the configured agent name in
   `agent:` and add `runtime_agent: <resolved host subagent type>`.
+
+  ### Inline-step usage schema
+
+  IF step had NO agent: field (inline step):
+    Write a usage: block with `agent: inline` on the step_history entry:
+    ```yaml
+    agent: inline
+    usage:
+      tool_uses: <count of tool invocations made during inline execution>
+      duration_ms: <completed_at_epoch_ms - started_at_epoch_ms>
+    ```
+    - `duration_ms` = milliseconds between `started_at` and `completed_at` timestamps.
+    - `tool_uses` = count of tool calls made while executing step.instruction.
+    - Token fields (input_tokens, output_tokens, total_tokens) are OMITTED for inline steps.
+      Consumers treat absent token fields as 0.
+    - `agent: inline` is the canonical marker; the per-agent awk pass in compute-swe-metrics
+      aggregates inline steps under the "inline" agent bucket.
+
   IF step had agent: field, extract usage data from the agent result and add a usage: block.
   Two sources — check both:
     a) **Proxy agents (llm_submit)**: look for a `---llm_usage---` / `---end_usage---` block
