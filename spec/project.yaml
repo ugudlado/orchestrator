@@ -65,6 +65,13 @@ learnings:
       Never use read_json_auto for ingest — type drift across DuckDB versions breaks
       re-runs. Use INSERT OR REPLACE for idempotent upserts. Escape all SQL-interpolated
       values via sql_quote and enforce change_id slug guard before any INSERT.
+  - id: design-divergence-from-backlog
+    learned: 2026-04-17
+    rule: >
+      When design-exploration selects an approach that diverges from the backlog idea.md
+      intent (e.g., per-repo default vs fleet-wide default), spec.md must explicitly
+      document the divergence with rationale. The reviewer accepts the divergence by
+      name — undocumented divergence is a spec compliance finding.
 
 context:
   tech_stack: [bash, zsh, yaml, duckdb, yq]

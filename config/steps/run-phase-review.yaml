@@ -21,7 +21,7 @@ rules:
   - Score of 10 is a first-pass bonus — only achievable when no retries were used this round.
   - Operate at staff-level review quality — catch architectural issues, not just surface bugs.
   - Artifact structural compliance with contracts/artifact-formats.md format contracts is a review criterion.
-  - "When a finding requires a new requirement, the fix MUST update spec.md (FR + AC), design.md, and tasks.md atomically — partial updates that sync only one artifact leave the feature in an inconsistent state and will fail re-review. <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb, cycle: 11, hits: 0, misses: 1, repo: orchestrator -->"
+  - "When a finding requires a new requirement, the fix MUST update spec.md (FR + AC), design.md, and tasks.md atomically — partial updates that sync only one artifact leave the feature in an inconsistent state and will fail re-review. <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb, cycle: 11, hits: 0, misses: 2, repo: orchestrator -->"
 
 instruction: |
   1. Load scoring config from project.yaml quality_bar.scoring. Apply defaults

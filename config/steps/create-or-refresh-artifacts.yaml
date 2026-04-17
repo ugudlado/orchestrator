@@ -26,7 +26,8 @@ rules:
   - Tasks must be small, verifiable, and ordered.
   - Attach verification criteria per task.
   - Output MUST follow the Task Format Contract in contracts/artifact-formats.md.
-  - "When spec or design introduces a new archive/state path for any producer (autopilot, spike, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`) and confirm the new path is matched before committing the artifact. Otherwise downstream consumers (telemetry, learn, workflow-improver) silently skip the new producer. <!-- learned: 2026-04-16, source: HL-278, cycle: 10, hits: 1, misses: 0, repo: orchestrator -->"
+  - "When spec or design introduces a new archive/state path for any producer (autopilot, spike, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`) and confirm the new path is matched before committing the artifact. Otherwise downstream consumers (telemetry, learn, workflow-improver) silently skip the new producer. <!-- learned: 2026-04-16, source: HL-278, cycle: 10, hits: 2, misses: 0, repo: orchestrator -->"
+  - "SQL sketches in design.md that reference specific field names must be validated against a live row from the target DB (or schema file) before finalizing. Add an explicit note in the task or run a one-query T-0 validation — field name drift between sketch and schema is a common first-review failure. <!-- learned: 2026-04-17, source: learn-and-telemetry-on-duckdb, cycle: 12, hits: 0, misses: 0, repo: orchestrator -->"
 
 instruction: |
   ## Part 1: Artifacts
