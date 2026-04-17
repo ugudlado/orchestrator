@@ -440,42 +440,29 @@ PER_AGENT_TOKENS=$(awk '
 
 # ── Per-Agent Tool Attribution ────────────────────────────────────────────
 # Aggregate tools: sub-maps from step_history by agent name.
-# Entries without tools: are silently skipped (backward compatible with pre-HL-276).
-# Uses "agent\tTool" composite keys (tab-separated) compatible with all awk variants.
-PER_AGENT_TOOLS=$(awk '
-  /^step_history:/ { in_history=1; next }
-  in_history && /^[^ -]/ { in_history=0 }
-  in_history && /^[[:space:]]*- / { agent=""; in_usage=0; in_tools=0 }
-  in_history && /^[[:space:]]+agent:/ { gsub(/.*agent: */, ""); gsub(/"/, ""); agent=$0 }
-  in_history && /^[[:space:]]+usage:/ { in_usage=1 }
-  in_history && in_usage && /^[[:space:]]+tools:/        { in_tools=1; next }
-  in_history && in_usage && in_tools && /^[[:space:]]+[A-Za-z]/ {
-    sub(/^ +/, ""); tool_name=$1; sub(/:$/, "", tool_name)
-    key=agent "\t" tool_name
-    tool_count[key] += $2
-    agent_list[agent]=1
-  }
-  in_history && in_usage && in_tools && /^[[:space:]]+[a-z]/ && !/[A-Z]/ { in_tools=0 }
-  in_history && in_usage && /^[[:space:]]+[a-z]/ && !/usage:/ { in_usage=0; in_tools=0 }
-  END {
-    agent_sep=""
-    printf "{"
-    for (a in agent_list) {
-      printf "%s\"%s\":{", agent_sep, a
-      tool_sep=""
-      for (key in tool_count) {
-        idx=index(key, "\t")
-        if (substr(key, 1, idx-1) == a) {
-          printf "%s\"%s\":%d", tool_sep, substr(key, idx+1), tool_count[key]
-          tool_sep=","
-        }
-      }
-      printf "}"
-      agent_sep=","
-    }
-    printf "}"
-  }
-' "$STATE_FILE")
+# Uses python3 for reliable YAML parsing (awk indent assumptions break on PyYAML output).
+PER_AGENT_TOOLS=$(python3 - "$STATE_FILE" <<'PYEOF'
+import sys, json, yaml
+try:
+    with open(sys.argv[1]) as f:
+        state = yaml.safe_load(f)
+    by_agent = {}
+    for step in state.get('step_history', []):
+        agent = step.get('agent')
+        if not agent:
+            continue
+        tools = step.get('usage', {}).get('tools', {})
+        if not tools or not isinstance(tools, dict):
+            continue
+        if agent not in by_agent:
+            by_agent[agent] = {}
+        for tool, count in tools.items():
+            by_agent[agent][tool] = by_agent[agent].get(tool, 0) + int(count)
+    print(json.dumps(by_agent))
+except Exception:
+    print('{}')
+PYEOF
+)
 
 # ── Per-Step Aggregation ─────────────────────────────────────────────────
 # Aggregate step_history by step_id: sum total_tokens, tool_uses, duration_ms,
