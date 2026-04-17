@@ -1,0 +1,11 @@
+schema: feature
+feature-id: duckdb-ingest-normalized-metrics-tables
+status: proposed
+category: feature
+priority: 7.5
+source: user
+created: 2026-04-17
+blocked_by:
+  - metrics-capture-and-workflow-streamlining
+related:
+  - HL-282 (learn-and-telemetry-on-duckdb)
