@@ -159,6 +159,19 @@ parse_session_jsonl() {
   MODEL="$parsed_model"
   TOTAL_TOKENS=$((TOTAL_INPUT + TOTAL_OUTPUT + TOTAL_CACHE_CREATION))
 
+  # Extract per-tool use counts from assistant message content blocks in the same window.
+  TOOL_COUNTS_JSON=$(echo "$jsonl_files" | xargs cat 2>/dev/null | jq -s \
+    --argjson start "$start_epoch" --argjson end "$end_epoch" '
+    [.[] | select(
+      .type == "assistant" and
+      ((.timestamp // "1970-01-01T00:00:00Z") | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $start and
+      ((.timestamp // "1970-01-01T00:00:00Z") | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) <= $end
+    ) | .message.content // [] | .[] | select(.type == "tool_use") | .name]
+    | group_by(.)
+    | map({key: .[0], value: length})
+    | from_entries
+  ' 2>/dev/null) || TOOL_COUNTS_JSON="{}"
+
   return 0
 }
 
@@ -175,6 +188,7 @@ TOTAL_TOKENS=0
 TOTAL_TOOL_CALLS=0
 TOTAL_TURNS=0
 MODEL="unknown"
+TOOL_COUNTS_JSON="{}"
 
 STATE_USAGE=$(awk '
   /^step_history:/ { in_sh=1; next }
@@ -653,7 +667,8 @@ $REVIEW_BLOCK  lint_delta: 0
     tokens_per_resolution: $TOKENS_PER_RESOLUTION
     input_output_ratio: $IO_RATIO
     cache_hit_rate: $CACHE_HIT_RATE
-${ESTIMATE_BLOCK_YAML}  per_agent_tokens: '$PER_AGENT_TOKENS'
+${ESTIMATE_BLOCK_YAML}  per_tool_uses: '$TOOL_COUNTS_JSON'
+  per_agent_tokens: '$PER_AGENT_TOKENS'
   per_agent_tools: '$PER_AGENT_TOOLS'
 $PER_STEP_YAML
 YAML

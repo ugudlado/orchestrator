@@ -133,6 +133,14 @@ CREATE TABLE IF NOT EXISTS per_agent_tool_uses (
   uses       INTEGER,
   PRIMARY KEY (repo_root, change_id, agent, tool_name)
 );
+
+CREATE TABLE IF NOT EXISTS per_tool_uses (
+  repo_root  VARCHAR NOT NULL,
+  change_id  VARCHAR NOT NULL,
+  tool_name  VARCHAR NOT NULL,
+  uses       INTEGER,
+  PRIMARY KEY (repo_root, change_id, tool_name)
+);
 SQL
 
 # ── Optional rebuild ─────────────────────────────────────────────────────
@@ -143,6 +151,7 @@ DELETE FROM step_history          WHERE repo_root = '$q_repo_rb';
 DELETE FROM per_agent_metrics     WHERE repo_root = '$q_repo_rb';
 DELETE FROM per_step_metrics      WHERE repo_root = '$q_repo_rb';
 DELETE FROM per_agent_tool_uses   WHERE repo_root = '$q_repo_rb';
+DELETE FROM per_tool_uses         WHERE repo_root = '$q_repo_rb';
 DELETE FROM features              WHERE repo_root = '$q_repo_rb';
 SQL
   echo "rebuild: deleted existing rows for $REPO_ROOT"
@@ -224,6 +233,7 @@ SQL
       total_tokens_val=$(yq -r ".step_history[$step_ord].usage.total_tokens // null" "$state_file" 2>/dev/null || echo "null")
       tool_uses_val=$(yq    -r ".step_history[$step_ord].usage.tool_uses    // null" "$state_file" 2>/dev/null || echo "null")
       duration_ms_val=$(yq  -r ".step_history[$step_ord].usage.duration_ms  // null" "$state_file" 2>/dev/null || echo "null")
+      tools_val=$(yq        -o json ".step_history[$step_ord].usage.tools // null" "$state_file" 2>/dev/null || echo "null")
 
       # Build SQL literals: NULL for null, quoted string for others
       sql_lit() {
@@ -241,10 +251,11 @@ SQL
       SH_TOKENS=$(  [[ "$total_tokens_val" == "null" ]] && echo "NULL" || echo "$total_tokens_val")
       SH_TOOLS=$(   [[ "$tool_uses_val"    == "null" ]] && echo "NULL" || echo "$tool_uses_val")
       SH_DURATION=$([[ "$duration_ms_val" == "null" ]] && echo "NULL" || echo "$duration_ms_val")
+      SH_TOOLS_JSON="$(sql_lit "$tools_val")"
 
       duckdb "$DB" <<SQL 2>/dev/null || true
-INSERT INTO step_history (repo_root, change_id, step_ord, step_id, phase, status, agent, started_at, completed_at, total_tokens, tool_uses, duration_ms)
-VALUES ('$q_repo', '$q_change', $step_ord, $SH_STEP_ID, $SH_PHASE, $SH_STATUS, $SH_AGENT, $SH_STARTED, $SH_COMPLETED, $SH_TOKENS, $SH_TOOLS, $SH_DURATION);
+INSERT INTO step_history (repo_root, change_id, step_ord, step_id, phase, status, agent, started_at, completed_at, total_tokens, tool_uses, duration_ms, tools_json)
+VALUES ('$q_repo', '$q_change', $step_ord, $SH_STEP_ID, $SH_PHASE, $SH_STATUS, $SH_AGENT, $SH_STARTED, $SH_COMPLETED, $SH_TOKENS, $SH_TOOLS, $SH_DURATION, $SH_TOOLS_JSON);
 SQL
     done
   fi
@@ -291,6 +302,21 @@ VALUES ('$q_repo', '$q_change', '$q_agent', '$q_tool', $pt_uses);
 SQL
       done < <(echo "$per_agent_tools_json" | yq -p=json -r ".[\"$agent_key\"] | keys | .[]" 2>/dev/null)
     done < <(echo "$per_agent_tools_json" | yq -p=json -r 'keys | .[]' 2>/dev/null)
+  fi
+
+  # 4c. Child insert — per_tool_uses (per_tool_uses is a JSON-string scalar from JSONL)
+  per_tool_json=$(yq -r '.metrics.per_tool_uses // ""' "$state_file" 2>/dev/null || echo "")
+  if [[ -n "$per_tool_json" && "$per_tool_json" != "null" && "$per_tool_json" != "{}" ]]; then
+    while IFS= read -r tool_key; do
+      [[ -z "$tool_key" ]] && continue
+      pt_uses=$(echo "$per_tool_json" | yq -p=json -r ".[\"$tool_key\"] // null" 2>/dev/null || echo "null")
+      [[ "$pt_uses" == "null" ]] && continue
+      q_tool=$(sql_quote "$tool_key")
+      duckdb "$DB" <<SQL 2>/dev/null || true
+INSERT INTO per_tool_uses (repo_root, change_id, tool_name, uses)
+VALUES ('$q_repo', '$q_change', '$q_tool', $pt_uses);
+SQL
+    done < <(echo "$per_tool_json" | yq -p=json -r 'keys | .[]' 2>/dev/null)
   fi
 
   # 5. Child insert — per_step_metrics (per_step is a YAML map)
