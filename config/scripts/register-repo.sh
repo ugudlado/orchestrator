@@ -141,6 +141,25 @@ CREATE TABLE IF NOT EXISTS per_tool_uses (
   uses       INTEGER,
   PRIMARY KEY (repo_root, change_id, tool_name)
 );
+
+CREATE TABLE IF NOT EXISTS agent_pricing (
+  agent             VARCHAR PRIMARY KEY,
+  model             VARCHAR,
+  backend           VARCHAR,
+  input_per_1m      DOUBLE,
+  output_per_1m     DOUBLE,
+  cache_read_per_1m DOUBLE
+);
+
+INSERT OR REPLACE INTO agent_pricing VALUES
+  ('architect',         'claude-opus-4-7',   'native_opus',    15.00, 75.00, 1.50),
+  ('ideator',           'claude-opus-4-7',   'native_opus',    15.00, 75.00, 1.50),
+  ('reviewer',          'claude-sonnet-4-6', 'native_sonnet',   3.00, 15.00, 0.30),
+  ('developer',         'claude-sonnet-4-6', 'native_sonnet',   3.00, 15.00, 0.30),
+  ('discoverer',        'claude-sonnet-4-6', 'native_sonnet',   3.00, 15.00, 0.30),
+  ('workflow-improver', 'claude-sonnet-4-6', 'native_sonnet',   3.00, 15.00, 0.30),
+  ('sonnet-agent',      'claude-sonnet-4-6', 'native_sonnet',   3.00, 15.00, 0.30),
+  ('haiku-agent',       'claude-sonnet-4-6', 'native_sonnet',   3.00, 15.00, 0.30);
 SQL
 
 # ── Optional rebuild ─────────────────────────────────────────────────────
