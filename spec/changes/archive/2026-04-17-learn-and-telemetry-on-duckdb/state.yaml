@@ -301,16 +301,23 @@ step_history:
           compute_swe_metrics_diff: empty
 metrics:
   tokens:
-    input: 0
-    output: 0
-    cache_creation: 0
-    cache_read: 0
-    total: 124087
+    input: 22947
+    output: 231650
+    cache_creation: 2430066
+    cache_read: 50981389
+    total: 2684663
   cost:
-    gross_usd: 0
-    net_usd: 0
-    model: unknown
+    gross_usd: 163.7779
+    net_usd: 26.1281
+    model: claude-sonnet-4-6
+    pricing:
+      input: 3.00
+      output: 15.00
+      cache_read: 0.30
+  turns: 857
   tool_calls: 46
+  api_calls: 857
+  wall_clock_minutes: 605.0
   resolution:
     tasks_total: 12
     tasks_planned: 12
@@ -324,14 +331,25 @@ metrics:
     regression_rate: 0.0000
   retries:
     total: 0
+  human_interventions: 0
+  rework_commits: 0
+  rework_rate: 0
   churn:
-    files_changed: 1
-    insertions: 12
-    deletions: 0
-    total_commits: 1
+    files_changed: 16
+    insertions: 1635
+    deletions: 119
+    total_commits: 10
   review_scores: [9, 9]
   review_score_avg: 9.0
+  lint_delta: 0
   category: feature
+  benchmarks:
+    cost_per_task_usd: 2.1773
+    cost_per_resolution_usd: 2.1773
+    tokens_per_task: 223721
+    tokens_per_resolution: 223721
+    input_output_ratio: 10.5
+    cache_hit_rate: 0.9540
 completed_at: 2026-04-17T23:58:00Z
 archive_path: spec/changes/archive/2026-04-17-learn-and-telemetry-on-duckdb/
 status: completed
