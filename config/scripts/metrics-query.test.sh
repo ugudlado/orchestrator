@@ -243,6 +243,29 @@ check_nonzero_exit "missing duckdb binary: exits non-zero" "$EXIT"
 check_empty        "missing duckdb binary: empty stdout" "$NO_DUCK_OUT"
 check_empty        "missing duckdb binary: no stderr" "$NO_DUCK_STDERR"
 
+# ── Fresh-clone silent fallback: no DB → silent exit non-zero, no files created ─
+echo "--- fresh-clone silent fallback ---"
+FRESH_DB="${TMPDIR:-/tmp}/metrics-query-fresh-$$.duckdb"
+# Ensure the file does not exist before the call
+rm -f "$FRESH_DB"
+
+FRESH_STDOUT=$( METRICS_DB="$FRESH_DB" bash "$SCRIPT" cost-trend --fleet 2>/dev/null )
+FRESH_EXIT=$?
+FRESH_STDERR=$(  METRICS_DB="$FRESH_DB" bash "$SCRIPT" cost-trend --fleet 2>&1 1>/dev/null )
+
+check_nonzero_exit "fresh-clone fallback: exits non-zero when DB absent" "$FRESH_EXIT"
+check_empty        "fresh-clone fallback: empty stdout when DB absent"   "$FRESH_STDOUT"
+check_empty        "fresh-clone fallback: no stderr when DB absent"      "$FRESH_STDERR"
+
+if [[ -e "$FRESH_DB" ]]; then
+  echo "FAIL: fresh-clone fallback — DB file was created as side-effect ($FRESH_DB)"
+  ((fail++))
+  rm -f "$FRESH_DB"
+else
+  echo "PASS: fresh-clone fallback — no DB file created as side-effect"
+  ((pass++))
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $pass passed, $fail failed"
