@@ -59,6 +59,10 @@ All fields under `metrics:` — their type, description, and source:
 | `benchmarks.cache_hit_rate` | decimal | cache_read / (input + cache_creation + cache_read) | computed |
 | `per_agent_tokens` | JSON string | Per-agent token/tool/duration totals | step_history |
 | `per_agent_tools` | JSON string | Per-agent tool breakdown | step_history |
+| `per_step.<step_id>.total_tokens` | integer | Total tokens for this step_id (all executions summed) | step_history |
+| `per_step.<step_id>.tool_uses` | integer | Total tool invocations for this step_id (all executions summed) | step_history |
+| `per_step.<step_id>.duration_ms` | integer | Total duration in ms for this step_id (all executions summed) | step_history |
+| `per_step.<step_id>.executions` | integer | Execution count for this step_id — retry-inclusive. A count of 2 means the step ran twice (one retry). | step_history |
 | `estimate_vs_actual.tokens_predicted` | integer | Token count projected by preview-route before the run | route_preview.estimate.tokens |
 | `estimate_vs_actual.tokens_actual` | integer | Token count billed after the run | tokens.total |
 | `estimate_vs_actual.tokens_delta_pct` | decimal | (actual − predicted) / predicted. Negative = overestimate. | computed |
@@ -93,6 +97,7 @@ for each workflow schema:
 | `benchmarks.*` | R | R | R | R |
 | `per_agent_tokens` | R | R | R | R |
 | `per_agent_tools` | R | R | R | R |
+| `per_step.*` | R | R | R | R |
 | `estimate_vs_actual.*` | O | O | O | O |
 
 When `feature` runs with `--light`, all required fields remain required —
@@ -184,6 +189,24 @@ The `*_delta_pct` fields are signed decimals in the range (−1.0, +∞):
 Use these deltas as the learning signal for future estimates. No action is
 taken automatically — telemetry surfaces the trend so humans (or a future
 workflow-improver rule) can tune `config/pricing.yaml` or the estimator.
+
+## Per-Step Aggregation
+
+The `per_step` block is written by `compute-swe-metrics.sh` from `step_history` entries.
+One entry per distinct `step_id` is emitted. All token and duration fields are summed
+across all executions of the step (retry-inclusive). Key semantics:
+
+- **`executions`** is retry-inclusive: a step that ran once has `executions: 1`; a step
+  that was retried once has `executions: 2`. This gives the cost signal for retry-prone steps.
+- **Inline steps** (`agent: inline`) appear in `per_step` with `total_tokens: 0` but non-zero
+  `tool_uses` and `duration_ms`. This is consistent with how inline steps appear in
+  `per_agent_tokens` (zero tokens, non-zero duration in the `inline` agent bucket).
+- **Token sum invariant**: when `metrics.tokens.total` is derived from `step_history`
+  (JSONL enrichment absent or failed), `sum(per_step[*].total_tokens) == metrics.tokens.total`.
+  When JSONL enrichment succeeds, `metrics.tokens.total` may include orchestrator tokens
+  not captured per-step — the per_step sum covers only sub-agent step tokens.
+- **Backward compatibility**: archived `state.yaml` files that predate this block do not
+  have `per_step`. Consumers MUST check for key existence before accessing any field under it.
 
 ## Future Schemas
 

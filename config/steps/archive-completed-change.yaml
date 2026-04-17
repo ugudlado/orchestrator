@@ -1,7 +1,7 @@
 id: archive-completed-change
-version: 5
+version: 6
 
-intent: Archive completed change artifacts to the repo.
+intent: Copy completed change artifacts to the repo archive and commit.
 
 agent: developer
 
@@ -13,7 +13,9 @@ rules:
   - Source from active root ($WORKFLOW_STATE_DIR/$CHANGE_ID).
   - Archive to repo (spec/changes/archive/YYYY-MM-DD-<change-id>).
   - Preserve .spec.yaml, all generated artifacts, and state.yaml (with metrics).
-  - state.yaml MUST already contain metrics (from compute-swe-metrics step).
+  - "state.yaml MUST already contain status: completed, completed_at, archive_path,
+    and metrics — these are written by mark-change-completed and compute-swe-metrics
+    steps that run before this step. Do NOT rewrite them here."
   - Cleanup failure is non-blocking — the archive is the priority.
 
 instruction: |
@@ -21,35 +23,29 @@ instruction: |
      - active_changes_root: $WORKFLOW_STATE_DIR
      - repo_archive_root: spec/changes/archive
 
-  2. Update state.yaml per State Field Registry (CONVENTIONS.md):
-     - Set `status: completed`
-     - Set `completed_at: <ISO 8601 timestamp>` (top-level, not under any nested block)
-     - Set `archive_path: spec/changes/archive/YYYY-MM-DD-$CHANGE_ID/`
-     This MUST happen before the archive copy so the archived state.yaml
-     reflects the final completion status. `completed_at` is required by
-     compute-swe-metrics.sh — without it, parse_session_jsonl cannot bound
-     the JSONL time window and falls back to step_history (which lacks
-     granular token data for native agents, producing $0 cost).
+  2. Create archive directory: spec/changes/archive/YYYY-MM-DD-$CHANGE_ID/
+     where YYYY-MM-DD is the date portion of state.yaml `completed_at`.
+     (Do not derive the date independently — read it from state.yaml to stay
+     consistent with the path recorded in `archive_path`.)
 
-  3. Create archive directory: spec/changes/archive/YYYY-MM-DD-$CHANGE_ID/
-
-  4. Copy all artifacts from $WORKFLOW_STATE_DIR/$CHANGE_ID/ to archive:
+  3. Copy all artifacts from $WORKFLOW_STATE_DIR/$CHANGE_ID/ to archive:
      - .spec.yaml (change metadata)
      - All generated artifacts (spec.md, design.md, tasks.md, etc.)
-     - state.yaml (workflow audit trail — includes metrics + completion status)
+     - state.yaml (workflow audit trail — already has metrics + completion status)
 
-  5. Commit the archive to the repo.
+  4. Commit the archive to the repo.
 
-  6. Clean up the active change directory ($WORKFLOW_STATE_DIR/$CHANGE_ID/).
+  5. Clean up the active change directory ($WORKFLOW_STATE_DIR/$CHANGE_ID/).
      If cleanup fails (permission error, file lock), log a warning but do not
      fail — the archive is already committed.
 
-  7. Update state.yaml step_history per CONVENTIONS.md § State Updates.
+  6. Update state.yaml step_history per CONVENTIONS.md § State Updates.
 
 verify:
   - Archive directory exists in repo at spec/changes/archive/
   - All artifacts copied from active change dir to archive
-  - state.yaml in archive contains `status: completed` and a `metrics:` block
+  - state.yaml in archive contains `status: completed` (written by mark-change-completed)
+  - state.yaml in archive contains a `metrics:` block (written by compute-swe-metrics)
 
 outputs:
   - archive_record

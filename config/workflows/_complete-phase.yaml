@@ -16,6 +16,7 @@ verify:
 steps:
   - compute-prediction-accuracy
   - run-learn-cycle
+  - mark-change-completed
   - compute-swe-metrics
   - archive-completed-change
   - remove-worktree

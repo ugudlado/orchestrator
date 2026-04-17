@@ -1,0 +1,84 @@
+id: run-implement-review
+version: 1
+
+intent: Review implementation for AC compliance, 5-dimension quality, and fix-task generation.
+
+agent: reviewer
+
+pre_execute:
+  approach_required: false
+
+inputs:
+  - spec.md (acceptance criteria list)
+  - design.md
+  - tasks.md (all tasks marked [x] or [!])
+  - git diff HEAD~<N>..HEAD (all commits for this feature branch)
+
+rules:
+  - Review ALL acceptance criteria — every AC-N in spec.md must be traced to evidence.
+  - Use the 5-dimension scoring framework: correctness, robustness, security, maintainability, test-coverage.
+  - If issues found: emit fix tasks following the Task Format Contract (contracts/artifact-formats.md).
+  - Fix tasks MUST be appended to tasks.md — do not replace existing entries.
+  - Minimum overall score of 9 required to pass the phase gate.
+  - run-ux-critique handles UX review separately (conditional on ux_design: true) — do not re-review UX here.
+
+instruction: |
+  1. Read spec.md: extract the full list of acceptance criteria (AC-1 through AC-N).
+
+  2. Read design.md: note the architectural decisions and component boundaries.
+
+  3. Read tasks.md: confirm all implementation tasks are marked complete ([x]).
+
+  4. Read the feature diff:
+     ```
+     git log --oneline (to identify feature commits)
+     git diff <first-commit>^..<last-commit>
+     ```
+
+  5. For each AC-N in spec.md, evaluate whether it is met:
+     - Locate the relevant code change in the diff.
+     - State the evidence (file:line, test name, or behavior observation).
+     - Mark as PASS or FAIL with a one-sentence reason.
+
+  6. Score the implementation across 5 dimensions (1–10 each):
+     - **Correctness**: Logic is correct, no off-by-ones, edge cases handled.
+     - **Robustness**: Error paths handled, retries safe, no silent failures.
+     - **Security**: No XSS, injection, hardcoded secrets; inputs validated.
+     - **Maintainability**: Follows project conventions, no dead code, DRY.
+     - **Test coverage**: Key behaviors have tests; new code is reachable by tests.
+     Compute overall = min(individual scores rounded to nearest integer).
+
+  7. If the overall score < 9 or any AC fails:
+     - For each failing AC or score < 9, emit a fix task in tasks.md:
+       ```
+       - [ ] T-FIX-N: <description of what to fix>
+         - **Why**: <failing AC or dimension>
+         - **Verify**: <how to confirm the fix>
+       ```
+     - Append fix tasks to the end of tasks.md.
+
+  8. Write the review record to state.yaml:
+     ```yaml
+     review_score:
+       overall: <N>
+       dimensions:
+         correctness: <N>
+         robustness: <N>
+         security: <N>
+         maintainability: <N>
+         test_coverage: <N>
+     ```
+     Also record passing AC count and any failing ACs.
+
+  9. Update state.yaml step_history per CONVENTIONS.md § State Updates.
+
+verify:
+  evidence_required: true
+  assertions:
+    - Every AC-N in spec.md has a PASS or FAIL verdict with evidence
+    - review_score.overall is present in state.yaml step_history[-1]
+    - Fix tasks (if any) are appended to tasks.md in the Task Format Contract shape
+
+outputs:
+  - review_record
+  - fix_tasks (optional, if issues found)

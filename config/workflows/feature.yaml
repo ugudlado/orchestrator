@@ -23,7 +23,6 @@ defaults:
   design: true
   ux_design: true
   discovery: true
-  simplify: true
   phase_review: true
   worktree: true
   auto: false
@@ -51,14 +50,12 @@ flags:
       design: false
       ux_design: false
       discovery: false
-      simplify: false
       phase_review: false
       worktree: false
       linear: false
     description: >
       Lightweight path for tight-scope changes. Skips discovery, design,
-      UX design, TDD, simplify, phase-reviews, worktree creation, and
-      Linear ticket. Keeps spec + tasks artifacts, execute-next-task,
+      UX design, TDD, phase-reviews, worktree creation, and Linear ticket. Keeps spec + tasks artifacts, execute-next-task,
       and final archive so there is still a paper trail. Lowers review
       score threshold from 9 to 7. Compose with other flags to re-enable
       a specific gate (e.g. --light --tdd keeps tests without the full
@@ -159,10 +156,8 @@ phases:
             - Keep coverage at or above schema target.
           not tdd_required:
             - Keep implementation slices minimal and verification-focused.
-      - run-simplify if simplify
       - run-ux-critique if ux_design
-      - run-phase-review if phase_review
-      - run-feature-verification
+      - run-implement-review
       - final-signoff if not auto
 
   - include: _complete-phase
