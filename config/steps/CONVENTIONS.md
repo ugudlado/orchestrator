@@ -10,11 +10,11 @@ Load only the contracts relevant to your step:
 
 | Contract | File | Used By |
 |----------|------|---------|
-| Artifact formats (Task, Discovery, Spec, Design, Diagnosis, Fix Plan) | `contracts/artifact-formats.md` | create-or-refresh-artifacts, explore, run-phase-review |
+| Artifact formats (Task, Discovery, Spec, Design, Diagnosis, Fix Plan) | `contracts/artifact-formats.md` | design-and-draft-artifacts, explore, run-phase-review |
 | Error Recovery (state transitions, blocked protocol, escalation) | `contracts/error-recovery.md` | orchestrate skill, execute-next-task, run-phase-review, phase-signoff |
 | Rule Merge (evaluation, merge algorithm, change type detection) | `contracts/rule-merge.md` | orchestrate skill, /learn |
 | Resume Token | `contracts/resume-token.md` | orchestrate skill, workflow-state.sh, auto-continue.sh |
-| UX Artifacts | `contracts/ux-artifacts.md` | ux-design, create-or-refresh-artifacts, execute-next-task |
+| UX Artifacts | `contracts/ux-artifacts.md` | ux-design, design-and-draft-artifacts, execute-next-task |
 | Auto-Commit | `contracts/auto-commit.md` | execute-next-task |
 | Metrics Schema | `contracts/metrics-schema.md` | compute-swe-metrics, autopilot-session-report, telemetry, learn, workflow-improver |
 
@@ -182,7 +182,7 @@ flags_read:
 ### Example
 
 ```yaml
-id: create-or-refresh-artifacts
+id: design-and-draft-artifacts (feature) or create-or-refresh-artifacts (bugfix/spike)
 flags_read:
   - name: tdd_required
     effect: "Every implementation task must have a preceding test task"
@@ -340,8 +340,8 @@ find data where they expect it.
 | `rejection` | object | phase-signoff, final-signoff | `{ phase: <name>, feedback: "...", fix_tasks_created: [T-N, ...] }` |
 | `retries` | object | run-phase-review, execute-next-task | `{ <step_id_or_task_id>: <count> }` — per-step/task retry counter |
 | `refresh_artifacts` | boolean | run-phase-review (on fail) | `true` when artifacts need regeneration |
-| `change_type` | string | create-or-refresh-artifacts (after task creation) | `code` or `config_docs` — per `contracts/rule-merge.md` § Change Type Detection |
-| `flag_adaptations` | list | create-or-refresh-artifacts (when change_type adapts flags) | `[{ flag, original, effective, reason }]` |
+| `change_type` | string | design-and-draft-artifacts (after task creation) | `code` or `config_docs` — per `contracts/rule-merge.md` § Change Type Detection |
+| `flag_adaptations` | list | design-and-draft-artifacts (when change_type adapts flags) | `[{ flag, original, effective, reason }]` |
 | `task_checkpoint` | object | execute-next-task | `{ task_id: "T-3", status: "completed", committed_at: "<ISO>" }` |
 | `workflow_plan` | object | load-project-context | `{ <phase>: { active: [...], filtered: [...] } }`. Includes resolved from schema. Dispatch loop MUST walk ALL phases/steps — workflow is not complete until every active step in every phase is dispatched. |
 | `step_history[].review_score` | object | run-phase-review | `{ overall: 9, dimensions: { spec_compliance: 9, correctness: 10, security: 9, simplicity: 9, code_quality: 9 } }` |

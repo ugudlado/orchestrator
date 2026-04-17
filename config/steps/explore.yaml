@@ -9,7 +9,7 @@ inputs:
   - phase_context_bundle
 
 rules:
-  - Focus on problem-space survey, NOT solution design (design-exploration's job).
+  - Focus on problem-space survey, NOT solution design (design-and-draft-artifacts owns that).
   - Capture unresolved questions explicitly.
   - Scope research to the codebase unless description references external technology.
 
@@ -27,7 +27,7 @@ instruction: |
 
 verify:
   - Discovery brief written to change dir
-  - Brief covers constraints and integration points (not design approaches — those belong in design-exploration)
+  - Brief covers constraints and integration points (not design approaches — those belong in design-and-draft-artifacts)
   - Unresolved questions explicitly listed (not hidden)
   - At least 2 use cases defined (minimum 1 happy path UC-N, minimum 1 error/edge UC-EN)
   - Build-or-reuse decision is explicitly stated (Key Decisions section addresses whether to build new or reuse/extend existing)

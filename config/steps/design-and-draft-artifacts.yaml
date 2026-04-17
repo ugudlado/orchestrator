@@ -1,0 +1,97 @@
+id: design-and-draft-artifacts
+version: 1
+
+intent: Generate design approaches, select one, then write all phase artifacts (spec.md, design.md, tasks.md) in a single architect pass. Show artifacts to user for review when not in auto mode.
+
+agent: architect
+
+pre_execute:
+  approach_required: true
+
+inputs:
+  - phase_context_bundle (includes discovery_result)
+  - ux-artifacts.yaml (optional, per contracts/ux-artifacts.md)
+
+flags_read:
+  - name: tdd_required
+    effect: "Every implementation task must have a preceding test task"
+  - name: auto
+    effect: "Skip artifact review pause — advance immediately after writing"
+
+rules:
+  - Design selection and artifact writing happen in one spawn — no round-trip between them.
+  - Keep artifact content traceable to accepted requirements.
+  - Avoid implementation details in spec/design — those belong in tasks.
+  - Tasks must be small, verifiable, and ordered.
+  - Attach verification criteria per task.
+  - Output MUST follow the Task Format Contract in contracts/artifact-formats.md.
+  - "When spec or design introduces a new archive/state path for any producer (autopilot, spike, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`) and confirm the new path is matched before committing the artifact. Otherwise downstream consumers (telemetry, learn, workflow-improver) silently skip the new producer. <!-- learned: 2026-04-16, source: HL-278, cycle: 10, hits: 4, misses: 0, repo: orchestrator -->"
+  - "SQL sketches in design.md that reference specific field names must be validated against a live row from the target DB (or schema file) before finalizing. Add an explicit note in the task or run a one-query T-0 validation — field name drift between sketch and schema is a common first-review failure. <!-- learned: 2026-04-17, source: learn-and-telemetry-on-duckdb, cycle: 12, hits: 2, misses: 0, repo: orchestrator -->"
+
+instruction: |
+  ## Part 1: Design Selection
+
+  1. Read the discovery brief at $WORKFLOW_STATE_DIR/$CHANGE_ID/discovery.md for
+     constraints, integration points, open questions, and recommended approach.
+
+  2. Generate 2-3 design approaches with trade-offs:
+     - Each approach: name, description, pros, cons, complexity (XS/S/M/L).
+     - Cover different dimensions: simplicity vs extensibility, performance vs maintainability.
+
+  3. Select an approach using the auto-selection heuristic (always applied — no interactive pause here):
+     a. Map complexity: XS=1, S=2, M=3, L=4.
+     b. Select the lowest numeric complexity.
+     c. On ties: prefer higher module reuse count.
+     d. On further ties: select alphabetically by name.
+     e. Document criteria, values, and selection.
+
+  4. Record the chosen direction and rationale in discovery.md's "Key Decisions" section
+     per CONVENTIONS.md § Discovery Brief Format Contract.
+
+  ## Part 2: Artifact Generation
+
+  5. For each output file (spec.md, design.md, tasks.md) — in dependency order:
+     - **Missing**: does not exist → generate.
+     - **Stale**: state.yaml records a review rejection or `refresh_artifacts: true` → regenerate.
+     - **Current**: exists and no refresh signal → skip.
+
+  6. For each file needing generation:
+     a. Read the template from $ORCHESTRATOR_HOME/config/templates/$SCHEMA/<template>.
+     b. Read the artifact's format contract from contracts/artifact-formats.md.
+     c. Generate using available context (discovery brief, design direction, change description).
+     d. Write to $WORKFLOW_STATE_DIR/$CHANGE_ID/<file>.
+
+  7. Generate tasks.md:
+     - Read spec.md for requirements and acceptance criteria.
+     - Read design.md for approach and component breakdown.
+     - If ux-artifacts.yaml exists: reference ux-prototype.html in UI task descriptions.
+     - Generate the fewest tasks that cover all acceptance criteria.
+     - Write using Task Format Contract (contracts/artifact-formats.md § Task Format Contract).
+     - When tdd_required: every implementation task has a preceding test task.
+
+  8. Update state.yaml step_history per CONVENTIONS.md § State Updates.
+
+  ## Part 3: Artifact Review (interactive mode only)
+
+  9. If auto=false:
+     - Print a summary of each artifact written: file name, section count, task count.
+     - Print the full contents of tasks.md so the user can review scope.
+     - Pause and prompt: "Review spec.md, design.md, tasks.md in
+       $WORKFLOW_STATE_DIR/$CHANGE_ID/. Reply 'ok' to continue, or describe changes needed."
+     - If the user requests changes: apply them to the relevant artifacts and re-present.
+     - Once confirmed: proceed to next step.
+     If auto=true: skip this pause and return STATUS: completed immediately.
+
+verify:
+  - spec.md exists in $WORKFLOW_STATE_DIR/$CHANGE_ID/
+  - design.md exists in $WORKFLOW_STATE_DIR/$CHANGE_ID/
+  - tasks.md exists with at least one task
+  - spec.md has Acceptance Criteria section with testable criteria
+  - tasks.md follows the Task Format Contract
+  - tasks.md covers every acceptance criterion from spec
+  - Every task has a Verify field with concrete check
+  - Key Decisions section populated in discovery.md
+
+outputs:
+  - updated_artifact_set
+  - design_direction

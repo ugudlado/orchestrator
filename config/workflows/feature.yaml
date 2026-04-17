@@ -20,7 +20,6 @@ uses:
 
 defaults:
   tdd_required: true
-  design: true
   ux_design: true
   discovery: true
   phase_review: true
@@ -33,8 +32,6 @@ defaults:
 flags:
   --no-tdd:
     sets: { tdd_required: false }
-  --no-design:
-    sets: { design: false }
   --no-ux:
     sets: { ux_design: false }
   --no-linear:
@@ -47,14 +44,13 @@ flags:
     sets:
       light: true
       tdd_required: false
-      design: false
       ux_design: false
       discovery: false
       phase_review: false
       worktree: false
       linear: false
     description: >
-      Lightweight path for tight-scope changes. Skips discovery, design,
+      Lightweight path for tight-scope changes. Skips discovery, design-and-draft-artifacts,
       UX design, TDD, phase-reviews, worktree creation, and Linear ticket. Keeps spec + tasks artifacts, execute-next-task,
       and final archive so there is still a paper trail. Lowers review
       score threshold from 9 to 7. Compose with other flags to re-enable
@@ -84,7 +80,6 @@ phases:
         template: spec.md
       - file: design.md
         template: design.md
-        when: design
     rules:
       - Keep scope explicit (in-scope and out-of-scope).
       - Make acceptance criteria testable.
@@ -92,6 +87,7 @@ phases:
     verify:
       assertions:
         - spec.md exists in $WORKFLOW_STATE_DIR/$CHANGE_ID/
+        - design.md exists in $WORKFLOW_STATE_DIR/$CHANGE_ID/
         - tasks.md exists with at least one task
         - spec.md has Acceptance Criteria section with testable criteria
       metrics:
@@ -106,9 +102,8 @@ phases:
       - create-worktree if worktree
       - load-project-context
       - explore if discovery
-      - design-exploration if design
       - ux-design if ux_design
-      - id: create-or-refresh-artifacts
+      - id: design-and-draft-artifacts
         rules_when:
           tdd_required:
             - Every implementation task has a preceding test task.
@@ -121,7 +116,6 @@ phases:
       - preview-route
       - run-phase-review if phase_review
       - create-linear-ticket if linear
-      - phase-signoff if not auto
 
   - name: implement
     goal: Deliver all tasks with review and verification loops.
