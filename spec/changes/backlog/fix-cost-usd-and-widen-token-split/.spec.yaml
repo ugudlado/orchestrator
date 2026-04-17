@@ -1,7 +1,9 @@
 schema: bugfix
 feature-id: fix-cost-usd-and-widen-token-split
-status: proposed
+status: active
+phase: diagnose
 category: observability
 priority: 9.5
 source: ideator
 created: 2026-04-18
+linear-ticket: pending

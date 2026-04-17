@@ -1,7 +1,7 @@
 # Tasks — Fix cost_usd = 0 for all per_agent_metrics rows
 
 - [ ] T-1: Add regression test fixture and test asserting cost_usd > 0 when step has total_tokens but no cost_usd
-  Verify: `bash config/scripts/__tests__/compute-swe-metrics-cost.test.sh` exits non-zero (test FAILS) before T-2 fix is applied; test name `cost_usd_inferred_from_agent_pricing_when_step_cost_absent` is clearly reported as failing.
+  Verify: `bash config/scripts/__tests__/compute-swe-metrics-cost.test.sh` exits non-zero (test FAILS) before T-3 fix is applied; test name `cost_usd_inferred_from_agent_pricing_when_step_cost_absent` is clearly reported as failing.
 
 - [ ] T-2: Add agent_pricing DDL + seed to register-repo.sh so the table survives DB re-creation
   Verify: `rm -f /tmp/test-metrics.duckdb && METRICS_DB=/tmp/test-metrics.duckdb bash config/scripts/register-repo.sh --rebuild 2>/dev/null; duckdb /tmp/test-metrics.duckdb "SELECT COUNT(*) FROM agent_pricing;"` returns >= 1.
