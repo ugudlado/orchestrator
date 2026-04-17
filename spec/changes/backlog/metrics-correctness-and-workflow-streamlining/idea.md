@@ -71,25 +71,68 @@ Replace `run-simplify` + `run-phase-review` + `run-feature-verification` with:
 
 Deprecate `run-simplify.yaml` and `run-feature-verification.yaml`.
 
-### Task C: Enforce step_history usage fields + add per-step aggregation
+### Task C: Capture metrics for EVERY step + per-step aggregation
 
-Two sub-parts:
+The zero/undercount problem isn't primarily a script bug — it's that
+step_history entries are written inconsistently. Agent-spawning steps
+sometimes capture the Agent footer, sometimes don't. Inline steps
+(create-worktree, load-project-context, validate-artifacts, etc.)
+never record timing or tool counts because the dispatch loop only
+collects usage for `agent:` steps. Result: aggregates cover maybe
+30% of actual work.
 
-**C.1 — Validator** (non-blocking, stderr warning):
-- Add a state-schema check that runs during `mark-change-completed` (or as part of `compute-swe-metrics` preflight)
-- Flags step_history entries that are missing `agent:` (when the step contract declares an `agent:` field) or missing `usage: { total_tokens: <N>, tools: { ... } }`
+Three sub-parts:
+
+**C.1 — Required schema for every step_history entry**
+
+Every entry (agent-spawning AND inline) records at minimum:
+```yaml
+- step_id: <id>
+  phase: <phase>
+  status: completed|skipped|failed
+  started_at: <ISO>
+  completed_at: <ISO>
+  usage:
+    duration_ms: <N>              # always (completed_at - started_at)
+    tool_uses: <N>                # always (inline steps count Bash/Read/Edit/etc)
+    tools: { ToolName: N, ... }   # always, empty map if zero
+    total_tokens: <N>             # agent steps only (from Agent footer)
+    input_tokens: <N>             # agent steps, proxy only
+    output_tokens: <N>             # agent steps, proxy only
+    cost_usd: <N>                  # agent steps, proxy only
+  agent: <name>                   # only when step contract declares agent:
+  runtime_agent: <name>            # only on compatibility fallback
+```
+
+Rules:
+- The dispatch loop MUST write a complete `usage:` block for every step, agent or inline
+- For inline steps: `duration_ms = completed_at - started_at`; `tool_uses` + `tools` from the Bash/Read/Edit/etc calls made during the step
+- For agent steps: the existing Agent-footer extraction plus the inline-step defaults (so a failed agent spawn still gets duration)
+- Entries with `status: skipped` have empty `usage` but still include `duration_ms: 0`
+
+**C.2 — Validator** (stderr warning, non-blocking):
+- Runs inside `mark-change-completed` before the state is locked
+- Flags any step_history entry missing required fields per the schema above
 - Warning to stderr; does not block the complete phase
+- Emit a one-line summary: "N of M step_history entries have complete usage blocks"
 
-**C.2 — Per-step aggregation**:
-- New awk pass in `compute-swe-metrics.sh` that groups by `step_id`
+**C.3 — Per-step aggregation in compute-swe-metrics.sh**:
+- New awk pass that groups by `step_id`
 - Emit:
   ```yaml
   per_step:
-    explore: { total_tokens: N, cost_usd: N, duration_ms: N, count: 1 }
-    execute-next-task: { total_tokens: N, cost_usd: N, duration_ms: N, count: 9 }
+    explore: { total_tokens: N, cost_usd: N, duration_ms: N, tool_uses: N, count: 1 }
+    execute-next-task: { total_tokens: N, cost_usd: N, duration_ms: N, tool_uses: N, count: 9 }
+    validate-artifacts: { duration_ms: N, tool_uses: N, count: 1 }    # inline, no tokens
     ...
   ```
 - Keep existing `per_agent_tokens` and `per_agent_tools` output
+- Sum check: `sum(per_step[*].total_tokens)` ≈ `metrics.tokens.total` (document the math — cache tokens aren't per-step, they're session-level)
+
+**C.4 — Orchestrate skill update**:
+- Update `orchestrate.md` to codify the full usage schema as the contract for step_history writes
+- Add a CONVENTIONS.md § entry: "Every step writes a complete usage: block"
+- Keep the existing proxy/native extraction logic; add inline-step timing as the default source
 
 ## Scope
 
@@ -118,9 +161,11 @@ Two sub-parts:
 - AC-4: All archived features with `cost.net_usd: 0` AND matching JSONL files are backfilled (list count + feature IDs in PR)
 - AC-5: Implement phase runs exactly one reviewer-agent spawn (not three); AC verification + 5-dimension scoring + fix-task generation all happen in that one spawn
 - AC-6: Developer simplify pass runs after last task in the phase; reviewer scores the simplified code
-- AC-7: `metrics.per_step` block present in output, one entry per distinct `step_id` that executed; `per_step[*].total_tokens` sums to roughly `metrics.tokens.total`
-- AC-8: State-schema validator emits a stderr warning (not an error) when step_history entries are missing `agent:` or `usage` fields; does not block the complete phase
-- AC-9: `per_agent_tokens` covers all spawned agents (not just 2-3) on a fresh autopilot run, verified by cross-checking against step_history spawns
+- AC-7: `metrics.per_step` block present in output; one entry per distinct `step_id` that executed (agent-spawning AND inline); `per_step[*].total_tokens` sums to roughly `metrics.tokens.total` (minus session-level cache tokens)
+- AC-8: Every step_history entry (agent AND inline) has a complete `usage:` block with at least `duration_ms` and `tool_uses`; agent steps also have token/cost fields when available
+- AC-9: State-schema validator emits a stderr warning (not an error) when step_history entries are missing required fields; does not block the complete phase; prints coverage ratio ("N/M entries complete")
+- AC-10: `per_agent_tokens` covers all spawned agents (not just 2-3) on a fresh autopilot run — verified by cross-checking against `grep '^    agent:' state.yaml | sort -u`
+- AC-11: `orchestrate.md` and `CONVENTIONS.md` document the required usage: schema so future step writers know the contract
 
 ## Why one ticket
 
