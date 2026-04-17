@@ -513,5 +513,5 @@ metrics:
     cost_predicted_usd: 1.5152
     cost_actual_usd: 7.4473
     cost_delta_pct: 3.9151
-  per_agent_tokens: '{"reviewer":{"total_tokens":102412,"cost_usd":0.000000,"tool_uses":36,"duration_ms":208491,"steps":3},"architect":{"total_tokens":132323,"cost_usd":0.000000,"tool_uses":25,"duration_ms":3547356,"steps":3},"workflow-improver":{"total_tokens":75447,"cost_usd":0.000000,"tool_uses":68,"duration_ms":272978,"steps":1},"developer":{"total_tokens":122027,"cost_usd":0.000000,"tool_uses":117,"duration_ms":542996,"steps":2},"discoverer":{"total_tokens":51028,"cost_usd":0.000000,"tool_uses":40,"duration_ms":214407,"steps":1}}'
+  per_agent_tokens: '{"reviewer":{"total_tokens":102412,"cost_usd":0.307236,"tool_uses":36,"duration_ms":208491,"steps":3},"architect":{"total_tokens":132323,"cost_usd":1.984845,"tool_uses":25,"duration_ms":3547356,"steps":3},"workflow-improver":{"total_tokens":75447,"cost_usd":0.226341,"tool_uses":68,"duration_ms":272978,"steps":1},"developer":{"total_tokens":122027,"cost_usd":0.366081,"tool_uses":117,"duration_ms":542996,"steps":2},"discoverer":{"total_tokens":51028,"cost_usd":0.153084,"tool_uses":40,"duration_ms":214407,"steps":1}}'
   per_agent_tools: '{}'

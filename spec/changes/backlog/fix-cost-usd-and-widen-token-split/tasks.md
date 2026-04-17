@@ -11,6 +11,6 @@
   Verify: `bash config/scripts/__tests__/compute-swe-metrics-cost.test.sh` exits 0 (test PASSES); regression test `cost_usd_inferred_from_agent_pricing_when_step_cost_absent` reports success.
   depends: T-1, T-2
 
-- [ ] T-4: Re-ingest all historical state.yamls and assert zero failing rows in per_agent_metrics
+- [x] T-4: Re-ingest all historical state.yamls and assert zero failing rows in per_agent_metrics
   Verify: After running `register-repo.sh --rebuild`, `duckdb metrics.duckdb "SELECT COUNT(*) FROM per_agent_metrics WHERE total_tokens > 10000 AND (cost_usd = 0 OR cost_usd IS NULL);"` returns 0.
   depends: T-3
