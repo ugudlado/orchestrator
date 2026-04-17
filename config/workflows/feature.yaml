@@ -162,6 +162,7 @@ phases:
       - run-simplify if simplify
       - run-ux-critique if ux_design
       - run-phase-review if phase_review
+      - run-feature-verification
       - final-signoff if not auto
 
   - include: _complete-phase

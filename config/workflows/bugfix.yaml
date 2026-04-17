@@ -115,6 +115,7 @@ phases:
           - "After each fix task: re-run the reproduction script from diagnosis.md. If it still fails, the fix is wrong — investigate further before marking complete."
       - run-simplify
       - run-phase-review
+      - run-feature-verification
       - final-signoff if not auto
 
   - include: _complete-phase
