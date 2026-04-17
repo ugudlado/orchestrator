@@ -1,0 +1,516 @@
+change_id: cross-repo-metrics-duckdb
+schema: feature
+version: 4
+status: completed
+phase: complete
+slug: cross-repo-metrics-duckdb
+archive_path: spec/changes/archive/2026-04-17-cross-repo-metrics-duckdb/
+started_at: 2026-04-17T03:45:00Z
+flags:
+  tdd_required: false
+  design: true
+  ux_design: false
+  discovery: true
+  simplify: true
+  phase_review: true
+  worktree: true
+  auto: true
+  agents: true
+  linear: false
+  light: false
+  metrics: true
+worktree_path: ~/code/feature_worktrees/cross-repo-metrics-duckdb
+project_context_loaded: true
+project_context_at: 2026-04-17T03:46:00Z
+workflow_plan:
+  specify:
+    active: [create-worktree, load-project-context, explore, design-exploration, create-or-refresh-artifacts, validate-artifacts, preview-route, run-phase-review]
+    filtered: [ux-design, create-linear-ticket, phase-signoff]
+  implement:
+    active: [capture-test-baseline, execute-next-task, run-simplify, run-phase-review, run-feature-verification]
+    filtered: [run-ux-critique, final-signoff]
+  complete:
+    active: [compute-prediction-accuracy, run-learn-cycle, compute-swe-metrics, archive-completed-change, remove-worktree]
+    filtered: []
+next_step:
+  phase: complete
+  step_id: archive-completed-change
+prediction_accuracy:
+  computed_at: 2026-04-17T05:23:00Z
+  tasks:
+    predicted: 9
+    actual: 9
+    delta: 0
+    accuracy_pct: 100.0
+    fix_task_count: 0
+    rework_rate: 0.0
+  files:
+    predicted: 5
+    actual: 5
+    delta: 0
+    overlap_pct: 100.0
+    predicted_list: [.gitignore, config/scripts/register-repo.sh, config/steps/register-with-orchestrator-home.yaml, config/workflows/bootstrap.yaml, spec/project.yaml]
+    actual_list: [.gitignore, config/scripts/register-repo.sh, config/steps/register-with-orchestrator-home.yaml, config/workflows/bootstrap.yaml, spec/project.yaml]
+baseline:
+  captured_at: 2026-04-17T05:10:00Z
+  skipped: true
+  reason: "spec/project.yaml verify_commands is [] — no test command defined for bash/yaml infra repo"
+step_history:
+  - step_id: create-worktree
+    phase: specify
+    status: completed
+    started_at: 2026-04-17T03:45:00Z
+    completed_at: 2026-04-17T03:45:30Z
+    evidence:
+      file_checks:
+        - path: ~/code/feature_worktrees/cross-repo-metrics-duckdb
+          exists: true
+        - branch: feature/cross-repo-metrics-duckdb
+          exists: true
+  - step_id: load-project-context
+    phase: specify
+    status: completed
+    started_at: 2026-04-17T03:45:30Z
+    completed_at: 2026-04-17T03:46:00Z
+    evidence:
+      file_checks:
+        - path: spec/project.yaml
+          exists: true
+          loaded: true
+  - step_id: explore
+    phase: specify
+    status: completed
+    agent: discoverer
+    started_at: 2026-04-17T03:46:00Z
+    completed_at: 2026-04-17T03:49:34Z
+    evidence:
+      file_checks:
+        - path: .state/cross-repo-metrics-duckdb/discovery.md
+          exists: true
+          loc: 73
+    usage:
+      total_tokens: 51028
+      tool_uses: 40
+      duration_ms: 214407
+  - step_id: design-exploration
+    phase: specify
+    status: completed
+    agent: architect
+    started_at: 2026-04-17T03:49:34Z
+    completed_at: 2026-04-17T03:52:28Z
+    approach:
+      files: ".state/cross-repo-metrics-duckdb/design.md (write), discovery.md (update Key Decisions)"
+      approach: "Generate 2-3 approaches answering the 3 open questions, auto-select by complexity, write design.md"
+      not_doing: "Implementation, reader helpers, dashboard, archive-time fallback"
+    decision:
+      selected_approach: "Minimal/Simple (A1)"
+      rationale: "Complexity S=2, tied; tiebreak on pattern reuse (reuses estimate-cost.sh archive-walk loop)"
+      resolutions:
+        upsert: "INSERT OR REPLACE with PK (repo_root, change_id)"
+        schema_filtering: "Ingest all schemas into one features table; consumers filter via schema column"
+        registry_append: "grep -Fxq || echo — no yq -i quirks"
+    usage:
+      total_tokens: 36131
+      tool_uses: 4
+      duration_ms: 173612
+  - step_id: create-or-refresh-artifacts
+    phase: specify
+    status: completed
+    agent: architect
+    started_at: 2026-04-17T03:52:28Z
+    completed_at: 2026-04-17T03:55:00Z
+    approach:
+      files: ".state/cross-repo-metrics-duckdb/spec.md, tasks.md"
+      approach: "Generate spec from focus brief + design, generate 8 ordered tasks per design.md mechanism"
+      not_doing: "Test tasks (tdd_required=false), discovery/design regen"
+    evidence:
+      file_checks:
+        - path: .state/cross-repo-metrics-duckdb/spec.md
+          exists: true
+          acceptance_criteria_count: 8
+        - path: .state/cross-repo-metrics-duckdb/tasks.md
+          exists: true
+          task_count: 8
+    usage:
+      total_tokens: 51925
+      tool_uses: 10
+      duration_ms: 127891
+  - step_id: validate-artifacts
+    phase: specify
+    status: completed
+    started_at: 2026-04-17T03:55:00Z
+    completed_at: 2026-04-17T03:55:30Z
+    findings:
+      blocking: []
+      warnings:
+        - "discovery.md uses freeform structure instead of strict template (no frontmatter / Personas / UI Direction). Substance present (Problem, UCs, Constraints, Decisions, Open Questions). Candidate /learn finding: validator should be schema-aware for non-UI features."
+    evidence:
+      file_checks:
+        - path: spec.md
+          frontmatter: true
+          ac_count: 8
+          fr_count: 13
+        - path: tasks.md
+          task_count: 8
+          ids_sequential: true
+          all_have_verify: true
+        - path: design.md
+          selected_approach: present
+          approaches: 3
+  - step_id: preview-route
+    phase: specify
+    status: completed
+    started_at: 2026-04-17T04:13:00Z
+    completed_at: 2026-04-17T04:13:30Z
+    evidence:
+      file_checks:
+        - state_yaml_block: route_preview
+          present: true
+          tokens_estimate: 289394
+          cost_estimate_usd: 1.5152
+  - step_id: run-phase-review
+    phase: specify
+    status: failed
+    agent: reviewer
+    attempt: 1
+    started_at: 2026-04-17T04:13:30Z
+    completed_at: 2026-04-17T04:15:00Z
+    review_score:
+      overall: 7
+      dimensions: { spec_compliance: 9, correctness: 9, security: 7, simplicity: 9, code_quality: 9 }
+    findings:
+      critical: []
+      important:
+        - id: F1
+          location: "design.md register-repo.sh skeleton, Block 4 VALUES clause"
+          finding: "Raw shell interpolation of $REPO_ROOT, $change_id, $schema, $status, $started, $completed into SQL heredoc; only payload_json is escaped. Repo path or field with single-quote corrupts INSERT."
+          fix_direction: "Apply single-quote doubling to all interpolated vars before heredoc, OR parameterize via temp JSON + read_json_auto. Add guard: [[ \"$change_id\" =~ ^[a-z0-9-]+$ ]] || skip."
+      suggestions:
+        - id: S1
+          location: "tasks.md T-7 Verify"
+          finding: "grep -A 2 fragile to YAML whitespace changes"
+          fix_direction: "Prefer yq query against .setup.steps array index"
+        - id: S2
+          location: "design.md Risks"
+          finding: "DuckDB exclusive-lock race documented but Verify has no coverage"
+          fix_direction: "Note in step contract verify: 'if duckdb exits non-zero, bootstrap continues'"
+    baseline:
+      historical_avg: 9.25
+      delta: -2.25
+    usage:
+      total_tokens: 35539
+      tool_uses: 9
+      duration_ms: 63800
+  - step_id: fix-tasks-round-2
+    phase: specify
+    status: completed
+    agent: architect
+    started_at: 2026-04-17T04:15:00Z
+    completed_at: 2026-04-17T05:09:00Z
+    fixes_applied:
+      - F1: "sql_quote helper + slug guard ^[a-z0-9._-]+$ — applied to all 7 interpolated SQL values"
+      - S1: "T-7 Verify rewritten to use yq array-index ordering"
+      - S2: "T-6 step contract verify includes non-blocking note"
+    new_artifacts:
+      - "FR-14 (escape + slug guard requirement)"
+      - "AC-9 (malformed change_id skip behavior)"
+      - "T-9 (test fixture for malformed change_id)"
+    usage:
+      total_tokens: 44267
+      tool_uses: 11
+      duration_ms: 3245853
+  - step_id: run-phase-review
+    phase: specify
+    status: completed
+    agent: reviewer
+    attempt: 2
+    started_at: 2026-04-17T05:09:00Z
+    completed_at: 2026-04-17T05:09:36Z
+    review_score:
+      overall: 9
+      dimensions: { spec_compliance: 10, correctness: 9, security: 9, simplicity: 9, code_quality: 9 }
+    findings:
+      critical: []
+      important: []
+      suggestions:
+        - id: S3
+          location: "register-repo.sh sql_quote helper"
+          finding: "Does not escape NUL bytes — negligible for internal tooling"
+          fix_direction: "Optional: add comment acknowledging NUL-free assumption"
+    f1_resolution: verified
+    s1_resolution: verified
+    s2_resolution: verified
+    archive_check: "All 11 existing change_ids match ^[a-z0-9._-]+$"
+    verdict: PASS
+    usage:
+      total_tokens: 30334
+      tool_uses: 5
+      duration_ms: 35527
+  - step_id: capture-test-baseline
+    phase: implement
+    status: completed
+    started_at: 2026-04-17T05:10:00Z
+    completed_at: 2026-04-17T05:10:05Z
+    evidence:
+      file_checks:
+        - state_yaml_block: baseline
+          present: true
+          skipped: true
+          reason: "no test command"
+  - step_id: execute-next-task
+    phase: implement
+    status: completed
+    agent: developer
+    started_at: 2026-04-17T05:10:05Z
+    completed_at: 2026-04-17T05:17:00Z
+    approach:
+      files: ".gitignore, config/scripts/register-repo.sh, config/steps/register-with-orchestrator-home.yaml, config/workflows/bootstrap.yaml, spec/project.yaml"
+      approach: "Implement T-1..T-9 in dependency order; sql_quote+slug guard per round-2 design; METRICS_DB env override added so T-9 fixture doesn't pollute production DB"
+      not_doing: "Reader helpers, dashboard, archive-time hook"
+    tasks_completed: [T-1, T-2, T-3, T-4, T-5, T-6, T-7, T-8, T-9]
+    tasks_quarantined: []
+    commits: 5
+    self_review_score: 9.4
+    findings_for_reviewer:
+      - "3 archives skipped (hl-253-..., quality-gates-phase2, reliability-phase1) because they lack change_id field. Script correctly handles missing field but silently loses ingestable data. Candidate fix: fall back to directory basename when change_id absent."
+      - "T-2 PATH=/usr/bin smoke test adapted to PATH=/usr/bin:/bin to keep bash available — intent (yq/duckdb absent) was tested correctly."
+      - "T-3/T-4/T-5/T-9 are runtime-only verification tasks, no worktree commits made — only state-dir tasks.md updated."
+    usage:
+      total_tokens: 78321
+      tool_uses: 94
+      duration_ms: 442036
+      commits: 5
+  - step_id: run-simplify
+    phase: implement
+    status: completed
+    agent: developer
+    model: sonnet
+    started_at: 2026-04-17T05:17:00Z
+    completed_at: 2026-04-17T05:18:30Z
+    changes:
+      - "Renamed section dividers to match compute-swe-metrics.sh / estimate-cost.sh style"
+      - "Removed 5 'what' comments that restated obvious code"
+    preserved:
+      - "sql_quote security rationale comments"
+      - "slug guard rationale comments"
+      - "tool preflight explanations"
+    commit: aeaf8ae
+    verify_passed: true
+    usage:
+      total_tokens: 43706
+      tool_uses: 23
+      duration_ms: 100960
+  - step_id: run-phase-review
+    phase: implement
+    status: completed
+    agent: reviewer
+    attempt: 1
+    started_at: 2026-04-17T05:18:30Z
+    completed_at: 2026-04-17T05:20:30Z
+    review_score:
+      overall: 9
+      dimensions: { spec_compliance: 9, correctness: 9, security: 9, simplicity: 9, code_quality: 9 }
+    ac_verification:
+      AC-1: pass
+      AC-2: pass
+      AC-3: pass
+      AC-4: pass
+      AC-5: pass
+      AC-6: pass
+      AC-7: pass
+      AC-8: pass
+      AC-9: pass
+    findings:
+      critical: []
+      important:
+        - id: I1
+          location: "config/scripts/register-repo.sh line 118"
+          finding: "3 fully-formed archives (hl-253-..., quality-gates-phase2, reliability-phase1) silently skipped due to missing change_id field. Technically conforms to FR-6 but degrades cross-repo coverage."
+          fix_direction: "Follow-up ticket: fall back to $(basename $(dirname $state_file)) as change_id when missing"
+          decision: "Accept as follow-up (not blocking — within FR-6 spec)"
+      suggestions:
+        - id: S3
+          location: "register-repo.sh sql_quote helper line 101"
+          finding: "Missing NUL-byte assumption comment"
+          fix_direction: "Add # Assumes values are NUL-free"
+    verdict: PASS
+    usage:
+      total_tokens: 36539
+      tool_uses: 22
+      duration_ms: 109164
+  - step_id: run-feature-verification
+    phase: implement
+    status: completed
+    started_at: 2026-04-17T05:20:30Z
+    completed_at: 2026-04-17T05:21:00Z
+    verification_report:
+      acceptance_criteria:
+        ac_1_through_9: pass (verified live in run-phase-review)
+      quality_gates:
+        bash_syntax: pass
+        yaml_lint:
+          step_contract: pass
+          bootstrap_yaml: pass
+          project_yaml: pass
+      project_verify_commands: []
+      git_status: clean
+      commits_on_branch: 6
+    verdict: PASS
+  - step_id: compute-prediction-accuracy
+    phase: complete
+    status: completed
+    started_at: 2026-04-17T05:23:00Z
+    completed_at: 2026-04-17T05:23:30Z
+    accuracy:
+      task_accuracy_pct: 100.0
+      file_overlap_pct: 100.0
+      rework_rate: 0.0
+  - step_id: run-learn-cycle
+    phase: complete
+    status: completed
+    agent: workflow-improver
+    started_at: 2026-04-17T05:24:00Z
+    completed_at: 2026-04-17T05:28:30Z
+    cycle: 11
+    findings_classified:
+      - "F1 ideator misroute: no action — agent rule already exists"
+      - "F2 discovery template mismatch: workflow_improvement — already applied in validate-artifacts.yaml"
+      - "F3 missing change_id skip: code_followup — pending backlog ticket"
+      - "F4 worktree gotcha: no action — already in gotchas"
+      - "F5 atomic round-2 fix: workflow_improvement — added rule to run-phase-review.yaml"
+    files_edited: 5
+    quality_bar:
+      current: 9
+      avg_review_score_last_5: 9.33
+      avg_retry_rate_last_5: 0.0
+      adjustment: none
+    pending_followups:
+      - "register-repo.sh fallback for missing change_id (Finding 3)"
+      - "/learn skill should query metrics.duckdb instead of globbing archive yaml (Finding 6 — surfaced post-cycle by user)"
+    usage:
+      total_tokens: 75447
+      tool_uses: 68
+      duration_ms: 272978
+retries:
+  run-phase-review: 1
+escalation_events: []
+parent_session: autopilot-2026-04-17-001
+route_preview:
+  schema: feature
+  generated_at: 2026-04-17T04:13:12Z
+  agents:
+    - agent: architect
+      backend: native_opus
+      model: claude-opus-4-7
+      pricing: { input: 15.00, output: 75.00, cache_read: 1.50 }
+      share: 0.290127
+      tokens_estimate: 59789
+      cost_estimate_usd: 1.2556
+    - agent: developer
+      backend: qwen
+      model: qwen/qwen3-coder-30b-a3b-instruct
+      pricing: { input: 0.25, output: 1.00, cache_read: 0.25 }
+      share: 0.286808
+      tokens_estimate: 59105
+      cost_estimate_usd: 0.0192
+    - agent: discoverer
+      backend: qwen
+      model: qwen/qwen3-coder-30b-a3b-instruct
+      pricing: { input: 0.25, output: 1.00, cache_read: 0.25 }
+      share: 0.595717
+      tokens_estimate: 122765
+      cost_estimate_usd: 0.0399
+    - agent: haiku-agent
+      backend: qwen
+      model: qwen/qwen3-coder-30b-a3b-instruct
+      pricing: { input: 0.25, output: 1.00, cache_read: 0.25 }
+      share: 0
+      tokens_estimate: 0
+      cost_estimate_usd: 0.0000
+    - agent: ideator
+      backend: native_opus
+      model: claude-opus-4-7
+      pricing: { input: 15.00, output: 75.00, cache_read: 1.50 }
+      share: 0
+      tokens_estimate: 0
+      cost_estimate_usd: 0.0000
+    - agent: reviewer
+      backend: native_sonnet
+      model: claude-sonnet-4-6
+      pricing: { input: 3.00, output: 15.00, cache_read: 0.30 }
+      share: 0.231631
+      tokens_estimate: 47735
+      cost_estimate_usd: 0.2005
+    - agent: sonnet-agent
+      backend: qwen
+      model: qwen/qwen3-coder-30b-a3b-instruct
+      pricing: { input: 0.25, output: 1.00, cache_read: 0.25 }
+      share: 0
+      tokens_estimate: 0
+      cost_estimate_usd: 0.0000
+  estimate:
+    tokens: 289394
+    cost_usd: 1.5152
+    tasks_planned: 8
+    tokens_per_task_median: 25760
+    archive_sample_size: 2
+metrics:
+  tokens:
+    input: 0
+    output: 0
+    cache_creation: 0
+    cache_read: 0
+    total: 483237
+  cost:
+    gross_usd: 0
+    net_usd: 0
+    model: unknown
+    pricing:
+      input: 15.00
+      output: 75.00
+      cache_read: 1.50
+  turns: 0
+  tool_calls: 286
+  api_calls: 0
+  wall_clock_minutes: 0
+  resolution:
+    tasks_total: 9
+    tasks_planned: 9
+    tasks_added: 0
+    tasks_completed: 9
+    tasks_failed: 0
+    resolve_rate: 1.0000
+    pass_at_1: 0
+    pass_at_2: 1.0000
+    regressions: 0
+    regression_rate: 0.0000
+  retries:
+    total: 0
+  human_interventions: 0
+  rework_commits: 0
+  rework_rate: 0
+  churn:
+    files_changed: 0
+    insertions: 0
+    deletions: 0
+    total_commits: 0
+  review_scores: [7,9,9]
+  review_score_avg: 8.3
+  lint_delta: 0
+  category: feature
+  benchmarks:
+    cost_per_task_usd: 0
+    cost_per_resolution_usd: 0
+    tokens_per_task: 53693
+    tokens_per_resolution: 53693
+    input_output_ratio: 0
+    cache_hit_rate: 0
+  estimate_vs_actual:
+    tokens_predicted: 289394
+    tokens_actual: 483237
+    tokens_delta_pct: 0.6698
+    cost_predicted_usd: 1.5152
+    cost_actual_usd: 0
+    cost_delta_pct: -1.0000
+  per_agent_tokens: '{"reviewer":{"total_tokens":102412,"cost_usd":0.000000,"tool_uses":36,"duration_ms":208491,"steps":3},"architect":{"total_tokens":132323,"cost_usd":0.000000,"tool_uses":25,"duration_ms":3547356,"steps":3},"workflow-improver":{"total_tokens":75447,"cost_usd":0.000000,"tool_uses":68,"duration_ms":272978,"steps":1},"developer":{"total_tokens":122027,"cost_usd":0.000000,"tool_uses":117,"duration_ms":542996,"steps":2},"discoverer":{"total_tokens":51028,"cost_usd":0.000000,"tool_uses":40,"duration_ms":214407,"steps":1}}'
+  per_agent_tools: '{}'

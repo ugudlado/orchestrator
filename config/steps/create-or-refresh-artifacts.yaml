@@ -26,7 +26,7 @@ rules:
   - Tasks must be small, verifiable, and ordered.
   - Attach verification criteria per task.
   - Output MUST follow the Task Format Contract in contracts/artifact-formats.md.
-  - "When spec or design introduces a new archive/state path for any producer (autopilot, spike, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`) and confirm the new path is matched before committing the artifact. Otherwise downstream consumers (telemetry, learn, workflow-improver) silently skip the new producer. <!-- learned: 2026-04-16, source: HL-278, cycle: 10, hits: 0, misses: 0, repo: orchestrator -->"
+  - "When spec or design introduces a new archive/state path for any producer (autopilot, spike, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`) and confirm the new path is matched before committing the artifact. Otherwise downstream consumers (telemetry, learn, workflow-improver) silently skip the new producer. <!-- learned: 2026-04-16, source: HL-278, cycle: 10, hits: 1, misses: 0, repo: orchestrator -->"
 
 instruction: |
   ## Part 1: Artifacts

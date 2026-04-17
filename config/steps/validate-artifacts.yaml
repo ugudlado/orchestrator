@@ -22,12 +22,20 @@ instruction: |
   2. For each artifact, run the checks below. Collect all findings before reporting.
 
   ### discovery.md checks
+  Check `state.yaml flags.ux_design` to determine strictness level:
+
+  **When ux_design=true (UI features — full template required):**
   - REQUIRED: frontmatter block present with `feature-id` and `linear-ticket` fields
   - REQUIRED: sections present — Feature Summary, Personas & Actors, Use Cases, Scope (In/Out), UI Direction, Open Questions
   - REQUIRED: Happy Path use cases — at least 2 entries, IDs follow pattern UC-<N> (sequential, no gaps)
   - REQUIRED: Error & Edge Cases — at least 1 entry, IDs follow pattern UC-E<N>
   - REQUIRED: In Scope and Out of Scope each have at least one bulleted item
   - WARNING: Key Decisions section absent or empty (contextual — only warn if design=true)
+
+  **When ux_design=false (infra/config/bash features — substance check only):**
+  - REQUIRED: document is non-empty and describes the problem space
+  - REQUIRED: at least one section covering scope or constraints (any heading)
+  - WARNING (not blocking): UI-template sections (Personas, UI Direction, Use Cases) absent — expected for non-UI features <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb, cycle: 11, hits: 1, misses: 0, repo: orchestrator -->
 
   ### spec.md checks
   - REQUIRED: frontmatter block present with `feature-id` and `linear-ticket` fields
