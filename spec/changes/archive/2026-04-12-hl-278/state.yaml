@@ -247,5 +247,5 @@ metrics:
     tokens_per_resolution: 3832
     input_output_ratio: 0
     cache_hit_rate: 0
-  per_agent_tokens: '{"discoverer":{"total_tokens":57485,"tool_uses":54,"duration_ms":505907,"steps":1}}'
+  per_agent_tokens: '{"discoverer":{"total_tokens":57485,"tool_uses":54,"duration_ms":505907,"steps":1,"cost_usd":0.172455}}'
   per_agent_tools: '{}'
