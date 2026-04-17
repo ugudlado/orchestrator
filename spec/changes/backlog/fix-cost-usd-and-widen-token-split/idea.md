@@ -9,11 +9,14 @@ Two coupled problems with one root cause: (1) `per_agent_metrics.cost_usd` is NU
 ## Why Now
 Every downstream report (`/telemetry`, `/learn`, proposed regression detection, cost-based agent selection) is reading zeros. Commit 8c07afb claimed to seed `agent_pricing` for cost inference but no script joins against it. This is the load-bearing metric for the whole observability stack.
 
-## Fix
+## Fix (this iteration — descoped per diagnosis)
 1. In `compute-swe-metrics.sh`: when a step has tokens but no `cost_usd`, compute from `agent_pricing` by joining on agent name and model.
-2. Widen `step_history.usage`, `per_step_metrics`, `per_agent_metrics` with `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_creation_tokens`. JSONL enrichment already has these — stop flattening at ingest.
-3. Add post-ingest assertion: `total_tokens > 10000 AND cost_usd = 0` must fail.
-4. Add `cache_hit_rate` derived view.
+2. Add post-ingest assertion: `total_tokens > 10000 AND cost_usd = 0` must fail.
+3. Verify with `SELECT COUNT(*) FROM per_agent_metrics WHERE cost_usd > 0` — goes from 0 to non-zero after re-ingest.
+
+## Out of scope (deferred — file separately if still needed after #1 lands)
+- Widening `step_history.usage`, `per_step_metrics`, `per_agent_metrics` with `input_tokens` / `output_tokens` / `cache_read_tokens` / `cache_creation_tokens`. Re-evaluate after a token×price estimate restores cost_usd — the split may or may not be worth the schema migration at that point.
+- `cache_hit_rate` derived view.
 
 ## Priority
 - User value: 10/10 (unblocks every other metric)
