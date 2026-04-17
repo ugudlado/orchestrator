@@ -134,66 +134,117 @@ Rules:
 - Add a CONVENTIONS.md § entry: "Every step writes a complete usage: block"
 - Keep the existing proxy/native extraction logic; add inline-step timing as the default source
 
-### Task D: Surface new metrics in DuckDB
+### Task D: Persist metrics in normalized DuckDB tables
 
-Currently `features.payload_json` is the only column that holds metrics
-detail — every consumer pays the `json_extract` tax on every query.
-With per_step, per_agent, and full step_history capture landing in this
-ticket, the query surface grows. Three deliverables:
+Currently `features.payload_json` is the only place step-level and
+per-agent metrics live. Extracting them via `json_extract` on every
+query works but is fragile: `payload_json` is a convenience blob,
+not durable truth. If disk-cleanup ever trims or drops that column
+(realistic once the fleet grows), historical metrics vanish silently.
 
-**D.1 — Materialized views** (not new tables — zero re-ingest):
+Normalized tables populated at ingest time make metrics a first-class
+asset. Four deliverables:
+
+**D.1 — New tables**:
+
 ```sql
-CREATE OR REPLACE VIEW step_history AS
-SELECT
-  f.repo_root, f.change_id, f.schema, f.completed_at,
-  s.value->>'step_id'        AS step_id,
-  s.value->>'phase'          AS phase,
-  s.value->>'status'         AS status,
-  s.value->>'agent'          AS agent,
-  (s.value->'usage'->>'duration_ms')::BIGINT     AS duration_ms,
-  (s.value->'usage'->>'tool_uses')::BIGINT       AS tool_uses,
-  (s.value->'usage'->>'total_tokens')::BIGINT    AS total_tokens,
-  (s.value->'usage'->>'input_tokens')::BIGINT    AS input_tokens,
-  (s.value->'usage'->>'output_tokens')::BIGINT   AS output_tokens,
-  (s.value->'usage'->>'cost_usd')::DOUBLE        AS cost_usd
-FROM features f,
-     LATERAL json_each(json_extract(f.payload_json, '$.step_history')) s;
+CREATE TABLE IF NOT EXISTS step_history (
+  repo_root     VARCHAR NOT NULL,
+  change_id     VARCHAR NOT NULL,
+  step_ord      INTEGER NOT NULL,          -- position in step_history array (0-indexed)
+  step_id       VARCHAR NOT NULL,
+  phase         VARCHAR,
+  status        VARCHAR,
+  agent         VARCHAR,                    -- NULL for inline steps
+  runtime_agent VARCHAR,                    -- set on compatibility fallback
+  started_at    VARCHAR,
+  completed_at  VARCHAR,
+  duration_ms   BIGINT,
+  tool_uses     BIGINT,
+  tools_json    VARCHAR,                    -- {"Read": 5, "Bash": 2, ...} — per-tool counts
+  total_tokens  BIGINT,
+  input_tokens  BIGINT,
+  output_tokens BIGINT,
+  cost_usd      DOUBLE,
+  retry_round   INTEGER,                    -- NULL unless a retry
+  ingested_at   TIMESTAMP DEFAULT(current_timestamp),
+  PRIMARY KEY (repo_root, change_id, step_ord),
+  FOREIGN KEY (repo_root, change_id) REFERENCES features(repo_root, change_id)
+);
 
-CREATE OR REPLACE VIEW per_agent_rollup AS
-SELECT repo_root, change_id, agent,
-       SUM(total_tokens) AS total_tokens,
-       SUM(cost_usd)     AS cost_usd,
-       SUM(duration_ms)  AS duration_ms,
-       COUNT(*)          AS step_count
-FROM step_history
-WHERE agent IS NOT NULL
-GROUP BY 1, 2, 3;
+CREATE TABLE IF NOT EXISTS per_agent_metrics (
+  repo_root    VARCHAR NOT NULL,
+  change_id    VARCHAR NOT NULL,
+  agent        VARCHAR NOT NULL,
+  total_tokens BIGINT,
+  cost_usd     DOUBLE,
+  duration_ms  BIGINT,
+  tool_uses    BIGINT,
+  step_count   INTEGER,
+  ingested_at  TIMESTAMP DEFAULT(current_timestamp),
+  PRIMARY KEY (repo_root, change_id, agent),
+  FOREIGN KEY (repo_root, change_id) REFERENCES features(repo_root, change_id)
+);
 
-CREATE OR REPLACE VIEW per_step_rollup AS
-SELECT repo_root, change_id, step_id,
-       SUM(total_tokens) AS total_tokens,
-       SUM(cost_usd)     AS cost_usd,
-       SUM(duration_ms)  AS duration_ms,
-       COUNT(*)          AS exec_count
-FROM step_history
-GROUP BY 1, 2, 3;
+CREATE TABLE IF NOT EXISTS per_step_metrics (
+  repo_root    VARCHAR NOT NULL,
+  change_id    VARCHAR NOT NULL,
+  step_id      VARCHAR NOT NULL,
+  total_tokens BIGINT,
+  cost_usd     DOUBLE,
+  duration_ms  BIGINT,
+  tool_uses    BIGINT,
+  exec_count   INTEGER,
+  ingested_at  TIMESTAMP DEFAULT(current_timestamp),
+  PRIMARY KEY (repo_root, change_id, step_id),
+  FOREIGN KEY (repo_root, change_id) REFERENCES features(repo_root, change_id)
+);
 ```
 
-**D.2 — View creation on register-repo.sh + ingest**:
-- View DDL runs at the top of `register-repo.sh` (idempotent — `CREATE OR REPLACE VIEW`)
-- No schema migration; existing rows work unchanged since views read `payload_json`
+Tool breakdowns stay as JSON in `step_history.tools_json` — a per-tool
+table (one row per step+tool) is over-normalization for the current
+query patterns. If we ever need `SELECT tool_name, SUM(count)`, split
+it then.
 
-**D.3 — New named queries in metrics-query.sh**:
-- `step-cost-hotspots` — `SELECT step_id, SUM(cost_usd) ... GROUP BY step_id ORDER BY 2 DESC LIMIT 10`
-- `agent-cost-hotspots` — same for agent
+**D.2 — Ingest logic in `register-repo.sh`**:
+
+For each archived state.yaml being ingested:
+1. Parse state.yaml into JSON (existing yq step)
+2. Upsert the `features` row (existing logic, including `payload_json` for backward compat)
+3. **New**: DELETE then INSERT into `step_history` for this `(repo_root, change_id)` — every entry in `step_history[]` becomes one row, indexed by `step_ord`
+4. **New**: DELETE then INSERT into `per_agent_metrics` — derived from `metrics.per_agent_tokens`
+5. **New**: DELETE then INSERT into `per_step_metrics` — derived from `metrics.per_step`
+
+The DELETE+INSERT pattern keeps re-ingest idempotent (same input → same
+rows). A feature's row count in each table is deterministic.
+
+**D.3 — `payload_json` stays for now, can be dropped later**:
+
+Keep `features.payload_json` for this ticket — it's still the fallback
+for fields we haven't normalized (spec references, prediction accuracy,
+review findings text, etc.). A follow-up ticket can normalize those and
+drop the column when every consumer has migrated.
+
+**D.4 — Backfill existing archived features**:
+
+Re-run `register-repo.sh --rebuild` against `/Users/spidey/code/orchestrator`
+after Task C lands. The 12 existing archived features get their step_history
+rows populated (agent-spawning steps only, since inline steps pre-Task-C
+don't have the data in state.yaml — that's expected; they're historical).
+
+**D.5 — New named queries in metrics-query.sh**:
+- `step-cost-hotspots` — `SELECT step_id, SUM(cost_usd) FROM per_step_metrics GROUP BY step_id ORDER BY 2 DESC LIMIT 10`
+- `agent-cost-hotspots` — same for per_agent_metrics
 - `agent-duration-outliers` — agents with avg duration > 2x fleet median
-- Keep existing 5 named queries untouched
+- Keep existing 5 named queries untouched (they still work — `features` table is unchanged)
 
-**Why views instead of new tables**
-- Zero re-ingest: existing 12 archived features work immediately
-- `payload_json` stays source of truth; no dual-write risk
-- DuckDB JSON extraction is fast enough for fleet-sized query loads (< 100 features)
-- If volume grows past 10K+ features, switch to materialized tables; the view DDL is the migration path
+**Why normalized tables (not views)**
+
+- Durability: metrics survive even if `payload_json` is dropped/cleaned
+- Joinability: `SELECT f.schema, SUM(s.cost_usd) FROM features f JOIN step_history s ...`
+- Performance: simple column scans vs nested JSON extraction on every query
+- Clear schema: consumers see typed columns, not "parse this JSON path"
+- Standard SQL: works with any tool that connects to DuckDB (external dashboards, notebooks)
 
 ## Scope
 
@@ -206,14 +257,16 @@ GROUP BY 1, 2, 3;
 - `config/steps/execute-next-task.yaml` (append developer simplify pass after last task)
 - `config/scripts/compute-swe-metrics.sh` (per-step aggregation pass + schema validator warning)
 - Backfill archived features with zero-cost metrics (list as evidence in PR)
-- `config/scripts/register-repo.sh` (add `CREATE OR REPLACE VIEW` DDL at top)
-- `config/scripts/metrics-query.sh` (add 3 new named queries backed by views)
-- New tests in `config/scripts/metrics-query.test.sh` covering the new named queries + views
+- `config/scripts/register-repo.sh` — add table DDL (idempotent `CREATE TABLE IF NOT EXISTS`); add ingest logic for `step_history`, `per_agent_metrics`, `per_step_metrics`
+- `config/scripts/metrics-query.sh` — add 3 new named queries against new tables
+- `config/scripts/metrics-query.test.sh` — fixture DB now populates new tables; tests for new queries
+- Backfill via `register-repo.sh --rebuild` after Task C lands — existing 12 archived features re-ingest into new tables
 
 **Out-of-scope:**
 - Changes to the Agent tool itself
 - JSONL ingest script changes
-- Physical table schema changes (only views added; re-ingest not required)
+- Dropping `payload_json` column (that's a follow-up once all consumers have migrated)
+- Normalizing spec/design/review text fields into tables (follow-up)
 - Touching `run-phase-review.yaml` for the specify phase (that stays)
 
 ## Acceptance criteria
@@ -229,10 +282,12 @@ GROUP BY 1, 2, 3;
 - AC-9: State-schema validator emits a stderr warning (not an error) when step_history entries are missing required fields; does not block the complete phase; prints coverage ratio ("N/M entries complete")
 - AC-10: `per_agent_tokens` covers all spawned agents (not just 2-3) on a fresh autopilot run — verified by cross-checking against `grep '^    agent:' state.yaml | sort -u`
 - AC-11: `orchestrate.md` and `CONVENTIONS.md` document the required usage: schema so future step writers know the contract
-- AC-12: `register-repo.sh` creates (or replaces) `step_history`, `per_agent_rollup`, `per_step_rollup` views; running it against an existing DB is idempotent
-- AC-13: Views expose per-step and per-agent metrics via SQL (not `json_extract`): `SELECT agent, total_tokens FROM per_agent_rollup WHERE change_id = 'X'` returns one row per agent
-- AC-14: `metrics-query.sh` supports `step-cost-hotspots`, `agent-cost-hotspots`, `agent-duration-outliers` named queries backed by the new views
-- AC-15: All existing metrics-query.sh tests still pass (27+); new tests added for the 3 new queries
+- AC-12: `register-repo.sh` creates `step_history`, `per_agent_metrics`, `per_step_metrics` tables via `CREATE TABLE IF NOT EXISTS`; repeated runs are idempotent
+- AC-13: Each archived feature ingest populates the three new tables; re-ingest (DELETE+INSERT by PK) produces identical row counts and values
+- AC-14: Queries against the new tables work without `json_extract`: `SELECT agent, total_tokens FROM per_agent_metrics WHERE change_id = 'X'` returns one row per agent
+- AC-15: `metrics-query.sh` supports `step-cost-hotspots`, `agent-cost-hotspots`, `agent-duration-outliers` named queries backed by the new tables
+- AC-16: All existing metrics-query.sh tests still pass (27+); new tests added for the 3 new queries + table population
+- AC-17: Backfill run (`register-repo.sh --rebuild` on orchestrator repo) populates `step_history`, `per_agent_metrics`, `per_step_metrics` for all 12 existing archived features; row counts documented in PR
 
 ## Why one ticket
 
