@@ -1,0 +1,55 @@
+id: verify-spike-findings
+version: 1
+
+intent: Confirm the spike answered the question it set out to explore.
+
+inputs:
+  - spike-brief.md
+  - spike-findings.md
+
+rules:
+  - A spike is defined by its question. Verification confirms the question was answered, not that code was polished or tasks were ticked.
+  - The recommendation must be machine-classifiable — prose without a verdict is a failed spike even if the writeup is long.
+  - Do not evaluate the recommendation's correctness; only that it exists and is concrete.
+
+instruction: |
+  1. Read $WORKFLOW_STATE_DIR/$CHANGE_ID/spike-brief.md.
+     Locate the "## Question" section. Extract its body text.
+     If the section is missing or empty (only the template placeholder
+     comment remains) → fail assertion 1.
+
+  2. Read $WORKFLOW_STATE_DIR/$CHANGE_ID/spike-findings.md.
+     Locate the "## Recommendations" section. Extract its body text.
+     If the section is missing or empty (only the template placeholder
+     comment remains) → fail assertion 2.
+
+  3. Classify the recommendation. Scan the Recommendations body for a
+     verdict line matching one of these classifiers (case-insensitive):
+       - `proceed` / `promote` / `ship` / `adopt`
+       - `don't proceed` / `do not proceed` / `abandon` / `reject`
+       - `investigate further` / `needs more investigation` / `more research`
+       - An explicit decision value when the question asked "which one"
+         (e.g., "Use Postgres", "Choose option B") — a concrete named
+         choice qualifies.
+     If no classifier line is found → fail assertion 3. A Recommendations
+     section containing only discussion without a verdict does not pass.
+
+  4. Confirm the recommendation addresses the question. The question's
+     subject (the thing being decided / the feasibility being tested /
+     the unknown being resolved) must appear in or be directly referenced
+     by the Recommendations body. Mismatch (e.g., question asked about
+     Redis, findings recommend adopting Kafka with no bridge explanation)
+     → fail assertion 4.
+
+  5. Update state.yaml step_history per CONVENTIONS.md § State Updates.
+
+verify:
+  evidence_required: true
+  assertions:
+    - spike-brief.md has a non-empty "## Question" section
+    - spike-findings.md has a non-empty "## Recommendations" section
+    - Recommendations contain a machine-classifiable verdict (proceed / don't proceed / investigate further / explicit named decision)
+    - Recommendation references the question's subject — no topic mismatch
+
+outputs:
+  - spike_verification_result

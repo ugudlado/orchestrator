@@ -59,6 +59,7 @@ phases:
         template: spike-findings.md
     steps:
       - create-or-refresh-artifacts
+      - verify-spike-findings
 
   - name: complete
     goal: Capture resource usage metrics and archive the spike.
