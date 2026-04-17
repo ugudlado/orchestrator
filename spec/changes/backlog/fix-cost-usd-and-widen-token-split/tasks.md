@@ -20,7 +20,7 @@
   Verify: `grep '2026-04-17-cross-repo-metrics-duckdb' spec/changes/backlog/fix-cost-usd-and-widen-token-split/fix-plan.md spec/changes/backlog/fix-cost-usd-and-widen-token-split/idea.md` returns matches in both files.
   depends: T-4
 
-- [ ] T-6: Add multi-agent test case to compute-swe-metrics-cost.test.sh
+- [x] T-6: Add multi-agent test case to compute-swe-metrics-cost.test.sh
   Rationale: The T-1 fixture (state.native-agent.yaml) contains only a single developer step. Commit bb38263 fixed an awk loop break bug (exit-on-unknown-agent) that the single-agent fixture never exercises. Add a second fixture or extend the existing fixture with one step for "unknown-agent" (not in agent_pricing). Add two assertions: developer cost_usd = 0.150000 AND unknown-agent cost_usd = 0.000000 (loop advances past unknown, does not short-circuit the known agent).
   Verify: `bash config/scripts/__tests__/compute-swe-metrics-cost.test.sh` exits 0 with "Results: N passed, 0 failed" where N >= 2 (multi-agent assertions included).
   depends: T-3

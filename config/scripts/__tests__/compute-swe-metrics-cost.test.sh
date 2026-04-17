@@ -83,11 +83,22 @@ PER_AGENT_JSON=$(echo "$METRICS_OUTPUT" | grep 'per_agent_tokens:' | sed "s/.*pe
 # Format: "developer":{"total_tokens":50000,"cost_usd":0.150000,...}
 DEVELOPER_COST=$(echo "$PER_AGENT_JSON" | grep -o '"developer":{[^}]*}' | grep -o '"cost_usd":[0-9.]*' | cut -d: -f2)
 
+# Extract unknown-agent cost_usd — agent not in agent_pricing, cost must stay 0
+UNKNOWN_COST=$(echo "$PER_AGENT_JSON" | grep -o '"unknown-agent":{[^}]*}' | grep -o '"cost_usd":[0-9.]*' | cut -d: -f2)
+
 # ── Test: cost_usd_inferred_from_agent_pricing_when_step_cost_absent ─────
 # Expected: 50000 * 3.0 / 1000000 = 0.15 (formatted as %.6f = 0.150000)
 check "cost_usd_inferred_from_agent_pricing_when_step_cost_absent" \
   "$DEVELOPER_COST" \
   "0.150000"
+
+# ── Test: unknown_agent_cost_stays_zero_when_not_in_agent_pricing ─────────
+# unknown-agent has total_tokens=30000 but no agent_pricing row.
+# The awk loop must advance past it without short-circuiting the known agents.
+# Expected: cost_usd = 0.000000 (no pricing row => no inference)
+check "unknown_agent_cost_stays_zero_when_not_in_agent_pricing" \
+  "$UNKNOWN_COST" \
+  "0.000000"
 
 # ── Summary ──────────────────────────────────────────────────────────────
 echo ""
