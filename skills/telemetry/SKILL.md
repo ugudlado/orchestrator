@@ -8,7 +8,17 @@ args:
       What to show: "recent" (last 5 features, default), "all" (all features),
       or a feature ID for a single feature's breakdown.
     required: false
+  - name: fleet
+    description: >
+      Pass `--fleet` to show metrics across all repos (cross-repo view).
+      Default (no flag) shows only the current repo.
+    required: false
 ---
+
+## Invocation
+
+Default: per-repo view of the current repository.
+Use `/telemetry --fleet` for a cross-repo view aggregated across all registered repos.
 
 ## Variables
 
@@ -17,31 +27,43 @@ REPO_ROOT=${REPO_ROOT:-$(git rev-parse --show-toplevel)}
 REPO_NAME=${REPO_NAME:-$(basename "$REPO_ROOT")}
 ORCHESTRATOR_HOME=${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}
 WORKFLOW_STATE_DIR=${WORKFLOW_STATE_DIR:-$REPO_ROOT/.state}
+METRICS_QUERY=${METRICS_QUERY:-$(git rev-parse --show-toplevel)/config/scripts/metrics-query.sh}
+FLEET_FLAG=${FLEET_FLAG:-}   # set to "--fleet" when invoked with --fleet
 ```
 
 ## Execution
 
 ### 1. Gather data
 
-Read from these sources (skip any that don't exist):
+**Primary source — DuckDB (archived metrics):**
 
-- **`spec/changes/archive/*/state.yaml`** — archived workflows with full metrics (primary source)
-- **`$WORKFLOW_STATE_DIR/*/state.yaml`** — active/recent workflows with step_history
+Invoke `metrics-query.sh` based on scope. All invocations default to per-repo;
+pass `$FLEET_FLAG` (which equals `--fleet` when the user invoked `/telemetry --fleet`)
+to aggregate across all registered repos.
 
-Each archived state.yaml contains a `metrics:` block with tokens, cost, resolution,
-churn, review_scores, per_agent_tokens, and per_agent_tools data.
+- **`recent` mode (default):** `$METRICS_QUERY recent-features --limit 5 $FLEET_FLAG`
+- **`all` mode:** `$METRICS_QUERY recent-features $FLEET_FLAG`
+- **trend analysis:** `$METRICS_QUERY cost-trend $FLEET_FLAG` and `$METRICS_QUERY quality-trend $FLEET_FLAG`
 
-Filter by scope:
-- `recent` (default): last 5 archived state.yaml files (sorted by modification time)
-- `all`: all archived state.yaml files
-- `<feature-id>`: single feature match by change_id or slug
+If `metrics-query.sh` exits non-zero or produces no output (DB absent, repo unregistered,
+no rows), fall back to reading archived state.yaml files directly:
+- **`recent` mode fallback:** `ls -t spec/changes/archive/*/state.yaml | head -5`
+- **`all` mode fallback:** `ls -t spec/changes/archive/*/state.yaml`
+
+For each state.yaml returned, extract `feature_id`, `status`, `completed_at`, and the `metrics:` block directly from the YAML.
+
+**Secondary source — active feature state (ephemeral, not in DB):**
+
+Merge `$WORKFLOW_STATE_DIR/*/state.yaml` for currently-in-progress features.
+This YAML is ephemeral workflow state, not archived metrics; always read it directly.
 
 ### 2. Compute dashboard metrics
 
-From archived state.yaml `metrics:` blocks:
+From the `recent-features` rows (each row contains `change_id`, `status`,
+`completed_at`, and `payload_json` with the full metrics block):
 
 **Cost & Tokens**
-- Total cost (USD) — sum of `metrics.cost.net_usd`
+- Total cost (USD) — sum of `metrics.cost.net_usd` from `payload_json`
 - Average cost per feature
 - Total tokens — sum of `metrics.tokens.total` (with input/output/cache breakdown)
 - Average cache hit rate — `metrics.benchmarks.cache_hit_rate`
@@ -129,7 +151,10 @@ Present as a formatted text dashboard:
 
 ### 5. Trend analysis (when >3 features)
 
-If there are 4+ features in scope, show trend arrows:
+If there are 4+ features in scope, fetch trend data and show trend arrows.
+Use `$METRICS_QUERY cost-trend $FLEET_FLAG` for cost trend and
+`$METRICS_QUERY quality-trend $FLEET_FLAG` for quality trend.
+If either call exits non-zero or returns empty output, skip that trend silently.
 
 - Cost trend: ↑ increasing / ↓ decreasing / → stable
 - Quality trend: review scores improving/declining

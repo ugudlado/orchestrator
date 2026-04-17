@@ -51,7 +51,7 @@ Collect the evaluator's inputs from state.yaml:
 
 Before evaluating, scan archived state.yaml files across recent features to detect systemic retry patterns.
 
-1. **Collect archive data**: Find the last 10 completed features by listing `spec/changes/archive/*/state.yaml` sorted by modification time (most recent first, limit 10). For each, read the file and extract:
+1. **Collect archive data**: Run `config/scripts/metrics-query.sh retry-hotspots --fleet --limit 10`; if the helper exits non-zero or returns empty, fall back to listing `spec/changes/archive/*/state.yaml` sorted by modification time (most recent first, limit 10). For each record, extract:
    - `feature_id`
    - `step_history[].retries` (retry count per step entry)
    - `step_history[].retry_reasons[]` (list of reason strings per retry)
@@ -227,7 +227,7 @@ After classification:
 - Apply the rule to the appropriate section of the target step contract
 - **IMPORTANT — Rule metadata**: When the workflow-improver writes a learned rule, it MUST append the metadata comment inline on the same line as the rule text:
   `<!-- learned: YYYY-MM-DD, source: FEATURE-ID, cycle: N, repo: REPO_NAME -->`
-  Where: `YYYY-MM-DD` = today's date, `FEATURE-ID` = the feature being evaluated, `N` = current cycle count (count of `spec/changes/archive/*/state.yaml` files), `REPO_NAME` = `basename $(git rev-parse --show-toplevel)` (the repo that generated this rule).
+  Where: `YYYY-MM-DD` = today's date, `FEATURE-ID` = the feature being evaluated, `N` = current cycle count (run `config/scripts/metrics-query.sh cycle-count`; if it exits non-zero or is empty, fall back to `ls spec/changes/archive/*/state.yaml 2>/dev/null | wc -l`), `REPO_NAME` = `basename $(git rev-parse --show-toplevel)` (the repo that generated this rule).
   **Repo scoping**: Default to `repo: $REPO_NAME` (repo-scoped). Only use `repo: *` (universal) when the rule is about workflow mechanics itself (e.g., "always write next_step before spawn") and NOT about tech-stack, domain, or repo-specific patterns.
   This is required by `$ORCHESTRATOR_HOME/config/steps/CONVENTIONS.md` § Rule Lifecycle Convention.
   Permanent (hand-written) rules already in the step contract MUST NOT receive a metadata comment.
@@ -252,7 +252,7 @@ This sub-step runs on every learn invocation. It updates hit/miss counters on
 learned rules based on the just-completed feature's step retry data.
 
 **Update counters**:
-1. Read the just-completed feature's `step_history[]` from state.yaml.
+1. Get recent completed features: run `config/scripts/metrics-query.sh recent-features --limit 10`; if it exits non-zero or returns empty, fall back to listing `spec/changes/archive/*/state.yaml`. Read the just-completed feature's `step_history[]` from the state.yaml.
 2. Build a map: `step_retries[step_id] = total retry count for that step`.
    A step with no retries has count 0.
 3. List all `$ORCHESTRATOR_HOME/config/steps/*.yaml` files.
@@ -271,7 +271,7 @@ This sub-step runs only when the current cycle count is a multiple of 5. It scan
 step contracts for ineffective learned rules and removes flagged rules.
 
 **Trigger check**:
-1. Count archived state.yaml files: `ls spec/changes/archive/*/state.yaml 2>/dev/null | wc -l` as cycle count K.
+1. Count archived state.yaml files: run `config/scripts/metrics-query.sh cycle-count`; if it exits non-zero or returns empty, fall back to `ls spec/changes/archive/*/state.yaml 2>/dev/null | wc -l`. Use the result as cycle count K.
 2. If `K % 5 != 0`: skip this sub-step entirely. Log: `[learn] Rule decay: skipped (cycle K, next at cycle M)`.
 3. If `K % 5 == 0`: proceed.
 
@@ -311,7 +311,7 @@ step contracts for ineffective learned rules and removes flagged rules.
 This sub-step runs after §5b on every learn invocation. It reads recent performance metrics and adjusts `quality_bar.scoring.green_base` in `spec/project.yaml` when trends warrant it.
 
 **Read metrics**:
-1. Read the last 5 archived state.yaml files: `ls -t spec/changes/archive/*/state.yaml | head -5`.
+1. Run `config/scripts/metrics-query.sh quality-trend --limit 5`; if it exits non-zero or returns empty, fall back to reading the last 5 archived state.yaml files via `ls -t spec/changes/archive/*/state.yaml | head -5`.
 2. For each state.yaml, extract review score and retry rate from the `metrics:` block:
    - **Review score**: `metrics.review_score_avg` → fallback to omit entry
    - **Retry rate**: `metrics.retries.total / metrics.resolution.tasks_total` if both exist → fallback to `0`
