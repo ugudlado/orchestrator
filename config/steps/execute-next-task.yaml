@@ -138,6 +138,22 @@ instruction: |
      Do NOT increment retries for this task.
      Wait for architect guidance before resuming implementation.
 
+  FINAL-TASK SIMPLIFY PASS (runs only when no unchecked tasks remain after step 6):
+  If the repeat condition is met (all tasks complete), before this step returns:
+
+  10. Run a developer simplify pass over the files changed in this feature:
+      a. Identify all files modified by commits in this feature branch:
+         `git diff --name-only <first-feature-commit>^..HEAD`
+      b. For each file, check for simplification opportunities:
+         - Remove dead code (unreachable branches, unused variables)
+         - Extract duplicated logic into helpers (if 3+ identical blocks)
+         - Simplify over-engineered abstractions (replace with direct calls)
+         - Fix naming inconsistencies or misleading identifiers
+      c. If simplification changes are made: commit them with message:
+         `chore(<change-id>): simplify pass after final task`
+      d. If no simplification opportunities found: emit a no-op commit or skip.
+      This runs in the same developer agent spawn as the final task — no new spawn.
+
   This step is typically used with `repeat_until: all_tasks_completed`.
   The agent re-executes this step for each task until all are done.
 
