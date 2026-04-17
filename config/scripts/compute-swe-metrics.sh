@@ -480,9 +480,12 @@ if [[ -f "$_METRICS_DB" ]] && command -v duckdb >/dev/null 2>&1; then
         next
       }
       {
+        done = ""
         line = $0
         # For each agent entry with cost_usd:0.000000 and total_tokens > 0,
         # replace the cost_usd value with the inferred cost.
+        # We split line into done (already processed) + line (remaining to scan)
+        # so the while loop never re-matches an already-visited segment.
         while (match(line, /"[^"]+":{"total_tokens":[0-9]+,"cost_usd":0\.000000/)) {
           seg  = substr(line, RSTART, RLENGTH)
           pre  = substr(line, 1, RSTART - 1)
@@ -497,14 +500,13 @@ if [[ -f "$_METRICS_DB" ]] && command -v duckdb >/dev/null 2>&1; then
           if (tok_val > 0 && (agent_name in price)) {
             inferred = tok_val * price[agent_name] / 1000000
             gsub(/0\.000000/, sprintf("%.6f", inferred), seg)
-            line = pre seg rest
-          } else {
-            # Unknown agent or zero tokens: break to avoid infinite loop.
-            # The regex would re-match indefinitely if cost_usd stays 0.
-            break
           }
+          # In both branches: consume pre+seg into done, continue scanning rest.
+          # This prevents re-matching the same position whether or not we updated it.
+          done = done pre seg
+          line = rest
         }
-        print line
+        print done line
       }
     ' "$_PRICING_FILE" "$_JSON_FILE")
     rm -f "$_JSON_FILE"
