@@ -398,7 +398,7 @@ PER_AGENT_TOKENS=$(awk '
   /^step_history:/ { in_history=1; next }
   in_history && /^[^ ]/ && !/^  / { in_history=0 }
   function flush_entry() {
-    if (agent != "" && total_tokens > 0) {
+    if (agent != "" && (total_tokens > 0 || tool_uses > 0 || duration_ms > 0)) {
       tok[agent]  += total_tokens
       cost[agent] += cost_usd
       uses[agent] += tool_uses
