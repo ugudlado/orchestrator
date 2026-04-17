@@ -13,3 +13,4 @@ spec/changes/*/state.yaml
 .env
 .mcp.json
 .pricing-cache.json
+*.duckdb

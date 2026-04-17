@@ -16,10 +16,13 @@ defaults:
   auto_approve_phases: true
   linear: false
   portless: true
+  metrics: true
 
 flags:
   --no-portless:
     sets: { portless: false }
+  --no-metrics:
+    sets: { metrics: false }
   --linear:
     sets: { linear: true }
 
@@ -62,5 +65,6 @@ phases:
       - setup-portless if portless
       - check-linear-config if linear
       - write-bootstrap-state
+      - register-with-orchestrator-home if metrics
       - verify-report
       - bootstrap-commit
