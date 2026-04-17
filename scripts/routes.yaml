@@ -1,12 +1,13 @@
 # Agent routing — native_<model> = host sub-agent, else = proxy
 agents:
-  architect:    native_opus
-  ideator:      native_opus
-  reviewer:     native_sonnet
-  developer:    qwen
-  discoverer:   qwen
-  sonnet-agent: qwen
-  haiku-agent:  qwen
+  architect:         native_opus
+  ideator:           native_opus
+  reviewer:          native_sonnet
+  developer:         native_sonnet
+  discoverer:        native_sonnet
+  workflow-improver: native_sonnet
+  sonnet-agent:      native_sonnet
+  haiku-agent:       native_sonnet
 
 # Model backends
 models:
