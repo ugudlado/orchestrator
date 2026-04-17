@@ -46,7 +46,11 @@ to aggregate across all registered repos.
 - **trend analysis:** `$METRICS_QUERY cost-trend $FLEET_FLAG` and `$METRICS_QUERY quality-trend $FLEET_FLAG`
 
 If `metrics-query.sh` exits non-zero or produces no output (DB absent, repo unregistered,
-no rows), skip the DuckDB source silently and fall back to the YAML glob below.
+no rows), fall back to reading archived state.yaml files directly:
+- **`recent` mode fallback:** `ls -t spec/changes/archive/*/state.yaml | head -5`
+- **`all` mode fallback:** `ls -t spec/changes/archive/*/state.yaml`
+
+For each state.yaml returned, extract `feature_id`, `status`, `completed_at`, and the `metrics:` block directly from the YAML.
 
 **Secondary source — active feature state (ephemeral, not in DB):**
 
