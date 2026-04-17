@@ -1,0 +1,46 @@
+change_id: autopilot-autopilot-2026-04-17-001
+schema: autopilot
+status: completed
+started_at: 2026-04-17 17:00:45+00:00
+iterations:
+  - number: 1
+    ticket: metrics-capture-and-workflow-streamlining
+    schema: feature
+    status: completed
+    started_at: 2026-04-17 17:00:55+00:00
+    completed_at: 2026-04-17 17:51:12+00:00
+    metrics:
+      tokens:
+        total: 446634
+      duration_ms: 4800000
+      churn:
+        files_changed: 25
+  - number: 2
+    ticket: duckdb-ingest-normalized-metrics-tables
+    schema: feature
+    status: completed
+    started_at: '2026-04-17T17:51:26Z'
+    completed_at: '2026-04-17T18:55:58Z'
+    metrics:
+      tokens:
+        total: 0
+      duration_ms: 3000000
+      churn:
+        files_changed: 5
+completed_at: '2026-04-17T18:56:44Z'
+metrics:
+  category: autopilot
+  tokens:
+    total: 446634
+  duration_ms: 7800000
+  churn:
+    files_changed: 30
+  resolution:
+    resolve_rate: null
+    pass_at_1: null
+    pass_at_2: null
+    regression_rate: null
+    tasks_total: null
+    iterations_completed: 2
+    iterations_failed: 0
+    iterations_empty: 0
