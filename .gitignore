@@ -3,6 +3,11 @@
 .tooling-state.json
 .tmp/
 
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
 # Workflow state (ephemeral, per-repo)
 .state/
 !.state/.gitkeep

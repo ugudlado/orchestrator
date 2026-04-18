@@ -11,8 +11,10 @@ Exit codes: 0=action, 1=complete_workflow, 2=blocked, 3=error.
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 # Paths are relative to the worktree root, resolved from this file's location.
@@ -24,14 +26,22 @@ _BIN_ORCHESTRATOR = os.path.join(_WORKTREE_ROOT, "bin", "orchestrator")
 _STEP_CONTRACTS_DIR = os.path.join(_FIXTURES_DIR, "step_contracts")
 
 
-def _run_next(fixture_name: str) -> subprocess.CompletedProcess:
-    """Run `bin/orchestrator next <fixture>` and capture result."""
+def _run_next(fixture_name: str, metrics_db_path: str) -> subprocess.CompletedProcess:
+    """Run `bin/orchestrator next <fixture>` and capture result.
+
+    metrics_db_path must be a per-test temp path so dispatcher tests do not
+    create a side-effect metrics.duckdb in the worktree root.
+    ORCHESTRATOR_HOME is intentionally omitted — tests use METRICS_DB directly.
+    """
     fixture_path = os.path.join(_FIXTURES_DIR, fixture_name)
     env = os.environ.copy()
-    env["ORCHESTRATOR_HOME"] = _WORKTREE_ROOT
+    # Point upsert at an isolated per-test DB (not the worktree root).
+    env["METRICS_DB"] = metrics_db_path
     env["ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE"] = _STEP_CONTRACTS_DIR
     # Ensure the worktree scripts are on the path
     env["PYTHONPATH"] = os.path.join(_WORKTREE_ROOT, "config", "scripts")
+    # Remove ORCHESTRATOR_HOME so the fallback path is never used.
+    env.pop("ORCHESTRATOR_HOME", None)
     return subprocess.run(
         [sys.executable, _BIN_ORCHESTRATOR, "next", fixture_path],
         capture_output=True,
@@ -49,6 +59,18 @@ def _load_golden(golden_name: str) -> str:
 
 class TestOrchestratorNextDispatcher(unittest.TestCase):
     """6 fixture-driven dispatcher tests for orchestrator next."""
+
+    def setUp(self):
+        # Isolated tempdir per test — metrics.duckdb goes here, not the worktree root.
+        self._tmpdir = tempfile.mkdtemp(prefix="orch_dispatcher_test_")
+        self._metrics_db = os.path.join(self._tmpdir, "test.duckdb")
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _run(self, fixture_name: str) -> subprocess.CompletedProcess:
+        """Convenience wrapper that passes the per-test metrics DB path."""
+        return _run_next(fixture_name, self._metrics_db)
 
     def _assert_json_matches_golden(self, stdout: str, golden_name: str) -> None:
         """Parse stdout as JSON and compare to golden (key-sorted, indented)."""
@@ -81,7 +103,7 @@ class TestOrchestratorNextDispatcher(unittest.TestCase):
         """state-pending-inline.yaml: next step has no run: → action: run_inline, exit 0."""
         fixture = "state-pending-inline.yaml"
         mtime_before = self._get_mtime(fixture)
-        result = _run_next(fixture)
+        result = self._run(fixture)
         mtime_after = self._get_mtime(fixture)
 
         self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
@@ -92,7 +114,7 @@ class TestOrchestratorNextDispatcher(unittest.TestCase):
         """state-pending-runfield.yaml: next step has run: → action: run_step, exit 0."""
         fixture = "state-pending-runfield.yaml"
         mtime_before = self._get_mtime(fixture)
-        result = _run_next(fixture)
+        result = self._run(fixture)
         mtime_after = self._get_mtime(fixture)
 
         self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
@@ -103,7 +125,7 @@ class TestOrchestratorNextDispatcher(unittest.TestCase):
         """state-in-progress-no-ended.yaml: last entry in_progress without ended_at → retry_step."""
         fixture = "state-in-progress-no-ended.yaml"
         mtime_before = self._get_mtime(fixture)
-        result = _run_next(fixture)
+        result = self._run(fixture)
         mtime_after = self._get_mtime(fixture)
 
         self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
@@ -114,7 +136,7 @@ class TestOrchestratorNextDispatcher(unittest.TestCase):
         """state-phase-done-needs-verify.yaml: all steps done, phase has verify block → verify_phase."""
         fixture = "state-phase-done-needs-verify.yaml"
         mtime_before = self._get_mtime(fixture)
-        result = _run_next(fixture)
+        result = self._run(fixture)
         mtime_after = self._get_mtime(fixture)
 
         self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
@@ -125,7 +147,7 @@ class TestOrchestratorNextDispatcher(unittest.TestCase):
         """state-all-done.yaml: every phase complete → complete_workflow, exit 1."""
         fixture = "state-all-done.yaml"
         mtime_before = self._get_mtime(fixture)
-        result = _run_next(fixture)
+        result = self._run(fixture)
         mtime_after = self._get_mtime(fixture)
 
         self.assertEqual(result.returncode, 1, f"stderr: {result.stderr}")
@@ -136,7 +158,7 @@ class TestOrchestratorNextDispatcher(unittest.TestCase):
         """state-escalate.yaml: last entry escalate_to_architect → blocked, exit 2."""
         fixture = "state-escalate.yaml"
         mtime_before = self._get_mtime(fixture)
-        result = _run_next(fixture)
+        result = self._run(fixture)
         mtime_after = self._get_mtime(fixture)
 
         self.assertEqual(result.returncode, 2, f"stderr: {result.stderr}")
