@@ -1,4 +1,6 @@
 id: capture-test-baseline
+inline: true
+run: scripts/inline/capture-test-baseline.sh
 version: 1
 
 intent: Record the pre-implementation test suite state for later regression detection.

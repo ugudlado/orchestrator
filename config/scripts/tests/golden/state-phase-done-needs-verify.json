@@ -6,6 +6,6 @@
   "commands": [
     "echo check"
   ],
-  "estimated_cost_so_far": 0.0,
+  "cost_so_far": 0.0,
   "phase": "implement"
 }

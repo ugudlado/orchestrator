@@ -1,4 +1,6 @@
 id: remove-worktree
+inline: true
+run: scripts/inline/remove-worktree.sh
 version: 1
 
 intent: Remove the feature worktree and clean up the feature branch after archive.

@@ -1,4 +1,6 @@
 id: preview-route
+inline: true
+run: scripts/inline/preview-route.sh
 version: 1
 
 intent: Show which agent→model routes will run this feature and an estimate from archive history.

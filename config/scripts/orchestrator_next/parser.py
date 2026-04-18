@@ -171,8 +171,14 @@ def load_state(state_yaml_path: str) -> State:
     if workflow_dir.startswith("~"):
         workflow_dir = os.path.expanduser(workflow_dir)
 
-    # ORCHESTRATOR_REPO_ROOT from env, defaulting to empty (tests use "")
-    repo_root = os.environ.get("ORCHESTRATOR_REPO_ROOT", "")
+    # repo_root resolution order: env var > state.yaml repo_root field > "".
+    # HL-287 fix: state.yaml's repo_root is authoritative when env isn't set
+    # (the state file records the repo at workflow init; env vars may be
+    # absent when the CLI is invoked from a different cwd).
+    repo_root = (
+        os.environ.get("ORCHESTRATOR_REPO_ROOT")
+        or str(raw.get("repo_root") or "")
+    )
 
     history_raw = raw.get("step_history") or []
     step_history = [_parse_history_entry(e) for e in history_raw if isinstance(e, dict)]

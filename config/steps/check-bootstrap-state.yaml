@@ -1,4 +1,6 @@
 id: check-bootstrap-state
+inline: true
+run: scripts/inline/check-bootstrap-state.sh
 version: 1
 
 intent: Check if bootstrap already completed. Skip entire workflow if state is current.

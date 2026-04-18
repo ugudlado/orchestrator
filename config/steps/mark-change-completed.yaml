@@ -1,4 +1,6 @@
 id: mark-change-completed
+inline: true
+run: scripts/inline/mark-change-completed.sh
 version: 1
 
 intent: Write completion fields to state.yaml and validate step_history usage coverage.

@@ -1,9 +1,9 @@
 """
-End-to-end tests for estimated_cost_so_far in `orchestrator next` output.
+End-to-end tests for cost_so_far in `orchestrator next` output.
 
 Covers:
-  AC-1: Two terminal entries with cost_usd=0.01 and 0.02 → estimated_cost_so_far=0.03
-  AC-2: Fresh state with zero terminal entries → estimated_cost_so_far=0.0
+  AC-1: Two terminal entries with cost_usd=0.01 and 0.02 → cost_so_far=0.03
+  AC-2: Fresh state with zero terminal entries → cost_so_far=0.0
   AC-3: METRICS_DB and ORCHESTRATOR_HOME unset → dispatch succeeds, key present, value=0.0
 
 Tests use subprocess invocation (like test_orchestrator_next.py) to test the
@@ -51,7 +51,7 @@ def _run_next(fixture_name: str, metrics_db_path: str | None) -> subprocess.Comp
 
 
 class TestEstimatedCostSoFar(unittest.TestCase):
-    """End-to-end tests for the estimated_cost_so_far action key."""
+    """End-to-end tests for the cost_so_far action key."""
 
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp(prefix="orch_cost_test_")
@@ -63,32 +63,32 @@ class TestEstimatedCostSoFar(unittest.TestCase):
     def test_ac1_two_rows_sum_to_0_03(self):
         """
         AC-1: state-cost-probe.yaml has two completed entries with cost_usd=0.01
-        and cost_usd=0.02. The action dict must contain estimated_cost_so_far=0.03.
+        and cost_usd=0.02. The action dict must contain cost_so_far=0.03.
         """
         result = _run_next("state-cost-probe.yaml", self._metrics_db)
         self.assertEqual(result.returncode, 1, f"Expected exit 1 (complete_workflow), stderr: {result.stderr}")
         action = json.loads(result.stdout)
-        self.assertIn("estimated_cost_so_far", action, "Key 'estimated_cost_so_far' missing from action")
+        self.assertIn("cost_so_far", action, "Key 'cost_so_far' missing from action")
         self.assertAlmostEqual(
-            action["estimated_cost_so_far"],
+            action["cost_so_far"],
             0.03,
             places=10,
-            msg=f"Expected 0.03, got {action['estimated_cost_so_far']}",
+            msg=f"Expected 0.03, got {action['cost_so_far']}",
         )
 
     def test_ac2_fresh_state_returns_zero(self):
         """
         AC-2: state-pending-inline.yaml has no terminal entries. The action dict
-        must contain estimated_cost_so_far=0.0.
+        must contain cost_so_far=0.0.
         """
         result = _run_next("state-pending-inline.yaml", self._metrics_db)
         self.assertEqual(result.returncode, 0, f"Expected exit 0 (run_inline), stderr: {result.stderr}")
         action = json.loads(result.stdout)
-        self.assertIn("estimated_cost_so_far", action, "Key 'estimated_cost_so_far' missing from action")
+        self.assertIn("cost_so_far", action, "Key 'cost_so_far' missing from action")
         self.assertEqual(
-            action["estimated_cost_so_far"],
+            action["cost_so_far"],
             0.0,
-            f"Expected 0.0 for fresh state, got {action['estimated_cost_so_far']}",
+            f"Expected 0.0 for fresh state, got {action['cost_so_far']}",
         )
 
     def test_ac3_no_db_returns_zero(self):
@@ -99,16 +99,16 @@ class TestEstimatedCostSoFar(unittest.TestCase):
         result = _run_next("state-pending-inline.yaml", metrics_db_path=None)
         self.assertEqual(result.returncode, 0, f"Expected exit 0, stderr: {result.stderr}")
         action = json.loads(result.stdout)
-        self.assertIn("estimated_cost_so_far", action, "Key 'estimated_cost_so_far' missing when DB unavailable")
+        self.assertIn("cost_so_far", action, "Key 'cost_so_far' missing when DB unavailable")
         self.assertEqual(
-            action["estimated_cost_so_far"],
+            action["cost_so_far"],
             0.0,
-            f"Expected 0.0 when no DB available, got {action['estimated_cost_so_far']}",
+            f"Expected 0.0 when no DB available, got {action['cost_so_far']}",
         )
 
     def test_key_present_on_all_action_types(self):
         """
-        estimated_cost_so_far must appear on every action type: run_inline,
+        cost_so_far must appear on every action type: run_inline,
         run_step, retry_step, verify_phase, complete_workflow, blocked.
         """
         fixtures = [
@@ -128,14 +128,14 @@ class TestEstimatedCostSoFar(unittest.TestCase):
                 )
                 action = json.loads(result.stdout)
                 self.assertIn(
-                    "estimated_cost_so_far",
+                    "cost_so_far",
                     action,
-                    f"{fixture_name}: 'estimated_cost_so_far' missing from action dict",
+                    f"{fixture_name}: 'cost_so_far' missing from action dict",
                 )
                 self.assertIsInstance(
-                    action["estimated_cost_so_far"],
+                    action["cost_so_far"],
                     float,
-                    f"{fixture_name}: 'estimated_cost_so_far' must be a float",
+                    f"{fixture_name}: 'cost_so_far' must be a float",
                 )
 
 

@@ -33,6 +33,9 @@ instruction: |
 
   1. Read the discovery brief at $WORKFLOW_STATE_DIR/$CHANGE_ID/discovery.md for
      constraints, integration points, open questions, and recommended approach.
+     In --light mode discovery is filtered — if discovery.md is absent, skip
+     this read and use the change description from state.yaml as the sole
+     input. Do NOT fail on missing discovery.md when flags.light is true.
 
   2. Generate 2-3 design approaches with trade-offs:
      - Each approach: name, description, pros, cons, complexity (XS/S/M/L).

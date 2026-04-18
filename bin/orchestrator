@@ -112,7 +112,7 @@ def main() -> None:
         print(f"error: dispatch failed — {exc}", file=sys.stderr)
         sys.exit(3)
 
-    action["estimated_cost_so_far"] = _cost_so_far
+    action["cost_so_far"] = _cost_so_far
     print(emit_json(action), end="")
     sys.exit(exit_code)
 
