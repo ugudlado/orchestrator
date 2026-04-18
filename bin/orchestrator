@@ -32,14 +32,23 @@ if _SCRIPTS_DIR not in sys.path:
 
 
 def _usage() -> None:
-    print("Usage: orchestrator next <state.yaml>", file=sys.stderr)
+    print(
+        "Usage:\n"
+        "  orchestrator next <state.yaml>\n"
+        "  orchestrator record <state.yaml>   # JSON payload on stdin",
+        file=sys.stderr,
+    )
     sys.exit(3)
 
 
 def main() -> None:
     args = sys.argv[1:]
-    if len(args) < 2 or args[0] != "next":
+    if len(args) < 2 or args[0] not in ("next", "record"):
         _usage()
+
+    if args[0] == "record":
+        from orchestrator_next.record import main as record_main
+        sys.exit(record_main(sys.argv[1:]))
 
     state_yaml_path = args[1]
 
