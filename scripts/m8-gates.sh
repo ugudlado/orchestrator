@@ -27,7 +27,7 @@ done
 echo "  pass"
 
 echo "Gate 4: 8 inline scripts (5 absorbed into workflow-init agent, HL-287 rev-2)"
-count=$(ls scripts/inline/ | wc -l | tr -d ' ')
+count=$(find scripts/inline/ -maxdepth 1 -name '*.sh' -o -name '*.py' | wc -l | tr -d ' ')
 [ "$count" = "8" ] && echo "  pass ($count)" || { echo "  fail ($count)"; exit 1; }
 
 echo "Gate 4b: workflow-init agent + contract exist and feature/bugfix/spike schemas reference it"
