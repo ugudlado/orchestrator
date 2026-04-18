@@ -33,6 +33,7 @@ class StepContract:
     rules: list[str]
     inputs: list[str] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
+    inline: bool = False  # HL-287 M3: inline: true + run: <script> path
 
 
 @dataclass
@@ -121,6 +122,7 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
                 rules=data.get("rules", []),
                 inputs=inputs,
                 outputs=outputs,
+                inline=bool(data.get("inline", False)),
             )
     raise FileNotFoundError(
         f"Step contract not found for '{step_id}'. Searched: {search_dirs}"

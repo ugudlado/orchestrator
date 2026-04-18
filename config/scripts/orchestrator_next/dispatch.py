@@ -249,7 +249,23 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
     # with contracts that declare `inputs:` but whose producers haven't
     # yet been migrated to emit them under `evidence.outputs.<name>`.
 
-    if contract.run:
+    # HL-287 M3: inline: true + run: → execute the script directly (not an agent).
+    # Legacy run_step is agent-spawn with run: as an adapter path.
+    if contract.inline and contract.run:
+        action = {
+            "action": "run_inline",
+            "step_id": next_step_id,
+            "phase": state.phase,
+            "attempt": attempt,
+            "agent": "inline",
+            "run": contract.run,
+            "instruction": contract.instruction,
+            "rules": contract.rules,
+            "inputs": inputs_resolved,
+            "expected_outputs": contract.outputs,
+            "env": env,
+        }
+    elif contract.run:
         action = {
             "action": "run_step",
             "step_id": next_step_id,

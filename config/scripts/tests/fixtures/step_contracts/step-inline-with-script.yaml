@@ -1,0 +1,11 @@
+id: step-inline-with-script
+version: 1
+intent: An inline step with a script path (HL-287 M3 fixture).
+inline: true
+run: scripts/inline/step-inline-with-script.sh
+instruction: |
+  Execute the inline script.
+rules: []
+inputs: []
+outputs:
+  - result
