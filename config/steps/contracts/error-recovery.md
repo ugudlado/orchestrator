@@ -12,9 +12,43 @@ behavior regardless of which model executes the step.
 | Step failed | verify: assertion fails | `step_history[]: {status: failed}`, increment `retries.<step_id>` | Re-execute step (same instruction + failure context) |
 | Step blocked | Agent returns `STATUS: blocked` | `step_history[]: {status: blocked, blocker: "..."}` | Re-spawn agent once with blocker context (see § Agent Blocked Protocol) |
 | Step blocked (2nd) | Agent blocked after re-spawn | `step_history[]: {status: failed}`, increment `retries.<step_id>` | Treat as step failure → retry or escalate |
+| Step escalated to architect | Agent returns `STATUS: escalate_to_architect` | `step_history[]: {status: escalate_to_architect, escalation: {...}}` | `orchestrator next` returns `action: blocked, reason: escalate_to_architect`; caller spawns architect per `contracts/architect-escalation.md`; developer re-spawned with DECISION appended at **same attempt** (no retry charged) |
+| Step blocked (dispatcher-level) | Dispatcher sees terminal `status: blocked` in last history entry for current phase | `step_history[]: {status: blocked}` already written | `orchestrator next` returns `action: blocked, reason: blocked, exit 2`; caller applies Agent Blocked Protocol |
 | Phase verification failed | Any verify.command exits non-0, assertion false, or metric below threshold | `step_history[]: {step_id: run-phase-review, status: failed}`, increment `retries.phase_verify` | Generate fix tasks per § Fix Task Protocol, re-run phase review |
 | Retry exhausted | `retries.<key> >= max_retries` | No additional update | Execute `on_max_retries` action per § Escalation Protocol |
 | Agent spawn failed | Agent tool returns error | `step_history[]: {status: failed, error: "spawn failed"}` | Retry spawn once. If still fails, treat as retry exhausted. |
+
+### `escalate_to_architect` State Entry Schema
+
+When a developer agent encounters a design question that requires architect input,
+it writes a `step_history` entry with `status: escalate_to_architect` and an
+`escalation` sub-block:
+
+```yaml
+step_history:
+  - step_id: execute-next-task
+    phase: implement
+    status: escalate_to_architect
+    agent: developer
+    attempt: 1
+    started_at: "2026-04-18T10:00:00Z"
+    ended_at: "2026-04-18T10:12:00Z"
+    escalation:
+      type: contradiction          # contradiction|missing_coverage|scope_ambiguity|architectural_dependency
+      task_id: T-7
+      context: "…"
+      question: "…"
+      attempted: "…"
+    usage: { ... }
+```
+
+The `orchestrator next` dispatcher surfaces this as `action: blocked` with `reason:
+escalate_to_architect` and the escalation block in the JSON response (exit code 2).
+After the architect responds and the developer is re-spawned, the new completion entry
+shares the same `attempt` — this is the only case where two terminal `step_history`
+entries may exist at the same `(phase, step_id, attempt)` (distinguished by `status`).
+The `step_events` DuckDB table preserves both rows via a 6-column composite primary
+key that includes `status`. See `contracts/step-dispatch.md` § Escalation Protocol.
 
 ## Fix Task Protocol
 
