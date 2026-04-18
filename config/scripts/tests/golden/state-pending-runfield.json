@@ -10,6 +10,10 @@
     "ORCHESTRATOR_STEP_ID": "step-with-run",
     "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow"
   },
+  "expected_outputs": [
+    "discovery_result"
+  ],
+  "inputs": {},
   "instruction": "Run the discoverer adapter.\n",
   "phase": "implement",
   "rules": [

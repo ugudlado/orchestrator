@@ -1,0 +1,11 @@
+change_id: test-typed-io-missing
+schema: feature
+version: 1
+status: active
+phase: implement
+worktree_path: /tmp/test-workflow
+workflow_plan:
+  implement:
+    active:
+      - step-typed-io
+step_history: []

@@ -83,6 +83,43 @@ def _get_last_entry(step_history: list[StepHistoryEntry]) -> StepHistoryEntry | 
     return step_history[-1] if step_history else None
 
 
+def _resolve_inputs(
+    state: State, contract: StepContract
+) -> tuple[dict[str, Any], list[str]]:
+    """Resolve a contract's declared ``inputs:`` against prior step outputs.
+
+    For each name in ``contract.inputs``, walk ``state.step_history`` in
+    reverse for a terminal ``completed`` entry whose
+    ``evidence.outputs.<name>`` is set; fall back to ``state.raw`` top-level
+    (bootstrap values like ``slug`` / ``repo_root`` / ``change_id``).
+    Returns ``(resolved, missing)``. Missing names are not an error here —
+    the caller decides. Contracts with empty ``inputs:`` return ``({}, [])``.
+    """
+    if not contract.inputs:
+        return {}, []
+
+    resolved: dict[str, Any] = {}
+    missing: list[str] = []
+
+    for name in contract.inputs:
+        found = False
+        for entry in reversed(state.step_history):
+            if entry.status != "completed":
+                continue
+            outputs = (entry.raw.get("evidence") or {}).get("outputs") or {}
+            if name in outputs:
+                resolved[name] = outputs[name]
+                found = True
+                break
+        if not found and name in state.raw:
+            resolved[name] = state.raw[name]
+            found = True
+        if not found:
+            missing.append(name)
+
+    return resolved, missing
+
+
 def _phase_history(step_history: list[StepHistoryEntry], phase: str) -> list[StepHistoryEntry]:
     return [e for e in step_history if e.phase == phase]
 
@@ -161,6 +198,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
                 instruction="",
                 rules=[],
             )
+        inputs_resolved, _missing = _resolve_inputs(state, contract)
         action = {
             "action": "retry_step",
             "step_id": step_id,
@@ -170,6 +208,8 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "agent": contract.agent,
             "instruction": contract.instruction,
             "rules": contract.rules,
+            "inputs": inputs_resolved,
+            "expected_outputs": contract.outputs,
             "env": _build_env(state, step_id, attempt),
         }
         return action, 0
@@ -201,6 +241,13 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
     contract = load_contract_for_step(next_step_id, state_yaml_path)
     attempt = _compute_attempt(state.step_history, state.phase, next_step_id)
     env = _build_env(state, next_step_id, attempt)
+    inputs_resolved, _missing = _resolve_inputs(state, contract)
+
+    # M1 note: missing inputs are NOT an error yet. Strict validation that
+    # blocks on missing inputs is M2's exit criterion — M1 only threads
+    # values through when available. This keeps M1 backward-compatible
+    # with contracts that declare `inputs:` but whose producers haven't
+    # yet been migrated to emit them under `evidence.outputs.<name>`.
 
     if contract.run:
         action = {
@@ -212,6 +259,8 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "run": contract.run,
             "instruction": contract.instruction,
             "rules": contract.rules,
+            "inputs": inputs_resolved,
+            "expected_outputs": contract.outputs,
             "env": env,
         }
     else:
@@ -223,6 +272,8 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "agent": contract.agent,
             "instruction": contract.instruction,
             "rules": contract.rules,
+            "inputs": inputs_resolved,
+            "expected_outputs": contract.outputs,
             "env": env,
         }
 

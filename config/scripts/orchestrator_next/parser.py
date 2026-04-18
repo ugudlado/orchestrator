@@ -17,12 +17,18 @@ import yaml
 
 @dataclass
 class StepContract:
-    """Minimum contract fields needed by the dispatcher (T-2 scope)."""
+    """Contract fields needed by the dispatcher.
+
+    `inputs` and `outputs` declare the typed I/O for this step (HL-287 M1).
+    Backward-compatible: contracts that don't declare the fields get `[]`.
+    """
     id: str
     agent: str
     run: str | None  # None = inline-only
     instruction: str
     rules: list[str]
+    inputs: list[str] = field(default_factory=list)
+    outputs: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -83,12 +89,22 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
         if os.path.isfile(candidate):
             with open(candidate, "r") as f:
                 data = yaml.safe_load(f)
+            # Coerce inputs/outputs to list[str]. Older contracts sometimes
+            # have prose bullets (with colons, parens) which yaml parses as
+            # dicts — coerce those to string for M1. M2 migrates contracts
+            # to bare identifier names.
+            raw_inputs = data.get("inputs") or []
+            raw_outputs = data.get("outputs") or []
+            inputs = [str(x) if not isinstance(x, str) else x for x in raw_inputs]
+            outputs = [str(x) if not isinstance(x, str) else x for x in raw_outputs]
             return StepContract(
                 id=data.get("id", step_id),
                 agent=data.get("agent", "inline"),
                 run=data.get("run"),
                 instruction=data.get("instruction", ""),
                 rules=data.get("rules", []),
+                inputs=inputs,
+                outputs=outputs,
             )
     raise FileNotFoundError(
         f"Step contract not found for '{step_id}'. Searched: {search_dirs}"
