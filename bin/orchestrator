@@ -33,20 +33,170 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 
+import re as _re
+_SLUG_RE_BIN = _re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
 def _usage() -> None:
     print(
         "Usage:\n"
         "  orchestrator next <state.yaml>\n"
-        "  orchestrator record <state.yaml>   # JSON payload on stdin",
+        "  orchestrator record <state.yaml>   # JSON payload on stdin\n"
+        "  orchestrator cost --change-id <cid> [--by step|agent|tool] [--format md|json]\n"
+        "  orchestrator cost --repo [--by feature|agent|tool] [--format md|json] [--since <ISO>]",
         file=sys.stderr,
     )
     sys.exit(3)
 
 
+def _cost_main(args: list[str]) -> None:
+    """Handle `orchestrator cost ...` subcommand."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="orchestrator cost", add_help=False)
+    parser.add_argument("--change-id", dest="change_id", default=None)
+    parser.add_argument("--repo", action="store_true", default=False)
+    parser.add_argument("--by", dest="by", default=None,
+                        choices=["step", "agent", "tool", "feature"])
+    parser.add_argument("--format", dest="fmt", default="md", choices=["md", "json"])
+    parser.add_argument("--since", dest="since", default=None)
+
+    try:
+        parsed = parser.parse_args(args)
+    except SystemExit:
+        print(
+            "error: invalid flags for `orchestrator cost`\n"
+            "Usage:\n"
+            "  orchestrator cost --change-id <cid> [--by step|agent|tool] [--format md|json]\n"
+            "  orchestrator cost --repo [--by feature|agent|tool] [--format md|json] [--since <ISO>]",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+
+    # Mutual exclusion: exactly one of --change-id / --repo required
+    if parsed.change_id and parsed.repo:
+        print("error: --change-id and --repo are mutually exclusive", file=sys.stderr)
+        sys.exit(3)
+    if not parsed.change_id and not parsed.repo:
+        print("error: one of --change-id or --repo is required", file=sys.stderr)
+        sys.exit(3)
+
+    # Slug guard for --change-id
+    if parsed.change_id and not _SLUG_RE_BIN.match(parsed.change_id):
+        print(
+            f"error: --change-id '{parsed.change_id}' violates slug guard. "
+            f"Must match ^[a-z0-9][a-z0-9-]*$ (lowercase alphanumeric and hyphens only, "
+            f"no leading hyphen).",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+
+    # --since only meaningful with --repo
+    if parsed.since and parsed.change_id:
+        print(
+            "warning: --since is only meaningful with --repo; ignoring it",
+            file=sys.stderr,
+        )
+        parsed.since = None
+
+    # Resolve DB path
+    db_path = os.environ.get("METRICS_DB") or (
+        os.path.join(os.environ["ORCHESTRATOR_HOME"], "metrics.duckdb")
+        if os.environ.get("ORCHESTRATOR_HOME")
+        else None
+    )
+    if not db_path:
+        print("error: METRICS_DB or ORCHESTRATOR_HOME must be set", file=sys.stderr)
+        sys.exit(3)
+    if not os.path.isfile(db_path):
+        print(f"error: metrics.duckdb not found at {db_path}", file=sys.stderr)
+        sys.exit(3)
+
+    try:
+        import duckdb
+        from orchestrator_next.upsert import ensure_schema
+        from orchestrator_next.cost_report import (
+            aggregate_feature,
+            aggregate_by_scope,
+            aggregate_repo,
+            render_markdown_feature,
+            render_markdown_scoped,
+            render_markdown_repo,
+            render_json,
+        )
+    except ImportError as exc:
+        print(f"error: failed to import modules — {exc}", file=sys.stderr)
+        sys.exit(3)
+
+    try:
+        db = duckdb.connect(db_path, read_only=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: cannot open DB at {db_path} — {exc}", file=sys.stderr)
+        sys.exit(3)
+
+    try:
+        if parsed.change_id:
+            # Resolve repo_root from DB for this change_id
+            row = db.execute(
+                "SELECT repo_root FROM step_events WHERE change_id = ? LIMIT 1",
+                [parsed.change_id],
+            ).fetchone()
+            if not row:
+                print(
+                    f"error: no events for change_id={parsed.change_id}",
+                    file=sys.stderr,
+                )
+                sys.exit(3)
+            repo_root = row[0]
+
+            if parsed.by:
+                data = aggregate_by_scope(db, repo_root, parsed.change_id, parsed.by)
+                if parsed.fmt == "json":
+                    output = render_json(data)
+                else:
+                    output = render_markdown_scoped(data, parsed.by)
+            else:
+                data = aggregate_feature(db, repo_root, parsed.change_id)
+                if parsed.fmt == "json":
+                    output = render_json(data)
+                else:
+                    output = render_markdown_feature(data)
+
+        else:
+            # --repo mode: use basename of $PWD
+            repo_basename = os.path.basename(os.getcwd())
+            data = aggregate_repo(db, repo_basename, since=parsed.since, scope=parsed.by)
+            if not data["rows"]:
+                print(
+                    f"error: no events for repo basename={repo_basename}",
+                    file=sys.stderr,
+                )
+                sys.exit(3)
+            if parsed.fmt == "json":
+                output = render_json(data)
+            else:
+                output = render_markdown_repo(data, scope=parsed.by)
+
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(3)
+    finally:
+        db.close()
+
+    print(output, end="")
+    sys.exit(0)
+
+
 def main() -> None:
     args = sys.argv[1:]
-    if len(args) < 2 or args[0] not in ("next", "record"):
+    if not args or args[0] not in ("next", "record", "cost"):
         _usage()
+    if len(args) < 2 and args[0] in ("next", "record"):
+        _usage()
+
+    if args[0] == "cost":
+        _cost_main(args[1:])
+        return  # _cost_main calls sys.exit()
 
     if args[0] == "record":
         from orchestrator_next.record import main as record_main
