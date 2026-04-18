@@ -255,7 +255,7 @@ and, for run_step/run_inline, appends a step_history entry when done.
 
 **Exit codes**:
 - `0` — an action was returned (`run_step`, `run_inline`, `retry_step`,
-  `verify_phase`, `advance_phase`)
+  `verify_phase`)
 - `1` — workflow complete (`complete_workflow`)
 - `2` — blocked (`blocked`)
 - `3` — CLI error (invalid state.yaml, schema unknown, etc.)
@@ -269,7 +269,7 @@ and, for run_step/run_inline, appends a step_history entry when done.
   "phase": "specify",                 // required for most actions
   "attempt": 1,                       // CLI-computed; required for run_step/run_inline/retry_step
   "agent": "discoverer",              // from step contract
-  "run": "scripts/adapters/claude-discoverer.sh",  // only when contract has `run:`
+  "run": "scripts/adapters/claude_discoverer.py",  // only when contract has `run:`
   "instruction": "…",                 // from step contract, interpolated
   "rules": ["…"],                     // merged rules list
   "env": {
@@ -482,7 +482,7 @@ id: explore
 version: 3                                   # bumped
 intent: …                                    # unchanged
 agent: discoverer                            # unchanged
-run: config/scripts/adapters/claude-discoverer.sh   # NEW — optional field
+run: config/scripts/adapters/claude_discoverer.py   # NEW — optional field
 inputs: [phase_context_bundle]               # unchanged
 rules: [ … ]                                 # unchanged
 instruction: |                               # unchanged

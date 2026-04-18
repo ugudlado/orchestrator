@@ -67,7 +67,10 @@ self-report usage at write time.
    deterministic JSON response. Two calls with the same input produce byte-identical
    output (excluding timestamps that are themselves deterministic from the input).
 3. **FR-3**: The JSON response MUST declare one of: `run_step`, `run_inline`,
-   `retry_step`, `verify_phase`, `advance_phase`, `complete_workflow`, `blocked`.
+   `retry_step`, `verify_phase`, `complete_workflow`, `blocked`. (Six actions.
+   `advance_phase` was considered and removed — phase advancement is implicit:
+   when all steps in a phase are terminal and verify passes, the next call
+   returns the first step of the next phase directly.)
 4. **FR-4**: When `action ∈ {run_step, run_inline, retry_step}`, the response
    MUST include an `env` object with keys `ORCHESTRATOR_CHANGE_ID`,
    `ORCHESTRATOR_PHASE`, `ORCHESTRATOR_STEP_ID`, `ORCHESTRATOR_ATTEMPT`,
@@ -114,7 +117,12 @@ self-report usage at write time.
 
 1. **NFR-1**: The CLI MUST be idempotent. Running `orchestrator next` twice in
    succession on the same state.yaml MUST produce a single `step_events` row
-   per `(repo_root, change_id, phase, step_id, attempt)` tuple, not two.
+   per `(repo_root, change_id, phase, step_id, attempt, status)` tuple, not two.
+   Note: the 6-column key (not 5) is deliberate — an architect escalation
+   legitimately produces two terminal entries at the same
+   `(phase, step_id, attempt)`, distinguished by `status`
+   (`escalate_to_architect` then `completed`). See design.md § DuckDB
+   step_events Table, Note on `status` in the PK.
 2. **NFR-2**: DuckDB writes MUST follow the `metrics-db-derived` learning:
    `INSERT OR REPLACE`, `sql_quote`-escaped interpolation, change_id slug
    guard before any INSERT.
@@ -150,19 +158,23 @@ High-level (full detail in design.md):
 │    contract.run)    │
 │  - run_inline       │
 │  - verify_phase     │
-│  - advance_phase    │
+│  - retry_step       │
 │  - complete_workflow│
+│  - blocked          │
 └─────────────────────┘
 ```
 
 | File / Path | Action | Purpose |
 |-------------|--------|---------|
-| `bin/orchestrator` | create | CLI entry point (bash wrapper invoking the driver) |
-| `config/scripts/orchestrator-next.py` | create | Driver — state.yaml parse, DuckDB upsert, JSON response |
-| `config/scripts/orchestrator-next-lib/*.py` | create | Internal modules (parser, upsert, dispatch) |
+| `bin/orchestrator` | create | CLI entry point (Python, shebang-invoked, no bash wrapper) |
+| `config/scripts/orchestrator_next/__init__.py` | create | Package marker |
+| `config/scripts/orchestrator_next/parser.py` | create | state.yaml + step contract parser, YAML-safe |
+| `config/scripts/orchestrator_next/dispatch.py` | create | Pure function State → action JSON |
+| `config/scripts/orchestrator_next/upsert.py` | create | DuckDB DDL + INSERT OR REPLACE |
+| `config/scripts/orchestrator_next/otel_map.py` | create | Short → OTel column mapping |
 | `config/scripts/tests/` | create | Fixture-driven CLI tests |
 | `config/steps/explore.yaml` | modify | Add `run:` adapter field |
-| `config/scripts/adapters/claude-discoverer.sh` | create | Reference adapter for `explore` |
+| `config/scripts/adapters/claude_discoverer.py` | create | Reference adapter for `explore` |
 | `config/steps/contracts/metrics-schema.md` | modify | Document short names under `usage:` and `step_events` table |
 | `config/steps/contracts/step-dispatch.md` | create | CLI interface contract + JSON schema |
 | `config/steps/contracts/migration-run-field.md` | create | Migration guide for remaining steps |
@@ -171,7 +183,7 @@ High-level (full detail in design.md):
 
 ### Test File Paths
 
-- `config/scripts/orchestrator-next.py` → `config/scripts/tests/test_orchestrator_next.py`
+- `config/scripts/orchestrator_next/` → `config/scripts/tests/test_orchestrator_next.py`
 - DuckDB upsert logic → `config/scripts/tests/test_step_events_upsert.py`
 - Reference adapter end-to-end → `config/scripts/tests/test_explore_adapter.sh`
 - Fixtures → `config/scripts/tests/fixtures/state-*.yaml`
@@ -205,7 +217,7 @@ High-level (full detail in design.md):
 
 ### UC-1 — Happy path: runtime-owned step runs end-to-end
 Orchestrate skill calls `orchestrator next state.yaml`. CLI returns
-`{action: run_step, step_id: explore, run: "scripts/adapters/claude-discoverer.sh",
+`{action: run_step, step_id: explore, run: "scripts/adapters/claude_discoverer.py",
 agent: discoverer, instruction, rules, env}`. Caller:
 1. Writes a partial `step_history[]` entry `status: in_progress` with `started_at`.
 2. Execs the `run:` command with `env` set.
@@ -261,10 +273,10 @@ with null tokens/cost. No regression from current behaviour.
   step_history entry, twice, yields exactly one row in `step_events` for that
   key tuple. **[traces: NFR-1, FR-5, UC-E1]**
 - **AC-4**: Every row in `step_events` has non-null `repo_root`, `change_id`,
-  `phase`, `step_id`, `attempt`, `agent_name`. **[traces: FR-5, FR-6]**
+  `phase`, `step_id`, `attempt`, `agent_name`. **[traces: FR-5, FR-6, UC-1]**
 - **AC-5**: A single `GROUP BY change_id, phase` query over `step_events`
   returns correct phase-level token/cost totals across test fixtures.
-  **[traces: NFR-4]**
+  **[traces: NFR-4, UC-1]**
 - **AC-6**: The reference `explore` step, run end-to-end via its `run:`
   adapter in a scratch workflow, produces a `step_events` row with
   `gen_ai_usage_input_tokens > 0`, `gen_ai_usage_output_tokens > 0`, and
@@ -278,7 +290,7 @@ with null tokens/cost. No regression from current behaviour.
   **[traces: FR-8, UC-E1]**
 - **AC-9**: A fixture with `step_history[-1].status = escalate_to_architect`
   causes `orchestrator next` to return `action: blocked, exit 2` without
-  advancing. **[traces: FR-12, UC-E2]**
+  advancing. **[traces: FR-12, UC-E5]**
 - **AC-10**: All 31 inline-only step contracts run unchanged through
   `orchestrator next` in a smoke test (response is `run_inline`, no errors).
   **[traces: FR-14, UC-E4]**

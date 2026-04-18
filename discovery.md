@@ -109,6 +109,9 @@ All phases complete → `{action: "complete_workflow"}` with exit 1. Caller writ
 ### UC-E4: Inline-only step (no `run:` field — migration not yet)
 No `run:` → CLI returns `{action: "run_inline", step_id, instruction, rules}`. Caller runs inline (current behavior). Tokenless (Claude Code limitation). step_history `agent: inline`, no usage block. DuckDB row with nulls. No regression.
 
+### UC-E5: Agent signals escalate_to_architect
+Developer hits a design question per `contracts/architect-escalation.md` and appends a step_history entry with `status: escalate_to_architect` plus an `escalation:` sub-block (type, task_id, context, question, attempted). `orchestrator next` returns `{action: blocked, reason: escalate_to_architect, escalation: {...}}` with exit 2. Caller spawns the architect per the existing escalation protocol; developer re-spawns at same `attempt` (no retry charged); the second terminal entry at the same (phase, step_id, attempt) has `status: completed` — two `step_events` rows preserve the audit trail via the composite PK.
+
 ## Scope
 
 ### In Scope
