@@ -15,14 +15,17 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from typing import Any
 
 from orchestrator_next.parser import (
+    ContractError,
     State,
     StepContract,
     StepHistoryEntry,
     load_contract_for_step,
 )
+from orchestrator_next import resolver
 
 # Terminal statuses: these entries do not need retry
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "blocked", "escalate_to_architect", "skipped"})
@@ -156,6 +159,52 @@ def _phase_verify_evaluated(step_history: list[StepHistoryEntry], phase: str) ->
     )
 
 
+def _resolve_allowed_tools(contract: StepContract) -> list[str]:
+    """
+    Compute the resolved tool list for a step contract.
+
+    Logic (from design.md § Low-Level Design pseudocode):
+      - agent == "inline" + allowed_tools set → warn, return []
+      - agent == "inline" + no allowed_tools → return []
+      - role unresolvable (None) + allowed_tools set → warn, return []
+      - role unresolvable (None) + no allowed_tools → return []
+      - allowed_tools non-empty + widens role → ContractError
+      - allowed_tools non-empty, no widening → sorted intersection
+      - allowed_tools empty (absent/null/[]) → sorted full role list
+    """
+    if contract.agent == "inline":
+        if contract.allowed_tools:
+            print(
+                f"WARNING: allowed_tools on inline step {contract.id!r} ignored",
+                file=sys.stderr,
+            )
+        return []
+
+    role_tools = resolver.load_agent_tools(contract.agent)
+
+    if role_tools is None:
+        if contract.allowed_tools:
+            print(
+                f"WARNING: cannot resolve agent {contract.agent!r} tools; "
+                f"allowed_tools on step {contract.id!r} not enforced",
+                file=sys.stderr,
+            )
+        return []
+
+    if contract.allowed_tools:
+        declared = set(contract.allowed_tools)
+        illegal = declared - role_tools
+        if illegal:
+            raise ContractError(
+                f"allowed_tools on step {contract.id!r} declares "
+                f"{sorted(illegal)!r} not in agent {contract.agent!r} tools"
+            )
+        return sorted(declared & role_tools)
+
+    # Empty allowed_tools (absent, null, or []) → full role list (backward-compat)
+    return sorted(role_tools)
+
+
 def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
     """
     Pure function: State → (action_dict, exit_code).
@@ -199,6 +248,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
                 rules=[],
             )
         inputs_resolved, _missing = _resolve_inputs(state, contract)
+        resolved_allowed_tools = _resolve_allowed_tools(contract)
         action = {
             "action": "retry_step",
             "step_id": step_id,
@@ -210,6 +260,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "rules": contract.rules,
             "inputs": inputs_resolved,
             "expected_outputs": contract.outputs,
+            "resolved_allowed_tools": resolved_allowed_tools,
             "env": _build_env(state, step_id, attempt),
         }
         return action, 0
@@ -242,6 +293,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
     attempt = _compute_attempt(state.step_history, state.phase, next_step_id)
     env = _build_env(state, next_step_id, attempt)
     inputs_resolved, _missing = _resolve_inputs(state, contract)
+    resolved_allowed_tools = _resolve_allowed_tools(contract)
 
     # M1 note: missing inputs are NOT an error yet. Strict validation that
     # blocks on missing inputs is M2's exit criterion — M1 only threads
@@ -263,6 +315,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "rules": contract.rules,
             "inputs": inputs_resolved,
             "expected_outputs": contract.outputs,
+            "resolved_allowed_tools": resolved_allowed_tools,
             "env": env,
         }
     elif contract.run:
@@ -277,6 +330,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "rules": contract.rules,
             "inputs": inputs_resolved,
             "expected_outputs": contract.outputs,
+            "resolved_allowed_tools": resolved_allowed_tools,
             "env": env,
         }
     else:
@@ -290,6 +344,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "rules": contract.rules,
             "inputs": inputs_resolved,
             "expected_outputs": contract.outputs,
+            "resolved_allowed_tools": resolved_allowed_tools,
             "env": env,
         }
 
