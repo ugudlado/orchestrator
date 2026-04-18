@@ -8,7 +8,7 @@ and asserts:
   - JSON response has action: run_inline
 
 This test guards against regressions introduced by changes to parser.py or
-dispatch.py that would break the 45 existing inline-only step contracts.
+dispatch.py that would break the 44 existing inline-only step contracts.
 
 Note: This test may pass immediately on a clean T-2 implementation — that is
 the intended outcome documented in tasks.md T-8. The value is the regression

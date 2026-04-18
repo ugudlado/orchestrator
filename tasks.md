@@ -1,6 +1,6 @@
 # Tasks: Subprocess-Per-Step Observability
 
-- [ ] T-1 Write tests: `orchestrator next` dispatcher fixtures (RED)
+- [x] T-1 Write tests: `orchestrator next` dispatcher fixtures (RED)
   - **Files**: `config/scripts/tests/test_orchestrator_next.py`,
     `config/scripts/tests/fixtures/state-pending-inline.yaml`,
     `config/scripts/tests/fixtures/state-pending-runfield.yaml`,
@@ -17,7 +17,7 @@
   - **Verify**: `python3 -m unittest` — all 6 tests FAIL with clear "driver not
     found / not implemented" errors (red for the right reason).
 
-- [ ] T-2 Implement: `orchestrator next` minimal dispatcher (GREEN) (depends: T-1)
+- [x] T-2 Implement: `orchestrator next` minimal dispatcher (GREEN) (depends: T-1)
   - **Files**: `bin/orchestrator` (Python entry-point, shebang),
     `config/scripts/orchestrator_next/__init__.py`,
     `config/scripts/orchestrator_next/parser.py`,
@@ -33,7 +33,7 @@
   - **Verify**: All 6 T-1 fixture tests pass (green). `state.yaml` mtime
     unchanged under every test.
 
-- [ ] T-3 Write tests: DuckDB `step_events` upsert idempotency (RED) (depends: T-2)
+- [x] T-3 Write tests: DuckDB `step_events` upsert idempotency (RED) (depends: T-2)
   - **Files**: `config/scripts/tests/test_step_events_upsert.py`,
     additional fixtures under `config/scripts/tests/fixtures/`.
   - **Why**: FR-5, FR-6, FR-7, NFR-1, NFR-2; AC-3, AC-4, AC-5, AC-7
@@ -50,7 +50,7 @@
     includes `status`.
   - **Verify**: Tests FAIL — upsert module does not yet exist.
 
-- [ ] T-4 Implement: DuckDB `step_events` DDL + upsert (GREEN) (depends: T-3)
+- [x] T-4 Implement: DuckDB `step_events` DDL + upsert (GREEN) (depends: T-3)
   - **Files**: `config/scripts/orchestrator_next/upsert.py`,
     `config/scripts/orchestrator_next/otel_map.py`,
     `config/scripts/orchestrator-next.py` (wire upsert into main flow)
@@ -113,7 +113,7 @@
     otherwise it may go green on T-2's implementation — that's acceptable.
     The value is the regression guard it adds once committed.
 
-- [ ] T-9 Implement: reference adapter for `explore` (GREEN) (depends: T-7)
+- [x] T-9 Implement: reference adapter for `explore` (GREEN) (depends: T-7)
   - **Files**: `config/scripts/adapters/claude_discoverer.py`,
     `config/steps/explore.yaml` (modify — bump version to 3, add
     `run: config/scripts/adapters/claude_discoverer.py`)
@@ -130,7 +130,7 @@
     with `gen_ai_usage_input_tokens > 0`. Manual smoke OK if CI lacks API
     key; document the manual verification command.
 
-- [ ] T-10 Write test: end-to-end `explore` adapter (RED → GREEN, gated) (depends: T-9)
+- [x] T-10 Write test: end-to-end `explore` adapter (RED → GREEN, gated) (depends: T-9)
   - **Files**: `config/scripts/tests/test_explore_adapter.sh`
   - **Why**: AC-6; UC-1
   - **Approach**: Integration test that creates a scratch

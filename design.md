@@ -26,7 +26,7 @@ every dispatch. One reference step migrates to the new path as proof.
   field names.
 - A single reference step (`explore`) migrated end-to-end to demonstrate real
   token/cost capture.
-- Zero regression for the 31 inline-only step contracts.
+- Zero regression for inline-only step contracts (44 at implementation time; contract count is informational, not a hard requirement).
 - A documented migration path for remaining steps.
 
 ### Non-Goals
@@ -150,6 +150,17 @@ until `attempts_used >= max_retries`, then `action: blocked`.
 
 **Consequence**: Callers must understand the `verify_phase` action type.
 Documented in `contracts/step-dispatch.md`.
+
+**Phase-scoped dispatch clarification**: The CLI dispatches within the
+current `state.yaml.phase` value only. Phase-cursor advancement is the
+caller's responsibility, not the CLI's. The caller's sequence for crossing
+a phase boundary is: (1) run `verify_phase` action; (2) append
+`run-phase-review` step_history entry with terminal status; (3) if passed,
+update `state.yaml.phase` to the next phase; (4) call `orchestrator next`
+again, which now dispatches within the new phase. The CLI never rewrites
+`state.yaml.phase` — this preserves the pure-read property and keeps the
+dispatcher single-responsibility. When the last phase completes, the CLI
+returns `action: complete_workflow` (exit 1).
 
 ### OQ-5 — Stalled `step-self-reported-metrics` workflow: **declared superseded**
 
@@ -523,7 +534,7 @@ Adapter **output contract** (same shape for every runtime):
    - `artifacts: [discovery.md]`
 3. Exits 0 on success, non-zero on adapter failure.
 
-### Coexistence with the 31 inline-only contracts
+### Coexistence with inline-only contracts (44 at implementation time)
 
 During the transition:
 - Contract without `run:` → CLI returns `action: run_inline` → caller runs

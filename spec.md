@@ -68,9 +68,13 @@ self-report usage at write time.
    output (excluding timestamps that are themselves deterministic from the input).
 3. **FR-3**: The JSON response MUST declare one of: `run_step`, `run_inline`,
    `retry_step`, `verify_phase`, `complete_workflow`, `blocked`. (Six actions.
-   `advance_phase` was considered and removed — phase advancement is implicit:
-   when all steps in a phase are terminal and verify passes, the next call
-   returns the first step of the next phase directly.)
+   `advance_phase` was considered and removed.) The CLI dispatches within the
+   current `state.yaml.phase` — it is phase-scoped. The caller is responsible
+   for updating `state.yaml.phase` to the next phase once phase-verify passes;
+   the next `orchestrator next` call will then return the first step of the
+   newly-current phase. Multi-phase advancement is the caller's
+   responsibility, not the CLI's; this keeps the CLI pure-read and
+   single-responsibility.
 4. **FR-4**: When `action ∈ {run_step, run_inline, retry_step}`, the response
    MUST include an `env` object with keys `ORCHESTRATOR_CHANGE_ID`,
    `ORCHESTRATOR_PHASE`, `ORCHESTRATOR_STEP_ID`, `ORCHESTRATOR_ATTEMPT`,
@@ -291,7 +295,7 @@ with null tokens/cost. No regression from current behaviour.
 - **AC-9**: A fixture with `step_history[-1].status = escalate_to_architect`
   causes `orchestrator next` to return `action: blocked, exit 2` without
   advancing. **[traces: FR-12, UC-E5]**
-- **AC-10**: All 31 inline-only step contracts run unchanged through
+- **AC-10**: All inline-only step contracts (those without a `run:` field — 44 at this feature's implementation time) run unchanged through
   `orchestrator next` in a smoke test (response is `run_inline`, no errors).
   **[traces: FR-14, UC-E4]**
 
@@ -322,7 +326,7 @@ and remains Claude-specific.
   existing fields; consumers that read the old `total_tokens`/`tool_uses` form
   continue to work during transition.
 - **No breaking changes** to existing step contracts: absence of `run:` is the
-  inline path; all 31 inline-only contracts are unaffected.
+  inline path; all inline-only contracts (44 at implementation time) are unaffected.
 - **New dependency**: Python 3 (stdlib + PyYAML) for the driver — justified in
   design.md OQ-1.
 - **Documented migration path** for remaining 44 step contracts — incremental,
