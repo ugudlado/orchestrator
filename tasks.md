@@ -162,7 +162,7 @@
   - **Verify**: `make setup` on a fresh machine without PyYAML/duckdb
     installs both and subsequent `orchestrator next` invocations succeed.
 
-- [ ] T-13 Review checkpoint: phase gate
+- [x] T-13 Review checkpoint: phase gate
   - **Why**: Evidence-based completion per `spec/project.yaml` rules
   - **Verify**:
     - `python3 -m unittest discover config/scripts/tests` — all green

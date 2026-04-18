@@ -321,6 +321,15 @@ class TestMainErrorGates(unittest.TestCase):
             "ORCHESTRATOR_ATTEMPT": "1",
             "ORCHESTRATOR_WORKFLOW_DIR": self._tmpdir,
             "ORCHESTRATOR_REPO_ROOT": self._tmpdir,
+            # Suppress the module-level setdefault in test_step_events_upsert.py
+            # which pollutes the process env with this key. The adapter's
+            # _load_contract uses `if override:` so empty string disables it.
+            "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE": "",
+            # Clear ORCHESTRATOR_HOME to prevent finding the real worktree contract
+            # before the tmpdir one (adapter searches workflow_dir first when HOME
+            # is set and workflow_dir is also set, but if HOME resolves first in
+            # some edge case we want to be explicit).
+            "ORCHESTRATOR_HOME": "",
         }
 
     def test_exits_1_when_claude_not_on_path(self):

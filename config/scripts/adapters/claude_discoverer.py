@@ -99,10 +99,15 @@ def _load_contract(step_id: str, workflow_dir: str, repo_root: str) -> dict[str,
     """
     Load the step contract YAML for the given step_id.
 
-    Search order mirrors parser._contract_search_dirs:
-      1. ORCHESTRATOR_HOME env var (canonical install)
-      2. workflow_dir/config/steps/ (repo-local override)
-      3. repo_root/config/steps/ (worktree steps)
+    Search order mirrors parser._contract_search_dirs for consistency:
+      1. ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE (test override, exclusive)
+      2. workflow_dir/config/steps/ (workflow-local override takes precedence)
+      3. ORCHESTRATOR_HOME/config/steps/ (canonical install location)
+      4. repo_root/config/steps/ (worktree fallback)
+
+    Workflow-dir-first means test T-10 can inject a minimal scratch explore.yaml
+    rather than finding the real worktree one via ORCHESTRATOR_HOME. This also
+    matches adapter authors' expectation that per-workflow customisations win.
 
     Returns the raw dict from the YAML file.
     Raises FileNotFoundError if no contract found.
@@ -111,13 +116,20 @@ def _load_contract(step_id: str, workflow_dir: str, repo_root: str) -> dict[str,
 
     # Build search dirs in priority order
     search_dirs: list[str] = []
-    home = os.environ.get("ORCHESTRATOR_HOME", "")
-    if home:
-        search_dirs.append(os.path.join(home, "config", "steps"))
-    if workflow_dir:
-        search_dirs.append(os.path.join(workflow_dir, "config", "steps"))
-    if repo_root:
-        search_dirs.append(os.path.join(repo_root, "config", "steps"))
+
+    # Test override: when set, only this dir is searched (matches parser behaviour)
+    override = os.environ.get("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE")
+    if override:
+        search_dirs.append(override)
+    else:
+        # Workflow-local takes precedence over the canonical install
+        if workflow_dir:
+            search_dirs.append(os.path.join(workflow_dir, "config", "steps"))
+        home = os.environ.get("ORCHESTRATOR_HOME", "")
+        if home:
+            search_dirs.append(os.path.join(home, "config", "steps"))
+        if repo_root:
+            search_dirs.append(os.path.join(repo_root, "config", "steps"))
 
     for d in search_dirs:
         candidate = os.path.join(d, f"{step_id}.yaml")

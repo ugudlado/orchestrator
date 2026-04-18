@@ -20,11 +20,13 @@ full discoverer prompt, which will consume tokens (est. ~$0.10–$0.50 per run
 depending on codebase size). The test exits non-zero if cost exceeds
 expectations set by the caller.
 
-Design note: the test uses a minimal instruction ("Say hello.") NOT the full
-discoverer prompt to keep cost predictable and test execution fast. The
-purpose of T-10 is to verify the token/cost plumbing works end-to-end, not
-to run a real discovery. Use EXPLORE_ADAPTER_TEST_FULL_PROMPT=1 env var to
-use the real instruction (for manual smoke testing).
+Design note: the adapter loads the step contract using workflow_dir-first
+search order (mirrors parser._contract_search_dirs). This means the test's
+scratch explore.yaml (written to tmpdir/config/steps/) takes precedence over
+the real worktree one via ORCHESTRATOR_HOME — so the minimal "Say hello."
+instruction is used, keeping cost predictable (est. ~$0.01–$0.05 per run).
+Set EXPLORE_ADAPTER_TEST_FULL_PROMPT=1 to use the full discoverer instruction
+(for manual smoke testing).
 """
 from __future__ import annotations
 
