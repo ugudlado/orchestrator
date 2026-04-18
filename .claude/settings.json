@@ -16,6 +16,7 @@
       "Edit(~/code/feature_worktrees/**)",
       "Write(~/code/feature_worktrees/**)",
       "Read(~/code/feature_worktrees/**)",
+      "Read(~/.config/orchestrator/**)",
       "Edit(~/.config/spec/**)",
       "Write(~/.config/spec/**)",
       "Read(~/.config/spec/**)",
