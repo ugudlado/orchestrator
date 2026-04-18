@@ -1,0 +1,190 @@
+archive_path: spec/changes/archive/2026-04-18-tool-calls-rename-and-preview-route-fix/
+baseline:
+  captured_at: '2026-04-18T21:10:33Z'
+  reason: 'no test command in project.yaml (verify_commands: [])'
+  skipped: true
+change_id: tool-calls-rename-and-preview-route-fix
+completed_at: '2026-04-18T21:22:03Z'
+created_at: '2026-04-18T21:07:42Z'
+description: Standardize tool_calls key naming (HL-292) and fix estimate-cost.sh state.yaml
+  path for preview-route (HL-293). Two XS mechanical fixes grouped as one --light
+  chore.
+flags:
+  agents: true
+  auto: true
+  discovery: false
+  light: true
+  linear: false
+  phase_review: false
+  tdd_required: false
+  ux_design: false
+  worktree: false
+next_step:
+  phase: complete
+  step_id: archive-completed-change
+phase: complete
+project_context_at: '2026-04-18T21:07:42Z'
+project_context_loaded: true
+schema: feature
+slug: tool-calls-rename-and-preview-route-fix
+started_at: '2026-04-18T21:07:42Z'
+status: completed
+step_history:
+- agent: workflow-init
+  completed_at: '2026-04-18T21:07:42Z'
+  notes: Initial state.yaml written; worktree skipped (--light); Linear ticket skipped
+    (--light)
+  phase: specify
+  started_at: '2026-04-18T21:07:42Z'
+  status: completed
+  step_id: workflow-init
+  usage:
+    duration_ms: 0
+    tool_uses: 4
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-18T21:09:23Z'
+  evidence:
+    outputs:
+      design_direction: XS mechanical rename + path fix
+      updated_artifact_set:
+      - spec.md
+      - design.md
+      - tasks.md
+    summary: spec.md, design.md, tasks.md written
+  phase: specify
+  started_at: '2026-04-18T21:09:23Z'
+  status: completed
+  step_id: design-and-draft-artifacts
+  usage: {}
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-18T21:09:42Z'
+  evidence:
+    outputs:
+      state.yaml route_preview block: estimate_unavailable
+    summary: "preview-route.sh not found in scripts/inline/ \u2014 non-blocking, fallback\
+      \ applied"
+  phase: specify
+  started_at: '2026-04-18T21:09:42Z'
+  status: completed
+  step_id: preview-route
+  usage: {}
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-18T21:10:37Z'
+  evidence:
+    outputs:
+      test_baseline:
+        reason: no test command in project.yaml
+        skipped: true
+    summary: "baseline skipped \u2014 verify_commands empty"
+  phase: implement
+  started_at: '2026-04-18T21:10:37Z'
+  status: completed
+  step_id: capture-test-baseline
+  usage: {}
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-18T21:18:45Z'
+  evidence:
+    outputs:
+      task_execution_result: all_tasks_completed
+    summary: 'T-1 stale comment fix in upsert.py; T-2/T-3/T-4/T-5 already landed in
+      b155046. AC-3 grep guard passes. Commits: b155046, f9ad1dd, b5528b2'
+  phase: implement
+  started_at: '2026-04-18T21:18:45Z'
+  status: completed
+  step_id: execute-next-task
+  usage:
+    duration_ms: 457407
+    tool_uses: 76
+    total_tokens: 67555
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-18T21:19:19Z'
+  evidence:
+    outputs:
+      prediction_accuracy_result:
+        files:
+          actual: 4
+          delta: 0
+          overlap_pct: 100.0
+          predicted: 4
+        tasks:
+          accuracy_pct: 100.0
+          actual: 5
+          delta: 0
+          fix_task_count: 0
+          predicted: 5
+          rework_rate: 0.0
+    summary: 5/5 tasks predicted correctly, 4 files changed matching spec
+  phase: complete
+  started_at: '2026-04-18T21:19:19Z'
+  status: completed
+  step_id: compute-prediction-accuracy
+  usage: {}
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-18T21:21:50Z'
+  evidence:
+    outputs:
+      learn_result: completed
+    summary: "PASS \u2014 no retry patterns, 100% task accuracy. Quality bar stable\
+      \ at 9."
+  phase: complete
+  started_at: '2026-04-18T21:21:50Z'
+  status: completed
+  step_id: run-learn-cycle
+  usage: {}
+- step_id: mark-change-completed
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-18T21:22:10Z'
+  ended_at: '2026-04-18T21:22:10Z'
+  usage: {}
+  evidence:
+    outputs:
+      state_completion_fields: status=completed, completed_at set, archive_path set
+    summary: state.yaml marked completed
+- step_id: compute-swe-metrics
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-18T21:22:37Z'
+  ended_at: '2026-04-18T21:22:37Z'
+  usage: {}
+  evidence:
+    outputs:
+      swe_metrics: written to state.yaml
+    summary: 5/5 tasks completed, 4 files changed, 3 commits, 0 retries
+workflow_plan:
+  complete:
+    active:
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+  implement:
+    active:
+    - capture-test-baseline
+    - execute-next-task
+    filtered:
+    - run-ux-critique
+    - run-phase-review
+  specify:
+    active:
+    - workflow-init
+    - design-and-draft-artifacts
+    - preview-route
+    filtered:
+    - explore
+    - ux-design
+    - run-phase-review
+worktree_path: null
