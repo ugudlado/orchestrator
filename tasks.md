@@ -65,7 +65,7 @@
     entries → `upsert_step_event` for each → dispatch.
   - **Verify**: All T-3 tests pass. `python3 -m unittest` fully green.
 
-- [ ] T-5 Write tests: Retry / crash-mid-step `attempt` counting (RED) (depends: T-4)
+- [x] T-5 Write tests: Retry / crash-mid-step `attempt` counting (RED) (depends: T-4)
   - **Files**: `config/scripts/tests/test_attempt_counting.py`,
     `config/scripts/tests/fixtures/state-crash-midstep.yaml`,
     `config/scripts/tests/fixtures/state-after-retry-complete.yaml`
@@ -77,7 +77,7 @@
     `next` again yields still exactly two rows.
   - **Verify**: Both tests FAIL (retry path not yet implemented).
 
-- [ ] T-6 Implement: retry detection + attempt assignment (GREEN) (depends: T-5)
+- [x] T-6 Implement: retry detection + attempt assignment (GREEN) (depends: T-5)
   - **Files**: `config/scripts/orchestrator_next/dispatch.py`
   - **Why**: FR-8; AC-8
   - **Approach**: Add `_compute_attempt(step_history, phase, step_id)` that
@@ -87,7 +87,7 @@
     "no ended_at"` and `attempt` computed from the counter.
   - **Verify**: T-5 tests pass. Re-run full suite — no regressions.
 
-- [ ] T-7 Document: update `contracts/error-recovery.md` + `contracts/metrics-schema.md` + new `contracts/step-dispatch.md`
+- [x] T-7 Document: update `contracts/error-recovery.md` + `contracts/metrics-schema.md` + new `contracts/step-dispatch.md`
   - **Files**: `config/steps/contracts/error-recovery.md` (modify — add the two
     new `status` values and transitions),
     `config/steps/contracts/metrics-schema.md` (modify — document the `usage:`
@@ -102,7 +102,7 @@
     the new status appears in both `error-recovery.md` and `step-dispatch.md`.
     `grep "step_events" config/steps/contracts/metrics-schema.md` returns a hit.
 
-- [ ] T-8 Write tests: inline-only smoke test across 31 unchanged contracts (RED) (depends: T-6)
+- [x] T-8 Write tests: inline-only smoke test across 31 unchanged contracts (RED) (depends: T-6)
   - **Files**: `config/scripts/tests/test_inline_smoke.py`
   - **Why**: FR-14; AC-10; UC-E4; non-regression guard for the 31 inline
     contracts
