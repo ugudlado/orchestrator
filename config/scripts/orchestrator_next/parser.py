@@ -15,6 +15,10 @@ from typing import Any
 import yaml
 
 
+class ContractError(ValueError):
+    """Raised when a step contract is structurally invalid (HL-287 M2)."""
+
+
 @dataclass
 class StepContract:
     """Contract fields needed by the dispatcher.
@@ -89,10 +93,22 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
         if os.path.isfile(candidate):
             with open(candidate, "r") as f:
                 data = yaml.safe_load(f)
-            # Coerce inputs/outputs to list[str]. Older contracts sometimes
-            # have prose bullets (with colons, parens) which yaml parses as
-            # dicts — coerce those to string for M1. M2 migrates contracts
-            # to bare identifier names.
+            # M2: contracts MUST declare `inputs:` and `outputs:` (may be
+            # empty list, may not be absent). Missing raises ContractError.
+            if "inputs" not in data:
+                raise ContractError(
+                    f"contract {step_id} is missing required `inputs:` field "
+                    f"(use `inputs: []` if the step needs none)"
+                )
+            if "outputs" not in data:
+                raise ContractError(
+                    f"contract {step_id} is missing required `outputs:` field "
+                    f"(use `outputs: []` if the step produces none)"
+                )
+            # Coerce to list[str]. M1 note: older contracts may have prose
+            # bullets (with colons, parens) which yaml parses as dicts —
+            # coerce to string for backward compatibility. Normalization to
+            # bare identifier names is deferred to M2.5 follow-up polish.
             raw_inputs = data.get("inputs") or []
             raw_outputs = data.get("outputs") or []
             inputs = [str(x) if not isinstance(x, str) else x for x in raw_inputs]

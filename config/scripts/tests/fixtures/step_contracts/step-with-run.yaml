@@ -10,5 +10,6 @@ rules:
   - Report tokens.
 verify:
   - Adapter completed
+inputs: []
 outputs:
   - discovery_result
