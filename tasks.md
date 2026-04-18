@@ -141,7 +141,7 @@
     Test skips with a SKIP marker (exit 77) when `CLAUDE_API_KEY` is absent.
   - **Verify**: Test passes locally with API key; skips gracefully in CI.
 
-- [ ] T-11 Document: migration guide for remaining step contracts
+- [x] T-11 Document: migration guide for remaining step contracts
   - **Files**: `config/steps/contracts/migration-run-field.md` (create)
   - **Why**: Out-of-scope work is documented; unblocks incremental migration
     after signoff
@@ -152,7 +152,7 @@
   - **Verify**: `ls config/steps/contracts/migration-run-field.md` exists;
     file has all sections.
 
-- [ ] T-12 Update `install.sh` for Python dependency
+- [x] T-12 Update `install.sh` for Python dependency
   - **Files**: `install.sh`, `Makefile`
   - **Why**: NFR-3 — installation must not require a heavy setup step
   - **Approach**: Add gated pip install: check `python3 -c "import yaml,
