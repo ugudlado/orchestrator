@@ -67,3 +67,7 @@ lint-contracts: ## HL-287 M2: every step contract must declare inputs: and outpu
 	else \
 		echo "  $$missing contract(s) fail M2 lint"; exit 1; \
 	fi
+
+
+m8-gates: ## HL-287 M8: run all rework-integrity gates
+	@bash scripts/m8-gates.sh
