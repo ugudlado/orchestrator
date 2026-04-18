@@ -27,6 +27,7 @@ from typing import Any
 import yaml
 
 from .resolver import load_agent_tools
+from .parser import _load_contract, ContractError
 
 # Slug guard reused for change_id validation in aggregation
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -246,6 +247,56 @@ def _anomalies(db, repo_root: str, change_id: str) -> list[dict]:
     return result
 
 
+def _step_allowlist_anomalies(db, repo_root: str, change_id: str) -> list[dict]:
+    """
+    Find (phase, step_id, agent, tool) rows where the tool is not in the step's
+    declared allowed_tools list — but only when that list is non-empty.
+
+    Rows where the contract:
+      - is missing at report time → silently skipped
+      - has empty allowed_tools → skipped (no restriction)
+
+    Returns a list of dicts: agent_name, step_id, tool_name, calls.
+    """
+    sql = """
+    SELECT phase, step_id, agent_name, tool_name, COUNT(*) AS calls
+    FROM tool_calls
+    WHERE repo_root = ? AND change_id = ?
+    GROUP BY phase, step_id, agent_name, tool_name
+    """
+    rows = db.execute(sql, [repo_root, change_id]).fetchall()
+
+    result = []
+    # Cache loaded contracts: (phase, step_id) -> StepContract | None
+    _contract_cache: dict[tuple[str, str], Any] = {}
+
+    for phase, step_id, agent_name, tool_name, calls in rows:
+        cache_key = (phase, step_id)
+        if cache_key not in _contract_cache:
+            try:
+                contract = _load_contract(step_id, "")
+            except (FileNotFoundError, ContractError, Exception):
+                contract = None
+            _contract_cache[cache_key] = contract
+
+        contract = _contract_cache[cache_key]
+        if contract is None:
+            continue  # missing or bad contract — skip silently
+        if not contract.allowed_tools:
+            continue  # no restriction declared — skip
+        if tool_name not in contract.allowed_tools:
+            result.append({
+                "agent_name": agent_name,
+                "step_id": step_id,
+                "tool_name": tool_name,
+                "calls": int(calls),
+            })
+
+    # Sort deterministically: step_id ASC, agent ASC, tool ASC
+    result.sort(key=lambda x: (x["step_id"], x["agent_name"], x["tool_name"]))
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Scope aggregations (for --by step|agent|tool)
 # ---------------------------------------------------------------------------
@@ -326,6 +377,7 @@ def aggregate_feature(db, repo_root: str, change_id: str) -> dict:
         "mcp_calls": _mcp_calls(db, repo_root, change_id),
         "per_agent_tools": _per_agent_tools(db, repo_root, change_id),
         "anomalies": _anomalies(db, repo_root, change_id),
+        "anomalies_step_allowlist": _step_allowlist_anomalies(db, repo_root, change_id),
     }
 
 
@@ -589,15 +641,31 @@ def render_markdown_feature(data: dict) -> str:
     # 8. Anomalies
     lines.append("## Anomalies")
     lines.append("")
+
+    # 8a. Tool not in role (existing subsection)
+    lines.append("### Tool not in role")
+    lines.append("")
     if data["anomalies"]:
         for a in data["anomalies"]:
             lines.append(
-                f"⚠️ {a['agent_name']} used {a['tool_name']} ({a['calls']} calls)"
+                f"- {a['agent_name']} used {a['tool_name']} ({a['calls']} calls)"
                 f" — not in declared tools list"
             )
         lines.append("")
     else:
         lines.append("_No anomalies detected._")
+        lines.append("")
+
+    # 8b. Tool not in step allowlist (new subsection — only rendered when non-empty)
+    step_allowlist_anomalies = data.get("anomalies_step_allowlist", [])
+    if step_allowlist_anomalies:
+        lines.append("### Tool not in step allowlist")
+        lines.append("")
+        for a in step_allowlist_anomalies:
+            lines.append(
+                f"- {a['agent_name']} used {a['tool_name']} on step {a['step_id']}"
+                f" ({a['calls']} calls) — not in step allowlist"
+            )
         lines.append("")
 
     return "\n".join(lines)
