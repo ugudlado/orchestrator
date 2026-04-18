@@ -225,7 +225,7 @@ def upsert_step_event(
 
     db.execute(_INSERT_OR_REPLACE, params)
 
-    # Fan out usage.tools into per-call tool_calls rows.
+    # Fan out usage.tool_calls into per-call tool_calls rows.
     # Always DELETE first so retries with fewer tools don't leave orphan rows.
     db.execute(_DELETE_TOOL_CALLS, [repo_root, change_id, entry.phase, entry.step_id, attempt])
 
