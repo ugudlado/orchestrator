@@ -43,7 +43,8 @@ def _usage() -> None:
         "  orchestrator next <state.yaml>\n"
         "  orchestrator record <state.yaml>   # JSON payload on stdin\n"
         "  orchestrator cost --change-id <cid> [--by step|agent|tool] [--format md|json]\n"
-        "  orchestrator cost --repo [--by feature|agent|tool] [--format md|json] [--since <ISO>]",
+        "  orchestrator cost --repo [--by feature|agent|tool] [--format md|json] [--since <ISO>]\n"
+        "  orchestrator doctor",
         file=sys.stderr,
     )
     sys.exit(3)
