@@ -99,8 +99,10 @@ phases:
           review_score: { min: 7 }
         max_retries: 2
     steps:
-      - create-worktree if worktree
-      - load-project-context
+      # HL-287: workflow-init absorbs create-worktree + load-project-context
+      #         + create-linear-ticket + (autopilot-session-init when autopilot)
+      #         + configure-gitignore. One agent, one spawn.
+      - workflow-init
       - explore if discovery
       - ux-design if ux_design
       - id: design-and-draft-artifacts
@@ -115,7 +117,6 @@ phases:
       # validate-artifacts absorbed into design-and-draft-artifacts self-verify (HL-287 M4)
       - preview-route
       - run-phase-review if phase_review
-      - create-linear-ticket if linear
 
   - name: implement
     goal: Deliver all tasks with review and verification loops.

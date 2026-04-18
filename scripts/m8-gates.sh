@@ -7,7 +7,9 @@ echo "Gate 1: contract lint"
 make lint-contracts
 
 echo "Gate 2: no workflow schema refs to deleted contracts"
-DELETED="design-exploration create-or-refresh-artifacts validate-artifacts run-implement-review final-signoff phase-signoff verify-spike-findings"
+# M4-deleted: 7 folded contracts
+# rev-2-deleted: 5 contracts absorbed by workflow-init agent
+DELETED="design-exploration create-or-refresh-artifacts validate-artifacts run-implement-review final-signoff phase-signoff verify-spike-findings create-worktree load-project-context configure-gitignore autopilot-session-init create-linear-ticket"
 fail=0
 for id in $DELETED; do
   if grep -rE "^\s*-\s+$id\b" config/workflows/ 2>/dev/null; then
@@ -24,9 +26,17 @@ for id in compute-swe-metrics compute-prediction-accuracy archive-completed-chan
 done
 echo "  pass"
 
-echo "Gate 4: 13 inline scripts"
+echo "Gate 4: 8 inline scripts (5 absorbed into workflow-init agent, HL-287 rev-2)"
 count=$(ls scripts/inline/ | wc -l | tr -d ' ')
-[ "$count" = "13" ] && echo "  pass ($count)" || { echo "  fail ($count)"; exit 1; }
+[ "$count" = "8" ] && echo "  pass ($count)" || { echo "  fail ($count)"; exit 1; }
+
+echo "Gate 4b: workflow-init agent + contract exist and feature/bugfix/spike schemas reference it"
+[ -f "agents/workflow-init.md" ] || { echo "  fail: agents/workflow-init.md missing"; exit 1; }
+[ -f "config/steps/workflow-init.yaml" ] || { echo "  fail: config/steps/workflow-init.yaml missing"; exit 1; }
+for schema in config/workflows/feature.yaml config/workflows/bugfix.yaml config/workflows/spike.yaml; do
+  grep -q "workflow-init" "$schema" || { echo "  fail: $schema does not reference workflow-init"; exit 1; }
+done
+echo "  pass"
 
 echo "Gate 5: test suite"
 python3 -m unittest discover -s config/scripts/tests 2>&1 | tail -3

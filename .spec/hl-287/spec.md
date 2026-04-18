@@ -315,6 +315,21 @@ milestone in the execution plan below.
 
 ## Rework — Execution Plan
 
+> **Rev-2 amendment (post-merge prep)**: Five formerly-inline steps
+> (`create-worktree`, `load-project-context`, `configure-gitignore`,
+> `autopilot-session-init`, `create-linear-ticket`) collapsed into a single
+> new agent step `workflow-init`. Reason: `create-linear-ticket` needs MCP
+> Linear access, which only agents have. Consolidating the whole
+> workflow-start sequence into one agent (vs. reaching back to the orchestrate
+> skill between every step) matches the "one spawn, wide scope" principle.
+>
+> Net effect on the audit table below: 5 rows shift from category `inline` to
+> category `agent-driven` (target_agent: workflow-init). The
+> `scripts/inline/` directory shrinks from 13 to 8 scripts. All
+> `workflow-init`-absorbed contract files are deleted; their workflow-schema
+> references replaced with a single `- workflow-init` entry at the top of
+> each schema's first phase.
+
 ### Sequencing Rationale
 
 The plan interleaves what were previously framed as scope #2 (refactor) and

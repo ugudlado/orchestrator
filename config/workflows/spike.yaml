@@ -36,10 +36,10 @@ phases:
       - file: spike-brief.md
         template: spike-brief.md
     steps:
-      - load-project-context
+      # HL-287: workflow-init absorbs load-project-context + create-linear-ticket
+      - workflow-init
       - explore
       - design-and-draft-artifacts
-      - create-linear-ticket if linear
 
   - name: prototype
     goal: Build a working prototype.

@@ -73,8 +73,9 @@ phases:
         review_score: { min: 9 }
       max_retries: 3
     steps:
-      - create-worktree
-      - load-project-context
+      # HL-287: workflow-init absorbs create-worktree + load-project-context
+      #         + create-linear-ticket.
+      - workflow-init
       - id: diagnose
         extra_rules:
           - "Step 1: Write and run a reproduction script. Step 2: Trace the code path to find exact root cause. Step 3: Assess impact on other callers. Do NOT propose implementation details yet."
@@ -84,7 +85,6 @@ phases:
       # validate-artifacts absorbed into design-and-draft-artifacts self-verify (HL-287 M4)
       - preview-route
       - run-phase-review
-      - create-linear-ticket if linear
       # phase-signoff absorbed into run-phase-review (HL-287 M4)
 
   - name: implement

@@ -1,0 +1,49 @@
+id: workflow-init
+version: 1
+
+intent: >
+  Bootstrap a new workflow in one agent spawn. Replaces five former inline
+  steps (create-worktree, load-project-context, autopilot-session-init,
+  create-linear-ticket, configure-gitignore) with a single agent pass. The
+  agent has MCP Linear access and performs git worktree ops directly.
+
+agent: workflow-init
+
+inputs:
+  - slug
+  - repo_root
+  - schema
+  - flags
+  - change_description
+
+outputs:
+  - worktree_path
+  - branch
+  - linear_ticket_id
+  - workflow_plan
+  - resolved_flags
+
+rules:
+  - Fail loud if project.yaml is missing or the Linear config for this repo is
+    absent when flags.linear is true.
+  - Never touch files outside the worktree, project.yaml, or the active
+    state.yaml.
+  - The first-phase step_history entry is this agent's own; do not pre-populate
+    history entries for downstream steps.
+
+instruction: |
+  You are the workflow-init agent. Execute your responsibilities in order:
+  worktree → project context → Linear ticket → state.yaml write. Validate
+  evidence after each stage. Emit a JSON outputs dict at the end with the
+  five declared outputs (use null for skipped ones — e.g., worktree_path
+  when flags.worktree is false, linear_ticket_id when flags.linear is false).
+
+  On failure at any stage: return status: failed with a clear reason; do
+  NOT attempt partial cleanup (leave the state for debugging).
+
+verify:
+  - worktree_path exists and is a directory (or null if flags.worktree false)
+  - branch exists via git branch --list (or null if worktree null)
+  - linear_ticket_id matches team prefix regex (or null if flags.linear false)
+  - workflow_plan is a non-empty dict with at least one phase
+  - state.yaml at $WORKFLOW_STATE_DIR/<slug>/state.yaml contains project_context_loaded: true
