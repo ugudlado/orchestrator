@@ -35,8 +35,6 @@ def load_agent_tools(agent_name: str) -> set[str] | None:
     search_roots.append(os.path.expanduser("~/.claude"))
 
     for root in search_roots:
-        if not root:
-            continue
         path = os.path.join(root, "agents", f"{agent_name}.md")
         if not os.path.isfile(path):
             continue

@@ -156,3 +156,38 @@ class TestLoadAgentTools:
         from orchestrator_next.resolver import load_agent_tools
         result = load_agent_tools("string-tools")
         assert result is None
+
+    def test_oserror_on_read_continues_to_next_location(self, tmp_path, monkeypatch):
+        """OSError when reading an agent file: skips to next search location."""
+        orch = tmp_path / "orch"
+        (orch / "agents").mkdir(parents=True)
+        home = tmp_path / "home"
+        (home / ".claude" / "agents").mkdir(parents=True)
+        monkeypatch.setenv("ORCHESTRATOR_HOME", str(orch))
+        monkeypatch.setenv("HOME", str(home))
+
+        # Create file in orch_home location that exists (passes isfile) but raises OSError on read
+        agent_path = orch / "agents" / "oserror-agent.md"
+        agent_path.write_text("placeholder")
+
+        # Create valid file in user home fallback
+        (home / ".claude" / "agents" / "oserror-agent.md").write_text(
+            "---\ntools:\n- FallbackRead\n---\n# oserror-agent\n"
+        )
+
+        original_open = open
+
+        def mock_open(path, *args, **kwargs):
+            if str(path) == str(agent_path):
+                raise OSError("permission denied")
+            return original_open(path, *args, **kwargs)
+
+        import builtins
+        import importlib
+        monkeypatch.setattr(builtins, "open", mock_open)
+
+        import orchestrator_next.resolver as resolver_mod
+        importlib.reload(resolver_mod)
+        result = resolver_mod.load_agent_tools("oserror-agent")
+        # After OSError, should fall through to user home fallback
+        assert result == {"FallbackRead"}
