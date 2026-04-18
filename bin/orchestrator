@@ -22,7 +22,9 @@ import os
 import sys
 
 # Resolve the worktree root from this file's location (bin/orchestrator → root).
-_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
+# Use realpath() so a symlink on $PATH (e.g. ~/.local/bin/orchestrator → repo)
+# resolves to the repo location, not the symlink location.
+_BIN_DIR = os.path.dirname(os.path.realpath(__file__))
 _WORKTREE_ROOT = os.path.dirname(_BIN_DIR)
 _SCRIPTS_DIR = os.path.join(_WORKTREE_ROOT, "config", "scripts")
 
