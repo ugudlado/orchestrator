@@ -24,7 +24,7 @@ from orchestrator_next.parser import StepHistoryEntry
 # Slug guard: change_id must match ^[a-z0-9][a-z0-9-]*$
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
-_DDL = """
+_DDL_STEP_EVENTS = """
 CREATE TABLE IF NOT EXISTS step_events (
   repo_root   VARCHAR NOT NULL,
   change_id   VARCHAR NOT NULL,
@@ -50,9 +50,47 @@ CREATE TABLE IF NOT EXISTS step_events (
 )
 """
 
+_DDL_TOOL_CALLS = """
+CREATE TABLE IF NOT EXISTS tool_calls (
+  repo_root     TEXT    NOT NULL,
+  change_id     TEXT    NOT NULL,
+  phase         TEXT    NOT NULL,
+  step_id       TEXT    NOT NULL,
+  attempt       INTEGER NOT NULL,
+  agent_name    TEXT    NOT NULL,
+  tool_name     TEXT    NOT NULL,
+  is_mcp        BOOLEAN NOT NULL,
+  call_seq      INTEGER NOT NULL,
+  input_tokens  INTEGER,
+  output_tokens INTEGER,
+  cost_usd      DOUBLE,
+  duration_ms   INTEGER,
+  called_at     TEXT,
+  PRIMARY KEY (repo_root, change_id, phase, step_id, attempt, call_seq)
+)
+"""
+
 _CREATE_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_step_events_change
   ON step_events(repo_root, change_id)
+"""
+
+_CREATE_TOOL_CALLS_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_tool_calls_change
+  ON tool_calls(repo_root, change_id)
+"""
+
+_DELETE_TOOL_CALLS = """
+DELETE FROM tool_calls
+WHERE repo_root = ? AND change_id = ? AND phase = ? AND step_id = ? AND attempt = ?
+"""
+
+_INSERT_TOOL_CALL = """
+INSERT OR REPLACE INTO tool_calls (
+  repo_root, change_id, phase, step_id, attempt,
+  agent_name, tool_name, is_mcp, call_seq,
+  input_tokens, output_tokens, cost_usd, duration_ms, called_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL)
 """
 
 _INSERT_OR_REPLACE = """
@@ -117,12 +155,14 @@ def sum_cost_usd(db, context: dict) -> float:
 
 def ensure_schema(db) -> None:
     """
-    Create the step_events table and index if they do not exist.
+    Create the step_events and tool_calls tables and indexes if they do not exist.
 
     Safe to call multiple times (idempotent via IF NOT EXISTS).
     """
-    db.execute(_DDL)
+    db.execute(_DDL_STEP_EVENTS)
     db.execute(_CREATE_INDEX)
+    db.execute(_DDL_TOOL_CALLS)
+    db.execute(_CREATE_TOOL_CALLS_INDEX)
 
 
 def upsert_step_event(
@@ -184,3 +224,24 @@ def upsert_step_event(
     ]
 
     db.execute(_INSERT_OR_REPLACE, params)
+
+    # Fan out usage.tools into per-call tool_calls rows.
+    # Always DELETE first so retries with fewer tools don't leave orphan rows.
+    db.execute(_DELETE_TOOL_CALLS, [repo_root, change_id, entry.phase, entry.step_id, attempt])
+
+    usage_tools: dict = {}
+    if entry.usage and isinstance(entry.usage.get("tool_calls"), dict):
+        usage_tools = entry.usage["tool_calls"]
+
+    call_seq = 1
+    for tool_name in sorted(usage_tools.keys()):
+        count = usage_tools[tool_name]
+        if not isinstance(count, int) or count < 1:
+            continue
+        is_mcp = tool_name.startswith("mcp__")
+        for _ in range(count):
+            db.execute(_INSERT_TOOL_CALL, [
+                repo_root, change_id, entry.phase, entry.step_id, attempt,
+                entry.agent, tool_name, is_mcp, call_seq,
+            ])
+            call_seq += 1
