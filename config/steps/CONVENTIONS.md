@@ -17,6 +17,8 @@ Load only the contracts relevant to your step:
 | UX Artifacts | `contracts/ux-artifacts.md` | ux-design, design-and-draft-artifacts, execute-next-task |
 | Auto-Commit | `contracts/auto-commit.md` | execute-next-task |
 | Metrics Schema | `contracts/metrics-schema.md` | compute-swe-metrics, autopilot-session-report, telemetry, learn, workflow-improver |
+| Step Dispatch (CLI interface, JSON schema, exit codes) | `contracts/step-dispatch.md` | orchestrate skill, adapter authors, callers of `orchestrator next` |
+| Run Field Migration (adding `run:` adapter path to a step) | `contracts/migration-run-field.md` | developer adding subprocess adapter to a step contract |
 
 When step contracts reference `CONVENTIONS.md § <Section>`, check whether the
 section now lives in a contract file above. The `§` references in step contracts

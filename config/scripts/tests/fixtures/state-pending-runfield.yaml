@@ -1,0 +1,12 @@
+change_id: test-run-pending
+schema: feature
+version: 1
+status: active
+phase: implement
+repo: test-repo
+worktree_path: /tmp/test-workflow
+workflow_plan:
+  implement:
+    active:
+      - step-with-run
+step_history: []

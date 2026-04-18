@@ -1,0 +1,19 @@
+{
+  "action": "run_inline",
+  "agent": "inline",
+  "attempt": 1,
+  "env": {
+    "ORCHESTRATOR_ATTEMPT": "1",
+    "ORCHESTRATOR_CHANGE_ID": "test-inline-pending",
+    "ORCHESTRATOR_PHASE": "implement",
+    "ORCHESTRATOR_REPO_ROOT": "",
+    "ORCHESTRATOR_STEP_ID": "step-inline-only",
+    "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow"
+  },
+  "instruction": "Do the inline work here.\n",
+  "phase": "implement",
+  "rules": [
+    "Keep it simple."
+  ],
+  "step_id": "step-inline-only"
+}

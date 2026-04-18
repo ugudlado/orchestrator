@@ -1,0 +1,13 @@
+{
+  "action": "blocked",
+  "escalation": {
+    "attempted": "Tried both approaches.",
+    "context": "The design does not address this edge case.",
+    "question": "Should we handle X or Y?",
+    "task_id": "T-1",
+    "type": "missing_coverage"
+  },
+  "phase": "implement",
+  "reason": "escalate_to_architect",
+  "step_id": "step-inline-only"
+}

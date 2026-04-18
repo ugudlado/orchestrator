@@ -142,6 +142,20 @@ setup_global_hub() {
   fi
 }
 
+setup_python_deps() {
+  # orchestrator requires Python 3 for bin/orchestrator and the adapter scripts.
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "error: python3 is required but not found on PATH. Install Python 3 before running install.sh." >&2
+    exit 1
+  fi
+
+  # Gate: only install if any of the three packages is missing.
+  if ! python3 -c "import yaml, duckdb, ruamel.yaml" 2>/dev/null; then
+    echo "Installing Python dependencies (pyyaml duckdb ruamel.yaml)..."
+    pip install --user pyyaml duckdb ruamel.yaml
+  fi
+}
+
 setup_tool_antigravity() {
   echo "Syncing Gemini Antigravity hub wiring..."
 
@@ -169,6 +183,7 @@ setup_tool_antigravity() {
 
 main() {
   echo "Installing orchestrator..."
+  setup_python_deps
   setup_env
   setup_core
   setup_claude

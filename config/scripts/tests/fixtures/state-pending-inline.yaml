@@ -1,0 +1,12 @@
+change_id: test-inline-pending
+schema: feature
+version: 1
+status: active
+phase: implement
+repo: test-repo
+worktree_path: /tmp/test-workflow
+workflow_plan:
+  implement:
+    active:
+      - step-inline-only
+step_history: []

@@ -208,6 +208,148 @@ across all executions of the step (retry-inclusive). Key semantics:
 - **Backward compatibility**: archived `state.yaml` files that predate this block do not
   have `per_step`. Consumers MUST check for key existence before accessing any field under it.
 
+## step_history `usage:` Sub-Block (short-name schema)
+
+Added by the `subprocess-per-step-observability` feature. Step adapters and inline
+agents write usage data under a `usage:` key in the `step_history` entry using short,
+human-readable field names. The `orchestrator next` dispatcher maps these short names
+to OpenTelemetry GenAI column names at upsert time — consuming code never uses the OTel
+names directly in state.yaml.
+
+### Short-Name Field Registry
+
+| state.yaml field (short) | Type | Description | Maps to `step_events` column |
+|--------------------------|------|-------------|-------------------------------|
+| `usage.input_tokens` | integer | Input tokens billed for this step invocation | `gen_ai_usage_input_tokens` |
+| `usage.output_tokens` | integer | Output tokens billed | `gen_ai_usage_output_tokens` |
+| `usage.cache_read_input_tokens` | integer | Cache-read tokens (discounted tier) | `gen_ai_usage_cache_read_input_tokens` |
+| `usage.cost_usd` | decimal | Attributable cost in USD for this step invocation | `gen_ai_usage_cost_usd` |
+| `usage.model` | string | Model identifier (e.g., `claude-sonnet-4-5`) | `gen_ai_request_model` |
+| `usage.duration_ms` | integer | Wall-clock duration of the step in milliseconds | `duration_ms` |
+| `usage.tool_calls` | map (string→integer) | Per-tool invocation counts (e.g., `{Read: 32, Grep: 8}`) | `tool_calls_json` (JSON-serialised) |
+
+All fields under `usage:` are optional. Inline steps (contract has no `run:` field)
+may omit `usage:` entirely or provide an empty block; the resulting `step_events` row
+carries NULL in all OTel token/cost columns, which is correct — inline steps produce
+no attributable token usage at the step level.
+
+### Example step_history entry with usage
+
+```yaml
+step_history:
+  - step_id: explore
+    phase: specify
+    status: completed
+    agent: discoverer
+    attempt: 1
+    started_at: "2026-04-17T21:12:42Z"
+    ended_at: "2026-04-17T21:27:42Z"
+    artifacts:
+      - discovery.md
+    usage:
+      input_tokens: 120000
+      output_tokens: 18000
+      cache_read_input_tokens: 85000
+      cost_usd: 2.47
+      tool_calls:
+        Read: 32
+        Grep: 8
+        Bash: 4
+      duration_ms: 912000
+      model: "claude-sonnet-4-5"
+```
+
+---
+
+## `step_events` DuckDB Table
+
+The `orchestrator next` CLI maintains a `step_events` table in `metrics.duckdb`
+alongside the existing `features` table. Every terminal `step_history` entry is
+upserted into this table on each `orchestrator next` call (idempotent — re-running
+produces identical rows).
+
+### Purpose
+
+`step_events` provides step-granularity observability for cross-feature queries
+(e.g., token cost per step, retry frequency by step_id, agent-level rollup).
+The `features` table produced by `compute-swe-metrics.sh` remains the canonical
+feature-level aggregate; `step_events` is the per-step query plane.
+
+### Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS step_events (
+  -- Dimension keys (all non-null) — composite primary key
+  repo_root   VARCHAR NOT NULL,
+  change_id   VARCHAR NOT NULL,
+  phase       VARCHAR NOT NULL,
+  step_id     VARCHAR NOT NULL,
+  attempt     INTEGER NOT NULL,
+
+  -- Descriptors
+  agent_name  VARCHAR NOT NULL,    -- 'discoverer', 'reviewer', 'inline', etc.
+  status      VARCHAR NOT NULL,    -- completed|failed|blocked|escalate_to_architect
+
+  -- Timestamps
+  started_at  TIMESTAMP,
+  ended_at    TIMESTAMP,
+  duration_ms BIGINT,
+
+  -- OpenTelemetry GenAI semantic convention columns
+  gen_ai_request_model                   VARCHAR,
+  gen_ai_usage_input_tokens              BIGINT,
+  gen_ai_usage_output_tokens             BIGINT,
+  gen_ai_usage_cache_read_input_tokens   BIGINT,
+  gen_ai_usage_cost_usd                  DOUBLE,
+
+  -- Structured payloads (JSON strings for flexible queries)
+  tool_calls_json  VARCHAR,        -- e.g., {"Read": 32, "Grep": 8}
+  artifacts_json   VARCHAR,        -- e.g., ["discovery.md"]
+  escalation_json  VARCHAR,        -- non-null only for escalate_to_architect rows
+
+  upserted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+  PRIMARY KEY (repo_root, change_id, phase, step_id, attempt, status)
+);
+```
+
+### Why `status` is in the Primary Key
+
+A single `(phase, step_id, attempt)` may legitimately produce more than one terminal
+`step_history` entry when an architect escalation occurs. The escalated attempt is
+not charged a retry — the developer re-spawns with the architect decision and the same
+`attempt` number. This produces an `escalate_to_architect` entry followed by a
+`completed` entry at the same `(phase, step_id, attempt)`. Including `status` in the
+primary key preserves the full escalation audit trail in `step_events`.
+
+Rollup queries that want only terminal outcomes should filter
+`status IN ('completed', 'failed', 'blocked')` (excluding `escalate_to_architect`).
+
+### Upsert Pattern
+
+The table is populated via `INSERT OR REPLACE` using parameterised
+`duckdb.execute(sql, params)` — no string interpolation. The `change_id` is
+validated against `^[a-z0-9][a-z0-9-]*$` (slug guard) before any INSERT, per the
+`metrics-db-derived` learning.
+
+### Example Rollup Query
+
+```sql
+-- Phase-level token and cost totals for a change
+SELECT
+  phase,
+  SUM(gen_ai_usage_input_tokens)  AS input_tokens,
+  SUM(gen_ai_usage_output_tokens) AS output_tokens,
+  SUM(gen_ai_usage_cost_usd)      AS cost_usd
+FROM step_events
+WHERE change_id = 'my-feature'
+  AND status IN ('completed', 'failed')
+GROUP BY phase
+ORDER BY phase;
+```
+
+---
+
 ## Future Schemas
 
 When adding a new workflow schema, choose the appropriate contract:

@@ -1,0 +1,14 @@
+id: step-with-run
+version: 1
+intent: A step with a run field for subprocess dispatch.
+agent: discoverer
+run: config/scripts/adapters/discoverer.py
+instruction: |
+  Run the discoverer adapter.
+rules:
+  - Use the run field.
+  - Report tokens.
+verify:
+  - Adapter completed
+outputs:
+  - discovery_result

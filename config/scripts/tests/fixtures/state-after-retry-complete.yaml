@@ -1,0 +1,52 @@
+change_id: test-after-retry-complete
+schema: feature
+version: 1
+status: active
+phase: implement
+repo: test-repo
+worktree_path: /tmp/test-workflow
+workflow_plan:
+  implement:
+    active:
+      - step-inline-only
+      - step-with-run
+step_history:
+  # step-inline-only: attempt:1 failed, attempt:2 completed
+  # step-with-run: attempt:1 completed
+  # All phase steps now complete; CLI should return complete_workflow
+  - step_id: step-inline-only
+    phase: implement
+    status: failed
+    agent: inline
+    attempt: 1
+    started_at: "2026-04-18T08:00:00Z"
+    ended_at: "2026-04-18T08:30:00Z"
+    usage:
+      input_tokens: 5000
+      output_tokens: 500
+      cost_usd: 0.10
+      duration_ms: 30000
+  - step_id: step-inline-only
+    phase: implement
+    status: completed
+    agent: inline
+    attempt: 2
+    started_at: "2026-04-18T09:00:00Z"
+    ended_at: "2026-04-18T09:30:00Z"
+    usage:
+      input_tokens: 6000
+      output_tokens: 700
+      cost_usd: 0.12
+      duration_ms: 30000
+  - step_id: step-with-run
+    phase: implement
+    status: completed
+    agent: discoverer
+    attempt: 1
+    started_at: "2026-04-18T10:00:00Z"
+    ended_at: "2026-04-18T10:30:00Z"
+    usage:
+      input_tokens: 12000
+      output_tokens: 1800
+      cost_usd: 0.47
+      duration_ms: 30000

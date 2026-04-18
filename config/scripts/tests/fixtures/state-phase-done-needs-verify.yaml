@@ -1,0 +1,24 @@
+change_id: test-phase-done-verify
+schema: feature
+version: 1
+status: active
+phase: implement
+repo: test-repo
+worktree_path: /tmp/test-workflow
+workflow_plan:
+  implement:
+    active:
+      - step-inline-only
+    verify:
+      commands:
+        - "echo check"
+      assertions:
+        - All steps completed successfully
+step_history:
+  - step_id: step-inline-only
+    phase: implement
+    status: completed
+    agent: inline
+    attempt: 1
+    started_at: "2026-04-18T10:00:00Z"
+    ended_at: "2026-04-18T10:30:00Z"
