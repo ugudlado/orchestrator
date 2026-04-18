@@ -79,6 +79,42 @@ INSERT OR REPLACE INTO step_events (
 """
 
 
+_SUM_COST_SQL = """
+SELECT COALESCE(SUM(gen_ai_usage_cost_usd), 0.0)
+FROM step_events
+WHERE repo_root = ? AND change_id = ?
+"""
+
+
+def sum_cost_usd(db, context: dict) -> float:
+    """
+    Return the sum of gen_ai_usage_cost_usd for (repo_root, change_id).
+
+    Args:
+        db:      open duckdb.DuckDBPyConnection (schema already ensured)
+        context: dict with keys 'repo_root' and 'change_id'
+
+    Returns:
+        float sum of gen_ai_usage_cost_usd, or 0.0 if no rows / all NULL.
+
+    Raises:
+        ValueError: if change_id violates the slug guard.
+    """
+    change_id: str = context["change_id"]
+    repo_root: str = context.get("repo_root", "")
+
+    # Slug guard — reject invalid change_id before any query
+    if not _SLUG_RE.match(change_id):
+        raise ValueError(
+            f"change_id '{change_id}' violates slug guard. "
+            f"Must match ^[a-z0-9][a-z0-9-]*$ (lowercase alphanumeric and hyphens only, "
+            f"no leading hyphen)."
+        )
+
+    row = db.execute(_SUM_COST_SQL, [repo_root, change_id]).fetchone()
+    return float(row[0]) if row and row[0] is not None else 0.0
+
+
 def ensure_schema(db) -> None:
     """
     Create the step_events table and index if they do not exist.

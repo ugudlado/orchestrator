@@ -10,6 +10,7 @@
     "ORCHESTRATOR_STEP_ID": "step-inline-only",
     "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow"
   },
+  "estimated_cost_so_far": 0.0,
   "expected_outputs": [
     "result"
   ],

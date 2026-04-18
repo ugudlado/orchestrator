@@ -78,10 +78,11 @@ def main() -> None:
         if os.environ.get("ORCHESTRATOR_HOME")
         else None
     )
+    _cost_so_far = 0.0
     if _metrics_db_path:
         try:
             import duckdb
-            from orchestrator_next.upsert import ensure_schema, upsert_step_event
+            from orchestrator_next.upsert import ensure_schema, upsert_step_event, sum_cost_usd
 
             _terminal_statuses = {"completed", "failed", "blocked", "escalate_to_architect"}
             _db = duckdb.connect(_metrics_db_path)
@@ -94,6 +95,10 @@ def main() -> None:
                     except ValueError as _ve:
                         # Slug guard failure — log to stderr and continue
                         print(f"warning: upsert skipped — {_ve}", file=sys.stderr)
+            try:
+                _cost_so_far = sum_cost_usd(_db, _context)
+            except Exception as _ce:  # noqa: BLE001 — cost query must not block dispatch
+                print(f"warning: cost sum failed — {_ce}", file=sys.stderr)
             _db.close()
         except Exception as exc:  # noqa: BLE001 — DB errors must not block dispatch
             print(f"warning: step_events upsert failed — {exc}", file=sys.stderr)
@@ -107,6 +112,7 @@ def main() -> None:
         print(f"error: dispatch failed — {exc}", file=sys.stderr)
         sys.exit(3)
 
+    action["estimated_cost_so_far"] = _cost_so_far
     print(emit_json(action), end="")
     sys.exit(exit_code)
 
