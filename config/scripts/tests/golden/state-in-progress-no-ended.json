@@ -1,0 +1,20 @@
+{
+  "action": "retry_step",
+  "agent": "inline",
+  "attempt": 2,
+  "env": {
+    "ORCHESTRATOR_ATTEMPT": "2",
+    "ORCHESTRATOR_CHANGE_ID": "test-in-progress",
+    "ORCHESTRATOR_PHASE": "implement",
+    "ORCHESTRATOR_REPO_ROOT": "",
+    "ORCHESTRATOR_STEP_ID": "step-inline-only",
+    "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow"
+  },
+  "instruction": "Do the inline work here.\n",
+  "phase": "implement",
+  "previous_failure": "no ended_at",
+  "rules": [
+    "Keep it simple."
+  ],
+  "step_id": "step-inline-only"
+}

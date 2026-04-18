@@ -1,0 +1,21 @@
+{
+  "action": "run_step",
+  "agent": "discoverer",
+  "attempt": 1,
+  "env": {
+    "ORCHESTRATOR_ATTEMPT": "1",
+    "ORCHESTRATOR_CHANGE_ID": "test-run-pending",
+    "ORCHESTRATOR_PHASE": "implement",
+    "ORCHESTRATOR_REPO_ROOT": "",
+    "ORCHESTRATOR_STEP_ID": "step-with-run",
+    "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow"
+  },
+  "instruction": "Run the discoverer adapter.\n",
+  "phase": "implement",
+  "rules": [
+    "Use the run field.",
+    "Report tokens."
+  ],
+  "run": "config/scripts/adapters/discoverer.py",
+  "step_id": "step-with-run"
+}

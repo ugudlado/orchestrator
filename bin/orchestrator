@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+# requires: pyyaml, duckdb
+# orchestrator — pure-read dispatcher CLI for the orchestrator workflow engine.
+#
+# Usage:
+#   orchestrator next <state.yaml>
+#
+# Exit codes:
+#   0 — action returned (run_step / run_inline / retry_step / verify_phase)
+#   1 — complete_workflow
+#   2 — blocked (escalate_to_architect or blocked status)
+#   3 — error (malformed input, missing file, slug-guard failure)
+"""
+Entry point for the `orchestrator` CLI.
+
+Adds config/scripts/ to sys.path so orchestrator_next can be imported as a
+package regardless of where the CLI is invoked from.
+"""
+from __future__ import annotations
+
+import os
+import sys
+
+# Resolve the worktree root from this file's location (bin/orchestrator → root).
+_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
+_WORKTREE_ROOT = os.path.dirname(_BIN_DIR)
+_SCRIPTS_DIR = os.path.join(_WORKTREE_ROOT, "config", "scripts")
+
+# Insert at position 0 so project modules take precedence over any installed packages.
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+
+def _usage() -> None:
+    print("Usage: orchestrator next <state.yaml>", file=sys.stderr)
+    sys.exit(3)
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    if len(args) < 2 or args[0] != "next":
+        _usage()
+
+    state_yaml_path = args[1]
+
+    try:
+        from orchestrator_next.parser import load_state
+        from orchestrator_next.dispatch import dispatch, emit_json
+    except ImportError as exc:
+        print(f"error: failed to import orchestrator_next — {exc}", file=sys.stderr)
+        sys.exit(3)
+
+    try:
+        state = load_state(state_yaml_path)
+    except FileNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(3)
+    except Exception as exc:  # noqa: BLE001 — catch-all for malformed YAML; diagnosed below
+        print(f"error: failed to parse state.yaml — {exc}", file=sys.stderr)
+        sys.exit(3)
+
+    # Upsert terminal step_history entries into metrics.duckdb.
+    # DB path: METRICS_DB env var, falling back to $ORCHESTRATOR_HOME/metrics.duckdb.
+    # Skip silently if ORCHESTRATOR_HOME is not set (test/offline mode).
+    _metrics_db_path = os.environ.get("METRICS_DB") or (
+        os.path.join(os.environ["ORCHESTRATOR_HOME"], "metrics.duckdb")
+        if os.environ.get("ORCHESTRATOR_HOME")
+        else None
+    )
+    if _metrics_db_path:
+        try:
+            import duckdb
+            from orchestrator_next.upsert import ensure_schema, upsert_step_event
+
+            _terminal_statuses = {"completed", "failed", "blocked", "escalate_to_architect"}
+            _db = duckdb.connect(_metrics_db_path)
+            ensure_schema(_db)
+            _context = {"repo_root": state.repo_root, "change_id": state.change_id}
+            for _entry in state.step_history:
+                if _entry.status in _terminal_statuses:
+                    try:
+                        upsert_step_event(_db, _entry, _context)
+                    except ValueError as _ve:
+                        # Slug guard failure — log to stderr and continue
+                        print(f"warning: upsert skipped — {_ve}", file=sys.stderr)
+            _db.close()
+        except Exception as exc:  # noqa: BLE001 — DB errors must not block dispatch
+            print(f"warning: step_events upsert failed — {exc}", file=sys.stderr)
+
+    try:
+        action, exit_code = dispatch(state, state_yaml_path)
+    except FileNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(3)
+    except Exception as exc:  # noqa: BLE001 — dispatch errors should be surfaced
+        print(f"error: dispatch failed — {exc}", file=sys.stderr)
+        sys.exit(3)
+
+    print(emit_json(action), end="")
+    sys.exit(exit_code)
+
+
+if __name__ == "__main__":
+    main()
