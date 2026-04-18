@@ -1,7 +1,7 @@
 #!/bin/bash
 # estimate-cost.sh — Pre-flight cost/token estimate from archive history.
 #
-# Usage: estimate-cost.sh <state_dir>
+# Usage: estimate-cost.sh <state_dir|state.yaml>
 #
 # Reads:
 #   - <state_dir>/state.yaml           (current schema, tasks_planned hint)
