@@ -1,0 +1,32 @@
+change_id: test-cost-probe
+schema: feature
+version: 1
+status: active
+phase: implement
+repo: test-repo
+worktree_path: /tmp/test-workflow
+workflow_plan:
+  implement:
+    active:
+      - step-inline-only
+step_history:
+  - step_id: step-inline-only
+    phase: implement
+    status: completed
+    agent: inline
+    attempt: 1
+    started_at: "2026-04-18T10:00:00Z"
+    ended_at: "2026-04-18T10:30:00Z"
+    usage:
+      cost_usd: 0.01
+      model: "claude-sonnet-4-6"
+  - step_id: step-inline-only
+    phase: implement
+    status: completed
+    agent: inline
+    attempt: 2
+    started_at: "2026-04-18T10:31:00Z"
+    ended_at: "2026-04-18T11:00:00Z"
+    usage:
+      cost_usd: 0.02
+      model: "claude-sonnet-4-6"

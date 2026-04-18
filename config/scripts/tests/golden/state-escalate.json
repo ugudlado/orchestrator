@@ -7,6 +7,7 @@
     "task_id": "T-1",
     "type": "missing_coverage"
   },
+  "estimated_cost_so_far": 0.0,
   "phase": "implement",
   "reason": "escalate_to_architect",
   "step_id": "step-inline-only"
