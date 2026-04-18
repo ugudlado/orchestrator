@@ -20,8 +20,14 @@
 
 set -uo pipefail
 
-STATE_DIR="${1:?Usage: estimate-cost.sh <state_dir>}"
-STATE_FILE="$STATE_DIR/state.yaml"
+ARG="${1:?Usage: estimate-cost.sh <state_dir|state.yaml>}"
+if [[ -f "$ARG" ]]; then
+  STATE_FILE="$ARG"
+  STATE_DIR="$(dirname "$ARG")"
+else
+  STATE_DIR="$ARG"
+  STATE_FILE="$STATE_DIR/state.yaml"
+fi
 TASKS_FILE="$STATE_DIR/tasks.md"
 
 if [[ ! -f "$STATE_FILE" ]]; then

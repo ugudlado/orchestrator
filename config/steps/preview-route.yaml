@@ -19,7 +19,7 @@ instruction: |
      change, skip re-running the estimator. Append a step_history entry marking
      this re-entry and exit.
   1. Run the estimator:
-     `$ORCHESTRATOR_HOME/config/scripts/estimate-cost.sh $WORKFLOW_STATE_DIR/$CHANGE_ID`
+     `$ORCHESTRATOR_HOME/config/scripts/estimate-cost.sh $WORKFLOW_STATE_DIR/$CHANGE_ID/state.yaml`
      - stdout: `route_preview:` YAML block
      - stderr: human-readable preview table (relay to the user)
   2. If the script exits non-zero or stdout is empty, write a fallback block to

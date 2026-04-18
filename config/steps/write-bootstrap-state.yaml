@@ -26,7 +26,7 @@ instruction: |
     "completed_at": "<ISO 8601>",
     "language": "<key or array for multi-lang>",
     "package_manager": "<pnpm|yarn|npm|pip|uv|poetry|cargo|go>",
-    "tools": {
+    "tool_calls": {
       "linter": { "name": "<tool>", "version": "<version>" },
       "formatter": { "name": "<tool>", "version": "<version>" },
       "dead_code": { "name": "<tool>", "version": "<version>" },
