@@ -10,6 +10,10 @@
     "ORCHESTRATOR_STEP_ID": "step-inline-only",
     "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow"
   },
+  "expected_outputs": [
+    "result"
+  ],
+  "inputs": {},
   "instruction": "Do the inline work here.\n",
   "phase": "implement",
   "previous_failure": "no ended_at",

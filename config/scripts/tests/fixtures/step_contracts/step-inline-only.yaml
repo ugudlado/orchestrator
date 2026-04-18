@@ -8,5 +8,6 @@ rules:
   - Keep it simple.
 verify:
   - Output produced
+inputs: []
 outputs:
   - result

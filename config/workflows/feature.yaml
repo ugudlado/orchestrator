@@ -99,8 +99,10 @@ phases:
           review_score: { min: 7 }
         max_retries: 2
     steps:
-      - create-worktree if worktree
-      - load-project-context
+      # HL-287: workflow-init absorbs create-worktree + load-project-context
+      #         + create-linear-ticket + (autopilot-session-init when autopilot)
+      #         + configure-gitignore. One agent, one spawn.
+      - workflow-init
       - explore if discovery
       - ux-design if ux_design
       - id: design-and-draft-artifacts
@@ -112,10 +114,9 @@ phases:
             - Tests are optional unless task-level verification explicitly requires them.
           light:
             - Keep spec.md terse — one paragraph of context, a short acceptance list. No discovery section when discovery was skipped.
-      - validate-artifacts
+      # validate-artifacts absorbed into design-and-draft-artifacts self-verify (HL-287 M4)
       - preview-route
       - run-phase-review if phase_review
-      - create-linear-ticket if linear
 
   - name: implement
     goal: Deliver all tasks with review and verification loops.
@@ -151,8 +152,8 @@ phases:
           not tdd_required:
             - Keep implementation slices minimal and verification-focused.
       - run-ux-critique if ux_design
-      - run-implement-review
-      - final-signoff if not auto
+      # run-implement-review + final-signoff absorbed into run-phase-review (HL-287 M4)
+      - run-phase-review if phase_review
 
   - include: _complete-phase
     requires: implement

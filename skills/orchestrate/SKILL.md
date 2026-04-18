@@ -81,152 +81,45 @@ Build the active step list using the resolved flags:
 - Plain `step-id` or `id: step-id` → always include
 - Preserve ordering — steps execute in the order listed
 
-### 4. Dispatch loop
 
-For each phase, for each step in the filtered list:
+### 4. Dispatch loop — HL-287 M5: use the `orchestrator` CLI
+
+The dispatch loop is now a thin wrapper around `orchestrator next` and
+`orchestrator record`. Pre/post stamping (started_at / completed_at /
+status / usage / evidence) is applied uniformly by the CLI — do NOT
+write per-step stamping prose.
 
 ```
-READ step contract:  $ORCHESTRATOR_HOME/config/steps/<step_id>.yaml
-READ agent definition: $ORCHESTRATOR_HOME/agents/<step.agent>.md  (if step has agent: field)
+LOOP:
+  action = orchestrator next $WORKFLOW_STATE_DIR/$CHANGE_ID/state.yaml
 
-COLLECT rules for this step:
-  - step contract's own rules:
-  - schema-level rules_when: (evaluate flags, append matching rules)
-  - schema-level extra_rules: (append unconditionally)
-
-RECORD started_at = current ISO 8601 timestamp
-
-IF step contract has pre_execute.approach_required: true:
-  REQUIRE the agent (or inline executor) to emit an APPROACH block before any
-  other action, per CONVENTIONS.md § Pre-Execute Approach Statement:
-    APPROACH:
-      files: <paths>
-      approach: <one sentence>
-      not_doing: <scope exclusion>
-  CAPTURE the block into state.yaml step_history[-1].approach verbatim.
-  Under --auto, proceed immediately after emitting. Under interactive mode,
-  wait for user confirmation unless the parent step has already been approved.
-
-IF step has agent: field:
-  RESOLVE host subagent type:
-    - Default: subagent_type = step.agent
-    - If the current host rejects or does not expose repo-defined agent names,
-      use the Codex compatibility map below and inject the full agent definition
-      into the prompt:
-        architect         -> worker
-        developer         -> worker
-        workflow-improver -> worker
-        debugger          -> worker
-        reviewer          -> explorer
-        discoverer        -> explorer
-        ux-reviewer       -> explorer
-        ideator           -> explorer
-        humanizer         -> worker
-        sonnet-agent      -> worker
-        haiku-agent       -> default
-    - If no mapping exists, use worker and record the fallback in step_history.
-  IF this is a re-spawn after failure (step_history[-1].retry_context exists
-     and retries.<step_id> > 0):
-    READ step_history[-1].retry_context and build the RETRY_CONTEXT block
-    per contracts/error-recovery.md § Retry Context Contract. This block
-    will be appended to the prompt below.
-  SPAWN sub-agent via the host's agent/subagent tool:
-    - subagent_type: resolved host subagent type
-    - prompt:
-        1. "You are executing orchestrator agent `<step.agent>`."
-        2. Full contents of `$ORCHESTRATOR_HOME/agents/<step.agent>.md`
-           when using a compatibility fallback; native hosts may rely on the
-           registered agent definition.
-        3. step.instruction + collected rules
-        4. RETRY_CONTEXT block (if this is a re-spawn), appended verbatim
-           after a blank line.
-    - Include: phase context, state.yaml path, relevant contract files from CONVENTIONS.md § Contract Files
-  WAIT for agent result
-
-ELSE (inline step — no agent: field):
-  EXECUTE step.instruction directly in this context
-  COUNT tool invocations made during execution (Read, Bash, Edit, etc.) — this is tool_uses for the inline step.
-
-RECORD completed_at = current ISO 8601 timestamp
-
-IF agent returns STATUS: escalate_to_architect:
-  READ $ORCHESTRATOR_HOME/config/steps/contracts/architect-escalation.md
-  READ $ORCHESTRATOR_HOME/agents/architect.md
-  SPAWN architect agent (Mode 3: Implementation Consultation) with:
-    - spec.md (from $WORKFLOW_STATE_DIR/$CHANGE_ID/spec.md)
-    - design.md (from $WORKFLOW_STATE_DIR/$CHANGE_ID/design.md)
-    - escalation block (type, task_id, context, question, attempted from agent result)
-    - tasks.md with current completion status
-  WAIT for architect response
-  IF architect response contains DESIGN_AMENDMENT (not "none"):
-    WRITE updated design.md to $WORKFLOW_STATE_DIR/$CHANGE_ID/design.md
-  IF architect response contains TASK_CHANGES (not "none"):
-    UPDATE $WORKFLOW_STATE_DIR/$CHANGE_ID/tasks.md per architect instructions
-  RECORD in state.yaml escalation_events (per contracts/architect-escalation.md § State Recording):
-    - task_id, type, question, decision, design_amended, tasks_changed, timestamp
-  RE-SPAWN developer agent with original step prompt plus architect decision appended:
-    "Architect Decision (escalation resolved): <DECISION field>"
-  CONTINUE same step (do NOT advance next_step; do NOT increment retries for the task)
-  SKIP the AFTER step completes block below for this iteration
-
-AFTER step completes:
-  APPEND to state.yaml step_history: {step_id, phase, status, agent, started_at, completed_at}
-  If a compatibility fallback was used, preserve the configured agent name in
-  `agent:` and add `runtime_agent: <resolved host subagent type>`.
-
-  ### Inline-step usage schema
-
-  IF step had NO agent: field (inline step):
-    Write a usage: block with `agent: inline` on the step_history entry:
-    ```yaml
-    agent: inline
-    usage:
-      tool_uses: <count of tool invocations made during inline execution>
-      duration_ms: <completed_at_epoch_ms - started_at_epoch_ms>
-    ```
-    - `duration_ms` = milliseconds between `started_at` and `completed_at` timestamps.
-    - `tool_uses` = count of tool calls made while executing step.instruction.
-    - Token fields (input_tokens, output_tokens, total_tokens) are OMITTED for inline steps.
-      Consumers treat absent token fields as 0.
-    - `agent: inline` is the canonical marker; the per-agent awk pass in compute-swe-metrics
-      aggregates inline steps under the "inline" agent bucket.
-
-  IF step had agent: field, extract usage data from the agent result and add a usage: block.
-  Two sources — check both:
-    a) **Proxy agents (llm_submit)**: look for a `---llm_usage---` / `---end_usage---` block
-       in the result text. Copy the fields directly: input_tokens, output_tokens, total_tokens.
-    b) **Native agents (Agent tool)**: the result summary includes token counts
-       (e.g. "tokens: 12345 input, 3456 output"). Extract input_tokens, output_tokens,
-       and compute total_tokens = input_tokens + output_tokens.
-  Also count tool invocations by type name (Read, Bash, Edit, Grep, Write, Glob,
-  WebSearch, WebFetch, SendMessage, etc.) from the agent result, and write as:
-    tools: {ToolName: count, ...}
-  Sum all tool counts as tool_uses.
-  Write the complete block:
-    ```yaml
-    usage:
-      input_tokens: <N>
-      output_tokens: <N>
-      total_tokens: <N>
-      cost_usd: <N>
-      tool_uses: <N>
-      tools:
-        Read: <N>
-        Bash: <N>
-        ...
-    ```
-  cost_usd comes from the `---llm_usage---` block (proxy agents) or can be omitted (native agents).
-  If token data is unavailable, still write what you have (even just tool counts).
-  If no tool calls were made, omit tools: or write tools: {}.
-  IF step's verify block has evidence_required: true:
-    Check step_history[-1].evidence exists and is non-empty (at least one of
-    commands/file_checks/counts has content). If missing, treat the step as
-    STATUS: blocked per CONVENTIONS.md § Evidence-Required Verification and
-    follow Agent Blocked Protocol. Do NOT advance to the next step.
-  WRITE next_step to state.yaml pointing to the next step
-  IF step has repeat_until: check condition — if not met, re-execute this step
-  IF step has verify: check assertions — if failed, follow Error Recovery Contract
+  IF action.action == "complete_workflow": STOP (workflow done)
+  IF action.action == "blocked":            STOP (escalate or fix)
+  IF action.action == "verify_phase":       run action.commands + action.assertions
+  IF action.action == "run_inline" AND action.agent == "inline":
+      # HL-287 M3 inline-script dispatch
+      run action.run with action.inputs as env vars
+      collect outputs (last stdout line as JSON dict)
+      orchestrator record state.yaml <<< {step_id, phase, status, outputs, usage, evidence}
+  IF action.action == "run_inline" AND action.agent != "inline":
+      # Legacy inline-instruction (pre-M3, being phased out)
+      execute action.instruction in context with action.inputs / action.rules
+      orchestrator record state.yaml <<< {step_id, phase, status: completed, outputs, usage}
+  IF action.action == "run_step":
+      # Agent spawn. Load agent .md from $ORCHESTRATOR_HOME/agents/<action.agent>.md
+      # and run action.run (adapter path) with the agent's prompt + action.inputs.
+      spawn agent(action.agent) with prompt=action.instruction, rules=action.rules,
+            inputs=action.inputs, expecting=action.expected_outputs
+      orchestrator record state.yaml <<< {step_id, phase, status, outputs, usage, evidence}
+  IF action.action == "retry_step":
+      same as run_step but with action.previous_failure in the prompt
 ```
+
+Escalation (agent returns STATUS: escalate_to_architect): record a
+step_history entry with `status: escalate_to_architect` — `orchestrator
+next` on the following call returns `action: blocked`, which the loop
+surfaces. The architect escalation contract (steps/contracts/architect-escalation.md)
+defines how to spawn the architect and re-dispatch.
 
 ### 5. Phase transitions
 

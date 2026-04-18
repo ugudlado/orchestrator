@@ -1,9 +1,10 @@
 id: archive-completed-change
+inline: true
+run: scripts/inline/archive-completed-change.sh
 version: 6
 
 intent: Copy completed change artifacts to the repo archive and commit.
 
-agent: developer
 
 inputs:
   - swe_metrics

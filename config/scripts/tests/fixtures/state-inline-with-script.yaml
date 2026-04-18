@@ -1,0 +1,11 @@
+change_id: test-inline-with-script
+schema: feature
+version: 1
+status: active
+phase: implement
+worktree_path: /tmp/test-workflow
+workflow_plan:
+  implement:
+    active:
+      - step-inline-with-script
+step_history: []

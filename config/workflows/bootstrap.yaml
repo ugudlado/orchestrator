@@ -56,8 +56,8 @@ phases:
       - detect-language
       - install-tooling
       - generate-project-yaml
-      - load-project-context
-      - configure-gitignore
+      # HL-287: load-project-context + configure-gitignore absorbed into workflow-init
+      - workflow-init
       - setup-makefile
       - setup-claude-md
       - setup-claude-settings

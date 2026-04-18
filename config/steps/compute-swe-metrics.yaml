@@ -1,9 +1,10 @@
 id: compute-swe-metrics
+inline: true
+run: scripts/inline/compute-swe-metrics.sh
 version: 1
 
 intent: Compute SWE metrics and persist to state.yaml.
 
-agent: developer
 
 inputs:
   - final_signoff_decision

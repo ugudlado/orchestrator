@@ -1,0 +1,14 @@
+id: step-typed-io
+version: 1
+intent: A step that declares typed inputs and outputs (HL-287 M1 fixture).
+agent: inline
+instruction: |
+  Consume the declared inputs.
+rules:
+  - Keep it simple.
+inputs:
+  - slug
+  - prior_output
+outputs:
+  - computed_value
+  - derived_flag

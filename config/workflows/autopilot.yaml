@@ -40,7 +40,8 @@ phases:
       on_max_retries: escalate to user with the specific failing check and remediation steps
     steps:
       - autopilot-preflight
-      - autopilot-session-init
+      # HL-287: autopilot-session-init absorbed into workflow-init
+      - workflow-init
 
   - name: iterate
     goal: Run N iterations — pick work, execute, record outcome, clear context.

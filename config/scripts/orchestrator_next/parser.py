@@ -15,14 +15,25 @@ from typing import Any
 import yaml
 
 
+class ContractError(ValueError):
+    """Raised when a step contract is structurally invalid (HL-287 M2)."""
+
+
 @dataclass
 class StepContract:
-    """Minimum contract fields needed by the dispatcher (T-2 scope)."""
+    """Contract fields needed by the dispatcher.
+
+    `inputs` and `outputs` declare the typed I/O for this step (HL-287 M1).
+    Backward-compatible: contracts that don't declare the fields get `[]`.
+    """
     id: str
     agent: str
     run: str | None  # None = inline-only
     instruction: str
     rules: list[str]
+    inputs: list[str] = field(default_factory=list)
+    outputs: list[str] = field(default_factory=list)
+    inline: bool = False  # HL-287 M3: inline: true + run: <script> path
 
 
 @dataclass
@@ -83,12 +94,35 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
         if os.path.isfile(candidate):
             with open(candidate, "r") as f:
                 data = yaml.safe_load(f)
+            # M2: contracts MUST declare `inputs:` and `outputs:` (may be
+            # empty list, may not be absent). Missing raises ContractError.
+            if "inputs" not in data:
+                raise ContractError(
+                    f"contract {step_id} is missing required `inputs:` field "
+                    f"(use `inputs: []` if the step needs none)"
+                )
+            if "outputs" not in data:
+                raise ContractError(
+                    f"contract {step_id} is missing required `outputs:` field "
+                    f"(use `outputs: []` if the step produces none)"
+                )
+            # Coerce to list[str]. M1 note: older contracts may have prose
+            # bullets (with colons, parens) which yaml parses as dicts —
+            # coerce to string for backward compatibility. Normalization to
+            # bare identifier names is deferred to M2.5 follow-up polish.
+            raw_inputs = data.get("inputs") or []
+            raw_outputs = data.get("outputs") or []
+            inputs = [str(x) if not isinstance(x, str) else x for x in raw_inputs]
+            outputs = [str(x) if not isinstance(x, str) else x for x in raw_outputs]
             return StepContract(
                 id=data.get("id", step_id),
                 agent=data.get("agent", "inline"),
                 run=data.get("run"),
                 instruction=data.get("instruction", ""),
                 rules=data.get("rules", []),
+                inputs=inputs,
+                outputs=outputs,
+                inline=bool(data.get("inline", False)),
             )
     raise FileNotFoundError(
         f"Step contract not found for '{step_id}'. Searched: {search_dirs}"

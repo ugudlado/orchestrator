@@ -1,4 +1,4 @@
-.PHONY: setup install doctor stale help
+.PHONY: setup install doctor stale help test lint-contracts
 
 # Default target
 .DEFAULT_GOAL := help
@@ -52,3 +52,22 @@ stale: ## Detect stale/abandoned workflow state directories
 	else \
 		echo "  Found $$found stale workflow(s). To archive: /complete-feature <change-id>"; \
 	fi
+
+test: ## Run orchestrator_next unit tests
+	@python3 -m unittest discover -s config/scripts/tests
+
+lint-contracts: ## HL-287 M2: every step contract must declare inputs: and outputs:
+	@missing=0; \
+	for f in config/steps/*.yaml; do \
+		grep -q "^inputs:" "$$f" || { echo "  ❌ $$f missing inputs:"; missing=$$((missing + 1)); }; \
+		grep -q "^outputs:" "$$f" || { echo "  ❌ $$f missing outputs:"; missing=$$((missing + 1)); }; \
+	done; \
+	if [ "$$missing" -eq 0 ]; then \
+		echo "  ✅ All contracts declare inputs: and outputs:"; \
+	else \
+		echo "  $$missing contract(s) fail M2 lint"; exit 1; \
+	fi
+
+
+m8-gates: ## HL-287 M8: run all rework-integrity gates
+	@bash scripts/m8-gates.sh

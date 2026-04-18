@@ -36,10 +36,10 @@ phases:
       - file: spike-brief.md
         template: spike-brief.md
     steps:
-      - load-project-context
+      # HL-287: workflow-init absorbs load-project-context + create-linear-ticket
+      - workflow-init
       - explore
-      - create-or-refresh-artifacts
-      - create-linear-ticket if linear
+      - design-and-draft-artifacts
 
   - name: prototype
     goal: Build a working prototype.
@@ -58,8 +58,9 @@ phases:
       - file: spike-findings.md
         template: spike-findings.md
     steps:
-      - create-or-refresh-artifacts
-      - verify-spike-findings
+      - design-and-draft-artifacts
+      # verify-spike-findings absorbed into run-phase-review as spike sub-rubric (HL-287 M4)
+      - run-phase-review
 
   - name: complete
     goal: Capture resource usage metrics and archive the spike.
