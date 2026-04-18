@@ -104,7 +104,7 @@ def check_inline_scripts(orch_home: Path) -> CheckResult:
         except Exception as exc:
             failures.append(f"{path}: {exc}")
     if failures:
-        return CheckResult("inline scripts exist", "FAIL", "; ".join(str(f) for f in failures))
+        return CheckResult("inline scripts exist", "FAIL", "; ".join(failures))
     return CheckResult("inline scripts exist", "PASS", "all inline scripts present")
 
 
@@ -201,8 +201,8 @@ def _format_table(results: list) -> str:
     lines = []
     for r in results:
         detail = r.detail
-        if len(detail) > 100:
-            detail = detail[:97] + "..."
+        if len(detail) > 120:
+            detail = detail[:117] + "..."
         lines.append(f"{r.name:<{name_w}}  {r.status:<4}  {detail}")
     return "\n".join(lines)
 
