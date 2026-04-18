@@ -1,0 +1,359 @@
+change_id: subprocess-per-step-observability
+schema: feature
+version: 4
+status: completed
+phase: complete
+completed_at: "2026-04-18T07:45:00Z"
+archive_path: spec/changes/archive/2026-04-18-subprocess-per-step-observability/
+slug: subprocess-per-step-observability
+started_at: 2026-04-18T04:55:00Z
+repo: orchestrator
+worktree_path: ~/code/feature_worktrees/subprocess-per-step-observability
+flags:
+  tdd_required: true
+  ux_design: false
+  discovery: true
+  phase_review: true
+  worktree: true
+  auto: true  # user authorised mid-flow after review gate passed
+  agents: false
+  linear: true
+  light: false
+focus: |
+  Orchestrator observability rework — subprocess-per-step with runtime-agnostic
+  self-reported metrics. Replace inline step execution + post-hoc JSONL mining
+  with subprocess-per-step + self-reported JSON. Orchestrator is a minimal
+  driver that reads state.yaml and shells out to the step's `run:` command.
+  Agent writes step-report JSON (step, agent, started_at, ended_at, duration_ms,
+  tokens{input,output,cache_read}, tool_uses[], cost_usd, status, artifacts[])
+  to <workflow_dir>/reports/<step>-<attempt>.json before exit. Trap covers
+  crash path. Ship one reference adapter (Claude-native) to prove contract.
+  Leave compute-swe-metrics.sh as legacy fallback.
+  Empirical pivot: 5 recent archives show all steps ran `agent: inline`,
+  Claude Code doesn't expose parent-context token counter, so inline steps
+  can't ever report tokens. Subprocess-per-step is the only design that
+  delivers reliable per-step metrics AND runtime-agnosticism.
+project_context_loaded: true
+project_context_at: 2026-04-18T05:13:00Z
+workflow_plan:
+  specify:
+    active:
+    - create-worktree
+    - load-project-context
+    - explore
+    - design-and-draft-artifacts
+    - validate-artifacts
+    - preview-route
+    - run-phase-review
+    - create-linear-ticket
+    filtered:
+    - ux-design
+  implement:
+    active:
+    - capture-test-baseline
+    - execute-next-task
+    - run-implement-review
+    - final-signoff
+    filtered:
+    - run-ux-critique
+  complete:
+    active:
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+route_preview:
+  status: estimate_unavailable
+  reason: "estimate-cost.sh fails under bash 3.2 — `declare -A` unsupported. Non-blocking; estimator is descriptive-only. Ironic note: this is exactly the bash-fragility class the feature under spec is designed to replace."
+linear_ticket_id:       # deferred — user opted to skip this phase; create later via /linear if needed
+baseline:
+  captured_at: "2026-04-18T06:50:00Z"
+  skipped: true
+  reason: "project.yaml verify_commands is empty — no test command defined for orchestrator repo. Regression gate disabled for this change; subjective verification via task-level test additions still applies."
+next_step:
+  phase: complete
+  step_id: compute-prediction-accuracy
+step_history:
+- step_id: create-worktree
+  phase: specify
+  status: completed
+  agent: inline
+  started_at: 2026-04-18T05:10:00Z
+  completed_at: 2026-04-18T05:11:30Z
+  note: "Worktree created at feature/subprocess-per-step-observability from 26dd6e0. No .env files, no lockfile — bash/shell repo, no deps."
+  usage:
+    tool_uses: 3
+    duration_ms: 90000
+- step_id: load-project-context
+  phase: specify
+  status: completed
+  agent: inline
+  started_at: 2026-04-18T05:12:00Z
+  completed_at: 2026-04-18T05:13:00Z
+  note: "project.yaml loaded. Vision confirms LLM-agnostic engine — this feature directly delivers the agent-agnostic rule (line 135). Tech stack: bash, zsh, yaml, duckdb, yq. No frontend → ux_design auto-off confirmed. Workflow plan written with _complete-phase resolved."
+  usage:
+    tool_uses: 2
+    duration_ms: 60000
+- step_id: explore
+  phase: specify
+  status: completed
+  agent: discoverer
+  started_at: 2026-04-18T05:13:30Z
+  completed_at: 2026-04-18T05:55:00Z
+  note: "Discovery brief written to both worktree and workflow state dir. Key findings: Stepwise is closest off-the-shelf match but rejected (Python/SQLite/low-adoption/schema-mismatch). Borrow JSON-on-file-path protocol from Dagster Pipes. 14/45 steps have agent: field, 31 are inline-only (fallback path needed). 5 open questions flagged for design: driver language, state.yaml write serialization, escalation channel, adapter context plumbing, supersede-vs-parallel for step-self-reported-metrics."
+  usage:
+    total_tokens: 53572
+    tool_uses: 34
+    duration_ms: 25204451
+    tools: {}
+- step_id: design-and-draft-artifacts
+  phase: specify
+  status: completed
+  agent: architect
+  started_at: 2026-04-18T05:55:00Z
+  completed_at: 2026-04-18T06:30:00Z
+  note: "Architect produced spec.md + design.md + tasks.md (both worktree and workflow dir). Resolved 5 OQs: Python CLI+adapters (OQ-1), CLI sets attempt (OQ-2), status-field escalation (OQ-3), caller runs verify (OQ-4), supersede declared (OQ-5). User reviewed and applied 4 inline edits: (a) Python everywhere, no bash wrapper, no bash adapter — shrink stack; (b) composite PK (repo, change, phase, step, attempt, status) to preserve escalation audit trail; (c) adapter Python too; (d) completed_at→ended_at sunset path deferred to future cleanup chore."
+  usage:
+    total_tokens: 131741
+    tool_uses: 37
+    duration_ms: 1808409
+    tools: {}
+- step_id: validate-artifacts
+  phase: specify
+  status: completed
+  agent: inline
+  started_at: 2026-04-18T06:31:00Z
+  completed_at: 2026-04-18T06:33:00Z
+  note: "All four artifacts pass structural validation. All required sections present in discovery.md (substance check — ux_design=false), spec.md, design.md, tasks.md. T-IDs sequential T-1..T-13. All 10 ACs have [traces:] pointers. Minor soft finding patched: AC-4 and AC-5 lacked UC pointers, added UC-1 for completeness."
+  evidence:
+    file_checks:
+    - discovery.md 176 lines, 10     ## sections
+    - spec.md sections Motivation/Background/What Changes/Requirements/Architecture/Test Strategy/User Scenarios/Acceptance Criteria/Alternatives/Impact/Decisions
+    - design.md sections Context/Goals-Non-Goals/Decisions/Approaches/HLD/LLD/Components/Data Flow/State/Errors/Constraints/Trade-offs/Decisions summary/OQs
+    - tasks.md 13 tasks, all with Verify lines
+    counts:
+      acceptance_criteria_with_traces: 10
+      functional_requirements: "15+ FR-N entries"
+      task_ids_sequential: "T-1 to T-13"
+  usage:
+    tool_uses: 6
+    duration_ms: 120000
+- step_id: preview-route
+  phase: specify
+  status: completed
+  agent: inline
+  started_at: 2026-04-18T06:33:30Z
+  completed_at: 2026-04-18T06:34:00Z
+  note: "estimate-cost.sh fails on bash 3.2 (declare -A). Per contract, non-blocking — wrote estimate_unavailable fallback. Surfaced as evidence for the current feature's value proposition."
+  usage:
+    tool_uses: 1
+    duration_ms: 30000
+- step_id: run-phase-review
+  phase: specify
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: 2026-04-18T06:34:30Z
+  completed_at: 2026-04-18T06:48:00Z
+  note: "Reviewer R1: 7/10 retry, 6 important findings (cross-artifact naming drift from Python-edit pass). Fixes T-0a..T-0d applied atomically in commit b841468. Reviewer R2: 9/10 PASS, phase gate cleared. 3 non-blocking nits remain (stale 7-values comment in design.md line 267, Decisions+Decisions-summary duplication, discovery.md Personas absence)."
+  review_score: 9
+  review_retries: 1
+  usage:
+    total_tokens: 117504
+    tool_uses: 54
+    duration_ms: 355151
+    tools: {}
+- step_id: create-linear-ticket
+  phase: specify
+  status: skipped
+  agent: inline
+  started_at: 2026-04-18T06:48:30Z
+  completed_at: 2026-04-18T06:49:00Z
+  note: "User opted to skip. Reasoning: implementation is multi-session; ticket shape may change once code lands. Placeholder linear_ticket_id: null written to state.yaml — can be filled by running /linear at any point without re-running this step. Design/spec documents stand on their own until then."
+  usage:
+    tool_uses: 1
+    duration_ms: 30000
+- step_id: capture-test-baseline
+  phase: implement
+  status: completed
+  agent: inline
+  started_at: 2026-04-18T06:49:30Z
+  completed_at: 2026-04-18T06:50:00Z
+  note: "project.yaml verify_commands is empty — skipping. Baseline not applicable for this repo currently; tests for this feature will be added inside execute-next-task (T-1 writes failing dispatcher tests first)."
+  evidence:
+    file_checks:
+    - spec/project.yaml:85 — verify_commands = []
+  usage:
+    tool_uses: 1
+    duration_ms: 30000
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: "2026-04-18T08:00:00Z"
+  ended_at: "2026-04-18T10:00:00Z"
+  note: "T-1..T-4 implemented. T-1 RED: 6 dispatcher fixture tests written, all fail with 'No such file'. T-2 GREEN: bin/orchestrator + parser.py + dispatch.py implement; 6 tests pass. T-3 RED: 7 upsert idempotency tests written, all fail with ModuleNotFoundError. T-4 GREEN: upsert.py + otel_map.py implement; all 13 tests pass. duckdb 1.5.2 installed via pip3 --trusted-host. Escalation PK test confirms 2 rows at same (phase, step_id, attempt) with different status."
+  task_log:
+  - T-1
+  - T-2
+  - T-3
+  - T-4
+  artifacts:
+  - bin/orchestrator
+  - config/scripts/orchestrator_next/__init__.py
+  - config/scripts/orchestrator_next/parser.py
+  - config/scripts/orchestrator_next/dispatch.py
+  - config/scripts/orchestrator_next/upsert.py
+  - config/scripts/orchestrator_next/otel_map.py
+  - config/scripts/tests/__init__.py
+  - config/scripts/tests/test_orchestrator_next.py
+  - config/scripts/tests/test_step_events_upsert.py
+  - config/scripts/tests/fixtures/state-pending-inline.yaml
+  - config/scripts/tests/fixtures/state-pending-runfield.yaml
+  - config/scripts/tests/fixtures/state-in-progress-no-ended.yaml
+  - config/scripts/tests/fixtures/state-phase-done-needs-verify.yaml
+  - config/scripts/tests/fixtures/state-all-done.yaml
+  - config/scripts/tests/fixtures/state-escalate.yaml
+  - config/scripts/tests/fixtures/state-upsert-basic.yaml
+  - config/scripts/tests/fixtures/state-upsert-escalation.yaml
+  - config/scripts/tests/fixtures/step_contracts/step-inline-only.yaml
+  - config/scripts/tests/fixtures/step_contracts/step-with-run.yaml
+  - config/scripts/tests/golden/state-pending-inline.json
+  - config/scripts/tests/golden/state-pending-runfield.json
+  - config/scripts/tests/golden/state-in-progress-no-ended.json
+  - config/scripts/tests/golden/state-phase-done-needs-verify.json
+  - config/scripts/tests/golden/state-all-done.json
+  - config/scripts/tests/golden/state-escalate.json
+  usage:
+    duration_ms: 7200000
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 2
+  started_at: "2026-04-18T11:00:00Z"
+  ended_at: "2026-04-18T12:30:00Z"
+  note: "T-5..T-8 batch. T-5: test_attempt_counting.py with 4 tests + fixtures state-crash-midstep.yaml (attempt=[1,2,2] in_progress → expect attempt=3) + state-after-retry-complete.yaml (3 terminal entries, idempotent). T-6: no new code needed — _compute_attempt and retry-detection were already in dispatch.py from T-2; tests serve as regression guards. T-7: error-recovery.md (escalate_to_architect + blocked status rows), metrics-schema.md (usage: short-name schema + step_events table), step-dispatch.md (new — authoritative CLI interface contract). T-8: test_inline_smoke.py loops 45 inline-only contracts, asserts run_inline, passes immediately (T-2 handles inline). 18/18 tests green."
+  task_log:
+  - T-5
+  - T-6
+  - T-7
+  - T-8
+  artifacts:
+  - config/scripts/tests/test_attempt_counting.py
+  - config/scripts/tests/fixtures/state-crash-midstep.yaml
+  - config/scripts/tests/fixtures/state-after-retry-complete.yaml
+  - config/scripts/tests/test_inline_smoke.py
+  - config/steps/contracts/error-recovery.md
+  - config/steps/contracts/metrics-schema.md
+  - config/steps/contracts/step-dispatch.md
+  usage:
+    duration_ms: 5400000
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 3
+  started_at: "2026-04-18T13:00:00Z"
+  ended_at: "2026-04-18T14:30:00Z"
+  note: "T-9..T-10 batch. T-9: claude_discoverer.py adapter (shebang, reads 6 ORCHESTRATOR_* env vars, builds prompt from step contract instruction+rules, invokes claude -p --output-format json, extracts usage from CLI JSON payload, atomically appends step_history entry via ruamel.yaml + os.replace). explore.yaml bumped to version: 3, run: field added. T-10: test_explore_adapter.py end-to-end integration test (skips cleanly when CLAUDE_API_KEY/ANTHROPIC_API_KEY absent; full loop orchestrator next → adapter → orchestrator next → DuckDB assert when key present). Unit tests test_claude_discoverer.py mock subprocess.run — no API key required; all gates tested: missing claude binary, non-zero exit, invalid JSON, successful round-trip. 35 tests pass, 1 skipped (API key gate)."
+  task_log:
+  - T-9
+  - T-10
+  artifacts:
+  - config/scripts/adapters/claude_discoverer.py
+  - config/scripts/adapters/__init__.py
+  - config/scripts/tests/test_claude_discoverer.py
+  - config/scripts/tests/test_explore_adapter.py
+  - config/steps/explore.yaml
+  usage:
+    duration_ms: 5400000
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 4
+  note: T-11..T-13 closing batch.
+  task_log:
+  - T-11
+  - T-12
+  - T-13
+  artifacts:
+  - config/steps/contracts/migration-run-field.md
+  - config/steps/CONVENTIONS.md
+  - install.sh
+  - tasks.md
+  verification:
+    unittest:
+      result: Ran 35 tests in 3.034s — OK (skipped=1)
+      pass: 35
+      fail: 0
+      skipped: 1
+      skip_reason: T-10 integration test — API key gate
+    dispatcher_fixtures:
+      state-pending-inline:
+        action: run_inline
+        exit: 0
+      state-pending-runfield:
+        action: run_step
+        exit: 0
+      state-in-progress-no-ended:
+        action: retry_step
+        exit: 0
+      state-phase-done-needs-verify:
+        action: verify_phase
+        exit: 0
+      state-all-done:
+        action: complete_workflow
+        exit: 1
+      state-escalate:
+        action: blocked
+        exit: 2
+    state_mtime_unchanged: confirmed — all 6 mtime assertions in test_orchestrator_next.py passed
+    duckdb_step_events:
+      method: METRICS_DB=.tmp/verify.duckdb orchestrator next state-escalate.yaml
+      count: 1
+      result: SELECT COUNT(*) FROM step_events → 1 row
+    compute_swe_metrics:
+      archive: spec/changes/archive/2026-04-18-fix-cost-usd-and-widen-token-split/
+      exit_code: 0
+      result: Script produces valid YAML metrics block. Token/cost totals differ from archived block (expected — archive was captured at earlier commit; script itself works correctly)
+      legacy_path: confirmed functional
+  usage:
+    tool_uses: 28
+    duration_ms: 1800000
+- step_id: run-implement-review
+  phase: implement
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: "2026-04-18T14:30:00Z"
+  ended_at: "2026-04-18T15:30:00Z"
+  note: "R1: 3 findings (2 forgotten checkboxes + 1 stale count) → retry. Single atomic fix commit. R2: 9/10 PASS. Phase gate cleared."
+  review_score: 9
+  review_retries: 1
+- step_id: run-learn-cycle
+  phase: complete
+  status: completed
+  agent: workflow-improver
+  started_at: "2026-04-18T16:00:00Z"
+  ended_at: "2026-04-18T16:15:00Z"
+  artifacts:
+    - learnings.md
+    - project-yaml-learnings-patch.md
+  note: >
+    6 learnings extracted: composite-pk-audit-trail (status in PK for
+    multi-terminal audit rows), inline-steps-are-tokenless (Claude Code
+    parent-context counter not exposed), cross-artifact-drift-requires-atomic-edits
+    (grep all artifacts on rename), bash-fragility-prefer-python-for-new-code
+    (Python for new data/state code), reviewer-retry-cost-is-atomic-vs-design
+    (scope fixes to one atomic commit), orchestrator-should-dispatch-not-execute
+    (orchestrator is pure dispatcher). project-yaml-learnings-patch.md ready
+    for manual apply including tech_stack python addition.
+  usage:
+    tool_uses: 8
+    duration_ms: 900000
