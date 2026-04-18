@@ -9,7 +9,6 @@ Public API:
   render_markdown_scoped(data, scope) -> str
   render_markdown_repo(data, scope) -> str
   render_json(data) -> str
-  _load_agent_tools(agent_name) -> set[str] | None
 
 Design:
   - All SQL is parameterised (no string interpolation of user data).
@@ -26,6 +25,8 @@ import re
 from typing import Any
 
 import yaml
+
+from .resolver import load_agent_tools
 
 # Slug guard reused for change_id validation in aggregation
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -53,53 +54,6 @@ def _fmt_ms(v: int | None) -> str:
     if v >= 60_000:
         return f"{v / 60_000:.1f}m"
     return f"{v / 1000:.1f}s"
-
-
-# ---------------------------------------------------------------------------
-# Agent frontmatter loader
-# ---------------------------------------------------------------------------
-
-def _load_agent_tools(agent_name: str) -> set[str] | None:
-    """
-    Load the tools: list from an agent's YAML frontmatter.
-
-    Search order:
-      1. $ORCHESTRATOR_HOME/agents/<agent_name>.md
-      2. ~/.claude/agents/<agent_name>.md
-
-    Returns:
-      set of tool name strings if found and parseable, else None.
-      None means "skip anomaly detection for this agent" (file missing,
-      no frontmatter, bad YAML, or no tools: key).
-    """
-    search_roots = []
-    home = os.environ.get("ORCHESTRATOR_HOME", "")
-    if home:
-        search_roots.append(home)
-    search_roots.append(os.path.expanduser("~/.claude"))
-
-    for root in search_roots:
-        if not root:
-            continue
-        path = os.path.join(root, "agents", f"{agent_name}.md")
-        if not os.path.isfile(path):
-            continue
-        try:
-            text = open(path, "r", encoding="utf-8").read()
-        except OSError:
-            continue
-        m = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
-        if not m:
-            return None
-        try:
-            fm = yaml.safe_load(m.group(1)) or {}
-        except yaml.YAMLError:
-            return None
-        tools = fm.get("tools")
-        if not isinstance(tools, list):
-            return None
-        return set(str(t) for t in tools)
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +234,7 @@ def _anomalies(db, repo_root: str, change_id: str) -> list[dict]:
     _cache: dict[str, set[str] | None] = {}
     for agent_name, tool_name, calls in rows:
         if agent_name not in _cache:
-            _cache[agent_name] = _load_agent_tools(agent_name)
+            _cache[agent_name] = load_agent_tools(agent_name)
         allowed = _cache[agent_name]
         if allowed is None:
             continue  # no frontmatter or unparseable — skip

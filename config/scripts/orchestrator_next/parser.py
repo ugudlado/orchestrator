@@ -33,6 +33,7 @@ class StepContract:
     rules: list[str]
     inputs: list[str] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
+    allowed_tools: list[str] = field(default_factory=list)
     inline: bool = False  # HL-287 M3: inline: true + run: <script> path
 
 
@@ -114,6 +115,9 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
             raw_outputs = data.get("outputs") or []
             inputs = [str(x) if not isinstance(x, str) else x for x in raw_inputs]
             outputs = [str(x) if not isinstance(x, str) else x for x in raw_outputs]
+            # allowed_tools: absent or null -> []; explicit list -> list
+            raw_allowed = data.get("allowed_tools", []) or []
+            allowed_tools = [str(x) if not isinstance(x, str) else x for x in raw_allowed]
             return StepContract(
                 id=data.get("id", step_id),
                 agent=data.get("agent", "inline"),
@@ -122,6 +126,7 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
                 rules=data.get("rules", []),
                 inputs=inputs,
                 outputs=outputs,
+                allowed_tools=allowed_tools,
                 inline=bool(data.get("inline", False)),
             )
     raise FileNotFoundError(
