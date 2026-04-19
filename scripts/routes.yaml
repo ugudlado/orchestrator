@@ -23,3 +23,10 @@ models:
 
   klm-local:
     url: http://localhost:8000/v1
+
+# Backend → model-id mapping for cost computation in record.py.
+# Keys match `agents.<agent>` values for native (non-proxy) backends.
+# Values match keys in config/pricing.yaml.
+backends:
+  native_opus:   claude-opus-4-7
+  native_sonnet: claude-sonnet-4-6

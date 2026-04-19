@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import sys
 import textwrap
+from pathlib import Path
 
 import pytest
 import yaml
@@ -92,13 +93,25 @@ class TestRecordCostCompute:
 
     @pytest.fixture(autouse=True)
     def setup_contracts_and_clear_cache(self, tmp_path, monkeypatch):
-        """Isolate contracts and clear lru_cache so each test starts fresh."""
+        """Isolate contracts and clear lru_cache so each test starts fresh.
+
+        Sets ORCHESTRATOR_HOME to the worktree root so _load_routes() and
+        _load_pricing() read the worktree's config files (which have the
+        backends: block added in T-5), not whatever ORCHESTRATOR_HOME points
+        to in the shell environment.
+        """
         contracts_dir = tmp_path / "contracts"
         contracts_dir.mkdir()
         (contracts_dir / "execute-next-task.yaml").write_text(_STUB_CONTRACT)
         monkeypatch.setenv(
             "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir)
         )
+        # Point ORCHESTRATOR_HOME at the worktree so routes.yaml / pricing.yaml
+        # are read from the right place regardless of the shell environment.
+        _worktree_root = str(
+            Path(_HERE).parent.parent.parent.parent  # tests/ → orchestrator_next/ → scripts/ → config/ → worktree
+        )
+        monkeypatch.setenv("ORCHESTRATOR_HOME", _worktree_root)
         # Clear lru_cache on cost loaders so tests see fresh data.
         # The cache functions will exist after T-5 is implemented; guard with
         # hasattr so this fixture doesn't break RED runs.

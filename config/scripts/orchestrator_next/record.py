@@ -8,6 +8,7 @@ and advances `next_step` per `workflow_plan`.
 from __future__ import annotations
 
 import datetime as _dt
+import functools
 import json
 import os
 import re
@@ -18,6 +19,109 @@ from typing import Any
 import yaml
 
 from orchestrator_next.parser import ContractError, load_contract_for_step, load_state
+
+
+# ---------------------------------------------------------------------------
+# Cost computation helpers (ISSUE-17)
+# ---------------------------------------------------------------------------
+
+def _orchestrator_home() -> Path:
+    """Return the orchestrator repo root.
+
+    Prefers ORCHESTRATOR_HOME env var; falls back to the parent of the
+    `config/scripts/` tree this module lives in.
+    """
+    env = os.environ.get("ORCHESTRATOR_HOME")
+    if env:
+        return Path(env)
+    # __file__ is config/scripts/orchestrator_next/record.py
+    return Path(__file__).parent.parent.parent.parent
+
+
+@functools.lru_cache(maxsize=1)
+def _load_routes() -> dict:
+    """Load scripts/routes.yaml (cached per process)."""
+    path = _orchestrator_home() / "scripts" / "routes.yaml"
+    try:
+        with open(path) as f:
+            return yaml.safe_load(f) or {}
+    except (FileNotFoundError, OSError, yaml.YAMLError):
+        return {}
+
+
+@functools.lru_cache(maxsize=1)
+def _load_pricing() -> dict:
+    """Load config/pricing.yaml (cached per process)."""
+    path = _orchestrator_home() / "config" / "pricing.yaml"
+    try:
+        with open(path) as f:
+            return yaml.safe_load(f) or {}
+    except (FileNotFoundError, OSError, yaml.YAMLError):
+        return {}
+
+
+def _compute_cost_usd(agent: str, usage: dict) -> tuple[str | None, float | None]:
+    """Resolve agent → model_id and compute cost from usage token counts.
+
+    Resolution order:
+      1. routes.agents[agent] → backend_name
+      2a. routes.backends[backend_name] → model_id  (for native_* keys)
+      2b. routes.models[backend_name].model → model_id  (for proxy models)
+    Price lookup: pricing.models[model_id]; fallback: pricing.default.
+
+    Returns (model_id, cost_usd) or (None, None) if resolution fails.
+    Missing token fields default to 0.
+    """
+    routes = _load_routes()
+    pricing = _load_pricing()
+
+    # Step 1: agent → backend
+    backend = (routes.get("agents") or {}).get(agent)
+    if not backend:
+        sys.stderr.write(
+            f"[record] cost_usd: agent {agent!r} not found in routes.yaml agents; "
+            f"skipping cost computation\n"
+        )
+        return None, None
+
+    # Step 2: backend → model_id
+    model_id: str | None = None
+    backends_map = routes.get("backends") or {}
+    if backend in backends_map:
+        model_id = backends_map[backend]
+    else:
+        # Try routes.models.<backend>.model (proxy path)
+        model_entry = (routes.get("models") or {}).get(backend)
+        if isinstance(model_entry, dict):
+            model_id = model_entry.get("model")
+    if not model_id:
+        sys.stderr.write(
+            f"[record] cost_usd: backend {backend!r} for agent {agent!r} "
+            f"not resolved to a model_id; skipping cost computation\n"
+        )
+        return None, None
+
+    # Step 3: model_id → price block (fallback to default)
+    price = (pricing.get("models") or {}).get(model_id)
+    if price is None:
+        price = pricing.get("default")
+    if not isinstance(price, dict):
+        sys.stderr.write(
+            f"[record] cost_usd: no price entry for model {model_id!r} and no default; "
+            f"skipping cost computation\n"
+        )
+        return None, None
+
+    # Step 4: compute cost
+    input_tokens = usage.get("input_tokens") or 0
+    output_tokens = usage.get("output_tokens") or 0
+    cache_read_tokens = usage.get("cache_read_input_tokens") or 0
+    cost = (
+        input_tokens * (price.get("input") or 0) / 1_000_000
+        + output_tokens * (price.get("output") or 0) / 1_000_000
+        + cache_read_tokens * (price.get("cache_read") or 0) / 1_000_000
+    )
+    return model_id, cost
 
 
 def _utcnow_iso() -> str:
@@ -226,6 +330,16 @@ def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any
     attempt = (max(prior_attempts) + 1) if prior_attempts else 1
 
     now = _utcnow_iso()
+
+    # ISSUE-17: compute cost_usd live when absent from the payload.
+    # Work on a local copy so we never mutate the caller's dict.
+    usage: dict[str, Any] = dict(payload.get("usage") or {})
+    if agent != "inline" and not usage.get("cost_usd"):
+        resolved_model, computed_cost = _compute_cost_usd(agent, usage)
+        if resolved_model is not None and computed_cost is not None:
+            usage["model"] = resolved_model
+            usage["cost_usd"] = computed_cost
+
     entry: dict[str, Any] = {
         "step_id": step_id,
         "phase": phase,
@@ -234,7 +348,7 @@ def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any
         "attempt": payload.get("attempt", attempt),
         "started_at": payload.get("started_at", now),
         "ended_at": now,
-        "usage": payload.get("usage") or {},
+        "usage": usage,
         "evidence": {"outputs": outputs, **(payload.get("evidence") or {})},
     }
     history.append(entry)
