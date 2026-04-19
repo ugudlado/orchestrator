@@ -440,15 +440,54 @@ def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any
             4,
         )
 
-    return (
-        {
-            "action": "recorded",
-            "step_id": step_id,
-            "attempt": entry["attempt"],
-            "next_step": next_step,
-        },
-        0,
-    )
+    # Workflow-issue retro: if the payload carries workflow_issues, append
+    # each one to spec/changes/<change_id>/retro.md. Best-effort — any
+    # failure here never blocks the record.
+    _retro_appended = 0
+    issues = payload.get("workflow_issues")
+    if isinstance(issues, list) and issues:
+        worktree = state_raw.get("worktree_path") or state_raw.get("repo_root") or ""
+        change_id = state_raw.get("change_id") or state_raw.get("slug") or ""
+        if worktree and change_id:
+            try:
+                import os as _os
+                import subprocess as _sp
+                script = _os.path.join(
+                    state_raw.get("repo_root") or "",
+                    "scripts", "inline", "append-retro.sh",
+                )
+                if not _os.path.isfile(script):
+                    home = _os.environ.get("ORCHESTRATOR_HOME", "")
+                    if home:
+                        script = _os.path.join(home, "scripts", "inline", "append-retro.sh")
+                if _os.path.isfile(script):
+                    for issue in issues:
+                        # per-issue phase/step fallback
+                        issue.setdefault("surfaced_at", f"{phase}/{step_id}")
+                    env = {
+                        **_os.environ,
+                        "WORKTREE_PATH": _os.path.expanduser(str(worktree)),
+                        "CHANGE_ID": str(change_id),
+                        "ISSUES_JSON": json.dumps(issues),
+                    }
+                    result = _sp.run(["bash", script], env=env, capture_output=True, text=True)
+                    if result.returncode == 0 and result.stdout.strip():
+                        try:
+                            _retro_appended = int(json.loads(result.stdout.strip()).get("appended", 0))
+                        except Exception:
+                            _retro_appended = 0
+            except Exception as exc:  # noqa: BLE001 — retro logging is best-effort
+                sys.stderr.write(f"[record] retro append failed: {exc}\n")
+
+    response: dict[str, Any] = {
+        "action": "recorded",
+        "step_id": step_id,
+        "attempt": entry["attempt"],
+        "next_step": next_step,
+    }
+    if _retro_appended:
+        response["retro_appended"] = _retro_appended
+    return (response, 0)
 
 
 def main(argv: list[str]) -> int:

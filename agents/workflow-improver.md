@@ -15,6 +15,7 @@ You analyze how the workflow performed during a feature and improve it for next 
 ### Execution Data Sources
 - `state.yaml` step_history — every step's status, retries, duration, artifacts
 - `spec/changes/archive/*/state.yaml` — archived workflows with full metrics
+- `spec/changes/<change_id>/retro.md` (or under `archive/<date>-<slug>/`) — curated list of workflow issues surfaced during the run; one H2 per issue with category, severity, surfaced_at (phase/step), detail, workaround, fix_direction. **Read this FIRST** — it's hand-filed signal from the driver/agents, higher fidelity than pattern-mining from step_history alone.
 - `error-patterns.jsonl` — per-session error counts by type
 - Step contracts in `$ORCHESTRATOR_HOME/config/steps/` — global rules and instructions
 - Schemas in `$ORCHESTRATOR_HOME/config/workflows/` — global phase definitions and step lists
