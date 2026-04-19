@@ -38,7 +38,7 @@ if [ -z "$TEST_CMD" ]; then
 fi
 
 CAPTURED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-TMPOUT=$(mktemp)
+TMPOUT=$(mktemp "${TMPDIR:-/tmp}/capture-test-baseline.XXXXXX")
 cd "$REPO_ROOT"
 bash -c "$TEST_CMD" > "$TMPOUT" 2>&1
 EXIT_CODE=$?

@@ -21,8 +21,8 @@ if [ -z "$WORKFLOW_DIR" ] || [ ! -d "$WORKFLOW_DIR" ]; then
   exit 0
 fi
 
-TMPOUT=$(mktemp)
-TMPERR=$(mktemp)
+TMPOUT=$(mktemp "${TMPDIR:-/tmp}/preview-route-out.XXXXXX")
+TMPERR=$(mktemp "${TMPDIR:-/tmp}/preview-route-err.XXXXXX")
 "$ESTIMATOR" "$WORKFLOW_DIR" > "$TMPOUT" 2> "$TMPERR"
 EXIT_CODE=$?
 
