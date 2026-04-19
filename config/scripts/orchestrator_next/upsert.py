@@ -80,6 +80,25 @@ CREATE INDEX IF NOT EXISTS idx_tool_calls_change
   ON tool_calls(repo_root, change_id)
 """
 
+_DDL_FEATURE_COMPLEXITY = """
+CREATE TABLE IF NOT EXISTS feature_complexity (
+  repo_root    VARCHAR NOT NULL,
+  change_id    VARCHAR NOT NULL,
+  complexity   VARCHAR,
+  schema_name  VARCHAR,
+  started_at   TIMESTAMP,
+  completed_at TIMESTAMP,
+  upserted_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (repo_root, change_id)
+)
+"""
+
+_INSERT_FEATURE_COMPLEXITY = """
+INSERT OR REPLACE INTO feature_complexity
+  (repo_root, change_id, complexity, schema_name, started_at, completed_at)
+VALUES (?, ?, ?, ?, ?, ?)
+"""
+
 _DELETE_TOOL_CALLS = """
 DELETE FROM tool_calls
 WHERE repo_root = ? AND change_id = ? AND phase = ? AND step_id = ? AND attempt = ?
@@ -155,7 +174,8 @@ def sum_cost_usd(db, context: dict) -> float:
 
 def ensure_schema(db) -> None:
     """
-    Create the step_events and tool_calls tables and indexes if they do not exist.
+    Create the step_events, tool_calls, and feature_complexity tables and indexes
+    if they do not exist.
 
     Safe to call multiple times (idempotent via IF NOT EXISTS).
     """
@@ -163,6 +183,36 @@ def ensure_schema(db) -> None:
     db.execute(_CREATE_INDEX)
     db.execute(_DDL_TOOL_CALLS)
     db.execute(_CREATE_TOOL_CALLS_INDEX)
+    db.execute(_DDL_FEATURE_COMPLEXITY)  # HL-291
+
+
+def upsert_feature_complexity(
+    db,
+    repo_root: str,
+    change_id: str,
+    complexity: str | None,
+    schema_name: str | None,
+    started_at,
+    completed_at,
+) -> None:
+    """
+    Upsert one row into feature_complexity keyed on (repo_root, change_id).
+
+    A None complexity still writes the row — the row records the feature's
+    existence; complexity is NULL-able (FR-4).
+
+    Args:
+        db:           open duckdb.DuckDBPyConnection (schema already ensured)
+        repo_root:    absolute path to the repo root
+        change_id:    feature change identifier
+        complexity:   one of {XS,S,M,L,XL} or None
+        schema_name:  state.yaml `schema` value (e.g. "feature")
+        started_at:   ISO timestamp or None
+        completed_at: ISO timestamp or None
+    """
+    db.execute(_INSERT_FEATURE_COMPLEXITY, [
+        repo_root, change_id, complexity, schema_name, started_at, completed_at,
+    ])
 
 
 def upsert_step_event(
