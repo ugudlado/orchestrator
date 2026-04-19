@@ -112,6 +112,59 @@ def compute_retries(state: dict) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# compute_resolution: derive pass@k and regression metrics from state.yaml
+# ---------------------------------------------------------------------------
+
+def compute_resolution(
+    tasks_total: int | None,
+    tasks_completed: int | None,
+    retries_total: int,
+    step_history: list,
+    quarantine_events: list | None,
+) -> dict[str, Any]:
+    """Derive pass_at_1, pass_at_2, regressions, regression_rate.
+
+    Approximation note: state.yaml retries are keyed by step_id (e.g.
+    "execute-next-task"), not by task_id — so per-task attempt granularity
+    is unavailable. We use:
+      pass_at_1 = max(0, tasks_total - retries_total) / tasks_total
+      pass_at_2 = tasks_completed / tasks_total
+    This satisfies the monotonicity invariant pass_at_2 >= pass_at_1 and
+    is the tightest approximation possible without per-task retry records.
+    quarantine_events would normally reduce the numerator, but since
+    quarantined tasks are not counted in tasks_completed either, the formula
+    stays consistent.
+
+    Returns all-None when tasks_total is None or zero (spike path).
+    """
+    if not tasks_total:
+        return {
+            "pass_at_1": None,
+            "pass_at_2": None,
+            "regressions": None,
+            "regression_rate": None,
+        }
+
+    tc = tasks_completed if isinstance(tasks_completed, int) else 0
+
+    pass_at_1 = round(max(0, tasks_total - retries_total) / tasks_total, 6)
+    pass_at_2 = round(tc / tasks_total, 6)
+
+    regressions = sum(
+        1 for e in step_history
+        if isinstance(e, dict) and e.get("regression")
+    )
+    regression_rate = round(regressions / tasks_total, 6)
+
+    return {
+        "pass_at_1": pass_at_1,
+        "pass_at_2": pass_at_2,
+        "regressions": regressions,
+        "regression_rate": regression_rate,
+    }
+
+
+# ---------------------------------------------------------------------------
 # run_git_churn: git diff --numstat + rework commit count
 # Failure policy: non-fatal, returns zeros.
 # ---------------------------------------------------------------------------
@@ -330,6 +383,15 @@ def main() -> int:
     # --- Retries ---
     ret = compute_retries(state)
 
+    # --- Resolution (pass@k, regressions) ---
+    resolution = compute_resolution(
+        tasks_total=res.get("tasks_total"),
+        tasks_completed=res.get("tasks_completed"),
+        retries_total=ret["retries_total"],
+        step_history=state.get("step_history") or [],
+        quarantine_events=state.get("quarantine_events"),
+    )
+
     # --- Git churn (non-fatal) ---
     churn = run_git_churn(worktree, change_id)
 
@@ -356,6 +418,7 @@ def main() -> int:
             schema_name=schema,
             **res,
             **ret,
+            **resolution,
             **churn,
             review_scores_json=json.dumps(rev["scores_list"]),
             review_score_avg=rev["avg"],
