@@ -14,7 +14,7 @@
   - **Why**: ISSUE-16 — proves `_compute_next_step` honours the contract's `repeat_until` field.
   - **Verify**: `pytest config/scripts/orchestrator_next/tests/test_repeat_until.py -q` — all three FAIL (red). Record stderr in the task log so the failure mode is captured.
 
-- [ ] T-2 Implement: parse `repeat_until` + enforce `all_tasks_completed` in `_compute_next_step` (GREEN) — depends on T-1
+- [x] T-2 Implement: parse `repeat_until` + enforce `all_tasks_completed` in `_compute_next_step` (GREEN) — depends on T-1
   - **Files**:
     - `config/scripts/orchestrator_next/parser.py` (extend `StepContract` and `_load_contract`)
     - `config/scripts/orchestrator_next/record.py` (add `_resolve_tasks_md`, `_check_all_tasks_completed`, `_REPEAT_PREDICATES`, and new branch in `_compute_next_step`)

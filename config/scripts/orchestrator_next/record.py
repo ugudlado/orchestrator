@@ -9,20 +9,64 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from orchestrator_next.parser import load_contract_for_step, load_state
+from orchestrator_next.parser import ContractError, load_contract_for_step, load_state
 
 
 def _utcnow_iso() -> str:
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _compute_next_step(state_raw: dict[str, Any], just_completed_step_id: str) -> dict[str, Any] | None:
+def _resolve_tasks_md(state_raw: dict[str, Any]) -> Path | None:
+    """Resolve the tasks.md path from state.yaml fields.
+
+    Preference: explicit `tasks_path`, else `<worktree_path>/spec/changes/<change_id>/tasks.md`.
+    Returns None if neither shape can be constructed.
+    """
+    raw_path = state_raw.get("tasks_path")
+    if isinstance(raw_path, str) and raw_path:
+        return Path(os.path.expanduser(raw_path))
+
+    worktree = state_raw.get("worktree_path")
+    change_id = state_raw.get("change_id")
+    if isinstance(worktree, str) and worktree and isinstance(change_id, str) and change_id:
+        return Path(os.path.expanduser(worktree)) / "spec" / "changes" / change_id / "tasks.md"
+
+    return None
+
+
+def _check_all_tasks_completed(state_raw: dict[str, Any]) -> bool:
+    """Return True iff no unchecked `- [ ]` items remain in tasks.md.
+
+    Missing or unreadable tasks.md returns True (fail-open: advance).
+    """
+    path = _resolve_tasks_md(state_raw)
+    if path is None:
+        return True
+    try:
+        text = path.read_text()
+    except (FileNotFoundError, OSError):
+        return True
+    return re.search(r"^\s*-\s*\[\s*\]", text, re.MULTILINE) is None
+
+
+_REPEAT_PREDICATES = {
+    "all_tasks_completed": _check_all_tasks_completed,
+}
+
+
+def _compute_next_step(
+    state_raw: dict[str, Any],
+    just_completed_step_id: str,
+    state_yaml_path: str,
+) -> dict[str, Any] | None:
     """Return the next_step dict for state.yaml, or None if phase complete."""
     phase = state_raw.get("phase", "")
     plan = state_raw.get("workflow_plan", {}).get(phase, {})
@@ -33,6 +77,22 @@ def _compute_next_step(state_raw: dict[str, Any], just_completed_step_id: str) -
         for e in history
         if isinstance(e, dict) and e.get("status") == "completed"
     }
+    # ISSUE-16: before marking step as completed, check repeat_until predicate.
+    # If predicate returns False, re-emit the same step instead of advancing.
+    try:
+        contract = load_contract_for_step(just_completed_step_id, state_yaml_path)
+    except (FileNotFoundError, ContractError):
+        contract = None
+    if contract is not None and contract.repeat_until:
+        predicate = _REPEAT_PREDICATES.get(contract.repeat_until)
+        if predicate is None:
+            sys.stderr.write(
+                f"[record] unknown repeat_until predicate "
+                f"{contract.repeat_until!r} on {just_completed_step_id}; "
+                f"treating as absent\n"
+            )
+        elif not predicate(state_raw):
+            return {"phase": phase, "step_id": just_completed_step_id}
     # Include the step we just completed (may not be in history yet if caller
     # invoked record before appending).
     completed.add((phase, just_completed_step_id))
@@ -181,7 +241,7 @@ def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any
     state_raw["step_history"] = history
 
     # Advance next_step
-    next_step = _compute_next_step(state_raw, step_id)
+    next_step = _compute_next_step(state_raw, step_id, state_yaml_path)
     if next_step:
         state_raw["next_step"] = next_step
 
