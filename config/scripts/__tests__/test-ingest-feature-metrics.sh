@@ -146,8 +146,8 @@ ORCHESTRATOR_HOME="$REPO_ROOT" \
 check "ingest-feature-metrics.py exits 0" $?
 
 # ── Assert DuckDB row ────────────────────────────────────────────────────────
-# Use duckdb CLI to query the temp DB
-QUERY_RESULT=$(duckdb "$FIXTURE_DB" <<SQL
+# Use duckdb CLI to query the temp DB (-csv for parseable output)
+QUERY_RESULT=$(duckdb -csv "$FIXTURE_DB" <<SQL
 SELECT
   tasks_total,
   tasks_completed,
@@ -165,15 +165,16 @@ SQL
 
 check "feature_metrics row exists for change_id" $?
 
-# Extract columns (duckdb CSV-like output: value|value|...)
-TASKS_TOTAL=$(echo    "$QUERY_RESULT" | tail -1 | cut -d'|' -f1)
-TASKS_DONE=$(echo     "$QUERY_RESULT" | tail -1 | cut -d'|' -f2)
-RESOLVE=$(echo        "$QUERY_RESULT" | tail -1 | cut -d'|' -f3)
-FILES=$(echo          "$QUERY_RESULT" | tail -1 | cut -d'|' -f4)
-INSERTS=$(echo        "$QUERY_RESULT" | tail -1 | cut -d'|' -f5)
-DELETES=$(echo        "$QUERY_RESULT" | tail -1 | cut -d'|' -f6)
-WALL_CLOCK=$(echo     "$QUERY_RESULT" | tail -1 | cut -d'|' -f7)
-SCORE_AVG=$(echo      "$QUERY_RESULT" | tail -1 | cut -d'|' -f8)
+# Extract columns (duckdb -csv output: header row + data row, comma-separated)
+DATA_ROW=$(echo "$QUERY_RESULT" | tail -1)
+TASKS_TOTAL=$(echo "$DATA_ROW" | cut -d',' -f1)
+TASKS_DONE=$(echo  "$DATA_ROW" | cut -d',' -f2)
+RESOLVE=$(echo     "$DATA_ROW" | cut -d',' -f3)
+FILES=$(echo       "$DATA_ROW" | cut -d',' -f4)
+INSERTS=$(echo     "$DATA_ROW" | cut -d',' -f5)
+DELETES=$(echo     "$DATA_ROW" | cut -d',' -f6)
+WALL_CLOCK=$(echo  "$DATA_ROW" | cut -d',' -f7)
+SCORE_AVG=$(echo   "$DATA_ROW" | cut -d',' -f8)
 
 check_eq "tasks_total=5"      "$TASKS_TOTAL" "5"
 check_eq "tasks_completed=4"  "$TASKS_DONE"  "4"
