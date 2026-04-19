@@ -53,11 +53,11 @@ def conn():
             started_at  TIMESTAMP,
             ended_at    TIMESTAMP,
             duration_ms BIGINT,
-            gen_ai_request_model  VARCHAR,
-            gen_ai_usage_input_tokens  BIGINT,
-            gen_ai_usage_output_tokens BIGINT,
-            gen_ai_usage_cache_read_input_tokens BIGINT,
-            gen_ai_usage_cost_usd  DOUBLE,
+            model                        VARCHAR,
+            input_tokens                 BIGINT,
+            output_tokens                BIGINT,
+            cache_read_input_tokens      BIGINT,
+            cost_usd                     DOUBLE,
             tool_calls_json  VARCHAR,
             artifacts_json   VARCHAR,
             escalation_json  VARCHAR,
@@ -92,7 +92,7 @@ def _make_event_inserter():
         conn.execute("""
             INSERT INTO step_events
               (repo_root, change_id, phase, step_id, attempt, agent_name, status,
-               gen_ai_usage_cost_usd, started_at)
+               cost_usd, started_at)
             VALUES (?, ?, 'implement', ?, 1, 'developer', 'completed', ?, '2026-01-01')
         """, [repo_root, change_id, step_id, cost])
 
@@ -105,7 +105,7 @@ def _insert_step_event(conn, change_id: str, cost: float, repo_root: str = REPO_
     conn.execute("""
         INSERT INTO step_events
           (repo_root, change_id, phase, step_id, attempt, agent_name, status,
-           gen_ai_usage_cost_usd, started_at)
+           cost_usd, started_at)
         VALUES (?, ?, 'implement', 'step-1', 1, 'developer', 'completed', ?, '2026-01-01')
     """, [repo_root, change_id, cost])
 

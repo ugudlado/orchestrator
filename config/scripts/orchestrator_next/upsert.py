@@ -18,7 +18,7 @@ import re
 import json
 from typing import Any
 
-from orchestrator_next.otel_map import usage_to_otel, serialise_artifacts, serialise_escalation
+import json
 from orchestrator_next.parser import StepHistoryEntry
 
 # Slug guard: change_id must match ^[a-z0-9][a-z0-9-]*$
@@ -37,11 +37,11 @@ CREATE TABLE IF NOT EXISTS step_events (
   started_at  TIMESTAMP,
   ended_at    TIMESTAMP,
   duration_ms BIGINT,
-  gen_ai_request_model                  VARCHAR,
-  gen_ai_usage_input_tokens             BIGINT,
-  gen_ai_usage_output_tokens            BIGINT,
-  gen_ai_usage_cache_read_input_tokens  BIGINT,
-  gen_ai_usage_cost_usd                 DOUBLE,
+  model                        VARCHAR,
+  input_tokens                 BIGINT,
+  output_tokens                BIGINT,
+  cache_read_input_tokens      BIGINT,
+  cost_usd                     DOUBLE,
   tool_calls_json  VARCHAR,
   artifacts_json   VARCHAR,
   escalation_json  VARCHAR,
@@ -61,10 +61,6 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   tool_name     TEXT    NOT NULL,
   is_mcp        BOOLEAN NOT NULL,
   call_seq      INTEGER NOT NULL,
-  input_tokens  INTEGER,
-  output_tokens INTEGER,
-  cost_usd      DOUBLE,
-  duration_ms   INTEGER,
   called_at     TEXT,
   PRIMARY KEY (repo_root, change_id, phase, step_id, attempt, call_seq)
 )
@@ -107,9 +103,8 @@ WHERE repo_root = ? AND change_id = ? AND phase = ? AND step_id = ? AND attempt 
 _INSERT_TOOL_CALL = """
 INSERT OR REPLACE INTO tool_calls (
   repo_root, change_id, phase, step_id, attempt,
-  agent_name, tool_name, is_mcp, call_seq,
-  input_tokens, output_tokens, cost_usd, duration_ms, called_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL)
+  agent_name, tool_name, is_mcp, call_seq, called_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
 """
 
 _INSERT_OR_REPLACE = """
@@ -124,11 +119,11 @@ INSERT OR REPLACE INTO step_events (
   started_at,
   ended_at,
   duration_ms,
-  gen_ai_request_model,
-  gen_ai_usage_input_tokens,
-  gen_ai_usage_output_tokens,
-  gen_ai_usage_cache_read_input_tokens,
-  gen_ai_usage_cost_usd,
+  model,
+  input_tokens,
+  output_tokens,
+  cache_read_input_tokens,
+  cost_usd,
   tool_calls_json,
   artifacts_json,
   escalation_json
@@ -137,7 +132,7 @@ INSERT OR REPLACE INTO step_events (
 
 
 _SUM_COST_SQL = """
-SELECT COALESCE(SUM(gen_ai_usage_cost_usd), 0.0)
+SELECT COALESCE(SUM(cost_usd), 0.0)
 FROM step_events
 WHERE repo_root = ? AND change_id = ?
 """
@@ -172,14 +167,35 @@ def sum_cost_usd(db, context: dict) -> float:
     return float(row[0]) if row and row[0] is not None else 0.0
 
 
+_STEP_EVENTS_RENAMES = [
+    ("gen_ai_request_model",                 "model"),
+    ("gen_ai_usage_input_tokens",            "input_tokens"),
+    ("gen_ai_usage_output_tokens",           "output_tokens"),
+    ("gen_ai_usage_cache_read_input_tokens", "cache_read_input_tokens"),
+    ("gen_ai_usage_cost_usd",                "cost_usd"),
+]
+
+
+def _migrate_step_events(db) -> None:
+    """Rename otel-prefixed columns to plain names on existing step_events tables."""
+    try:
+        existing = {row[0] for row in db.execute("DESCRIBE step_events").fetchall()}
+    except Exception:
+        return
+    for old, new in _STEP_EVENTS_RENAMES:
+        if old in existing and new not in existing:
+            db.execute(f"ALTER TABLE step_events RENAME COLUMN {old} TO {new}")
+
+
 def ensure_schema(db) -> None:
     """
     Create the step_events, tool_calls, and feature_complexity tables and indexes
-    if they do not exist.
+    if they do not exist. Migrates otel column names to plain names on existing tables.
 
     Safe to call multiple times (idempotent via IF NOT EXISTS).
     """
     db.execute(_DDL_STEP_EVENTS)
+    _migrate_step_events(db)
     db.execute(_CREATE_INDEX)
     db.execute(_DDL_TOOL_CALLS)
     db.execute(_CREATE_TOOL_CALLS_INDEX)
@@ -245,12 +261,16 @@ def upsert_step_event(
     # Attempt defaults to 1 if not set
     attempt: int = entry.attempt if entry.attempt is not None else 1
 
-    # Map usage short names to OTel columns
-    otel = usage_to_otel(entry.usage) if entry.usage else {}
+    usage = entry.usage or {}
 
-    # Parse timestamps — DuckDB accepts ISO 8601 strings directly
-    started_at = entry.started_at
-    ended_at = entry.ended_at
+    # Serialise tool_calls dict to JSON string if present
+    tool_calls_raw = usage.get("tool_calls")
+    tool_calls_json = json.dumps(tool_calls_raw, sort_keys=True) if tool_calls_raw else None
+
+    artifacts = entry.raw.get("artifacts")
+    artifacts_json = json.dumps(artifacts) if artifacts else None
+
+    escalation_json = json.dumps(entry.escalation, sort_keys=True) if entry.escalation else None
 
     params = [
         repo_root,
@@ -260,17 +280,17 @@ def upsert_step_event(
         attempt,
         entry.agent,
         entry.status,
-        started_at,
-        ended_at,
-        otel.get("duration_ms"),
-        otel.get("gen_ai_request_model"),
-        otel.get("gen_ai_usage_input_tokens"),
-        otel.get("gen_ai_usage_output_tokens"),
-        otel.get("gen_ai_usage_cache_read_input_tokens"),
-        otel.get("gen_ai_usage_cost_usd"),
-        otel.get("tool_calls_json"),
-        serialise_artifacts(entry.raw.get("artifacts")),
-        serialise_escalation(entry.escalation),
+        entry.started_at,
+        entry.ended_at,
+        usage.get("duration_ms"),
+        usage.get("model"),
+        usage.get("input_tokens"),
+        usage.get("output_tokens"),
+        usage.get("cache_read_input_tokens"),
+        usage.get("cost_usd"),
+        tool_calls_json,
+        artifacts_json,
+        escalation_json,
     ]
 
     db.execute(_INSERT_OR_REPLACE, params)

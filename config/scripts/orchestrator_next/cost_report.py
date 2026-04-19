@@ -62,9 +62,9 @@ def _fmt_ms(v: int | None) -> str:
 def _totals(db, repo_root: str, change_id: str) -> dict:
     sql = """
     SELECT
-      COALESCE(SUM(gen_ai_usage_cost_usd), 0.0)        AS cost_usd,
-      COALESCE(SUM(gen_ai_usage_input_tokens), 0)      AS input_tokens,
-      COALESCE(SUM(gen_ai_usage_output_tokens), 0)     AS output_tokens,
+      COALESCE(SUM(cost_usd), 0.0)        AS cost_usd,
+      COALESCE(SUM(input_tokens), 0)      AS input_tokens,
+      COALESCE(SUM(output_tokens), 0)     AS output_tokens,
       COALESCE(SUM(duration_ms), 0)                    AS duration_ms,
       COUNT(*)                                          AS step_count
     FROM step_events
@@ -76,8 +76,8 @@ def _totals(db, repo_root: str, change_id: str) -> dict:
     # Rework ratio: SUM(cost WHERE attempt > 1) / SUM(cost); 0.0 on divide-by-zero
     rework_sql = """
     SELECT
-      COALESCE(SUM(CASE WHEN attempt > 1 THEN gen_ai_usage_cost_usd ELSE 0.0 END), 0.0),
-      COALESCE(SUM(gen_ai_usage_cost_usd), 0.0)
+      COALESCE(SUM(CASE WHEN attempt > 1 THEN cost_usd ELSE 0.0 END), 0.0),
+      COALESCE(SUM(cost_usd), 0.0)
     FROM step_events
     WHERE repo_root = ? AND change_id = ?
     """
@@ -99,9 +99,9 @@ def _per_phase(db, repo_root: str, change_id: str) -> list[dict]:
     sql = """
     SELECT
       phase,
-      COALESCE(SUM(gen_ai_usage_cost_usd), 0.0)      AS cost_usd,
-      COALESCE(SUM(gen_ai_usage_input_tokens), 0)    AS input_tokens,
-      COALESCE(SUM(gen_ai_usage_output_tokens), 0)   AS output_tokens,
+      COALESCE(SUM(cost_usd), 0.0)      AS cost_usd,
+      COALESCE(SUM(input_tokens), 0)    AS input_tokens,
+      COALESCE(SUM(output_tokens), 0)   AS output_tokens,
       COALESCE(SUM(duration_ms), 0)                  AS duration_ms,
       COUNT(*)                                        AS step_count,
       MIN(started_at)                                 AS first_seen
@@ -128,9 +128,9 @@ def _per_agent(db, repo_root: str, change_id: str) -> list[dict]:
     sql = """
     SELECT
       agent_name,
-      COALESCE(SUM(gen_ai_usage_cost_usd), 0.0)      AS cost_usd,
-      COALESCE(SUM(gen_ai_usage_input_tokens), 0)    AS input_tokens,
-      COALESCE(SUM(gen_ai_usage_output_tokens), 0)   AS output_tokens,
+      COALESCE(SUM(cost_usd), 0.0)      AS cost_usd,
+      COALESCE(SUM(input_tokens), 0)    AS input_tokens,
+      COALESCE(SUM(output_tokens), 0)   AS output_tokens,
       COALESCE(SUM(duration_ms), 0)                  AS duration_ms,
       COUNT(*)                                        AS step_count
     FROM step_events
@@ -155,14 +155,14 @@ def _per_agent(db, repo_root: str, change_id: str) -> list[dict]:
 def _per_model(db, repo_root: str, change_id: str) -> list[dict]:
     sql = """
     SELECT
-      COALESCE(gen_ai_request_model, 'unknown')       AS model,
-      COALESCE(SUM(gen_ai_usage_cost_usd), 0.0)      AS cost_usd,
-      COALESCE(SUM(gen_ai_usage_input_tokens), 0)    AS input_tokens,
-      COALESCE(SUM(gen_ai_usage_output_tokens), 0)   AS output_tokens,
+      COALESCE(model, 'unknown')       AS model,
+      COALESCE(SUM(cost_usd), 0.0)      AS cost_usd,
+      COALESCE(SUM(input_tokens), 0)    AS input_tokens,
+      COALESCE(SUM(output_tokens), 0)   AS output_tokens,
       COUNT(*)                                        AS step_count
     FROM step_events
     WHERE repo_root = ? AND change_id = ?
-    GROUP BY gen_ai_request_model
+    GROUP BY model
     ORDER BY model ASC
     """
     rows = db.execute(sql, [repo_root, change_id]).fetchall()
@@ -317,7 +317,7 @@ def _by_complexity(db, repo_basename: str) -> list[dict]:
     """
     sql = """
     WITH feature_cost AS (
-      SELECT change_id, SUM(gen_ai_usage_cost_usd) AS cost
+      SELECT change_id, SUM(cost_usd) AS cost
       FROM step_events
       WHERE regexp_extract(repo_root, '[^/]+$') = ?
       GROUP BY change_id
@@ -368,10 +368,10 @@ def _by_step(db, repo_root: str, change_id: str) -> list[dict]:
       phase,
       attempt,
       agent_name,
-      COALESCE(gen_ai_request_model, 'unknown')       AS model,
-      COALESCE(gen_ai_usage_cost_usd, 0.0)            AS cost_usd,
-      COALESCE(gen_ai_usage_input_tokens, 0)          AS input_tokens,
-      COALESCE(gen_ai_usage_output_tokens, 0)         AS output_tokens,
+      COALESCE(model, 'unknown')       AS model,
+      COALESCE(cost_usd, 0.0)            AS cost_usd,
+      COALESCE(input_tokens, 0)          AS input_tokens,
+      COALESCE(output_tokens, 0)         AS output_tokens,
       COALESCE(duration_ms, 0)                        AS duration_ms,
       status,
       started_at
@@ -473,9 +473,9 @@ def aggregate_repo(db, repo_basename: str, since: str | None = None, scope: str 
         sql = """
         SELECT
           change_id,
-          COALESCE(SUM(gen_ai_usage_cost_usd), 0.0)    AS cost_usd,
-          COALESCE(SUM(gen_ai_usage_input_tokens), 0)  AS input_tokens,
-          COALESCE(SUM(gen_ai_usage_output_tokens), 0) AS output_tokens,
+          COALESCE(SUM(cost_usd), 0.0)    AS cost_usd,
+          COALESCE(SUM(input_tokens), 0)  AS input_tokens,
+          COALESCE(SUM(output_tokens), 0) AS output_tokens,
           COUNT(*)                                      AS step_count,
           MIN(started_at)                               AS first_seen
         FROM step_events
@@ -503,9 +503,9 @@ def aggregate_repo(db, repo_basename: str, since: str | None = None, scope: str 
         sql = """
         SELECT
           agent_name,
-          COALESCE(SUM(gen_ai_usage_cost_usd), 0.0)    AS cost_usd,
-          COALESCE(SUM(gen_ai_usage_input_tokens), 0)  AS input_tokens,
-          COALESCE(SUM(gen_ai_usage_output_tokens), 0) AS output_tokens,
+          COALESCE(SUM(cost_usd), 0.0)    AS cost_usd,
+          COALESCE(SUM(input_tokens), 0)  AS input_tokens,
+          COALESCE(SUM(output_tokens), 0) AS output_tokens,
           COUNT(*)                                      AS step_count
         FROM step_events
         WHERE regexp_extract(repo_root, '[^/]+$') = ?

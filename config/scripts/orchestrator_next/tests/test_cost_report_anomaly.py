@@ -62,10 +62,6 @@ def db():
             tool_name  TEXT NOT NULL,
             is_mcp     BOOLEAN NOT NULL,
             call_seq   INTEGER NOT NULL,
-            input_tokens  INTEGER,
-            output_tokens INTEGER,
-            cost_usd   DOUBLE,
-            duration_ms INTEGER,
             called_at  TEXT,
             PRIMARY KEY (repo_root, change_id, phase, step_id, attempt, call_seq)
         )
@@ -80,10 +76,10 @@ def db():
             agent_name TEXT NOT NULL,
             status     TEXT,
             started_at TEXT,
-            gen_ai_usage_cost_usd DOUBLE,
-            gen_ai_usage_input_tokens BIGINT,
-            gen_ai_usage_output_tokens BIGINT,
-            gen_ai_request_model TEXT,
+            cost_usd DOUBLE,
+            input_tokens BIGINT,
+            output_tokens BIGINT,
+            model TEXT,
             duration_ms INTEGER,
             PRIMARY KEY (repo_root, change_id, phase, step_id, attempt, status)
         )
