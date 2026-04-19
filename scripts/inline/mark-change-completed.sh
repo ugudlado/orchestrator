@@ -39,3 +39,33 @@ print(json.dumps({
     "archive_path": archive_path,
 }))
 PY
+
+# HL-291: upsert feature_complexity row — errors are swallowed so DB contention
+# or a missing metrics.duckdb never blocks change completion (|| true pattern).
+python3 - <<'PY' 2>/dev/null || true
+import sys, os, yaml
+STATE_PATH = os.environ.get("STATE_YAML_PATH", "")
+ORCHESTRATOR_HOME = os.environ.get("ORCHESTRATOR_HOME", "")
+METRICS_DB = os.environ.get("METRICS_DB") or (
+    os.path.join(ORCHESTRATOR_HOME, "metrics.duckdb") if ORCHESTRATOR_HOME else ""
+)
+if not STATE_PATH or not METRICS_DB:
+    sys.exit(0)
+sys.path.insert(0, os.path.join(ORCHESTRATOR_HOME, "config", "scripts"))
+import duckdb
+from orchestrator_next.upsert import ensure_schema, upsert_feature_complexity
+with open(STATE_PATH) as f:
+    state = yaml.safe_load(f) or {}
+conn = duckdb.connect(METRICS_DB)
+ensure_schema(conn)
+upsert_feature_complexity(
+    conn,
+    repo_root=str(state.get("repo_root") or ""),
+    change_id=str(state.get("change_id") or ""),
+    complexity=state.get("complexity"),
+    schema_name=str(state.get("schema") or ""),
+    started_at=state.get("created_at"),
+    completed_at=state.get("completed_at"),
+)
+conn.close()
+PY

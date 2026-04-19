@@ -43,7 +43,7 @@ def _usage() -> None:
         "  orchestrator next <state.yaml>\n"
         "  orchestrator record <state.yaml>   # JSON payload on stdin\n"
         "  orchestrator cost --change-id <cid> [--by step|agent|tool] [--format md|json]\n"
-        "  orchestrator cost --repo [--by feature|agent|tool] [--format md|json] [--since <ISO>]\n"
+        "  orchestrator cost --repo [--by feature|agent|tool|complexity] [--format md|json] [--since <ISO>]\n"
         "  orchestrator doctor",
         file=sys.stderr,
     )
@@ -58,7 +58,7 @@ def _cost_main(args: list[str]) -> None:
     parser.add_argument("--change-id", dest="change_id", default=None)
     parser.add_argument("--repo", action="store_true", default=False)
     parser.add_argument("--by", dest="by", default=None,
-                        choices=["step", "agent", "tool", "feature"])
+                        choices=["step", "agent", "tool", "feature", "complexity"])
     parser.add_argument("--format", dest="fmt", default="md", choices=["md", "json"])
     parser.add_argument("--since", dest="since", default=None)
 
@@ -69,7 +69,7 @@ def _cost_main(args: list[str]) -> None:
             "error: invalid flags for `orchestrator cost`\n"
             "Usage:\n"
             "  orchestrator cost --change-id <cid> [--by step|agent|tool] [--format md|json]\n"
-            "  orchestrator cost --repo [--by feature|agent|tool] [--format md|json] [--since <ISO>]",
+            "  orchestrator cost --repo [--by feature|agent|tool|complexity] [--format md|json] [--since <ISO>]",
             file=sys.stderr,
         )
         sys.exit(3)
