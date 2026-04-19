@@ -42,7 +42,7 @@
 - **detail**: workflow-init attempts to create a Linear ticket; workspace returns "Usage limit exceeded — free issue limit". Agent correctly sets `linear_ticket: null`, `linear_skip_reason: "Linear free issue quota exceeded for workspace"`, and flips both `flags.linear` and `resolved_flags.linear` to false. But this happens on every run — it's not a per-run surprise.
 - **workaround**: Graceful handling already in place; workflow proceeds without Linear.
 - **fix_direction**: For this workspace specifically, default `linear: false` in project.yaml resolved_flags until quota resets. Add a one-time quota detector at `make doctor` that sets the project-level flag and emits a single reminder.
-- **backlog_entry**: spec/changes/backlog/linear-quota-default-off/
+- **backlog_entry**: (declined — graceful handling is enough; not worth scheduling)
 
 ## ISSUE-22 — workflow-improver emitted 0 tokens; step_events row had NULL usage
 - **category**: other
