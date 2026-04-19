@@ -8,6 +8,10 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Coverage
+.coverage
+htmlcov/
+
 # Workflow state (ephemeral, per-repo)
 .state/
 !.state/.gitkeep
