@@ -42,7 +42,7 @@ PY
 
 # HL-291: upsert feature_complexity row — errors are swallowed so DB contention
 # or a missing metrics.duckdb never blocks change completion (|| true pattern).
-python3 - <<'PY' 2>/dev/null || true
+python3 - <<'PY' || true
 import sys, os, yaml
 STATE_PATH = os.environ.get("STATE_YAML_PATH", "")
 ORCHESTRATOR_HOME = os.environ.get("ORCHESTRATOR_HOME", "")
