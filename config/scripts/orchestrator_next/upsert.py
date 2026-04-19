@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS step_events (
   step_id     VARCHAR NOT NULL,
   attempt     INTEGER NOT NULL,
   agent_name  VARCHAR NOT NULL,
+  agent_id    VARCHAR,
   status      VARCHAR NOT NULL,
   schema_name VARCHAR,
   started_at  TIMESTAMP,
@@ -41,6 +42,7 @@ CREATE TABLE IF NOT EXISTS step_events (
   input_tokens                 BIGINT,
   output_tokens                BIGINT,
   cache_read_input_tokens      BIGINT,
+  cache_creation_input_tokens  BIGINT,
   cost_usd                     DOUBLE,
   tool_calls_json  VARCHAR,
   artifacts_json   VARCHAR,
@@ -115,6 +117,7 @@ INSERT OR REPLACE INTO step_events (
   step_id,
   attempt,
   agent_name,
+  agent_id,
   status,
   started_at,
   ended_at,
@@ -123,11 +126,12 @@ INSERT OR REPLACE INTO step_events (
   input_tokens,
   output_tokens,
   cache_read_input_tokens,
+  cache_creation_input_tokens,
   cost_usd,
   tool_calls_json,
   artifacts_json,
   escalation_json
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -179,10 +183,15 @@ _INDEX_NAME = "idx_step_events_change"
 
 
 def _migrate_step_events(db) -> None:
-    """Rename otel-prefixed columns to plain names on existing step_events tables.
+    """Migrate existing step_events tables.
 
-    Drops idx_step_events_change before renaming because DuckDB refuses
-    ALTER TABLE ... RENAME COLUMN while an index depends on the table.
+    Two migrations handled idempotently:
+      1. Rename otel-prefixed columns to plain names (legacy, pre-HL-287).
+         Drops idx_step_events_change before renaming because DuckDB refuses
+         ALTER TABLE ... RENAME COLUMN while an index depends on the table.
+      2. Add cache_creation_input_tokens column if missing (ADD COLUMN is
+         safe without dropping the index).
+
     The caller's ensure_schema() recreates the index via _CREATE_INDEX
     (CREATE INDEX IF NOT EXISTS) after this function returns.
     """
@@ -194,12 +203,17 @@ def _migrate_step_events(db) -> None:
         old in existing and new not in existing
         for old, new in _STEP_EVENTS_RENAMES
     )
-    if not needs_rename:
-        return  # fast path — no-op on fresh / already-migrated tables
-    db.execute(f"DROP INDEX IF EXISTS {_INDEX_NAME}")
-    for old, new in _STEP_EVENTS_RENAMES:
-        if old in existing and new not in existing:
-            db.execute(f"ALTER TABLE step_events RENAME COLUMN {old} TO {new}")
+    if needs_rename:
+        db.execute(f"DROP INDEX IF EXISTS {_INDEX_NAME}")
+        for old, new in _STEP_EVENTS_RENAMES:
+            if old in existing and new not in existing:
+                db.execute(f"ALTER TABLE step_events RENAME COLUMN {old} TO {new}")
+        existing = {row[0] for row in db.execute("DESCRIBE step_events").fetchall()}
+    if "cache_creation_input_tokens" not in existing:
+        db.execute("ALTER TABLE step_events ADD COLUMN cache_creation_input_tokens BIGINT")
+        existing.add("cache_creation_input_tokens")
+    if "agent_id" not in existing:
+        db.execute("ALTER TABLE step_events ADD COLUMN agent_id VARCHAR")
 
 
 def ensure_schema(db) -> None:
@@ -287,6 +301,11 @@ def upsert_step_event(
 
     escalation_json = json.dumps(entry.escalation, sort_keys=True) if entry.escalation else None
 
+    # agent_id lives either in usage (explicit passthrough from caller) or in
+    # the step_history entry's raw dict (set by the driver when the Agent tool
+    # returns an agentId). Either location is fine — we pull whichever exists.
+    agent_id = usage.get("agent_id") or entry.raw.get("agent_id")
+
     params = [
         repo_root,
         change_id,
@@ -294,6 +313,7 @@ def upsert_step_event(
         entry.step_id,
         attempt,
         entry.agent,
+        agent_id,
         entry.status,
         entry.started_at,
         entry.ended_at,
@@ -302,6 +322,7 @@ def upsert_step_event(
         usage.get("input_tokens"),
         usage.get("output_tokens"),
         usage.get("cache_read_input_tokens"),
+        usage.get("cache_creation_input_tokens"),
         usage.get("cost_usd"),
         tool_calls_json,
         artifacts_json,
@@ -328,5 +349,82 @@ def upsert_step_event(
             db.execute(_INSERT_TOOL_CALL, [
                 repo_root, change_id, entry.phase, entry.step_id, attempt,
                 entry.agent, tool_name, is_mcp, call_seq,
+            ])
+            call_seq += 1
+
+
+def upsert_synthetic_event(
+    db,
+    context: dict[str, Any],
+    *,
+    agent_name: str,
+    step_id: str,
+    phase: str,
+    usage: dict[str, Any],
+    status: str = "completed",
+    started_at: Any = None,
+    ended_at: Any = None,
+) -> None:
+    """Upsert a synthetic step_events row without a StepHistoryEntry.
+
+    Used for driver-loop ingestion from JSONL totals — there's no real
+    step_history entry, but we want the row in step_events so all rollups
+    (per-agent, per-phase, per-feature, per-repo) are pure GROUP BY queries.
+
+    The synthetic row gets attempt=1 and empty artifacts/escalation blobs.
+    tool_calls_json is populated from usage['tool_calls'] (a dict) and also
+    fanned out to the tool_calls table for per-tool rollups.
+    """
+    change_id: str = context["change_id"]
+    repo_root: str = context.get("repo_root", "")
+    if not _SLUG_RE.match(change_id):
+        raise ValueError(
+            f"change_id '{change_id}' violates slug guard. "
+            f"Must match ^[a-z0-9][a-z0-9-]*$ (lowercase alphanumeric and hyphens only, "
+            f"no leading hyphen)."
+        )
+
+    attempt = 1
+    tool_calls_raw = usage.get("tool_calls")
+    tool_calls_json = json.dumps(tool_calls_raw, sort_keys=True) if tool_calls_raw else None
+
+    params = [
+        repo_root,
+        change_id,
+        phase,
+        step_id,
+        attempt,
+        agent_name,
+        usage.get("agent_id"),
+        status,
+        started_at,
+        ended_at,
+        usage.get("duration_ms"),
+        usage.get("model"),
+        usage.get("input_tokens"),
+        usage.get("output_tokens"),
+        usage.get("cache_read_input_tokens"),
+        usage.get("cache_creation_input_tokens"),
+        usage.get("cost_usd"),
+        tool_calls_json,
+        None,  # artifacts_json
+        None,  # escalation_json
+    ]
+    db.execute(_INSERT_OR_REPLACE, params)
+
+    # Fan out tool_calls the same way upsert_step_event does, so per-tool
+    # rollups include driver-loop activity.
+    db.execute(_DELETE_TOOL_CALLS, [repo_root, change_id, phase, step_id, attempt])
+    usage_tools = tool_calls_raw if isinstance(tool_calls_raw, dict) else {}
+    call_seq = 1
+    for tool_name in sorted(usage_tools.keys()):
+        count = usage_tools[tool_name]
+        if not isinstance(count, int) or count < 1:
+            continue
+        is_mcp = tool_name.startswith("mcp__")
+        for _ in range(count):
+            db.execute(_INSERT_TOOL_CALL, [
+                repo_root, change_id, phase, step_id, attempt,
+                agent_name, tool_name, is_mcp, call_seq,
             ])
             call_seq += 1

@@ -64,6 +64,7 @@ def _compute_cost_usd(agent: str, usage: dict) -> tuple[str | None, float | None
     """Resolve agent → model_id and compute cost from usage token counts.
 
     Resolution order:
+      0. usage['model']  — billing-truth from JSONL, always preferred.
       1. routes.agents[agent] → backend_name
       2a. routes.backends[backend_name] → model_id  (for native_* keys)
       2b. routes.models[backend_name].model → model_id  (for proxy models)
@@ -75,31 +76,36 @@ def _compute_cost_usd(agent: str, usage: dict) -> tuple[str | None, float | None
     routes = _load_routes()
     pricing = _load_pricing()
 
-    # Step 1: agent → backend
-    backend = (routes.get("agents") or {}).get(agent)
-    if not backend:
-        sys.stderr.write(
-            f"[record] cost_usd: agent {agent!r} not found in routes.yaml agents; "
-            f"skipping cost computation\n"
-        )
-        return None, None
+    # Step 0: prefer usage.model when present (JSONL-sourced billing truth).
+    # This path lets synthetic rows (driver-loop) compute cost without being
+    # registered in routes.yaml.
+    model_id: str | None = usage.get("model") if isinstance(usage, dict) else None
 
-    # Step 2: backend → model_id
-    model_id: str | None = None
-    backends_map = routes.get("backends") or {}
-    if backend in backends_map:
-        model_id = backends_map[backend]
-    else:
-        # Try routes.models.<backend>.model (proxy path)
-        model_entry = (routes.get("models") or {}).get(backend)
-        if isinstance(model_entry, dict):
-            model_id = model_entry.get("model")
     if not model_id:
-        sys.stderr.write(
-            f"[record] cost_usd: backend {backend!r} for agent {agent!r} "
-            f"not resolved to a model_id; skipping cost computation\n"
-        )
-        return None, None
+        # Step 1: agent → backend
+        backend = (routes.get("agents") or {}).get(agent)
+        if not backend:
+            sys.stderr.write(
+                f"[record] cost_usd: agent {agent!r} not in routes.yaml and "
+                f"usage.model not set; skipping cost computation\n"
+            )
+            return None, None
+
+        # Step 2: backend → model_id
+        backends_map = routes.get("backends") or {}
+        if backend in backends_map:
+            model_id = backends_map[backend]
+        else:
+            # Try routes.models.<backend>.model (proxy path)
+            model_entry = (routes.get("models") or {}).get(backend)
+            if isinstance(model_entry, dict):
+                model_id = model_entry.get("model")
+        if not model_id:
+            sys.stderr.write(
+                f"[record] cost_usd: backend {backend!r} for agent {agent!r} "
+                f"not resolved to a model_id; skipping cost computation\n"
+            )
+            return None, None
 
     # Step 3: model_id → price block (fallback to default)
     price = (pricing.get("models") or {}).get(model_id)
@@ -112,14 +118,20 @@ def _compute_cost_usd(agent: str, usage: dict) -> tuple[str | None, float | None
         )
         return None, None
 
-    # Step 4: compute cost
+    # Step 4: compute cost (includes cache_creation when pricing.yaml declares it;
+    # falls back to input rate as a conservative default since cache_creation >= input)
     input_tokens = usage.get("input_tokens") or 0
     output_tokens = usage.get("output_tokens") or 0
     cache_read_tokens = usage.get("cache_read_input_tokens") or 0
+    cache_creation_tokens = usage.get("cache_creation_input_tokens") or 0
+    cache_creation_rate = price.get("cache_creation")
+    if cache_creation_rate is None:
+        cache_creation_rate = price.get("input") or 0
     cost = (
         input_tokens * (price.get("input") or 0) / 1_000_000
         + output_tokens * (price.get("output") or 0) / 1_000_000
         + cache_read_tokens * (price.get("cache_read") or 0) / 1_000_000
+        + cache_creation_tokens * cache_creation_rate / 1_000_000
     )
     return model_id, cost
 
@@ -276,12 +288,15 @@ def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any
     # Check B: usage required for agent (non-inline) steps on completion.
     # Root cause of ISSUE-10.1: empty usage means cost report is blank and
     # telemetry has no data for the step.
+    # JSONL enrichment path: if agent_id is present, usage will be populated
+    # from the sub-agent JSONL below — accept the payload even if tokens=0.
     agent = payload.get("agent", "inline")
-    if status == "completed" and agent != "inline":
-        usage = payload.get("usage") or {}
+    payload_usage = payload.get("usage") or {}
+    has_agent_id = bool(payload.get("agent_id") or payload_usage.get("agent_id"))
+    if status == "completed" and agent != "inline" and not has_agent_id:
         has_tokens = (
-            (isinstance(usage.get("input_tokens"), (int, float)) and usage["input_tokens"] > 0)
-            or (isinstance(usage.get("output_tokens"), (int, float)) and usage["output_tokens"] > 0)
+            (isinstance(payload_usage.get("input_tokens"), (int, float)) and payload_usage["input_tokens"] > 0)
+            or (isinstance(payload_usage.get("output_tokens"), (int, float)) and payload_usage["output_tokens"] > 0)
         )
         if not has_tokens:
             return (
@@ -290,7 +305,7 @@ def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any
                     "reason": "agent_step_missing_usage",
                     "step_id": step_id,
                     "agent": agent,
-                    "hint": "agent steps must record usage.input_tokens or usage.output_tokens > 0",
+                    "hint": "agent steps must record usage.input_tokens or usage.output_tokens > 0, or pass agent_id for JSONL enrichment",
                 },
                 3,
             )
@@ -334,6 +349,36 @@ def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any
     # ISSUE-17: compute cost_usd live when absent from the payload.
     # Work on a local copy so we never mutate the caller's dict.
     usage: dict[str, Any] = dict(payload.get("usage") or {})
+
+    # JSONL enrichment (telemetry-unify): when the caller passes an agent_id
+    # (from the Agent tool's result), pull billing-truth usage from the
+    # sub-agent JSONL. JSONL wins for input/output/cache_* and model; we keep
+    # caller-provided tool_calls and duration_ms only if JSONL lacks them.
+    agent_id = payload.get("agent_id") or usage.get("agent_id")
+    if agent_id:
+        try:
+            from orchestrator_next.jsonl_usage import extract_agent_usage
+            repo_root = state_raw.get("repo_root") or ""
+            jsonl_usage = extract_agent_usage(repo_root, agent_id)
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_input_tokens",
+                "cache_creation_input_tokens",
+                "model",
+                "turns",
+            ):
+                if jsonl_usage.get(key) is not None:
+                    usage[key] = jsonl_usage[key]
+            # duration_ms / tool_calls only if caller didn't supply them.
+            if usage.get("duration_ms") is None and jsonl_usage.get("duration_ms") is not None:
+                usage["duration_ms"] = jsonl_usage["duration_ms"]
+            if not usage.get("tool_calls") and jsonl_usage.get("tool_calls"):
+                usage["tool_calls"] = jsonl_usage["tool_calls"]
+            usage["agent_id"] = agent_id  # persist it so upsert writes the column
+        except Exception as exc:  # noqa: BLE001 — enrichment is best-effort
+            sys.stderr.write(f"[record] jsonl enrichment failed for agent_id={agent_id}: {exc}\n")
+
     if agent != "inline" and not usage.get("cost_usd"):
         resolved_model, computed_cost = _compute_cost_usd(agent, usage)
         if resolved_model is not None and computed_cost is not None:

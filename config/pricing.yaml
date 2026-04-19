@@ -14,30 +14,37 @@
 
 models:
   # ── Anthropic native (Claude Code) ──────────────────────────────────────
+  # cache_creation = input × 1.25 (Anthropic 5-min TTL writes; 1h TTL is 2×).
   claude-opus-4-7:
     input: 15.00
     output: 75.00
     cache_read: 1.50
+    cache_creation: 18.75
   claude-opus-4-6:
     input: 15.00
     output: 75.00
     cache_read: 1.50
+    cache_creation: 18.75
   claude-opus-4-5:
     input: 15.00
     output: 75.00
     cache_read: 1.50
+    cache_creation: 18.75
   claude-sonnet-4-6:
     input: 3.00
     output: 15.00
     cache_read: 0.30
+    cache_creation: 3.75
   claude-sonnet-4-5:
     input: 3.00
     output: 15.00
     cache_read: 0.30
+    cache_creation: 3.75
   claude-haiku-4-5:
     input: 0.80
     output: 4.00
     cache_read: 0.08
+    cache_creation: 1.00
 
   # ── OpenRouter ──────────────────────────────────────────────────────────
   qwen/qwen3-coder-30b-a3b-instruct:
@@ -58,3 +65,4 @@ default:
   input: 15.00
   output: 75.00
   cache_read: 1.50
+  cache_creation: 18.75
