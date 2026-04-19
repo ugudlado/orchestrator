@@ -143,8 +143,9 @@ def run_git_churn(worktree: str, change_id: str) -> dict[str, Any]:
 
         lines = [ln for ln in result.stdout.strip().splitlines() if ln.strip()]
         total_commits = len(lines)
+        # Match legacy compute-swe-metrics.sh: grep -c "^fix:" behavior (NFR-3)
         rework_commits = sum(
-            1 for ln in lines if re.search(r"\bfix\b|\brework\b", ln, re.IGNORECASE)
+            1 for ln in lines if re.match(r"^(fix|rework):", ln)
         )
         rework_rate = rework_commits / total_commits if total_commits > 0 else 0.0
 
