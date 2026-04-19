@@ -21,86 +21,100 @@
 
 ## single-source-metrics-via-step-events
 
-**Delete parallel metrics aggregation; query DuckDB everywhere** (score 8.3)
+**All metrics ingested to DuckDB; wrapper scripts become thin projections** (score 8.8)
 
-**Recurrence:** 1 — sources: fix-inline-scripts-tmpdir (user decision 2026-04-20 after observing state.yaml.metrics said $0 while orchestrator cost said $0.246 for the same run)
+**Recurrence:** 2 — sources: fix-inline-scripts-tmpdir/ISSUE-27, single-source-metrics-via-step-events-iter-2-aborted (2026-04-20 scope-gap finding: architect discovered CLI didn't carry `cache_creation`, `turns`, `gross_usd`, `cost.model`, `cost.pricing.*` — all required by metrics-schema.md — which made the original "thin wrapper" architecturally incoherent)
 
 ### Idea
 
-Today three places compute aggregates over token/cost data, and they disagree:
+Make DuckDB the sole aggregate source for every metric consumers read. `compute-swe-metrics.sh` and `read-sub-state-metrics.sh` become genuinely thin projections of one SQL query. No parallel JSONL reads, no parallel file-parsing, no parallel git walks at read time — all of that happens once, at ingest, and lands in DuckDB rows.
 
-1. `orchestrator cost --change-id` — queries DuckDB `step_events`. **Correct.**
-2. `scripts/inline/compute-swe-metrics.sh` — sums `state.yaml.step_history[].usage` (~500 lines of pricing + JSONL parsing + per-agent rollups). Writes `state.yaml.metrics`. **Wrong** for inline-heavy flows because inline steps carry `usage: {}`.
-3. `config/scripts/read-sub-state-metrics.sh` — same pattern for autopilot's per-iteration metrics, plus broken path lookups (ISSUE-26). Fills `sessions.yaml.iterations[].metrics`.
+Today three readers compute aggregates independently and disagree:
+1. `orchestrator cost --change-id` — queries DuckDB `step_events`. Correct for the fields it covers.
+2. `scripts/inline/compute-swe-metrics.sh` (736 lines) — sums `state.yaml.step_history[].usage`, parses JSONL for cache/turns/model, walks git log for churn, reads tasks.md for resolve_rate. Writes `state.yaml.metrics`. Wrong for inline-heavy flows (empty `usage: {}`).
+3. `config/scripts/read-sub-state-metrics.sh` — same pattern for autopilot per-iteration metrics, plus broken path lookups (ISSUE-26).
 
-The cause is architectural: `step_events` is the truth (JSONL-enriched at write time), but two other scripts re-derive aggregates from `step_history.usage` — a projection that's structurally incomplete. Every future metrics consumer will repeat the same mistake unless the pattern is deleted.
+Aborted iter 2 (2026-04-20) proved that simply wrapping #2 and #3 around `orchestrator cost --format json` doesn't close the gap: the CLI doesn't surface all the fields `metrics-schema.md` marks required. The hybrid design the architect landed on kept JSONL as a second read source inside the wrapper — the exact parallel-read pattern the feature was supposed to eliminate.
 
-**Fix**: make `step_events` the only aggregate source. Every other script becomes a thin `orchestrator cost --change-id --format json` wrapper. `state.yaml.step_history` stays untouched — it's dispatcher memory, not a metrics input.
+**Real fix**: widen `step_events` + add a new `feature_metrics` table so every metric consumers read lives in one place.
 
 ### Scope
 
-**Change**:
-1. `scripts/inline/compute-swe-metrics.sh` — delete the token/cost/model/pricing/JSONL-parsing machinery (~500 of 736 lines). Replace with a `orchestrator cost --change-id "$CHANGE_ID" --format json` shell-out; extract `totals` + `per_agent` + `per_model` fields. **Keep** the tasks.md resolution metrics (pass@1, pass@2, resolve_rate) and git churn computation — those aren't in DuckDB and shouldn't be.
-2. `config/scripts/read-sub-state-metrics.sh` — same migration; path-lookup fix (ISSUE-26) becomes moot since DuckDB is keyed by change_id, not state.yaml path.
-3. `config/scripts/autopilot-session-rollup.sh` — verify it still works when `iterations[].metrics` is populated from DuckDB; adjust only if consumer parsing breaks.
-4. `state.yaml.metrics` — kept for archive self-describability, but now carries a **snapshot of the DuckDB query at complete-phase time** rather than an independently-computed aggregate. Add a `metrics.source: "step_events@<timestamp>"` field so consumers know the provenance.
-5. Tests: `config/scripts/__tests__/compute-swe-metrics-cost.test.sh` and `config/tests/test-compute-swe-metrics-*.sh` — rewrite against the new shape. Keep the scenarios, change the data paths.
+**Ingestion side — make DuckDB actually complete:**
+
+1. Widen `step_events` schema: add `turns BIGINT`. Pass through in `record.py`'s JSONL-enrichment path (already extracted by `jsonl_usage._aggregate()`; just dropped at the upsert).
+2. Extend `orchestrator cost` aggregate SQL to compute `gross_usd` (tokens × full rates, no cache discount) and return `pricing.{input, output, cache_read}` rates alongside totals. Rates come from existing `agent_pricing` join.
+3. New DuckDB table `feature_metrics` — one row per completed feature, keyed `(repo_root, change_id)`. Columns cover resolution (pass@1, pass@2, resolve_rate, tasks_*, regressions), churn (files_changed, insertions, deletions, rework_*), retries/escalations (total, by_reason_json, human_interventions), wall_clock_minutes, review_score_avg, computed_at.
+4. New step `ingest-feature-metrics` — runs at start of `complete` phase. Reads tasks.md, `git log main..HEAD`, state.yaml counters. Upserts one row to `feature_metrics`. Takes ~150 lines of Python, straightforward.
+5. New subcommand `orchestrator metrics --change-id X --format json` — joins `step_events + feature_metrics + feature_complexity + agent_pricing`, returns the full projection every consumer needs.
+6. Ingestion invariant: `register-repo.sh` rejects step_history rows where `agent != NULL AND status = completed AND total_tokens IS NULL` (unless `agent: inline`). Folded forward from the retired `backfill-step-history-jsonl` entry.
+
+**Consumer side — delete parallel aggregation:**
+
+7. Rewrite `scripts/inline/compute-swe-metrics.sh` as thin wrapper. ~50 lines, down from 736. Shell out to `orchestrator metrics --change-id X --format json`, render as YAML, emit to stdout. No JSONL parsing, no git walks, no tasks.md reading in the wrapper.
+8. Rewrite `config/scripts/read-sub-state-metrics.sh` similarly. ~30 lines, down from 80. Path-lookup bug (ISSUE-26) disappears — DuckDB is keyed by change_id, not filesystem path.
+9. `state.yaml.metrics` — remains as a snapshot of the DuckDB query at complete-phase time. Add `metrics.source: "duckdb@<timestamp>"` provenance field so archives are self-describing but traceable.
+
+**Tests / hygiene:**
+
+10. Fix the 5 broken test paths referencing `config/scripts/compute-swe-metrics.sh` (should be `scripts/inline/…`). Silent SKIP today.
+11. JSON-shape regression test: `test-orchestrator-metrics-json-shape.sh` pins the `--format json` contract. Fixture-based, hermetic.
+12. Integration test: run the whole ingest + read-back pipeline against a seeded DuckDB for one feature.
 
 **Do NOT change**:
-- `orchestrator record` — single writer stays as-is.
-- `state.yaml.step_history` — dispatcher control flow depends on it.
-- DuckDB schema.
+- `orchestrator record` — still the single writer for step_events. State.yaml.step_history stays as dispatcher memory.
+- DuckDB schema for `step_events` beyond the one `turns` column addition.
+- JSONL format (that's Anthropic's artifact).
 
 ### Why Now
 
-The user just observed the $0 vs $0.246 deviation live. Every autopilot iteration from now until this ships will accumulate more lies in archived state.yaml files. It also unblocks `backfill-step-history-jsonl` (Rec. 2) and the `fix-read-sub-state-metrics-paths` bug (its path-lookup fix is moot if we query DuckDB instead).
+The deviation is live: iter 1 of autopilot-2026-04-20 produced $0 in `state.yaml.metrics` and $0.246 in `orchestrator cost` for the same feature. Iter 2 aborted after 360k tokens when the architect hit the CLI gap. Every future autopilot run accumulates more incorrect snapshots until this ships. Also unblocks cross-feature queries ("retry rate trend", "cost by agent across the quarter") that today require scanning every archived state.yaml.
+
+### Scope estimate
+
+| Piece | Size |
+|---|---|
+| `step_events.turns` column + migration + passthrough | ~10 lines |
+| `orchestrator cost` gross_usd + pricing block | ~15 lines |
+| `feature_metrics` table + DDL + migration | ~30 lines |
+| `ingest-feature-metrics.py` step | ~150 lines |
+| `orchestrator metrics` subcommand | ~60 lines |
+| Rewrite compute-swe-metrics.sh | ~50 (from 736) |
+| Rewrite read-sub-state-metrics.sh | ~30 (from 80) |
+| Test fixture + integration | ~200 lines |
+| Fix 5 broken test paths | ~20 lines |
+| register-repo invariant | ~15 lines |
+
+**Net**: roughly +560 lines added, -900 lines deleted. 15–18 TDD-paired tasks. Likely 2–3 autopilot iterations.
 
 ### Open questions for spec
 
-- Should `state.yaml.metrics` stay at all, or just print to stdout at complete phase? Archives without it would need to re-query DuckDB at read time. Recommendation: **keep the snapshot** — archives should be self-describing so a 6-month-old archive can be read without the DuckDB file.
-- Staged or big-bang deletion of the 500 lines? Recommendation: **staged** — first add the DuckDB query path, emit a warning-diff comparing old vs new for 3 features, then delete the old path once the diff is clean.
-- Does `orchestrator cost` need a `--change-id-history <glob>` mode for historical archives, or is today's `--change-id` sufficient? (Preflight test showed `--change-id live-telemetry-and-repeat-until-enforcement` returns $195.58 for an archived feature, so today's CLI works — no new mode needed.)
+- Step ordering in `complete` phase: `ingest-feature-metrics` must run BEFORE `compute-swe-metrics.sh` so DuckDB is populated before the snapshot is taken. Confirm workflow_plan ordering at workflow-init time.
+- Should `orchestrator metrics` be an alias over `orchestrator cost` with a broader projection, or a separate subcommand? Probably separate — `cost` is narrowly about token/cost; `metrics` is broader. Keep them distinct.
+- How to handle `ingest-feature-metrics` failure mid-complete-phase? Fail loud (blocks archive) or write `feature_metrics.status: "no_data"` and continue? Recommend **fail loud** — better to have a visibly incomplete feature than a silent zero-snapshot.
+- Snapshot staleness: if `ingest-feature-metrics.py` is later fixed, archived state.yaml snapshots are still the old snapshot. Acceptable — same as any serialized projection. Document as a known trade-off.
 
-### Preflight (done)
+### Preflight (done in aborted iter 2)
 
-- `orchestrator cost --change-id X --format json` exists today and returns structured `totals` + `per_agent` + `per_model` blocks.
+- `orchestrator cost --change-id X --format json` exists, returns structured JSON.
 - Works for archived features (verified on `live-telemetry-and-repeat-until-enforcement`).
-- Caller surface for `compute-swe-metrics.sh`: 1 step contract (`compute-swe-metrics.yaml`), 1 prose-contract test, some archive references. Small blast radius.
+- Confirmed `_aggregate()` in jsonl_usage.py already extracts `turns` — just not propagated to DuckDB today. ~10 line fix.
+- Confirmed 3 readers of `state.yaml.metrics` beyond the obvious: `register-repo.sh` (reads per_agent_tokens as stringified JSON map), `skills/telemetry/SKILL.md` (reads cost.net_usd, tokens.total, resolution.*), `agents/workflow-improver.md` (reads resolution.*, category). Consumer contract is wide; all must be preserved.
+
+### Known findings to fold in from aborted iter 2 retro
+
+- **ISSUE-30** (artifacts-written-to-worktree): architect + reviewer both wrote spec/design/tasks.md to `<worktree>/.state/<slug>/` instead of main `.state/`. Driver had to sync by hand. Root cause: `WORKFLOW_STATE_DIR` env semantics ambiguous.
+- **ISSUE-31** (preview-route state.yaml path): `preview-route.sh` reads state.yaml from `$WORKFLOW_STATE_DIR/<slug>/`, gets worktree path, file isn't there. Returned `estimate_unavailable`. Same root cause as ISSUE-30.
+- **ISSUE-32** (scope-gap discovered mid-design): backlog entries written from symptom-level observation underestimate scope. The architect's grep of `metrics-schema.md` against CLI output would have surfaced the gap 10 minutes into discovery, not during design. A "preflight check list" in the feature spec template could codify: "before promising a wrapper, confirm the data source returns every field the consumer contract requires."
+
+These issues are captured in full detail at `.state/autopilot/archive/aborted/2026-04-20-single-source-metrics-via-step-events/retro.md`.
 
 ### Source
 
-spec/changes/archive/2026-04-19-fix-inline-scripts-tmpdir/retro.md §ISSUE-27 + 2026-04-20 chat decision
-
----
-
-## backfill-step-history-jsonl
-
-**Backfill step_history Coverage from JSONL** (score 8.5)
-
-**Recurrence:** 2 — sources: original-entry, fix-inline-scripts-tmpdir/ISSUE-27 (compute-swe-metrics reports $0 for inline-heavy flows because step_history.usage={} — same root cause: usage data missing from state.yaml step_history)
-
-### Idea
-Re-run JSONL enrichment across archived features to backfill missing tokens and `tools_json` on `step_history` rows, then add an invariant preventing the gap from reopening.
-
-### Evidence
-- `step_history` has 193 rows; only 39 have `total_tokens`, only 3 have `tools_json`.
-- `per_agent_tool_uses` has 2 rows across 20 ingested features — per-agent-per-tool breakdown is effectively empty.
-- JSONL session data exists for most archives but the initial enrichment script missed many rows (path-resolution bugs, quoted-timestamp bugs — several fixed after the bulk of archives were ingested).
-
-### Fix
-1. Re-run JSONL enrichment pass over every archived `state.yaml` with JSONL sessions available.
-2. Re-run `register-repo.sh` to reingest.
-3. Add invariant in register-repo: any `step_history` row with `agent != NULL AND status = completed` must have `total_tokens > 0` OR be marked `agent: inline`.
-
-### Why Now
-Unblocks per-step token/cost analysis for 80% of history. Prerequisite for regression detection (needs a full baseline).
-
-### Priority
-- User value: 8/10
-- Strategic fit: 9/10
-- Technical leverage: 9/10
-- Effort: medium
-- **Score: 8.5**
+- spec/changes/archive/2026-04-19-fix-inline-scripts-tmpdir/retro.md §ISSUE-27
+- `.state/autopilot/archive/aborted/2026-04-20-single-source-metrics-via-step-events/retro.md`
+- 2026-04-20 chat decisions: (a) expand scope to include ingestion fix, (b) drop history repair, (c) push local metrics to DuckDB too
+- Retired entry merged forward: `spec/changes/backlog-archive.md § backfill-step-history-jsonl`
 
 ---
 
