@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS step_events (
   cache_read_input_tokens      BIGINT,
   cache_creation_input_tokens  BIGINT,
   cost_usd                     DOUBLE,
+  turns                        BIGINT,
   tool_calls_json  VARCHAR,
   artifacts_json   VARCHAR,
   escalation_json  VARCHAR,
@@ -129,10 +130,11 @@ INSERT OR REPLACE INTO step_events (
   cache_read_input_tokens,
   cache_creation_input_tokens,
   cost_usd,
+  turns,
   tool_calls_json,
   artifacts_json,
   escalation_json
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -215,6 +217,8 @@ def _migrate_step_events(db) -> None:
         existing.add("cache_creation_input_tokens")
     if "agent_id" not in existing:
         db.execute("ALTER TABLE step_events ADD COLUMN agent_id VARCHAR")
+    if "turns" not in existing:
+        db.execute("ALTER TABLE step_events ADD COLUMN turns BIGINT")
 
 
 def _migrate_tool_calls(db) -> None:
@@ -336,6 +340,7 @@ def upsert_step_event(
         usage.get("cache_read_input_tokens"),
         usage.get("cache_creation_input_tokens"),
         usage.get("cost_usd"),
+        usage.get("turns"),
         tool_calls_json,
         artifacts_json,
         escalation_json,
@@ -435,6 +440,7 @@ def upsert_synthetic_event(
         usage.get("cache_read_input_tokens"),
         usage.get("cache_creation_input_tokens"),
         usage.get("cost_usd"),
+        usage.get("turns"),
         tool_calls_json,
         None,  # artifacts_json
         None,  # escalation_json
