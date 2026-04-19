@@ -8,11 +8,15 @@ via ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE env var.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+
+_COMPLEXITY_VALUES = frozenset({"XS", "S", "M", "L", "XL"})
 
 
 class ContractError(ValueError):
@@ -62,6 +66,7 @@ class State:
     workflow_plan: dict[str, Any]  # raw workflow_plan
     step_history: list[StepHistoryEntry]
     raw: dict[str, Any]  # full state.yaml for any extra fields
+    complexity: str | None = None  # HL-291: optional closed set {XS,S,M,L,XL}
 
 
 def _contract_search_dirs(state_yaml_path: str) -> list[str]:
@@ -172,6 +177,15 @@ def load_state(state_yaml_path: str) -> State:
     phase = raw.get("phase", "")
     workflow_dir = str(raw.get("worktree_path", ""))
 
+    # HL-291: validate complexity against closed set; coerce unknown to None
+    complexity = raw.get("complexity")
+    if complexity is not None and complexity not in _COMPLEXITY_VALUES:
+        sys.stderr.write(
+            f"[complexity] ignoring unknown value {complexity!r} "
+            f"for {raw.get('change_id', '<unknown>')}\n"
+        )
+        complexity = None
+
     # Expand ~ in worktree_path
     if workflow_dir.startswith("~"):
         workflow_dir = os.path.expanduser(workflow_dir)
@@ -196,6 +210,7 @@ def load_state(state_yaml_path: str) -> State:
         workflow_plan=raw.get("workflow_plan", {}),
         step_history=step_history,
         raw=raw,
+        complexity=complexity,
     )
 
 
