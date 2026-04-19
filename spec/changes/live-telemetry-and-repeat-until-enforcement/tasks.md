@@ -43,7 +43,7 @@
 
 ## ISSUE-17 — Compute cost_usd in record.py when agent usage lacks model/cost
 
-- [ ] T-4 Write regression test: `record()` populates `usage.model` and `usage.cost_usd` when the payload omits them (RED)
+- [x] T-4 Write regression test: `record()` populates `usage.model` and `usage.cost_usd` when the payload omits them (RED)
   - **Files**: `config/scripts/orchestrator_next/tests/test_record_cost_compute.py` (new)
   - **Approach**: Four pytest cases.
     1. `test_computes_cost_for_native_sonnet_agent`: payload with `agent=developer`, `usage={input_tokens: 22000, output_tokens: 5000}`, no model, no cost_usd; assert the written `state_history[-1].usage.cost_usd == pytest.approx(22000*3.0/1e6 + 5000*15.0/1e6, rel=1e-6)` and `usage.model == "claude-sonnet-4-6"`.
@@ -54,7 +54,7 @@
   - **Why**: ISSUE-17 — proves `record()` computes cost for native agents and does not clobber pre-computed values.
   - **Verify**: `pytest config/scripts/orchestrator_next/tests/test_record_cost_compute.py -q` — cases 1–3 FAIL (red), 4–5 may accidentally pass; document which fail in the task log.
 
-- [ ] T-5 Implement: compute cost_usd + resolve model in `record()` (GREEN) — depends on T-4
+- [x] T-5 Implement: compute cost_usd + resolve model in `record()` (GREEN) — depends on T-4
   - **Files**:
     - `scripts/routes.yaml` (add `backends:` block)
     - `config/scripts/orchestrator_next/record.py` (add `_load_routes`, `_load_pricing`, `_compute_cost_usd`; call from `record()`)
@@ -71,7 +71,7 @@
   - **Why**: ISSUE-17 root cause — nothing in `orchestrator_next/` computed cost; the fix writes it at the record boundary so both state.yaml and step_events get live data.
   - **Verify**: All five T-4 tests pass. Existing `config/scripts/orchestrator_next/tests/` suite stays green. `python3 .tmp/repro-issue-17.py` exits 0 with `cost_usd ≈ 0.141`.
 
-- [ ] T-6 Verify ISSUE-17 end-to-end: repro passes and `orchestrator cost` shows live numbers — depends on T-5
+- [x] T-6 Verify ISSUE-17 end-to-end: repro passes and `orchestrator cost` shows live numbers — depends on T-5
   - **Files**: none modified
   - **Approach**:
     1. Run `python3 .tmp/repro-issue-17.py` — must print `PASS`, exit 0.
@@ -120,3 +120,106 @@ Six files matched the grep: `test-backfill-zero-cost.sh`, `test-compute-swe-metr
 ### Confirmation
 
 `run-phase-review` is no longer prematurely emitted: with unchecked tasks in tasks.md, `_compute_next_step` now returns `execute-next-task` again instead of advancing to `run-phase-review`, as verified by the repro script output and all three cases in `test_repeat_until.py`.
+
+---
+
+## T-4 Task Log (2026-04-19)
+
+### RED state evidence (`pytest config/scripts/orchestrator_next/tests/test_record_cost_compute.py -q`)
+
+```
+FAILED test_computes_cost_for_native_sonnet_agent  — model=None, cost_usd=None
+FAILED test_computes_cost_for_native_opus_agent    — model=None, cost_usd=None
+FAILED test_includes_cache_read_tokens_when_present — cost_usd=None
+PASSED test_preserves_existing_cost_usd  (pass-through already correct)
+PASSED test_skips_when_agent_unresolvable  (no cost computation existed)
+3 failed, 2 passed in 0.05s
+```
+
+Cases 1–3 FAIL as expected (RED). Cases 4–5 pass today because record.py already passes usage through untouched.
+
+---
+
+## T-5 Task Log (2026-04-19)
+
+### GREEN state evidence (`pytest config/scripts/orchestrator_next/tests/test_record_cost_compute.py -q`)
+
+```
+5 passed in 0.04s
+```
+
+### Repro output (`python3 .tmp/repro-issue-17.py`)
+
+```
+record() exit_code: 0
+record() result: {
+  "action": "recorded",
+  "step_id": "execute-next-task",
+  "attempt": 1,
+  "next_step": null
+}
+
+step_events row:
+  step_id: execute-next-task
+  model: claude-sonnet-4-6 (NULL = no model captured from usage block)
+  input_tokens: 22000
+  output_tokens: 5000
+  cost_usd: 0.14100000000000001
+
+PASS - cost_usd = 0.14100000000000001
+```
+Exit code: 0
+
+### Full suite (`python3 -m pytest config/scripts/orchestrator_next/tests -q`)
+
+```
+134 passed in 0.95s
+```
+
+---
+
+## T-6 Task Log (2026-04-19)
+
+### Repro output (`python3 .tmp/repro-issue-17.py`)
+
+```
+record() exit_code: 0
+record() result: {
+  "action": "recorded",
+  "step_id": "execute-next-task",
+  "attempt": 1,
+  "next_step": null
+}
+
+step_events row:
+  step_id: execute-next-task
+  model: claude-sonnet-4-6 (NULL = no model captured from usage block)
+  input_tokens: 22000
+  output_tokens: 5000
+  cost_usd: 0.14100000000000001
+
+PASS - cost_usd = 0.14100000000000001
+```
+Exit code: 0
+
+### Hand vs computed cost pair (two-step integration check)
+
+Step 1 (developer, 10k input + 2k output):
+- Hand: 10000×3.0/1e6 + 2000×15.0/1e6 = **0.060000**
+- Computed: 0.06 ✓
+
+Step 2 (developer, 5k input + 1k output):
+- Hand: 5000×3.0/1e6 + 1000×15.0/1e6 = **0.030000**
+- Computed: 0.03 ✓
+
+Total: 0.09 (hand) = 0.09 (computed) — match within 1e-6. PASS.
+
+### Full suite (`python3 -m pytest config/scripts/orchestrator_next/tests -q`)
+
+```
+134 passed in 0.95s
+```
+
+### Confirmation
+
+`cost_usd` is now computed live at the `record()` boundary for native agents when absent from the payload. State.yaml and step_events both receive the computed value. The `orchestrator cost` report will show non-zero values for all future steps recorded by developer/architect/reviewer/discoverer/workflow-improver/sonnet-agent agents.
