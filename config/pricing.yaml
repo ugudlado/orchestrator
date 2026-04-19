@@ -1,7 +1,7 @@
 # Model pricing — $/1M tokens, input/output/cache_read.
 # Single source of truth. Consumed by:
 #   - config/scripts/estimate-cost.sh  (pre-flight preview)
-#   - config/scripts/compute-swe-metrics.sh  (post-flight cost)
+#   - scripts/inline/compute-swe-metrics.sh  (post-flight cost)
 #
 # Keys match model strings as they appear in:
 #   - routes.yaml `models.<backend>.model`

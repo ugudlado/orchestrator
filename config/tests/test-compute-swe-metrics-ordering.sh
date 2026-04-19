@@ -11,7 +11,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SCRIPT="$REPO_ROOT/config/scripts/compute-swe-metrics.sh"
+SCRIPT="$REPO_ROOT/scripts/inline/compute-swe-metrics.sh"
 
 pass=0
 fail=0
