@@ -44,11 +44,105 @@ def _usage() -> None:
         "  orchestrator record <state.yaml>   # JSON payload on stdin\n"
         "  orchestrator cost --change-id <cid> [--by step|agent|tool] [--format md|json]\n"
         "  orchestrator cost --repo [--by feature|agent|tool|complexity] [--format md|json] [--since <ISO>]\n"
+        "  orchestrator metrics --change-id <cid> [--format md|json]\n"
         "  orchestrator ingest-driver --change-id <cid> --session-id <uuid>\n"
         "  orchestrator doctor",
         file=sys.stderr,
     )
     sys.exit(3)
+
+
+def _metrics_main(args: list[str]) -> None:
+    """Handle `orchestrator metrics --change-id <cid> [--format md|json]` subcommand."""
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="orchestrator metrics", add_help=False)
+    parser.add_argument("--change-id", dest="change_id", default=None)
+    parser.add_argument("--format", dest="fmt", default="md", choices=["md", "json"])
+
+    try:
+        parsed = parser.parse_args(args)
+    except SystemExit:
+        print(
+            "error: invalid flags for `orchestrator metrics`\n"
+            "Usage:\n"
+            "  orchestrator metrics --change-id <cid> [--format md|json]",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+
+    if not parsed.change_id:
+        print("error: --change-id is required", file=sys.stderr)
+        sys.exit(3)
+
+    if not _SLUG_RE_BIN.match(parsed.change_id):
+        print(
+            f"error: --change-id '{parsed.change_id}' violates slug guard. "
+            f"Must match ^[a-z0-9][a-z0-9-]*$ (lowercase alphanumeric and hyphens only, "
+            f"no leading hyphen).",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+
+    # Resolve DB path
+    db_path = os.environ.get("METRICS_DB") or (
+        os.path.join(os.environ["ORCHESTRATOR_HOME"], "metrics.duckdb")
+        if os.environ.get("ORCHESTRATOR_HOME")
+        else None
+    )
+    if not db_path:
+        print("error: METRICS_DB or ORCHESTRATOR_HOME must be set", file=sys.stderr)
+        sys.exit(3)
+    if not os.path.isfile(db_path):
+        print(f"error: metrics.duckdb not found at {db_path}", file=sys.stderr)
+        sys.exit(3)
+
+    try:
+        import duckdb
+        from orchestrator_next.upsert import ensure_schema
+        from orchestrator_next.metrics_report import (
+            aggregate_metrics,
+            render_metrics_json,
+            render_metrics_md,
+        )
+    except ImportError as exc:
+        print(f"error: failed to import modules — {exc}", file=sys.stderr)
+        sys.exit(3)
+
+    try:
+        db = duckdb.connect(db_path, read_only=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: cannot open DB at {db_path} — {exc}", file=sys.stderr)
+        sys.exit(3)
+
+    try:
+        # Resolve repo_root for this change_id from step_events
+        row = db.execute(
+            "SELECT repo_root FROM step_events WHERE change_id = ? LIMIT 1",
+            [parsed.change_id],
+        ).fetchone()
+        if not row:
+            print(
+                f"error: no events for change_id={parsed.change_id}",
+                file=sys.stderr,
+            )
+            sys.exit(3)
+        repo_root = row[0]
+
+        data = aggregate_metrics(db, repo_root, parsed.change_id)
+        if parsed.fmt == "json":
+            output = render_metrics_json(data)
+        else:
+            output = render_metrics_md(data)
+
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(3)
+    finally:
+        db.close()
+
+    print(output, end="")
+    sys.exit(0)
 
 
 def _cost_main(args: list[str]) -> None:
@@ -277,7 +371,7 @@ def _ingest_driver_main(args: list[str]) -> None:
 
 def main() -> None:
     args = sys.argv[1:]
-    if not args or args[0] not in ("next", "record", "cost", "doctor", "ingest-driver"):
+    if not args or args[0] not in ("next", "record", "cost", "metrics", "doctor", "ingest-driver"):
         _usage()
     if len(args) < 2 and args[0] in ("next", "record"):
         _usage()
@@ -285,6 +379,10 @@ def main() -> None:
     if args[0] == "cost":
         _cost_main(args[1:])
         return  # _cost_main calls sys.exit()
+
+    if args[0] == "metrics":
+        _metrics_main(args[1:])
+        return  # _metrics_main calls sys.exit()
 
     if args[0] == "ingest-driver":
         _ingest_driver_main(args[1:])
