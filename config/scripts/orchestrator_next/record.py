@@ -357,7 +357,11 @@ def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any
     agent_id = payload.get("agent_id") or usage.get("agent_id")
     if agent_id:
         try:
-            from orchestrator_next.jsonl_usage import extract_agent_usage
+            from orchestrator_next.jsonl_usage import (
+                extract_agent_usage,
+                extract_tool_calls,
+                locate_subagent_jsonl_path,
+            )
             repo_root = state_raw.get("repo_root") or ""
             jsonl_usage = extract_agent_usage(repo_root, agent_id)
             for key in (
@@ -375,6 +379,13 @@ def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any
                 usage["duration_ms"] = jsonl_usage["duration_ms"]
             if not usage.get("tool_calls") and jsonl_usage.get("tool_calls"):
                 usage["tool_calls"] = jsonl_usage["tool_calls"]
+            # Per-tool-call detail (name + wall-clock duration per invocation).
+            # upsert.py writes one tool_calls row per entry with duration_ms populated.
+            jsonl_path = locate_subagent_jsonl_path(repo_root, agent_id)
+            if jsonl_path is not None:
+                detail = extract_tool_calls(jsonl_path)
+                if detail:
+                    usage["tool_calls_detail"] = detail
             usage["agent_id"] = agent_id  # persist it so upsert writes the column
         except Exception as exc:  # noqa: BLE001 — enrichment is best-effort
             sys.stderr.write(f"[record] jsonl enrichment failed for agent_id={agent_id}: {exc}\n")

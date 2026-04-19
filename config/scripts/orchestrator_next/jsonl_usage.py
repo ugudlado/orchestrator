@@ -202,3 +202,92 @@ def discover_subagents(
     for p in sub.glob("agent-*.jsonl"):
         ids.append(p.stem.removeprefix("agent-"))
     return ids
+
+
+def extract_tool_calls(jsonl_path: Path | str) -> list[dict[str, Any]]:
+    """Extract per-tool-call invocations with wall-clock duration.
+
+    Pairs each assistant tool_use block with its matching user tool_result
+    by tool_use_id. duration_ms = tool_result.timestamp - tool_use.timestamp
+    (pure tool execution, excludes model latency).
+
+    Returns a list of dicts in call order:
+      {tool_name, tool_use_id, is_mcp, started_at, duration_ms}
+    """
+    p = Path(jsonl_path)
+    if not p.exists():
+        return []
+    # First pass: collect tool_use (with timestamps) and tool_result (with timestamps).
+    uses: list[dict[str, Any]] = []
+    results: dict[str, str] = {}  # tool_use_id -> tool_result.timestamp
+    with p.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            msg = row.get("message") or {}
+            content = msg.get("content")
+            if not isinstance(content, list):
+                continue
+            ts = row.get("timestamp")
+            row_type = row.get("type")
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                b_type = block.get("type")
+                if row_type == "assistant" and b_type == "tool_use":
+                    uses.append({
+                        "tool_use_id": block.get("id"),
+                        "tool_name": block.get("name"),
+                        "started_at": ts,
+                    })
+                elif row_type == "user" and b_type == "tool_result":
+                    tu_id = block.get("tool_use_id")
+                    if tu_id and ts:
+                        results[tu_id] = ts
+
+    invocations: list[dict[str, Any]] = []
+    import datetime as dt
+
+    def parse(s: str | None) -> dt.datetime | None:
+        if not s:
+            return None
+        try:
+            return dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    for u in uses:
+        name = u["tool_name"]
+        if not name:
+            continue
+        tu_id = u["tool_use_id"]
+        start = parse(u["started_at"])
+        end = parse(results.get(tu_id))
+        dur_ms = int((end - start).total_seconds() * 1000) if (start and end) else None
+        invocations.append({
+            "tool_name": name,
+            "tool_use_id": tu_id,
+            "is_mcp": name.startswith("mcp__"),
+            "started_at": u["started_at"],
+            "duration_ms": dur_ms,
+        })
+    return invocations
+
+
+def locate_subagent_jsonl_path(
+    repo_root: str,
+    agent_id: str,
+    driver_session_hint: str | None = None,
+) -> Path | None:
+    """Public wrapper around _locate_subagent_jsonl for callers that need the path."""
+    return _locate_subagent_jsonl(repo_root, agent_id, driver_session_hint)
+
+
+def locate_driver_jsonl_path(repo_root: str, session_id: str) -> Path | None:
+    """Public wrapper around _locate_driver_jsonl."""
+    return _locate_driver_jsonl(repo_root, session_id)

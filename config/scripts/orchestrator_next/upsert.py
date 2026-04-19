@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   is_mcp        BOOLEAN NOT NULL,
   call_seq      INTEGER NOT NULL,
   called_at     TEXT,
+  duration_ms   BIGINT,
   PRIMARY KEY (repo_root, change_id, phase, step_id, attempt, call_seq)
 )
 """
@@ -105,8 +106,8 @@ WHERE repo_root = ? AND change_id = ? AND phase = ? AND step_id = ? AND attempt 
 _INSERT_TOOL_CALL = """
 INSERT OR REPLACE INTO tool_calls (
   repo_root, change_id, phase, step_id, attempt,
-  agent_name, tool_name, is_mcp, call_seq, called_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+  agent_name, tool_name, is_mcp, call_seq, called_at, duration_ms
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _INSERT_OR_REPLACE = """
@@ -216,6 +217,16 @@ def _migrate_step_events(db) -> None:
         db.execute("ALTER TABLE step_events ADD COLUMN agent_id VARCHAR")
 
 
+def _migrate_tool_calls(db) -> None:
+    """Add duration_ms to existing tool_calls tables idempotently."""
+    try:
+        existing = {row[0] for row in db.execute("DESCRIBE tool_calls").fetchall()}
+    except Exception:
+        return
+    if "duration_ms" not in existing:
+        db.execute("ALTER TABLE tool_calls ADD COLUMN duration_ms BIGINT")
+
+
 def ensure_schema(db) -> None:
     """
     Create the step_events, tool_calls, and feature_complexity tables and indexes
@@ -227,6 +238,7 @@ def ensure_schema(db) -> None:
     _migrate_step_events(db)
     db.execute(_CREATE_INDEX)
     db.execute(_DDL_TOOL_CALLS)
+    _migrate_tool_calls(db)
     db.execute(_CREATE_TOOL_CALLS_INDEX)
     db.execute(_DDL_FEATURE_COMPLEXITY)  # HL-291
 
@@ -339,18 +351,35 @@ def upsert_step_event(
     if entry.usage and isinstance(entry.usage.get("tool_calls"), dict):
         usage_tools = entry.usage["tool_calls"]
 
-    call_seq = 1
-    for tool_name in sorted(usage_tools.keys()):
-        count = usage_tools[tool_name]
-        if not isinstance(count, int) or count < 1:
-            continue
-        is_mcp = tool_name.startswith("mcp__")
-        for _ in range(count):
+    # Prefer per-call detail (from JSONL) — it carries wall-clock duration.
+    tool_calls_detail = (entry.usage or {}).get("tool_calls_detail") if entry.usage else None
+    if isinstance(tool_calls_detail, list) and tool_calls_detail:
+        call_seq = 1
+        for call in tool_calls_detail:
+            if not isinstance(call, dict):
+                continue
+            tn = call.get("tool_name")
+            if not tn:
+                continue
             db.execute(_INSERT_TOOL_CALL, [
                 repo_root, change_id, entry.phase, entry.step_id, attempt,
-                entry.agent, tool_name, is_mcp, call_seq,
+                entry.agent, tn, bool(call.get("is_mcp") or tn.startswith("mcp__")),
+                call_seq, call.get("started_at"), call.get("duration_ms"),
             ])
             call_seq += 1
+    else:
+        call_seq = 1
+        for tool_name in sorted(usage_tools.keys()):
+            count = usage_tools[tool_name]
+            if not isinstance(count, int) or count < 1:
+                continue
+            is_mcp = tool_name.startswith("mcp__")
+            for _ in range(count):
+                db.execute(_INSERT_TOOL_CALL, [
+                    repo_root, change_id, entry.phase, entry.step_id, attempt,
+                    entry.agent, tool_name, is_mcp, call_seq, None, None,
+                ])
+                call_seq += 1
 
 
 def upsert_synthetic_event(
@@ -415,16 +444,32 @@ def upsert_synthetic_event(
     # Fan out tool_calls the same way upsert_step_event does, so per-tool
     # rollups include driver-loop activity.
     db.execute(_DELETE_TOOL_CALLS, [repo_root, change_id, phase, step_id, attempt])
-    usage_tools = tool_calls_raw if isinstance(tool_calls_raw, dict) else {}
-    call_seq = 1
-    for tool_name in sorted(usage_tools.keys()):
-        count = usage_tools[tool_name]
-        if not isinstance(count, int) or count < 1:
-            continue
-        is_mcp = tool_name.startswith("mcp__")
-        for _ in range(count):
+    tool_calls_detail = usage.get("tool_calls_detail")
+    if isinstance(tool_calls_detail, list) and tool_calls_detail:
+        call_seq = 1
+        for call in tool_calls_detail:
+            if not isinstance(call, dict):
+                continue
+            tn = call.get("tool_name")
+            if not tn:
+                continue
             db.execute(_INSERT_TOOL_CALL, [
                 repo_root, change_id, phase, step_id, attempt,
-                agent_name, tool_name, is_mcp, call_seq,
+                agent_name, tn, bool(call.get("is_mcp") or tn.startswith("mcp__")),
+                call_seq, call.get("started_at"), call.get("duration_ms"),
             ])
             call_seq += 1
+    else:
+        usage_tools = tool_calls_raw if isinstance(tool_calls_raw, dict) else {}
+        call_seq = 1
+        for tool_name in sorted(usage_tools.keys()):
+            count = usage_tools[tool_name]
+            if not isinstance(count, int) or count < 1:
+                continue
+            is_mcp = tool_name.startswith("mcp__")
+            for _ in range(count):
+                db.execute(_INSERT_TOOL_CALL, [
+                    repo_root, change_id, phase, step_id, attempt,
+                    agent_name, tool_name, is_mcp, call_seq, None, None,
+                ])
+                call_seq += 1

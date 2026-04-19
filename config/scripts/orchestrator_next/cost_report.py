@@ -180,26 +180,52 @@ def _per_model(db, repo_root: str, change_id: str) -> list[dict]:
 
 def _native_tools(db, repo_root: str, change_id: str) -> list[dict]:
     sql = """
-    SELECT tool_name, COUNT(*) AS calls
+    SELECT tool_name,
+           COUNT(*) AS calls,
+           SUM(duration_ms) AS total_ms,
+           AVG(duration_ms) AS avg_ms,
+           MAX(duration_ms) AS max_ms
     FROM tool_calls
     WHERE repo_root = ? AND change_id = ? AND is_mcp = false
     GROUP BY tool_name
     ORDER BY calls DESC, tool_name ASC
     """
     rows = db.execute(sql, [repo_root, change_id]).fetchall()
-    return [{"tool_name": r[0], "calls": int(r[1])} for r in rows]
+    return [
+        {
+            "tool_name": r[0],
+            "calls": int(r[1]),
+            "total_ms": int(r[2]) if r[2] is not None else None,
+            "avg_ms": float(r[3]) if r[3] is not None else None,
+            "max_ms": int(r[4]) if r[4] is not None else None,
+        }
+        for r in rows
+    ]
 
 
 def _mcp_calls(db, repo_root: str, change_id: str) -> list[dict]:
     sql = """
-    SELECT tool_name, COUNT(*) AS calls
+    SELECT tool_name,
+           COUNT(*) AS calls,
+           SUM(duration_ms) AS total_ms,
+           AVG(duration_ms) AS avg_ms,
+           MAX(duration_ms) AS max_ms
     FROM tool_calls
     WHERE repo_root = ? AND change_id = ? AND is_mcp = true
     GROUP BY tool_name
     ORDER BY calls DESC, tool_name ASC
     """
     rows = db.execute(sql, [repo_root, change_id]).fetchall()
-    return [{"tool_name": r[0], "calls": int(r[1])} for r in rows]
+    return [
+        {
+            "tool_name": r[0],
+            "calls": int(r[1]),
+            "total_ms": int(r[2]) if r[2] is not None else None,
+            "avg_ms": float(r[3]) if r[3] is not None else None,
+            "max_ms": int(r[4]) if r[4] is not None else None,
+        }
+        for r in rows
+    ]
 
 
 def _per_agent_tools(db, repo_root: str, change_id: str) -> list[dict]:
@@ -666,8 +692,17 @@ def render_markdown_feature(data: dict) -> str:
     lines.append("## Native Tools")
     lines.append("")
     if data["native_tools"]:
-        headers = ["Tool", "Calls"]
-        rows = [[r["tool_name"], str(r["calls"])] for r in data["native_tools"]]
+        headers = ["Tool", "Calls", "Total", "Avg", "Max"]
+        rows = [
+            [
+                r["tool_name"],
+                str(r["calls"]),
+                _fmt_ms(r["total_ms"]) if r.get("total_ms") is not None else "—",
+                _fmt_ms(r["avg_ms"]) if r.get("avg_ms") is not None else "—",
+                _fmt_ms(r["max_ms"]) if r.get("max_ms") is not None else "—",
+            ]
+            for r in data["native_tools"]
+        ]
         lines.append(_md_table(headers, rows))
     else:
         lines.append("_No native tool calls._")
@@ -677,8 +712,17 @@ def render_markdown_feature(data: dict) -> str:
     lines.append("## MCP Calls")
     lines.append("")
     if data["mcp_calls"]:
-        headers = ["Tool", "Calls"]
-        rows = [[r["tool_name"], str(r["calls"])] for r in data["mcp_calls"]]
+        headers = ["Tool", "Calls", "Total", "Avg", "Max"]
+        rows = [
+            [
+                r["tool_name"],
+                str(r["calls"]),
+                _fmt_ms(r["total_ms"]) if r.get("total_ms") is not None else "—",
+                _fmt_ms(r["avg_ms"]) if r.get("avg_ms") is not None else "—",
+                _fmt_ms(r["max_ms"]) if r.get("max_ms") is not None else "—",
+            ]
+            for r in data["mcp_calls"]
+        ]
         lines.append(_md_table(headers, rows))
     else:
         lines.append("_No MCP calls._")

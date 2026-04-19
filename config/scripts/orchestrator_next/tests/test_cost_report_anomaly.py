@@ -53,16 +53,17 @@ def db():
     conn = duckdb.connect(":memory:")
     conn.execute("""
         CREATE TABLE tool_calls (
-            repo_root  TEXT NOT NULL,
-            change_id  TEXT NOT NULL,
-            phase      TEXT NOT NULL,
-            step_id    TEXT NOT NULL,
-            attempt    INTEGER NOT NULL,
-            agent_name TEXT NOT NULL,
-            tool_name  TEXT NOT NULL,
-            is_mcp     BOOLEAN NOT NULL,
-            call_seq   INTEGER NOT NULL,
-            called_at  TEXT,
+            repo_root   TEXT NOT NULL,
+            change_id   TEXT NOT NULL,
+            phase       TEXT NOT NULL,
+            step_id     TEXT NOT NULL,
+            attempt     INTEGER NOT NULL,
+            agent_name  TEXT NOT NULL,
+            tool_name   TEXT NOT NULL,
+            is_mcp      BOOLEAN NOT NULL,
+            call_seq    INTEGER NOT NULL,
+            called_at   TEXT,
+            duration_ms BIGINT,
             PRIMARY KEY (repo_root, change_id, phase, step_id, attempt, call_seq)
         )
     """)

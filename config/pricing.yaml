@@ -45,6 +45,14 @@ models:
     output: 4.00
     cache_read: 0.08
     cache_creation: 1.00
+  # Anthropic returns date-suffixed model ids via Claude Code JSONLs (e.g.
+  # claude-haiku-4-5-20251001). List the alias explicitly so the lookup
+  # matches without a regex stripper. Add new dated aliases here as they appear.
+  claude-haiku-4-5-20251001:
+    input: 0.80
+    output: 4.00
+    cache_read: 0.08
+    cache_creation: 1.00
 
   # ── OpenRouter ──────────────────────────────────────────────────────────
   qwen/qwen3-coder-30b-a3b-instruct:
