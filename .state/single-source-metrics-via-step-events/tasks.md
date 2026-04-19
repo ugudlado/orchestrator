@@ -15,7 +15,7 @@
   Verify: `pytest config/scripts/orchestrator_next/__tests__/test_totals_wide.py` FAILS (red); test seeds a feature with model=claude-sonnet-4-5 and asserts totals dict contains `cache_creation_input_tokens`, `cache_read_input_tokens`, `turns`, `gross_usd` (computed from pricing.yaml), `model`, and `pricing` sub-dict with the four rate keys
   depends: T-2
 
-- [ ] T-4: Widen `_totals()` SELECT; add dominant-model query; load pricing.yaml for gross_usd + pricing.* attachment
+- [x] T-4: Widen `_totals()` SELECT; add dominant-model query; load pricing.yaml for gross_usd + pricing.* attachment
   Verify: `pytest config/scripts/orchestrator_next/__tests__/test_totals_wide.py` PASSES; `orchestrator cost --change-id X --format json` manually inspected — totals block includes new keys; no removed keys (superset)
   depends: T-3
 
