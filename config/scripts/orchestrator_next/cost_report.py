@@ -296,6 +296,68 @@ def _step_allowlist_anomalies(db, repo_root: str, change_id: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# HL-291: Complexity bucketing helpers
+# ---------------------------------------------------------------------------
+
+# Canonical bucket order for --by complexity output (FR-8)
+_BUCKET_ORDER = ["XS", "S", "M", "L", "XL", "unknown"]
+
+
+def _by_complexity(db, repo_basename: str) -> list[dict]:
+    """
+    Aggregate per-feature cost sums from step_events, LEFT JOIN against
+    feature_complexity, group by COALESCE(complexity, 'unknown').
+
+    Uses repo_basename matching (regexp_extract) consistent with other
+    aggregate_repo arms.
+
+    Returns a list of dicts with keys:
+      complexity, features, total_cost, median_cost, p90_cost
+    Ordered by _BUCKET_ORDER (empty buckets omitted).
+    """
+    sql = """
+    WITH feature_cost AS (
+      SELECT change_id, SUM(gen_ai_usage_cost_usd) AS cost
+      FROM step_events
+      WHERE regexp_extract(repo_root, '[^/]+$') = ?
+      GROUP BY change_id
+    )
+    SELECT
+      COALESCE(fc.complexity, 'unknown')       AS complexity,
+      COUNT(DISTINCT fcost.change_id)          AS features,
+      ROUND(SUM(fcost.cost), 4)                AS total_cost,
+      ROUND(MEDIAN(fcost.cost), 4)             AS median_cost,
+      ROUND(QUANTILE_CONT(fcost.cost, 0.9), 4) AS p90_cost
+    FROM feature_cost fcost
+    LEFT JOIN feature_complexity fc
+      ON regexp_extract(fc.repo_root, '[^/]+$') = ? AND fc.change_id = fcost.change_id
+    GROUP BY 1
+    """
+    rows = db.execute(sql, [repo_basename, repo_basename]).fetchall()
+
+    result = [
+        {
+            "complexity": r[0],
+            "features": int(r[1]),
+            "total_cost": float(r[2]) if r[2] is not None else 0.0,
+            "median_cost": float(r[3]) if r[3] is not None else 0.0,
+            "p90_cost": float(r[4]) if r[4] is not None else 0.0,
+        }
+        for r in rows
+    ]
+
+    # Sort by canonical bucket order; unrecognised values go last
+    def _sort_key(row):
+        try:
+            return _BUCKET_ORDER.index(row["complexity"])
+        except ValueError:
+            return len(_BUCKET_ORDER)
+
+    result.sort(key=_sort_key)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Scope aggregations (for --by step|agent|tool)
 # ---------------------------------------------------------------------------
 
@@ -490,8 +552,15 @@ def aggregate_repo(db, repo_basename: str, since: str | None = None, scope: str 
                 for r in rows
             ],
         }
+    elif scope == "complexity":
+        rows = _by_complexity(db, repo_basename)
+        return {
+            "scope": "complexity",
+            "repo_basename": repo_basename,
+            "rows": rows,
+        }
     else:
-        raise ValueError(f"Unknown repo scope: {scope!r}. Must be feature|agent|tool.")
+        raise ValueError(f"Unknown repo scope: {scope!r}. Must be feature|agent|tool|complexity.")
 
 
 # ---------------------------------------------------------------------------
@@ -791,6 +860,25 @@ def render_markdown_repo(data: dict, scope: str | None = None) -> str:
             headers = ["Tool", "MCP?", "Calls"]
             rows = [
                 [r["tool_name"], "yes" if r["is_mcp"] else "no", str(r["calls"])]
+                for r in rows_data
+            ]
+            lines.append(_md_table(headers, rows))
+        else:
+            lines.append("_No data._")
+
+    elif effective_scope == "complexity":
+        lines.append(f"## Repo {repo} — By Complexity")
+        lines.append("")
+        if rows_data:
+            headers = ["complexity", "features", "total_cost", "median_cost", "p90_cost"]
+            rows = [
+                [
+                    r["complexity"],
+                    str(r["features"]),
+                    _fmt_usd(r["total_cost"]),
+                    _fmt_usd(r["median_cost"]),
+                    _fmt_usd(r["p90_cost"]),
+                ]
                 for r in rows_data
             ]
             lines.append(_md_table(headers, rows))
