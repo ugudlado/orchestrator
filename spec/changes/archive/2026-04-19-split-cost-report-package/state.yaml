@@ -100,6 +100,7 @@ workflow_plan:
     - archive-completed-change
     - remove-worktree
     filtered_steps: []
+phase: complete
 next_step:
   phase: complete
   step_id: remove-worktree
@@ -380,6 +381,16 @@ step_history:
   evidence:
     outputs:
       archive_record: "Archived to spec/changes/archive/2026-04-19-split-cost-report-package/ with all artifacts (spec.md, design.md, tasks.md, discovery.md, state.yaml). Committed to main. Backlog idea deleted."
+- step_id: remove-worktree
+  phase: complete
+  agent: inline
+  status: completed
+  attempt: 1
+  started_at: '2026-04-19T09:12:20Z'
+  completed_at: '2026-04-19T09:12:25Z'
+  evidence:
+    outputs:
+      worktree_removal: "Worktree cleanly removed from /Users/spidey/code/feature_worktrees/split-cost-report-package. Feature branch feature/split-cost-report-package exists but not fully merged to main (implementation is on branch, archive commits on main). Manual cleanup of branch allowed."
 route_preview:
   schema: feature
   generated_at: 2026-04-19 08:40:36+00:00
