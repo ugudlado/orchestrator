@@ -6,45 +6,55 @@
      The ideate skill and ideator agent read this file.
      To add: append a new H2 under the right section; update the section's Summary table.
      To retire: move the block to spec/changes/backlog-archive.md with a shipped-at date.
+
+     RECURRENCE: each entry has a `**Recurrence:** N` line near the top
+     (default 1). When a new retro.md surfaces an issue that matches an existing
+     entry (by slug or by described root cause), bump N — do NOT add a duplicate.
+     `sources:` lists the feature_ids / ISSUE-Ns where each recurrence came from.
+     The ideator factors (score + 0.5*(recurrence-1)) into prioritization;
+     an issue hit 3 times is louder than a one-time annoyance.
  -->
 
 ## Summary
 
-- **Features**: 20
-- **Bugs**: 4
+- **Features**: 21
+- **Bugs**: 5
 
 ## Features — Summary
 
-| # | Slug | Title | Score |
-| ---: | --- | --- | ---: |
-| 1 | [backfill-step-history-jsonl](#backfill-step-history-jsonl) | Backfill step_history Coverage from JSONL | 8.5 |
-| 2 | [metrics-regression-detection](#metrics-regression-detection) | Metrics Regression Detection + Autopilot Breaker | 8.2 |
-| 3 | [error-recovery-contract-step](#error-recovery-contract-step) | Explicit Error Recovery Step Contract | 8.0 |
-| 4 | [per-subagent-cost-attribution](#per-subagent-cost-attribution) | Sub-Agent Cost Attribution | 8.0 |
-| 5 | [step-timing-telemetry](#step-timing-telemetry) | Step Timing Telemetry | 7.7 |
-| 6 | [consolidate-script-trees](#consolidate-script-trees) | Consolidate orchestrator script trees and test roots | 7.5 |
-| 7 | [workflow-improve-skill-implementation](#workflow-improve-skill-implementation) | Implement /workflow-improve Skill | 7.5 |
-| 8 | [orchestrate-dispatch-loop-hardening](#orchestrate-dispatch-loop-hardening) | Harden the Orchestrate Dispatch Loop | 7.0 |
-| 9 | [worktree-cleanup-on-failure](#worktree-cleanup-on-failure) | Worktree Cleanup on Workflow Failure | 6.8 |
-| 10 | [dry-run-mode](#dry-run-mode) | Dry Run Mode | 6.7 |
-| 11 | [skill-stub-audit](#skill-stub-audit) | Audit and Prune Stub Skills | 6.3 |
-| 12 | [doctor-deep-check](#doctor-deep-check) | Deep Doctor Health Check | 6.0 |
-| 13 | [register-repo-changeid-fallback](#register-repo-changeid-fallback) | register-repo.sh: Fall Back to Directory Basename When change_id Missing | 6.0 |
-| 14 | [step-contract-input-output-graph](#step-contract-input-output-graph) | Step Contract Input/Output Dependency Graph | 5.5 |
-| 15 | [install-uninstall-cleanup](#install-uninstall-cleanup) | Install/Uninstall Cleanup and Shell Detection | 5.2 |
-| 16 | [multi-repo-orchestrator-home](#multi-repo-orchestrator-home) | Multi-Repo ORCHESTRATOR_HOME Isolation | 5.0 |
-| 17 | [state-yaml-schema-validation](#state-yaml-schema-validation) | State YAML Schema Validation | 3.5 |
-| 18 | [conventions-lint-script](#conventions-lint-script) | CONVENTIONS.md Lint Script | 3.0 |
-| 19 | [schema-validation-step](#schema-validation-step) | Schema Self-Validation on Load | 3.0 |
-| 20 | [conditional-step-dependencies](#conditional-step-dependencies) | Conditional Step Dependencies | 2.8 |
+| # | Slug | Title | Score | Rec. |
+| ---: | --- | --- | ---: | ---: |
+| 1 | [backfill-step-history-jsonl](#backfill-step-history-jsonl) | Backfill step_history Coverage from JSONL | 8.5 | 2 |
+| 2 | [metrics-regression-detection](#metrics-regression-detection) | Metrics Regression Detection + Autopilot Breaker | 8.2 | 1 |
+| 3 | [error-recovery-contract-step](#error-recovery-contract-step) | Explicit Error Recovery Step Contract | 8.0 | 1 |
+| 4 | [per-subagent-cost-attribution](#per-subagent-cost-attribution) | Sub-Agent Cost Attribution | 8.0 | 1 |
+| 5 | [retro-capture-and-backlog-sync](#retro-capture-and-backlog-sync) | Live retro.md capture + backlog dedup/recurrence sync | 7.8 | 1 |
+| 6 | [step-timing-telemetry](#step-timing-telemetry) | Step Timing Telemetry | 7.7 | 1 |
+| 7 | [consolidate-script-trees](#consolidate-script-trees) | Consolidate orchestrator script trees and test roots | 7.5 | 1 |
+| 8 | [workflow-improve-skill-implementation](#workflow-improve-skill-implementation) | Implement /workflow-improve Skill | 7.5 | 1 |
+| 9 | [orchestrate-dispatch-loop-hardening](#orchestrate-dispatch-loop-hardening) | Harden the Orchestrate Dispatch Loop | 7.5 | 2 |
+| 10 | [worktree-cleanup-on-failure](#worktree-cleanup-on-failure) | Worktree Cleanup on Workflow Failure | 6.8 | 1 |
+| 11 | [dry-run-mode](#dry-run-mode) | Dry Run Mode | 6.7 | 1 |
+| 12 | [skill-stub-audit](#skill-stub-audit) | Audit and Prune Stub Skills | 6.3 | 1 |
+| 13 | [doctor-deep-check](#doctor-deep-check) | Deep Doctor Health Check | 6.5 | 2 |
+| 14 | [register-repo-changeid-fallback](#register-repo-changeid-fallback) | register-repo.sh: Fall Back to Directory Basename When change_id Missing | 6.0 | 1 |
+| 15 | [step-contract-input-output-graph](#step-contract-input-output-graph) | Step Contract Input/Output Dependency Graph | 5.5 | 1 |
+| 16 | [install-uninstall-cleanup](#install-uninstall-cleanup) | Install/Uninstall Cleanup and Shell Detection | 5.2 | 1 |
+| 17 | [multi-repo-orchestrator-home](#multi-repo-orchestrator-home) | Multi-Repo ORCHESTRATOR_HOME Isolation | 5.0 | 1 |
+| 18 | [state-yaml-schema-validation](#state-yaml-schema-validation) | State YAML Schema Validation | 3.5 | 1 |
+| 19 | [conventions-lint-script](#conventions-lint-script) | CONVENTIONS.md Lint Script | 3.0 | 1 |
+| 20 | [schema-validation-step](#schema-validation-step) | Schema Self-Validation on Load | 3.0 | 1 |
+| 21 | [conditional-step-dependencies](#conditional-step-dependencies) | Conditional Step Dependencies | 2.8 | 1 |
 
 ## Bugs — Summary
 
-| # | Slug | Title | Score |
-| ---: | --- | --- | ---: |
-| 1 | [fix-missing-step-contracts](#fix-missing-step-contracts) | Fix missing step contracts (ISSUE-18) | 7.8 |
-| 2 | [self-referential-bug-bootstrap](#self-referential-bug-bootstrap) | Self-referential bugfix bootstrap (ISSUE-19) | 6.3 |
-| 3 | [pricing-date-suffix-lookup](#pricing-date-suffix-lookup) | Pricing lookup tolerant of model date-suffixes (ISSUE-23) | 5.8 |
+| # | Slug | Title | Score | Rec. |
+| ---: | --- | --- | ---: | ---: |
+| 1 | [fix-missing-step-contracts](#fix-missing-step-contracts) | Fix missing step contracts (ISSUE-18) | 7.8 | 1 |
+| 2 | [fix-read-sub-state-metrics-paths](#fix-read-sub-state-metrics-paths) | read-sub-state-metrics.sh uses outdated paths (ISSUE-26) | 6.5 | 1 |
+| 3 | [self-referential-bug-bootstrap](#self-referential-bug-bootstrap) | Self-referential bugfix bootstrap (ISSUE-19) | 6.3 | 1 |
+| 4 | [pricing-date-suffix-lookup](#pricing-date-suffix-lookup) | Pricing lookup tolerant of model date-suffixes (ISSUE-23) | 5.8 | 1 |
+| 5 | [workflow-improver-tools-frontmatter](#workflow-improver-tools-frontmatter) | workflow-improver declared-tools drift (ISSUE-29) | 3.0 | 1 |
 
 ---
 
@@ -53,6 +63,8 @@
 ## backfill-step-history-jsonl
 
 **Backfill step_history Coverage from JSONL** (score 8.5)
+
+**Recurrence:** 2 — sources: original-entry, fix-inline-scripts-tmpdir/ISSUE-27 (compute-swe-metrics reports $0 for inline-heavy flows because step_history.usage={} — same root cause: usage data missing from state.yaml step_history)
 
 ### Idea
 Re-run JSONL enrichment across archived features to backfill missing tokens and `tools_json` on `step_history` rows, then add an invariant preventing the gap from reopening.
@@ -290,7 +302,9 @@ The orchestrator has 38 step contracts, 6 schemas, and 11 agents. As this grows,
 
 ## orchestrate-dispatch-loop-hardening
 
-**Harden the Orchestrate Dispatch Loop** (score 7.0)
+**Harden the Orchestrate Dispatch Loop** (score 7.5)
+
+**Recurrence:** 2 — sources: original-entry, fix-inline-scripts-tmpdir/ISSUE-25 (`orchestrator next` returns `complete_workflow` at phase boundaries — driver must manually advance phase or silently archive half-done; auto-advance or distinct `advance_phase` action would fix)
 
 ### Idea
 The orchestrate skill's dispatch loop (SKILL.md section 4) describes the core execution engine but has several fragile points: (1) The "READ step contract" instruction does not specify what to do if the YAML file is missing or malformed -- the agent will just fail mid-workflow. (2) The "READ agent definition" instruction has no fallback if the `.md` file is missing. (3) The "AFTER step completes" section writes `next_step` but does not handle the case where state.yaml is corrupted or locked. (4) There is no timeout or circuit-breaker for agent spawns that hang. Add explicit error handling clauses to the dispatch loop: file-not-found checks before each READ, agent spawn timeout guidance, and state.yaml write-after-verify pattern.
@@ -397,7 +411,9 @@ The orchestrator is positioning itself as a universal workflow engine. Users dis
 
 ## doctor-deep-check
 
-**Deep Doctor Health Check** (score 6.0)
+**Deep Doctor Health Check** (score 6.5)
+
+**Recurrence:** 2 — sources: original-entry, fix-inline-scripts-tmpdir/ISSUE-24 (stale `status: active` state.yaml hijacks orchestrate resume; dropped user `--focus` and nearly resurrected a shipped bugfix. Doctor should list active states, flag those whose worktree/branch is gone or whose archive commit is on main, and offer to auto-abort)
 
 ### Idea
 Expand `make doctor` from its current 6-line existence check into a comprehensive health validator. Currently it only checks if directories exist. A real doctor command should verify: (1) symlinks point to valid targets (not stale after a worktree switch -- the gotcha in project.yaml), (2) every schema referenced in `project.yaml schemas:` has a matching workflow YAML, (3) every step referenced in schemas has a matching step contract YAML, (4) every agent referenced in step contracts has a matching agent .md, (5) ORCHESTRATOR_HOME matches the expected path, (6) no orphaned state.yaml files (active changes with no worktree). This catches the most common failure mode: running `make setup` from a worktree instead of main.
@@ -773,6 +789,156 @@ price = (pricing.get("models") or {}).get(model_id) or \
 
 ### Source
 spec/changes/archive/2026-04-19-live-telemetry-and-repeat-until-enforcement/retro.md §ISSUE-23
+
+---
+
+## retro-capture-and-backlog-sync
+
+**Live retro.md capture + backlog dedup/recurrence sync** (score 7.8)
+
+**Recurrence:** 1 — sources: fix-inline-scripts-tmpdir (meta-feature requested by user 2026-04-20 after observing that retro.md is currently backfilled post-hoc, and backlog has no dedup/recurrence mechanism)
+
+### Idea
+
+Three tightly-coupled workflow changes so issues observed during a feature run are captured once, presented to the user, and synced to the backlog without duplication:
+
+1. **Capture at surface time.** Extend dispatcher + step contracts to emit a
+   `workflow_issues` payload to `orchestrator record` when something unexpected
+   happens (a script exits non-zero on a "never fail" step, a driver has to
+   manually advance phase, a sandbox block triggers, an inline usage block is
+   empty, etc.). record.py already accepts this payload (memory S4411); the
+   gap is in the emit side — drivers/scripts/agents don't produce it
+   consistently. Each issue gets: `{id, category, severity, surfaced_at,
+   detail, workaround, fix_direction, dedup_key}`. Appended live to
+   `$WORKFLOW_STATE_DIR/$CHANGE_ID/retro.md`.
+
+2. **Present retro.md in the final report.** At the end of the complete
+   phase (or at autopilot iteration end), render retro.md as a Markdown
+   table to the user alongside the cost report. For autopilot under
+   `--auto`, render-and-proceed (not render-and-pause). This is the
+   user-facing visibility surface — no more "what broke during this run?"
+   guessing.
+
+3. **Sync retro → backlog with dedup + recurrence counter.**
+   - Each backlog entry grows a `**Recurrence:** N` line and a `sources:`
+     list (feature_id / ISSUE-N that contributed). The Summary table
+     gains a `Rec.` column.
+   - When archiving a feature, a `sync-retro-to-backlog` step (new) walks
+     the retro's issues. For each issue:
+     - Compute `dedup_key` = slug if retro specifies a `backlog_entry:`
+       field, else a hash of `(category, fix_direction)` normalized.
+     - If `dedup_key` matches an existing entry's slug OR matches any
+       existing entry's `sources:` hash: bump that entry's recurrence
+       counter and append the new source. Do NOT add a duplicate H2.
+     - If no match: create a new H2 entry with `Recurrence: 1`.
+   - Ideator prioritization uses `effective_score = base_score + 0.5 *
+     (recurrence - 1)`, so an issue hit 3× floats above a higher-scored
+     one-time annoyance.
+
+### Why Now
+
+The user requested this live during autopilot-2026-04-20-001: 6
+issues surfaced in retro.md post-hoc, and 3 of them had existing-entry
+overlap that a human had to reason about. This won't scale across
+autonomous runs — the backlog will fill with near-duplicates, and
+ideator prioritization will miss recurring pain. Also, retro.md today
+is **only backfilled after the fact** (see the backfill note on
+`2026-04-19-live-telemetry-and-repeat-until-enforcement/retro.md`),
+meaning issues are lost if no human runs the backfill.
+
+### Prototype
+
+```yaml
+# new step: sync-retro-to-backlog (runs in complete phase, after archive-completed-change)
+inputs: [retro_md_path, backlog_md_path]
+outputs:
+  - new_entries: [slug, ...]
+  - bumped_entries: [{slug, new_recurrence}]
+  - skipped_entries: [{issue_id, reason}]
+```
+
+### Open questions for spec
+
+- Dedup key definition — slug-first, fallback to category+fix_direction
+  hash, or something else? (Bias toward slug since retros already emit
+  `backlog_entry:` slugs.)
+- When to increment the counter: at retro-write time (live) or at
+  sync-retro-to-backlog time (archive)? Archive-time is safer
+  (idempotent, can re-run).
+- Should closed/shipped items decay out of ideator's score or stay
+  forever? If shipped, a future recurrence is a regression and should
+  be counted loudly.
+- Schema migration for existing backlog.md: today's consolidation
+  marked every entry as `Recurrence: 1`, with 3 manually bumped this
+  round. A one-shot migration script could scan all existing retro.md
+  files for already-backfilled recurrences.
+
+### Source
+spec/changes/archive/2026-04-19-fix-inline-scripts-tmpdir/retro.md (user request 2026-04-20 after autopilot-2026-04-20-001)
+
+---
+
+## fix-read-sub-state-metrics-paths
+
+**read-sub-state-metrics.sh uses outdated paths (ISSUE-26)** (score 6.5)
+
+**Recurrence:** 1 — sources: fix-inline-scripts-tmpdir/ISSUE-26
+
+### Idea
+
+`config/scripts/read-sub-state-metrics.sh` looks for sub-feature state.yaml
+at two paths, neither of which matches the current layout:
+
+1. `$HOME/.workflows/<slug>/state.yaml` — this was the old location;
+   active states live at `$REPO_ROOT/.state/<slug>/state.yaml` now.
+2. `$REPO_ROOT/spec/changes/archive/<slug>/state.yaml` — archives are
+   date-prefixed (`2026-04-19-<slug>`), so this glob misses them.
+
+Consequence: autopilot's STEP D.5 (`Capture per-iteration metrics from
+sub-feature state.yaml`) calls this script, it ERRORs, and the iteration
+record in `sessions.yaml` gets zero-filled metrics. The whole point of
+autopilot telemetry is undercut silently.
+
+Fix: update the path lookup chain to:
+1. `$REPO_ROOT/.state/<slug>/state.yaml` (active)
+2. `$REPO_ROOT/spec/changes/archive/*-<slug>/state.yaml` (date-prefixed archive, newest wins)
+3. Keep the old two paths as last-resort fallbacks for backwards compat.
+
+### Why Now
+
+Autopilot recently became the primary driver for capturing cross-run
+metrics. Every iteration that finishes under the new layout writes
+zeros to sessions.yaml. Cheap to fix; every day delayed is more
+corrupt telemetry data to reconcile later.
+
+### Source
+spec/changes/archive/2026-04-19-fix-inline-scripts-tmpdir/retro.md §ISSUE-26
+
+---
+
+## workflow-improver-tools-frontmatter
+
+**workflow-improver declared-tools drift (ISSUE-29)** (score 3.0)
+
+**Recurrence:** 1 — sources: fix-inline-scripts-tmpdir/ISSUE-29
+
+### Idea
+
+`orchestrator cost --change-id` surfaces an `## Anomalies` section when
+an agent uses a tool outside its declared frontmatter. During
+autopilot-2026-04-20-001, workflow-improver used the `advisor` tool
+during run-learn-cycle — not in its declared tools list. Either:
+
+1. `advisor` is a legitimate capability for workflow-improver (it's
+   making judgment calls under the classifier rules anyway) → add it
+   to the frontmatter `tools:` array.
+2. It shouldn't be reaching for `advisor` during routine learn cycles →
+   scrub prompt examples / enforce via prompt.
+
+Decide which, apply the one-line edit.
+
+### Source
+spec/changes/archive/2026-04-19-fix-inline-scripts-tmpdir/retro.md §ISSUE-29
 
 ---
 
