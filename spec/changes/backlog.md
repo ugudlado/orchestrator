@@ -17,7 +17,7 @@
 
 ## Summary
 
-- **Features**: 21
+- **Features**: 22
 - **Bugs**: 5
 
 ## Features — Summary
@@ -25,26 +25,27 @@
 | # | Slug | Title | Score | Rec. |
 | ---: | --- | --- | ---: | ---: |
 | 1 | [backfill-step-history-jsonl](#backfill-step-history-jsonl) | Backfill step_history Coverage from JSONL | 8.5 | 2 |
-| 2 | [metrics-regression-detection](#metrics-regression-detection) | Metrics Regression Detection + Autopilot Breaker | 8.2 | 1 |
-| 3 | [error-recovery-contract-step](#error-recovery-contract-step) | Explicit Error Recovery Step Contract | 8.0 | 1 |
-| 4 | [per-subagent-cost-attribution](#per-subagent-cost-attribution) | Sub-Agent Cost Attribution | 8.0 | 1 |
-| 5 | [retro-capture-and-backlog-sync](#retro-capture-and-backlog-sync) | Live retro.md capture + backlog dedup/recurrence sync | 7.8 | 1 |
-| 6 | [step-timing-telemetry](#step-timing-telemetry) | Step Timing Telemetry | 7.7 | 1 |
-| 7 | [consolidate-script-trees](#consolidate-script-trees) | Consolidate orchestrator script trees and test roots | 7.5 | 1 |
-| 8 | [workflow-improve-skill-implementation](#workflow-improve-skill-implementation) | Implement /workflow-improve Skill | 7.5 | 1 |
-| 9 | [orchestrate-dispatch-loop-hardening](#orchestrate-dispatch-loop-hardening) | Harden the Orchestrate Dispatch Loop | 7.5 | 2 |
-| 10 | [worktree-cleanup-on-failure](#worktree-cleanup-on-failure) | Worktree Cleanup on Workflow Failure | 6.8 | 1 |
-| 11 | [dry-run-mode](#dry-run-mode) | Dry Run Mode | 6.7 | 1 |
-| 12 | [skill-stub-audit](#skill-stub-audit) | Audit and Prune Stub Skills | 6.3 | 1 |
+| 2 | [single-source-metrics-via-step-events](#single-source-metrics-via-step-events) | Delete parallel metrics aggregation; query DuckDB everywhere | 8.3 | 1 |
+| 3 | [metrics-regression-detection](#metrics-regression-detection) | Metrics Regression Detection + Autopilot Breaker | 8.2 | 1 |
+| 4 | [error-recovery-contract-step](#error-recovery-contract-step) | Explicit Error Recovery Step Contract | 8.0 | 1 |
+| 5 | [per-subagent-cost-attribution](#per-subagent-cost-attribution) | Sub-Agent Cost Attribution | 8.0 | 1 |
+| 6 | [retro-capture-and-backlog-sync](#retro-capture-and-backlog-sync) | Live retro.md capture + backlog dedup/recurrence sync | 7.8 | 1 |
+| 7 | [step-timing-telemetry](#step-timing-telemetry) | Step Timing Telemetry | 7.7 | 1 |
+| 8 | [orchestrate-dispatch-loop-hardening](#orchestrate-dispatch-loop-hardening) | Harden the Orchestrate Dispatch Loop | 7.5 | 2 |
+| 9 | [consolidate-script-trees](#consolidate-script-trees) | Consolidate orchestrator script trees and test roots | 7.5 | 1 |
+| 10 | [workflow-improve-skill-implementation](#workflow-improve-skill-implementation) | Implement /workflow-improve Skill | 7.5 | 1 |
+| 11 | [worktree-cleanup-on-failure](#worktree-cleanup-on-failure) | Worktree Cleanup on Workflow Failure | 6.8 | 1 |
+| 12 | [dry-run-mode](#dry-run-mode) | Dry Run Mode | 6.7 | 1 |
 | 13 | [doctor-deep-check](#doctor-deep-check) | Deep Doctor Health Check | 6.5 | 2 |
-| 14 | [register-repo-changeid-fallback](#register-repo-changeid-fallback) | register-repo.sh: Fall Back to Directory Basename When change_id Missing | 6.0 | 1 |
-| 15 | [step-contract-input-output-graph](#step-contract-input-output-graph) | Step Contract Input/Output Dependency Graph | 5.5 | 1 |
-| 16 | [install-uninstall-cleanup](#install-uninstall-cleanup) | Install/Uninstall Cleanup and Shell Detection | 5.2 | 1 |
-| 17 | [multi-repo-orchestrator-home](#multi-repo-orchestrator-home) | Multi-Repo ORCHESTRATOR_HOME Isolation | 5.0 | 1 |
-| 18 | [state-yaml-schema-validation](#state-yaml-schema-validation) | State YAML Schema Validation | 3.5 | 1 |
-| 19 | [conventions-lint-script](#conventions-lint-script) | CONVENTIONS.md Lint Script | 3.0 | 1 |
-| 20 | [schema-validation-step](#schema-validation-step) | Schema Self-Validation on Load | 3.0 | 1 |
-| 21 | [conditional-step-dependencies](#conditional-step-dependencies) | Conditional Step Dependencies | 2.8 | 1 |
+| 14 | [skill-stub-audit](#skill-stub-audit) | Audit and Prune Stub Skills | 6.3 | 1 |
+| 15 | [register-repo-changeid-fallback](#register-repo-changeid-fallback) | register-repo.sh: Fall Back to Directory Basename When change_id Missing | 6.0 | 1 |
+| 16 | [step-contract-input-output-graph](#step-contract-input-output-graph) | Step Contract Input/Output Dependency Graph | 5.5 | 1 |
+| 17 | [install-uninstall-cleanup](#install-uninstall-cleanup) | Install/Uninstall Cleanup and Shell Detection | 5.2 | 1 |
+| 18 | [multi-repo-orchestrator-home](#multi-repo-orchestrator-home) | Multi-Repo ORCHESTRATOR_HOME Isolation | 5.0 | 1 |
+| 19 | [state-yaml-schema-validation](#state-yaml-schema-validation) | State YAML Schema Validation | 3.5 | 1 |
+| 20 | [conventions-lint-script](#conventions-lint-script) | CONVENTIONS.md Lint Script | 3.0 | 1 |
+| 21 | [schema-validation-step](#schema-validation-step) | Schema Self-Validation on Load | 3.0 | 1 |
+| 22 | [conditional-step-dependencies](#conditional-step-dependencies) | Conditional Step Dependencies | 2.8 | 1 |
 
 ## Bugs — Summary
 
@@ -59,6 +60,60 @@
 ---
 
 # Features
+
+## single-source-metrics-via-step-events
+
+**Delete parallel metrics aggregation; query DuckDB everywhere** (score 8.3)
+
+**Recurrence:** 1 — sources: fix-inline-scripts-tmpdir (user decision 2026-04-20 after observing state.yaml.metrics said $0 while orchestrator cost said $0.246 for the same run)
+
+### Idea
+
+Today three places compute aggregates over token/cost data, and they disagree:
+
+1. `orchestrator cost --change-id` — queries DuckDB `step_events`. **Correct.**
+2. `scripts/inline/compute-swe-metrics.sh` — sums `state.yaml.step_history[].usage` (~500 lines of pricing + JSONL parsing + per-agent rollups). Writes `state.yaml.metrics`. **Wrong** for inline-heavy flows because inline steps carry `usage: {}`.
+3. `config/scripts/read-sub-state-metrics.sh` — same pattern for autopilot's per-iteration metrics, plus broken path lookups (ISSUE-26). Fills `sessions.yaml.iterations[].metrics`.
+
+The cause is architectural: `step_events` is the truth (JSONL-enriched at write time), but two other scripts re-derive aggregates from `step_history.usage` — a projection that's structurally incomplete. Every future metrics consumer will repeat the same mistake unless the pattern is deleted.
+
+**Fix**: make `step_events` the only aggregate source. Every other script becomes a thin `orchestrator cost --change-id --format json` wrapper. `state.yaml.step_history` stays untouched — it's dispatcher memory, not a metrics input.
+
+### Scope
+
+**Change**:
+1. `scripts/inline/compute-swe-metrics.sh` — delete the token/cost/model/pricing/JSONL-parsing machinery (~500 of 736 lines). Replace with a `orchestrator cost --change-id "$CHANGE_ID" --format json` shell-out; extract `totals` + `per_agent` + `per_model` fields. **Keep** the tasks.md resolution metrics (pass@1, pass@2, resolve_rate) and git churn computation — those aren't in DuckDB and shouldn't be.
+2. `config/scripts/read-sub-state-metrics.sh` — same migration; path-lookup fix (ISSUE-26) becomes moot since DuckDB is keyed by change_id, not state.yaml path.
+3. `config/scripts/autopilot-session-rollup.sh` — verify it still works when `iterations[].metrics` is populated from DuckDB; adjust only if consumer parsing breaks.
+4. `state.yaml.metrics` — kept for archive self-describability, but now carries a **snapshot of the DuckDB query at complete-phase time** rather than an independently-computed aggregate. Add a `metrics.source: "step_events@<timestamp>"` field so consumers know the provenance.
+5. Tests: `config/scripts/__tests__/compute-swe-metrics-cost.test.sh` and `config/tests/test-compute-swe-metrics-*.sh` — rewrite against the new shape. Keep the scenarios, change the data paths.
+
+**Do NOT change**:
+- `orchestrator record` — single writer stays as-is.
+- `state.yaml.step_history` — dispatcher control flow depends on it.
+- DuckDB schema.
+
+### Why Now
+
+The user just observed the $0 vs $0.246 deviation live. Every autopilot iteration from now until this ships will accumulate more lies in archived state.yaml files. It also unblocks `backfill-step-history-jsonl` (Rec. 2) and the `fix-read-sub-state-metrics-paths` bug (its path-lookup fix is moot if we query DuckDB instead).
+
+### Open questions for spec
+
+- Should `state.yaml.metrics` stay at all, or just print to stdout at complete phase? Archives without it would need to re-query DuckDB at read time. Recommendation: **keep the snapshot** — archives should be self-describing so a 6-month-old archive can be read without the DuckDB file.
+- Staged or big-bang deletion of the 500 lines? Recommendation: **staged** — first add the DuckDB query path, emit a warning-diff comparing old vs new for 3 features, then delete the old path once the diff is clean.
+- Does `orchestrator cost` need a `--change-id-history <glob>` mode for historical archives, or is today's `--change-id` sufficient? (Preflight test showed `--change-id live-telemetry-and-repeat-until-enforcement` returns $195.58 for an archived feature, so today's CLI works — no new mode needed.)
+
+### Preflight (done)
+
+- `orchestrator cost --change-id X --format json` exists today and returns structured `totals` + `per_agent` + `per_model` blocks.
+- Works for archived features (verified on `live-telemetry-and-repeat-until-enforcement`).
+- Caller surface for `compute-swe-metrics.sh`: 1 step contract (`compute-swe-metrics.yaml`), 1 prose-contract test, some archive references. Small blast radius.
+
+### Source
+
+spec/changes/archive/2026-04-19-fix-inline-scripts-tmpdir/retro.md §ISSUE-27 + 2026-04-20 chat decision
+
+---
 
 ## backfill-step-history-jsonl
 
