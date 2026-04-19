@@ -39,6 +39,7 @@ class StepContract:
     outputs: list[str] = field(default_factory=list)
     allowed_tools: list[str] = field(default_factory=list)
     inline: bool = False  # HL-287 M3: inline: true + run: <script> path
+    repeat_until: str | None = None  # ISSUE-16: predicate name gating advance
 
 
 @dataclass
@@ -133,6 +134,7 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
                 outputs=outputs,
                 allowed_tools=allowed_tools,
                 inline=bool(data.get("inline", False)),
+                repeat_until=data.get("repeat_until"),
             )
     raise FileNotFoundError(
         f"Step contract not found for '{step_id}'. Searched: {search_dirs}"

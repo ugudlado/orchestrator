@@ -5,6 +5,8 @@ intent: Execute the next ready task and update progress state.
 
 agent: developer
 
+repeat_until: all_tasks_completed
+
 pre_execute:
   approach_required: true
 

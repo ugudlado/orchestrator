@@ -8,21 +8,169 @@ and advances `next_step` per `workflow_plan`.
 from __future__ import annotations
 
 import datetime as _dt
+import functools
 import json
+import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from orchestrator_next.parser import load_contract_for_step, load_state
+from orchestrator_next.parser import ContractError, load_contract_for_step, load_state
+
+
+# ---------------------------------------------------------------------------
+# Cost computation helpers (ISSUE-17)
+# ---------------------------------------------------------------------------
+
+def _orchestrator_home() -> Path:
+    """Return the orchestrator repo root.
+
+    Prefers ORCHESTRATOR_HOME env var; falls back to the parent of the
+    `config/scripts/` tree this module lives in.
+    """
+    env = os.environ.get("ORCHESTRATOR_HOME")
+    if env:
+        return Path(env)
+    # __file__ is config/scripts/orchestrator_next/record.py
+    return Path(__file__).parent.parent.parent.parent
+
+
+@functools.lru_cache(maxsize=1)
+def _load_routes() -> dict:
+    """Load scripts/routes.yaml (cached per process)."""
+    path = _orchestrator_home() / "scripts" / "routes.yaml"
+    try:
+        with open(path) as f:
+            return yaml.safe_load(f) or {}
+    except (FileNotFoundError, OSError, yaml.YAMLError):
+        return {}
+
+
+@functools.lru_cache(maxsize=1)
+def _load_pricing() -> dict:
+    """Load config/pricing.yaml (cached per process)."""
+    path = _orchestrator_home() / "config" / "pricing.yaml"
+    try:
+        with open(path) as f:
+            return yaml.safe_load(f) or {}
+    except (FileNotFoundError, OSError, yaml.YAMLError):
+        return {}
+
+
+def _compute_cost_usd(agent: str, usage: dict) -> tuple[str | None, float | None]:
+    """Resolve agent → model_id and compute cost from usage token counts.
+
+    Resolution order:
+      1. routes.agents[agent] → backend_name
+      2a. routes.backends[backend_name] → model_id  (for native_* keys)
+      2b. routes.models[backend_name].model → model_id  (for proxy models)
+    Price lookup: pricing.models[model_id]; fallback: pricing.default.
+
+    Returns (model_id, cost_usd) or (None, None) if resolution fails.
+    Missing token fields default to 0.
+    """
+    routes = _load_routes()
+    pricing = _load_pricing()
+
+    # Step 1: agent → backend
+    backend = (routes.get("agents") or {}).get(agent)
+    if not backend:
+        sys.stderr.write(
+            f"[record] cost_usd: agent {agent!r} not found in routes.yaml agents; "
+            f"skipping cost computation\n"
+        )
+        return None, None
+
+    # Step 2: backend → model_id
+    model_id: str | None = None
+    backends_map = routes.get("backends") or {}
+    if backend in backends_map:
+        model_id = backends_map[backend]
+    else:
+        # Try routes.models.<backend>.model (proxy path)
+        model_entry = (routes.get("models") or {}).get(backend)
+        if isinstance(model_entry, dict):
+            model_id = model_entry.get("model")
+    if not model_id:
+        sys.stderr.write(
+            f"[record] cost_usd: backend {backend!r} for agent {agent!r} "
+            f"not resolved to a model_id; skipping cost computation\n"
+        )
+        return None, None
+
+    # Step 3: model_id → price block (fallback to default)
+    price = (pricing.get("models") or {}).get(model_id)
+    if price is None:
+        price = pricing.get("default")
+    if not isinstance(price, dict):
+        sys.stderr.write(
+            f"[record] cost_usd: no price entry for model {model_id!r} and no default; "
+            f"skipping cost computation\n"
+        )
+        return None, None
+
+    # Step 4: compute cost
+    input_tokens = usage.get("input_tokens") or 0
+    output_tokens = usage.get("output_tokens") or 0
+    cache_read_tokens = usage.get("cache_read_input_tokens") or 0
+    cost = (
+        input_tokens * (price.get("input") or 0) / 1_000_000
+        + output_tokens * (price.get("output") or 0) / 1_000_000
+        + cache_read_tokens * (price.get("cache_read") or 0) / 1_000_000
+    )
+    return model_id, cost
 
 
 def _utcnow_iso() -> str:
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _compute_next_step(state_raw: dict[str, Any], just_completed_step_id: str) -> dict[str, Any] | None:
+def _resolve_tasks_md(state_raw: dict[str, Any]) -> Path | None:
+    """Resolve the tasks.md path from state.yaml fields.
+
+    Preference: explicit `tasks_path`, else `<worktree_path>/spec/changes/<change_id>/tasks.md`.
+    Returns None if neither shape can be constructed.
+    """
+    raw_path = state_raw.get("tasks_path")
+    if isinstance(raw_path, str) and raw_path:
+        return Path(os.path.expanduser(raw_path))
+
+    worktree = state_raw.get("worktree_path")
+    change_id = state_raw.get("change_id")
+    if isinstance(worktree, str) and worktree and isinstance(change_id, str) and change_id:
+        return Path(os.path.expanduser(worktree)) / "spec" / "changes" / change_id / "tasks.md"
+
+    return None
+
+
+def _check_all_tasks_completed(state_raw: dict[str, Any]) -> bool:
+    """Return True iff no unchecked `- [ ]` items remain in tasks.md.
+
+    Missing or unreadable tasks.md returns True (fail-open: advance).
+    """
+    path = _resolve_tasks_md(state_raw)
+    if path is None:
+        return True
+    try:
+        text = path.read_text()
+    except (FileNotFoundError, OSError):
+        return True
+    return re.search(r"^\s*-\s*\[\s*\]", text, re.MULTILINE) is None
+
+
+_REPEAT_PREDICATES = {
+    "all_tasks_completed": _check_all_tasks_completed,
+}
+
+
+def _compute_next_step(
+    state_raw: dict[str, Any],
+    just_completed_step_id: str,
+    state_yaml_path: str,
+) -> dict[str, Any] | None:
     """Return the next_step dict for state.yaml, or None if phase complete."""
     phase = state_raw.get("phase", "")
     plan = state_raw.get("workflow_plan", {}).get(phase, {})
@@ -33,6 +181,22 @@ def _compute_next_step(state_raw: dict[str, Any], just_completed_step_id: str) -
         for e in history
         if isinstance(e, dict) and e.get("status") == "completed"
     }
+    # ISSUE-16: before marking step as completed, check repeat_until predicate.
+    # If predicate returns False, re-emit the same step instead of advancing.
+    try:
+        contract = load_contract_for_step(just_completed_step_id, state_yaml_path)
+    except (FileNotFoundError, ContractError):
+        contract = None
+    if contract is not None and contract.repeat_until:
+        predicate = _REPEAT_PREDICATES.get(contract.repeat_until)
+        if predicate is None:
+            sys.stderr.write(
+                f"[record] unknown repeat_until predicate "
+                f"{contract.repeat_until!r} on {just_completed_step_id}; "
+                f"treating as absent\n"
+            )
+        elif not predicate(state_raw):
+            return {"phase": phase, "step_id": just_completed_step_id}
     # Include the step we just completed (may not be in history yet if caller
     # invoked record before appending).
     completed.add((phase, just_completed_step_id))
@@ -166,6 +330,16 @@ def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any
     attempt = (max(prior_attempts) + 1) if prior_attempts else 1
 
     now = _utcnow_iso()
+
+    # ISSUE-17: compute cost_usd live when absent from the payload.
+    # Work on a local copy so we never mutate the caller's dict.
+    usage: dict[str, Any] = dict(payload.get("usage") or {})
+    if agent != "inline" and not usage.get("cost_usd"):
+        resolved_model, computed_cost = _compute_cost_usd(agent, usage)
+        if resolved_model is not None and computed_cost is not None:
+            usage["model"] = resolved_model
+            usage["cost_usd"] = computed_cost
+
     entry: dict[str, Any] = {
         "step_id": step_id,
         "phase": phase,
@@ -174,14 +348,14 @@ def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any
         "attempt": payload.get("attempt", attempt),
         "started_at": payload.get("started_at", now),
         "ended_at": now,
-        "usage": payload.get("usage") or {},
+        "usage": usage,
         "evidence": {"outputs": outputs, **(payload.get("evidence") or {})},
     }
     history.append(entry)
     state_raw["step_history"] = history
 
     # Advance next_step
-    next_step = _compute_next_step(state_raw, step_id)
+    next_step = _compute_next_step(state_raw, step_id, state_yaml_path)
     if next_step:
         state_raw["next_step"] = next_step
 
