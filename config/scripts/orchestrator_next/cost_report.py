@@ -9,7 +9,6 @@ Public API:
   render_markdown_scoped(data, scope) -> str
   render_markdown_repo(data, scope) -> str
   render_json(data) -> str
-  _load_agent_tools(agent_name) -> set[str] | None
 
 Design:
   - All SQL is parameterised (no string interpolation of user data).
@@ -23,9 +22,10 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any
-
 import yaml
+
+from .resolver import load_agent_tools
+from .parser import _load_contract, ContractError, StepContract
 
 # Slug guard reused for change_id validation in aggregation
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -53,53 +53,6 @@ def _fmt_ms(v: int | None) -> str:
     if v >= 60_000:
         return f"{v / 60_000:.1f}m"
     return f"{v / 1000:.1f}s"
-
-
-# ---------------------------------------------------------------------------
-# Agent frontmatter loader
-# ---------------------------------------------------------------------------
-
-def _load_agent_tools(agent_name: str) -> set[str] | None:
-    """
-    Load the tools: list from an agent's YAML frontmatter.
-
-    Search order:
-      1. $ORCHESTRATOR_HOME/agents/<agent_name>.md
-      2. ~/.claude/agents/<agent_name>.md
-
-    Returns:
-      set of tool name strings if found and parseable, else None.
-      None means "skip anomaly detection for this agent" (file missing,
-      no frontmatter, bad YAML, or no tools: key).
-    """
-    search_roots = []
-    home = os.environ.get("ORCHESTRATOR_HOME", "")
-    if home:
-        search_roots.append(home)
-    search_roots.append(os.path.expanduser("~/.claude"))
-
-    for root in search_roots:
-        if not root:
-            continue
-        path = os.path.join(root, "agents", f"{agent_name}.md")
-        if not os.path.isfile(path):
-            continue
-        try:
-            text = open(path, "r", encoding="utf-8").read()
-        except OSError:
-            continue
-        m = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
-        if not m:
-            return None
-        try:
-            fm = yaml.safe_load(m.group(1)) or {}
-        except yaml.YAMLError:
-            return None
-        tools = fm.get("tools")
-        if not isinstance(tools, list):
-            return None
-        return set(str(t) for t in tools)
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +233,7 @@ def _anomalies(db, repo_root: str, change_id: str) -> list[dict]:
     _cache: dict[str, set[str] | None] = {}
     for agent_name, tool_name, calls in rows:
         if agent_name not in _cache:
-            _cache[agent_name] = _load_agent_tools(agent_name)
+            _cache[agent_name] = load_agent_tools(agent_name)
         allowed = _cache[agent_name]
         if allowed is None:
             continue  # no frontmatter or unparseable — skip
@@ -289,6 +242,56 @@ def _anomalies(db, repo_root: str, change_id: str) -> list[dict]:
 
     # Sort deterministically: agent ASC, tool ASC
     result.sort(key=lambda x: (x["agent_name"], x["tool_name"]))
+    return result
+
+
+def _step_allowlist_anomalies(db, repo_root: str, change_id: str) -> list[dict]:
+    """
+    Find (phase, step_id, agent, tool) rows where the tool is not in the step's
+    declared allowed_tools list — but only when that list is non-empty.
+
+    Rows where the contract:
+      - is missing at report time → silently skipped
+      - has empty allowed_tools → skipped (no restriction)
+
+    Returns a list of dicts: agent_name, step_id, tool_name, calls.
+    """
+    sql = """
+    SELECT phase, step_id, agent_name, tool_name, COUNT(*) AS calls
+    FROM tool_calls
+    WHERE repo_root = ? AND change_id = ?
+    GROUP BY phase, step_id, agent_name, tool_name
+    """
+    rows = db.execute(sql, [repo_root, change_id]).fetchall()
+
+    result = []
+    # Cache loaded contracts: (phase, step_id) -> StepContract | None
+    _contract_cache: dict[tuple[str, str], StepContract | None] = {}
+
+    for phase, step_id, agent_name, tool_name, calls in rows:
+        cache_key = (phase, step_id)
+        if cache_key not in _contract_cache:
+            try:
+                contract = _load_contract(step_id, "")
+            except (FileNotFoundError, ContractError, yaml.YAMLError, OSError):
+                contract = None
+            _contract_cache[cache_key] = contract
+
+        contract = _contract_cache[cache_key]
+        if contract is None:
+            continue  # missing or bad contract — skip silently
+        if not contract.allowed_tools:
+            continue  # no restriction declared — skip
+        if tool_name not in contract.allowed_tools:
+            result.append({
+                "agent_name": agent_name,
+                "step_id": step_id,
+                "tool_name": tool_name,
+                "calls": int(calls),
+            })
+
+    # Sort deterministically: step_id ASC, agent ASC, tool ASC
+    result.sort(key=lambda x: (x["step_id"], x["agent_name"], x["tool_name"]))
     return result
 
 
@@ -372,6 +375,7 @@ def aggregate_feature(db, repo_root: str, change_id: str) -> dict:
         "mcp_calls": _mcp_calls(db, repo_root, change_id),
         "per_agent_tools": _per_agent_tools(db, repo_root, change_id),
         "anomalies": _anomalies(db, repo_root, change_id),
+        "anomalies_step_allowlist": _step_allowlist_anomalies(db, repo_root, change_id),
     }
 
 
@@ -635,15 +639,31 @@ def render_markdown_feature(data: dict) -> str:
     # 8. Anomalies
     lines.append("## Anomalies")
     lines.append("")
+
+    # 8a. Tool not in role (existing subsection)
+    lines.append("### Tool not in role")
+    lines.append("")
     if data["anomalies"]:
         for a in data["anomalies"]:
             lines.append(
-                f"⚠️ {a['agent_name']} used {a['tool_name']} ({a['calls']} calls)"
+                f"- {a['agent_name']} used {a['tool_name']} ({a['calls']} calls)"
                 f" — not in declared tools list"
             )
         lines.append("")
     else:
         lines.append("_No anomalies detected._")
+        lines.append("")
+
+    # 8b. Tool not in step allowlist (new subsection — only rendered when non-empty)
+    step_allowlist_anomalies = data.get("anomalies_step_allowlist", [])
+    if step_allowlist_anomalies:
+        lines.append("### Tool not in step allowlist")
+        lines.append("")
+        for a in step_allowlist_anomalies:
+            lines.append(
+                f"- {a['agent_name']} used {a['tool_name']} on step {a['step_id']}"
+                f" ({a['calls']} calls) — not in step allowlist"
+            )
         lines.append("")
 
     return "\n".join(lines)
