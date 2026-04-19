@@ -1,0 +1,273 @@
+change_description: Add complexity field to state.yaml; new DuckDB features table;
+  extend orchestrator cost --by complexity flag for repo-scope summary
+change_id: feature-complexity-tracking
+created_at: '2026-04-19T05:52:00Z'
+flags:
+  agents: true
+  auto: true
+  discovery: true
+  light: false
+  linear: true
+  phase_review: true
+  tdd_required: true
+  ux_design: false
+  worktree: true
+linear_ticket_id: HL-291
+next_step:
+  phase: complete
+  step_id: archive-completed-change
+phase: complete
+project_context_loaded: true
+schema: feature
+slug: feature-complexity-tracking
+status: completed
+step_history:
+- completed_at: '2026-04-19T05:52:00Z'
+  phase: specify
+  started_at: '2026-04-19T05:52:00Z'
+  status: completed
+  step_id: workflow-init
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-19T05:58:06Z'
+  evidence:
+    outputs:
+      discovery_result:
+        discovery_md_path: .state/feature-complexity-tracking/discovery.md
+        key_findings:
+        - "CRITICAL: features table name collision with bash register-repo.sh \u2014\
+          \ use feature_complexity instead"
+        - "0 of 21 archived states have complexity field \u2014 backfill as NULL/unknown"
+        - "design-and-draft-artifacts.yaml uses XS/S/M/L (no XL) \u2014 need to add\
+          \ XL"
+        - --by complexity requires JOIN between step_events and feature_complexity
+          (differs from existing --by arms)
+        - 'State dataclass needs complexity: str | None = None field'
+        open_questions:
+        - 'OQ-1: table name'
+        - 'OQ-2: complexity declaration point'
+        - 'OQ-3: upsert trigger'
+        - 'OQ-4: NULL rows in --by complexity'
+        - 'OQ-5: backfill'
+        - 'OQ-6: contract enforcement'
+    summary: 'Discovery complete: critical table collision found, 6 OQs, recommendation
+      is Approach B (feature_complexity table)'
+  phase: specify
+  started_at: '2026-04-19T05:58:06Z'
+  status: completed
+  step_id: explore
+  usage:
+    tool_calls: 31
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-19T06:01:39Z'
+  evidence:
+    outputs:
+      design_direction: complexity-field-feature-table-report-arm
+      updated_artifact_set:
+      - spec.md
+      - design.md
+      - tasks.md
+    summary: spec.md, design.md, tasks.md written. feature_complexity table, mark-change-completed
+      upsert, --by complexity arm. T-1 through T-7 TDD.
+  phase: specify
+  started_at: '2026-04-19T06:01:39Z'
+  status: completed
+  step_id: design-and-draft-artifacts
+  usage:
+    tool_calls: 14
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-19T06:01:43Z'
+  evidence:
+    outputs:
+      state.yaml route_preview block:
+        reason: mktemp sandbox restriction
+        status: estimate_unavailable
+    summary: preview-route skipped (sandbox)
+  phase: specify
+  started_at: '2026-04-19T06:01:43Z'
+  status: completed
+  step_id: preview-route
+  usage: {}
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-19T06:06:59Z'
+  evidence:
+    outputs:
+      phase_review_report:
+        dimensions:
+          code_quality: 8
+          correctness: 9
+          security: 10
+          simplicity: 9
+          spec_compliance: 9
+        findings:
+        - 'F-1 IMPORTANT: wrong path for mark-change-completed.sh (fixed)'
+        - 'F-3 LOW: created_at/started_at naming gap'
+        overall_score: 9
+        pass_or_fail: PASS
+    review_score:
+      dimensions:
+        code_quality: 8
+        correctness: 9
+        security: 10
+        simplicity: 9
+        spec_compliance: 9
+      overall: 9
+  phase: specify
+  started_at: '2026-04-19T06:06:59Z'
+  status: completed
+  step_id: run-phase-review
+  usage: {}
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-19T06:07:24Z'
+  evidence:
+    outputs:
+      test_baseline:
+        reason: no test command in project.yaml
+        skipped: true
+    summary: Baseline skipped
+  phase: implement
+  started_at: '2026-04-19T06:07:24Z'
+  status: completed
+  step_id: capture-test-baseline
+  usage: {}
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-19T06:40:24Z'
+  evidence:
+    outputs:
+      task_execution_result:
+        final_status: all_tasks_complete
+        tasks_completed: 7
+        tasks_failed: 0
+    summary: 'T-1 through T-7: State.complexity field, feature_complexity DDL+upsert,
+      --by complexity arm, mark-change-completed wiring. 100 tests passing.'
+  phase: implement
+  started_at: '2026-04-19T06:40:24Z'
+  status: completed
+  step_id: execute-next-task
+  usage:
+    tool_calls: 65
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-19T06:46:57Z'
+  evidence:
+    outputs:
+      phase_review_report:
+        dimensions:
+          algorithm_correctness: 10
+          code_quality: 10
+          security: 10
+          simplicity: 10
+          spec_compliance: 10
+        findings:
+        - 'low: no argparse smoke test (suggestion only)'
+        overall_score: 10
+        pass_or_fail: PASS
+    review_score:
+      dimensions:
+        code_quality: 10
+        correctness: 10
+        security: 10
+        simplicity: 10
+        spec_compliance: 10
+      overall: 10
+  phase: implement
+  started_at: '2026-04-19T06:46:57Z'
+  status: completed
+  step_id: run-phase-review
+  usage: {}
+- step_id: compute-prediction-accuracy
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T06:47:14Z'
+  ended_at: '2026-04-19T06:47:14Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy_result:
+        predicted_tasks: 7
+        actual_tasks: 7
+        rework_rate: 0.0
+        task_accuracy_pct: 100.0
+    summary: 7/7 tasks, 100% accuracy, 0 rework
+- step_id: run-learn-cycle
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T06:47:14Z'
+  ended_at: '2026-04-19T06:47:14Z'
+  usage: {}
+  evidence:
+    outputs:
+      learn_result:
+        learn_skipped: true
+    summary: Learn cycle skipped (autopilot)
+- step_id: mark-change-completed
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T06:47:23Z'
+  ended_at: '2026-04-19T06:47:23Z'
+  usage: {}
+  evidence:
+    outputs:
+      state_completion_fields:
+        status: completed
+        completed_at: '2026-04-19T06:47:17Z'
+        archive_path: spec/changes/archive/2026-04-19-feature-complexity-tracking/
+    summary: State marked completed. upsert import error expected (pre-merge), swallowed
+      by || true
+- step_id: compute-swe-metrics
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T06:47:32Z'
+  ended_at: '2026-04-19T06:47:32Z'
+  usage: {}
+  evidence:
+    outputs:
+      swe_metrics:
+        resolve_rate: 1.0
+        tasks_completed: 7
+        rework_rate: 0
+        churn:
+          files_changed: 9
+          insertions: 815
+    summary: 7/7 tasks, 9 files, 815 insertions
+workflow_plan:
+  complete:
+    active:
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+  implement:
+    active:
+    - capture-test-baseline
+    - execute-next-task
+    - run-phase-review
+    filtered:
+    - run-ux-critique
+  specify:
+    active:
+    - workflow-init
+    - explore
+    - design-and-draft-artifacts
+    - preview-route
+    - run-phase-review
+    filtered:
+    - ux-design
+completed_at: '2026-04-19T06:47:17Z'
+archive_path: spec/changes/archive/2026-04-19-feature-complexity-tracking/
