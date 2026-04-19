@@ -1,63 +1,21 @@
 # Backlog
 
-<!-- Consolidated on 2026-04-20. Single source of truth for pending work.
-     Two sections: Features and Bugs. Each has a Summary table and detailed
-     entries as H2 blocks (keyed by slug), sorted by score descending.
-     The ideate skill and ideator agent read this file.
-     To add: append a new H2 under the right section; update the section's Summary table.
-     To retire: move the block to spec/changes/backlog-archive.md with a shipped-at date.
+<!-- Single source of truth for pending work. Flat list; no counts, no
+     numbering, no summary tables. Each entry is an H2 block keyed by slug,
+     with `score` and `recurrence` on the heading line for at-a-glance
+     prioritization. The ideate skill and ideator agent read this file.
 
-     RECURRENCE: each entry has a `**Recurrence:** N` line near the top
-     (default 1). When a new retro.md surfaces an issue that matches an existing
-     entry (by slug or by described root cause), bump N — do NOT add a duplicate.
-     `sources:` lists the feature_ids / ISSUE-Ns where each recurrence came from.
-     The ideator factors (score + 0.5*(recurrence-1)) into prioritization;
-     an issue hit 3 times is louder than a one-time annoyance.
+     To add: append a new H2 under Features or Bugs.
+     To bump recurrence: when a retro.md surfaces an issue matching an
+       existing entry (by slug or described root cause), edit the
+       existing H2's `recurrence` and append to `sources`. Do NOT add a
+       duplicate entry.
+     To retire: move the block to spec/changes/backlog-archive.md with
+       a shipped-at date.
+
+     Priority = score + 0.5 * (recurrence - 1). Ideator re-sorts at read
+     time; no manual resorting needed when you bump a recurrence.
  -->
-
-## Summary
-
-- **Features**: 22
-- **Bugs**: 5
-
-## Features — Summary
-
-| # | Slug | Title | Score | Rec. |
-| ---: | --- | --- | ---: | ---: |
-| 1 | [backfill-step-history-jsonl](#backfill-step-history-jsonl) | Backfill step_history Coverage from JSONL | 8.5 | 2 |
-| 2 | [single-source-metrics-via-step-events](#single-source-metrics-via-step-events) | Delete parallel metrics aggregation; query DuckDB everywhere | 8.3 | 1 |
-| 3 | [metrics-regression-detection](#metrics-regression-detection) | Metrics Regression Detection + Autopilot Breaker | 8.2 | 1 |
-| 4 | [error-recovery-contract-step](#error-recovery-contract-step) | Explicit Error Recovery Step Contract | 8.0 | 1 |
-| 5 | [per-subagent-cost-attribution](#per-subagent-cost-attribution) | Sub-Agent Cost Attribution | 8.0 | 1 |
-| 6 | [retro-capture-and-backlog-sync](#retro-capture-and-backlog-sync) | Live retro.md capture + backlog dedup/recurrence sync | 7.8 | 1 |
-| 7 | [step-timing-telemetry](#step-timing-telemetry) | Step Timing Telemetry | 7.7 | 1 |
-| 8 | [orchestrate-dispatch-loop-hardening](#orchestrate-dispatch-loop-hardening) | Harden the Orchestrate Dispatch Loop | 7.5 | 2 |
-| 9 | [consolidate-script-trees](#consolidate-script-trees) | Consolidate orchestrator script trees and test roots | 7.5 | 1 |
-| 10 | [workflow-improve-skill-implementation](#workflow-improve-skill-implementation) | Implement /workflow-improve Skill | 7.5 | 1 |
-| 11 | [worktree-cleanup-on-failure](#worktree-cleanup-on-failure) | Worktree Cleanup on Workflow Failure | 6.8 | 1 |
-| 12 | [dry-run-mode](#dry-run-mode) | Dry Run Mode | 6.7 | 1 |
-| 13 | [doctor-deep-check](#doctor-deep-check) | Deep Doctor Health Check | 6.5 | 2 |
-| 14 | [skill-stub-audit](#skill-stub-audit) | Audit and Prune Stub Skills | 6.3 | 1 |
-| 15 | [register-repo-changeid-fallback](#register-repo-changeid-fallback) | register-repo.sh: Fall Back to Directory Basename When change_id Missing | 6.0 | 1 |
-| 16 | [step-contract-input-output-graph](#step-contract-input-output-graph) | Step Contract Input/Output Dependency Graph | 5.5 | 1 |
-| 17 | [install-uninstall-cleanup](#install-uninstall-cleanup) | Install/Uninstall Cleanup and Shell Detection | 5.2 | 1 |
-| 18 | [multi-repo-orchestrator-home](#multi-repo-orchestrator-home) | Multi-Repo ORCHESTRATOR_HOME Isolation | 5.0 | 1 |
-| 19 | [state-yaml-schema-validation](#state-yaml-schema-validation) | State YAML Schema Validation | 3.5 | 1 |
-| 20 | [conventions-lint-script](#conventions-lint-script) | CONVENTIONS.md Lint Script | 3.0 | 1 |
-| 21 | [schema-validation-step](#schema-validation-step) | Schema Self-Validation on Load | 3.0 | 1 |
-| 22 | [conditional-step-dependencies](#conditional-step-dependencies) | Conditional Step Dependencies | 2.8 | 1 |
-
-## Bugs — Summary
-
-| # | Slug | Title | Score | Rec. |
-| ---: | --- | --- | ---: | ---: |
-| 1 | [fix-missing-step-contracts](#fix-missing-step-contracts) | Fix missing step contracts (ISSUE-18) | 7.8 | 1 |
-| 2 | [fix-read-sub-state-metrics-paths](#fix-read-sub-state-metrics-paths) | read-sub-state-metrics.sh uses outdated paths (ISSUE-26) | 6.5 | 1 |
-| 3 | [self-referential-bug-bootstrap](#self-referential-bug-bootstrap) | Self-referential bugfix bootstrap (ISSUE-19) | 6.3 | 1 |
-| 4 | [pricing-date-suffix-lookup](#pricing-date-suffix-lookup) | Pricing lookup tolerant of model date-suffixes (ISSUE-23) | 5.8 | 1 |
-| 5 | [workflow-improver-tools-frontmatter](#workflow-improver-tools-frontmatter) | workflow-improver declared-tools drift (ISSUE-29) | 3.0 | 1 |
-
----
 
 # Features
 
@@ -150,6 +108,8 @@ Unblocks per-step token/cost analysis for 80% of history. Prerequisite for regre
 
 **Metrics Regression Detection + Autopilot Breaker** (score 8.2)
 
+**Recurrence:** 1
+
 ### Idea
 Turn the metrics stack from a passive ledger into an active guardrail. Detect feature-level and step-level regressions against rolling baselines, surface them in `/telemetry`, and stop `/autopilot` from compounding damage when the last 3 runs all regressed.
 
@@ -188,6 +148,8 @@ Prerequisite: fix-cost-usd-and-widen-token-split (baselines on zeros are meaning
 
 **Explicit Error Recovery Step Contract** (score 8.0)
 
+**Recurrence:** 1
+
 ### Idea
 The orchestrate SKILL.md dispatch loop says "Follow Error Recovery Contract (CONVENTIONS.md) for all failures" but CONVENTIONS.md does not contain an explicit Error Recovery Contract section. The `execute-next-task.yaml` step contract has inline retry logic (steps 7a-7f), `run-phase-review.yaml` has its own retry pattern (step 7), and `phase-signoff.yaml` has a rejection-fix loop (step 5). These three retry/recovery patterns are defined independently with slightly different semantics. There should be a single `error-recovery.yaml` step contract (or a CONVENTIONS.md section) that defines the canonical retry/escalation pattern: (1) diagnose failure, (2) attempt scoped fix, (3) re-verify, (4) increment retry counter, (5) escalate at max_retries. Then the three existing steps reference it instead of each defining their own variant.
 
@@ -206,6 +168,8 @@ The orchestrator references an Error Recovery Contract that does not exist. This
 ## per-subagent-cost-attribution
 
 **Sub-Agent Cost Attribution** (score 8.0)
+
+**Recurrence:** 1
 
 ### Idea
 Today, when an agent invokes the `Agent` tool to spawn a sub-agent, the sub-agent's tokens land in the **parent agent's** bucket in `per_agent_metrics`. You cannot tell how much of an architect's 416k-token bill was the architect itself vs. a sub-agent it spawned. At Opus pricing ($15/$75 per 1M) a single sub-agent call can dwarf its parent invisibly.
@@ -239,6 +203,8 @@ Reveals the single most mis-attributed cost in the stack. Enables "stop spawning
 
 **Step Timing Telemetry** (score 7.7)
 
+**Recurrence:** 1
+
 ### Idea
 Add wall-clock timing to every step execution by recording `started_at` and `completed_at` in each `step_history` entry. The grammar already declares these fields as optional in `step_record`, but nothing produces them today. With timing data, the `/telemetry` skill can show a Gantt-style phase breakdown, and `/learn` can flag duration outliers (the learn skill already references "steps taking >2x average" but has no data to work with).
 
@@ -260,6 +226,8 @@ No visual prototype needed. The change is structural: update the orchestrate ski
 ## consolidate-script-trees
 
 **Consolidate orchestrator script trees and test roots** (score 7.5)
+
+**Recurrence:** 1
 
 ### Idea
 
@@ -340,6 +308,8 @@ Linear ticket creation blocked by workspace free-tier limit on 2026-04-19; file 
 
 **Implement /workflow-improve Skill** (score 7.5)
 
+**Recurrence:** 1
+
 ### Idea
 The `/workflow-improve` skill at `skills/workflow-improve/SKILL.md` is a 3-line stub with no real logic ("Analyze metrics and identify improvements to workflow infrastructure"). Similarly, the `/telemetry` skill is a 2-line stub. The `/workflow-improve` skill should be the user-facing command that validates the full workflow graph: checks every schema's step references resolve to actual step contract YAMLs, checks every step contract's `agent:` field resolves to an agent `.md`, checks `flags_read` references exist in schema `defaults`, and validates template references. This overlaps with the existing `doctor-deep-check` backlog item but is runtime-invocable rather than a Makefile target, and focuses on structural integrity of the workflow graph rather than symlink health.
 
@@ -380,6 +350,8 @@ As the orchestrator runs longer autonomous sessions (autopilot with multiple ite
 
 **Worktree Cleanup on Workflow Failure** (score 6.8)
 
+**Recurrence:** 1
+
 ### Idea
 When a workflow fails mid-execution (agent crash, user abort, max retries exceeded), the git worktree at `~/code/feature_worktrees/$SLUG` and the branch `feature/$SLUG` are left behind. The `remove-worktree.yaml` step only runs in the `complete` phase, so any workflow that stops before completion leaks worktrees. Over time, `git worktree list` accumulates stale entries, and `~/code/feature_worktrees/` fills with abandoned directories. Add: (1) a `make clean-worktrees` target that lists stale worktrees (no matching active state.yaml) and offers to remove them, (2) a check in `create-worktree.yaml` that warns if more than 5 worktrees exist (suggesting cleanup), and (3) guidance in the `on_max_retries: escalate` handler to mention worktree cleanup.
 
@@ -398,6 +370,8 @@ The autopilot mode runs multiple iterations, each potentially creating a worktre
 ## dry-run-mode
 
 **Dry Run Mode** (score 6.7)
+
+**Recurrence:** 1
 
 ### Idea
 Add a `--dry-run` flag to all schemas that prints the resolved step plan without executing anything. Output would show: schema selected, flags resolved, each phase with its filtered steps (marking conditional steps with their condition), and which agents would be spawned. This gives users a preview of what `/develop` will do before it starts creating worktrees, spawning agents, and modifying state.
@@ -448,6 +422,8 @@ Phase: complete
 ## skill-stub-audit
 
 **Audit and Prune Stub Skills** (score 6.3)
+
+**Recurrence:** 1
 
 ### Idea
 Several skills are effectively stubs with no real implementation: `/telemetry` (2 lines), `/workflow-improve` (3 lines), `/reflect` (likely minimal). Meanwhile, `/specify`, `/implement`, `/commit-group`, `/critique`, `/humanizer`, `/pal`, `/portless`, `/shadcn`, `/systematic-debugging`, and `/frontend-design` exist as skill directories. Some of these may be fully implemented, some may be stubs, and some may be dead code from earlier iterations. Audit all 22 skill directories: classify each as (a) fully implemented, (b) stub needing implementation, (c) dead code to remove, or (d) alias to another skill (like `/develop` -> `/orchestrate`). Then either implement the stubs that have clear value or remove the ones that are just noise. Having stub skills that users can invoke but that produce no useful output is worse than not having them at all.
@@ -508,6 +484,8 @@ Done. 11 checks passed, 1 warning.
 
 **register-repo.sh: Fall Back to Directory Basename When change_id Missing** (score 6.0)
 
+**Recurrence:** 1
+
 ### Idea
 
 `register-repo.sh` currently skips `state.yaml` files that lack a `change_id`
@@ -558,6 +536,8 @@ this repo's archive history. Should ship before any consumer (e.g.,
 
 **Step Contract Input/Output Dependency Graph** (score 5.5)
 
+**Recurrence:** 1
+
 ### Idea
 Each step contract declares `inputs:` and `outputs:`. These form an implicit dependency graph: `explore` outputs `discovery_result`, which `create-or-refresh-artifacts` consumes via `phase_context_bundle`. But this graph is never materialized or validated. Build a script or skill that: (1) parses all step contract YAMLs and extracts inputs/outputs, (2) for each schema, walks the phase step lists and verifies that every step's declared inputs are satisfied by a prior step's outputs or by initial state, (3) detects orphaned outputs (produced but never consumed) and unresolved inputs (consumed but never produced). Output as a dependency graph (text or diagram). This would catch wiring bugs like a schema that skips `explore` but still expects `discovery_result` downstream.
 
@@ -576,6 +556,8 @@ With 38 step contracts and 6 schemas, manual tracking of which step produces wha
 ## install-uninstall-cleanup
 
 **Install/Uninstall Cleanup and Shell Detection** (score 5.2)
+
+**Recurrence:** 1
 
 ### Idea
 `install.sh` has three issues: (1) It hardcodes `~/.zshrc` as the shell profile -- users on bash, fish, or nushell get no ORCHESTRATOR_HOME export. Detect `$SHELL` and write to the correct profile. (2) There is no `uninstall.sh` or `make uninstall` target -- removing the orchestrator requires manually deleting symlinks from `~/.claude/agents/`, `~/.claude/skills/`, and `~/.config/orchestrator/`, plus removing the export line from `.zshrc`. (3) The install script does not clean up stale symlinks -- if an agent `.md` file is renamed or deleted from the repo, the old symlink persists in `~/.claude/agents/`. Add a staleness check that removes symlinks pointing to non-existent targets.
@@ -596,6 +578,8 @@ The project learned (in `gotchas`) that "running make setup from the worktree se
 
 **Multi-Repo ORCHESTRATOR_HOME Isolation** (score 5.0)
 
+**Recurrence:** 1
+
 ### Idea
 Currently, `WORKFLOW_STATE_DIR` defaults to `$ORCHESTRATOR_HOME/changes/$REPO_NAME`, which means all repos share the same `~/.config/orchestrator/changes/` parent. This works but has no isolation: a bug in one repo's state.yaml cleanup could affect another repo's active changes. More importantly, `install.sh` hardcodes `~/.zshrc` and does not support multiple orchestrator installations (e.g., a stable release and a development branch). Add: (1) per-repo override support via `.orchestrator.yaml` in repo root (setting a custom `WORKFLOW_STATE_DIR`), (2) `install.sh` support for `--profile` flag to install to a named profile instead of default, (3) documentation of the multi-repo state isolation model.
 
@@ -614,6 +598,8 @@ The vision says "universal workflow engine for LLMs -- define any process as con
 ## state-yaml-schema-validation
 
 **State YAML Schema Validation** (score 3.5)
+
+**Recurrence:** 1
 
 ### Idea
 Create a validation step (or pre-check in the dispatch loop) that validates `state.yaml` against the grammar defined in `grammar.yaml` before each step execution. The grammar already defines required fields (`schema`, `status`, `phase`, `step_id`, `flags`, `started_at`, `updated_at`) and valid enum values (`active|completed|paused`), but nothing enforces them at runtime. When an LLM writes a malformed state.yaml (wrong field name, missing required field, invalid enum), the error surfaces much later as a cryptic failure in a downstream step. Early validation with a clear error message ("state.yaml missing required field 'flags'") would catch corruption immediately.
@@ -636,6 +622,8 @@ No visual prototype. Implementation: add a validation check at the top of the di
 ## conventions-lint-script
 
 **CONVENTIONS.md Lint Script** (score 3.0)
+
+**Recurrence:** 1
 
 ### Idea
 Create a `scripts/lint-conventions.sh` that validates all step contracts, schemas, and templates against the format contracts defined in CONVENTIONS.md. Currently, CONVENTIONS.md defines detailed structural contracts (Task Format, Discovery Brief Format, Specification Format, Design Format, etc.) but compliance is only checked by the reviewer agent at runtime -- which means malformed artifacts waste an entire review cycle before being caught. A lint script could check: (1) every step contract has the 4 required sections (rules, instruction, verify, outputs), (2) every step intent is a single sentence, (3) `flags_read` entries have `effect` descriptions, (4) templates match their format contract sections.
@@ -671,6 +659,8 @@ Summary: 47 files checked, 1 error, 1 warning
 
 **Schema Self-Validation on Load** (score 3.0)
 
+**Recurrence:** 1
+
 ### Idea
 When the orchestrate skill loads a schema YAML (SKILL.md section 1, step 3), validate it against `grammar.yaml` before proceeding. Currently, malformed schemas (missing `phases`, invalid `step_entry` forms, typo in a flag name) are only caught when execution hits the broken part -- sometimes deep into a multi-hour workflow. A validation pass at load time would catch: (1) missing required fields per grammar, (2) step references that don't have a matching contract YAML in `config/steps/`, (3) agent references in step contracts that don't have a matching `.md` in `agents/`, (4) flag references in `if`/`if not` conditions that aren't declared in `defaults` or `flags`. This is essentially the "deep doctor" applied to a single schema at runtime.
 
@@ -699,6 +689,8 @@ Aborting workflow. Fix schema and retry.
 ## conditional-step-dependencies
 
 **Conditional Step Dependencies** (score 2.8)
+
+**Recurrence:** 1
 
 ### Idea
 Add a `depends_on` field to step entries in schemas so steps can declare explicit dependencies on other steps' outputs. Currently, step ordering is purely positional (list order in the phase). This works but creates implicit coupling -- if someone reorders steps in a schema, they might break an input dependency (e.g., `create-or-refresh-artifacts` depends on `explore` having produced `discovery.md`). Adding `depends_on: [explore]` makes this explicit. The grammar already has `requires` at the phase level and `requires` on output artifacts -- this extends the pattern to steps.
@@ -741,6 +733,8 @@ steps:
 
 **Fix missing step contracts (ISSUE-18)** (score 7.8)
 
+**Recurrence:** 1
+
 ### Idea
 workflow-init validates every schema-declared step against `$ORCHESTRATOR_HOME/config/steps/<id>.yaml` at workflow start. Missing contracts get pre-filtered into `workflow_plan.<phase>.filtered` with reason `"contract file missing (no config/steps/<id>.yaml)"` and a single WARNING is emitted. Never fails init. A stricter sibling: `orchestrator doctor` lists orphan schema refs as a deep-check item.
 
@@ -774,6 +768,8 @@ spec/changes/archive/2026-04-19-live-telemetry-and-repeat-until-enforcement/retr
 ## self-referential-bug-bootstrap
 
 **Self-referential bugfix bootstrap (ISSUE-19)** (score 6.3)
+
+**Recurrence:** 1
 
 ### Idea
 When a bugfix's change_description references files under `config/scripts/orchestrator_next/` or other dispatcher-critical paths, the dispatcher can't rely on its own current behavior during the fix. Two options:
@@ -812,6 +808,8 @@ spec/changes/archive/2026-04-19-live-telemetry-and-repeat-until-enforcement/retr
 ## pricing-date-suffix-lookup
 
 **Pricing lookup tolerant of model date-suffixes (ISSUE-23)** (score 5.8)
+
+**Recurrence:** 1
 
 ### Idea
 Anthropic returns model IDs with date suffixes in JSONLs (e.g. `claude-haiku-4-5-20251001`, future: `claude-sonnet-4-7-20260315`). `config/pricing.yaml` lists unstamped keys. Today the lookup misses, falls through to the `default` block (opus-tier), and overstates cost ~4× for haiku and ~5× for sonnet.
