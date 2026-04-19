@@ -7,7 +7,7 @@
 - [x] T-1: Write failing test for `step_events.turns` column migration + upsert passthrough
   Verify: `pytest config/scripts/orchestrator_next/__tests__/test_upsert_turns.py` FAILS (red); test asserts (a) `DESCRIBE step_events` includes `turns` after `ensure_schema`, (b) `upsert_step_event` with `usage={"turns": 42, ...}` writes 42 to the column, (c) `_migrate_step_events` adds the column to a pre-existing legacy table without error
 
-- [ ] T-2: Add `turns BIGINT` to `step_events` — DDL, migration guard, INSERT_OR_REPLACE, upsert_step_event + upsert_synthetic_event passthrough
+- [x] T-2: Add `turns BIGINT` to `step_events` — DDL, migration guard, INSERT_OR_REPLACE, upsert_step_event + upsert_synthetic_event passthrough
   Verify: `pytest config/scripts/orchestrator_next/__tests__/test_upsert_turns.py` PASSES (green); existing tests in `config/scripts/orchestrator_next/__tests__/` still pass
   depends: T-1
 
