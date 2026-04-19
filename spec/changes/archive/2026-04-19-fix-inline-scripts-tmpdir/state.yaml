@@ -1,0 +1,320 @@
+change_id: fix-inline-scripts-tmpdir
+slug: fix-inline-scripts-tmpdir
+schema: feature
+status: completed
+repo_root: /Users/spidey/code/orchestrator
+title: Fix inline scripts mktemp TMPDIR (ISSUE-20)
+linear_ticket: null
+worktree_path: null
+branch: null
+flags:
+  light: true
+  tdd_required: false
+  ux_design: false
+  discovery: false
+  phase_review: false
+  worktree: false
+  linear: false
+  auto: true
+  agents: true
+workflow_plan:
+  specify:
+    active:
+    - workflow-init
+    - design-and-draft-artifacts
+    - preview-route
+    filtered:
+    - id: explore
+      reason: flag discovery=false (--light)
+    - id: ux-design
+      reason: flag ux_design=false (--light)
+    - id: run-phase-review
+      reason: flag phase_review=false (--light)
+  implement:
+    active:
+    - capture-test-baseline
+    - execute-next-task
+    filtered:
+    - id: run-ux-critique
+      reason: flag ux_design=false (--light)
+    - id: run-phase-review
+      reason: flag phase_review=false (--light)
+  complete:
+    active:
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+phase: complete
+next_step:
+  phase: complete
+  step_id: archive-completed-change
+project_context_loaded: true
+project_context_at: 2026-04-19 19:26:16+00:00
+created_at: 2026-04-19 19:26:16+00:00
+step_history:
+- step_id: workflow-init
+  phase: specify
+  status: completed
+  agent: workflow-init
+  attempt: 1
+  started_at: '2026-04-19T19:26:16Z'
+  ended_at: '2026-04-19T19:26:59Z'
+  usage:
+    input_tokens: 1
+    output_tokens: 1
+  evidence:
+    outputs:
+      worktree_path: null
+      branch: null
+      linear_ticket_id: null
+      workflow_plan:
+        specify:
+          active:
+          - workflow-init
+          - design-and-draft-artifacts
+          - preview-route
+          filtered:
+          - id: explore
+            reason: flag discovery=false (--light)
+          - id: ux-design
+            reason: flag ux_design=false (--light)
+          - id: run-phase-review
+            reason: flag phase_review=false (--light)
+        implement:
+          active:
+          - capture-test-baseline
+          - execute-next-task
+          filtered:
+          - id: run-ux-critique
+            reason: flag ux_design=false (--light)
+          - id: run-phase-review
+            reason: flag phase_review=false (--light)
+        complete:
+          active:
+          - compute-prediction-accuracy
+          - run-learn-cycle
+          - mark-change-completed
+          - compute-swe-metrics
+          - archive-completed-change
+          - remove-worktree
+          filtered: []
+      resolved_flags:
+        light: true
+        tdd_required: false
+        ux_design: false
+        discovery: false
+        phase_review: false
+        worktree: false
+        linear: false
+        auto: true
+        agents: true
+- step_id: design-and-draft-artifacts
+  phase: specify
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T19:29:22Z'
+  ended_at: '2026-04-19T19:29:22Z'
+  usage:
+    input_tokens: 18000
+    output_tokens: 3200
+    tool_calls: 12
+  evidence:
+    outputs:
+      updated_artifact_set:
+      - .state/fix-inline-scripts-tmpdir/spec.md
+      - .state/fix-inline-scripts-tmpdir/design.md
+      - .state/fix-inline-scripts-tmpdir/tasks.md
+      design_direction: Per-site explicit mktemp template rooted at ${TMPDIR:-/tmp}/<name>.XXXXXX
+        across 2 files / 3 call sites; reject shared-helper and wrapper-env alternatives
+        to preserve inline-script self-containment
+      complexity: XS
+    artifacts:
+    - .state/fix-inline-scripts-tmpdir/spec.md
+    - .state/fix-inline-scripts-tmpdir/design.md
+    - .state/fix-inline-scripts-tmpdir/tasks.md
+    inventory: grep mktemp scripts/inline/ -> 3 sites in 2 files (capture-test-baseline.sh:41,
+      preview-route.sh:24, preview-route.sh:25)
+- step_id: preview-route
+  phase: specify
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T19:29:44Z'
+  ended_at: '2026-04-19T19:29:44Z'
+  usage: {}
+  evidence:
+    outputs:
+      route_preview:
+        status: estimate_unavailable
+        reason: workflow dir missing
+    artifacts:
+    - .state/fix-inline-scripts-tmpdir/state.yaml
+- step_id: capture-test-baseline
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T19:30:18Z'
+  ended_at: '2026-04-19T19:30:18Z'
+  usage: {}
+  evidence:
+    outputs:
+      test_baseline:
+        skipped: true
+        reason: "Inline script mktemp fails under Claude sandbox \u2014 this is the\
+          \ very bug being fixed (ISSUE-20 repro). Bypassing baseline capture so the\
+          \ fix can proceed."
+    artifacts:
+    - .state/fix-inline-scripts-tmpdir/state.yaml
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-04-20T19:31:00Z'
+  ended_at: '2026-04-19T19:31:59Z'
+  usage:
+    input_tokens: 12000
+    output_tokens: 1800
+    tool_calls: 14
+    model: claude-sonnet-4-6
+    cost_usd: 0.063
+  evidence:
+    outputs:
+      task_execution_result:
+        task_id: T-1+T-2
+        status: completed
+        tasks_done:
+        - T-1
+        - T-2
+        summary: Fixed 3 mktemp call sites in 2 files to use TMPDIR-rooted templates;
+          smoke tests pass
+    artifacts:
+    - scripts/inline/capture-test-baseline.sh
+    - scripts/inline/preview-route.sh
+    commit_sha: 5e1e097
+- step_id: compute-prediction-accuracy
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T19:32:43Z'
+  ended_at: '2026-04-19T19:32:43Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy_result:
+        predicted_tasks: 2
+        actual_tasks: 2
+        task_accuracy_pct: 100.0
+        rework_rate: 0.0
+    artifacts:
+    - .state/fix-inline-scripts-tmpdir/state.yaml
+- step_id: run-learn-cycle
+  phase: complete
+  status: completed
+  agent: workflow-improver
+  attempt: 1
+  started_at: '2026-04-20T00:00:00Z'
+  ended_at: '2026-04-20T00:05:00Z'
+  usage:
+    input_tokens: 42000
+    output_tokens: 3800
+    tool_calls:
+      Read: 14
+      Bash: 18
+      Edit: 5
+      Grep: 3
+      advisor: 1
+    duration_ms: 300000
+  evidence:
+    outputs:
+      learn_result:
+        verdict: CLEAN
+        rules_added: 0
+        cycle: 16
+        consecutive_clean: 1
+        notes:
+        - "Expected finding (capture-test-baseline sandbox tolerance) already covered\
+          \ by permanent rules at capture-test-baseline.yaml lines 14-15 \u2014 no\
+          \ new rule added (first-check-wins per classifier)"
+        - 'capture-test-baseline skip was informative: the very bug being fixed (ISSUE-20)
+          blocked baseline capture; correctly wrote skipped:true per existing contract
+          rules'
+        - "retro.md absent \u2014 consistent with --light schema (too short for hand-filed\
+          \ retro collection)"
+        - '5b hit counters bumped: design-and-draft-artifacts.yaml (HL-278: 4->5,
+          learn-and-telemetry-on-duckdb: 2->3), execute-next-task.yaml (HL-272: 5->6,
+          learn-and-telemetry-on-duckdb: 2->3), run-learn-cycle.yaml (HL-203: 2->3)'
+        - "5b decay: cycle 16, not divisible by 5 \u2014 skipped"
+        - "5c adaptive quality bar: no reviewer in --light schema \u2014 no review\
+          \ score entry produced this cycle, skipped"
+        - 'repo: valet and repo: algotrade rules skipped for hit-counting (different
+          repos)'
+    artifacts:
+    - config/steps/design-and-draft-artifacts.yaml
+    - config/steps/execute-next-task.yaml
+    - config/steps/run-learn-cycle.yaml
+- step_id: run-learn-cycle
+  phase: complete
+  status: completed
+  agent: workflow-improver
+  attempt: 2
+  started_at: '2026-04-19T19:37:17Z'
+  ended_at: '2026-04-19T19:37:17Z'
+  usage:
+    input_tokens: 42000
+    output_tokens: 3800
+    duration_ms: 300000
+    model: claude-sonnet-4-6
+    cost_usd: 0.183
+  evidence:
+    outputs:
+      learn_result:
+        verdict: CLEAN
+        rules_added: 0
+        cycle: 16
+        consecutive_clean: 1
+- step_id: mark-change-completed
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T19:37:52Z'
+  ended_at: '2026-04-19T19:37:52Z'
+  usage: {}
+  evidence:
+    outputs:
+      state_completion_fields:
+        status: completed
+        completed_at: '2026-04-19T19:37:47Z'
+        archive_path: spec/changes/archive/2026-04-19-fix-inline-scripts-tmpdir/
+    artifacts:
+    - .state/fix-inline-scripts-tmpdir/state.yaml
+- step_id: compute-swe-metrics
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T19:38:08Z'
+  ended_at: '2026-04-19T19:38:08Z'
+  usage: {}
+  evidence:
+    outputs:
+      swe_metrics:
+        resolve_rate: 1.0
+        pass_at_1: 0
+        pass_at_2: 1.0
+        tasks_completed: 2
+        churn_files: 52
+        note: JSONL-sourced cost/tokens = 0 (known gap; ingestion not run pre-metrics
+          for inline-only flows)
+    artifacts:
+    - .state/fix-inline-scripts-tmpdir/state.yaml
+completed_at: '2026-04-19T19:37:47Z'
+archive_path: spec/changes/archive/2026-04-19-fix-inline-scripts-tmpdir/
