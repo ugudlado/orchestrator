@@ -22,12 +22,10 @@ from __future__ import annotations
 import json
 import os
 import re
-from typing import Any
-
 import yaml
 
 from .resolver import load_agent_tools
-from .parser import _load_contract, ContractError
+from .parser import _load_contract, ContractError, StepContract
 
 # Slug guard reused for change_id validation in aggregation
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -268,14 +266,14 @@ def _step_allowlist_anomalies(db, repo_root: str, change_id: str) -> list[dict]:
 
     result = []
     # Cache loaded contracts: (phase, step_id) -> StepContract | None
-    _contract_cache: dict[tuple[str, str], Any] = {}
+    _contract_cache: dict[tuple[str, str], StepContract | None] = {}
 
     for phase, step_id, agent_name, tool_name, calls in rows:
         cache_key = (phase, step_id)
         if cache_key not in _contract_cache:
             try:
                 contract = _load_contract(step_id, "")
-            except (FileNotFoundError, ContractError, Exception):
+            except (FileNotFoundError, ContractError, yaml.YAMLError, OSError):
                 contract = None
             _contract_cache[cache_key] = contract
 
