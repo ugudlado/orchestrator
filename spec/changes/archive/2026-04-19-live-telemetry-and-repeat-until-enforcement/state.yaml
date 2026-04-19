@@ -1,0 +1,482 @@
+change_id: live-telemetry-and-repeat-until-enforcement
+slug: live-telemetry-and-repeat-until-enforcement
+schema: bugfix
+status: completed
+started_at: 2026-04-19 11:24:10+00:00
+repo_root: /Users/spidey/code/orchestrator
+title: Live cost telemetry + repeat_until enforcement (ISSUE-16 + ISSUE-17)
+change_description: "Pair two dispatcher/record.py bugs:\n- ISSUE-16: record.py ignores\
+  \ step contract `repeat_until`, advancing next_step\n  after one execution. Autopilot\
+  \ can mark workflows complete while tasks remain\n  unchecked in tasks.md.\n- ISSUE-17:\
+  \ `orchestrator cost --change-id <cid>` reports $0 because\n  step_events.cost_usd\
+  \ is NULL for recent rows. Model isn't captured from\n  agent Task <usage> blocks\
+  \ and routes.yaml fallback isn't wired in.\nTogether these close the autopilot live-feedback\
+  \ loop: next run enforces\nrepeat semantics AND shows real cost without manual backfill.\n\
+  Source: .state/autopilot/workflow-issues-2026-04-19-003.md\n"
+flags:
+  auto: true
+  agents: true
+  linear: false
+  tdd_required: true
+worktree_path: /Users/spidey/code/feature_worktrees/live-telemetry-and-repeat-until-enforcement
+branch: live-telemetry-and-repeat-until-enforcement
+linear_ticket: null
+linear_skip_reason: Linear free issue quota exceeded for workspace
+project_context_loaded: true
+project_context_at: 2026-04-19 11:26:00+00:00
+phase: complete
+next_step:
+  phase: complete
+  step_id: archive-completed-change
+driver:
+  type: autopilot-iter
+  session_id: autopilot-2026-04-19-003
+  iteration: 1
+resolved_flags:
+  auto: true
+  agents: true
+  linear: false
+  tdd_required: true
+workflow_plan:
+  diagnose:
+    active:
+    - workflow-init
+    - diagnose
+    - design-and-draft-artifacts
+    - preview-route
+    - run-phase-review
+    filtered: []
+  implement:
+    active:
+    - execute-next-task
+    - run-phase-review
+    filtered:
+    - id: run-simplify
+      reason: contract file missing (no config/steps/run-simplify.yaml) - ISSUE-18
+        surfaced; skipping to keep workflow unblocked
+    - id: run-feature-verification
+      reason: contract file missing (no config/steps/run-feature-verification.yaml)
+        - ISSUE-18 part 2; run-phase-review already ran assertions incl. full test
+        suite + both repros
+  complete:
+    active:
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+step_history:
+- step_id: workflow-init
+  phase: diagnose
+  status: completed
+  agent: workflow-init
+  attempt: 1
+  started_at: '2026-04-19T11:24:10Z'
+  ended_at: '2026-04-19T11:28:13Z'
+  usage:
+    input_tokens: 1
+    output_tokens: 1
+  evidence:
+    outputs:
+      worktree_path: /Users/spidey/code/feature_worktrees/live-telemetry-and-repeat-until-enforcement
+      branch: live-telemetry-and-repeat-until-enforcement
+      linear_ticket_id: null
+      workflow_plan:
+        diagnose:
+          active:
+          - workflow-init
+          - diagnose
+          - design-and-draft-artifacts
+          - preview-route
+          - run-phase-review
+          filtered: []
+        implement:
+          active:
+          - execute-next-task
+          - run-simplify
+          - run-phase-review
+          - run-feature-verification
+          filtered: []
+        complete:
+          active:
+          - compute-prediction-accuracy
+          - run-learn-cycle
+          - mark-change-completed
+          - compute-swe-metrics
+          - archive-completed-change
+          - remove-worktree
+          filtered: []
+      resolved_flags:
+        auto: true
+        agents: true
+        linear: false
+        tdd_required: true
+    linear_skip_reason: Linear free issue quota exceeded for workspace
+    project_context_loaded: true
+- step_id: diagnose
+  phase: diagnose
+  status: completed
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-04-19T11:38:50Z'
+  ended_at: '2026-04-19T11:38:50Z'
+  usage:
+    input_tokens: 28000
+    output_tokens: 4200
+    duration_ms: 360000
+    tool_calls:
+      Read: 18
+      Bash: 32
+      Grep: 6
+      Glob: 1
+      advisor: 1
+  evidence:
+    outputs:
+      diagnosis_result:
+        issues:
+        - ISSUE-16
+        - ISSUE-17
+        diagnosis_path: spec/changes/live-telemetry-and-repeat-until-enforcement/diagnosis.md
+        repro_scripts:
+        - .tmp/repro-issue-16.py
+        - .tmp/repro-issue-17.py
+- step_id: design-and-draft-artifacts
+  phase: diagnose
+  status: completed
+  agent: architect
+  attempt: 1
+  started_at: '2026-04-19T11:47:25Z'
+  ended_at: '2026-04-19T11:47:25Z'
+  usage:
+    input_tokens: 62000
+    output_tokens: 5200
+    cache_read_input_tokens: 30000
+  evidence:
+    outputs:
+      updated_artifact_set:
+      - spec/changes/live-telemetry-and-repeat-until-enforcement/fix-plan.md
+      - spec/changes/live-telemetry-and-repeat-until-enforcement/tasks.md
+      design_direction: 'ISSUE-16: extend StepContract with repeat_until field + add
+        all_tasks_completed predicate in record._compute_next_step (reads tasks.md).
+        ISSUE-17: add backends: block to routes.yaml; compute cost_usd + resolve model
+        in record() using pricing.yaml before writing step_history entry. Both fixes
+        are surgical, ~50 LoC each, no refactors.'
+      complexity: S
+    fix_plan_path: spec/changes/live-telemetry-and-repeat-until-enforcement/fix-plan.md
+    tasks_path: spec/changes/live-telemetry-and-repeat-until-enforcement/tasks.md
+    task_count: 6
+- step_id: preview-route
+  phase: diagnose
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T11:47:57Z'
+  ended_at: '2026-04-19T11:47:57Z'
+  usage: {}
+  evidence:
+    outputs:
+      route_preview:
+        status: estimate_unavailable
+        reason: mktemp sandbox block on /var/folders
+        exit_code: 1
+    artifacts:
+    - state.yaml
+- step_id: run-phase-review
+  phase: diagnose
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: '2026-04-19T11:51:54Z'
+  ended_at: '2026-04-19T11:51:54Z'
+  usage:
+    input_tokens: 18500
+    output_tokens: 1800
+    duration_ms: 95000
+    tool_calls:
+      Read: 12
+      Bash: 10
+      Glob: 3
+      advisor: 1
+  evidence:
+    outputs:
+      phase_review_report:
+        verdict: PASS
+        review_score:
+          overall: 10
+          dimensions:
+            spec_compliance: 10
+            correctness: 10
+            security: 10
+            simplicity: 9
+            code_quality: 9
+        findings_count: 1
+        assertions_checked:
+          diagnosis_md_exists: true
+          runnable_reproduction_steps: true
+          confirmed_root_cause_with_file_line: true
+          fix_plan_exists_with_approach_files_risk: true
+          tasks_md_test_before_fix: true
+        repro_runs:
+          repro_issue_16: EXIT 1 - BUG CONFIRMED
+          repro_issue_17: EXIT 1 - BUG CONFIRMED
+    review_score:
+      overall: 10
+      dimensions:
+        spec_compliance: 10
+        correctness: 10
+        security: 10
+        simplicity: 9
+        code_quality: 9
+    repro_runs:
+      repro_issue_16: 'EXIT 1 - BUG CONFIRMED: next_step advanced to run-phase-review
+        despite unchecked tasks'
+      repro_issue_17: 'EXIT 1 - BUG CONFIRMED: cost_usd is NULL despite 27000 tokens
+        recorded'
+    line_number_verification:
+      record_py_39_48: advance loop verified
+      record_py_177: verbatim usage passthrough verified
+      upsert_py_305: NULL insertion verified
+      bugfix_yaml_113: repeat_until annotation verified
+      pricing_yaml_29_32: claude-sonnet-4-6 rates verified
+    findings:
+    - severity: low
+      location: tasks.md:47
+      description: T-4 header says 'Four pytest cases' but body enumerates five items
+        (1-5). Prose inconsistency only.
+      fix: Change 'Four pytest cases' to 'Five pytest cases' in T-4 description.
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-04-19T11:57:00Z'
+  ended_at: '2026-04-19T12:35:00Z'
+  usage:
+    input_tokens: 227061
+    output_tokens: 18800
+    duration_ms: 1345980
+    tool_calls:
+      Read: 48
+      Edit: 24
+      Bash: 62
+      Grep: 14
+      Write: 6
+  evidence:
+    tasks_completed:
+    - task_id: T-1
+      task_title: Regression test for ISSUE-16 repeat_until (RED)
+      files_changed:
+      - config/scripts/orchestrator_next/tests/test_repeat_until.py
+      commit: cbe4c86
+    - task_id: T-2
+      task_title: Enforce repeat_until in _compute_next_step (GREEN)
+      files_changed:
+      - config/scripts/orchestrator_next/parser.py
+      - config/scripts/orchestrator_next/record.py
+      - config/steps/execute-next-task.yaml
+      commit: 3698b63
+    - task_id: T-3
+      task_title: Verify ISSUE-16 end-to-end
+      commit: ad25ce9
+    - task_id: T-4
+      task_title: Regression tests for cost_usd + model fallback (RED)
+      files_changed:
+      - config/scripts/orchestrator_next/tests/test_record_cost_compute.py
+      commit: aacb6da
+    - task_id: T-5
+      task_title: Compute cost_usd live with routes.yaml model fallback (GREEN)
+      files_changed:
+      - scripts/routes.yaml
+      - config/scripts/orchestrator_next/record.py
+      commit: ffbb3da
+    - task_id: T-6
+      task_title: Verify ISSUE-17 end-to-end (live cost_usd=$0.141)
+      commit: 702b65a
+    final_test_count:
+      passed: 134
+      failed: 0
+    final_repro_exits:
+      issue_16: 0
+      issue_17: 0
+- step_id: run-phase-review
+  phase: implement
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: '2026-04-19T12:23:08Z'
+  ended_at: '2026-04-19T12:23:08Z'
+  usage:
+    input_tokens: 22000
+    output_tokens: 2500
+    duration_ms: 180000
+    tool_calls:
+      Read: 4
+      Bash: 10
+      advisor: 1
+  evidence:
+    outputs:
+      phase_review_report:
+        verdict: PASS
+        review_score:
+          overall: 9
+          dimensions:
+            spec_compliance: 9
+            correctness: 10
+            security: 9
+            simplicity: 9
+            code_quality: 9
+        findings_count: 2
+        assertions_passed: 5 of 5
+    assertions:
+      tasks_md_all_x: true
+      regression_tests_exist: true
+      regression_tests_pass: 134 passed
+      repros_pass:
+        issue_16: 0
+        issue_17: 0
+      revert_check_red: 4 tests fail when record.py+parser.py reverted to main
+      zero_other_tests_broken: true
+- step_id: compute-prediction-accuracy
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T12:24:43Z'
+  ended_at: '2026-04-19T12:24:43Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy_result:
+        tasks:
+          predicted: 6
+          actual: 6
+          delta: 0
+          accuracy_pct: 100.0
+          fix_task_count: 0
+          rework_rate: 0.0
+        files:
+          predicted: 6
+          actual: 9
+          delta: 3
+          overlap_pct: 66.7
+          note: 3 additional files = spec artifacts (diagnosis.md, fix-plan.md, tasks.md)
+            not counted in fix-plan predicted-files
+    artifacts:
+    - state.yaml
+- step_id: run-learn-cycle
+  phase: complete
+  status: completed
+  agent: workflow-improver
+  attempt: 1
+  started_at: '2026-04-19T12:40:00Z'
+  ended_at: '2026-04-19T12:45:00Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    total_tokens: 0
+  evidence:
+    outputs:
+      learn_completed: true
+      learnings_captured: 4
+      proposed_project_yaml_additions: 1
+      proposed_contract_updates: 2
+    artifacts:
+    - state.yaml
+- step_id: run-learn-cycle
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-04-19T12:29:24Z'
+  ended_at: '2026-04-19T12:29:24Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    total_tokens: 0
+  evidence:
+    outputs:
+      learn_result:
+        learn_completed: true
+        learnings_captured: 4
+- step_id: mark-change-completed
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T12:30:41Z'
+  ended_at: '2026-04-19T12:30:41Z'
+  usage: {}
+  evidence:
+    outputs:
+      state_completion_fields:
+        status: completed
+        completed_at: '2026-04-19T12:30:23Z'
+        archive_path: spec/changes/archive/2026-04-19-live-telemetry-and-repeat-until-enforcement/
+    artifacts:
+    - state.yaml
+- step_id: compute-swe-metrics
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T12:31:12Z'
+  ended_at: '2026-04-19T12:31:12Z'
+  usage: {}
+  evidence:
+    outputs:
+      swe_metrics:
+        cost_net_usd: 23.72
+        cost_gross_usd: 157.14
+        tokens_total: 2162270
+        turns: 782
+        resolve_rate: 1.0
+        pass_at_1: 1.0
+        regression_rate: 0.0
+    artifacts:
+    - state.yaml
+learnings:
+- id: missing-step-contracts-should-be-pre-filtered
+  learned: 2026-04-19
+  source: live-telemetry-and-repeat-until-enforcement
+  rule: "workflow-init must validate that each step declared in the schema's workflow_plan\
+    \ has a corresponding contract file at $ORCHESTRATOR_HOME/config/steps/<id>.yaml.\
+    \ Steps without a contract file must be pre-filtered into workflow_plan[phase].filtered[]\
+    \ with reason \"contract file missing (no config/steps/<id>.yaml)\" and logged\
+    \ as a WARNING \u2014 never fail init, never silently skip. This prevents downstream\
+    \ dispatch from attempting to load a missing contract and allows the reviewer\
+    \ to see the gap. ISSUE-18 surfaced: run-simplify and run-feature-verification\
+    \ are declared in bugfix.yaml implement phase but no contract files exist.\n"
+- id: self-referential-bug-bootstrap-workaround
+  learned: 2026-04-19
+  source: live-telemetry-and-repeat-until-enforcement
+  rule: 'When the bug being fixed affects the current workflow execution (self-referential),
+    the fix plan must explicitly acknowledge the active bug and describe a manual
+    workaround. For ISSUE-16 (repeat_until not enforced), the workaround was: manually
+    edit state.yaml to group T-4/T-5/T-6 into a single chain spawn rather than relying
+    on the broken repeat loop. Document the workaround in fix-plan.md under a "Bootstrap
+    Constraint" section so reviewers understand why the execution differs from standard
+    workflow.
+
+    '
+- id: preview-route-mktemp-uses-var-folders
+  learned: 2026-04-19
+  source: live-telemetry-and-repeat-until-enforcement
+  rule: "scripts/inline/preview-route.sh lines 24-25 call mktemp without a template,\
+    \ which defaults to /var/folders on macOS and is blocked by the Claude Code sandbox.\
+    \ Fix: use mktemp \"${TMPDIR:-/tmp}/preview-route-XXXXXX\" and mktemp \"${TMPDIR:-/tmp}/preview-route-err-XXXXXX\"\
+    \ \u2014 the same pattern already used in config/scripts/backfill-zero-cost-metrics.sh:131.\
+    \ Non-blocking (step handles failures gracefully) but generates noisy output.\n"
+- id: linear-quota-autopilot-opt-in
+  learned: 2026-04-19
+  source: live-telemetry-and-repeat-until-enforcement
+  rule: 'Linear free issue quota for this workspace is exhausted. All autopilot iterations
+    in autopilot-2026-04-19-003 ran with linear: false via resolved_flags. Keep linear:
+    false as the effective default for autopilot sessions in this workspace until
+    quota resets or account is upgraded. Schema defaults (linear: true) are overridden
+    per-iteration by the autopilot preflight.
+
+    '
+completed_at: '2026-04-19T12:30:23Z'
+archive_path: spec/changes/archive/2026-04-19-live-telemetry-and-repeat-until-enforcement/
