@@ -35,4 +35,11 @@ git add "$ARCHIVE_PATH"
 git commit -m "archive: $CHANGE_ID — complete phase artifacts" 2>/dev/null
 SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
 
+# After the archive commit succeeds, remove the backlog entry (idempotent).
+BACKLOG_DIR="$REPO_ROOT/spec/changes/backlog/$CHANGE_ID"
+if [ -d "$BACKLOG_DIR" ]; then
+  git -C "$REPO_ROOT" rm -r "$BACKLOG_DIR" >/dev/null 2>&1 || rm -rf "$BACKLOG_DIR"
+  git -C "$REPO_ROOT" commit -m "cleanup: remove $CHANGE_ID from backlog" >/dev/null 2>&1 || true
+fi
+
 printf '%s\n' "{\"archive_record\": {\"archived_at\": \"$ARCHIVED_AT\", \"archive_path\": \"$ARCHIVE_PATH\", \"commit_sha\": \"$SHA\"}}"

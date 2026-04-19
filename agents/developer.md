@@ -255,6 +255,13 @@ attempted: |
   <what you already tried or considered>
 ```
 
+## State Updates
+
+Use `orchestrator record <state.yaml>` with a JSON payload on stdin for all step_history
+appends. **MUST NOT** directly edit state.yaml with Write or Edit tools. The record command
+validates shape and rejects malformed payloads; direct edits bypass validation and have
+corrupted state.yaml in past runs (ISSUE-7).
+
 ## What You Don't Do
 
 - Don't make architectural decisions — those were made in spec/design

@@ -19,10 +19,10 @@ instruction: |
      - active_changes_root: $WORKFLOW_STATE_DIR
 
   2. **Compute SWE metrics**:
-     a. Check if $ORCHESTRATOR_HOME/scripts/compute-swe-metrics.sh exists.
+     a. Check if $ORCHESTRATOR_HOME/scripts/inline/compute-swe-metrics.sh exists.
      b. If yes: run it and validate the output contains a `metrics:` YAML block.
         ```bash
-        $ORCHESTRATOR_HOME/scripts/compute-swe-metrics.sh "$WORKFLOW_STATE_DIR/$CHANGE_ID"
+        $ORCHESTRATOR_HOME/scripts/inline/compute-swe-metrics.sh "$WORKFLOW_STATE_DIR/$CHANGE_ID"
         ```
         The script reads token/cost data from step_history[].usage in state.yaml,
         computes resolution stats from tasks.md, and git churn from commit history.

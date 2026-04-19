@@ -87,9 +87,75 @@ def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any
                 3,
             )
 
+    # Check A: workflow_plan.active shape on workflow-init completion.
+    # Root cause of ISSUE-1: dispatcher reads .active to build the work queue;
+    # an empty or missing list causes it to immediately return complete_workflow.
+    if step_id == "workflow-init" and status == "completed":
+        plan = outputs.get("workflow_plan") or {}
+        bad_phases = [
+            p for p, body in plan.items()
+            if not isinstance(body, dict)
+            or not isinstance(body.get("active"), list)
+            or len(body["active"]) == 0
+        ]
+        if bad_phases:
+            return (
+                {
+                    "action": "validation_error",
+                    "reason": "workflow_plan_active_missing_or_empty",
+                    "phases": bad_phases,
+                    "hint": "workflow_plan[<phase>].active must be a non-empty list of step IDs",
+                },
+                3,
+            )
+
+    # Check B: usage required for agent (non-inline) steps on completion.
+    # Root cause of ISSUE-10.1: empty usage means cost report is blank and
+    # telemetry has no data for the step.
+    agent = payload.get("agent", "inline")
+    if status == "completed" and agent != "inline":
+        usage = payload.get("usage") or {}
+        has_tokens = (
+            (isinstance(usage.get("input_tokens"), (int, float)) and usage["input_tokens"] > 0)
+            or (isinstance(usage.get("output_tokens"), (int, float)) and usage["output_tokens"] > 0)
+        )
+        if not has_tokens:
+            return (
+                {
+                    "action": "validation_error",
+                    "reason": "agent_step_missing_usage",
+                    "step_id": step_id,
+                    "agent": agent,
+                    "hint": "agent steps must record usage.input_tokens or usage.output_tokens > 0",
+                },
+                3,
+            )
+
     path = Path(state_yaml_path)
-    with open(path) as f:
-        state_raw = yaml.safe_load(f) or {}
+
+    # Check C: detect corrupted state.yaml before AND after write.
+    # Root cause of ISSUE-7: hand-edits that corrupt YAML surface far downstream
+    # (dispatch crashes on malformed YAML three calls later). Capture pre-write
+    # bytes so we can restore the file if either the initial parse or post-write
+    # parse fails.
+    with open(path, "rb") as f:
+        pre_write_bytes = f.read()
+
+    try:
+        state_raw = yaml.safe_load(pre_write_bytes.decode("utf-8")) or {}
+    except yaml.YAMLError as e:
+        return (
+            {
+                "action": "error",
+                "reason": "state_yaml_parse_failure",
+                "detail": str(e),
+                "hint": (
+                    "state.yaml failed to parse before record. "
+                    "Likely an earlier hand-edit corrupted the file."
+                ),
+            },
+            4,
+        )
 
     # Determine attempt number for this (phase, step_id).
     history = list(state_raw.get("step_history") or [])
@@ -121,6 +187,28 @@ def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any
 
     with open(path, "w") as f:
         yaml.safe_dump(state_raw, f, sort_keys=False, default_flow_style=False)
+
+    # Check C (post-write): verify the written file is valid YAML.
+    # If serialization produced invalid content, restore the pre-write bytes.
+    try:
+        with open(path) as f:
+            yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        with open(path, "wb") as f:
+            f.write(pre_write_bytes)
+        return (
+            {
+                "action": "error",
+                "reason": "state_yaml_parse_failure",
+                "detail": str(e),
+                "hint": (
+                    "state.yaml parse failed after record. "
+                    "File has been restored to pre-write state. "
+                    "Likely an earlier hand-edit corrupted the file."
+                ),
+            },
+            4,
+        )
 
     return (
         {

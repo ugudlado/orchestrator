@@ -285,6 +285,21 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             }
             return action, 0
 
+        # Warn if this phase is not the last in workflow_plan (driver must advance phase)
+        plan = (state.workflow_plan or {})
+        phase_names = list(plan.keys())
+        if len(phase_names) > 1 and state.phase in phase_names:
+            current_idx = phase_names.index(state.phase)
+            remaining = phase_names[current_idx + 1:]
+            if remaining:
+                print(
+                    f"WARNING: phase '{state.phase}' is complete but "
+                    f"workflow_plan has other phases ({', '.join(remaining)}). "
+                    f"Driver must advance state.yaml 'phase' field and re-run "
+                    f"'orchestrator next' before completing workflow.",
+                    file=sys.stderr,
+                )
+
         # All phases complete (T-2: only single phase in fixtures, so this is "all done")
         return {"action": "complete_workflow"}, 1
 

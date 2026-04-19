@@ -42,4 +42,4 @@ verify:
     - step_history[-1].step_id is `preview-route` with status: completed
 
 outputs:
-  - state.yaml route_preview block
+  - route_preview

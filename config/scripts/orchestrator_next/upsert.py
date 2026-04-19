@@ -175,13 +175,28 @@ _STEP_EVENTS_RENAMES = [
     ("gen_ai_usage_cost_usd",                "cost_usd"),
 ]
 
+_INDEX_NAME = "idx_step_events_change"
+
 
 def _migrate_step_events(db) -> None:
-    """Rename otel-prefixed columns to plain names on existing step_events tables."""
+    """Rename otel-prefixed columns to plain names on existing step_events tables.
+
+    Drops idx_step_events_change before renaming because DuckDB refuses
+    ALTER TABLE ... RENAME COLUMN while an index depends on the table.
+    The caller's ensure_schema() recreates the index via _CREATE_INDEX
+    (CREATE INDEX IF NOT EXISTS) after this function returns.
+    """
     try:
         existing = {row[0] for row in db.execute("DESCRIBE step_events").fetchall()}
     except Exception:
         return
+    needs_rename = any(
+        old in existing and new not in existing
+        for old, new in _STEP_EVENTS_RENAMES
+    )
+    if not needs_rename:
+        return  # fast path — no-op on fresh / already-migrated tables
+    db.execute(f"DROP INDEX IF EXISTS {_INDEX_NAME}")
     for old, new in _STEP_EVENTS_RENAMES:
         if old in existing and new not in existing:
             db.execute(f"ALTER TABLE step_events RENAME COLUMN {old} TO {new}")
