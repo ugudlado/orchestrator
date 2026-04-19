@@ -81,7 +81,7 @@ else
 fi
 
 # 2. Exactly 1 row in step_history (valid row kept, invalid row dropped)
-ROW_COUNT=$(duckdb "$TEST_DB" "SELECT COUNT(*) FROM step_history;" 2>/dev/null | grep -E '^[0-9]+$' | head -1 || echo "-1")
+ROW_COUNT=$(duckdb "$TEST_DB" -csv -noheader "SELECT COUNT(*) FROM step_history;" 2>/dev/null || echo "-1")
 if [[ "$ROW_COUNT" -eq 1 ]]; then
   pass "step_history has exactly 1 row (invariant dropped the invalid row)"
 else
@@ -89,7 +89,7 @@ else
 fi
 
 # 3. The surviving row is the VALID one (step_id = workflow-init)
-SURVIVING_STEP=$(duckdb "$TEST_DB" "SELECT step_id FROM step_history LIMIT 1;" 2>/dev/null | grep -v '^step_id$\|^-\+$\|^$' | head -1 || echo "")
+SURVIVING_STEP=$(duckdb "$TEST_DB" -csv -noheader "SELECT step_id FROM step_history LIMIT 1;" 2>/dev/null || echo "")
 if [[ "$SURVIVING_STEP" == "workflow-init" ]]; then
   pass "surviving row is the valid entry (step_id=workflow-init)"
 else
