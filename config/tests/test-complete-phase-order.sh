@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Test: _complete-phase.yaml step ordering
 #
-# FR-3, AC-1: The complete phase step order must be exactly:
+# FR-3, AC-1, FR-9, AC-4: The complete phase step order must be exactly:
 #   compute-prediction-accuracy → run-learn-cycle → mark-change-completed
-#   → compute-swe-metrics → archive-completed-change → remove-worktree
+#   → ingest-feature-metrics → compute-swe-metrics → archive-completed-change
+#   → remove-worktree
 #
-# mark-change-completed must appear BEFORE compute-swe-metrics so that
-# completed_at is available when the metrics script runs.
+# mark-change-completed must appear BEFORE ingest-feature-metrics so that
+# completed_at is available when the ingest step runs.
+# ingest-feature-metrics must appear BEFORE compute-swe-metrics so that
+# the feature_metrics row is populated before compute-swe-metrics queries it.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -52,6 +55,7 @@ REQUIRED_ORDER=(
   "compute-prediction-accuracy"
   "run-learn-cycle"
   "mark-change-completed"
+  "ingest-feature-metrics"
   "compute-swe-metrics"
   "archive-completed-change"
   "remove-worktree"
@@ -71,21 +75,28 @@ get_pos() {
 POS_PREDICT=$(get_pos "compute-prediction-accuracy")
 POS_LEARN=$(get_pos "run-learn-cycle")
 POS_MARK=$(get_pos "mark-change-completed")
+POS_INGEST=$(get_pos "ingest-feature-metrics")
 POS_METRICS=$(get_pos "compute-swe-metrics")
 POS_ARCHIVE=$(get_pos "archive-completed-change")
 POS_REMOVE=$(get_pos "remove-worktree")
 
 echo ""
-echo "Step positions: predict=$POS_PREDICT learn=$POS_LEARN mark=$POS_MARK metrics=$POS_METRICS archive=$POS_ARCHIVE remove=$POS_REMOVE"
+echo "Step positions: predict=$POS_PREDICT learn=$POS_LEARN mark=$POS_MARK ingest=$POS_INGEST metrics=$POS_METRICS archive=$POS_ARCHIVE remove=$POS_REMOVE"
 
-# All must be non-empty (present)
-[[ -n "$POS_MARK" && -n "$POS_METRICS" ]]
-check "both mark-change-completed and compute-swe-metrics have positions" $?
+# All must be non-empty (present) — FR-9
+[[ -n "$POS_MARK" && -n "$POS_INGEST" && -n "$POS_METRICS" ]]
+check "mark-change-completed, ingest-feature-metrics, and compute-swe-metrics all have positions" $?
 
-# Critical: mark-change-completed BEFORE compute-swe-metrics
-if [[ -n "$POS_MARK" && -n "$POS_METRICS" ]]; then
-  [[ "$POS_MARK" -lt "$POS_METRICS" ]]
-  check "mark-change-completed (pos $POS_MARK) appears before compute-swe-metrics (pos $POS_METRICS)" $?
+# Critical: mark-change-completed BEFORE ingest-feature-metrics (AC-4)
+if [[ -n "$POS_MARK" && -n "$POS_INGEST" ]]; then
+  [[ "$POS_MARK" -lt "$POS_INGEST" ]]
+  check "mark-change-completed (pos $POS_MARK) appears before ingest-feature-metrics (pos $POS_INGEST)" $?
+fi
+
+# Critical: ingest-feature-metrics BEFORE compute-swe-metrics (AC-4, FR-9)
+if [[ -n "$POS_INGEST" && -n "$POS_METRICS" ]]; then
+  [[ "$POS_INGEST" -lt "$POS_METRICS" ]]
+  check "ingest-feature-metrics (pos $POS_INGEST) appears before compute-swe-metrics (pos $POS_METRICS)" $?
 fi
 
 # compute-swe-metrics BEFORE archive-completed-change
