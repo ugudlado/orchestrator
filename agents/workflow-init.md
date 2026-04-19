@@ -57,6 +57,23 @@ handles everything needed before the first real step runs.
      active steps (apply `if <flag>` gates against resolved flags) and the
      filtered steps. Resolve `include: _<name>` directives inline.
 
+   The key is `active:` (not `active_steps:`) — this is the shape the dispatcher reads.
+   Canonical `workflow_plan` example:
+
+   ```yaml
+   workflow_plan:
+     specify:
+       active: [workflow-init, design-and-draft-artifacts, preview-route]
+       filtered:
+         - id: explore
+           reason: "flag discovery=false"
+     implement:
+       active: [capture-test-baseline, execute-next-task, run-phase-review]
+       filtered: []
+   ```
+
+   The key is `active:` (not `active_steps:`) — this is the shape the dispatcher reads.
+
 3. **Create a Linear ticket** (if `flags.linear` is true):
    - Read `~/.config/linear/config.yaml` for team ID, project ID, and label
      IDs for the current repo.
@@ -96,6 +113,12 @@ handles everything needed before the first real step runs.
   inputs, not from any other workflow's state.yaml.
 - MUST NOT invoke other agents. This is a leaf agent.
 - MUST validate every declared output is set before returning.
+
+## State Updates
+
+- **MUST** use `orchestrator record` for step_history appends. **MUST NOT** edit
+  state.yaml directly with Write or Edit tools — `record.py` validates shape and
+  rejects corrupted payloads. Direct edits bypass validation and risk silent corruption.
 
 ## Evidence standards
 

@@ -131,7 +131,8 @@ context:
     - Keep workflow rules agent-agnostic — no tool-specific instructions in schemas or steps.
     - ORCHESTRATOR_HOME is the canonical env var (replacing SPEC_HOME from shell repo).
 
-verify_commands: []
+verify_commands:
+  test: pytest config/scripts/orchestrator_next/tests/ -q
 
 quality_bar:
   min_phase_review_score: 9

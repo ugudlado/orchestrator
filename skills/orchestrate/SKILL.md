@@ -115,28 +115,36 @@ LOOP:
   IF action.action == "run_step":
       # Agent spawn. Load agent .md from $ORCHESTRATOR_HOME/agents/<action.agent>.md
       # and run action.run (adapter path) with the agent's prompt + action.inputs.
+      # Spawn with run_in_background: true as the default.
+      # Exceptions: ideator and reviewer spawns are short-running and may be foreground.
       spawn agent(action.agent) with prompt=action.instruction, rules=action.rules,
-            inputs=action.inputs, expecting=action.expected_outputs
+            inputs=action.inputs, expecting=action.expected_outputs,
+            run_in_background: true  # default; omit for ideator/reviewer
 
-      # USAGE CAPTURE: after the agent Task completes, extract usage from the result.
-      # The Task tool result message contains a <usage> block — read these fields and
-      # include them in the orchestrator record payload under the "usage" key:
-      #   input_tokens             — from <usage> input_tokens
-      #   output_tokens            — from <usage> output_tokens
-      #   cache_read_input_tokens  — from <usage> cache_read_input_tokens (if present)
-      #   cost_usd                 — from <usage> cost_usd or total_cost_usd (if present)
-      #   duration_ms              — from <usage> duration_ms (if present)
-      #   tool_calls               — a dict of {tool_name: count} tallied from the agent's
-      #                              tool use blocks in the result (if visible)
-      # If a field is absent from the result, omit it — do not pass 0 or null.
-      # Example record payload usage block:
-      #   "usage": {"input_tokens": 45230, "output_tokens": 3210, "duration_ms": 87400,
-      #             "tool_calls": {"Read": 12, "Edit": 5, "Bash": 8}}
+      # 1. Collect agent result (wait for background task to complete).
+      # 2. Pass outputs to orchestrator record payload.
+
+      # 3. MANDATORY: USAGE CAPTURE — after any agent Task completes, extract from
+      #    the result <usage> block:
+      #      input_tokens             — from <usage> input_tokens
+      #      output_tokens            — from <usage> output_tokens
+      #      cache_read_input_tokens  — from <usage> cache_read_input_tokens (if present)
+      #      cost_usd                 — from <usage> cost_usd or total_cost_usd (if present)
+      #      duration_ms              — from <usage> duration_ms (if present)
+      #      tool_calls               — a dict of {tool_name: count} tallied from the
+      #                                 agent's tool use blocks in the result (if visible)
+      #    Include these under the `usage` key in the `orchestrator record` payload.
+      #    If a field is absent from the result, omit it — do not pass 0 or null.
+      #    Example record payload usage block:
+      #      "usage": {"input_tokens": 45230, "output_tokens": 3210, "duration_ms": 87400,
+      #                "tool_calls": {"Read": 12, "Edit": 5, "Bash": 8}}
+      #    After recording, assert step_history[-1].usage.input_tokens is non-null/non-zero
+      #    for any agent (non-inline) step — record.py enforces this (FR-11).
 
       orchestrator record state.yaml <<< {step_id, phase, status, outputs, usage, evidence}
   IF action.action == "retry_step":
       same as run_step but with action.previous_failure in the prompt
-      # Apply the same USAGE CAPTURE as run_step above.
+      # Apply the same MANDATORY USAGE CAPTURE as run_step above.
 ```
 
 Escalation (agent returns STATUS: escalate_to_architect): record a
@@ -152,6 +160,12 @@ After all steps in a phase complete:
 - If phase has `requires:` — this was already validated at phase start
 - Advance `phase` field in state.yaml to the next phase
 - Continue the dispatch loop with the next phase's steps
+
+If `orchestrator next` returns `complete_workflow` AND stderr shows
+`WARNING: phase 'X' is complete but workflow_plan has other phases (...)` —
+do NOT treat as terminal. Update state.yaml `phase:` field to the next phase
+per schema ordering and re-dispatch. This is the driver's responsibility; the
+CLI emits a loud hint but does not auto-advance.
 
 ### Key rules
 
