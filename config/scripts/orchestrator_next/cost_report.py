@@ -420,13 +420,48 @@ def _by_tool(db, repo_root: str, change_id: str) -> list[dict]:
 # Public aggregation API
 # ---------------------------------------------------------------------------
 
+def _session_cost(repo_root: str, change_id: str) -> dict | None:
+    """
+    Best-effort lookup of session-level cost from archived state.yaml swe_metrics.
+    Returns {net_usd, gross_usd, tokens_total} or None if not found.
+
+    Session cost comes from compute-swe-metrics scanning the Claude Code JSONL —
+    it includes the driver loop's own turns (not in step_events). The gap
+    between session_cost and sum(step_events.cost_usd) is the "driver overhead".
+    """
+    import glob
+    import yaml
+    patterns = [
+        f"{repo_root}/spec/changes/archive/*-{change_id}/state.yaml",
+        f"{repo_root}/.state/{change_id}/state.yaml",
+    ]
+    for pat in patterns:
+        for path in glob.glob(pat):
+            try:
+                with open(path) as f:
+                    state = yaml.safe_load(f)
+                for entry in state.get("step_history", []):
+                    ev = entry.get("evidence") or {}
+                    outs = ev.get("outputs") or {}
+                    swe = outs.get("swe_metrics") or ev.get("swe_metrics")
+                    if swe and "cost_net_usd" in swe:
+                        return {
+                            "net_usd": swe["cost_net_usd"],
+                            "gross_usd": swe.get("cost_gross_usd"),
+                            "tokens_total": swe.get("tokens_total"),
+                        }
+            except Exception:
+                continue
+    return None
+
+
 def aggregate_feature(db, repo_root: str, change_id: str) -> dict:
     """
     Aggregate all sections for a single change_id (feature-level report).
 
     Returns a dict with keys:
       totals, per_phase, per_agent, per_model,
-      native_tools, mcp_calls, per_agent_tools, anomalies
+      native_tools, mcp_calls, per_agent_tools, anomalies, session_cost
     """
     return {
         "totals": _totals(db, repo_root, change_id),
@@ -438,6 +473,7 @@ def aggregate_feature(db, repo_root: str, change_id: str) -> dict:
         "per_agent_tools": _per_agent_tools(db, repo_root, change_id),
         "anomalies": _anomalies(db, repo_root, change_id),
         "anomalies_step_allowlist": _step_allowlist_anomalies(db, repo_root, change_id),
+        "session_cost": _session_cost(repo_root, change_id),
     }
 
 
@@ -588,7 +624,15 @@ def render_markdown_feature(data: dict) -> str:
     lines.append("")
     lines.append(f"| Metric | Value |")
     lines.append(f"| --- | --- |")
-    lines.append(f"| Total cost | {_fmt_usd(totals['cost_usd'])} |")
+    lines.append(f"| Step cost (agent spawns) | {_fmt_usd(totals['cost_usd'])} |")
+    session = data.get("session_cost")
+    if session and session.get("net_usd") is not None:
+        step_cost = totals["cost_usd"] or 0.0
+        driver_overhead = session["net_usd"] - step_cost
+        lines.append(f"| Session cost (net, incl. driver) | {_fmt_usd(session['net_usd'])} |")
+        lines.append(f"| Driver overhead | {_fmt_usd(driver_overhead)} |")
+        if session.get("gross_usd"):
+            lines.append(f"| Session cost (gross, no cache) | {_fmt_usd(session['gross_usd'])} |")
     lines.append(f"| Input tokens | {_fmt_tokens(totals['input_tokens'])} |")
     lines.append(f"| Output tokens | {_fmt_tokens(totals['output_tokens'])} |")
     lines.append(f"| Duration | {_fmt_ms(totals['duration_ms'])} |")

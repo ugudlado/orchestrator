@@ -189,5 +189,13 @@ LEARNINGS_ROUTED:
     target: <step contract or project.yaml>
     rule: <what to do or avoid>
 
+USAGE:
+  input_tokens: <N>            # from your own session token count
+  output_tokens: <N>
+  duration_ms: <N>
+  tool_calls: {Read: <N>, Edit: <N>, Bash: <N>, ...}
+
 STATUS: <improvements_applied|no_changes_needed>
 ```
+
+Include the USAGE block so the driver can record your cost contribution — without it, your step_event row has NULL tokens and cost_usd, and per-agent cost reports understate total spend. If you cannot count your tokens precisely, emit approximate counts (better than zero).
