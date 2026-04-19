@@ -22,7 +22,7 @@ args:
    - the project context from `spec/project.yaml`
    - instructions to inspect current repo state before ranking anything
 4. Require the `ideator` agent to perform a freshness pass:
-   - Read existing backlog entries from `spec/changes/backlog/*/{.spec.yaml,idea.md}`.
+   - Read existing backlog entries from `spec/changes/backlog.md` (single file; Features and Bugs sections).
    - Read completed work from `spec/changes/archive/*`.
    - Search the current repo for concrete evidence that each candidate is still missing.
    - Classify each backlog idea as `fresh`, `partially_done`, `stale`, or `superseded`.

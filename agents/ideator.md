@@ -48,13 +48,15 @@ Read existing code to understand what's actually there (not just what's document
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 ls "$REPO_ROOT/.state"                 # active local workflow state
-ls "$REPO_ROOT/spec/changes/backlog"   # proposed ideas
+cat "$REPO_ROOT/spec/changes/backlog.md"  # proposed ideas (single consolidated file)
 ls "$REPO_ROOT/spec/changes/archive"   # completed changes
 ```
 
 Before recommending an existing idea, verify that it is still relevant:
 
-1. Read `spec/changes/backlog/*/.spec.yaml` and `spec/changes/backlog/*/idea.md`.
+1. Read `spec/changes/backlog.md` — a single file with all pending ideas, split into
+   **## Features** and **## Bugs** sections. Each entry is an H2 keyed by slug,
+   with a score line, and retains the full idea body (Idea / Why Now / Prototype / Priority).
 2. Read `spec/changes/archive/*/{spec.md,tasks.md,state.yaml}` for completed work that may have already implemented or superseded the idea.
 3. Search the current repo for concrete implementation evidence using `rg`, `rg --files`, and focused file reads.
 4. Classify each backlog idea:
