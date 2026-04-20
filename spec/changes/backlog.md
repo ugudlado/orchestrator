@@ -114,6 +114,66 @@ Reveals the single most mis-attributed cost in the stack. Enables "stop spawning
 
 ---
 
+## dispatch-repeat-until-honor
+
+**`dispatch.py._find_completed_step` ignores `repeat_until` predicate** (score 8.5)
+
+**Recurrence:** 1 — source: single-source-metrics-via-step-events (2026-04-19 mid-flight blocker; driver had to manually prune phantom step_history entries + set tasks_path to work around)
+
+### Idea
+
+`config/scripts/orchestrator_next/dispatch.py::_find_completed_step` (lines ~140–147) returns `True` on any completed step_history entry for the given (phase, step_id). For steps declared with `repeat_until: <predicate>` (e.g., `execute-next-task` with `repeat_until: all_tasks_completed`), this causes `orchestrator next` to skip straight to the following step after the first task completes — even when many tasks remain.
+
+The `repeat_until` predicate is only evaluated in `record.py` (which sets an advisory `next_step` in state.yaml). `dispatch.py` ignores state.yaml's `next_step` and recomputes from `workflow_plan[phase].active` minus completed entries → repeat_until semantics are lost at dispatch time.
+
+### Scope
+
+1. In `dispatch.py`, teach `_find_completed_step` (or its caller) to consult the step contract's `repeat_until` predicate. If a step has `repeat_until` AND the predicate returns False, treat the step as not-completed and return it.
+2. Use `_REPEAT_PREDICATES` from `record.py` (shared registry: `all_tasks_completed`, etc.) — do not duplicate the predicate logic.
+3. Test: `test_dispatch.py::test_repeat_until_keeps_step_active` — seed `execute-next-task` with one completed entry + tasks.md containing unchecked tasks; assert `orchestrator next` returns `execute-next-task` again, not the following step.
+4. Migration: existing in-flight workflows may have phantom `execute-next-task` entries that were never cleaned up. The fix is backward-compatible: once dispatch honors repeat_until, stale entries become harmless.
+
+### Why Now
+
+Affects every workflow that uses `repeat_until`. Currently only `execute-next-task` has this, so the impact is narrow in scope but mid-flight blocking when hit. Without this, any autopilot or manual /implement run requires driver-side bookkeeping surgery after task 1.
+
+### Scope estimate
+
+~30 lines Python + one test. Chore-tier.
+
+### Source
+
+- single-source-metrics-via-step-events retro (2026-04-19) ISSUE-33
+- Evaluator confirmed at `config/scripts/orchestrator_next/dispatch.py:140-147`
+
+---
+
+## register-repo-test-t5b-post-fr11-cleanup
+
+**`register-repo.test.sh` T-5b: update 2 assertions that test pre-FR-11 behavior** (score 4.0)
+
+**Recurrence:** 1 — source: single-source-metrics-via-step-events T-17 (FR-11 invariant added; T-5b's 2 assertions encode old buggy behavior)
+
+### Idea
+
+T-17 added FR-11 to `config/scripts/register-repo.sh`: silent-failure step_history rows (agent != null/inline, status = completed, total_tokens IS NULL) are now rejected with a stderr warning. The pre-existing `config/scripts/__tests__/register-repo.test.sh` T-5b subtest has 2 assertions that still test the old buggy behavior:
+- Expected empty stderr (now correctly emits a warning)
+- Expected a row with NULL numerics (now correctly dropped to 0 rows)
+
+### Scope
+
+Trivial: update the 2 assertions to match FR-11 behavior. Update the test fixture comment to cite FR-11 (in `config/steps/contracts/metrics-schema.md` and the backlog entry for this feature).
+
+### Scope estimate
+
+~5 lines. Quick chore.
+
+### Source
+
+- single-source-metrics-via-step-events T-17 dev notes (declined to modify test outside allowed touch-set — correctly flagged as follow-up)
+
+---
+
 ## step-timing-telemetry
 
 **Step Timing Telemetry** (score 7.7)
@@ -910,3 +970,31 @@ spec/changes/archive/2026-04-19-fix-inline-scripts-tmpdir/retro.md §ISSUE-29
 
 ---
 
+
+---
+
+## autopilot-wakeup-discipline
+
+**Rule: under --auto with background agents, minimize redundant ScheduleWakeup polling** (score 5.5)
+
+**Recurrence:** 1 — source: single-source-metrics-via-step-events post-ship review (2026-04-20: driver-loop cost $190 = 74% cache reads, ~30% attributed to 31 ScheduleWakeup-driven re-hydrations redundant with task-notification system)
+
+### Idea
+
+Autopilot driver emits ScheduleWakeup calls to check on background agents (`dev running on T-X, check in 4min`). Each wakeup = full conversation re-hydration = millions of cache_read tokens. Task completions already fire `<task-notification>` automatically. The wakeup polling is redundant with the notification system and adds ~$40 to a typical feature's driver-loop cost.
+
+### Scope
+
+1. Add a rule to autopilot skill or orchestrate skill dispatch prompt: "When agents are running in the background and no deterministic polling is required, rely on task-notification events. Do not emit ScheduleWakeup for wait-only purposes."
+2. Allowed wakeup cases: (a) watching an external resource the agent system can't notify on (e.g., a deploy URL), (b) time-gated events like "check in 30min to re-assess", (c) user explicitly asked for periodic reports.
+3. Forbidden cases: "dev still running, check in 5min" — just wait for the notification.
+4. Measure: compare driver-loop cache_reads across next 2 autopilot runs vs historical ~$140 cache-read cost.
+
+### Expected savings
+
+~30% driver-loop cache_reads per autopilot feature. For opus-4.7 runs, ~$40–50 savings per feature.
+
+### Source
+
+- single-source-metrics-via-step-events post-ship cost analysis (2026-04-20)
+- `orchestrator cost --change-id single-source-metrics-via-step-events` showed 31 ScheduleWakeup tool calls alongside 465 turns × ~200K cache prefix = 93M cache reads
