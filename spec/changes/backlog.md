@@ -36,15 +36,17 @@ Generate a deterministic, pre-merged `plan.yaml` once at `workflow-init` time, c
 1. New `config/scripts/orchestrator_next/generate_plan.py` — deterministic merger implementing the 5-tier precedence from `rule-merge.md`. Reads `resolved_flags`, schema, `project.yaml`, step contracts. Emits `plan.yaml` with only active steps per phase.
 2. `agents/workflow-init.md` — responsibility addition: after writing state.yaml, run the generator with the state path as input.
 3. `config/steps/workflow-init.yaml` — declare `plan_yaml_path` as an output (additive, no behavior change to current dispatch).
-4. `config/scripts/orchestrator_next/dispatch.py` — when emitting a `spawn_agent` action, read the matching step block from `plan.yaml` (if present) and include under `step_context`. Fall back to current behavior when `plan.yaml` is absent (in-flight workflows from before this change).
+4. `config/scripts/orchestrator_next/dispatch.py` — when emitting a `spawn_agent` action, read the matching step block from `plan.yaml` and include the resolved fields (`goal`, `inputs`, `outputs`, `rules`, `verify`, `repeat_until` when present) under a `step_context` key in the action payload. If `plan.yaml` is absent, fail loudly — no fallback path. No in-flight workflows exist that need the legacy behavior.
 5. `test_generate_plan.py` — merge precedence asserted, rule filtering by flag, inactive-if steps dropped, stable output across runs.
+6. `test_dispatch_step_context.py` — assert `orchestrator next` returns `step_context` populated from `plan.yaml` and errors when `plan.yaml` is missing.
 
 ### Out of scope
 
 - Changing state.yaml shape
 - Changing `rule-merge.md` precedence semantics
-- Rewriting other agents to consume `step_context` (they can keep reading source files; consumption is a follow-up)
+- Rewriting other agents to consume `step_context` (they can keep reading source files; consumption is a follow-up — the spawn prompt just includes `step_context` as a fenced reference block)
 - Handling mid-flight schema edits (plan.yaml is frozen at init; learned changes apply to next feature — matches reproducibility goal)
+- Backward compatibility with pre-change workflows (none exist)
 
 ### Why Now
 
