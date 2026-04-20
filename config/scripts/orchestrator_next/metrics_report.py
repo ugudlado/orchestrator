@@ -208,6 +208,37 @@ def _build_per_agent_tokens_str(db, repo_root: str, change_id: str) -> str:
     return json.dumps(result, sort_keys=True)
 
 
+def _build_per_tool_uses_str(db, repo_root: str, change_id: str) -> str:
+    """
+    Build per_tool_uses as a stringified JSON dict.
+
+    Shape: {tool_name: total_count, ...}
+
+    Aggregates tool_calls_json across all step_events rows for the change_id.
+    Must be a JSON string (not an object) — same rationale as per_agent_tokens.
+    """
+    try:
+        rows = db.execute(
+            "SELECT tool_calls_json FROM step_events "
+            "WHERE repo_root = ? AND change_id = ? AND tool_calls_json IS NOT NULL",
+            [repo_root, change_id],
+        ).fetchall()
+    except Exception:
+        return "{}"
+
+    tool_counts: dict[str, int] = {}
+    for (tcj,) in rows:
+        try:
+            d = json.loads(tcj)
+            if isinstance(d, dict):
+                for tool, count in d.items():
+                    tool_counts[tool] = tool_counts.get(tool, 0) + (count if isinstance(count, int) else 0)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+    return json.dumps(tool_counts, sort_keys=True) if tool_counts else "{}"
+
+
 def _build_per_agent_tools_str(db, repo_root: str, change_id: str) -> str:
     """
     Build per_agent_tools as a stringified JSON dict.
@@ -318,6 +349,7 @@ def aggregate_metrics(db, repo_root: str, change_id: str) -> dict:
     per_step = _per_step_rollup(db, repo_root, change_id)
     per_agent_tokens_str = _build_per_agent_tokens_str(db, repo_root, change_id)
     per_agent_tools_str  = _build_per_agent_tools_str(db, repo_root, change_id)
+    per_tool_uses_str    = _build_per_tool_uses_str(db, repo_root, change_id)
 
     # --- review_scores: decode JSON string from feature_metrics ---
     review_scores: list = []
@@ -345,6 +377,7 @@ def aggregate_metrics(db, repo_root: str, change_id: str) -> dict:
             },
         },
         "turns":       totals.get("turns") or 0,
+        "api_calls":   totals.get("turns") or 0,
         "tool_calls":  tool_calls_count,
         "wall_clock_minutes": (fm_row.get("wall_clock_minutes") if fm_row else None),
         "category":    schema,
@@ -380,6 +413,7 @@ def aggregate_metrics(db, repo_root: str, change_id: str) -> dict:
         "benchmarks": _compute_benchmarks(totals, fm_row),
         "per_agent_tokens": per_agent_tokens_str,
         "per_agent_tools":  per_agent_tools_str,
+        "per_tool_uses":    per_tool_uses_str,
         "per_step": per_step,
     }
 

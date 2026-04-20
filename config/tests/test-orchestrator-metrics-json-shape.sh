@@ -291,6 +291,25 @@ val_pats=$(jq ".per_agent_tools | type" "$TMPDIR_LOCAL/out.json" 2>/dev/null)
 check "per_agent_tools is a JSON string (not object)" $?
 
 echo ""
+echo "--- api_calls / per_tool_uses ---"
+# api_calls must be a non-negative integer (alias for turns)
+val_ac=$(jq ".api_calls" "$TMPDIR_LOCAL/out.json" 2>/dev/null)
+[[ "$val_ac" != "null" && "$val_ac" != "" ]]
+check "api_calls is present" $?
+# Verify it's a non-negative integer (jq returns bare number for integers)
+[[ "$val_ac" =~ ^[0-9]+$ ]]
+check "api_calls is a non-negative integer" $?
+
+# per_tool_uses must be a string that parses as JSON object
+val_ptu_type=$(jq ".per_tool_uses | type" "$TMPDIR_LOCAL/out.json" 2>/dev/null)
+[[ "$val_ptu_type" == '"string"' ]]
+check "per_tool_uses is a JSON string (not object)" $?
+
+val_ptu=$(jq -r ".per_tool_uses" "$TMPDIR_LOCAL/out.json" 2>/dev/null)
+python3 -c "import json,sys; d=json.loads(sys.argv[1]); assert isinstance(d, dict)" "$val_ptu" 2>/dev/null
+check "per_tool_uses value parses as a JSON object (dict)" $?
+
+echo ""
 echo "--- per_step ---"
 val_ps=$(jq ".per_step | type" "$TMPDIR_LOCAL/out.json" 2>/dev/null)
 [[ "$val_ps" == '"object"' ]]
