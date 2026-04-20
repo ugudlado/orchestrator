@@ -1,0 +1,706 @@
+schema: feature
+change_id: pricing-table-in-duckdb
+slug: pricing-table-in-duckdb
+status: completed
+title: "Pricing table in DuckDB \u2014 Phase 1 of workflow-engine-as-state-machine"
+repo_root: /Users/spidey/code/orchestrator
+worktree_path: /Users/spidey/code/feature_worktrees/pricing-table-in-duckdb
+branch: feature/pricing-table-in-duckdb
+linear_ticket: null
+created_at: &id001 2026-04-20 14:48:30+00:00
+project_context_loaded: true
+project_context_at: 2026-04-20 14:48:30+00:00
+phase: complete
+next_step:
+  phase: complete
+  step_id: archive-completed-change
+flags:
+  tdd_required: true
+  ux_design: false
+  discovery: true
+  phase_review: true
+  worktree: true
+  auto: false
+  agents: false
+  linear: false
+  light: false
+workflow_plan:
+  specify:
+    active:
+    - workflow-init
+    - explore
+    - design-and-draft-artifacts
+    - preview-route
+    - run-phase-review
+    filtered:
+    - id: ux-design
+      reason: flag ux_design=false
+  implement:
+    active:
+    - capture-test-baseline
+    - execute-next-task
+    - run-phase-review
+    filtered:
+    - id: run-ux-critique
+      reason: flag ux_design=false
+  complete:
+    active:
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - ingest-driver-auto
+    - ingest-subagents-auto
+    - ingest-feature-metrics
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+step_history:
+- step_id: workflow-init
+  phase: specify
+  attempt: 1
+  status: completed
+  agent: workflow-init
+  started_at: 2026-04-20 14:48:30+00:00
+  completed_at: 2026-04-20 14:48:30+00:00
+  evidence:
+    outputs:
+      slug: pricing-table-in-duckdb
+      worktree_path: /Users/spidey/code/feature_worktrees/pricing-table-in-duckdb
+      branch: feature/pricing-table-in-duckdb
+      linear_ticket_id: null
+      resolved_flags:
+        tdd_required: true
+        ux_design: false
+        discovery: true
+        phase_review: true
+        worktree: true
+        auto: false
+        agents: false
+        linear: false
+        light: false
+      note: workflow-init executed inline by driver after subagent watchdog stall;
+        no partial state from prior spawn.
+- step_id: explore
+  phase: specify
+  status: completed
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-04-20T17:52:07Z'
+  ended_at: '2026-04-20T17:52:07Z'
+  usage:
+    input_tokens: 32815
+    output_tokens: 1800
+    duration_ms: 425222
+    tool_calls:
+      Read: 20
+      Grep: 15
+      Glob: 5
+      Bash: 3
+    model: claude-sonnet-4-6
+    cost_usd: 0.125445
+  evidence:
+    outputs:
+      discovery_result: .state/pricing-table-in-duckdb/discovery.md
+    files_written:
+    - .state/pricing-table-in-duckdb/discovery.md
+    notable_finding: estimate-cost.sh is a third pricing.yaml consumer not in original
+      scope; surfaced 6 open questions for architect
+- step_id: design-and-draft-artifacts
+  phase: specify
+  status: completed
+  agent: architect
+  attempt: 1
+  started_at: '2026-04-20T18:15:23Z'
+  ended_at: '2026-04-20T18:15:23Z'
+  usage:
+    input_tokens: 127598
+    output_tokens: 6800
+    duration_ms: 666073
+    tool_calls:
+      Read: 28
+      Write: 4
+      Edit: 8
+      Grep: 8
+      Bash: 4
+    model: claude-opus-4-7
+    cost_usd: 2.4239699999999997
+  evidence:
+    outputs:
+      updated_artifact_set:
+      - spec.md
+      - design.md
+      - tasks.md
+      - discovery.md
+      design_direction: "Approach A \u2014 custom migration runner in upsert.py +\
+        \ schema_migrations table + standalone ingestion script; bash consumer shells\
+        \ out to duckdb CLI"
+      complexity: M
+    files_written:
+    - .state/pricing-table-in-duckdb/spec.md
+    - .state/pricing-table-in-duckdb/design.md
+    - .state/pricing-table-in-duckdb/tasks.md
+    - .state/pricing-table-in-duckdb/discovery.md
+    notable_corrections: 'architect self-corrected two drifts from locked decisions:
+      moved runner back into upsert.py (OQ-5), removed [1m]-stripping from jsonl_usage.py
+      (OQ-3)'
+- step_id: preview-route
+  phase: specify
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-20T18:15:56Z'
+  ended_at: '2026-04-20T18:15:56Z'
+  usage: {}
+  evidence:
+    outputs:
+      route_preview:
+        status: estimate_unavailable
+        reason: "estimate-cost.sh requires bash 4+ associative arrays; macOS default\
+          \ bash is 3.2 \u2014 pre-existing script incompatibility unrelated to this\
+          \ feature"
+        exit_code: 1
+    note: non-blocking per step contract; estimator incompatibility is a known separate
+      issue (and ironically is exactly the kind of bash fragility that T-10 of this
+      feature replaces by shelling out to duckdb CLI)
+- step_id: run-phase-review
+  phase: specify
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: '2026-04-20T18:22:14Z'
+  ended_at: '2026-04-20T18:22:14Z'
+  usage:
+    input_tokens: 74341
+    output_tokens: 3800
+    duration_ms: 294494
+    tool_calls:
+      Read: 18
+      Grep: 8
+      Bash: 4
+    model: claude-sonnet-4-6
+    cost_usd: 0.280023
+  evidence:
+    outputs:
+      phase_review_report: .state/pricing-table-in-duckdb/review-specify.md
+      review_score: 7.5
+      verdict: rejected
+      critical_findings_count: 1
+      major_findings_count: 2
+    critical_finding: 'F-1: _compute_cost_usd signature change requires DB connection
+      that record.py does not have; 3 call sites total (record.main, _ingest_driver_main:337,
+      _ingest_subagents_main:473)'
+    major_findings: F-2 FR numbering wrong across tasks; F-3 stale cost_report.py
+      import of _load_pricing will silently fail after deletion
+    review_score_below_bar: "7.5 < 9.0 threshold \u2014 rejected, architect must revise"
+- step_id: design-and-draft-artifacts
+  phase: specify
+  status: completed
+  agent: architect
+  attempt: 2
+  started_at: '2026-04-20T18:29:59Z'
+  ended_at: '2026-04-20T18:29:59Z'
+  usage:
+    input_tokens: 96991
+    output_tokens: 4200
+    duration_ms: 360974
+    tool_calls:
+      Read: 14
+      Edit: 8
+      Grep: 4
+    model: claude-opus-4-7
+    cost_usd: 1.769865
+  evidence:
+    outputs:
+      updated_artifact_set:
+      - spec.md
+      - design.md
+      - tasks.md
+      - discovery.md
+      design_direction: "Approach A unchanged. F-1 remediation: Option B' \u2014 record.main()\
+        \ opens short-lived DuckDB handle and threads into _compute_cost_usd(db, agent,\
+        \ usage); bin/orchestrator ingest-* callers pass their already-open db."
+      complexity: M
+    findings_addressed:
+    - F-1
+    - F-2
+    - F-3
+    - F-4
+    - F-5
+    f1_resolution: "Option B' \u2014 record.main opens short-lived DuckDB; rejected\
+      \ A (breaks state.yaml cost_usd contract at write time), rejected C (concurrent\
+      \ handle risk in _ingest_subagents_main)"
+- step_id: run-phase-review
+  phase: specify
+  status: completed
+  agent: reviewer
+  attempt: 2
+  started_at: '2026-04-20T18:49:09Z'
+  ended_at: '2026-04-20T18:49:09Z'
+  usage:
+    input_tokens: 55646
+    output_tokens: 3200
+    duration_ms: 1086104
+    tool_calls:
+      Read: 15
+      Grep: 8
+      Bash: 2
+    model: claude-sonnet-4-6
+    cost_usd: 0.21493800000000002
+  evidence:
+    outputs:
+      phase_review_report: .state/pricing-table-in-duckdb/review-specify.md
+      review_score: 9.5
+      verdict: approved
+      critical_findings_count: 0
+      major_findings_count: 0
+    resolved:
+    - F-1
+    - F-2
+    - F-3
+    - F-4
+    - F-5
+    new_minor_f6_applied_by_driver: spec.md FR-3(a) db=None fallback wording aligned
+      with design.md/tasks.md via direct Edit (non-blocking minor per reviewer; exact-fix
+      text provided in review)
+    score_above_bar: 9.5 >= 9.0
+- step_id: capture-test-baseline
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-20T18:54:59Z'
+  ended_at: '2026-04-20T18:54:59Z'
+  usage: {}
+  evidence:
+    outputs:
+      test_baseline:
+        captured_at: '2026-04-21T00:00:00Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 153
+        failing: 4
+        skipped: 0
+        total: 157
+        exit_code: 1
+        pre_existing_failures:
+        - test_archive_backlog_cleanup.py::test_backlog_dir_removed_after_archive
+        - test_archive_backlog_cleanup.py::test_cleanup_commit_in_git_log
+        - test_totals_wide.py::test_totals_includes_pricing_subdict
+        - test_totals_wide.py::test_totals_includes_gross_usd
+    note: "Red baseline captured \u2014 4 pre-existing failures noted. Two test_totals_wide.py\
+      \ failures are explicitly expected to be addressed by T-7/T-8 of this feature\
+      \ (pricing migration). Two test_archive_backlog_cleanup.py failures are unrelated."
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-04-20T19:01:24Z'
+  ended_at: '2026-04-20T19:01:24Z'
+  usage:
+    input_tokens: 126895
+    output_tokens: 5200
+    duration_ms: 313807
+    tool_calls:
+      Read: 18
+      Write: 3
+      Edit: 6
+      Bash: 8
+    model: claude-sonnet-4-6
+    cost_usd: 0.458685
+  evidence:
+    outputs:
+      task_execution_result:
+        tasks_completed:
+        - T-1
+        - T-2
+        commit_sha: 1aed15f
+        tests_added: 5
+        tests_passing: 158
+        tests_failing_preexisting: 4
+    files_changed:
+    - config/scripts/orchestrator_next/upsert.py
+    - config/scripts/orchestrator_next/tests/test_migrations.py
+    - config/scripts/orchestrator_next/migrations/.gitkeep
+    self_review_score: 10
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 2
+  started_at: '2026-04-20T19:06:35Z'
+  ended_at: '2026-04-20T19:06:35Z'
+  usage:
+    input_tokens: 64337
+    output_tokens: 3200
+    duration_ms: 244863
+    tool_calls:
+      Read: 12
+      Write: 2
+      Edit: 4
+      Bash: 6
+    model: claude-sonnet-4-6
+    cost_usd: 0.24101099999999998
+  evidence:
+    outputs:
+      task_execution_result:
+        tasks_completed:
+        - T-3
+        - T-4
+        commit_sha: 263057e
+        tests_added: 5
+        tests_passing: 163
+        tests_failing_preexisting: 4
+    self_review_score: 10
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 3
+  started_at: '2026-04-20T20:10:14Z'
+  ended_at: '2026-04-20T20:10:14Z'
+  usage:
+    input_tokens: 39044
+    output_tokens: 6800
+    duration_ms: 2343033
+    tool_calls:
+      Read: 28
+      Write: 2
+      Edit: 18
+      Bash: 20
+    model: claude-sonnet-4-6
+    cost_usd: 0.219132
+  evidence:
+    outputs:
+      task_execution_result:
+        tasks_completed:
+        - T-5
+        - T-6
+        commit_sha: 1903bb9
+        tests_added: 15
+        tests_passing: 177
+        tests_failing_preexisting: 4
+        design_deviation: 'Per-call SELECT was 7x over NFR-1 budget (380ms for 1000
+          iterations); replaced with load-all-once _pricing_cache dict. Trade-off:
+          loses live-view of mid-run ingestion writes; acceptable given short-lived
+          process lifetime. Latency now microseconds-per-call.'
+    self_review_score: 9
+    commit_message_flagged_deviation: true
+    out_of_scope_edit_reverted: "developer added a metrics-no-data-graceful backlog\
+      \ entry to spec/changes/backlog.md \u2014 outside T-5/T-6 scope; driver discarded\
+      \ the unstaged edit"
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 4
+  started_at: '2026-04-20T20:17:35Z'
+  ended_at: '2026-04-20T20:17:35Z'
+  usage:
+    input_tokens: 165519
+    output_tokens: 4400
+    duration_ms: 370236
+    tool_calls:
+      Read: 18
+      Edit: 10
+      Bash: 14
+    model: claude-sonnet-4-6
+    cost_usd: 0.562557
+  evidence:
+    outputs:
+      task_execution_result:
+        tasks_completed:
+        - T-7
+        - T-8
+        commit_sha: 503b821
+        tests_added: 3
+        tests_passing: 182
+        tests_failing_preexisting: 2
+        f3_closed: stale `from orchestrator_next.record import _load_pricing` removed
+          from cost_report.py
+    self_review_score: 9.5
+    prior_failures_now_green:
+    - test_totals_includes_pricing_subdict
+    - test_totals_includes_gross_usd
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 5
+  started_at: '2026-04-20T20:29:20Z'
+  ended_at: '2026-04-20T20:29:20Z'
+  usage:
+    input_tokens: 85009
+    output_tokens: 4600
+    duration_ms: 627396
+    tool_calls:
+      Read: 15
+      Edit: 10
+      Bash: 32
+    model: claude-sonnet-4-6
+    cost_usd: 0.324027
+  evidence:
+    outputs:
+      task_execution_result:
+        tasks_completed:
+        - T-9
+        - T-10
+        commit_sha: 3c86653
+        tests_added: 4
+        tests_passing: 186
+        tests_failing_preexisting: 2
+    self_review_score: 9
+    f4_closed: bash 3.2 compat confirmed live; declare -A replaced with key|value
+      strings
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 6
+  started_at: '2026-04-20T20:41:28Z'
+  ended_at: '2026-04-20T20:41:28Z'
+  usage:
+    input_tokens: 79080
+    output_tokens: 4200
+    duration_ms: 661330
+    tool_calls:
+      Read: 12
+      Write: 3
+      Edit: 8
+      Bash: 46
+    model: claude-sonnet-4-6
+    cost_usd: 0.30024
+  evidence:
+    outputs:
+      task_execution_result:
+        tasks_completed:
+        - T-11
+        - T-12
+        commit_sha: e01e4a7
+        tests_added: 6
+        tests_passing: 192
+        tests_failing_preexisting: 2
+    self_review_score: 9
+    f5_closed: sys.path import resilience mirrored from ingest-feature-metrics.py
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 7
+  started_at: '2026-04-20T20:42:03Z'
+  ended_at: '2026-04-20T20:42:03Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_execution_result:
+        tasks_completed:
+        - T-13
+        gate_result: passed_with_notes
+        tests_passing: 192
+        tests_failing_preexisting: 2
+        pricing_yaml_references_remaining: 9
+        t14_blockers: "test_migrations.py reads config/pricing.yaml at runtime to\
+          \ count expected rows \u2014 must be refactored to hardcoded count or read\
+          \ seed SQL instead"
+    gate_driver: inline by workflow driver
+    classification: 6 files need comment updates, 1 file (test_migrations.py) needs
+      runtime assertion refactor, 1 file (0001_seed_pricing.sql provenance comment)
+      may stay
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 8
+  started_at: '2026-04-20T20:48:41Z'
+  ended_at: '2026-04-20T20:48:41Z'
+  usage:
+    input_tokens: 45804
+    output_tokens: 2800
+    duration_ms: 232453
+    tool_calls:
+      Read: 10
+      Edit: 18
+      Bash: 11
+    model: claude-sonnet-4-6
+    cost_usd: 0.17941200000000002
+  evidence:
+    outputs:
+      task_execution_result:
+        tasks_completed:
+        - T-14
+        commit_sha: 3caccfd
+        tests_passing: 192
+        tests_failing_preexisting: 2
+    self_review_score: 9
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 9
+  started_at: '2026-04-20T20:48:41Z'
+  ended_at: '2026-04-20T20:48:41Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_execution_result:
+        tasks_completed:
+        - T-15
+        commit_sha: 2eea9bf
+        tests_passing: 192
+        tests_failing_preexisting: 2
+        all_tasks_completed: 15
+        end_to_end_verified: estimate-cost.sh against freshly-migrated DB produces
+          correct rates
+    t15_found_bug: DB path mismatch between bash default and Python convention; fixed
+      inline with 3-line edit; confirmed against seeded tmp DB
+- step_id: run-phase-review
+  phase: implement
+  status: completed
+  agent: reviewer
+  attempt: 2
+  started_at: '2026-04-20T21:01:27Z'
+  ended_at: '2026-04-20T21:01:27Z'
+  usage:
+    input_tokens: 34958
+    output_tokens: 2200
+    duration_ms: 163276
+    tool_calls:
+      Read: 8
+      Grep: 12
+      Bash: 4
+    model: claude-sonnet-4-6
+    cost_usd: 0.137874
+  evidence:
+    outputs:
+      phase_review_report: .state/pricing-table-in-duckdb/review-implement.md
+      review_score: 9.4
+      verdict: approved
+      critical_findings_count: 0
+      major_findings_count: 0
+    resolved_findings:
+    - C-1
+    - M-1
+    carried_forward:
+    - F-1 datetime.utcnow deprecation
+    - F-2 coverage calc noise
+    - F-3 latency benchmark artifact
+- step_id: compute-prediction-accuracy
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-20T21:01:59Z'
+  ended_at: '2026-04-20T21:01:59Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy_result:
+        computed_at: '2026-04-20T21:01:44Z'
+        predicted_tasks: 15
+        actual_tasks: 15
+        task_accuracy_pct: 100.0
+        rework_rate: 0.0
+- step_id: run-learn-cycle
+  phase: complete
+  status: completed
+  agent: workflow-improver
+  attempt: 1
+  started_at: '2026-04-20T21:07:35Z'
+  ended_at: '2026-04-20T21:07:35Z'
+  usage:
+    input_tokens: 148143
+    output_tokens: 4200
+    duration_ms: 272637
+    tool_calls:
+      Read: 14
+      Grep: 4
+      Edit: 4
+      Write: 1
+    model: claude-sonnet-4-6
+    cost_usd: 0.507429
+  evidence:
+    outputs:
+      learn_result:
+        learn_evaluation: .state/pricing-table-in-duckdb/learn-evaluation.md
+        rules_added: 4
+        status: improvements_applied
+- step_id: mark-change-completed
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-20T21:07:55Z'
+  ended_at: '2026-04-20T21:07:55Z'
+  usage: {}
+  evidence:
+    outputs:
+      state_completion_fields:
+        status: completed
+        completed_at: '2026-04-20T21:07:41Z'
+        archive_path: spec/changes/archive/2026-04-20-pricing-table-in-duckdb/
+- step_id: ingest-driver-auto
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-20T21:08:14Z'
+  ended_at: '2026-04-20T21:08:14Z'
+  usage: {}
+  evidence:
+    outputs:
+      ingest_driver_result:
+        ingested: true
+        change_id: pricing-table-in-duckdb
+        session_id: b3e4c8df-bedf-4960-868b-432636578a73
+        input_tokens: 670
+        output_tokens: 255266
+        cache_read_input_tokens: 62977297
+        cache_creation_input_tokens: 1675856
+        cost_usd: 145.04
+        turns: 328
+- step_id: ingest-subagents-auto
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-20T21:08:27Z'
+  ended_at: '2026-04-20T21:08:27Z'
+  usage: {}
+  evidence:
+    outputs:
+      ingest_subagents_result:
+        ingested: 18
+        skipped: 0
+- step_id: ingest-feature-metrics
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-20T21:08:41Z'
+  ended_at: '2026-04-20T21:08:41Z'
+  usage: {}
+  evidence:
+    outputs:
+      feature_metrics_ingested: true
+- step_id: compute-swe-metrics
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-20T21:08:55Z'
+  ended_at: '2026-04-20T21:08:55Z'
+  usage: {}
+  evidence:
+    outputs:
+      swe_metrics:
+        resolve_rate: 1.0
+        pass_at_1: 1.0
+        tasks_total: 15
+        tasks_completed: 15
+        regressions: 0
+        rework_rate: 0.0
+        wall_clock_minutes: 379.18
+        total_tokens: 7585682
+completed_at: '2026-04-20T21:07:41Z'
+archive_path: spec/changes/archive/2026-04-20-pricing-table-in-duckdb/
+started_at: *id001

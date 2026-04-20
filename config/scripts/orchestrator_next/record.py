@@ -49,32 +49,112 @@ def _load_routes() -> dict:
         return {}
 
 
-@functools.lru_cache(maxsize=1)
-def _load_pricing() -> dict:
-    """Load config/pricing.yaml (cached per process)."""
-    path = _orchestrator_home() / "config" / "pricing.yaml"
-    try:
-        with open(path) as f:
-            return yaml.safe_load(f) or {}
-    except (FileNotFoundError, OSError, yaml.YAMLError):
-        return {}
+_LOOKUP_SQL = (
+    "SELECT input_usd, output_usd, cache_read_usd, cache_creation_usd "
+    "FROM pricing "
+    "WHERE model_id = ? AND effective_from <= ? "
+    "ORDER BY effective_from DESC LIMIT 1"
+)
+
+# Per-connection pricing row cache keyed by id(db).
+# Populated on first lookup; stores ALL rows so subsequent lookups are pure-Python
+# dict accesses (NFR-1: 1000 calls < 50 ms).
+# Shape: {db_key: {model_id: [(effective_from, input, output, cache_read, cache_creation), ...]}}
+# Rows are stored sorted descending by effective_from so we can do a linear scan.
+_pricing_cache: dict[int, dict[str, list]] = {}
+
+_LOAD_ALL_SQL = (
+    "SELECT model_id, effective_from, input_usd, output_usd, "
+    "cache_read_usd, cache_creation_usd "
+    "FROM pricing ORDER BY model_id, effective_from DESC"
+)
 
 
-def _compute_cost_usd(agent: str, usage: dict) -> tuple[str | None, float | None]:
-    """Resolve agent → model_id and compute cost from usage token counts.
+def _ensure_pricing_cache(db) -> dict[str, list]:
+    """Load all pricing rows into the in-process cache for this connection."""
+    db_key = id(db)
+    if db_key in _pricing_cache:
+        return _pricing_cache[db_key]
+    rows = db.execute(_LOAD_ALL_SQL).fetchall()
+    by_model: dict[str, list] = {}
+    for row in rows:
+        mid, eff, inp, out, cr, cc = row
+        by_model.setdefault(mid, []).append((eff, inp, out, cr, cc))
+    _pricing_cache[db_key] = by_model
+    return by_model
+
+
+def _lookup_price(db, model_id: str, effective_at: "_dt.datetime") -> dict | None:
+    """Look up pricing rates for model_id at effective_at from the DuckDB pricing table.
+
+    Returns a dict with keys: input, output, cache_read, cache_creation (float, $/MTok).
+    Returns None (with a stderr warning) if:
+      - db is None (offline/test path, FR-3(a))
+      - no row exists for model_id AND no __default__ row exists
+
+    The __default__ fallback is transparent — no warning is emitted on that path.
+
+    Performance: all pricing rows are loaded into an in-process cache on the first
+    call per connection so subsequent calls are pure-Python dict lookups (NFR-1).
+
+    Args:
+        db: open DuckDB connection, or None for the offline path.
+        model_id: model identifier to look up.
+        effective_at: datetime; the most recent row with effective_from <= this is used.
+    """
+    if db is None:
+        sys.stderr.write(
+            f"[record] pricing: db=None; skipping price lookup for {model_id!r}\n"
+        )
+        return None
+
+    by_model = _ensure_pricing_cache(db)
+
+    def _pick_row(mid: str):
+        """Return the most-recent row for mid with effective_from <= effective_at."""
+        candidates = by_model.get(mid, [])
+        # Rows are pre-sorted descending by effective_from.
+        for eff, inp, out, cr, cc in candidates:
+            if eff <= effective_at:
+                return (inp, out, cr, cc)
+        return None
+
+    row = _pick_row(model_id)
+    if row is None:
+        row = _pick_row("__default__")
+    if row is None:
+        sys.stderr.write(
+            f"[record] pricing: no price entry for model {model_id!r} and no "
+            f"__default__ row; skipping cost computation\n"
+        )
+        return None
+
+    inp, out, cr, cc = row
+    return {
+        "input": float(inp),
+        "output": float(out),
+        "cache_read": float(cr),
+        "cache_creation": float(cc) if cc is not None else 0.0,
+    }
+
+
+def _compute_cost_usd(
+    db, agent: str, usage: dict, *, now: "_dt.datetime | None" = None
+) -> tuple[str | None, float | None]:
+    """Resolve agent → model_id and compute cost from usage token counts via DuckDB.
 
     Resolution order:
       0. usage['model']  — billing-truth from JSONL, always preferred.
       1. routes.agents[agent] → backend_name
       2a. routes.backends[backend_name] → model_id  (for native_* keys)
       2b. routes.models[backend_name].model → model_id  (for proxy models)
-    Price lookup: pricing.models[model_id]; fallback: pricing.default.
+    Price lookup: _lookup_price(db, model_id, now) with __default__ fallback.
 
-    Returns (model_id, cost_usd) or (None, None) if resolution fails.
+    Returns (model_id, cost_usd) or (model_id, None) if pricing unavailable,
+    or (None, None) if model resolution fails.
     Missing token fields default to 0.
     """
     routes = _load_routes()
-    pricing = _load_pricing()
 
     # Step 0: prefer usage.model when present (JSONL-sourced billing truth).
     # This path lets synthetic rows (driver-loop) compute cost without being
@@ -107,31 +187,22 @@ def _compute_cost_usd(agent: str, usage: dict) -> tuple[str | None, float | None
             )
             return None, None
 
-    # Step 3: model_id → price block (fallback to default)
-    price = (pricing.get("models") or {}).get(model_id)
+    # Step 3: look up price from DuckDB (with __default__ fallback inside _lookup_price)
+    effective_at = now if now is not None else _dt.datetime.utcnow()
+    price = _lookup_price(db, model_id, effective_at)
     if price is None:
-        price = pricing.get("default")
-    if not isinstance(price, dict):
-        sys.stderr.write(
-            f"[record] cost_usd: no price entry for model {model_id!r} and no default; "
-            f"skipping cost computation\n"
-        )
-        return None, None
+        return model_id, None
 
-    # Step 4: compute cost (includes cache_creation when pricing.yaml declares it;
-    # falls back to input rate as a conservative default since cache_creation >= input)
+    # Step 4: compute cost
     input_tokens = usage.get("input_tokens") or 0
     output_tokens = usage.get("output_tokens") or 0
     cache_read_tokens = usage.get("cache_read_input_tokens") or 0
     cache_creation_tokens = usage.get("cache_creation_input_tokens") or 0
-    cache_creation_rate = price.get("cache_creation")
-    if cache_creation_rate is None:
-        cache_creation_rate = price.get("input") or 0
     cost = (
-        input_tokens * (price.get("input") or 0) / 1_000_000
-        + output_tokens * (price.get("output") or 0) / 1_000_000
-        + cache_read_tokens * (price.get("cache_read") or 0) / 1_000_000
-        + cache_creation_tokens * cache_creation_rate / 1_000_000
+        input_tokens * price["input"] / 1_000_000
+        + output_tokens * price["output"] / 1_000_000
+        + cache_read_tokens * price["cache_read"] / 1_000_000
+        + cache_creation_tokens * price["cache_creation"] / 1_000_000
     )
     return model_id, cost
 
@@ -225,11 +296,19 @@ def _compute_next_step(
     return None
 
 
-def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
+def record(
+    state_yaml_path: str, payload: dict[str, Any], *, db=None
+) -> tuple[dict[str, Any], int]:
     """Apply a record operation to state.yaml. Returns (result, exit_code).
 
     Validation: payload.outputs must cover every name in
     contract.expected_outputs (from the contract `outputs:` field).
+
+    Args:
+        state_yaml_path: path to the state.yaml file to update.
+        payload: the record payload dict.
+        db: open DuckDB connection for pricing lookups, or None for the
+            offline/test path (cost computation is skipped with a warning).
     """
     required = {"step_id", "phase", "status", "outputs"}
     missing = required - payload.keys()
@@ -391,7 +470,7 @@ def record(state_yaml_path: str, payload: dict[str, Any]) -> tuple[dict[str, Any
             sys.stderr.write(f"[record] jsonl enrichment failed for agent_id={agent_id}: {exc}\n")
 
     if agent != "inline" and not usage.get("cost_usd"):
-        resolved_model, computed_cost = _compute_cost_usd(agent, usage)
+        resolved_model, computed_cost = _compute_cost_usd(db, agent, usage)
         if resolved_model is not None and computed_cost is not None:
             usage["model"] = resolved_model
             usage["cost_usd"] = computed_cost
@@ -501,7 +580,46 @@ def main(argv: list[str]) -> int:
     except json.JSONDecodeError as exc:
         print(f"error: invalid JSON payload — {exc}", file=sys.stderr)
         return 3
-    result, code = record(state_yaml_path, payload)
+
+    # Resolve the metrics DB path: METRICS_DB env var, else $ORCHESTRATOR_HOME/metrics.duckdb.
+    db_path_str = os.environ.get("METRICS_DB")
+    if not db_path_str:
+        db_path_str = str(_orchestrator_home() / "metrics.duckdb")
+    db_path = Path(db_path_str)
+
+    db = None
+    if db_path.exists():
+        try:
+            import duckdb as _duckdb
+            from orchestrator_next.upsert import ensure_schema as _ensure_schema
+            db = _duckdb.connect(str(db_path))
+            _ensure_schema(db)
+        except Exception as exc:
+            sys.stderr.write(
+                f"[record] warning: failed to open metrics DB {db_path}: {exc}; "
+                f"cost computation will be skipped\n"
+            )
+            if db is not None:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+            db = None
+    else:
+        sys.stderr.write(
+            f"[record] warning: metrics DB not found at {db_path}; "
+            f"cost computation will be skipped\n"
+        )
+
+    try:
+        result, code = record(state_yaml_path, payload, db=db)
+    finally:
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
+
     print(json.dumps(result, sort_keys=True, indent=2))
     return code
 
