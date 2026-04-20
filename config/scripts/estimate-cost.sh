@@ -68,22 +68,7 @@ AGENT_BACKEND_MAP=""
 BACKEND_MODEL_MAP=""
 
 if [ -f "$ROUTES_FILE" ]; then
-  # Pass 1: agents block → "agent|backend" pairs
-  AGENT_BACKEND_MAP=$(awk '
-    /^agents:/ { in_block=1; next }
-    /^[a-z]/   { in_block=0 }
-    in_block && /^  [a-z_-]+:/ {
-      gsub(/^  /, ""); gsub(/:/, ""); gsub(/ /, "")
-      agent=$1
-      sub(/^[^ ]+[ ]*/, "")
-      gsub(/ /, "")
-      # line is "agent: backend" — split on ": "
-      split($0, parts, ": ")
-      # awk passes the full "agent: backend" line; reparse
-    }
-  ' "$ROUTES_FILE")
-
-  # Simpler: parse "agent: backend" lines directly from the agents block
+  # Parse "agent: backend" lines from the agents block
   AGENT_BACKEND_MAP=$(awk '
     /^agents:/ { in_block=1; next }
     /^[a-z]/   { in_block=0 }
