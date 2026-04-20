@@ -288,7 +288,7 @@ def _ingest_driver_main(args: list[str]) -> None:
     """Handle `orchestrator ingest-driver --change-id <cid> --session-id <uuid>`.
 
     Reads the driver JSONL at ~/.claude/projects/<slug>/<session>.jsonl,
-    computes cost_usd via routes.yaml + pricing.yaml, and upserts a synthetic
+    computes cost_usd via routes.yaml + the DuckDB pricing table, and upserts a synthetic
     step_events row with agent_name='driver-loop'. Idempotent via PK.
 
     Sub-agent enrichment is out of scope for this command — sub-agent rows

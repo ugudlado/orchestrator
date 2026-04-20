@@ -72,7 +72,6 @@ SQL
 
 # ── Run compute-swe-metrics.sh against the fixture ───────────────────────
 # Pass METRICS_DB so the script can find agent_pricing in our temp DB.
-# ORCHESTRATOR_HOME must point at the repo so pricing.yaml is found.
 METRICS_OUTPUT=$(METRICS_DB="$TEST_DB" ORCHESTRATOR_HOME="$REPO_ROOT" bash "$SCRIPT" "$TEST_DIR" 2>/dev/null)
 
 # ── Parse per_agent_tokens from output ───────────────────────────────────

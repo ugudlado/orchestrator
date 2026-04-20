@@ -6,7 +6,6 @@
 #
 # If the baseline needs to be regenerated (e.g. routes.yaml agents change):
 #   REPO_ROOT=<repo> ROUTES_FILE=<repo>/scripts/routes.yaml \
-#   PRICING_FILE=<repo>/config/pricing.yaml \
 #   ARCHIVE_GLOB='/nonexistent/*/state.yaml' \
 #   /opt/homebrew/bin/bash config/scripts/estimate-cost.sh <state_dir> 2>/dev/null
 #

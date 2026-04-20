@@ -148,7 +148,6 @@ def _base_env(state_dir: Path, db_path: str | None = None) -> dict[str, str]:
     Overrides:
     - REPO_ROOT / ORCHESTRATOR_HOME → repo root (so routes.yaml is found)
     - ROUTES_FILE → repo's own scripts/routes.yaml
-    - PRICING_FILE → repo's own config/pricing.yaml (old lookup, ignored post-T-10)
     - ARCHIVE_GLOB → nonexistent path (forces cold-start / no_history)
     - ORCHESTRATOR_DB → db_path if given
     """
@@ -156,7 +155,6 @@ def _base_env(state_dir: Path, db_path: str | None = None) -> dict[str, str]:
     env["REPO_ROOT"] = str(_REPO_ROOT)
     env["ORCHESTRATOR_HOME"] = str(_REPO_ROOT)
     env["ROUTES_FILE"] = str(_ROUTES_YAML)
-    env["PRICING_FILE"] = str(_REPO_ROOT / "config" / "pricing.yaml")
     env["ARCHIVE_GLOB"] = str(state_dir / "nonexistent-archive" / "*/state.yaml")
     if db_path is not None:
         env["ORCHESTRATOR_DB"] = db_path
@@ -228,9 +226,7 @@ def test_rewrite_output_matches_baseline_shape(state_dir: Path, seeded_db: Path)
     """(b) Rewritten script produces YAML whose route_preview structure matches
     the baseline fixture: same agents, schema=feature, cold-start estimate block.
 
-    RED phase: the current script (before T-10) may pass this too since it reads
-    pricing.yaml and produces the same shape. The test is primarily a regression
-    guard post-rewrite (GREEN phase).
+    The test is primarily a regression guard post-rewrite (GREEN phase).
     """
     bash = _find_modern_bash()
     env = _base_env(state_dir, db_path=str(seeded_db))

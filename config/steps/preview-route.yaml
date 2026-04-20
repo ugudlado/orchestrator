@@ -10,7 +10,7 @@ inputs:
   - tasks.md
 
 rules:
-  - Non-blocking. A script failure or missing pricing.yaml must not halt the phase.
+  - Non-blocking. A script failure or missing pricing table must not halt the phase.
   - Informational only — never gate on estimate size. No budget caps here.
   - Estimate source is descriptive (archive median), not predictive. Callers tune future estimates by comparing estimate_vs_actual after complete phase.
 

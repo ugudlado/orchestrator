@@ -36,7 +36,7 @@ _SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-# Sonnet-4-5 pricing rates from config/pricing.yaml
+# Rates match the seed migration 0001_seed_pricing.sql (and the historical pricing.yaml they were sourced from).
 _SONNET_4_5_RATES = {
     "input": 3.00,
     "output": 15.00,
@@ -206,7 +206,7 @@ def test_totals_includes_pricing_subdict():
             assert rate_key in pricing, (
                 f"pricing['{rate_key}'] missing. pricing keys: {list(pricing)}"
             )
-        # Verify rates match pricing.yaml for claude-sonnet-4-5
+        # Rates match the seed migration 0001_seed_pricing.sql (and the historical pricing.yaml they were sourced from).
         assert pricing["input"] == 3.00, f"Expected input=3.00, got {pricing['input']}"
         assert pricing["output"] == 15.00, f"Expected output=15.00, got {pricing['output']}"
         assert pricing["cache_read"] == 0.30, f"Expected cache_read=0.30, got {pricing['cache_read']}"

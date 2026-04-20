@@ -17,7 +17,7 @@ T-3 (RED) / T-4 (GREEN): seed migration 0001_seed_pricing.sql.
 Tests cover FR-2, NFR-5 (step_events unchanged):
   (a) after ensure_schema on a fresh DB, DESCRIBE pricing returns exactly the
       spec columns with correct DuckDB types
-  (b) SELECT COUNT(*) FROM pricing equals len(pricing.yaml models) + 1 for __default__
+  (b) SELECT COUNT(*) FROM pricing equals the seeded model count (9 models + __default__)
   (c) spot-check claude-sonnet-4-6: input=3.00, output=15.00, cache_read=0.30,
       cache_creation=3.75
   (d) is_local=TRUE for coder; is_local=FALSE for all others
@@ -31,11 +31,8 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
-
 import duckdb
 import pytest
-import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
@@ -200,9 +197,8 @@ def test_incremental_apply_only_new_file(monkeypatch, tmp_path):
 # T-3 scenarios — seed migration (use REAL migrations dir via ensure_schema)
 # ---------------------------------------------------------------------------
 
-# Path to config/pricing.yaml — resolve from test file location.
-# tests/ → orchestrator_next/ → scripts/ → config/
-_PRICING_YAML = Path(_HERE).parents[3] / "config" / "pricing.yaml"
+# Expected row count: 9 models seeded in 0001_seed_pricing.sql + 1 for __default__.
+_EXPECTED_MODEL_COUNT = 10
 
 # Expected pricing table columns and their DuckDB types (from design.md § Components 2).
 # Assert as a dict so a failure prints the full column-name/type diff.
@@ -272,18 +268,14 @@ def test_pricing_table_describe_matches_spec():
 
 
 def test_pricing_row_count_matches_yaml():
-    """(b) Row count == number of models in pricing.yaml + 1 for __default__."""
-    with open(_PRICING_YAML) as fh:
-        doc = yaml.safe_load(fh)
-    expected_count = len(doc["models"]) + 1  # +1 for __default__
-
+    """(b) Row count == seeded model count (9 models + __default__)."""
     db = _fresh_seeded_db()
     try:
         row = db.execute("SELECT COUNT(*) FROM pricing").fetchone()
         actual_count = row[0]
-        assert actual_count == expected_count, (
-            f"Expected {expected_count} rows in pricing "
-            f"(yaml models={len(doc['models'])} + 1 for __default__), "
+        assert actual_count == _EXPECTED_MODEL_COUNT, (
+            f"Expected {_EXPECTED_MODEL_COUNT} rows in pricing "
+            f"(9 seeded models + 1 for __default__), "
             f"got {actual_count}"
         )
     finally:
