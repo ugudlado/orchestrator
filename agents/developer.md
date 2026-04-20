@@ -56,40 +56,12 @@ Before handing off, review your own changes using the **same full rubric** the r
 
 #### Checklist (all items required)
 
-**Spec Compliance**
-- [ ] Code implements what the task requires (check Why section)
-- [ ] No features added beyond task scope
-- [ ] No features missing from task scope
-- [ ] Approach matches design.md patterns
-
-**Correctness**
-- [ ] Logic is correct — no off-by-one, race conditions, null derefs
-- [ ] Edge cases handled: empty input, boundary values, error paths
-- [ ] Error handling is appropriate — no silent swallowing
-- [ ] State transitions are correct (if applicable)
-
-**Security**
-- [ ] No XSS: innerHTML with user data must use textContent
-- [ ] No injection: user input is validated/sanitized at boundaries
-- [ ] No hardcoded secrets, API keys, or credentials
-- [ ] No dynamic code execution with user strings (eval, Function())
-
-**Simplicity**
-- [ ] Implementation is the simplest that satisfies the requirement
-- [ ] No premature abstractions or over-engineering
-- [ ] No dead code (unused variables, unreachable branches)
-- [ ] No unnecessary configuration or feature flags
-
-**Code Quality**
-- [ ] Follows existing project conventions (naming, structure, patterns)
-- [ ] No duplicated logic — uses existing helpers where available
-- [ ] Tested code path == runtime code path (no DRY violations)
-- [ ] Clean separation of concerns
-
-**Scope Discipline**
-- [ ] Changes are scoped to the task — no unrelated modifications
-- [ ] No drive-by refactors of surrounding code
-- [ ] No new conventions introduced without justification
+- **Spec compliance**: implements what the task requires (check Why); no adds/misses vs. scope; approach matches design.md
+- **Correctness**: logic correct (off-by-one, races, null derefs); edge cases (empty, boundaries, errors) handled; no silent error swallowing
+- **Security**: no XSS (innerHTML with user data), no injection, no hardcoded secrets, no dynamic code execution on user strings
+- **Simplicity**: simplest implementation that satisfies the requirement; no premature abstractions, dead code, or unused flags
+- **Code quality**: follows project conventions; no duplicated logic; tested path == runtime path; clean separation of concerns
+- **Scope discipline**: changes scoped to the task; no drive-by refactors; no new conventions without justification
 
 #### Score Yourself
 
@@ -185,37 +157,21 @@ Write code before the test? Delete it. Start over. Don't keep it as "reference."
 
 ### Testing Anti-Patterns
 
-- **Don't test mock behavior** — assert on real component behavior, not mock existence
-- **Don't add test-only methods to production code** — put test utilities in test helpers
-- **Don't mock without understanding** — know what side effects the real method has
-- **Don't create incomplete mocks** — mock the COMPLETE data structure, not just fields your test uses
-- **Warning signs**: mock setup longer than test logic, mocking everything, `*-mock` test IDs, methods only called in tests
-
-### Common Rationalizations (all mean: delete code, start over)
-
-| Excuse | Reality |
-|--------|---------|
-| "Too simple to test" | Simple code breaks. Test takes 30 seconds. |
-| "I'll test after" | Tests passing immediately prove nothing. |
-| "Keep as reference" | You'll adapt it. That's testing after. Delete means delete. |
-| "Need to explore first" | Fine. Throw away exploration, start fresh with TDD. |
-| "TDD will slow me down" | TDD is faster than debugging. |
+Assert on real behavior, not mock existence. Don't add test-only methods to production code. If you must mock, mock the full data structure — not just the fields your test reads. If mock setup is longer than test logic, the test is wrong.
 
 ### Red Flags — STOP and Start Over
 
 - Code written before test
 - Test passes immediately (never saw it fail)
 - Can't explain why test failed
-- "Just this once" rationalization
+- "Keep as reference" / "I'll test after" / "too simple to test" — all mean: delete, start over
 
 ### TDD Verification Checklist
 
-Before marking task complete with TDD:
-- [ ] Every new function/method has a test
-- [ ] Watched each test fail before implementing
-- [ ] Each test failed for the expected reason
-- [ ] Wrote minimal code to pass each test
-- [ ] Tests use real code (mocks only if unavoidable)
+- [ ] Every new function has a test
+- [ ] Watched each test fail for the expected reason before implementing
+- [ ] Wrote minimal code to pass
+- [ ] Real code, not mocks (unless unavoidable)
 - [ ] Edge cases and errors covered
 
 ## On Failure
@@ -236,10 +192,7 @@ Do NOT guess. Do NOT silently deviate from design.md.
 3. **Scope ambiguity** — genuinely unclear whether a behavior is in or out of scope, with cascade risk
 4. **Architectural dependency** — implementing requires a structural decision affecting other tasks
 
-**Do NOT escalate:** implementation details, test strategy, library usage, minor uncertainty
-answerable by re-reading the spec.
-
-Full protocol: `contracts/architect-escalation.md`
+**Do NOT escalate:** implementation details, test strategy, library usage, minor uncertainty answerable by re-reading the spec.
 
 Return this structured block to the orchestrator:
 
@@ -254,13 +207,6 @@ question: |
 attempted: |
   <what you already tried or considered>
 ```
-
-## State Updates
-
-Use `orchestrator record <state.yaml>` with a JSON payload on stdin for all step_history
-appends. **MUST NOT** directly edit state.yaml with Write or Edit tools. The record command
-validates shape and rejects malformed payloads; direct edits bypass validation and have
-corrupted state.yaml in past runs (ISSUE-7).
 
 ## What You Don't Do
 

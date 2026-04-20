@@ -1,8 +1,8 @@
 ---
 name: sonnet-agent
-description: Implementation, coding, testing, and standard development tasks
+description: Generic autonomous coder for ad-hoc implementation tasks outside the spec/tasks.md workflow. Prefer the developer agent inside any orchestrate/autopilot feature run; use sonnet-agent only for one-off work (scripts, migrations, exploratory refactors) where no spec context exists.
 model: sonnet
-color: green
+color: yellow
 tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "WebSearch", "WebFetch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__chrome-devtools__take_screenshot", "mcp__chrome-devtools__navigate_page", "mcp__chrome-devtools__get_console_message", "mcp__chrome-devtools__evaluate_script", "mcp__plugin_claude-mem_mcp-search__search", "mcp__plugin_claude-mem_mcp-search__get_observations"]
 ---
 

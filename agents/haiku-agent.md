@@ -1,6 +1,6 @@
 ---
 name: haiku-agent
-description: Simple tasks, file operations, quick scripts, and routine maintenance
+description: Generic fast executor for mechanical tasks — file moves, git merges, cleanup, status checks. Prefer over specialist agents only when no role-specific agent fits AND the task is purely mechanical (no spec/design context needed, no code judgment). Not for implementation.
 model: haiku
 color: cyan
 tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash"]

@@ -3,16 +3,7 @@ name: workflow-init
 description: Initialize a new workflow. Creates the worktree, symlinks env files, installs deps, loads project context + computes workflow_plan, creates a Linear ticket, and writes the initial state.yaml. One agent, one spawn, all workflow bootstrapping.
 model: sonnet
 color: cyan
-tools:
-  - Read
-  - Write
-  - Edit
-  - Bash
-  - Grep
-  - Glob
-  - mcp__plugin_linear_linear__save_issue
-  - mcp__plugin_linear_linear__list_teams
-  - mcp__plugin_linear_linear__list_issue_labels
+tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "mcp__plugin_linear_linear__save_issue", "mcp__plugin_linear_linear__list_teams", "mcp__plugin_linear_linear__list_issue_labels"]
 ---
 
 # Workflow Init Agent
@@ -47,12 +38,8 @@ handles everything needed before the first real step runs.
    - Read `<repo_root>/spec/project.yaml`. If missing, stop with error
      "spec/project.yaml not found. Run /develop --bootstrap to initialize."
    - Warn if older than 30 days.
-   - Read the workflow schema (`$ORCHESTRATOR_HOME/config/workflows/<schema>.yaml`).
-   - Apply ux_design auto-detection: if `flags.ux_design` was not explicitly
-     set and `project.yaml.tech_stack` contains no frontend tech (react,
-     nextjs, vue, svelte, angular, html, css, tailwind, scss, sass, less,
-     webpack, vite, typescript-frontend, flutter, swift-ui), set
-     `flags.ux_design = false` in the resolved profile.
+   - Read the workflow schema from the global schemas path (CLAUDE.md § Repo Wiring).
+   - Apply ux_design auto-detection per the frontend-tech list in CLAUDE.md § Repo Wiring — if none of those techs are in `project.yaml.tech_stack`, default `flags.ux_design = false`.
    - Compute the `workflow_plan`: for each phase in the schema, list the
      active steps (apply `if <flag>` gates against resolved flags) and the
      filtered steps. Resolve `include: _<name>` directives inline.
@@ -74,16 +61,7 @@ handles everything needed before the first real step runs.
 
    The key is `active:` (not `active_steps:`) — this is the shape the dispatcher reads.
 
-3. **Create a Linear ticket** (if `flags.linear` is true):
-   - Read `~/.config/linear/config.yaml` for team ID, project ID, and label
-     IDs for the current repo.
-   - If the repo is not listed in the Linear config's `repos:` map, skip
-     Linear creation and set `flags.linear = false` with a note.
-   - Use the MCP Linear tools (`mcp__plugin_linear_linear__save_issue`) to
-     create an issue with title from the change description, description
-     from the spec (if it exists) or a one-liner fallback, labels per config,
-     and assignee from config or current user.
-   - Capture the returned Linear ticket ID (e.g. `HL-287`).
+3. **Create a Linear ticket** (if `flags.linear` is true) — Linear config path, repo-map behavior, and ticket-ID format are in CLAUDE.md § Repo Wiring. Use `mcp__plugin_linear_linear__save_issue` with title from the change description, description from the spec (or one-liner fallback), labels and assignee per config.
 
 4. **Write the initial state.yaml** at `$WORKFLOW_STATE_DIR/<slug>/state.yaml`:
    - Top-level keys: `change_id`, `slug`, `schema`, `status: active`,
@@ -113,12 +91,6 @@ handles everything needed before the first real step runs.
   inputs, not from any other workflow's state.yaml.
 - MUST NOT invoke other agents. This is a leaf agent.
 - MUST validate every declared output is set before returning.
-
-## State Updates
-
-- **MUST** use `orchestrator record` for step_history appends. **MUST NOT** edit
-  state.yaml directly with Write or Edit tools — `record.py` validates shape and
-  rejects corrupted payloads. Direct edits bypass validation and risk silent corruption.
 
 ## Evidence standards
 
