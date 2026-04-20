@@ -7,7 +7,8 @@
 #   - <state_dir>/state.yaml           (current schema, tasks_planned hint)
 #   - <state_dir>/tasks.md             (tasks_planned count)
 #   - $REPO_ROOT/scripts/routes.yaml   (agent → backend → model)
-#   - $ORCHESTRATOR_DB                 (DuckDB file — model → $/1M tokens)
+#   - $METRICS_DB, else $ORCHESTRATOR_HOME/metrics.duckdb (DuckDB file — model → $/1M tokens)
+#     Path convention matches record.py's `main()` — see config/scripts/orchestrator_next/record.py.
 #   - $REPO_ROOT/spec/changes/archive/*/state.yaml  (history, same-schema only)
 #
 # Writes:
@@ -145,7 +146,7 @@ resolve_native() {
 # literal to guard against names with embedded quotes.
 lookup_pricing() {
   local model="$1"
-  local db_path="${ORCHESTRATOR_DB:-$HOME/.state/orchestrator.duckdb}"
+  local db_path="${METRICS_DB:-${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}/metrics.duckdb}"
 
   if [ ! -f "$db_path" ]; then
     echo "15.00 75.00 1.50"   # conservative default (opus-tier)
