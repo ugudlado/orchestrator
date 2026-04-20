@@ -19,6 +19,48 @@
 
 # Features
 
+## generate-plan-yaml-at-init
+
+**Generate pre-merged `plan.yaml` at workflow-init; dispatcher injects step block into spawn payloads** (score 7.2)
+
+**Recurrence:** 1
+
+### Idea
+
+Today, every agent spawn has to reconstruct its operating context from three sources: `project.yaml` (rules/gotchas/learnings), the active schema (phase goals, flag-conditional steps, rules_when), and the step contract file (inputs, outputs, rules, verify). The merge is documented in `config/steps/contracts/rule-merge.md` but happens implicitly — each agent scavenges what it needs. This scatters context, wastes tokens on re-reads, and means rule-merge precedence is enforced only by convention.
+
+Generate a deterministic, pre-merged `plan.yaml` once at `workflow-init` time, containing only active phases and steps (no filtered branches). Each step block carries its merged `rules`, declared `inputs`, declared `outputs`, and bound `agent`. Dispatcher reads the matching step block on spawn and injects it into the action payload so agents receive their full step context inline.
+
+### Scope
+
+1. New `config/scripts/orchestrator_next/generate_plan.py` — deterministic merger implementing the 5-tier precedence from `rule-merge.md`. Reads `resolved_flags`, schema, `project.yaml`, step contracts. Emits `plan.yaml` with only active steps per phase.
+2. `agents/workflow-init.md` — responsibility addition: after writing state.yaml, run the generator with the state path as input.
+3. `config/steps/workflow-init.yaml` — declare `plan_yaml_path` as an output (additive, no behavior change to current dispatch).
+4. `config/scripts/orchestrator_next/dispatch.py` — when emitting a `spawn_agent` action, read the matching step block from `plan.yaml` (if present) and include under `step_context`. Fall back to current behavior when `plan.yaml` is absent (in-flight workflows from before this change).
+5. `test_generate_plan.py` — merge precedence asserted, rule filtering by flag, inactive-if steps dropped, stable output across runs.
+
+### Out of scope
+
+- Changing state.yaml shape
+- Changing `rule-merge.md` precedence semantics
+- Rewriting other agents to consume `step_context` (they can keep reading source files; consumption is a follow-up)
+- Handling mid-flight schema edits (plan.yaml is frozen at init; learned changes apply to next feature — matches reproducibility goal)
+
+### Why Now
+
+- Driver-loop cache reads are 74% of autopilot cost (memory 15540–15542); pre-merged step blocks let future prompt cleanup reduce per-spawn context assembly
+- Self-referential-bugfix category (`backlog: self-referential-bug-bootstrap`) benefits when the active rule set is frozen in an artifact that's not the thing being edited
+- Agent-spawn prompts currently say "Read project.yaml, read spec/design/tasks, read your step contract" — this consolidates the last item
+
+### Priority
+- User value: 7/10 (LLM context clarity, smaller per-spawn read cost)
+- Strategic fit: 8/10 (makes `rule-merge.md` machine-verifiable, not convention-only)
+- Technical leverage: 7/10 (enables future per-spawn prompt minimization)
+- Effort: small-medium (~3h: generator + tests + workflow-init wiring + dispatcher injection)
+- **Score: 7.2**
+
+---
+
 ## metrics-regression-detection
 
 **Metrics Regression Detection + Autopilot Breaker** (score 8.2)
