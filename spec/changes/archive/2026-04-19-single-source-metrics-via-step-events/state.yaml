@@ -1,0 +1,981 @@
+change_id: single-source-metrics-via-step-events
+slug: single-source-metrics-via-step-events
+schema: feature
+status: completed
+repo_root: /Users/spidey/code/orchestrator
+title: single-source-metrics-via-step-events
+flags:
+  tdd_required: true
+  ux_design: false
+  ux_design_auto_disabled: true
+  discovery: true
+  phase_review: true
+  worktree: true
+  linear: false
+  light: false
+  auto: true
+  agents: true
+workflow_plan:
+  specify:
+    active:
+    - workflow-init
+    - explore
+    - design-and-draft-artifacts
+    - preview-route
+    - run-phase-review
+    filtered:
+    - id: ux-design
+      reason: 'flag ux_design=false (auto-disabled: project.yaml tech_stack has no
+        frontend tech)'
+  implement:
+    active:
+    - capture-test-baseline
+    - execute-next-task
+    - run-phase-review
+    filtered:
+    - id: run-ux-critique
+      reason: flag ux_design=false
+  complete:
+    active:
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+worktree_path: /Users/spidey/code/feature_worktrees/single-source-metrics-via-step-events
+tasks_path: /Users/spidey/code/orchestrator/.state/single-source-metrics-via-step-events/tasks.md
+project_context_loaded: true
+project_context_at: '2026-04-19T21:04:24Z'
+phase: complete
+next_step:
+  phase: complete
+  step_id: archive-completed-change
+step_history:
+- step_id: workflow-init
+  phase: specify
+  status: completed
+  agent: workflow-init
+  attempt: 1
+  started_at: '2026-04-19T21:04:24.044911+00:00'
+  ended_at: '2026-04-19T21:04:24Z'
+  usage:
+    input_tokens: 12500
+    output_tokens: 800
+    model: claude-sonnet-4-6
+    cost_usd: 0.0495
+  evidence:
+    outputs:
+      slug: single-source-metrics-via-step-events
+      worktree_path: /Users/spidey/code/feature_worktrees/single-source-metrics-via-step-events
+      branch: feature/single-source-metrics-via-step-events
+      linear_ticket_id: null
+      workflow_plan:
+        specify:
+          active:
+          - workflow-init
+          - explore
+          - design-and-draft-artifacts
+          - preview-route
+          - run-phase-review
+          filtered:
+          - id: ux-design
+            reason: 'flag ux_design=false (auto-disabled: project.yaml tech_stack
+              has no frontend tech)'
+        implement:
+          active:
+          - capture-test-baseline
+          - execute-next-task
+          - run-phase-review
+          filtered:
+          - id: run-ux-critique
+            reason: flag ux_design=false
+        complete:
+          active:
+          - compute-prediction-accuracy
+          - run-learn-cycle
+          - mark-change-completed
+          - compute-swe-metrics
+          - archive-completed-change
+          - remove-worktree
+          filtered: []
+      resolved_flags:
+        tdd_required: true
+        ux_design: false
+        ux_design_auto_disabled: true
+        discovery: true
+        phase_review: true
+        worktree: true
+        linear: false
+        light: false
+        auto: true
+        agents: true
+- step_id: explore
+  phase: specify
+  status: completed
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-04-20T02:30:00Z'
+  ended_at: '2026-04-19T21:10:35Z'
+  usage:
+    input_tokens: 95000
+    output_tokens: 12000
+    model: claude-sonnet-4-6
+    cost_usd: 1.85
+  evidence:
+    outputs:
+      discovery_result: .state/single-source-metrics-via-step-events/discovery.md
+      artifacts:
+      - discovery.md
+- step_id: design-and-draft-artifacts
+  phase: specify
+  status: completed
+  agent: architect
+  attempt: 1
+  started_at: '2026-04-20T02:32:00Z'
+  ended_at: '2026-04-19T21:19:11Z'
+  usage:
+    input_tokens: 85000
+    output_tokens: 9000
+    model: claude-opus-4-7
+    cost_usd: 1.95
+  evidence:
+    outputs:
+      updated_artifact_set:
+      - .state/single-source-metrics-via-step-events/spec.md
+      - .state/single-source-metrics-via-step-events/design.md
+      - .state/single-source-metrics-via-step-events/tasks.md
+      design_direction: 'Approach B: widen step_events (+turns), add feature_metrics
+        table, add orchestrator metrics subcommand, rewrite compute-swe-metrics.sh
+        and read-sub-state-metrics.sh as thin JSON->YAML projections. Ingest-feature-metrics
+        step inserted between mark-change-completed and compute-swe-metrics; fails
+        loud on error. Spike complete-phase untouched. All 7 OQs resolved inline.'
+      complexity: L
+- step_id: preview-route
+  phase: specify
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T21:20:05Z'
+  ended_at: '2026-04-19T21:20:05Z'
+  usage: {}
+  evidence:
+    outputs:
+      route_preview:
+        status: ok
+        total_cost_usd: 10.5583
+        total_tokens: 1367230
+        tasks_planned: 20
+    artifacts:
+    - .state/single-source-metrics-via-step-events/state.yaml
+- step_id: run-phase-review
+  phase: specify
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T21:24:39Z'
+  ended_at: '2026-04-19T21:24:39Z'
+  usage: {}
+  evidence:
+    outputs:
+      phase_review_report: .state/single-source-metrics-via-step-events/review-specify.md
+      review_result:
+        verdict: approved_with_changes
+        score: 7
+        dimensions:
+          spec_compliance: 9
+          correctness: 7
+          security: 9
+          simplicity: 9
+          code_quality: 9
+        must_fix_count: 1
+        summary: "Iter-3 artifacts correctly eliminate the hybrid JSONL read pattern\
+          \ (ISSUE-32 resolved). All 7 OQs have concrete decisions; all 6 ACs are\
+          \ testable. One important finding: T-11 bundles RED test and GREEN implementation\
+          \ in a single task, violating tdd_required. Fix is mechanical \u2014 split\
+          \ T-11 into T-11a (RED) and T-11b (GREEN). No design changes required."
+    artifacts:
+    - .state/single-source-metrics-via-step-events/review-specify.md
+- step_id: capture-test-baseline
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T21:26:04Z'
+  ended_at: '2026-04-19T21:26:04Z'
+  usage: {}
+  evidence:
+    outputs:
+      test_baseline:
+        captured_at: '2026-04-19T21:25:50Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 132
+        failing: 2
+        skipped: 0
+        total: 134
+        exit_code: 1
+        pre_existing_failures:
+        - test_archive_backlog_cleanup::test_backlog_dir_removed_after_archive
+        - test_archive_backlog_cleanup::test_cleanup_commit_in_git_log
+    artifacts: []
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T21:47:35Z'
+  ended_at: '2026-04-19T21:47:35Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-5
+      task_title: RED test for feature_metrics DDL + idempotent migration
+      files_changed:
+      - config/scripts/orchestrator_next/tests/test_feature_metrics_ddl.py
+      commit_sha: 701f0cc
+      tests_added: 3
+      tests_passing: 141
+      task_execution_result: done
+    artifacts:
+    - config/scripts/orchestrator_next/tests/test_feature_metrics_ddl.py
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-04-19T21:47:39Z'
+  ended_at: '2026-04-19T21:47:39Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-6
+      task_title: GREEN feature_metrics DDL + upsert_feature_metrics
+      files_changed:
+      - config/scripts/orchestrator_next/upsert.py
+      commit_sha: '6685406'
+      tests_added: 0
+      tests_passing: 144
+      task_execution_result: done
+    artifacts:
+    - config/scripts/orchestrator_next/upsert.py
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 3
+  started_at: '2026-04-19T21:56:09Z'
+  ended_at: '2026-04-19T21:56:09Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-7
+      task_title: Write failing test for orchestrator metrics --change-id X --format
+        json subcommand JSON shape
+      files_changed:
+      - config/tests/test-orchestrator-metrics-json-shape.sh
+      commit_sha: 538de09
+      tests_added: 1
+      tests_passing: 144
+      task_execution_result: completed
+    artifacts:
+    - config/tests/test-orchestrator-metrics-json-shape.sh
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 4
+  started_at: '2026-04-19T21:56:14Z'
+  ended_at: '2026-04-19T21:56:14Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-8
+      task_title: Implement orchestrator metrics subcommand + metrics_report.aggregate_metrics()
+        composition
+      files_changed:
+      - config/scripts/orchestrator_next/metrics_report.py
+      - bin/orchestrator
+      commit_sha: d423e57
+      tests_added: 0
+      tests_passing: 144
+      task_execution_result: completed
+    artifacts:
+    - config/scripts/orchestrator_next/metrics_report.py
+    - bin/orchestrator
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 5
+  started_at: '2026-04-19T22:01:25Z'
+  ended_at: '2026-04-19T22:01:25Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-16
+      task_title: Write failing test for register-repo.sh step_history usage invariant
+      files_changed:
+      - config/tests/test-register-repo-usage-invariant.sh
+      commit_sha: 6633fa6
+      tests_added: 4
+      tests_passing: 4 bash assertions in new test (all RED/failing as required)
+      task_execution_result: red test created and failing as expected
+    artifacts:
+    - config/tests/test-register-repo-usage-invariant.sh
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 6
+  started_at: '2026-04-19T22:01:30Z'
+  ended_at: '2026-04-19T22:01:30Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-17
+      task_title: Implement usage invariant in register-repo.sh
+      files_changed:
+      - config/scripts/register-repo.sh
+      - config/tests/test-register-repo-usage-invariant.sh
+      commit_sha: ffbe665
+      tests_added: 0
+      tests_passing: 4/4 assertions in test-register-repo-usage-invariant.sh; smoke
+        test improves from 21/27 to 25/27 (pre-existing tools_json bug fixed; 2 remaining
+        failures are in T-5b which tested old broken behavior)
+      task_execution_result: "green \u2014 invariant implemented, test passes"
+    artifacts:
+    - config/scripts/register-repo.sh
+    - config/tests/test-register-repo-usage-invariant.sh
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 7
+  started_at: '2026-04-19T22:04:34Z'
+  ended_at: '2026-04-19T22:04:34Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-9
+      task_title: RED test for ingest-feature-metrics step with fixture tasks.md +
+        state.yaml
+      files_changed:
+      - config/scripts/__tests__/test-ingest-feature-metrics.sh
+      commit_sha: 1f9e656
+      task_execution_result: completed
+    artifacts:
+    - config/scripts/__tests__/test-ingest-feature-metrics.sh
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 8
+  started_at: '2026-04-19T22:04:39Z'
+  ended_at: '2026-04-19T22:04:39Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-10
+      task_title: Implement ingest-feature-metrics.yaml contract + ingest-feature-metrics.py
+      files_changed:
+      - config/steps/ingest-feature-metrics.yaml
+      - scripts/inline/ingest-feature-metrics.py
+      - config/scripts/__tests__/test-ingest-feature-metrics.sh
+      commit_sha: 1e2b96f
+      task_execution_result: completed
+    artifacts:
+    - config/steps/ingest-feature-metrics.yaml
+    - scripts/inline/ingest-feature-metrics.py
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 9
+  started_at: '2026-04-19T22:04:43Z'
+  ended_at: '2026-04-19T22:04:43Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-11a
+      task_title: RED extend test-complete-phase-order.sh with POS_INGEST assertions
+      files_changed:
+      - config/tests/test-complete-phase-order.sh
+      commit_sha: c2c8cf3
+      task_execution_result: completed
+    artifacts:
+    - config/tests/test-complete-phase-order.sh
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 10
+  started_at: '2026-04-19T22:04:47Z'
+  ended_at: '2026-04-19T22:04:47Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-11b
+      task_title: Insert ingest-feature-metrics into _complete-phase.yaml
+      files_changed:
+      - config/workflows/_complete-phase.yaml
+      commit_sha: 30ac025
+      task_execution_result: completed
+    artifacts:
+    - config/workflows/_complete-phase.yaml
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 11
+  started_at: '2026-04-19T22:09:41Z'
+  ended_at: '2026-04-19T22:09:41Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-12
+      task_title: RED test for compute-swe-metrics.sh projection
+      files_changed:
+      - config/scripts/__tests__/compute-swe-metrics-projection.test.sh
+      commit_sha: 9be4bb4
+      task_execution_result: completed
+    artifacts:
+    - config/scripts/__tests__/compute-swe-metrics-projection.test.sh
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 12
+  started_at: '2026-04-19T22:09:52Z'
+  ended_at: '2026-04-19T22:09:52Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-13
+      task_title: Rewrite compute-swe-metrics.sh as thin projection
+      files_changed:
+      - scripts/inline/compute-swe-metrics.sh
+      commit_sha: b473a97
+      task_execution_result: completed
+    artifacts:
+    - scripts/inline/compute-swe-metrics.sh
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 13
+  started_at: '2026-04-19T22:09:52Z'
+  ended_at: '2026-04-19T22:09:52Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-14
+      task_title: RED narrow-contract test for read-sub-state-metrics.sh rewrite
+      files_changed:
+      - config/scripts/__tests__/read-sub-state-metrics.test.sh
+      commit_sha: 2d20156
+      task_execution_result: completed
+    artifacts:
+    - config/scripts/__tests__/read-sub-state-metrics.test.sh
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 14
+  started_at: '2026-04-19T22:09:52Z'
+  ended_at: '2026-04-19T22:09:52Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-15
+      task_title: Rewrite read-sub-state-metrics.sh as thin projection
+      files_changed:
+      - config/scripts/read-sub-state-metrics.sh
+      commit_sha: ccc6590
+      task_execution_result: completed
+    artifacts:
+    - config/scripts/read-sub-state-metrics.sh
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 15
+  started_at: '2026-04-19T22:09:52Z'
+  ended_at: '2026-04-19T22:09:52Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-18
+      task_title: Fix 6 broken compute-swe-metrics path references
+      files_changed:
+      - config/tests/test-compute-swe-metrics-ordering.sh
+      - config/tests/test-per-agent-tokens-coverage.sh
+      - config/tests/test-compute-swe-metrics-per-step.sh
+      - config/scripts/__tests__/compute-swe-metrics-cost.test.sh
+      - config/scripts/__tests__/compute-swe-metrics.test.sh
+      - config/pricing.yaml
+      commit_sha: 59ab35d
+      task_execution_result: completed
+    artifacts:
+    - config/tests/test-compute-swe-metrics-ordering.sh
+    - config/tests/test-per-agent-tokens-coverage.sh
+    - config/tests/test-compute-swe-metrics-per-step.sh
+    - config/scripts/__tests__/compute-swe-metrics-cost.test.sh
+    - config/scripts/__tests__/compute-swe-metrics.test.sh
+    - config/pricing.yaml
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 16
+  started_at: '2026-04-19T22:18:40Z'
+  ended_at: '2026-04-19T22:18:40Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-19
+      task_title: "End-to-end integration test \u2014 seeded DuckDB + fresh ingest\
+        \ + orchestrator metrics read-back"
+      files_changed:
+      - config/tests/test-metrics-pipeline-integration.sh
+      commit_sha: e046a08
+      task_execution_result: completed
+    artifacts:
+    - config/tests/test-metrics-pipeline-integration.sh
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 17
+  started_at: '2026-04-19T22:24:05Z'
+  ended_at: '2026-04-19T22:24:05Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-20
+      task_title: "Phase gate \u2014 full verify commands + review checkpoint"
+      files_changed:
+      - config/scripts/verify-all.sh
+      commit_sha: f707fab
+      task_execution_result: completed
+    artifacts:
+    - config/scripts/verify-all.sh
+- step_id: run-phase-review
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T22:30:30Z'
+  ended_at: '2026-04-19T22:30:30Z'
+  usage: {}
+  evidence:
+    outputs:
+      phase_review_report: .state/single-source-metrics-via-step-events/review-implement.md
+      review_result:
+        verdict: approved_with_changes
+        score: 7
+        dimensions:
+          spec_compliance: 7
+          correctness: 7
+          security: 9
+          simplicity: 9
+          code_quality: 9
+        must_fix_count: 1
+        summary: "Core DuckDB single-source architecture is correct and clean: no\
+          \ hybrid JSONL reads, wrappers 70%+ under budget, slug guards consistent,\
+          \ all wire contracts preserved. One important finding: compute_retries()\
+          \ in ingest-feature-metrics.py never populates pass_at_1/pass_at_2/regressions/regression_rate\
+          \ \u2014 all marked R for feature schema \u2014 causing 4 integration-test\
+          \ failures. T-21 fix task generated; re-review after fix."
+    artifacts:
+    - .state/single-source-metrics-via-step-events/review-implement.md
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 18
+  started_at: '2026-04-19T22:34:10Z'
+  ended_at: '2026-04-19T22:34:10Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_id: T-21
+      task_title: compute resolution fields in ingest-feature-metrics
+      files_changed:
+      - scripts/inline/ingest-feature-metrics.py
+      commit_sha: 1f008dc
+      task_execution_result: completed
+    artifacts:
+    - config/tests/test-metrics-pipeline-integration.sh
+- step_id: run-phase-review
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-04-19T22:37:23Z'
+  ended_at: '2026-04-19T22:37:23Z'
+  usage: {}
+  evidence:
+    outputs:
+      phase_review_report: .state/single-source-metrics-via-step-events/review-implement-retry.md
+      review_result:
+        verdict: approved
+        score: 9
+        dimensions:
+          spec_compliance: 9
+          correctness: 9
+          security: 9
+          simplicity: 9
+          code_quality: 9
+        must_fix_count: 0
+        summary: 'FINDING-1 closed: compute_resolution() populates all 4 required
+          resolution fields from state.yaml; integration test 54/54 passing (was 50/54);
+          pytest 144 passing, 2 pre-existing failures unchanged. Three suggestion-tier
+          findings noted, none blocking.'
+    artifacts:
+    - .state/single-source-metrics-via-step-events/review-implement-retry.md
+- step_id: compute-prediction-accuracy
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T22:38:15Z'
+  ended_at: '2026-04-19T22:38:15Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy_result:
+        tasks:
+          predicted: 19
+          actual: 22
+          accuracy_pct: 86.4
+          fix_task_count: 3
+          rework_rate: 0.136
+        files:
+          actual: 27
+    artifacts:
+    - .state/single-source-metrics-via-step-events/state.yaml
+- step_id: run-learn-cycle
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T22:38:33Z'
+  ended_at: '2026-04-19T22:38:33Z'
+  usage: {}
+  evidence:
+    outputs:
+      learn_result:
+        skipped: true
+        reason: autopilot session budget; retro captures key findings
+    artifacts: []
+- step_id: mark-change-completed
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T22:38:56Z'
+  ended_at: '2026-04-19T22:38:56Z'
+  usage: {}
+  evidence:
+    outputs:
+      state_completion_fields:
+        status: completed
+        completed_at: '2026-04-19T22:38:46Z'
+        archive_path: spec/changes/archive/2026-04-19-single-source-metrics-via-step-events/
+    artifacts:
+    - .state/single-source-metrics-via-step-events/state.yaml
+- step_id: compute-swe-metrics
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-19T22:39:20Z'
+  ended_at: '2026-04-19T22:39:20Z'
+  usage: {}
+  evidence:
+    outputs:
+      swe_metrics:
+        resolution:
+          tasks_total: 22
+          tasks_completed: 22
+          resolve_rate: 1.0
+          pass_at_2: 1.0
+          regressions: 0
+        source: duckdb
+    artifacts:
+    - .state/single-source-metrics-via-step-events/state.yaml
+- step_id: run-phase-review
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 3
+  started_at: '2026-04-20T06:56:05Z'
+  ended_at: '2026-04-20T06:56:05Z'
+  usage: {}
+  evidence:
+    outputs:
+      phase_review_report: .state/single-source-metrics-via-step-events/review-scope-delta.md
+      review_result:
+        verdict: approved
+        score: 9
+        dimensions:
+          spec_compliance: 9
+          correctness: 9
+          security: 9
+          simplicity: 9
+          code_quality: 9
+        must_fix_count: 0
+        summary: 'T-23/T-24 delta: auto-invoke ingest-driver at complete phase. All
+          9 test assertions pass (primary TMPDIR, fallback scan, fail-soft). Ordering
+          correct. No regressions. 125-line script, shell=False, fail-soft on every
+          path. Phase score unchanged at 9/10.'
+    artifacts:
+    - .state/single-source-metrics-via-step-events/review-scope-delta.md
+route_preview:
+  schema: feature
+  generated_at: 2026-04-19 21:19:42+00:00
+  agents:
+  - agent: architect
+    backend: native_opus
+    model: claude-opus-4-7
+    pricing:
+      input: 15.0
+      output: 75.0
+      cache_read: 1.5
+    share: 0.251297
+    tokens_estimate: 286667
+    cost_estimate_usd: 6.02
+  - agent: developer
+    backend: native_sonnet
+    model: claude-sonnet-4-6
+    pricing:
+      input: 3.0
+      output: 15.0
+      cache_read: 0.3
+    share: 0.275762
+    tokens_estimate: 314576
+    cost_estimate_usd: 1.3212
+  - agent: discoverer
+    backend: native_sonnet
+    model: claude-sonnet-4-6
+    pricing:
+      input: 3.0
+      output: 15.0
+      cache_read: 0.3
+    share: 0.32101
+    tokens_estimate: 366192
+    cost_estimate_usd: 1.538
+  - agent: haiku-agent
+    backend: native_sonnet
+    model: claude-sonnet-4-6
+    pricing:
+      input: 3.0
+      output: 15.0
+      cache_read: 0.3
+    share: 0
+    tokens_estimate: 0
+    cost_estimate_usd: 0.0
+  - agent: ideator
+    backend: native_opus
+    model: claude-opus-4-7
+    pricing:
+      input: 15.0
+      output: 75.0
+      cache_read: 1.5
+    share: 0
+    tokens_estimate: 0
+    cost_estimate_usd: 0.0
+  - agent: reviewer
+    backend: native_sonnet
+    model: claude-sonnet-4-6
+    pricing:
+      input: 3.0
+      output: 15.0
+      cache_read: 0.3
+    share: 0.235311
+    tokens_estimate: 268431
+    cost_estimate_usd: 1.1274
+  - agent: sonnet-agent
+    backend: native_sonnet
+    model: claude-sonnet-4-6
+    pricing:
+      input: 3.0
+      output: 15.0
+      cache_read: 0.3
+    share: 0
+    tokens_estimate: 0
+    cost_estimate_usd: 0.0
+  - agent: workflow-improver
+    backend: native_sonnet
+    model: claude-sonnet-4-6
+    pricing:
+      input: 3.0
+      output: 15.0
+      cache_read: 0.3
+    share: 0.115156
+    tokens_estimate: 131364
+    cost_estimate_usd: 0.5517
+  estimate:
+    tokens: 1367230
+    cost_usd: 10.5583
+    tasks_planned: 20
+    tokens_per_task_median: 57037.5
+    archive_sample_size: 6
+prediction_accuracy:
+  computed_at: '2026-04-19T22:38:15Z'
+  tasks:
+    predicted: 19
+    actual: 22
+    delta: 3
+    accuracy_pct: 86.4
+    fix_task_count: 3
+    rework_rate: 0.136
+  files:
+    predicted: null
+    actual: 27
+    delta: null
+    overlap_pct: null
+    predicted_list: null
+    actual_list:
+    - bin/orchestrator
+    - config/pricing.yaml
+    - config/scripts/__tests__/compute-swe-metrics-cost.test.sh
+    - config/scripts/__tests__/compute-swe-metrics-projection.test.sh
+    - config/scripts/__tests__/compute-swe-metrics.test.sh
+    - config/scripts/__tests__/read-sub-state-metrics.test.sh
+    - config/scripts/__tests__/test-ingest-feature-metrics.sh
+    - config/scripts/orchestrator_next/cost_report.py
+    - config/scripts/orchestrator_next/metrics_report.py
+    - config/scripts/orchestrator_next/tests/test_feature_metrics_ddl.py
+    - config/scripts/orchestrator_next/tests/test_totals_wide.py
+    - config/scripts/orchestrator_next/tests/test_upsert_turns.py
+    - config/scripts/orchestrator_next/upsert.py
+    - config/scripts/read-sub-state-metrics.sh
+    - config/scripts/register-repo.sh
+    - config/scripts/verify-all.sh
+    - config/steps/ingest-feature-metrics.yaml
+    - config/tests/test-complete-phase-order.sh
+    - config/tests/test-compute-swe-metrics-ordering.sh
+    - config/tests/test-compute-swe-metrics-per-step.sh
+    - config/tests/test-metrics-pipeline-integration.sh
+    - config/tests/test-orchestrator-metrics-json-shape.sh
+    - config/tests/test-per-agent-tokens-coverage.sh
+    - config/tests/test-register-repo-usage-invariant.sh
+    - config/workflows/_complete-phase.yaml
+    - scripts/inline/compute-swe-metrics.sh
+    - scripts/inline/ingest-feature-metrics.py
+completed_at: '2026-04-19T22:38:46Z'
+archive_path: spec/changes/archive/2026-04-19-single-source-metrics-via-step-events/
+metrics:
+  tokens:
+    input: 0
+    output: 0
+    cache_creation: 0
+    cache_read: 0
+    total: 0
+  cost:
+    gross_usd: 0
+    net_usd: 0
+    model: unknown
+    pricing:
+      input: 15.0
+      output: 75.0
+      cache_read: 1.5
+  turns: 0
+  tool_calls: 0
+  api_calls: 0
+  wall_clock_minutes: 0
+  resolution:
+    tasks_total: 22
+    tasks_planned: 22
+    tasks_added: 0
+    tasks_completed: 22
+    tasks_failed: 0
+    resolve_rate: 1.0
+    pass_at_1: 0
+    pass_at_2: 1.0
+    regressions: 0
+    regression_rate: 0.0
+  retries:
+    total: 0
+  human_interventions: 0
+  rework_commits: 0
+  rework_rate: 0
+  churn:
+    files_changed: 4
+    insertions: 273
+    deletions: 75
+    total_commits: 6
+  review_scores: []
+  review_score_avg: 0
+  lint_delta: 0
+  category: feature
+  benchmarks:
+    cost_per_task_usd: 0
+    cost_per_resolution_usd: 0
+    tokens_per_task: 0
+    tokens_per_resolution: 0
+    input_output_ratio: 0
+    cache_hit_rate: 0
+  estimate_vs_actual:
+    tokens_predicted: 1367230
+    tokens_actual: 0
+    tokens_delta_pct: -1.0
+    cost_predicted_usd: 10.5583
+    cost_actual_usd: 0
+    cost_delta_pct: -1.0
+  per_tool_uses: '{}'
+  per_agent_tokens: '{}'
+  per_agent_tools: '{}'
+  per_step:
+    workflow-init:
+      total_tokens: 0
+      tool_uses: 0
+      duration_ms: 0
+      executions: 1
+    explore:
+      total_tokens: 0
+      tool_uses: 0
+      duration_ms: 0
+      executions: 1
+    design-and-draft-artifacts:
+      total_tokens: 0
+      tool_uses: 0
+      duration_ms: 0
+      executions: 1
+    preview-route:
+      total_tokens: 0
+      tool_uses: 0
+      duration_ms: 0
+      executions: 1
+    run-phase-review:
+      total_tokens: 0
+      tool_uses: 0
+      duration_ms: 0
+      executions: 3
+    capture-test-baseline:
+      total_tokens: 0
+      tool_uses: 0
+      duration_ms: 0
+      executions: 1
+    execute-next-task:
+      total_tokens: 0
+      tool_uses: 0
+      duration_ms: 0
+      executions: 18
+    compute-prediction-accuracy:
+      total_tokens: 0
+      tool_uses: 0
+      duration_ms: 0
+      executions: 1
+    run-learn-cycle:
+      total_tokens: 0
+      tool_uses: 0
+      duration_ms: 0
+      executions: 1
+    mark-change-completed:
+      total_tokens: 0
+      tool_uses: 0
+      duration_ms: 0
+      executions: 1
