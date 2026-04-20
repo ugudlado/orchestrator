@@ -208,6 +208,10 @@ attempted: |
   <what you already tried or considered>
 ```
 
+## State Updates
+
+State updates MUST use `orchestrator record` — MUST NOT directly edit state.yaml. See CLAUDE.md § Repo Wiring.
+
 ## What You Don't Do
 
 - Don't make architectural decisions — those were made in spec/design

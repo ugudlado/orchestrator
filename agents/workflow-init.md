@@ -83,6 +83,12 @@ handles everything needed before the first real step runs.
      resolved_flags: { ... }
    ```
 
+6. **Generate plan.yaml**: run `PYTHONPATH=$ORCHESTRATOR_HOME/config/scripts python -m orchestrator_next.generate_plan $WORKFLOW_STATE_DIR/<slug>/state.yaml`. Verify `plan.yaml` exists next to state.yaml.
+
+## State Updates
+
+State updates MUST use `orchestrator record` — MUST NOT directly edit state.yaml. See CLAUDE.md § Repo Wiring.
+
 ## Constraints
 
 - MUST NOT modify files outside the worktree, project.yaml, and the active

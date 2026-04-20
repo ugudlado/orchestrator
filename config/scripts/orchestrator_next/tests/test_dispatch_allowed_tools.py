@@ -50,6 +50,33 @@ def set_steps_override(steps_dir, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps_dir))
 
 
+@pytest.fixture()
+def state_dir(tmp_path):
+    """A directory with a minimal plan.yaml for dispatch tests.
+
+    Tests that need specific step IDs should call _write_plan_yaml(state_dir, ...).
+    A default plan.yaml with an empty implement phase is pre-written for tests
+    that don't care about step_context contents.
+    """
+    d = tmp_path / "state"
+    d.mkdir()
+    default_plan = {
+        "feature": "test-change",
+        "schema": "feature",
+        "resolved_flags": {},
+        "phases": [
+            {
+                "name": "implement",
+                "goal": "Implement.",
+                "steps": [],
+            }
+        ],
+    }
+    (d / "plan.yaml").write_text(yaml.safe_dump(default_plan, sort_keys=False))
+    (d / "state.yaml").write_text(yaml.safe_dump({"change_id": "test-change"}))
+    return d
+
+
 def _write_contract(steps_dir, step_id: str, data: dict):
     (steps_dir / f"{step_id}.yaml").write_text(yaml.dump(data))
 
@@ -57,6 +84,32 @@ def _write_contract(steps_dir, step_id: str, data: dict):
 def _write_agent(agents_dir, agent_name: str, tools: list[str]):
     fm = f"---\ntools:\n" + "".join(f"- {t}\n" for t in tools) + "---\n# {agent_name}\n"
     (agents_dir / f"{agent_name}.md").write_text(fm)
+
+
+def _write_plan_yaml(state_dir, phase: str, step_ids: list) -> str:
+    """Write a minimal plan.yaml next to state.yaml; return the state.yaml path string."""
+    from pathlib import Path
+    state_dir = Path(state_dir)
+    plan = {
+        "feature": "test-change",
+        "schema": "feature",
+        "resolved_flags": {},
+        "phases": [
+            {
+                "name": phase,
+                "goal": "Test phase.",
+                "steps": [
+                    {"id": sid, "agent": "developer", "goal": "Test.", "inputs": [],
+                     "outputs": [], "rules": []}
+                    for sid in step_ids
+                ],
+            }
+        ],
+    }
+    (state_dir / "plan.yaml").write_text(yaml.safe_dump(plan, sort_keys=False))
+    state_yaml = state_dir / "state.yaml"
+    state_yaml.write_text(yaml.safe_dump({"change_id": "test-change", "phase": phase}))
+    return str(state_yaml)
 
 
 def _make_state(steps: list[str], phase: str = "implement") -> "State":
@@ -106,7 +159,7 @@ def _make_state_with_inprogress(step_id: str, agent: str, phase: str = "implemen
 
 class TestResolvedAllowedToolsInjection:
 
-    def test_run_inline_no_run_has_resolved_allowed_tools(self, steps_dir, agents_dir, monkeypatch):
+    def test_run_inline_no_run_has_resolved_allowed_tools(self, steps_dir, agents_dir, state_dir, monkeypatch):
         """run_inline (no run:) action dict has resolved_allowed_tools key."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read", "Grep", "Glob", "Bash"])
@@ -114,13 +167,14 @@ class TestResolvedAllowedToolsInjection:
             "id": "my-step", "agent": "developer",
             "instruction": "do thing", "inputs": [], "outputs": [],
         })
+        _write_plan_yaml(state_dir, "implement", ["my-step"])
         from orchestrator_next.dispatch import dispatch
         state = _make_state(["my-step"])
-        action, code = dispatch(state, "")
+        action, code = dispatch(state, str(state_dir / "state.yaml"))
         assert action["action"] == "run_inline"
         assert "resolved_allowed_tools" in action
 
-    def test_run_step_has_resolved_allowed_tools(self, steps_dir, agents_dir, monkeypatch):
+    def test_run_step_has_resolved_allowed_tools(self, steps_dir, agents_dir, state_dir, monkeypatch):
         """run_step (contract.run set, not inline) action dict has resolved_allowed_tools key."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read", "Grep", "Glob", "Bash"])
@@ -129,13 +183,14 @@ class TestResolvedAllowedToolsInjection:
             "run": "scripts/run.sh",
             "instruction": "run thing", "inputs": [], "outputs": [],
         })
+        _write_plan_yaml(state_dir, "implement", ["run-step"])
         from orchestrator_next.dispatch import dispatch
         state = _make_state(["run-step"])
-        action, code = dispatch(state, "")
+        action, code = dispatch(state, str(state_dir / "state.yaml"))
         assert action["action"] == "run_step"
         assert "resolved_allowed_tools" in action
 
-    def test_run_inline_with_run_has_resolved_allowed_tools(self, steps_dir, agents_dir, monkeypatch):
+    def test_run_inline_with_run_has_resolved_allowed_tools(self, steps_dir, agents_dir, state_dir, monkeypatch):
         """run_inline (inline: true + run:) action dict has resolved_allowed_tools key."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_contract(steps_dir, "inline-run-step", {
@@ -143,13 +198,14 @@ class TestResolvedAllowedToolsInjection:
             "inline": True, "run": "scripts/inline.sh",
             "instruction": "inline thing", "inputs": [], "outputs": [],
         })
+        _write_plan_yaml(state_dir, "implement", ["inline-run-step"])
         from orchestrator_next.dispatch import dispatch
         state = _make_state(["inline-run-step"])
-        action, code = dispatch(state, "")
+        action, code = dispatch(state, str(state_dir / "state.yaml"))
         assert action["action"] == "run_inline"
         assert "resolved_allowed_tools" in action
 
-    def test_retry_step_has_resolved_allowed_tools(self, steps_dir, agents_dir, monkeypatch):
+    def test_retry_step_has_resolved_allowed_tools(self, steps_dir, agents_dir, state_dir, monkeypatch):
         """retry_step action dict has resolved_allowed_tools key."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read", "Grep", "Glob", "Bash"])
@@ -157,9 +213,10 @@ class TestResolvedAllowedToolsInjection:
             "id": "retry-step", "agent": "developer",
             "instruction": "retry thing", "inputs": [], "outputs": [],
         })
+        _write_plan_yaml(state_dir, "implement", ["retry-step"])
         from orchestrator_next.dispatch import dispatch
         state = _make_state_with_inprogress("retry-step", "developer")
-        action, code = dispatch(state, "")
+        action, code = dispatch(state, str(state_dir / "state.yaml"))
         assert action["action"] == "retry_step"
         assert "resolved_allowed_tools" in action
 
@@ -170,7 +227,7 @@ class TestResolvedAllowedToolsInjection:
 
 class TestResolvedAllowedToolsIntersection:
 
-    def test_allowed_tools_subset_gives_sorted_intersection(self, steps_dir, agents_dir, monkeypatch):
+    def test_allowed_tools_subset_gives_sorted_intersection(self, steps_dir, agents_dir, state_dir, monkeypatch):
         """allowed_tools: [Read, Grep, Glob, Bash] against developer role -> sorted intersection."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read", "Grep", "Glob", "Bash", "Edit", "Write"])
@@ -179,12 +236,13 @@ class TestResolvedAllowedToolsIntersection:
             "instruction": "do thing", "inputs": [], "outputs": [],
             "allowed_tools": ["Read", "Grep", "Glob", "Bash"],
         })
+        _write_plan_yaml(state_dir, "implement", ["subset-step"])
         from orchestrator_next.dispatch import dispatch
         state = _make_state(["subset-step"])
-        action, code = dispatch(state, "")
+        action, code = dispatch(state, str(state_dir / "state.yaml"))
         assert action["resolved_allowed_tools"] == ["Bash", "Glob", "Grep", "Read"]
 
-    def test_no_allowed_tools_gives_sorted_full_role_list(self, steps_dir, agents_dir, monkeypatch):
+    def test_no_allowed_tools_gives_sorted_full_role_list(self, steps_dir, agents_dir, state_dir, monkeypatch):
         """No allowed_tools declared -> resolved_allowed_tools equals sorted full role list (AC-2, FR-7)."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read", "Bash", "Grep"])
@@ -192,12 +250,13 @@ class TestResolvedAllowedToolsIntersection:
             "id": "no-tools-step", "agent": "developer",
             "instruction": "do thing", "inputs": [], "outputs": [],
         })
+        _write_plan_yaml(state_dir, "implement", ["no-tools-step"])
         from orchestrator_next.dispatch import dispatch
         state = _make_state(["no-tools-step"])
-        action, code = dispatch(state, "")
+        action, code = dispatch(state, str(state_dir / "state.yaml"))
         assert action["resolved_allowed_tools"] == ["Bash", "Grep", "Read"]
 
-    def test_empty_allowed_tools_identical_to_absent(self, steps_dir, agents_dir, monkeypatch):
+    def test_empty_allowed_tools_identical_to_absent(self, steps_dir, agents_dir, state_dir, monkeypatch):
         """allowed_tools: [] -> same as absent (backward-compat, AC-7, UC-E4)."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read", "Bash", "Grep"])
@@ -206,9 +265,10 @@ class TestResolvedAllowedToolsIntersection:
             "instruction": "do thing", "inputs": [], "outputs": [],
             "allowed_tools": [],
         })
+        _write_plan_yaml(state_dir, "implement", ["empty-tools-step"])
         from orchestrator_next.dispatch import dispatch
         state = _make_state(["empty-tools-step"])
-        action, code = dispatch(state, "")
+        action, code = dispatch(state, str(state_dir / "state.yaml"))
         assert action["resolved_allowed_tools"] == ["Bash", "Grep", "Read"]
 
 
@@ -241,7 +301,7 @@ class TestWideningGuard:
 
 class TestGracefulDegradation:
 
-    def test_role_unresolvable_warns_and_gives_empty_list(self, steps_dir, agents_dir, monkeypatch, capsys):
+    def test_role_unresolvable_warns_and_gives_empty_list(self, steps_dir, agents_dir, state_dir, monkeypatch, capsys):
         """Role tools unresolvable -> warning on stderr, resolved_allowed_tools == [], no exception (AC-5)."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         # Do NOT write the agent file — it's missing
@@ -253,14 +313,15 @@ class TestGracefulDegradation:
             "instruction": "do thing", "inputs": [], "outputs": [],
             "allowed_tools": ["Read"],
         })
+        _write_plan_yaml(state_dir, "implement", ["missing-role-step"])
         from orchestrator_next.dispatch import dispatch
         state = _make_state(["missing-role-step"])
-        action, code = dispatch(state, "")
+        action, code = dispatch(state, str(state_dir / "state.yaml"))
         assert action["resolved_allowed_tools"] == []
         captured = capsys.readouterr()
         assert captured.err != ""  # some warning was emitted
 
-    def test_inline_with_allowed_tools_warns_and_gives_empty_list(self, steps_dir, agents_dir, monkeypatch, capsys):
+    def test_inline_with_allowed_tools_warns_and_gives_empty_list(self, steps_dir, agents_dir, state_dir, monkeypatch, capsys):
         """agent: inline with allowed_tools -> warning, resolved_allowed_tools == [], no exception (AC-6)."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_contract(steps_dir, "inline-with-tools", {
@@ -268,9 +329,10 @@ class TestGracefulDegradation:
             "instruction": "do thing", "inputs": [], "outputs": [],
             "allowed_tools": ["Read"],
         })
+        _write_plan_yaml(state_dir, "implement", ["inline-with-tools"])
         from orchestrator_next.dispatch import dispatch
         state = _make_state(["inline-with-tools"])
-        action, code = dispatch(state, "")
+        action, code = dispatch(state, str(state_dir / "state.yaml"))
         assert action["resolved_allowed_tools"] == []
         captured = capsys.readouterr()
         assert captured.err != ""  # warning about allowed_tools on inline step

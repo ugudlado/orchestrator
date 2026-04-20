@@ -16,7 +16,10 @@ from __future__ import annotations
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 from orchestrator_next.parser import (
     ContractError,
@@ -205,6 +208,43 @@ def _resolve_allowed_tools(contract: StepContract) -> list[str]:
     return sorted(role_tools)
 
 
+def _load_plan(state_yaml_path: str) -> dict[str, Any]:
+    """
+    Load plan.yaml from the directory containing state.yaml.
+
+    Exits 3 with a clear stderr message if plan.yaml is missing.
+    """
+    plan_path = Path(state_yaml_path).parent / "plan.yaml"
+    if not plan_path.exists():
+        print(
+            f"ERROR: plan.yaml not found at {plan_path}. "
+            "Run 'python -m orchestrator_next.generate_plan <state_yaml_path>' to generate it.",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+    with open(plan_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _find_step_in_plan(plan: dict[str, Any], phase: str, step_id: str) -> dict[str, Any]:
+    """
+    Return the step block for (phase, step_id) from plan.yaml.
+
+    Exits 3 with a clear stderr message if not found.
+    """
+    for phase_block in plan.get("phases", []):
+        if phase_block.get("name") == phase:
+            for step in phase_block.get("steps", []):
+                if step.get("id") == step_id:
+                    return step
+    print(
+        f"ERROR: step_context missing for {phase}/{step_id} in plan.yaml. "
+        "Re-generate plan.yaml if the workflow_plan changed.",
+        file=sys.stderr,
+    )
+    sys.exit(3)
+
+
 def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
     """
     Pure function: State → (action_dict, exit_code).
@@ -263,6 +303,8 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "resolved_allowed_tools": resolved_allowed_tools,
             "env": _build_env(state, step_id, attempt),
         }
+        plan = _load_plan(state_yaml_path)
+        action["step_context"] = _find_step_in_plan(plan, state.phase, step_id)
         return action, 0
 
     # --- Determine the next pending step in this phase
@@ -362,6 +404,10 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "resolved_allowed_tools": resolved_allowed_tools,
             "env": env,
         }
+
+    # Attach step_context from plan.yaml for all agent-spawning action types
+    plan_data = _load_plan(state_yaml_path)
+    action["step_context"] = _find_step_in_plan(plan_data, state.phase, next_step_id)
 
     return action, 0
 

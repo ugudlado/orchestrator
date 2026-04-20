@@ -22,6 +22,7 @@ outputs:
   - linear_ticket_id
   - workflow_plan
   - resolved_flags
+  - plan_yaml_path
 
 rules:
   - Fail loud if project.yaml is missing or the Linear config for this repo is
@@ -47,3 +48,4 @@ verify:
   - linear_ticket_id matches team prefix regex (or null if flags.linear false)
   - workflow_plan is a non-empty dict with at least one phase
   - state.yaml at $WORKFLOW_STATE_DIR/<slug>/state.yaml contains project_context_loaded: true
+  - plan.yaml exists at $WORKFLOW_STATE_DIR/<slug>/plan.yaml
