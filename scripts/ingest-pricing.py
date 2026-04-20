@@ -188,7 +188,6 @@ def main(argv=None):
             f"error: duplicate (model_id={args.model}, effective_from={args.effective_from})",
             file=sys.stderr,
         )
-        db.close()
         sys.exit(2)
     finally:
         db.close()
