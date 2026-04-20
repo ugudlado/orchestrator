@@ -18,6 +18,7 @@ steps:
   - run-learn-cycle
   - mark-change-completed
   - ingest-driver-auto
+  - ingest-subagents-auto
   - ingest-feature-metrics
   - compute-swe-metrics
   - archive-completed-change

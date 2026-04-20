@@ -46,6 +46,7 @@ def _usage() -> None:
         "  orchestrator cost --repo [--by feature|agent|tool|complexity] [--format md|json] [--since <ISO>]\n"
         "  orchestrator metrics --change-id <cid> [--format md|json]\n"
         "  orchestrator ingest-driver --change-id <cid> --session-id <uuid>\n"
+        "  orchestrator ingest-subagents --change-id <cid> --session-id <uuid>\n"
         "  orchestrator doctor",
         file=sys.stderr,
     )
@@ -369,9 +370,137 @@ def _ingest_driver_main(args: list[str]) -> None:
     sys.exit(0)
 
 
+def _ingest_subagents_main(args: list[str]) -> None:
+    """Handle `orchestrator ingest-subagents --change-id <cid> --session-id <uuid>`.
+
+    Discovers sub-agent JSONLs under ~/.claude/projects/<slug>/<session>/subagents/,
+    reads each agent-<id>.meta.json sidecar for agentType, aggregates usage via
+    extract_agent_usage(), and upserts one synthetic step_events row per sub-agent.
+    Idempotent: skips agents whose rows already exist with non-zero input_tokens.
+
+    Prints a single JSON summary line: {"ingested": N, "skipped": M, "agents": [...]}
+    """
+    import json as _json
+
+    change_id = None
+    session_id = None
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--change-id" and i + 1 < len(args):
+            change_id = args[i + 1]; i += 2
+        elif a == "--session-id" and i + 1 < len(args):
+            session_id = args[i + 1]; i += 2
+        else:
+            _usage()
+    if not change_id or not session_id:
+        _usage()
+
+    try:
+        import duckdb
+        from orchestrator_next.jsonl_usage import discover_subagents, extract_agent_usage, locate_subagent_jsonl_path
+        from orchestrator_next.upsert import ensure_schema, upsert_synthetic_event
+        from orchestrator_next.record import _compute_cost_usd
+    except ImportError as exc:
+        print(f"error: failed to import orchestrator_next — {exc}", file=sys.stderr)
+        sys.exit(3)
+
+    repo_root = os.getcwd()
+    try:
+        repo_root = os.popen("git rev-parse --show-toplevel").read().strip() or repo_root
+    except Exception:
+        pass
+
+    agent_ids = discover_subagents(repo_root, session_id)
+
+    db_path = os.environ.get("METRICS_DB") or f"{repo_root}/metrics.duckdb"
+    db = duckdb.connect(db_path)
+
+    ingested = 0
+    skipped = 0
+    agents_summary = []
+
+    try:
+        ensure_schema(db)
+
+        for agent_id in agent_ids:
+            step_id = f"subagent-{agent_id}"
+
+            # Read agentType from meta.json sidecar; fallback to "subagent-unknown"
+            agent_name = "subagent-unknown"
+            try:
+                jsonl_path = locate_subagent_jsonl_path(repo_root, agent_id, driver_session_hint=session_id)
+                if jsonl_path is not None:
+                    meta_path = jsonl_path.parent / f"agent-{agent_id}.meta.json"
+                    if meta_path.exists():
+                        import json as _meta_json
+                        meta = _meta_json.loads(meta_path.read_text())
+                        agent_type = meta.get("agentType") or ""
+                        if agent_type:
+                            agent_name = agent_type
+            except Exception:
+                pass  # fallback remains "subagent-unknown"
+
+            # Dedup: skip if row already exists with non-zero input_tokens (FR-6)
+            existing = db.execute(
+                "SELECT input_tokens FROM step_events "
+                "WHERE repo_root=? AND change_id=? AND phase='meta' AND step_id=? AND attempt=1",
+                [repo_root, change_id, step_id],
+            ).fetchone()
+            if existing is not None and existing[0] is not None and existing[0] > 0:
+                skipped += 1
+                agents_summary.append({
+                    "agent_id": agent_id,
+                    "agent_name": agent_name,
+                    "status": "skipped",
+                    "reason": "already_ingested",
+                })
+                continue
+
+            # Extract usage from JSONL
+            usage = extract_agent_usage(repo_root, agent_id, driver_session_hint=session_id)
+            if not usage:
+                skipped += 1
+                agents_summary.append({
+                    "agent_id": agent_id,
+                    "agent_name": agent_name,
+                    "status": "skipped",
+                    "reason": "no_usable_turns",
+                })
+                continue
+
+            # Compute cost
+            model, cost = _compute_cost_usd(agent_name, usage)
+            if cost is not None:
+                usage["cost_usd"] = cost
+            if model and not usage.get("model"):
+                usage["model"] = model
+
+            upsert_synthetic_event(
+                db, {"repo_root": repo_root, "change_id": change_id},
+                agent_name=agent_name,
+                step_id=step_id,
+                phase="meta",
+                usage=usage,
+            )
+            ingested += 1
+            agents_summary.append({
+                "agent_id": agent_id,
+                "agent_name": agent_name,
+                "status": "ingested",
+                "reason": "",
+            })
+
+    finally:
+        db.close()
+
+    print(_json.dumps({"ingested": ingested, "skipped": skipped, "agents": agents_summary}))
+    sys.exit(0)
+
+
 def main() -> None:
     args = sys.argv[1:]
-    if not args or args[0] not in ("next", "record", "cost", "metrics", "doctor", "ingest-driver"):
+    if not args or args[0] not in ("next", "record", "cost", "metrics", "doctor", "ingest-driver", "ingest-subagents"):
         _usage()
     if len(args) < 2 and args[0] in ("next", "record"):
         _usage()
@@ -386,6 +515,10 @@ def main() -> None:
 
     if args[0] == "ingest-driver":
         _ingest_driver_main(args[1:])
+        return  # exits
+
+    if args[0] == "ingest-subagents":
+        _ingest_subagents_main(args[1:])
         return  # exits
 
     if args[0] == "doctor":
