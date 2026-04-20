@@ -24,6 +24,8 @@ import os
 import re
 import yaml
 
+import duckdb
+
 from .resolver import load_agent_tools
 from .parser import _load_contract, ContractError, StepContract
 
@@ -59,31 +61,39 @@ def _fmt_ms(v: int | None) -> str:
 # Aggregation helpers (private)
 # ---------------------------------------------------------------------------
 
-def _load_pricing_for_model(model: str | None) -> dict:
-    """Look up pricing rates for a model from pricing.yaml.
+def _load_pricing_for_model(db, model: str | None) -> dict:
+    """Read rates for `model` from the DuckDB `pricing` table.
 
-    Returns a dict with keys: input, output, cache_read, cache_creation.
-    Falls back to pricing.default if the model is not found.
-    Always returns a dict (never None); missing keys default to 0.
+    Falls back to __default__ when the model_id is not found.
+    Falls back to a built-in conservative dict if the pricing table is absent
+    (e.g. read-only open on an un-migrated DB) — catches duckdb.Error (AC-6).
+
+    Always returns a dict (never None or raises); keys: input, output,
+    cache_read, cache_creation.
     """
-    # Import the same lru_cached loader from record.py to avoid duplicate I/O.
+    fallback = {"input": 15.0, "output": 75.0, "cache_read": 1.5, "cache_creation": 18.75}
     try:
-        from orchestrator_next.record import _load_pricing
-        pricing = _load_pricing()
-    except Exception:
-        pricing = {}
-
-    price = None
-    if model:
-        price = (pricing.get("models") or {}).get(model)
-    if price is None:
-        price = pricing.get("default") or {}
-
+        row = db.execute(
+            "SELECT input_usd, output_usd, cache_read_usd, cache_creation_usd "
+            "FROM pricing WHERE model_id = ? "
+            "ORDER BY effective_from DESC LIMIT 1",
+            [model or "__default__"],
+        ).fetchone()
+        if row is None and model:
+            row = db.execute(
+                "SELECT input_usd, output_usd, cache_read_usd, cache_creation_usd "
+                "FROM pricing WHERE model_id = '__default__' "
+                "ORDER BY effective_from DESC LIMIT 1"
+            ).fetchone()
+    except duckdb.Error:
+        return fallback
+    if row is None:
+        return fallback
     return {
-        "input": price.get("input") or 0,
-        "output": price.get("output") or 0,
-        "cache_read": price.get("cache_read") or 0,
-        "cache_creation": price.get("cache_creation") or 0,
+        "input": row[0] or 0,
+        "output": row[1] or 0,
+        "cache_read": row[2] or 0,
+        "cache_creation": row[3] or 0,
     }
 
 
@@ -148,7 +158,8 @@ def _totals(db, repo_root: str, change_id: str) -> dict:
     dominant_model: str | None = dom_row[0] if dom_row else None
 
     # Pricing rates for the dominant model
-    pricing = _load_pricing_for_model(dominant_model)
+    # TODO(phase-N): temporal-correctness — switch to effective_from <= step.ts when dashboards are ready
+    pricing = _load_pricing_for_model(db, dominant_model)
 
     # gross_usd: full sticker price without cache discount
     # Formula: (input + cache_creation + cache_read) * input_rate / 1M
