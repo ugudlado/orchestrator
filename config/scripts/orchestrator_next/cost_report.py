@@ -59,19 +59,69 @@ def _fmt_ms(v: int | None) -> str:
 # Aggregation helpers (private)
 # ---------------------------------------------------------------------------
 
+def _load_pricing_for_model(model: str | None) -> dict:
+    """Look up pricing rates for a model from pricing.yaml.
+
+    Returns a dict with keys: input, output, cache_read, cache_creation.
+    Falls back to pricing.default if the model is not found.
+    Always returns a dict (never None); missing keys default to 0.
+    """
+    # Import the same lru_cached loader from record.py to avoid duplicate I/O.
+    try:
+        from orchestrator_next.record import _load_pricing
+        pricing = _load_pricing()
+    except Exception:
+        pricing = {}
+
+    price = None
+    if model:
+        price = (pricing.get("models") or {}).get(model)
+    if price is None:
+        price = pricing.get("default") or {}
+
+    return {
+        "input": price.get("input") or 0,
+        "output": price.get("output") or 0,
+        "cache_read": price.get("cache_read") or 0,
+        "cache_creation": price.get("cache_creation") or 0,
+    }
+
+
+def _step_events_columns(db) -> set[str]:
+    """Return the set of column names present in step_events."""
+    try:
+        rows = db.execute("DESCRIBE step_events").fetchall()
+        return {row[0] for row in rows}
+    except Exception:
+        return set()
+
+
 def _totals(db, repo_root: str, change_id: str) -> dict:
+    # Determine which optional columns exist (handles legacy DB fixtures in tests).
+    existing = _step_events_columns(db)
+    has_cache_creation = "cache_creation_input_tokens" in existing
+    has_cache_read = "cache_read_input_tokens" in existing
+    has_turns = "turns" in existing
+
     sql = """
     SELECT
-      COALESCE(SUM(cost_usd), 0.0)        AS cost_usd,
-      COALESCE(SUM(input_tokens), 0)      AS input_tokens,
-      COALESCE(SUM(output_tokens), 0)     AS output_tokens,
-      COALESCE(SUM(duration_ms), 0)                    AS duration_ms,
-      COUNT(*)                                          AS step_count
+      COALESCE(SUM(cost_usd), 0.0)                    AS cost_usd,
+      COALESCE(SUM(input_tokens), 0)                  AS input_tokens,
+      COALESCE(SUM(output_tokens), 0)                 AS output_tokens,
+      {cache_creation_expr}                            AS cache_creation_input_tokens,
+      {cache_read_expr}                                AS cache_read_input_tokens,
+      {turns_expr}                                     AS turns,
+      COALESCE(SUM(duration_ms), 0)                   AS duration_ms,
+      COUNT(*)                                        AS step_count
     FROM step_events
     WHERE repo_root = ? AND change_id = ?
-    """
+    """.format(
+        cache_creation_expr="COALESCE(SUM(cache_creation_input_tokens), 0)" if has_cache_creation else "0",
+        cache_read_expr="COALESCE(SUM(cache_read_input_tokens), 0)" if has_cache_read else "0",
+        turns_expr="COALESCE(SUM(turns), 0)" if has_turns else "0",
+    )
     row = db.execute(sql, [repo_root, change_id]).fetchone()
-    cost_usd, input_tok, output_tok, dur_ms, step_count = row
+    cost_usd, input_tok, output_tok, cache_create, cache_read, turns, dur_ms, step_count = row
 
     # Rework ratio: SUM(cost WHERE attempt > 1) / SUM(cost); 0.0 on divide-by-zero
     rework_sql = """
@@ -85,13 +135,42 @@ def _totals(db, repo_root: str, change_id: str) -> dict:
     rework_numerator, rework_denominator = rr
     rework_ratio = (rework_numerator / rework_denominator) if rework_denominator else 0.0
 
+    # Dominant model: the model with the most input_tokens for this change
+    dominant_sql = """
+    SELECT model
+    FROM step_events
+    WHERE repo_root = ? AND change_id = ? AND model IS NOT NULL
+    GROUP BY model
+    ORDER BY SUM(input_tokens) DESC NULLS LAST
+    LIMIT 1
+    """
+    dom_row = db.execute(dominant_sql, [repo_root, change_id]).fetchone()
+    dominant_model: str | None = dom_row[0] if dom_row else None
+
+    # Pricing rates for the dominant model
+    pricing = _load_pricing_for_model(dominant_model)
+
+    # gross_usd: full sticker price without cache discount
+    # Formula: (input + cache_creation + cache_read) * input_rate / 1M
+    #          + output * output_rate / 1M
+    gross_usd = (
+        (int(input_tok) + int(cache_create) + int(cache_read)) * pricing["input"] / 1_000_000
+        + int(output_tok) * pricing["output"] / 1_000_000
+    )
+
     return {
         "cost_usd": float(cost_usd),
         "input_tokens": int(input_tok),
         "output_tokens": int(output_tok),
+        "cache_creation_input_tokens": int(cache_create),
+        "cache_read_input_tokens": int(cache_read),
+        "turns": int(turns),
         "duration_ms": int(dur_ms),
         "step_count": int(step_count),
         "rework_ratio": float(rework_ratio),
+        "model": dominant_model,
+        "pricing": pricing,
+        "gross_usd": gross_usd,
     }
 
 

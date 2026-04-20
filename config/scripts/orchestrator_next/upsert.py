@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS step_events (
   cache_read_input_tokens      BIGINT,
   cache_creation_input_tokens  BIGINT,
   cost_usd                     DOUBLE,
+  turns                        BIGINT,
   tool_calls_json  VARCHAR,
   artifacts_json   VARCHAR,
   escalation_json  VARCHAR,
@@ -98,6 +99,57 @@ INSERT OR REPLACE INTO feature_complexity
 VALUES (?, ?, ?, ?, ?, ?)
 """
 
+_DDL_FEATURE_METRICS = """
+CREATE TABLE IF NOT EXISTS feature_metrics (
+  repo_root          VARCHAR NOT NULL,
+  change_id          VARCHAR NOT NULL,
+  schema_name        VARCHAR,
+  -- Resolution
+  tasks_total        INTEGER,
+  tasks_planned      INTEGER,
+  tasks_added        INTEGER,
+  tasks_completed    INTEGER,
+  tasks_failed       INTEGER,
+  resolve_rate       DOUBLE,
+  pass_at_1          DOUBLE,
+  pass_at_2          DOUBLE,
+  regressions        INTEGER,
+  regression_rate    DOUBLE,
+  -- Retries / interventions
+  retries_total      INTEGER,
+  human_interventions INTEGER,
+  -- Churn
+  files_changed      INTEGER,
+  insertions         INTEGER,
+  deletions          INTEGER,
+  total_commits      INTEGER,
+  rework_commits     INTEGER,
+  rework_rate        DOUBLE,
+  -- Reviews
+  review_scores_json VARCHAR,
+  review_score_avg   DOUBLE,
+  -- Timing
+  wall_clock_minutes DOUBLE,
+  -- Audit
+  source             VARCHAR,
+  computed_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (repo_root, change_id)
+)
+"""
+
+_INSERT_FEATURE_METRICS = """
+INSERT OR REPLACE INTO feature_metrics (
+  repo_root, change_id, schema_name,
+  tasks_total, tasks_planned, tasks_added, tasks_completed, tasks_failed,
+  resolve_rate, pass_at_1, pass_at_2, regressions, regression_rate,
+  retries_total, human_interventions,
+  files_changed, insertions, deletions, total_commits, rework_commits, rework_rate,
+  review_scores_json, review_score_avg,
+  wall_clock_minutes,
+  source
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
 _DELETE_TOOL_CALLS = """
 DELETE FROM tool_calls
 WHERE repo_root = ? AND change_id = ? AND phase = ? AND step_id = ? AND attempt = ?
@@ -129,10 +181,11 @@ INSERT OR REPLACE INTO step_events (
   cache_read_input_tokens,
   cache_creation_input_tokens,
   cost_usd,
+  turns,
   tool_calls_json,
   artifacts_json,
   escalation_json
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -215,6 +268,8 @@ def _migrate_step_events(db) -> None:
         existing.add("cache_creation_input_tokens")
     if "agent_id" not in existing:
         db.execute("ALTER TABLE step_events ADD COLUMN agent_id VARCHAR")
+    if "turns" not in existing:
+        db.execute("ALTER TABLE step_events ADD COLUMN turns BIGINT")
 
 
 def _migrate_tool_calls(db) -> None:
@@ -241,6 +296,7 @@ def ensure_schema(db) -> None:
     _migrate_tool_calls(db)
     db.execute(_CREATE_TOOL_CALLS_INDEX)
     db.execute(_DDL_FEATURE_COMPLEXITY)  # HL-291
+    db.execute(_DDL_FEATURE_METRICS)
 
 
 def upsert_feature_complexity(
@@ -269,6 +325,64 @@ def upsert_feature_complexity(
     """
     db.execute(_INSERT_FEATURE_COMPLEXITY, [
         repo_root, change_id, complexity, schema_name, started_at, completed_at,
+    ])
+
+
+def upsert_feature_metrics(
+    db,
+    repo_root: str,
+    change_id: str,
+    **fields,
+) -> None:
+    """
+    Upsert one row into feature_metrics keyed on (repo_root, change_id).
+
+    Uses INSERT OR REPLACE so calling with the same (repo_root, change_id)
+    replaces the existing row.
+
+    Args:
+        db:        open duckdb.DuckDBPyConnection (schema already ensured)
+        repo_root: absolute path to the repo root
+        change_id: feature change identifier (validated against slug guard)
+        **fields:  any subset of feature_metrics columns (unmapped fields silently
+                   become None so callers don't need to supply every column)
+
+    Raises:
+        ValueError: if change_id violates the slug guard
+    """
+    if not _SLUG_RE.match(change_id):
+        raise ValueError(
+            f"change_id '{change_id}' violates slug guard. "
+            f"Must match ^[a-z0-9][a-z0-9-]*$ (lowercase alphanumeric and hyphens only, "
+            f"no leading hyphen)."
+        )
+
+    db.execute(_INSERT_FEATURE_METRICS, [
+        repo_root,
+        change_id,
+        fields.get("schema_name"),
+        fields.get("tasks_total"),
+        fields.get("tasks_planned"),
+        fields.get("tasks_added"),
+        fields.get("tasks_completed"),
+        fields.get("tasks_failed"),
+        fields.get("resolve_rate"),
+        fields.get("pass_at_1"),
+        fields.get("pass_at_2"),
+        fields.get("regressions"),
+        fields.get("regression_rate"),
+        fields.get("retries_total"),
+        fields.get("human_interventions"),
+        fields.get("files_changed"),
+        fields.get("insertions"),
+        fields.get("deletions"),
+        fields.get("total_commits"),
+        fields.get("rework_commits"),
+        fields.get("rework_rate"),
+        fields.get("review_scores_json"),
+        fields.get("review_score_avg"),
+        fields.get("wall_clock_minutes"),
+        fields.get("source"),
     ])
 
 
@@ -336,6 +450,7 @@ def upsert_step_event(
         usage.get("cache_read_input_tokens"),
         usage.get("cache_creation_input_tokens"),
         usage.get("cost_usd"),
+        usage.get("turns"),
         tool_calls_json,
         artifacts_json,
         escalation_json,
@@ -435,6 +550,7 @@ def upsert_synthetic_event(
         usage.get("cache_read_input_tokens"),
         usage.get("cache_creation_input_tokens"),
         usage.get("cost_usd"),
+        usage.get("turns"),
         tool_calls_json,
         None,  # artifacts_json
         None,  # escalation_json

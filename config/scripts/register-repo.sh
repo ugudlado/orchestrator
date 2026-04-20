@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS step_history (
   total_tokens  BIGINT,
   tool_uses     INTEGER,
   duration_ms   BIGINT,
+  tools_json    VARCHAR,
   PRIMARY KEY (repo_root, change_id, step_ord)
 );
 
@@ -271,6 +272,15 @@ SQL
       SH_TOOLS=$(   [[ "$tool_uses_val"    == "null" ]] && echo "NULL" || echo "$tool_uses_val")
       SH_DURATION=$([[ "$duration_ms_val" == "null" ]] && echo "NULL" || echo "$duration_ms_val")
       SH_TOOLS_JSON="$(sql_lit "$tools_val")"
+
+      # Silent-failure guard (FR-11): reject rows where a real agent ran but
+      # reported no tokens. Such rows corrupt aggregate metrics. Skip with warning.
+      if [[ "$agent_val" != "null" && "$agent_val" != "inline" \
+         && "$step_status_val" == "completed" \
+         && "$total_tokens_val" == "null" ]]; then
+        echo "WARN: skipping step_history row with missing usage: change=$q_change agent=$agent_val step=$step_id_val" >&2
+        continue
+      fi
 
       duckdb "$DB" <<SQL 2>/dev/null || true
 INSERT INTO step_history (repo_root, change_id, step_ord, step_id, phase, status, agent, started_at, completed_at, total_tokens, tool_uses, duration_ms, tools_json)
