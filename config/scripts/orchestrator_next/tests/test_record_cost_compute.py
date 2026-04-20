@@ -1,14 +1,12 @@
-"""T-4: Regression tests — record() populates usage.model and usage.cost_usd (RED).
+"""T-5/T-6: record() populates usage.model and usage.cost_usd via DuckDB.
 
-Five cases proving ISSUE-17:
-  1. developer agent (native_sonnet) → cost_usd computed, model set to claude-sonnet-4-6  [RED]
-  2. architect agent (native_opus)   → cost_usd computed using opus rates               [RED]
-  3. cache_read_input_tokens present → included in cost at cache_read rate               [RED]
-  4. payload already has cost_usd    → existing value preserved, not clobbered            [may pass on RED]
-  5. inline agent (unresolvable)     → cost_usd stays unset, no exception                [may pass on RED]
-
-Cases 1–3 FAIL before T-5 adds the computation logic.
-Cases 4–5 may accidentally pass since record.py already passes usage through untouched.
+Six cases:
+  1. developer agent (native_sonnet) → cost_usd computed, model set to claude-sonnet-4-6
+  2. architect agent (native_opus)   → cost_usd computed using opus rates
+  3. cache_read_input_tokens present → included in cost at cache_read rate
+  4. payload already has cost_usd    → existing value preserved, not clobbered
+  5. inline agent (unresolvable)     → cost_usd stays unset, no exception
+  6. db=None                         → no exception, cost_usd unset, stderr warning emitted
 """
 from __future__ import annotations
 
@@ -17,6 +15,7 @@ import sys
 import textwrap
 from pathlib import Path
 
+import duckdb
 import pytest
 import yaml
 
@@ -25,7 +24,9 @@ _SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
+import orchestrator_next.record as _record_mod
 from orchestrator_next.record import record  # noqa: E402
+from orchestrator_next.upsert import ensure_schema  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +87,33 @@ def _get_recorded_usage(state_path: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def clear_pricing_cache():
+    """Clear the module-level _pricing_cache before each test.
+
+    _pricing_cache is keyed by id(db). CPython can reuse the same memory
+    address for a new connection after a previous one is GC'd, which would
+    return stale rows from a prior test's connection. Clearing between tests
+    prevents this latent flake.
+    """
+    _record_mod._pricing_cache.clear()
+    yield
+    _record_mod._pricing_cache.clear()
+
+
+@pytest.fixture()
+def in_memory_db():
+    """In-memory DuckDB with full schema including seeded pricing rows."""
+    db = duckdb.connect(":memory:")
+    ensure_schema(db)
+    yield db
+    db.close()
+
+
+# ---------------------------------------------------------------------------
 # Test cases
 # ---------------------------------------------------------------------------
 
@@ -95,10 +123,9 @@ class TestRecordCostCompute:
     def setup_contracts_and_clear_cache(self, tmp_path, monkeypatch):
         """Isolate contracts and clear lru_cache so each test starts fresh.
 
-        Sets ORCHESTRATOR_HOME to the worktree root so _load_routes() and
-        _load_pricing() read the worktree's config files (which have the
-        backends: block added in T-5), not whatever ORCHESTRATOR_HOME points
-        to in the shell environment.
+        Sets ORCHESTRATOR_HOME to the worktree root so _load_routes() reads
+        the worktree's config files (routes.yaml still lives in YAML).
+        Pricing now comes from in_memory_db; _load_pricing is gone.
         """
         contracts_dir = tmp_path / "contracts"
         contracts_dir.mkdir()
@@ -106,35 +133,31 @@ class TestRecordCostCompute:
         monkeypatch.setenv(
             "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir)
         )
-        # Point ORCHESTRATOR_HOME at the worktree so routes.yaml / pricing.yaml
-        # are read from the right place regardless of the shell environment.
+        # Point ORCHESTRATOR_HOME at the worktree so routes.yaml is read from
+        # the right place regardless of the shell environment.
         _worktree_root = str(
             Path(_HERE).parent.parent.parent.parent  # tests/ → orchestrator_next/ → scripts/ → config/ → worktree
         )
         monkeypatch.setenv("ORCHESTRATOR_HOME", _worktree_root)
-        # Clear lru_cache on cost loaders so tests see fresh data.
-        # The cache functions will exist after T-5 is implemented; guard with
-        # hasattr so this fixture doesn't break RED runs.
+        # Clear lru_cache on routes loader so tests see fresh data.
         import orchestrator_next.record as record_mod
-        for fn_name in ("_load_routes", "_load_pricing"):
-            fn = getattr(record_mod, fn_name, None)
-            if fn is not None and hasattr(fn, "cache_clear"):
-                fn.cache_clear()
+        fn = getattr(record_mod, "_load_routes", None)
+        if fn is not None and hasattr(fn, "cache_clear"):
+            fn.cache_clear()
 
-    def test_computes_cost_for_native_sonnet_agent(self, tmp_path):
-        """ISSUE-17 RED: developer → native_sonnet → claude-sonnet-4-6.
+    def test_computes_cost_for_native_sonnet_agent(self, tmp_path, in_memory_db):
+        """developer → native_sonnet → claude-sonnet-4-6.
 
         After record(), usage.cost_usd should be:
           22000 * 3.0/1e6 + 5000 * 15.0/1e6 = 0.141000
         and usage.model should be 'claude-sonnet-4-6'.
-        Before T-5 this FAILS because no cost computation exists.
         """
         state_path = _write_state(tmp_path)
         payload = _base_payload(
             agent="developer",
             usage={"input_tokens": 22000, "output_tokens": 5000, "duration_ms": 45000},
         )
-        result, exit_code = record(state_path, payload)
+        result, exit_code = record(state_path, payload, db=in_memory_db)
         assert exit_code == 0, f"record() failed: {result}"
 
         usage = _get_recorded_usage(state_path)
@@ -147,20 +170,19 @@ class TestRecordCostCompute:
             f"Expected cost_usd≈{expected_cost}, got {usage.get('cost_usd')!r}"
         )
 
-    def test_computes_cost_for_native_opus_agent(self, tmp_path):
-        """ISSUE-17 RED: architect → native_opus → claude-opus-4-7.
+    def test_computes_cost_for_native_opus_agent(self, tmp_path, in_memory_db):
+        """architect → native_opus → claude-opus-4-7.
 
         After record(), usage.cost_usd should use opus rates:
           10000 * 15.0/1e6 + 2000 * 75.0/1e6 = 0.300000
         and usage.model should be 'claude-opus-4-7'.
-        Before T-5 this FAILS.
         """
         state_path = _write_state(tmp_path)
         payload = _base_payload(
             agent="architect",
             usage={"input_tokens": 10000, "output_tokens": 2000, "duration_ms": 30000},
         )
-        result, exit_code = record(state_path, payload)
+        result, exit_code = record(state_path, payload, db=in_memory_db)
         assert exit_code == 0, f"record() failed: {result}"
 
         usage = _get_recorded_usage(state_path)
@@ -173,12 +195,11 @@ class TestRecordCostCompute:
             f"Expected cost_usd≈{expected_cost}, got {usage.get('cost_usd')!r}"
         )
 
-    def test_includes_cache_read_tokens_when_present(self, tmp_path):
-        """ISSUE-17 RED: cache_read_input_tokens should be included in cost.
+    def test_includes_cache_read_tokens_when_present(self, tmp_path, in_memory_db):
+        """cache_read_input_tokens should be included in cost.
 
         With developer (claude-sonnet-4-6):
           22000 * 3.0/1e6 + 5000 * 15.0/1e6 + 10000 * 0.30/1e6 = 0.144000
-        Before T-5 this FAILS.
         """
         state_path = _write_state(tmp_path)
         payload = _base_payload(
@@ -190,7 +211,7 @@ class TestRecordCostCompute:
                 "duration_ms": 45000,
             },
         )
-        result, exit_code = record(state_path, payload)
+        result, exit_code = record(state_path, payload, db=in_memory_db)
         assert exit_code == 0, f"record() failed: {result}"
 
         usage = _get_recorded_usage(state_path)
@@ -204,12 +225,11 @@ class TestRecordCostCompute:
             f"Expected cost_usd≈{expected_cost} (includes cache_read), got {usage.get('cost_usd')!r}"
         )
 
-    def test_preserves_existing_cost_usd(self, tmp_path):
+    def test_preserves_existing_cost_usd(self, tmp_path, in_memory_db):
         """Pre-computed cost_usd in payload must not be overwritten.
 
         When usage already contains cost_usd=0.42, record() should store
         exactly 0.42 — the guard `not usage.get('cost_usd')` prevents re-computation.
-        This case may pass on RED because record.py already passes usage through.
         """
         state_path = _write_state(tmp_path)
         payload = _base_payload(
@@ -221,7 +241,7 @@ class TestRecordCostCompute:
                 "cost_usd": 0.42,
             },
         )
-        result, exit_code = record(state_path, payload)
+        result, exit_code = record(state_path, payload, db=in_memory_db)
         assert exit_code == 0, f"record() failed: {result}"
 
         usage = _get_recorded_usage(state_path)
@@ -232,12 +252,11 @@ class TestRecordCostCompute:
             f"Expected model unchanged, got {usage.get('model')!r}"
         )
 
-    def test_skips_when_agent_unresolvable(self, tmp_path):
+    def test_skips_when_agent_unresolvable(self, tmp_path, in_memory_db):
         """Inline agent (not in routes.yaml) — cost_usd should stay unset, no exception.
 
         Using agent=inline which is exempt from Check B (usage not required).
         cost_usd absent from the written entry is acceptable — fail-open behaviour.
-        This case may pass on RED because record.py doesn't compute cost today.
         """
         state_path = _write_state(tmp_path)
         # inline agent is exempt from Check B (agent_step_missing_usage).
@@ -249,10 +268,32 @@ class TestRecordCostCompute:
             "outputs": {"task_execution_result": {"task_id": "T-1"}},
             "usage": {},
         }
-        result, exit_code = record(state_path, payload)
+        result, exit_code = record(state_path, payload, db=in_memory_db)
         assert exit_code == 0, f"record() unexpectedly failed: {result}"
 
         usage = _get_recorded_usage(state_path)
         assert usage.get("cost_usd") is None, (
             f"Expected cost_usd=None for inline agent, got {usage.get('cost_usd')!r}"
         )
+
+    def test_db_none_no_exception_and_cost_usd_unset(self, tmp_path, capsys):
+        """record(state_yaml_path, payload, db=None) — offline/test path.
+
+        No exception raised; usage.cost_usd remains unset; stderr warning emitted.
+        """
+        state_path = _write_state(tmp_path)
+        payload = _base_payload(
+            agent="developer",
+            usage={"input_tokens": 22000, "output_tokens": 5000},
+        )
+        # db=None is the offline path — no DB connection available
+        result, exit_code = record(state_path, payload, db=None)
+        assert exit_code == 0, f"record() should not fail with db=None: {result}"
+
+        usage = _get_recorded_usage(state_path)
+        assert usage.get("cost_usd") is None, (
+            f"Expected cost_usd=None with db=None, got {usage.get('cost_usd')!r}"
+        )
+
+        captured = capsys.readouterr()
+        assert captured.err, "Expected a stderr warning when db=None"
