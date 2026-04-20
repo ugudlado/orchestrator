@@ -138,6 +138,30 @@ learnings:
       or retro steps for 'session budget' reasons. These feed the
       self-improving loop; skipping them defeats autopilot's purpose. Budget
       pressure is a signal to stop earlier, not to skip learning.
+  - id: external-benchmark-references
+    learned: 2026-04-20
+    kind: informational
+    summary: >
+      Reference values for comparing our workflow metrics against public
+      coding-benchmark leaderboards, as of April 2026. Used by the telemetry
+      dashboard to populate the "external benchmark" column in the per-feature
+      table.
+    data:
+      swe_bench_verified:
+        resolve_rate: "80.9% (Opus 4.5)"
+        cost_per_task: "$0.05–$0.75"
+        note: "500 diverse GitHub issues; no structured spec — expect our rate higher"
+      aider_polyglot:
+        resolve_rate: "88% (GPT-5)"
+        cost_per_task: "—"
+      devin:
+        pr_merge_rate: "67%"
+        cost_per_task: "$2.25/ACU"
+    caveats: >
+      Our cost includes full workflow overhead (discovery, spec, review), not
+      just implementation — direct comparison is unfair to our numbers. Refresh
+      these when benchmark leaderboards update; stale numbers are worse than no
+      numbers.
 
 context:
   tech_stack: [bash, zsh, yaml, duckdb, yq, python]
