@@ -28,7 +28,14 @@
       "Read(~/.config/hooksmith/**)",
       "Edit(~/.config/linear/**)",
       "Write(~/.config/linear/**)",
-      "Read(~/.config/linear/**)"
+      "Read(~/.config/linear/**)",
+      "Read(~/.claude/projects/**)",
+      "Write(~/.claude/projects/**)",
+      "Edit(~/.claude/projects/**)",
+      "Read(~/.claude/skills/**)",
+      "Edit(~/.claude/skills/**)",
+      "Read(~/.local/bin/**)",
+      "mcp__claude_ai_Linear"
     ],
     "deny": []
   },
