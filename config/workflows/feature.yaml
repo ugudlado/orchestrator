@@ -3,15 +3,8 @@ version: 4
 
 description: >
   Canonical feature development. Two signoff gates: spec approval (before
-  implementation) and final signoff (before archive). --auto skips both
-  for fully autonomous execution.
-
-  Use --light for small, well-scoped changes where the "spec" is a short
-  idea document and the whole flow should fit in an afternoon: dependency
-  bumps, config tweaks, renames, typo fixes, small UI polish, adding a
-  flag, and similar tight-scope work. Light mode replaces the former
-  chore schema — compose it with other flags (e.g. --light --tdd) when
-  you want the tight scope without giving up a specific gate.
+  implementation) and final signoff (before archive). Flag descriptions
+  below document when to reach for each one.
 
 uses:
   project: $REPO_ROOT/spec/project.yaml
@@ -32,14 +25,36 @@ defaults:
 flags:
   --no-tdd:
     sets: { tdd_required: false }
+    description: >
+      Skip test-first enforcement. Use when the change is exploratory, the
+      test infrastructure doesn't support the area yet, or the user has
+      explicitly okayed it. Default is TDD on.
   --no-ux:
     sets: { ux_design: false }
+    description: >
+      Skip the UX design and UX critique steps. Use for backend-only or
+      CLI-only work, or when the frontend changes are purely mechanical
+      (rename, constant update). Auto-detected off when project has no
+      frontend tech stack.
   --no-linear:
     sets: { linear: false }
+    description: >
+      Skip Linear ticket creation. Use when the repo isn't in your Linear
+      config, when Linear is down, or for throwaway experiments. You can
+      always file a ticket manually after.
   --auto:
     sets: { auto: true }
+    description: >
+      Fully autonomous — skips both signoff gates (spec approval and final
+      signoff). Use inside autopilot or when you trust the agents to
+      self-gate. Without this, the workflow pauses at each phase boundary.
   --agents:
     sets: { agents: true }
+    description: >
+      Spawn specialist agents (developer, reviewer, architect) for phase
+      work instead of running inline. Use for higher-quality output or
+      when the driver context is getting hot. Costs more tokens but
+      enables per-subagent attribution.
   --light:
     sets:
       light: true
@@ -50,17 +65,16 @@ flags:
       worktree: false
       linear: false
     description: >
-      Lightweight path for tight-scope changes. Skips discovery, design-and-draft-artifacts,
-      UX design, TDD, phase-reviews, worktree creation, and Linear ticket. Keeps spec + tasks artifacts, execute-next-task,
-      and final archive so there is still a paper trail. Lowers review
-      score threshold from 9 to 7. Compose with other flags to re-enable
-      a specific gate (e.g. --light --tdd keeps tests without the full
-      feature cycle).
+      Tight-scope path for small, well-scoped changes that should fit in
+      an afternoon — dependency bumps, config tweaks, renames, typo fixes,
+      small UI polish, adding a flag. Replaces the former chore schema.
+      Skips discovery, design-and-draft-artifacts, UX design, TDD,
+      phase-reviews, worktree creation, and Linear. Keeps spec + tasks
+      + execute-next-task + final archive for paper-trail. Lowers review
+      threshold from 9 to 7. Compose with other flags to re-enable a
+      specific gate (e.g. --light --tdd keeps tests).
 
 rules:
-  - id: tdd-default
-    when: tdd_required
-    rule: Write failing test before implementation for every task.
   - id: phase-gates
     rule: Run type-check + test + build at every phase boundary.
   - id: verification-bugs
@@ -99,9 +113,6 @@ phases:
           review_score: { min: 7 }
         max_retries: 2
     steps:
-      # HL-287: workflow-init absorbs create-worktree + load-project-context
-      #         + create-linear-ticket + (autopilot-session-init when autopilot)
-      #         + configure-gitignore. One agent, one spawn.
       - workflow-init
       - explore if discovery
       - ux-design if ux_design
@@ -152,7 +163,6 @@ phases:
           not tdd_required:
             - Keep implementation slices minimal and verification-focused.
       - run-ux-critique if ux_design
-      # run-implement-review + final-signoff absorbed into run-phase-review (HL-287 M4)
       - run-phase-review if phase_review
 
   - include: _complete-phase
