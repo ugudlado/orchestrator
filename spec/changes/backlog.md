@@ -19,6 +19,85 @@
 
 # Features
 
+## workflow-engine-as-state-machine
+
+**Parent vision: collapse the orchestrator CLI to two verbs (`next` / `done`), move reports to DuckDB views, and encode a proper state machine with durable intent and crash-safe resume** (score 8.5)
+
+**Recurrence:** 1
+
+### Idea
+
+The orchestrator currently exposes 7+ CLI subcommands (`next`, `record`, `metrics`, `cost`, `ingest-driver`, `ingest-subagents`, `doctor`). Reporting logic is split across `metrics_report.py`, `cost_report.py`, and `ingest-feature-metrics.py`. Pricing lives in `config/pricing.yaml`. The read path projects through ~300 lines of Python before consumers see canonical shapes. Between `next` returning an action and `record` writing the outcome, intent is not durable — a crash loses usage capture and leaves state.yaml in `in_progress` forever.
+
+Restructure around two invariants:
+
+1. **DuckDB is the single source of truth.** Pricing, step facts, phase facts, feature facts, driver facts — all live in DuckDB. Reports are SQL views. `config/pricing.yaml` disappears; `metrics_report.py` and most of `cost_report.py` disappear; `ingest-*` commands disappear (absorbed into `done`).
+
+2. **The workflow is a durable state machine.** `next` writes a pending `step_events` row before returning — intent is durable the moment it's declared. `next` is idempotent under crash: called twice with an in-flight step, it returns the same step with `is_resume: true`. `done` handles three payload kinds — `completed` (normal), `recovered` (salvage from JSONL + git), `abandoned` (give up cleanly). Level-aware writing inside `done` detects phase/feature boundaries and writes to the right tables in a single transaction.
+
+Endpoint surface:
+
+```
+orchestrator next   <state.yaml>   # decide + stamp in_progress + flag resumes
+orchestrator done   <state.yaml>   # dispatches on payload.status; writes all DuckDB levels
+orchestrator doctor                # diagnostics + backfill (optional, maintenance-only)
+```
+
+All reads are SQL views (`feature_report`, `phase_report`, `agent_report`, `repo_report`) against DuckDB. Humans query the DB directly; workflow scripts query the views.
+
+### Scope (phased — each phase ships independently)
+
+Each phase below will get its own backlog entry + `/specify` run when the prior phase is retro'd. Context from the prior phase's retro feeds the next phase's discovery.
+
+1. **`pricing-table-in-duckdb`** — seed a `pricing` table via `ensure_schema`; `record` looks up pricing from DuckDB instead of YAML; `config/pricing.yaml` retired. Migration-managed (Option A). Small: ~200 lines net churn.
+
+2. **`durable-intent-and-resume`** — `next` writes pending `step_events` row + state.yaml `in_progress` entry before returning; `next` detects in-flight state on re-entry and returns same step with `is_resume: true` flag. No salvage path yet — just durable intent and idempotent dispatch. Medium: touches `next.py`, `upsert.py`, dispatch contracts.
+
+3. **`report-views-retire-cli`** — create `feature_report`, `phase_report`, `agent_report`, `repo_report` as DuckDB views; rewrite `compute-swe-metrics.sh` to query the view directly; retire `orchestrator metrics` and `orchestrator cost` CLI. Medium: ~500 lines deleted, ~150 added as view migrations.
+
+4. **`done-verb-level-aware-writes`** — rename `record` → `done`; `done` detects phase/feature boundaries and writes to `phase_events` + `feature_metrics` + `driver_sessions` tables automatically on the boundary step. Absorbs `ingest-driver` / `ingest-subagents` as internal code paths. Salvage path (`status: recovered`) lands here. Large: the semantic heart of the change.
+
+5. **`cleanup-and-delete`** — remove `ingest-feature-metrics.py` as a separate step (absorbed into `done`), delete `ingest-driver` / `ingest-subagents` CLI entry points, delete `metrics_report.py`, delete projection code in `cost_report.py` that views now cover. Small: mostly deletions.
+
+### Out of scope
+
+- Changing dispatch semantics (`next` still returns the same action shapes — `run_step`, `run_inline`, `verify_phase`, `retry_step`, `blocked`, `complete_workflow`).
+- Changing the agent contract or spawn protocol.
+- Rewriting existing `step_events` rows from archived features (pricing-in-DuckDB is forward-only; historical rows keep their frozen `cost_usd`).
+- Introducing OpenTelemetry / external tracing (the state-machine spans are the same shape, but this is an internal change).
+- Any non-workflow system (Linear integration, UX reporting, etc.).
+
+### Why Now
+
+- The write path was consolidated by the Apr 19 `single-source-metrics-via-step-events` feature; the read path is the remaining asymmetry. This completes that story.
+- Durability gap is latent but real — crash mid-step loses tokens and leaves `in_progress` forever. No incident yet, but autopilot runs at scale will hit it.
+- Every subsequent metrics feature (regression detection, per-subagent attribution, step-timing telemetry — all in backlog) gets easier once reports are SQL and writes are level-aware. Without this, each new metric requires touching `metrics_report.py`, pricing YAML parsing, and a CLI flag.
+- `config/pricing.yaml` is on the critical path of every `record` call; moving it to DuckDB removes a YAML read from the hot path.
+
+### Priority
+
+- User value: 8/10 (simpler CLI surface, durable against crashes, reports queryable from any client)
+- Strategic fit: 10/10 (every pending metrics feature becomes easier)
+- Technical leverage: 9/10 (~700 lines deleted, closes write/read asymmetry)
+- Effort: large (5 phases staggered — roughly 2–4h per phase except phase 4 which is ~1d)
+- **Score: 8.5**
+
+### Dependencies
+
+Phases ship in order (1 → 2 → 3 → 4 → 5). None can parallelize:
+- Phase 2 needs phase 1 (pending rows include `cost_usd`, requires pricing table).
+- Phase 3 needs phase 1 (views depend on pricing join being a pure SQL join, not a YAML-aware Python projection).
+- Phase 4 needs phase 2 (salvage path writes completions against pending rows) and phase 3 (level-aware writes depend on views existing so readers don't break during the cutover).
+- Phase 5 is cleanup after phase 4; deleting `ingest-*` commands requires their logic to live inside `done`.
+
+### Source
+
+- Exploration session 2026-04-20: walked from "how are metrics calculated" → "can DuckDB be the single source" → "what about durability on crash." Full transcript is the discovery seed; archive at `spec/changes/<phase-slug>/discovery.md` per phase.
+- Related completed features: `single-source-metrics-via-step-events` (Apr 19, write path), `sub-agent-token-ingest` (Apr 20, usage capture).
+- Related pending: `generate-plan-yaml-at-init` (orthogonal — concerns dispatch context, not metrics), `metrics-regression-detection` (downstream — becomes trivial once phase 3 ships).
+
+---
+
 ## metrics-regression-detection
 
 **Metrics Regression Detection + Autopilot Breaker** (score 8.2)
