@@ -49,12 +49,6 @@ def _load_routes() -> dict:
         return {}
 
 
-# _load_pricing removed in T-6; pricing now comes from the DuckDB pricing table.
-# cost_report.py has a stale import of _load_pricing — T-8 will clean that up.
-def _load_pricing() -> dict:
-    raise NotImplementedError("removed in T-6; use _lookup_price with a db connection")
-
-
 _LOOKUP_SQL = (
     "SELECT input_usd, output_usd, cache_read_usd, cache_creation_usd "
     "FROM pricing "

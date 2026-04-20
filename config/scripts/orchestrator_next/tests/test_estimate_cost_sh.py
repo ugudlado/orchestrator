@@ -11,7 +11,7 @@ Four scenarios:
       minimal state_dir produces output whose YAML structure matches the
       baseline fixture — same agents, same cold-start estimate block.
 
-  (c) DB-absent fallback: setting ORCHESTRATOR_DB=/nonexistent/path the script
+  (c) DB-absent fallback: setting METRICS_DB=/nonexistent/path the script
       still exits 0 and produces a route_preview YAML block with agents priced
       at the default rates (15.00 / 75.00 / 1.50 for opus-tier).
 
@@ -24,7 +24,7 @@ Design notes:
 - REPO_ROOT, ROUTES_FILE, PRICING_FILE are set so the script resolves the
   repo's own routes.yaml (not $HOME/.config/orchestrator).
 - ARCHIVE_GLOB is overridden to point at a nonexistent path (cold-start).
-- ORCHESTRATOR_DB is set to a tmp DuckDB file for scenario (b), or
+- METRICS_DB is set to a tmp DuckDB file for scenario (b), or
   /nonexistent/path for scenario (c).
 - generated_at timestamps are stripped before YAML comparison.
 - On macOS /bin/bash is always 3.2.x; on Linux BASH_COMPAT=32 is used if
@@ -149,7 +149,7 @@ def _base_env(state_dir: Path, db_path: str | None = None) -> dict[str, str]:
     - REPO_ROOT / ORCHESTRATOR_HOME → repo root (so routes.yaml is found)
     - ROUTES_FILE → repo's own scripts/routes.yaml
     - ARCHIVE_GLOB → nonexistent path (forces cold-start / no_history)
-    - ORCHESTRATOR_DB → db_path if given
+    - METRICS_DB → db_path if given
     """
     env = os.environ.copy()
     env["REPO_ROOT"] = str(_REPO_ROOT)
@@ -157,7 +157,7 @@ def _base_env(state_dir: Path, db_path: str | None = None) -> dict[str, str]:
     env["ROUTES_FILE"] = str(_ROUTES_YAML)
     env["ARCHIVE_GLOB"] = str(state_dir / "nonexistent-archive" / "*/state.yaml")
     if db_path is not None:
-        env["ORCHESTRATOR_DB"] = db_path
+        env["METRICS_DB"] = db_path
     return env
 
 
@@ -290,7 +290,7 @@ def test_rewrite_output_matches_baseline_shape(state_dir: Path, seeded_db: Path)
 # ---------------------------------------------------------------------------
 
 def test_db_absent_uses_default_rates_and_exits_zero(state_dir: Path):
-    """(c) ORCHESTRATOR_DB=/nonexistent/path → exit 0, default rates applied.
+    """(c) METRICS_DB=/nonexistent/path → exit 0, default rates applied.
 
     The rewritten lookup_pricing() falls back to '15.00 75.00 1.50' when the
     DB file is absent. The script must still produce a well-formed route_preview
