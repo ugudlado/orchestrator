@@ -114,39 +114,6 @@ Reveals the single most mis-attributed cost in the stack. Enables "stop spawning
 
 ---
 
-## sub-agent-token-ingest
-
-**Auto-ingest sub-agent JSONL tokens into step_events alongside driver-loop** (score 7.5)
-
-**Recurrence:** 1 — source: single-source-metrics-via-step-events post-ship review (2026-04-20: 36 sub-agent spawns during this feature, 0 captured in step_events; per-agent cost breakdown reports $193.96 but real cost is 1.5–2× that due to missing sub-agent data)
-
-### Idea
-
-`orchestrator ingest-driver` captures the parent Claude Code session's tokens (driver-loop agent). But every `Agent({subagent_type: ...})` call also produces a JSONL at `~/.claude/projects/<slug>/<driver-uuid>/subagents/agent-<id>.jsonl`. These are invisible in step_events.
-
-`config/scripts/orchestrator_next/jsonl_usage.py` already has `extract_subagent_usage()` and `_list_subagent_ids()`. What's missing is a command or step that walks subagents/ and upserts one step_events row per agent.
-
-### Scope
-
-1. New subcommand `orchestrator ingest-subagents --change-id X --session-id Y`: walks `~/.claude/projects/<repo-slug>/<session-id>/subagents/*.jsonl`, calls `extract_subagent_usage()` for each, upserts synthetic step_events rows with `agent_name=<subagent_type>` (e.g., `developer`, `reviewer`, `discoverer`)
-2. Extend `ingest-driver-auto.py` step (or create sibling `ingest-subagents-auto`) to call the new subcommand alongside the driver ingest at complete phase
-3. Schema: subagents don't have natural (phase, step_id) mappings since Task-based spawns don't carry those. Use `phase="meta"`, `step_id="subagent-<short-id>"`, or leave (phase, step_id) NULL with a separate `kind="subagent"` column
-4. Risk: could double-count if a subagent's tokens are already captured via its own `orchestrator record` call. Need a dedup or skip-if-exists check
-
-### Why now
-
-Per-agent cost reporting is currently misleading. For features that spawn many sub-agents (autopilot typically 10-20 per feature), cost reports show only the parent session + any manually-recorded agents. Consumers (workflow-improver, telemetry skill, cross-feature queries) get wrong per-agent breakdowns.
-
-### Scope estimate
-
-~80 lines Python (subcommand + ingestion logic) + ~30 lines for the auto-step + integration test. Medium chore.
-
-### Source
-
-- single-source-metrics-via-step-events post-ship per-agent analysis (2026-04-20): driver-loop + 4 manually-recorded agents captured; 36 sub-agent JSONL files went uningested.
-
----
-
 ## dispatch-repeat-until-honor
 
 **`dispatch.py._find_completed_step` ignores `repeat_until` predicate** (score 8.5)
