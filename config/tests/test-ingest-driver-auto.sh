@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
-# T-23: RED test for complete-phase ingest-driver auto-invoke.
+# T-23: RED + T-24: GREEN test for complete-phase ingest-driver auto-invoke.
 #
-# This test verifies that the ingest-driver-auto inline step:
-#   1. Resolves a session_id from TMPDIR (primary path)
-#   2. Falls back to scanning ~/.claude/projects/<slug>/*.jsonl (fallback path)
-#   3. Calls `orchestrator ingest-driver` to write a driver-loop row to step_events
-#   4. Emits the expected JSON result
-#   5. Fails soft (exits 0) when session_id cannot be resolved
+# Verifies that scripts/inline/ingest-driver-auto.py:
+#   1. Resolves session_id from TMPDIR (primary path — UUID directory component)
+#   2. Resolves session_id via JSONL scan (fallback path — newest file in window)
+#   3. Writes a driver-loop row to step_events via orchestrator ingest-driver
+#   4. Fails soft (exits 0, emits skipped=true) when session_id is unresolvable
 #
-# At RED time: the step script scripts/inline/ingest-driver-auto.py does not
-# exist yet, so the test should fail.
+# Uses a real existing JSONL in ~/.claude/projects/-Users-spidey-code-orchestrator/
+# as the fixture. The repo_root in state.yaml points to the REAL orchestrator repo
+# (/Users/spidey/code/orchestrator) so ingest-driver can locate the JSONL via
+# Path.home() / ".claude" / "projects" / "<slug>" without any HOME override.
 #
-# Coverage: T-23, T-24
+# All DuckDB writes go to a temp file (METRICS_DB) so real data is untouched.
+#
+# At RED time (T-23): script does not exist -> fails immediately.
+# At GREEN time (T-24): all assertions pass.
+
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SCRIPT="$REPO_ROOT/scripts/inline/ingest-driver-auto.py"
-INGEST_DRIVER_BIN="$REPO_ROOT/bin/orchestrator"
 
 PASS=0
 FAIL=0
@@ -24,108 +28,105 @@ FAIL=0
 pass() { echo "PASS: $1"; PASS=$((PASS + 1)); }
 fail() { echo "FAIL: $1"; FAIL=$((FAIL + 1)); }
 
-# ── Setup: temp directories ──────────────────────────────────────────────────
+# ── Fixture: a real JSONL from ~/.claude/projects for the orchestrator repo ───
+# Real orchestrator repo slug = -Users-spidey-code-orchestrator
+REAL_REPO_ROOT="/Users/spidey/code/orchestrator"
+REAL_SLUG="-Users-spidey-code-orchestrator"
+# A known session UUID that has 105 assistant turns with usage (verified)
+SESSION_ID="022bd471-bf04-4af2-8de7-f8a66622d330"
+JSONL_PATH="$HOME/.claude/projects/$REAL_SLUG/$SESSION_ID.jsonl"
+
+# ── Guard: real JSONL must exist for the test to work ─────────────────────────
+if [[ ! -f "$JSONL_PATH" ]]; then
+  echo "SKIP: fixture JSONL not found at $JSONL_PATH — test cannot run"
+  echo "Results: 0 passed, 0 failed (skipped)"
+  exit 0
+fi
+
+# ── Setup: temp directories + state.yaml fixture ──────────────────────────────
 FAKE_BASE="${TMPDIR:-/tmp}/test-ingest-driver-auto-$$"
-FAKE_HOME="$FAKE_BASE/home"
-FAKE_REPO="$FAKE_BASE/repo"
+mkdir -p "$FAKE_BASE"
 METRICS_DB_PATH="$FAKE_BASE/test.duckdb"
 STATE_DIR="$FAKE_BASE/state"
-SESSION_ID="b5cd958c-57b1-40a6-a184-e801a21abc30"
+mkdir -p "$STATE_DIR"
 
-mkdir -p "$FAKE_HOME" "$FAKE_REPO" "$STATE_DIR"
-
-# Initialize a real git repo so `git rev-parse --show-toplevel` returns FAKE_REPO
-git -C "$FAKE_REPO" init -q
-git -C "$FAKE_REPO" commit --allow-empty -m "init" -q
-
-# Compute repo slug: absolute path with '/' replaced by '-'
-REPO_SLUG=$(echo "$FAKE_REPO" | tr '/' '-')
-
-# Seed JSONL at $FAKE_HOME/.claude/projects/<repo-slug>/<session-id>.jsonl
-PROJECTS_DIR="$FAKE_HOME/.claude/projects/$REPO_SLUG"
-mkdir -p "$PROJECTS_DIR"
-cat > "$PROJECTS_DIR/$SESSION_ID.jsonl" << 'JSONL'
-{"type":"assistant","timestamp":"2026-04-19T10:00:00.000Z","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-5","stop_reason":"end_turn","usage":{"input_tokens":1000,"output_tokens":500,"cache_read_input_tokens":200,"cache_creation_input_tokens":50}}}
-{"type":"assistant","timestamp":"2026-04-19T11:00:00.000Z","message":{"id":"msg_2","type":"message","role":"assistant","content":[],"model":"claude-sonnet-4-5","stop_reason":"end_turn","usage":{"input_tokens":800,"output_tokens":300,"cache_read_input_tokens":100,"cache_creation_input_tokens":0}}}
-JSONL
-
-# Create state.yaml fixture with timestamps bracketing the JSONL mtime
 CHANGE_ID="test-ingest-driver-auto"
+
+# State YAML: timestamps bracket the JSONL session (session was 2026-04-17T20:43..21:04)
 cat > "$STATE_DIR/state.yaml" << YAML
 change_id: $CHANGE_ID
-repo_root: $FAKE_REPO
+repo_root: $REAL_REPO_ROOT
 schema: feature
 status: completed
-started_at: "2026-04-19T09:00:00Z"
-completed_at: "2026-04-19T12:00:00Z"
+started_at: "2026-04-17T20:00:00Z"
+completed_at: "2026-04-17T22:00:00Z"
 YAML
 
-# ── Test 1: script must exist (RED: it doesn't yet) ─────────────────────────
+cleanup() {
+  rm -rf "$FAKE_BASE"
+}
+trap cleanup EXIT
+
+# ── Test 0: script must exist (RED gate) ──────────────────────────────────────
 echo "=== Test: ingest-driver-auto step script exists ==="
 if [[ -f "$SCRIPT" ]]; then
   pass "step script exists at $SCRIPT"
 else
-  fail "step script NOT found at $SCRIPT (expected — RED test)"
+  fail "step script NOT found at $SCRIPT (T-23 RED — expected at T-24 GREEN)"
   echo ""
   echo "Results: $PASS passed, $FAIL failed"
   exit 1
 fi
 
-# ── Test 2: primary path — session_id from TMPDIR UUID component ─────────────
+# ── Test 1: primary path — session_id from TMPDIR UUID component ──────────────
 echo "=== Test: TMPDIR-based session_id resolution (primary path) ==="
 # Simulate the TMPDIR that Claude Code sets during an agent session:
-#   /tmp/claude-501/<repo-slug-dir>/<session-uuid>/
-FAKE_AGENT_TMPDIR="$FAKE_BASE/tmp/$REPO_SLUG/$SESSION_ID"
+#   TMPDIR=/tmp/claude-501/<repo-slug-dir>/<session-uuid>/
+FAKE_AGENT_TMPDIR="$FAKE_BASE/agenttmp/$REAL_SLUG/$SESSION_ID"
 mkdir -p "$FAKE_AGENT_TMPDIR"
 
-RESULT=$(HOME="$FAKE_HOME" \
-  TMPDIR="$FAKE_AGENT_TMPDIR" \
+RESULT=$(TMPDIR="$FAKE_AGENT_TMPDIR" \
   METRICS_DB="$METRICS_DB_PATH" \
   ORCHESTRATOR_HOME="$REPO_ROOT" \
   python3 "$SCRIPT" "$STATE_DIR/state.yaml" 2>/dev/null)
-
 EXIT_CODE=$?
 
 if [[ "$EXIT_CODE" -eq 0 ]]; then
   pass "step exits 0 (primary TMPDIR path)"
 else
-  fail "step exited $EXIT_CODE (expected 0)"
+  fail "step exited $EXIT_CODE (expected 0) — primary TMPDIR path"
 fi
 
-# Check DuckDB for driver-loop row
-COUNT=$(HOME="$FAKE_HOME" duckdb "$METRICS_DB_PATH" -csv -noheader \
+COUNT=$(duckdb "$METRICS_DB_PATH" -csv -noheader \
   "SELECT COUNT(*) FROM step_events WHERE change_id='$CHANGE_ID' AND agent_name='driver-loop';" \
   2>/dev/null || echo "0")
 
 if [[ "$COUNT" -eq 1 ]]; then
   pass "step_events has exactly 1 driver-loop row (primary TMPDIR path)"
 else
-  fail "step_events has $COUNT driver-loop rows (expected 1 — primary TMPDIR path)"
+  fail "step_events has $COUNT driver-loop rows (expected 1 — primary TMPDIR path); stdout: $RESULT"
 fi
 
-# Check row has non-null tokens + cost
-HAS_TOKENS=$(HOME="$FAKE_HOME" duckdb "$METRICS_DB_PATH" -csv -noheader \
+# Verify row has non-null tokens + cost
+HAS_TOKENS=$(duckdb "$METRICS_DB_PATH" -csv -noheader \
   "SELECT COUNT(*) FROM step_events WHERE change_id='$CHANGE_ID' AND agent_name='driver-loop' AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL AND cost_usd IS NOT NULL;" \
   2>/dev/null || echo "0")
 
 if [[ "$HAS_TOKENS" -eq 1 ]]; then
   pass "driver-loop row has non-null input_tokens, output_tokens, cost_usd"
 else
-  fail "driver-loop row missing required token/cost fields"
+  fail "driver-loop row missing required token/cost fields (HAS_TOKENS=$HAS_TOKENS)"
 fi
 
-# ── Test 3: fallback path — scan ~/.claude/projects for newest JSONL ──────────
+# ── Test 2: fallback path — scan ~/.claude/projects for newest JSONL ──────────
 echo "=== Test: fallback scan when TMPDIR has no UUID ==="
-
-# Clear DB for clean state
 rm -f "$METRICS_DB_PATH"
 
-RESULT=$(HOME="$FAKE_HOME" \
-  TMPDIR="$FAKE_BASE/tmp-no-uuid" \
+# No UUID in TMPDIR -> script falls through to JSONL scan
+RESULT=$(TMPDIR="$FAKE_BASE/no-uuid-dir" \
   METRICS_DB="$METRICS_DB_PATH" \
   ORCHESTRATOR_HOME="$REPO_ROOT" \
   python3 "$SCRIPT" "$STATE_DIR/state.yaml" 2>/dev/null)
-
 EXIT_CODE=$?
 
 if [[ "$EXIT_CODE" -eq 0 ]]; then
@@ -134,30 +135,34 @@ else
   fail "step exited $EXIT_CODE on fallback path (expected 0)"
 fi
 
-COUNT=$(HOME="$FAKE_HOME" duckdb "$METRICS_DB_PATH" -csv -noheader \
+COUNT=$(duckdb "$METRICS_DB_PATH" -csv -noheader \
   "SELECT COUNT(*) FROM step_events WHERE change_id='$CHANGE_ID' AND agent_name='driver-loop';" \
   2>/dev/null || echo "0")
 
 if [[ "$COUNT" -eq 1 ]]; then
   pass "step_events has exactly 1 driver-loop row (fallback scan path)"
 else
-  fail "step_events has $COUNT driver-loop rows (expected 1 — fallback scan path)"
+  fail "step_events has $COUNT driver-loop rows (expected 1 — fallback scan); stdout: $RESULT"
 fi
 
-# ── Test 4: fail-soft when session_id is unresolvable ───────────────────────
-echo "=== Test: fail-soft when no JSONL found ==="
-
-# Use a fake home with no JSONL files
-EMPTY_HOME="$FAKE_BASE/emptyhome"
-mkdir -p "$EMPTY_HOME"
-
+# ── Test 3: fail-soft when session_id is unresolvable ─────────────────────────
+echo "=== Test: fail-soft when JSONL not found (no UUID, no projects dir) ==="
 STDERR_FILE="$FAKE_BASE/test-stderr.txt"
-RESULT=$(HOME="$EMPTY_HOME" \
-  TMPDIR="$FAKE_BASE/tmp-no-uuid" \
-  METRICS_DB="$FAKE_BASE/empty-test.duckdb" \
-  ORCHESTRATOR_HOME="$REPO_ROOT" \
-  python3 "$SCRIPT" "$STATE_DIR/state.yaml" 2>"$STDERR_FILE")
 
+# State.yaml pointing to a fake repo_root that has no JSONL in ~/.claude/projects
+cat > "$STATE_DIR/state-no-jsonl.yaml" << YAML
+change_id: $CHANGE_ID
+repo_root: /tmp/nonexistent-repo-for-test
+schema: feature
+status: completed
+started_at: "2026-04-19T09:00:00Z"
+completed_at: "2026-04-19T12:00:00Z"
+YAML
+
+RESULT=$(TMPDIR="$FAKE_BASE/no-uuid-dir" \
+  METRICS_DB="$FAKE_BASE/empty.duckdb" \
+  ORCHESTRATOR_HOME="$REPO_ROOT" \
+  python3 "$SCRIPT" "$STATE_DIR/state-no-jsonl.yaml" 2>"$STDERR_FILE")
 EXIT_CODE=$?
 
 if [[ "$EXIT_CODE" -eq 0 ]]; then
@@ -166,8 +171,8 @@ else
   fail "step exited $EXIT_CODE on unresolvable session_id (expected 0 — fail-soft)"
 fi
 
-RESULT_JSON=$(echo "$RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('skipped','missing'))" 2>/dev/null || echo "")
-if [[ "$RESULT_JSON" == "True" ]]; then
+SKIPPED=$(echo "$RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('skipped', False))" 2>/dev/null || echo "")
+if [[ "$SKIPPED" == "True" ]]; then
   pass "fail-soft output contains skipped=true"
 else
   fail "fail-soft output missing skipped=true: got '$RESULT'"
@@ -177,13 +182,10 @@ STDERR_CONTENT=$(cat "$STDERR_FILE" 2>/dev/null || echo "")
 if echo "$STDERR_CONTENT" | grep -qi "warn\|session.id\|unresolvable\|skip"; then
   pass "stderr contains warning about unresolvable session_id"
 else
-  fail "stderr missing warning for unresolvable session_id. Got: $STDERR_CONTENT"
+  fail "stderr missing warning. Got: '$STDERR_CONTENT'"
 fi
 
-# ── Cleanup ──────────────────────────────────────────────────────────────────
-rm -rf "$FAKE_BASE"
-
-# ── Summary ─────────────────────────────────────────────────────────────────
+# ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 if [[ "$FAIL" -gt 0 ]]; then

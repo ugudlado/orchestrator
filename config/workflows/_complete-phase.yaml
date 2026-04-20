@@ -17,6 +17,7 @@ steps:
   - compute-prediction-accuracy
   - run-learn-cycle
   - mark-change-completed
+  - ingest-driver-auto
   - ingest-feature-metrics
   - compute-swe-metrics
   - archive-completed-change

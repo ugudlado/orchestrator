@@ -55,6 +55,7 @@ REQUIRED_ORDER=(
   "compute-prediction-accuracy"
   "run-learn-cycle"
   "mark-change-completed"
+  "ingest-driver-auto"
   "ingest-feature-metrics"
   "compute-swe-metrics"
   "archive-completed-change"
@@ -75,22 +76,29 @@ get_pos() {
 POS_PREDICT=$(get_pos "compute-prediction-accuracy")
 POS_LEARN=$(get_pos "run-learn-cycle")
 POS_MARK=$(get_pos "mark-change-completed")
+POS_INGEST_DRIVER=$(get_pos "ingest-driver-auto")
 POS_INGEST=$(get_pos "ingest-feature-metrics")
 POS_METRICS=$(get_pos "compute-swe-metrics")
 POS_ARCHIVE=$(get_pos "archive-completed-change")
 POS_REMOVE=$(get_pos "remove-worktree")
 
 echo ""
-echo "Step positions: predict=$POS_PREDICT learn=$POS_LEARN mark=$POS_MARK ingest=$POS_INGEST metrics=$POS_METRICS archive=$POS_ARCHIVE remove=$POS_REMOVE"
+echo "Step positions: predict=$POS_PREDICT learn=$POS_LEARN mark=$POS_MARK ingest_driver=$POS_INGEST_DRIVER ingest=$POS_INGEST metrics=$POS_METRICS archive=$POS_ARCHIVE remove=$POS_REMOVE"
 
 # All must be non-empty (present) — FR-9
-[[ -n "$POS_MARK" && -n "$POS_INGEST" && -n "$POS_METRICS" ]]
-check "mark-change-completed, ingest-feature-metrics, and compute-swe-metrics all have positions" $?
+[[ -n "$POS_MARK" && -n "$POS_INGEST_DRIVER" && -n "$POS_INGEST" && -n "$POS_METRICS" ]]
+check "mark-change-completed, ingest-driver-auto, ingest-feature-metrics, and compute-swe-metrics all have positions" $?
 
-# Critical: mark-change-completed BEFORE ingest-feature-metrics (AC-4)
-if [[ -n "$POS_MARK" && -n "$POS_INGEST" ]]; then
-  [[ "$POS_MARK" -lt "$POS_INGEST" ]]
-  check "mark-change-completed (pos $POS_MARK) appears before ingest-feature-metrics (pos $POS_INGEST)" $?
+# Critical: mark-change-completed BEFORE ingest-driver-auto
+if [[ -n "$POS_MARK" && -n "$POS_INGEST_DRIVER" ]]; then
+  [[ "$POS_MARK" -lt "$POS_INGEST_DRIVER" ]]
+  check "mark-change-completed (pos $POS_MARK) appears before ingest-driver-auto (pos $POS_INGEST_DRIVER)" $?
+fi
+
+# Critical: ingest-driver-auto BEFORE ingest-feature-metrics (driver-loop row visible downstream)
+if [[ -n "$POS_INGEST_DRIVER" && -n "$POS_INGEST" ]]; then
+  [[ "$POS_INGEST_DRIVER" -lt "$POS_INGEST" ]]
+  check "ingest-driver-auto (pos $POS_INGEST_DRIVER) appears before ingest-feature-metrics (pos $POS_INGEST)" $?
 fi
 
 # Critical: ingest-feature-metrics BEFORE compute-swe-metrics (AC-4, FR-9)
