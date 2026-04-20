@@ -1,0 +1,75 @@
+# Baseline output captured from estimate-cost.sh before T-10 rewrite.
+# Captured using: /opt/homebrew/bin/bash (GNU bash 5.3.3) on macOS arm64.
+# The current script uses declare -A (bash 4+) and fails on /bin/bash 3.2 with
+# "declare: -A: invalid option". This baseline captures the SUCCESS state on bash 5+
+# against a minimal state_dir with no archive history (cold-start / no_history path).
+#
+# If the baseline needs to be regenerated (e.g. routes.yaml agents change):
+#   REPO_ROOT=<repo> ROUTES_FILE=<repo>/scripts/routes.yaml \
+#   PRICING_FILE=<repo>/config/pricing.yaml \
+#   ARCHIVE_GLOB='/nonexistent/*/state.yaml' \
+#   /opt/homebrew/bin/bash config/scripts/estimate-cost.sh <state_dir> 2>/dev/null
+#
+# Lines starting with '#' are comments in this file; they are stripped before comparison.
+# The 'generated_at:' line is excluded from comparison (timestamp varies per run).
+route_preview:
+  schema: feature
+  agents:
+    - agent: architect
+      backend: native_opus
+      model: claude-opus-4-7
+      pricing: { input: 15.00, output: 75.00, cache_read: 1.50 }
+      share: 0
+      tokens_estimate: 0
+      cost_estimate_usd: 0
+    - agent: developer
+      backend: native_sonnet
+      model: claude-sonnet-4-6
+      pricing: { input: 3.00, output: 15.00, cache_read: 0.30 }
+      share: 0
+      tokens_estimate: 0
+      cost_estimate_usd: 0
+    - agent: discoverer
+      backend: native_sonnet
+      model: claude-sonnet-4-6
+      pricing: { input: 3.00, output: 15.00, cache_read: 0.30 }
+      share: 0
+      tokens_estimate: 0
+      cost_estimate_usd: 0
+    - agent: haiku-agent
+      backend: native_sonnet
+      model: claude-sonnet-4-6
+      pricing: { input: 3.00, output: 15.00, cache_read: 0.30 }
+      share: 0
+      tokens_estimate: 0
+      cost_estimate_usd: 0
+    - agent: ideator
+      backend: native_opus
+      model: claude-opus-4-7
+      pricing: { input: 15.00, output: 75.00, cache_read: 1.50 }
+      share: 0
+      tokens_estimate: 0
+      cost_estimate_usd: 0
+    - agent: reviewer
+      backend: native_sonnet
+      model: claude-sonnet-4-6
+      pricing: { input: 3.00, output: 15.00, cache_read: 0.30 }
+      share: 0
+      tokens_estimate: 0
+      cost_estimate_usd: 0
+    - agent: sonnet-agent
+      backend: native_sonnet
+      model: claude-sonnet-4-6
+      pricing: { input: 3.00, output: 15.00, cache_read: 0.30 }
+      share: 0
+      tokens_estimate: 0
+      cost_estimate_usd: 0
+    - agent: workflow-improver
+      backend: native_sonnet
+      model: claude-sonnet-4-6
+      pricing: { input: 3.00, output: 15.00, cache_read: 0.30 }
+      share: 0
+      tokens_estimate: 0
+      cost_estimate_usd: 0
+  estimate: null
+  estimate_reason: no_history
