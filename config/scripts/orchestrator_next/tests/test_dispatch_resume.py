@@ -388,3 +388,471 @@ class TestResumeStepContractFields:
         assert action["step_context"].get("id") == "ctx-step", (
             f"step_context must identify the resumed step, got: {action['step_context']}"
         )
+
+
+# ---------------------------------------------------------------------------
+# T-13 — Driver resume-log integration test (subprocess-level)
+# ---------------------------------------------------------------------------
+#
+# The CLI's responsibility ends at emitting action=resume_step.
+# The literal "RESUMING step <id> (attempt <N>)" log line is emitted at the
+# driver (prompt-loop) layer, not by bin/orchestrator itself. That log emission
+# is enforced by SKILL.md prose contract. Testing it from Python would require
+# mocking the driver loop — overkill. Instead we verify the CLI emits the
+# correct JSON action that the driver interprets as a resume signal.
+
+import json as _json
+import os as _os
+import shutil as _shutil
+import subprocess as _subprocess
+import sys as _sys
+import textwrap as _textwrap
+import unittest as _unittest
+
+import duckdb as _duckdb
+
+_HERE_SUB = _os.path.dirname(_os.path.abspath(__file__))
+_WORKTREE_ROOT_SUB = _os.path.abspath(_os.path.join(_HERE_SUB, "..", "..", "..", ".."))
+_SCRIPTS_DIR_SUB = _os.path.join(_WORKTREE_ROOT_SUB, "config", "scripts")
+_BIN_ORCHESTRATOR_SUB = _os.path.join(_WORKTREE_ROOT_SUB, "bin", "orchestrator")
+_STEP_CONTRACTS_DIR_SUB = _os.path.join(
+    _WORKTREE_ROOT_SUB, "config", "scripts", "tests", "fixtures", "step_contracts"
+)
+
+# Minimal plan.yaml template (two steps so T-14 successor test can advance).
+_PLAN_YAML_TWO_STEPS = _textwrap.dedent("""\
+    phases:
+    - name: implement
+      steps:
+      - id: {first_step_id}
+        agent: {first_agent}
+        goal: First test step.
+        inputs: []
+        outputs: []
+        rules: []
+      - id: {second_step_id}
+        agent: {second_agent}
+        goal: Second test step.
+        inputs: []
+        outputs: []
+        rules: []
+""")
+
+_PLAN_YAML_ONE_STEP = _textwrap.dedent("""\
+    phases:
+    - name: implement
+      steps:
+      - id: {step_id}
+        agent: {agent}
+        goal: Test step.
+        inputs: []
+        outputs: []
+        rules: []
+""")
+
+
+def _write_state_yaml_sub(directory: str, content: str) -> str:
+    state_path = _os.path.join(directory, "state.yaml")
+    with open(state_path, "w") as f:
+        f.write(_textwrap.dedent(content))
+    return state_path
+
+
+def _run_next_sub(
+    state_yaml_path: str, metrics_db_path: str
+) -> "_subprocess.CompletedProcess[str]":
+    """Invoke bin/orchestrator next with an isolated METRICS_DB."""
+    env = _os.environ.copy()
+    env["METRICS_DB"] = metrics_db_path
+    env["ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE"] = _STEP_CONTRACTS_DIR_SUB
+    env["PYTHONPATH"] = _SCRIPTS_DIR_SUB
+    env.pop("ORCHESTRATOR_HOME", None)
+    return _subprocess.run(
+        [_sys.executable, _BIN_ORCHESTRATOR_SUB, "next", state_yaml_path],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+
+def _load_state_yaml_sub(state_yaml_path: str) -> dict:
+    import yaml as _yaml  # noqa: PLC0415
+    with open(state_yaml_path) as f:
+        return _yaml.safe_load(f) or {}
+
+
+class TestResumeStepDriverContract(_unittest.TestCase):
+    """
+    T-13: Subprocess-level integration asserting that bin/orchestrator next
+    emits action=resume_step when state.yaml contains an in_progress entry.
+
+    The "RESUMING step <id> (attempt <N>)" log line lives at the driver layer.
+    SKILL.md prose contract enforces it — not this test. This test verifies the
+    CLI's half of the contract: it must emit the JSON action that the driver
+    interprets as a resume signal.
+    """
+
+    def setUp(self):
+        import tempfile as _tempfile
+        self._tmpdir = _tempfile.mkdtemp(prefix="orch_t13_")
+        self._metrics_db_path = _os.path.join(self._tmpdir, "test.duckdb")
+        # Ensure DB schema is in place so the pending write path does not error.
+        db = _duckdb.connect(self._metrics_db_path)
+        try:
+            from orchestrator_next.upsert import ensure_schema  # noqa: PLC0415
+            ensure_schema(db)
+        finally:
+            db.close()
+
+    def tearDown(self):
+        _shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_next_emits_resume_step_when_state_has_in_progress(self):
+        """
+        Seed state.yaml AND DB with a matching in_progress entry. Verify CLI returns:
+          - action == "resume_step"
+          - is_resume == true
+          - exit code 0
+
+        DB must be seeded alongside state.yaml because reconcile strips YAML-only
+        in_progress entries (FR-4: DB wins). The test seeds both atomically so the
+        reconcile pass sees a valid DB row and leaves the entry intact.
+
+        This covers the CLI's side of the driver resume contract.
+        The "RESUMING step" log line is emitted by the SKILL driver (SKILL.md),
+        not by bin/orchestrator, and is therefore a prose-level contract.
+        """
+        import tempfile as _tempfile
+
+        state_dir = _tempfile.mkdtemp(prefix="state_t13_", dir=self._tmpdir)
+        state_path = _write_state_yaml_sub(
+            state_dir,
+            """\
+            change_id: test-t13-resume-cli
+            schema: feature
+            version: 1
+            status: active
+            phase: implement
+            repo: test-repo
+            repo_root: /test/repo
+            worktree_path: /tmp/test-workflow
+            workflow_plan:
+              implement:
+                active:
+                  - step-inline-only
+            step_history:
+              - step_id: step-inline-only
+                phase: implement
+                status: in_progress
+                agent: inline
+                attempt: 1
+                started_at: "2026-01-01T00:00:00Z"
+            """,
+        )
+        plan_path = _os.path.join(state_dir, "plan.yaml")
+        with open(plan_path, "w") as f:
+            f.write(_PLAN_YAML_ONE_STEP.format(
+                step_id="step-inline-only",
+                agent="inline",
+            ))
+
+        # Seed the DB in_progress row so reconcile does not strip the state.yaml entry.
+        db = _duckdb.connect(self._metrics_db_path)
+        try:
+            from orchestrator_next.upsert import ensure_schema, upsert_pending_step_event  # noqa: PLC0415
+            ensure_schema(db)
+            upsert_pending_step_event(
+                db,
+                repo_root="/test/repo",
+                change_id="test-t13-resume-cli",
+                phase="implement",
+                step_id="step-inline-only",
+                attempt=1,
+                agent_name="inline",
+                started_at="2026-01-01T00:00:00Z",
+            )
+        finally:
+            db.close()
+
+        result = _run_next_sub(state_path, self._metrics_db_path)
+
+        self.assertEqual(
+            result.returncode, 0,
+            f"Expected exit 0, stderr: {result.stderr}",
+        )
+        action = _json.loads(result.stdout)
+        self.assertEqual(
+            action.get("action"), "resume_step",
+            f"Expected action=resume_step, got: {action.get('action')!r}\nstdout: {result.stdout}",
+        )
+        self.assertTrue(
+            action.get("is_resume"),
+            f"Expected is_resume=True, got: {action.get('is_resume')!r}",
+        )
+
+
+# ---------------------------------------------------------------------------
+# T-14 — End-to-end crash-and-resume cycle (AC-1, AC-2, AC-3)
+# ---------------------------------------------------------------------------
+
+class TestCrashAndResumeCycle(_unittest.TestCase):
+    """
+    T-14: Full crash-and-resume invariant.
+
+    Cycle:
+      1. next(fresh state) → run_step/run_inline, attempt=N, started_at=T1
+         DB + state.yaml gain an in_progress row.
+      2. (Crash simulated — record() NOT called.)
+      3. next(same state) → resume_step, same attempt=N, same started_at=T1,
+         is_resume=True.
+      4. record(terminal) → DB in_progress row gone, state.yaml in_progress
+         entry scrubbed.
+      5. next(same state) → successor step, attempt=1, NOT resume_step.
+    """
+
+    def setUp(self):
+        import tempfile as _tempfile
+        self._tmpdir = _tempfile.mkdtemp(prefix="orch_t14_")
+        self._metrics_db_path = _os.path.join(self._tmpdir, "test.duckdb")
+        # Bootstrap schema so all three `next` calls share the same DB.
+        self._db = _duckdb.connect(self._metrics_db_path)
+        from orchestrator_next.upsert import ensure_schema  # noqa: PLC0415
+        ensure_schema(self._db)
+        self._db.close()
+        self._db = None
+
+    def tearDown(self):
+        if self._db is not None:
+            try:
+                self._db.close()
+            except Exception:
+                pass
+        _shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _open_db(self):
+        return _duckdb.connect(self._metrics_db_path)
+
+    def _count_in_progress(self, change_id: str) -> int:
+        db = self._open_db()
+        try:
+            return db.execute(
+                "SELECT COUNT(*) FROM step_events"
+                " WHERE change_id = ? AND status = 'in_progress'",
+                [change_id],
+            ).fetchone()[0]
+        finally:
+            db.close()
+
+    def test_next_twice_without_record_returns_resume_step(self):
+        """
+        (T-14a) First next → run_step/run_inline with attempt=N, started_at=T1,
+        DB+state.yaml gain in_progress row. Second next (no record in between)
+        → resume_step, same attempt, same started_at, is_resume=True.
+        """
+        import tempfile as _tempfile
+
+        state_dir = _tempfile.mkdtemp(prefix="state_t14a_", dir=self._tmpdir)
+        state_path = _write_state_yaml_sub(
+            state_dir,
+            """\
+            change_id: test-t14a-crash-resume
+            schema: feature
+            version: 1
+            status: active
+            phase: implement
+            repo: test-repo
+            repo_root: /test/repo
+            worktree_path: /tmp/test-workflow
+            workflow_plan:
+              implement:
+                active:
+                  - step-inline-only
+                  - step-with-run
+            step_history: []
+            """,
+        )
+        plan_path = _os.path.join(state_dir, "plan.yaml")
+        with open(plan_path, "w") as f:
+            f.write(_PLAN_YAML_TWO_STEPS.format(
+                first_step_id="step-inline-only",
+                first_agent="inline",
+                second_step_id="step-with-run",
+                second_agent="discoverer",
+            ))
+
+        # Step 1 — first next: should return run_step or run_inline
+        result1 = _run_next_sub(state_path, self._metrics_db_path)
+        self.assertEqual(result1.returncode, 0,
+                         f"First next failed. stderr: {result1.stderr}")
+        action1 = _json.loads(result1.stdout)
+        self.assertIn(
+            action1.get("action"), ("run_step", "run_inline"),
+            f"Expected run_step or run_inline, got: {action1.get('action')!r}",
+        )
+        attempt1 = action1.get("attempt")
+        self.assertIsNotNone(attempt1, "First next must return an attempt")
+
+        # Step 2 — verify DB has in_progress row and state.yaml has in_progress entry.
+        # started_at is recorded in state.yaml (and DB), not in the action JSON for
+        # run_step/run_inline. Read it from state.yaml after the pending write.
+        self.assertEqual(
+            self._count_in_progress("test-t14a-crash-resume"), 1,
+            "DB must have an in_progress row after first next",
+        )
+        state_raw = _load_state_yaml_sub(state_path)
+        in_progress_entries = [
+            e for e in (state_raw.get("step_history") or [])
+            if isinstance(e, dict) and e.get("status") == "in_progress"
+        ]
+        self.assertEqual(
+            len(in_progress_entries), 1,
+            f"state.yaml must have one in_progress entry after first next, got: {in_progress_entries}",
+        )
+        # Capture started_at from the state.yaml in_progress entry (canonical source).
+        started_at1 = in_progress_entries[0].get("started_at")
+        self.assertIsNotNone(started_at1, "in_progress entry in state.yaml must have a started_at")
+
+        # Step 3 — second next (crash simulated — no record call)
+        result2 = _run_next_sub(state_path, self._metrics_db_path)
+        self.assertEqual(result2.returncode, 0,
+                         f"Second next failed. stderr: {result2.stderr}")
+        action2 = _json.loads(result2.stdout)
+        self.assertEqual(
+            action2.get("action"), "resume_step",
+            f"Expected resume_step on second next, got: {action2.get('action')!r}\n"
+            f"stdout: {result2.stdout}",
+        )
+        self.assertTrue(action2.get("is_resume"),
+                        f"Expected is_resume=True, got: {action2.get('is_resume')!r}")
+        self.assertEqual(
+            action2.get("attempt"), attempt1,
+            f"Resume must preserve attempt={attempt1}, got: {action2.get('attempt')}",
+        )
+        # started_at on resume_step comes from the DB row (which in turn was written from
+        # state.yaml). Timestamps may be formatted slightly differently (ISO vs DuckDB
+        # TIMESTAMP string); compare normalised ISO strings with 'T' separator.
+        started_at2 = action2.get("started_at") or ""
+        started_at1_norm = str(started_at1).replace(" ", "T")
+        started_at2_norm = str(started_at2).replace(" ", "T")
+        self.assertEqual(
+            started_at2_norm, started_at1_norm,
+            f"Resume must preserve started_at={started_at1!r}, "
+            f"got: {action2.get('started_at')!r}",
+        )
+
+    def test_terminal_record_after_resume_cleans_and_advances(self):
+        """
+        (T-14b) Full cycle: first next (in_progress) → skip record (crash) →
+        second next (resume_step) → record terminal → in_progress scrubbed from
+        DB and state.yaml → third next dispatches successor step at attempt=1.
+        """
+        import tempfile as _tempfile
+
+        state_dir = _tempfile.mkdtemp(prefix="state_t14b_", dir=self._tmpdir)
+        state_path = _write_state_yaml_sub(
+            state_dir,
+            """\
+            change_id: test-t14b-full-cycle
+            schema: feature
+            version: 1
+            status: active
+            phase: implement
+            repo: test-repo
+            repo_root: /test/repo
+            worktree_path: /tmp/test-workflow
+            workflow_plan:
+              implement:
+                active:
+                  - step-inline-only
+                  - step-with-run
+            step_history: []
+            """,
+        )
+        plan_path = _os.path.join(state_dir, "plan.yaml")
+        with open(plan_path, "w") as f:
+            f.write(_PLAN_YAML_TWO_STEPS.format(
+                first_step_id="step-inline-only",
+                first_agent="inline",
+                second_step_id="step-with-run",
+                second_agent="discoverer",
+            ))
+
+        # Step 1 — first next
+        result1 = _run_next_sub(state_path, self._metrics_db_path)
+        self.assertEqual(result1.returncode, 0,
+                         f"First next failed. stderr: {result1.stderr}")
+        action1 = _json.loads(result1.stdout)
+        self.assertIn(action1.get("action"), ("run_step", "run_inline"),
+                      f"Expected run_step or run_inline, got: {action1.get('action')!r}")
+
+        # Step 2 — (crash) no record call
+
+        # Step 3 — second next must return resume_step
+        result2 = _run_next_sub(state_path, self._metrics_db_path)
+        self.assertEqual(result2.returncode, 0,
+                         f"Second next (resume) failed. stderr: {result2.stderr}")
+        action2 = _json.loads(result2.stdout)
+        self.assertEqual(action2.get("action"), "resume_step",
+                         f"Expected resume_step, got: {action2.get('action')!r}")
+
+        # Step 4 — record terminal payload for step-inline-only
+        # step-inline-only contract has outputs: [result], agent: inline.
+        # Inline steps skip usage validation (record.py lines ~372-390).
+        from orchestrator_next.record import record  # noqa: PLC0415
+        import duckdb as _db_mod  # noqa: PLC0415
+        db_conn = _db_mod.connect(self._metrics_db_path)
+        try:
+            from orchestrator_next.upsert import ensure_schema  # noqa: PLC0415
+            ensure_schema(db_conn)
+            terminal_payload = {
+                "step_id": "step-inline-only",
+                "phase": "implement",
+                "status": "completed",
+                "agent": "inline",
+                "outputs": {"result": "done"},
+                "usage": {},
+            }
+            rec_result, rec_code = record(state_path, terminal_payload, db=db_conn)
+        finally:
+            db_conn.close()
+
+        self.assertEqual(
+            rec_code, 0,
+            f"record() must succeed, got code={rec_code}, result={rec_result}",
+        )
+
+        # Step 5 — DB in_progress row for step-inline-only must be gone
+        self.assertEqual(
+            self._count_in_progress("test-t14b-full-cycle"), 0,
+            "DB must have NO in_progress row after terminal record",
+        )
+
+        # Step 6 — state.yaml in_progress entry must be gone
+        state_after_record = _load_state_yaml_sub(state_path)
+        in_progress_remaining = [
+            e for e in (state_after_record.get("step_history") or [])
+            if isinstance(e, dict) and e.get("status") == "in_progress"
+        ]
+        self.assertEqual(
+            len(in_progress_remaining), 0,
+            f"state.yaml must have no in_progress entry after record, got: {in_progress_remaining}",
+        )
+
+        # Step 7 — third next dispatches the successor step (step-with-run),
+        # not resume_step, at attempt=1.
+        result3 = _run_next_sub(state_path, self._metrics_db_path)
+        self.assertEqual(result3.returncode, 0,
+                         f"Third next failed. stderr: {result3.stderr}")
+        action3 = _json.loads(result3.stdout)
+        self.assertNotEqual(
+            action3.get("action"), "resume_step",
+            f"Third next must NOT return resume_step; got: {action3.get('action')!r}",
+        )
+        self.assertEqual(
+            action3.get("step_id"), "step-with-run",
+            f"Third next must dispatch successor step-with-run, got: {action3.get('step_id')!r}",
+        )
+        self.assertEqual(
+            action3.get("attempt"), 1,
+            f"Successor step must start at attempt=1, got: {action3.get('attempt')}",
+        )
