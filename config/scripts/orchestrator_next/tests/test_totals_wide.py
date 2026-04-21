@@ -1,5 +1,6 @@
 """
 T-3 (RED) / T-4 (GREEN): _totals() wide projection test.
+T-7 (RED) / T-8 (GREEN): _load_pricing_for_model(db, model) direct tests.
 
 Tests that _totals() returns:
   - cache_creation_input_tokens (SUM)
@@ -16,6 +17,11 @@ gross_usd formula (from task instructions):
 
 This is the economic "gross" — what you'd pay at sticker price without
 cache savings; it differs from net_usd (cost_usd SUM which is cache-discounted).
+
+T-7 additionally tests _load_pricing_for_model(db, model) directly:
+  - Seeded DB + known model → expected rates from pricing table
+  - Seeded DB + unknown model → __default__ rates (opus-tier fallback)
+  - Read-only DB with no pricing table → built-in conservative fallback, no raise (AC-6)
 """
 from __future__ import annotations
 
@@ -30,7 +36,7 @@ _SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-# Sonnet-4-5 pricing rates from config/pricing.yaml
+# Rates match the seed migration 0001_seed_pricing.sql (and the historical pricing.yaml they were sourced from).
 _SONNET_4_5_RATES = {
     "input": 3.00,
     "output": 15.00,
@@ -200,7 +206,7 @@ def test_totals_includes_pricing_subdict():
             assert rate_key in pricing, (
                 f"pricing['{rate_key}'] missing. pricing keys: {list(pricing)}"
             )
-        # Verify rates match pricing.yaml for claude-sonnet-4-5
+        # Rates match the seed migration 0001_seed_pricing.sql (and the historical pricing.yaml they were sourced from).
         assert pricing["input"] == 3.00, f"Expected input=3.00, got {pricing['input']}"
         assert pricing["output"] == 15.00, f"Expected output=15.00, got {pricing['output']}"
         assert pricing["cache_read"] == 0.30, f"Expected cache_read=0.30, got {pricing['cache_read']}"
@@ -255,3 +261,85 @@ def test_totals_includes_gross_usd():
         )
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# T-7 (RED): direct tests for _load_pricing_for_model(db, model)
+# These tests call the helper directly, verifying the (db, model) signature.
+# They FAIL on current code because the signature is still (model) not (db, model).
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def seeded_db():
+    """In-memory DuckDB with full schema including seeded pricing rows (via _run_migrations)."""
+    from orchestrator_next.upsert import ensure_schema
+    db = duckdb.connect(":memory:")
+    ensure_schema(db)
+    yield db
+    db.close()
+
+
+def test_load_pricing_known_model(seeded_db):
+    """Seeded DB + known model → returns expected rates from pricing table.
+
+    claude-sonnet-4-6 rates from 0001_seed_pricing.sql:
+      input=3.00, output=15.00, cache_read=0.30, cache_creation=3.75
+    """
+    from orchestrator_next.cost_report import _load_pricing_for_model
+
+    result = _load_pricing_for_model(seeded_db, "claude-sonnet-4-6")
+
+    assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+    assert result["input"] == 3.00, f"Expected input=3.00, got {result['input']}"
+    assert result["output"] == 15.00, f"Expected output=15.00, got {result['output']}"
+    assert result["cache_read"] == 0.30, f"Expected cache_read=0.30, got {result['cache_read']}"
+    assert result["cache_creation"] == 3.75, f"Expected cache_creation=3.75, got {result['cache_creation']}"
+
+
+def test_load_pricing_unknown_model_falls_back_to_default(seeded_db):
+    """Seeded DB + unknown model → returns __default__ rates (opus-tier sentinel).
+
+    __default__ rates from 0001_seed_pricing.sql:
+      input=15.00, output=75.00, cache_read=1.50, cache_creation=18.75
+    """
+    from orchestrator_next.cost_report import _load_pricing_for_model
+
+    result = _load_pricing_for_model(seeded_db, "model-that-does-not-exist")
+
+    assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+    assert result["input"] == 15.00, f"Expected input=15.00 (__default__), got {result['input']}"
+    assert result["output"] == 75.00, f"Expected output=75.00 (__default__), got {result['output']}"
+    assert result["cache_read"] == 1.50, f"Expected cache_read=1.50 (__default__), got {result['cache_read']}"
+    assert result["cache_creation"] == 18.75, f"Expected cache_creation=18.75 (__default__), got {result['cache_creation']}"
+
+
+def test_load_pricing_no_pricing_table_read_only_returns_fallback(tmp_path):
+    """Read-only DB with NO pricing table → returns built-in conservative fallback, no raise.
+
+    This is AC-6: cost_report must degrade gracefully on DBs predating the
+    pricing migration (e.g. a DB opened read_only=True that was never migrated).
+
+    Built-in fallback dict: {input:15.0, output:75.0, cache_read:1.5, cache_creation:18.75}
+    """
+    from orchestrator_next.cost_report import _load_pricing_for_model
+
+    # Create a minimal DB file WITHOUT calling ensure_schema (so no pricing table).
+    db_path = tmp_path / "no_pricing.duckdb"
+    setup_db = duckdb.connect(str(db_path))
+    # Only create step_events stub — pricing table intentionally omitted.
+    setup_db.execute("CREATE TABLE step_events (id INTEGER)")
+    setup_db.close()
+
+    # Open read_only — any attempt to query a non-existent 'pricing' table raises duckdb.Error.
+    ro_db = duckdb.connect(str(db_path), read_only=True)
+    try:
+        # Must NOT raise, must return the built-in conservative fallback.
+        result = _load_pricing_for_model(ro_db, "claude-sonnet-4-6")
+    finally:
+        ro_db.close()
+
+    assert isinstance(result, dict), f"Expected dict, got {type(result)}"
+    assert result["input"] == 15.0, f"Expected input=15.0 (fallback), got {result['input']}"
+    assert result["output"] == 75.0, f"Expected output=75.0 (fallback), got {result['output']}"
+    assert result["cache_read"] == 1.5, f"Expected cache_read=1.5 (fallback), got {result['cache_read']}"
+    assert result["cache_creation"] == 18.75, f"Expected cache_creation=18.75 (fallback), got {result['cache_creation']}"

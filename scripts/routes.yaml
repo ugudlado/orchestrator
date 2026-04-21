@@ -26,7 +26,7 @@ models:
 
 # Backend → model-id mapping for cost computation in record.py.
 # Keys match `agents.<agent>` values for native (non-proxy) backends.
-# Values match keys in config/pricing.yaml.
+# Values match model_id in the DuckDB pricing table.
 backends:
   native_opus:   claude-opus-4-7
   native_sonnet: claude-sonnet-4-6

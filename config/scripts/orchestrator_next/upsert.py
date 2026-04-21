@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 import json
+from pathlib import Path
 from typing import Any
 
 import json
@@ -282,6 +283,65 @@ def _migrate_tool_calls(db) -> None:
         db.execute("ALTER TABLE tool_calls ADD COLUMN duration_ms BIGINT")
 
 
+# ---------------------------------------------------------------------------
+# SQL migration runner (FR-1, NFR-2)
+# ---------------------------------------------------------------------------
+
+_DDL_SCHEMA_MIGRATIONS = """
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  name       VARCHAR PRIMARY KEY,
+  applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+
+def _migrations_dir() -> Path:
+    """Return the path to the migrations directory co-located with upsert.py."""
+    return Path(__file__).parent / "migrations"
+
+
+def _run_migrations(db) -> list[str]:
+    """Idempotent migration runner.
+
+    Creates the schema_migrations tracking table if absent, discovers every
+    *.sql file under _migrations_dir() in lexical order, skips files whose
+    basename is already recorded, and executes each remaining file in a
+    per-file BEGIN/COMMIT transaction. On exception the transaction is rolled
+    back and the exception re-raised — the migration name is never recorded.
+
+    Args:
+        db: open DuckDB RW connection (schema_migrations DDL is written here).
+
+    Returns:
+        List of migration names applied during this call (possibly empty).
+
+    Raises:
+        Exception: re-raises any error from executing a migration SQL file.
+    """
+    db.execute(_DDL_SCHEMA_MIGRATIONS)
+    applied = {
+        row[0]
+        for row in db.execute("SELECT name FROM schema_migrations").fetchall()
+    }
+    applied_now: list[str] = []
+    for path in sorted(_migrations_dir().glob("*.sql")):
+        if path.name in applied:
+            continue
+        sql = path.read_text()
+        db.execute("BEGIN")
+        try:
+            db.execute(sql)
+            db.execute(
+                "INSERT INTO schema_migrations(name) VALUES (?)", [path.name]
+            )
+            db.execute("COMMIT")
+        except Exception:
+            db.execute("ROLLBACK")
+            raise
+        applied_now.append(path.name)
+    return applied_now
+
+
 def ensure_schema(db) -> None:
     """
     Create the step_events, tool_calls, and feature_complexity tables and indexes
@@ -297,6 +357,8 @@ def ensure_schema(db) -> None:
     db.execute(_CREATE_TOOL_CALLS_INDEX)
     db.execute(_DDL_FEATURE_COMPLEXITY)  # HL-291
     db.execute(_DDL_FEATURE_METRICS)
+    # New — runs after legacy ALTERs so order is deterministic.
+    _run_migrations(db)
 
 
 def upsert_feature_complexity(

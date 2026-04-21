@@ -288,7 +288,7 @@ def _ingest_driver_main(args: list[str]) -> None:
     """Handle `orchestrator ingest-driver --change-id <cid> --session-id <uuid>`.
 
     Reads the driver JSONL at ~/.claude/projects/<slug>/<session>.jsonl,
-    computes cost_usd via routes.yaml + pricing.yaml, and upserts a synthetic
+    computes cost_usd via routes.yaml + the DuckDB pricing table, and upserts a synthetic
     step_events row with agent_name='driver-loop'. Idempotent via PK.
 
     Sub-agent enrichment is out of scope for this command — sub-agent rows
@@ -331,19 +331,20 @@ def _ingest_driver_main(args: list[str]) -> None:
         print(f'{{"ingested": false, "reason": "JSONL not found or empty for session {session_id}"}}')
         sys.exit(0)
 
-    # Compute cost_usd using routes.yaml fallback (driver-loop doesn't map to
-    # an agent role, so pass the model we already extracted as the agent hint).
-    # _compute_cost_usd prefers usage.model when present, which we have.
-    model, cost = _compute_cost_usd("driver-loop", usage)
-    if cost is not None:
-        usage["cost_usd"] = cost
-    if model and not usage.get("model"):
-        usage["model"] = model
-
     db_path = os.environ.get("METRICS_DB") or f"{repo_root}/metrics.duckdb"
     db = duckdb.connect(db_path)
     try:
         ensure_schema(db)
+
+        # Compute cost_usd using DuckDB pricing table (driver-loop doesn't map to
+        # an agent role, so pass the model we already extracted as the agent hint).
+        # _compute_cost_usd prefers usage.model when present, which we have.
+        model, cost = _compute_cost_usd(db, "driver-loop", usage)
+        if cost is not None:
+            usage["cost_usd"] = cost
+        if model and not usage.get("model"):
+            usage["model"] = model
+
         upsert_synthetic_event(
             db, {"repo_root": repo_root, "change_id": change_id},
             agent_name="driver-loop",
@@ -469,8 +470,8 @@ def _ingest_subagents_main(args: list[str]) -> None:
                 })
                 continue
 
-            # Compute cost
-            model, cost = _compute_cost_usd(agent_name, usage)
+            # Compute cost via DuckDB pricing table (db already in scope)
+            model, cost = _compute_cost_usd(db, agent_name, usage)
             if cost is not None:
                 usage["cost_usd"] = cost
             if model and not usage.get("model"):
