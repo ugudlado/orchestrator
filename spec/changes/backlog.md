@@ -98,6 +98,84 @@ Phases ship in order (1 → 2 → 3 → 4 → 5). None can parallelize:
 
 ---
 
+## report-views-retire-cli
+
+**Phase 3 of workflow-engine-as-state-machine: DuckDB views replace `orchestrator metrics`/`cost` projection code** (score 8.3)
+
+**Recurrence:** 1
+
+### Idea
+
+Phase 1 put pricing in DuckDB. Phase 2 put dispatch intent in DuckDB. This phase finishes the read side: every metrics/cost aggregation becomes a SQL view, readable by any DuckDB client. The ~300-line `metrics_report.py` projection layer and half of `cost_report.py` disappear — replaced by view DDL in a migration file.
+
+Post-phase end-state:
+- `feature_report`, `phase_report`, `agent_report`, `repo_report` are DuckDB views joining `step_events` + `feature_metrics` + `pricing` + `tool_calls` with correct rollups.
+- `compute-swe-metrics.sh` becomes a 3-line `duckdb -json -c "SELECT * FROM feature_report WHERE change_id = ?"` + yq wrap.
+- `orchestrator metrics` and `orchestrator cost` CLI subcommands are **retired** — end-state is `next` + `done` only. Callers that used those subcommands now query views directly (via `duckdb` CLI or import `orchestrator_next.report` which just wraps the SQL).
+
+### Scope
+
+1. **New migration** `0002_report_views.sql` — creates four views: `feature_report`, `phase_report`, `agent_report`, `repo_report`. DDL per the parent vision's "report views" sketch in `workflow-engine-as-state-machine`. Views JOIN step_events + feature_metrics + pricing and expose the same columns `metrics_report.aggregate_metrics()` and `cost_report._totals()` produce today.
+2. **Retire CLI subcommands** — remove `_metrics_main` and `_cost_main` from `bin/orchestrator`. Callers are: `compute-swe-metrics.sh` (rewrite), `/orchestrate` SKILL prose (update), any test that subprocesses `orchestrator metrics` / `orchestrator cost` (update to direct SQL).
+3. **Rewrite `compute-swe-metrics.sh`** — query `feature_report` view via `duckdb -json`, yq-wrap into state.yaml's metrics block. Must produce byte-equivalent YAML shape to current output.
+4. **Delete projection code** — `metrics_report.py` goes entirely. `cost_report.py`'s `_totals` + `_compute_gross_usd` + markdown/json renderers stay only if callers remain; otherwise delete.
+5. **Tests**: view DDL correctness (columns, join semantics, NULL handling), `compute-swe-metrics.sh` parity (byte-diff against a captured fixture), no regression in feature_metrics-touching paths.
+6. **Update SKILL.md**: `/orchestrate` prose currently mentions "run `orchestrator cost --change-id X`" at workflow-complete. Replace with `duckdb -json -c "SELECT markdown_report FROM feature_report WHERE change_id = 'X'"` or similar — or introduce a tiny `scripts/cost-report.sh` if the YAML/markdown formatting is worth keeping out of the skill prose.
+
+### Out of scope
+
+- `done` rename — Phase 4.
+- Salvage path — Phase 4.
+- Level-aware writes (phase_events, driver_sessions tables) — Phase 4.
+- `ingest-driver` / `ingest-subagents` retirement — Phase 5.
+- Changing dispatch semantics.
+- Changing pricing or in-progress row semantics (Phase 1–2 locked).
+
+### Driver-locked decisions
+
+1. **No new `orchestrator` CLI subcommands.** Phase 3 is primarily about REMOVING CLI surface. `metrics` and `cost` go.
+2. **Views are migration-managed**, same pattern as Phase 1's pricing. New SQL file under `config/scripts/orchestrator_next/migrations/` — `0002_report_views.sql`.
+3. **Shape-stability**: the YAML block `compute-swe-metrics.sh` injects into state.yaml MUST match the current shape (so archived retros remain queryable the same way). View columns must cover the current keys.
+4. **Byte-equivalence test**: must exist for `compute-swe-metrics.sh` output against a captured baseline. No synthetic microbenchmarks per cycle-16 rule.
+5. **Bash consumer pattern**: mirror Phase 1's `estimate-cost.sh` rewrite — `duckdb -json -readonly` + `python3 -c` or `jq` parse. bash 3.2 compatible.
+
+### Gotchas for discoverer
+
+- **Current `_totals`** in `cost_report.py` does a lot of grouping + pricing join. The view must reproduce it. Will the view be pure-SQL or need CASE/COALESCE gymnastics? Read `cost_report.py::_totals` and `_fetch_feature_metrics`/`aggregate_metrics` carefully.
+- **`per_agent_tokens` / `per_agent_tools`** — today stringified JSON scalars (so `yq -p=json` can read them). Views need to emit the same shape — DuckDB's `json_group_object` + `::VARCHAR` probably works.
+- **Zero-division guards** and **benchmark computation** — today in Python. Views will use `CASE WHEN denominator = 0 THEN NULL ELSE … END`. Grep every `/ 0` guard in metrics_report.py and translate.
+- **NULL cost_usd** (Phase 2's in_progress rows) — `COALESCE(SUM(cost_usd), 0)` in views, per Phase 2's discovery finding.
+- **`cost_report.py` markdown renderer** — do any callers still need markdown? If only CLI callers used it, delete with the `_cost_main`. If `/orchestrate` SKILL.md still shows the markdown block at workflow-complete, decide: keep as a tiny shell script, or skill prose queries the view directly and formats inline.
+- **Test fixture pattern**: reuse `in_memory_db` with `ensure_schema` — migrations auto-apply, view DDL runs.
+- **Retro migration**: archived features' `feature_metrics` rows still work with the new views? Views are forward-only reads; no migration of existing rows needed — just ensure the JOIN predicates don't require columns that older rows lack.
+
+### Why Now
+
+- Phase 1 + Phase 2 are the substrate. Every subsequent metrics feature (regression detection, per-subagent attribution, step-timing telemetry — all in backlog) becomes easier once reports are SQL views.
+- Retiring `metrics`/`cost` CLI gets us closer to the end-state (two verbs: `next` + `done`). Phase 4 + 5 ride on this.
+- ~300 lines of Python projection → ~150 lines of SQL. Net deletion.
+
+### Priority
+
+- User value: 7/10 (nothing user-visible changes for most callers — query outputs stay the same; CLI surface shrinks is the visible win)
+- Strategic fit: 10/10 (load-bearing for phase 4's `done` semantics + phase 5 cleanup)
+- Technical leverage: 9/10 (net deletion, closes read-side asymmetry started in Phase 1)
+- Effort: medium (view DDL + rewriting 1 bash script + deleting ~200 Python lines + retargeting tests — comparable to Phase 2's 14 tasks)
+- **Score: 8.3**
+
+### Dependencies
+
+- Phase 1 (`pricing-table-in-duckdb`) — complete. Pricing table + migration runner available.
+- Phase 2 (`durable-intent-and-resume`) — complete. in_progress rows are NULL-cost and must be correctly handled by view aggregates.
+
+### Source
+
+- Parent vision `workflow-engine-as-state-machine` in this file.
+- Phase 1 retro: `spec/changes/archive/2026-04-20-pricing-table-in-duckdb/learn-evaluation.md`.
+- Phase 2 retro: `spec/changes/archive/2026-04-21-durable-intent-and-resume/learn-evaluation.md`.
+
+---
+
 ## metrics-regression-detection
 
 **Metrics Regression Detection + Autopilot Breaker** (score 8.2)
