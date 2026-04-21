@@ -416,10 +416,16 @@ def record(
         )
 
     # Determine attempt number for this (phase, step_id).
+    # Exclude in_progress entries from the count — they are placeholders, not
+    # completed attempts, and must not inflate the attempt number (T-11 / FR-6).
     history = list(state_raw.get("step_history") or [])
     prior_attempts = [
         e.get("attempt") for e in history
-        if isinstance(e, dict) and e.get("phase") == phase and e.get("step_id") == step_id and e.get("attempt")
+        if isinstance(e, dict)
+        and e.get("phase") == phase
+        and e.get("step_id") == step_id
+        and e.get("attempt")
+        and e.get("status") != "in_progress"
     ]
     attempt = (max(prior_attempts) + 1) if prior_attempts else 1
 
@@ -486,6 +492,17 @@ def record(
         "usage": usage,
         "evidence": {"outputs": outputs, **(payload.get("evidence") or {})},
     }
+    # BEFORE appending, strip any in_progress placeholder for this (step_id, phase).
+    # The terminal record supersedes the in_progress entry; keeping both would
+    # cause duplicate entries and break invariant checks (T-11 / FR-6, AC-3).
+    history[:] = [
+        h for h in history
+        if not (
+            h.get("status") == "in_progress"
+            and h.get("step_id") == step_id
+            and h.get("phase") == phase
+        )
+    ]
     history.append(entry)
     state_raw["step_history"] = history
 
@@ -518,6 +535,30 @@ def record(
             },
             4,
         )
+
+    # T-11 / FR-7: Delete the in_progress DB row now that state.yaml is durably
+    # written. This runs after the post-write YAML parse check so that if the
+    # write or parse fails (and the file is restored) we do NOT delete the DB row
+    # — the next reconcile will then materialise from DB, preserving crash safety.
+    # Best-effort: a DELETE failure must not block the caller.
+    if db is not None:
+        try:
+            change_id_val = state_raw.get("change_id") or ""
+            repo_root_val = state_raw.get("repo_root") or ""
+            db.execute(
+                "DELETE FROM step_events"
+                " WHERE repo_root = ?"
+                " AND change_id = ?"
+                " AND phase = ?"
+                " AND step_id = ?"
+                " AND status = 'in_progress'",
+                [repo_root_val, change_id_val, phase, step_id],
+            )
+        except Exception as exc:  # noqa: BLE001 — DB cleanup is best-effort
+            sys.stderr.write(
+                f"[record] warning: failed to delete in_progress DB row for "
+                f"{step_id!r} phase={phase!r}: {exc}\n"
+            )
 
     # Workflow-issue retro: if the payload carries workflow_issues, append
     # each one to spec/changes/<change_id>/retro.md. Best-effort — any

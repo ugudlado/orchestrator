@@ -21,7 +21,7 @@ The CLI is pure-read: it reads `state.yaml` and step contracts, writes only to
 
 | Code | Meaning | Action returned |
 |------|---------|-----------------|
-| `0` | Action available | `run_step`, `run_inline`, `retry_step`, `verify_phase` |
+| `0` | Action available | `run_step`, `run_inline`, `resume_step`, `verify_phase` |
 | `1` | Workflow complete | `complete_workflow` |
 | `2` | Blocked — caller must intervene | `blocked` |
 | `3` | CLI error | No JSON on stdout; error on stderr |
@@ -75,25 +75,27 @@ terminated by a newline). The canonical form uses `sort_keys=True, indent=2`.
 Note: `run` is absent for `run_inline`. All 31 inline-only step contracts produce
 this action until they migrate to the `run_step` path.
 
-### `retry_step` — last history entry is `in_progress` with no `ended_at`
+### `resume_step` — last history entry is `in_progress` with no `ended_at`
 
 ```jsonc
 {
-  "action": "retry_step",
+  "action": "resume_step",
   "step_id": "execute-next-task",
   "phase": "implement",
-  "attempt": 2,
-  "previous_failure": "no ended_at",
+  "attempt": 1,
+  "is_resume": true,
+  "started_at": "2026-04-20T10:00:00+00:00",
   "agent": "developer",
   "instruction": "…",
   "rules": ["…"],
-  "env": { /* same 6 ORCHESTRATOR_* keys, ORCHESTRATOR_ATTEMPT="2" */ }
+  "env": { /* same 6 ORCHESTRATOR_* keys, ORCHESTRATOR_ATTEMPT="1" */ }
 }
 ```
 
-`attempt` is the next attempt number — the caller writes this value into the new
-`step_history` entry it appends before re-spawning. `previous_failure` is a
-human-readable diagnostic string, not a structured enum.
+`attempt` is the ORIGINAL attempt number from the in_progress entry — it is NOT
+incremented. `is_resume: true` signals to the caller that this is a resume of an
+interrupted step, not a fresh dispatch. `started_at` is preserved from the in_progress
+entry (the original wall-clock time the step was first dispatched).
 
 ### `verify_phase` — all phase steps terminal, phase has unevaluated `verify:` block
 
@@ -108,8 +110,8 @@ human-readable diagnostic string, not a structured enum.
 
 The caller runs the commands, evaluates assertions, and reports results by appending a
 `run-phase-review` step_history entry with `status: completed` (pass) or
-`status: failed` (fail). On failure the CLI on the next call returns `retry_step` for
-`run-phase-review`. The CLI never runs verify commands itself (pure-read invariant).
+`status: failed` (fail). On failure the CLI on the next call returns `run_step` for
+`run-phase-review` (a new attempt). The CLI never runs verify commands itself (pure-read invariant).
 
 ### `complete_workflow` — all phases complete (exit 1)
 
@@ -146,7 +148,7 @@ copied from the step_history entry's `escalation:` sub-block.
 
 ## Environment Variable Contract
 
-When `action ∈ {run_step, run_inline, retry_step}`, the response includes an `env`
+When `action ∈ {run_step, run_inline, resume_step}`, the response includes an `env`
 object with exactly these six keys:
 
 | Variable | Value | Description |
@@ -174,18 +176,23 @@ Scope: attempt counting is per `(phase, step_id)` pair. A completed `attempt: 1`
 entry in one phase does not affect attempt counting for the same `step_id` in a
 different phase.
 
-## Retry Protocol
+Exception: `resume_step` preserves the in_progress entry's attempt unchanged — the
+CLI does NOT call the `max + 1` formula for this action. The returned `attempt` equals
+the original in_progress entry's attempt value.
 
-When the CLI returns `action: retry_step`:
+## Resume Protocol
+
+When the CLI returns `action: resume_step`:
 
 1. Caller uses the returned `attempt`, `step_id`, `phase`, `env` to re-spawn the agent.
-2. Agent appends a new `step_history` entry with the returned `attempt` number.
-3. Caller calls `orchestrator next` again — CLI upserts the new entry (if terminal)
-   and returns the next action.
+2. The agent re-executes the step and appends a new `step_history` entry using the
+   SAME `attempt` number (no increment).
+3. Caller calls `orchestrator next` again — CLI upserts the terminal entry and returns
+   the next action.
 
-The `previous_failure` field ("no ended_at") is a diagnostic for the caller — it may
-be appended to the agent prompt as context. The CLI does not retry automatically; the
-caller drives the retry loop.
+The `is_resume: true` field signals the caller that this is a crash-recovery dispatch.
+The `started_at` field contains the original wall-clock start time of the interrupted
+step. The CLI does not resume automatically; the caller drives the resume loop.
 
 ## Escalation Protocol
 

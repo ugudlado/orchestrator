@@ -1,25 +1,27 @@
 {
-  "action": "retry_step",
+  "action": "resume_step",
   "agent": "inline",
-  "attempt": 2,
+  "attempt": 1,
+  "cost_so_far": 0.0,
   "env": {
-    "ORCHESTRATOR_ATTEMPT": "2",
+    "ORCHESTRATOR_ATTEMPT": "1",
     "ORCHESTRATOR_CHANGE_ID": "test-in-progress",
     "ORCHESTRATOR_PHASE": "implement",
     "ORCHESTRATOR_REPO_ROOT": "",
     "ORCHESTRATOR_STEP_ID": "step-inline-only",
     "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow"
   },
-  "cost_so_far": 0.0,
   "expected_outputs": [
     "result"
   ],
   "inputs": {},
   "instruction": "Do the inline work here.\n",
+  "is_resume": true,
   "phase": "implement",
-  "previous_failure": "no ended_at",
   "rules": [
     "Keep it simple."
   ],
+  "run": null,
+  "started_at": "2026-04-18T10:00:00Z",
   "step_id": "step-inline-only"
 }

@@ -1,10 +1,10 @@
 """
 Pure dispatcher: State → (action_dict, exit_code).
 
-Action types (T-1..T-2 scope):
+Action types:
   run_inline        — step has no run: field
   run_step          — step has run: field
-  retry_step        — last history entry is in_progress without ended_at
+  resume_step       — last history entry is in_progress (post-reconcile DB truth)
   verify_phase      — all phase steps terminal, phase has verify block unevaluated
   complete_workflow — all phases complete
   blocked           — last entry is escalate_to_architect or blocked
@@ -267,7 +267,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             action["escalation"] = last.escalation
         return action, 2
 
-    # --- Check: last entry is in_progress without ended_at → retry
+    # --- Check: last entry is in_progress → resume (post-reconcile, this is the DB truth)
     if (
         last is not None
         and last.phase == state.phase
@@ -275,7 +275,9 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         and last.ended_at is None
     ):
         step_id = last.step_id
-        attempt = _compute_attempt(state.step_history, state.phase, step_id)
+        # Resume: keep the ORIGINAL attempt. DO NOT call _compute_attempt here —
+        # it returns max+1 (retry semantics). Resume semantics require attempt unchanged.
+        attempt = last.attempt if last.attempt is not None else 1
         try:
             contract = load_contract_for_step(step_id, state_yaml_path)
         except FileNotFoundError:
@@ -290,12 +292,14 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         inputs_resolved, _missing = _resolve_inputs(state, contract)
         resolved_allowed_tools = _resolve_allowed_tools(contract)
         action = {
-            "action": "retry_step",
+            "action": "resume_step",
             "step_id": step_id,
             "phase": state.phase,
             "attempt": attempt,
-            "previous_failure": "no ended_at",
+            "is_resume": True,
+            "started_at": last.started_at,
             "agent": contract.agent,
+            "run": contract.run,
             "instruction": contract.instruction,
             "rules": contract.rules,
             "inputs": inputs_resolved,

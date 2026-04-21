@@ -142,8 +142,13 @@ LOOP:
       #    for any agent (non-inline) step — record.py enforces this (FR-11).
 
       orchestrator record state.yaml <<< {step_id, phase, status, outputs, usage, evidence}
-  IF action.action == "retry_step":
-      same as run_step but with action.previous_failure in the prompt
+  IF action.action == "resume_step":
+      # Always log to stderr — even under flags.auto == true — so operators see resume events.
+      print(f"RESUMING step {action.step_id} (attempt {action.attempt})", file=sys.stderr)
+      # Then execute identically to run_step (action.run present) or run_inline (no action.run).
+      spawn agent(action.agent) with prompt=action.instruction, rules=action.rules,
+            inputs=action.inputs, expecting=action.expected_outputs,
+            run_in_background: true  # default; omit for ideator/reviewer
       # Apply the same MANDATORY USAGE CAPTURE as run_step above.
 ```
 

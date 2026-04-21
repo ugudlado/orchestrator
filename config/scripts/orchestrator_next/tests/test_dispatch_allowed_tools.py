@@ -205,8 +205,8 @@ class TestResolvedAllowedToolsInjection:
         assert action["action"] == "run_inline"
         assert "resolved_allowed_tools" in action
 
-    def test_retry_step_has_resolved_allowed_tools(self, steps_dir, agents_dir, state_dir, monkeypatch):
-        """retry_step action dict has resolved_allowed_tools key."""
+    def test_resume_step_has_resolved_allowed_tools(self, steps_dir, agents_dir, state_dir, monkeypatch):
+        """resume_step action dict has resolved_allowed_tools key."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read", "Grep", "Glob", "Bash"])
         _write_contract(steps_dir, "retry-step", {
@@ -217,7 +217,7 @@ class TestResolvedAllowedToolsInjection:
         from orchestrator_next.dispatch import dispatch
         state = _make_state_with_inprogress("retry-step", "developer")
         action, code = dispatch(state, str(state_dir / "state.yaml"))
-        assert action["action"] == "retry_step"
+        assert action["action"] == "resume_step"
         assert "resolved_allowed_tools" in action
 
 

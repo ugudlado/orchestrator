@@ -109,12 +109,12 @@ class TestEstimatedCostSoFar(unittest.TestCase):
     def test_key_present_on_all_action_types(self):
         """
         cost_so_far must appear on every action type: run_inline,
-        run_step, retry_step, verify_phase, complete_workflow, blocked.
+        run_step, resume_step, verify_phase, complete_workflow, blocked.
         """
         fixtures = [
             ("state-pending-inline.yaml", 0),        # run_inline
             ("state-pending-runfield.yaml", 0),       # run_step
-            ("state-in-progress-no-ended.yaml", 0),  # retry_step
+            ("state-in-progress-no-ended.yaml", 0),  # resume_step
             ("state-phase-done-needs-verify.yaml", 0),  # verify_phase
             ("state-all-done.yaml", 1),               # complete_workflow
             ("state-escalate.yaml", 2),               # blocked

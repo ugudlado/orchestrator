@@ -121,8 +121,8 @@ class TestOrchestratorNextDispatcher(unittest.TestCase):
         self._assert_json_matches_golden(result.stdout, "state-pending-runfield.json")
         self.assertEqual(mtime_before, mtime_after, "state.yaml mtime changed — CLI must be pure-read")
 
-    def test_in_progress_no_ended_returns_retry_step(self):
-        """state-in-progress-no-ended.yaml: last entry in_progress without ended_at → retry_step."""
+    def test_in_progress_no_ended_returns_resume_step(self):
+        """state-in-progress-no-ended.yaml: last entry in_progress without ended_at → resume_step."""
         fixture = "state-in-progress-no-ended.yaml"
         mtime_before = self._get_mtime(fixture)
         result = self._run(fixture)
