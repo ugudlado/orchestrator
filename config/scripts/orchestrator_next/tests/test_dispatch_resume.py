@@ -853,3 +853,63 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
             action3.get("attempt"), 1,
             f"Successor step must start at attempt=1, got: {action3.get('attempt')}",
         )
+
+
+class TestResumeLogDriverContract(_unittest.TestCase):
+    """AC-9 — driver-layer "RESUMING step" log contract.
+
+    The SKILL.md driver loop is prose, not code. To make AC-9 executable, we
+    ship a minimal fixture script at tests/fixtures/resume_log_driver.py that
+    implements exactly the log contract from SKILL.md. These tests invoke that
+    fixture as a subprocess with a resume_step payload on stdin and assert the
+    log fires to stderr — including under flags.auto=true.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from pathlib import Path as _Path
+        cls._FIXTURE = str(_Path(__file__).parent / "fixtures" / "resume_log_driver.py")
+
+    def _run_fixture(self, payload, auto=False):
+        env = os.environ.copy()
+        env["FLAGS_AUTO"] = "true" if auto else "false"
+        return _subprocess.run(
+            [sys.executable, self._FIXTURE],
+            input=_json.dumps(payload),
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=10,
+        )
+
+    def test_resume_step_emits_resuming_log(self):
+        result = self._run_fixture({
+            "action": "resume_step",
+            "step_id": "design-and-draft-artifacts",
+            "attempt": 2,
+        })
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn(
+            "RESUMING step design-and-draft-artifacts (attempt 2)",
+            result.stderr,
+            msg=f"expected RESUMING log in stderr, got: {result.stderr!r}",
+        )
+
+    def test_resume_step_log_fires_under_auto_flag(self):
+        """AC-9 explicit: the log MUST fire even when flags.auto=true."""
+        result = self._run_fixture(
+            {"action": "resume_step", "step_id": "execute-next-task", "attempt": 1},
+            auto=True,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("RESUMING step execute-next-task (attempt 1)", result.stderr)
+
+    def test_non_resume_action_emits_no_resuming_log(self):
+        """Negative: run_step etc. must NOT produce the RESUMING log."""
+        result = self._run_fixture({
+            "action": "run_step",
+            "step_id": "explore",
+            "attempt": 1,
+        })
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertNotIn("RESUMING step", result.stderr)
