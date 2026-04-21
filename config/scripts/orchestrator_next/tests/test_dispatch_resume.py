@@ -728,14 +728,11 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
             action2.get("attempt"), attempt1,
             f"Resume must preserve attempt={attempt1}, got: {action2.get('attempt')}",
         )
-        # started_at on resume_step comes from the DB row (which in turn was written from
-        # state.yaml). Timestamps may be formatted slightly differently (ISO vs DuckDB
-        # TIMESTAMP string); compare normalised ISO strings with 'T' separator.
-        started_at2 = action2.get("started_at") or ""
-        started_at1_norm = str(started_at1).replace(" ", "T")
-        started_at2_norm = str(started_at2).replace(" ", "T")
+        # started_at on resume_step is preserved byte-for-byte from the state.yaml
+        # in_progress entry (YAML stores it as a plain string; the reconcile+dispatch
+        # round-trip does not reformat it).
         self.assertEqual(
-            started_at2_norm, started_at1_norm,
+            action2.get("started_at"), started_at1,
             f"Resume must preserve started_at={started_at1!r}, "
             f"got: {action2.get('started_at')!r}",
         )
