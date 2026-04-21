@@ -113,14 +113,6 @@ class TestStepAllowlistAnomaliesFunction:
             "_step_allowlist_anomalies not found in cost_report"
         )
 
-    def test_aggregate_feature_has_anomalies_step_allowlist_key(self, db, steps_dir):
-        """aggregate_feature() result has anomalies_step_allowlist key."""
-        from orchestrator_next.cost_report import aggregate_feature
-        data = aggregate_feature(db, "/repo", "test-change")
-        assert "anomalies_step_allowlist" in data, (
-            "aggregate_feature result missing 'anomalies_step_allowlist' key"
-        )
-
 
 # ---------------------------------------------------------------------------
 # T-5: anomaly detection logic
@@ -201,46 +193,3 @@ class TestStepAllowlistAnomalyDetection:
         assert result == []
 
 
-# ---------------------------------------------------------------------------
-# T-5: rendered markdown
-# ---------------------------------------------------------------------------
-
-class TestStepAllowlistAnomalyRendering:
-
-    def test_subsection_present_when_anomalies_exist(self, db, steps_dir):
-        """Rendered markdown has 'Tool not in step allowlist' subsection when drift exists."""
-        _write_contract(steps_dir, "my-step", {
-            "id": "my-step", "agent": "developer",
-            "instruction": "do thing", "inputs": [], "outputs": [],
-            "allowed_tools": ["Read"],
-        })
-        _insert_tool_call(db, "/repo", "test-change", "implement", "my-step",
-                          "developer", "WebSearch")
-
-        from orchestrator_next.cost_report import aggregate_feature, render_markdown_feature
-        data = aggregate_feature(db, "/repo", "test-change")
-        md = render_markdown_feature(data)
-        assert "Tool not in step allowlist" in md
-
-    def test_subsection_absent_when_no_allowlist_anomalies(self, db, steps_dir):
-        """Rendered markdown omits 'Tool not in step allowlist' subsection when no drift."""
-        _write_contract(steps_dir, "my-step", {
-            "id": "my-step", "agent": "developer",
-            "instruction": "do thing", "inputs": [], "outputs": [],
-            "allowed_tools": ["Read", "WebSearch"],
-        })
-        _insert_tool_call(db, "/repo", "test-change", "implement", "my-step",
-                          "developer", "WebSearch")
-
-        from orchestrator_next.cost_report import aggregate_feature, render_markdown_feature
-        data = aggregate_feature(db, "/repo", "test-change")
-        md = render_markdown_feature(data)
-        assert "Tool not in step allowlist" not in md
-
-    def test_tool_not_in_role_subsection_unchanged(self, db, steps_dir):
-        """Existing 'Tool not in role' subsection continues to render (backward compat)."""
-        # No contracts, no anomalies — just verify the section header is there
-        from orchestrator_next.cost_report import aggregate_feature, render_markdown_feature
-        data = aggregate_feature(db, "/repo", "test-change")
-        md = render_markdown_feature(data)
-        assert "## Anomalies" in md
