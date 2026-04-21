@@ -559,6 +559,73 @@ def upsert_step_event(
                 call_seq += 1
 
 
+def upsert_pending_step_event(
+    db,
+    *,
+    repo_root: str,
+    change_id: str,
+    phase: str,
+    step_id: str,
+    attempt: int,
+    agent_name: str,
+    started_at: str,
+) -> None:
+    """
+    Upsert one in_progress row into step_events for a step that is about to be
+    dispatched.  All cost, usage, model, and lifecycle-end columns are NULL.
+    status is fixed to 'in_progress' — do not accept it as a parameter.
+
+    Reuses _INSERT_OR_REPLACE; no tool_calls fan-out (pending rows never own
+    tool_calls entries — those are written only on terminal upsert_step_event
+    calls).
+
+    Args:
+        db:         open duckdb.DuckDBPyConnection (schema already ensured)
+        repo_root:  absolute path to the repo root
+        change_id:  feature change identifier (validated against slug guard)
+        phase:      workflow phase name (e.g. "implement")
+        step_id:    step identifier (e.g. "T-1")
+        attempt:    attempt number (1-based)
+        agent_name: agent name (e.g. "developer")
+        started_at: ISO-8601 timestamp string for when the step was dispatched
+
+    Raises:
+        ValueError: if change_id violates the slug guard.
+    """
+    if not _SLUG_RE.match(change_id):
+        raise ValueError(
+            f"change_id '{change_id}' violates slug guard. "
+            f"Must match ^[a-z0-9][a-z0-9-]*$ (lowercase alphanumeric and hyphens only, "
+            f"no leading hyphen)."
+        )
+
+    params = [
+        repo_root,
+        change_id,
+        phase,
+        step_id,
+        attempt,
+        agent_name,
+        None,           # agent_id
+        "in_progress",  # status — fixed, not a parameter
+        started_at,     # started_at
+        None,           # ended_at
+        None,           # duration_ms
+        None,           # model
+        None,           # input_tokens
+        None,           # output_tokens
+        None,           # cache_read_input_tokens
+        None,           # cache_creation_input_tokens
+        None,           # cost_usd
+        None,           # turns
+        None,           # tool_calls_json — no fan-out for pending rows
+        None,           # artifacts_json
+        None,           # escalation_json
+    ]
+    db.execute(_INSERT_OR_REPLACE, params)
+    # No tool_calls fan-out; pending rows have no tool_calls to write.
+
+
 def upsert_synthetic_event(
     db,
     context: dict[str, Any],
