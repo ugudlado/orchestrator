@@ -98,6 +98,91 @@ Phases ship in order (1 → 2 → 3 → 4 → 5). None can parallelize:
 
 ---
 
+## durable-intent-and-resume
+
+**Phase 2 of workflow-engine-as-state-machine: `next` declares intent durably; `next` re-entry returns the same step with `is_resume: true`** (score 8.4)
+
+**Recurrence:** 1
+
+### Idea
+
+Today, between `orchestrator next` returning an action and `orchestrator record` writing the outcome, intent is not durable. A crash (driver killed, machine reboot, Claude Code closes, sub-agent watchdog stall) loses the in-flight step: tokens spent, files maybe touched, state.yaml with no terminal entry for the step. When the driver restarts and calls `next`, it re-computes the step from scratch, causing double-execution or silently advancing past work that partially completed.
+
+Phase 1 put pricing into DuckDB. This phase adds the state-machine invariants the parent vision describes — *but only two of them, scoped tight*:
+
+1. **Durable intent.** The moment `next` decides a step will run, write an `in_progress` row into `step_events` with `started_at = now()` and `status = 'in_progress'`. State.yaml gets the same entry appended. Now the intent exists on disk before the action is returned.
+
+2. **Idempotent resume.** On re-entry, `next` first checks: is there an `in_progress` row for this `change_id`? If yes, return the same step that's in flight with an added `is_resume: true` flag and `started_at` from the original row. The dispatcher driver chooses whether to continue, retry, or abandon.
+
+**Not in this phase:** salvage path (`status: recovered` that scrapes JSONL + git to reconstruct usage) — that's phase 4, with `done`. Also not in this phase: the `done` rename or level-aware writing. Just durability + resume detection.
+
+### Scope
+
+1. **`config/scripts/orchestrator_next/upsert.py`** — add `upsert_pending_step_event(db, entry, context)` that writes a row with `status='in_progress'`, `started_at=now()`, null `completed_at`, null `usage`, null `cost_usd`. Primary key stays `(repo_root, change_id, phase, step_id, attempt, status)` — the `status` column already makes `in_progress` a distinct row from `completed`.
+2. **`config/scripts/orchestrator_next/dispatch.py`** (the `next` path inside `bin/orchestrator`) — before returning any `run_step` / `run_inline` / `retry_step` action, write the pending row via the new upsert helper AND append an `in_progress` entry to `state.yaml.step_history`. Skip this for non-step actions (`complete_workflow`, `blocked`, `verify_phase`).
+3. **Resume detection** — also in dispatch: at the top of `next`, query `step_events` for any `in_progress` row for the current `change_id`. If found, short-circuit the normal step-resolution logic and return the same action (step_id, phase) with `is_resume: true` and `started_at` from the in_progress row. Attempt number stays the same.
+4. **`record` updates** — when `orchestrator record` writes a terminal entry (`completed`, `failed`, `abandoned`), it already upserts into `step_events`. The PK includes `status`, so the `in_progress` row and the `completed` row co-exist. We want the `in_progress` row **deleted** on terminal record so resume detection is clean. Add a `DELETE FROM step_events WHERE repo_root=? AND change_id=? AND phase=? AND step_id=? AND attempt=? AND status='in_progress'` inside `upsert_step_event` when the incoming entry has a terminal status.
+5. **State.yaml hygiene** — when `record` appends a terminal entry to `state.yaml.step_history`, it must also remove the matching `in_progress` placeholder entry (by step_id + phase + attempt). Symmetric with the DuckDB DELETE.
+6. **Driver loop** — the `/orchestrate` skill's dispatch loop prose gets a small addition: when `action.is_resume == true`, surface this to the user (even in `--auto` mode, log it clearly) and let the existing normal path re-execute the step. No salvage decisions yet.
+7. **Tests**:
+   - `test_dispatch_pending_row.py` — `next` writes the pending row before returning; the returned action's `started_at` matches the row's timestamp.
+   - `test_dispatch_resume.py` — after a pending row exists, a second `next` call returns the same step with `is_resume: true` and `started_at` from the original row.
+   - `test_record_cleans_pending.py` — terminal `record` deletes the matching `in_progress` row from both DuckDB and state.yaml.
+   - Integration: kill-and-resume — start `next`, don't record, call `next` again → same action comes back. Record → next advances to the successor.
+8. **No new CLI subcommands.** End-state is `next` + `done` (phase 4 renames `record`). This phase keeps `record` — we're just adding durability.
+
+### Out of scope
+
+- Salvage path (`status: recovered`, JSONL reconstruction, git diff-based evidence). **Phase 4 only.**
+- `done` verb rename — record stays named `record` this phase.
+- Level-aware writes to `phase_events` / `feature_metrics` / `driver_sessions` from within `record`. **Phase 4.**
+- Report views and retirement of `orchestrator metrics` / `cost` CLI. **Phase 3.**
+- Auto-advance on `complete_workflow` phase boundaries (still the driver's responsibility).
+- Cache / `_pricing_cache` changes — Phase 1's in-process cache stays as-is.
+- Changing the agent contract or spawn protocol.
+
+### Driver-locked decisions (no re-opening)
+
+1. **Approach = minimal write, same primary key** — the PK `(repo_root, change_id, phase, step_id, attempt, status)` already distinguishes `in_progress` from `completed`, so we don't need schema changes. Reuse the existing `step_events` table; add one new helper function.
+2. **No new CLI subcommand.** Resume detection is internal to `next`.
+3. **Delete-on-terminal over UPDATE-in-place.** Simpler semantics — the `step_events` row for a completed step has exactly one row; in-flight steps have exactly one `in_progress` row until recorded.
+4. **state.yaml mirrors DuckDB** — both stores must stay in sync; the DB is authoritative on reconcile. No schema changes to state.yaml; just one more kind of step_history entry (`status: in_progress`).
+5. **`is_resume` surfaced in `next` action payload**, not in a separate query. Driver sees it in the same JSON it already parses.
+
+### Known gotchas the discoverer should investigate
+
+- The existing `_find_completed_step` in `dispatch.py` — Phase 1's retro bumped the `dispatch-repeat-until-honor` bug to recurrence 2. Resume logic touches the same code path. Verify the fix order: does `durable-intent-and-resume` need to ship **before** or **after** `dispatch-repeat-until-honor`? Probably before — pending rows may actually fix repeat_until as a side effect (a pending `execute-next-task` row persists between task iterations).
+- `upsert_step_event` already handles INSERT OR REPLACE on the PK. When the in_progress row has `status='in_progress'` and the completion row has `status='completed'`, they are separate PK entries — confirm this is the current behavior by reading the PK definition in `_DDL_STEP_EVENTS`.
+- Does the `cost_so_far` field computed by `sum_cost_usd` need to exclude in_progress rows? (They have null `cost_usd`.) Check that NULL aggregation doesn't skew the running total.
+- Reconciliation on reconnect: if state.yaml has an `in_progress` entry but DuckDB doesn't (or vice versa), which wins? Driver lean: **DuckDB wins** (matches Phase 1's pricing decision). Confirm or override in design.
+- Test isolation: the `test_dispatch_*` tests will need the in-memory DuckDB fixture from Phase 1. Reuse `in_memory_db` / `ensure_schema` pattern.
+
+### Why Now
+
+- The Phase 1 retro caught one near-miss (workflow-init sub-agent stall at 600s watchdog) that would have benefited from resume. Real incident signal, not speculative.
+- Every subsequent phase (3, 4, 5) is easier with durable intent because the `done` verb in Phase 4 needs to know "was this step in-flight?" to choose between `completed`, `recovered`, and `abandoned` payloads. Phase 2 lands the substrate.
+- Two concrete patterns in the retro (dispatch-repeat-until-honor recurrence 2, workflow-init watchdog) point at the same root cause: the dispatcher has no memory of in-flight state between calls.
+
+### Priority
+
+- User value: 7/10 (crash recovery + idempotent resume — insurance that hasn't paid out yet but will)
+- Strategic fit: 10/10 (load-bearing for phase 4)
+- Technical leverage: 8/10 (small code surface, high correctness gain; may subsume dispatch-repeat-until-honor)
+- Effort: medium (1 new helper, ~2 files modified, 3 new test files — scope similar to pricing-table-in-duckdb's T-5/T-6 pair)
+- **Score: 8.4**
+
+### Dependencies
+
+- Phase 1 `pricing-table-in-duckdb` — **complete**. We need the migration runner (already landed) and the `in_memory_db` fixture pattern (already in tests).
+- Potentially subsumes `dispatch-repeat-until-honor` (recurrence 2) — discoverer should confirm or rule this out.
+
+### Source
+
+- Parent vision: `workflow-engine-as-state-machine` in this same file.
+- Phase 1 retro signals: `.state/pricing-table-in-duckdb/learn-evaluation.md` + the workflow-init stall incident during this workflow's execution.
+
+---
+
 ## metrics-regression-detection
 
 **Metrics Regression Detection + Autopilot Breaker** (score 8.2)
