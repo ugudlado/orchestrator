@@ -89,6 +89,31 @@ The dispatch loop is now a thin wrapper around `orchestrator next` and
 status / usage / evidence) is applied uniformly by the CLI — do NOT
 write per-step stamping prose.
 
+**Context-passthrough contract (post generate-plan-yaml-at-init, 2026-04-20).**
+`orchestrator next` returns an action JSON that already contains the agent's
+full operational contract: `instruction`, `rules` (merged per rule-merge.md),
+`step_context` (the plan.yaml step block with goal/inputs/outputs/verify/agent),
+`inputs`, `expected_outputs`, `resolved_allowed_tools`, `env`, plus (for
+resume_step) `is_resume` and `started_at`. The driver MUST pass this payload
+verbatim into the agent spawn prompt. It MUST NOT re-derive goal, rules, or
+outputs from memory — those already live in `step_context` and `rules`.
+
+What the driver SHOULD add to a spawn prompt (beyond the passthrough):
+- Feature-specific paths the agent can't get from step_context: state_dir,
+  worktree_path, backlog-entry anchor, prior-phase archives (if relevant).
+- For developer spawns: the exact task row from tasks.md + declared Files list.
+- For reviewer spawns: the artifacts + any driver-level findings to verify.
+
+What the driver MUST NOT duplicate in the spawn prompt:
+- The step's goal (in step_context.goal).
+- The merged rules (in `rules` and step_context.rules — same list).
+- Expected_outputs (in `expected_outputs`).
+- Verify criteria (in step_context.verify when applicable).
+- Step-contract instruction (in `instruction`).
+
+This keeps plan.yaml as the single source of step contract; duplication
+invites drift when step contracts update.
+
 ```
 LOOP:
   action = orchestrator next $WORKFLOW_STATE_DIR/$CHANGE_ID/state.yaml
@@ -118,8 +143,13 @@ LOOP:
       # Spawn with run_in_background: true as the default.
       # Exceptions: ideator and reviewer spawns are short-running and may be foreground.
       spawn agent(action.agent) with prompt=action.instruction, rules=action.rules,
-            inputs=action.inputs, expecting=action.expected_outputs,
+            step_context=action.step_context, inputs=action.inputs,
+            expecting=action.expected_outputs,
+            resolved_allowed_tools=action.resolved_allowed_tools, env=action.env,
             run_in_background: true  # default; omit for ideator/reviewer
+      # Pass action.step_context into the prompt verbatim (goal, merged rules,
+      # inputs, outputs, verify, agent, repeat_until when present). Do NOT
+      # re-derive these from memory — plan.yaml is the single source.
 
       # 1. Collect agent result (wait for background task to complete).
       # 2. Pass outputs to orchestrator record payload.
@@ -147,8 +177,13 @@ LOOP:
       print(f"RESUMING step {action.step_id} (attempt {action.attempt})", file=sys.stderr)
       # Then execute identically to run_step (action.run present) or run_inline (no action.run).
       spawn agent(action.agent) with prompt=action.instruction, rules=action.rules,
-            inputs=action.inputs, expecting=action.expected_outputs,
+            step_context=action.step_context, inputs=action.inputs,
+            expecting=action.expected_outputs,
+            resolved_allowed_tools=action.resolved_allowed_tools, env=action.env,
             run_in_background: true  # default; omit for ideator/reviewer
+      # Pass action.step_context into the prompt verbatim (goal, merged rules,
+      # inputs, outputs, verify, agent, repeat_until when present). Do NOT
+      # re-derive these from memory — plan.yaml is the single source.
       # Apply the same MANDATORY USAGE CAPTURE as run_step above.
 ```
 
