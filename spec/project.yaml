@@ -138,6 +138,19 @@ learnings:
       or retro steps for 'session budget' reasons. These feed the
       self-improving loop; skipping them defeats autopilot's purpose. Budget
       pressure is a signal to stop earlier, not to skip learning.
+  - id: shell-script-env-vars-match-python-canonical
+    learned: 2026-04-20
+    source: pricing-table-in-duckdb
+    rule: >
+      When a shell script reads an env var to locate a repo-managed path (DB file,
+      config dir, state dir), the env var name MUST match the canonical name used
+      by the Python layer (e.g. METRICS_DB, ORCHESTRATOR_HOME). Inventing a
+      shell-only alias (e.g. ORCHESTRATOR_DB) creates a silent mismatch: the script
+      falls back to a default path that differs from the Python-written path, causing
+      integration tests to exercise the wrong fixture and regression bugs to go
+      undetected until a smoke test. Grep the Python runtime (record.py, upsert.py,
+      or the canonical entry point) for the env var name before wiring it in the
+      shell script.
   - id: external-benchmark-references
     learned: 2026-04-20
     kind: informational

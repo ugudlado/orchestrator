@@ -197,7 +197,7 @@ Reveals the single most mis-attributed cost in the stack. Enables "stop spawning
 
 **`dispatch.py._find_completed_step` ignores `repeat_until` predicate** (score 8.5)
 
-**Recurrence:** 1 — source: single-source-metrics-via-step-events (2026-04-19 mid-flight blocker; driver had to manually prune phantom step_history entries + set tasks_path to work around)
+**Recurrence:** 2 — sources: single-source-metrics-via-step-events (2026-04-19 mid-flight blocker; driver had to manually prune phantom step_history entries + set tasks_path to work around), pricing-table-in-duckdb (2026-04-20: driver had to manually reset next_step to execute-next-task after each of 9 developer spawns because dispatch.py advanced past the step after the first completed entry)
 
 ### Idea
 
