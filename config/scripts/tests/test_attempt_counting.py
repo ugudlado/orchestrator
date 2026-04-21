@@ -1,18 +1,19 @@
 """
-Retry / crash-mid-step attempt counting tests (T-5 RED, T-6 GREEN).
+Resume / crash-mid-step attempt counting tests (T-5 RED, T-6 GREEN).
 
-These tests exercise _compute_attempt logic in dispatch.py:
+These tests exercise resume semantics in dispatch.py:
   - crash-midstep fixture: prior attempts [1 completed, 2 failed, 2 in_progress
-    (no ended_at)] → retry_step with attempt=3 (max scan, not just default +1).
+    (no ended_at)] → resume_step with attempt=2 (preserved from in_progress entry,
+    NOT bumped via _compute_attempt). Under Phase 2, resume keeps the original
+    attempt unchanged.
   - after-retry-complete fixture: failed attempt:1 + completed attempt:2 for a
     step + another completed step → DuckDB has 3 rows; running CLI twice yields
     exactly the same 3 rows (idempotency).
 
-Note: The _compute_attempt function and retry-detection branch were implemented
-in T-2 (dispatch.py) as part of the broader dispatcher. These tests serve as a
-regression guard covering the attempt-counting logic with more complex history
-than the T-1 fixtures exercised (i.e., max-scan returning > 2, and the
-idempotency of the upsert after a retry completes).
+Note: The resume_step branch was implemented in T-6 (dispatch.py) replacing the
+old retry_step branch. These tests serve as a regression guard covering the
+attempt-preservation logic with complex history (in_progress entry with attempt=2
+returns attempt=2, not max+1=3).
 """
 import json
 import os
@@ -56,14 +57,16 @@ class TestAttemptCounting(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
-    def test_crash_midstep_returns_retry_with_max_scan_attempt(self):
+    def test_crash_midstep_returns_resume_with_preserved_attempt(self):
         """
         state-crash-midstep.yaml: prior entries have attempt=[1,2,2]; last is
-        in_progress with no ended_at. _compute_attempt must return max(1,2,2)+1=3.
+        in_progress with attempt=2 and no ended_at. Under Phase 2 resume semantics,
+        dispatch preserves attempt=2 from the in_progress entry (does NOT call
+        _compute_attempt which would return max(1,2,2)+1=3).
 
-        This test exercises the max-scan branch of _compute_attempt — not just
-        the default +1 path covered by state-in-progress-no-ended.yaml (which
-        has only one prior in_progress entry with attempt=1, yielding attempt=2).
+        This test verifies that resume_step preserves the original attempt number
+        rather than bumping it — the key semantic difference from the retired
+        retry_step branch.
         """
         fixture = "state-crash-midstep.yaml"
         result = _run_next(fixture, self._metrics_db)
@@ -71,12 +74,13 @@ class TestAttemptCounting(unittest.TestCase):
         self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
         actual = json.loads(result.stdout)
 
-        self.assertEqual(actual.get("action"), "retry_step",
-                         f"Expected action=retry_step, got: {actual.get('action')}")
-        self.assertEqual(actual.get("attempt"), 3,
-                         f"Expected attempt=3 (max scan of [1,2,2]+1), got: {actual.get('attempt')}")
-        self.assertEqual(actual.get("previous_failure"), "no ended_at",
-                         f"Expected previous_failure='no ended_at', got: {actual.get('previous_failure')}")
+        # Phase 2: resume_step preserves attempt=2 from the in_progress entry.
+        self.assertEqual(actual.get("action"), "resume_step",
+                         f"Expected action=resume_step, got: {actual.get('action')}")
+        self.assertEqual(actual.get("attempt"), 2,
+                         f"Expected attempt=2 (preserved from in_progress entry), got: {actual.get('attempt')}")
+        self.assertTrue(actual.get("is_resume"),
+                        f"Expected is_resume=True, got: {actual.get('is_resume')}")
         self.assertEqual(actual.get("step_id"), "step-inline-only",
                          f"Expected step_id='step-inline-only', got: {actual.get('step_id')}")
 
