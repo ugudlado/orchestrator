@@ -119,12 +119,12 @@ LOOP:
   action = orchestrator next $WORKFLOW_STATE_DIR/$CHANGE_ID/state.yaml
 
   IF action.action == "complete_workflow":
-      # Cost report: run `orchestrator cost --change-id <change_id>` and include
+      # Cost report: run `scripts/cost-report.sh --change-id <change_id>` and include
       # its stdout verbatim in the final message to the user. This is the canonical
       # end-of-workflow cost summary (HL-290). No file is committed; no archive
       # side-effect. If the command fails, include the error message but do not
       # block the workflow completion.
-      cost_report = run `orchestrator cost --change-id $CHANGE_ID`
+      cost_report = run `scripts/cost-report.sh --change-id $CHANGE_ID`
       STOP (workflow done) — include cost_report stdout in your final message
   IF action.action == "blocked":            STOP (escalate or fix)
   IF action.action == "verify_phase":       run action.commands + action.assertions

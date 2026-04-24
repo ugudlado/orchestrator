@@ -1,0 +1,143 @@
+metrics:
+  api_calls: 0
+  benchmarks:
+    cache_hit_rate: 0.0
+    cost_per_resolution_usd: 0.0
+    cost_per_task_usd: 0.0
+    input_output_ratio: 18.6691
+    tokens_per_resolution: 0
+    tokens_per_task: 0
+  category: feature
+  churn:
+    deletions: null
+    files_changed: null
+    insertions: null
+    total_commits: null
+  cost:
+    gross_usd: 3.046212
+    model: claude-sonnet-4-6
+    net_usd: 4.952387999999999
+    pricing:
+      cache_creation: 3.75
+      cache_read: 0.3
+      input: 3.0
+      output: 15.0
+  human_interventions: null
+  lint_delta: 0
+  per_agent_tokens: '{"architect": {"cost_usd": 2.38272, "duration_ms": 827572, "input_tokens":
+    128348, "output_tokens": 6100, "step_count": 2, "total_tokens": 134448}, "developer":
+    {"cost_usd": 1.6609530000000001, "duration_ms": 7164546, "input_tokens": 432151,
+    "output_tokens": 24300, "step_count": 7, "total_tokens": 456451}, "discoverer":
+    {"cost_usd": 0.304467, "duration_ms": 357694, "input_tokens": 80489, "output_tokens":
+    4200, "step_count": 1, "total_tokens": 84689}, "inline": {"cost_usd": 0.0, "duration_ms":
+    0, "input_tokens": 0, "output_tokens": 0, "step_count": 9, "total_tokens": 0},
+    "reviewer": {"cost_usd": 0.363894, "duration_ms": 885669, "input_tokens": 97298,
+    "output_tokens": 4800, "step_count": 3, "total_tokens": 102098}, "workflow-improver":
+    {"cost_usd": 0.240354, "duration_ms": 380326, "input_tokens": 62618, "output_tokens":
+    3500, "step_count": 1, "total_tokens": 66118}, "workflow-init": {"cost_usd": 0.0,
+    "duration_ms": 0, "input_tokens": 0, "output_tokens": 0, "step_count": 1, "total_tokens":
+    0}}'
+  per_agent_tools: '{"architect": {"Edit": 12, "Grep": 10, "Read": 24, "Write": 4},
+    "developer": {"Bash": 112, "Edit": 103, "Read": 107, "Write": 2}, "discoverer":
+    {"Bash": 2, "Grep": 8, "Read": 14}, "reviewer": {"Bash": 10, "Edit": 1, "Grep":
+    14, "Read": 27}, "workflow-improver": {"Bash": 18, "Edit": 2, "Read": 18, "Write":
+    1}}'
+  per_step:
+    capture-test-baseline:
+      duration_ms: 0
+      executions: 1
+      tool_uses: 0
+      total_tokens: 0
+    compute-prediction-accuracy:
+      duration_ms: 0
+      executions: 1
+      tool_uses: 0
+      total_tokens: 0
+    compute-swe-metrics:
+      duration_ms: 0
+      executions: 1
+      tool_uses: 0
+      total_tokens: 0
+    design-and-draft-artifacts:
+      duration_ms: 827572
+      executions: 2
+      tool_uses: 50
+      total_tokens: 134448
+    execute-next-task:
+      duration_ms: 7164546
+      executions: 8
+      tool_uses: 324
+      total_tokens: 456451
+    explore:
+      duration_ms: 357694
+      executions: 1
+      tool_uses: 24
+      total_tokens: 84689
+    ingest-driver-auto:
+      duration_ms: 0
+      executions: 1
+      tool_uses: 0
+      total_tokens: 0
+    ingest-feature-metrics:
+      duration_ms: 0
+      executions: 1
+      tool_uses: 0
+      total_tokens: 0
+    ingest-subagents-auto:
+      duration_ms: 0
+      executions: 1
+      tool_uses: 0
+      total_tokens: 0
+    mark-change-completed:
+      duration_ms: 0
+      executions: 1
+      tool_uses: 0
+      total_tokens: 0
+    preview-route:
+      duration_ms: 0
+      executions: 1
+      tool_uses: 0
+      total_tokens: 0
+    run-learn-cycle:
+      duration_ms: 380326
+      executions: 1
+      tool_uses: 39
+      total_tokens: 66118
+    run-phase-review:
+      duration_ms: 885669
+      executions: 3
+      tool_uses: 52
+      total_tokens: 102098
+    workflow-init:
+      duration_ms: 0
+      executions: 1
+      tool_uses: 0
+      total_tokens: 0
+  per_tool_uses: '{"Bash": 142, "Edit": 118, "Grep": 32, "Read": 190, "Write": 7}'
+  resolution:
+    pass_at_1: null
+    pass_at_2: null
+    regression_rate: null
+    regressions: null
+    resolve_rate: null
+    tasks_added: null
+    tasks_completed: null
+    tasks_failed: null
+    tasks_planned: null
+    tasks_total: null
+  retries:
+    total: null
+  review_score_avg: null
+  review_scores: []
+  rework_commits: null
+  rework_rate: null
+  source: duckdb@BASELINE
+  tokens:
+    cache_creation: 0
+    cache_read: 0
+    input: 800904
+    output: 42900
+    total: 843804
+  tool_calls: 489
+  turns: 0
+  wall_clock_minutes: null

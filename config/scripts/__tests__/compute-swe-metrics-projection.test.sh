@@ -1,30 +1,33 @@
 #!/usr/bin/env bash
-# T-12 (RED) / T-13 (GREEN): byte-compat test for compute-swe-metrics.sh rewrite.
+# T-4/T-5: byte-equivalence test for compute-swe-metrics.sh rewrite.
 #
-# Verifies:
-#   1. All REQUIRED-for-feature keys from metrics-schema.md are present in output YAML.
-#   2. The rewritten script shells out to `orchestrator metrics --format json`
-#      (verified by absence of JSONL/git-log parsing; structural test).
-#   3. Output is under the `metrics:` top-level key.
+# Parity contract:
+#   1. Load baseline.duckdb.sql into a temp DB.
+#   2. Run scripts/inline/compute-swe-metrics.sh with a temp state.yaml
+#      pointing to the baseline change_id (durable-intent-and-resume).
+#   3. Compare raw output against committed baseline fixture. Diff must be empty.
+#   4. Run twice for determinism (UC-E3): two runs byte-identical.
 #
-# Fixture: seeds a temp DuckDB with known values matching a feature schema.
-# The seeded values are used as the ground truth for key-presence assertions.
-#
-# RED: fails because the current compute-swe-metrics.sh does NOT call
-#      orchestrator metrics — it parses JSONL + state.yaml directly.
-#      After T-13 (rewrite), this test turns GREEN.
+# COMPUTE_SWE_SOURCE_TS=BASELINE is exported before each run so that the
+# source: field in the output is "duckdb@BASELINE" — matching the fixture exactly.
+# This enables a raw byte-identical diff with no stripping required (AC-5).
 
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 SCRIPT="$REPO_ROOT/scripts/inline/compute-swe-metrics.sh"
+FIXTURES_DIR="$(dirname "$0")/fixtures"
+BASELINE_SQL="$FIXTURES_DIR/baseline.duckdb.sql"
+BASELINE_FIXTURE="$FIXTURES_DIR/baseline_compute_swe_metrics.yaml"
+BASELINE_CHANGE_ID="durable-intent-and-resume"
+BASELINE_REPO_ROOT="/Users/spidey/code/orchestrator"
 
 pass=0
 fail=0
 
 check() {
   local desc="$1"
-  local result="$2"  # 0 = pass, 1 = fail
+  local result="$2"
   if [[ "$result" -eq 0 ]]; then
     printf "PASS: %s\n" "$desc"
     ((pass++)) || true
@@ -34,210 +37,104 @@ check() {
   fi
 }
 
-check_contains() {
-  local desc="$1"
-  local haystack="$2"
-  local needle="$3"
-  if echo "$haystack" | grep -q "$needle"; then
-    printf "PASS: %s\n" "$desc"
-    ((pass++)) || true
-  else
-    printf "FAIL: %s — output does not contain '%s'\n" "$desc" "$needle"
-    ((fail++)) || true
-  fi
-}
-
-# ── Prerequisites ─────────────────────────────────────────────────────────────
+# Prerequisites
 if [[ ! -f "$SCRIPT" ]]; then
   echo "FAIL: $SCRIPT does not exist"
   exit 1
 fi
+if [[ ! -f "$BASELINE_SQL" ]]; then
+  echo "FAIL: baseline.duckdb.sql not found at $BASELINE_SQL"
+  exit 1
+fi
+if [[ ! -f "$BASELINE_FIXTURE" ]]; then
+  echo "FAIL: baseline_compute_swe_metrics.yaml not found at $BASELINE_FIXTURE"
+  exit 1
+fi
+if ! command -v duckdb >/dev/null 2>&1; then
+  echo "FAIL: duckdb CLI not found on PATH"
+  exit 1
+fi
 
-# ── Setup temp working area ───────────────────────────────────────────────────
-TMPDIR_LOCAL="$(mktemp -d "${TMPDIR:-/tmp}/compute-swe-proj-test-XXXXXX")"
+# Setup temp area
+TMPDIR_LOCAL="$(mktemp -d "${TMPDIR:-/tmp}/csm-parity-test-XXXXXX")"
 trap 'rm -rf "$TMPDIR_LOCAL"' EXIT
 
-CHANGE_ID="test-proj-feature-abc"
-FAKE_REPO="/test/repo"
+DB_PATH="$TMPDIR_LOCAL/baseline.duckdb"
 
-export METRICS_DB="$TMPDIR_LOCAL/metrics.duckdb"
-export PYTHONPATH="$REPO_ROOT/config/scripts"
-export ORCHESTRATOR_HOME="$REPO_ROOT"
+# Load baseline SQL into temp DuckDB
+duckdb "$DB_PATH" < "$BASELINE_SQL"
+check "baseline DB loaded from SQL dump" $?
 
-# Create a minimal state.yaml in the temp STATE_DIR
+# Create temp state.yaml pointing to baseline change_id
 STATE_DIR="$TMPDIR_LOCAL/state"
 mkdir -p "$STATE_DIR"
 cat > "$STATE_DIR/state.yaml" <<YAML
-change_id: $CHANGE_ID
-slug: $CHANGE_ID
+change_id: $BASELINE_CHANGE_ID
+slug: $BASELINE_CHANGE_ID
 schema: feature
 status: completed
-repo_root: $FAKE_REPO
-started_at: "2026-04-20T10:00:00Z"
-completed_at: "2026-04-20T11:00:00Z"
-step_history: []
+repo_root: $BASELINE_REPO_ROOT
+started_at: "2026-04-21T05:46:00Z"
+completed_at: "2026-04-21T11:35:16Z"
 YAML
 
-# Seed step_events + feature_metrics into the temp DB via Python
-python3 - <<'PY'
-import os, sys, json
-import duckdb
+export METRICS_DB="$DB_PATH"
+export ORCHESTRATOR_HOME="$REPO_ROOT"
+# Freeze timestamp so source: field is deterministic across runs and matches fixture
+export COMPUTE_SWE_SOURCE_TS=BASELINE
 
-sys.path.insert(0, os.environ["PYTHONPATH"])
-from orchestrator_next.upsert import ensure_schema, upsert_synthetic_event, upsert_feature_metrics
-
-METRICS_DB = os.environ["METRICS_DB"]
-CHANGE_ID  = "test-proj-feature-abc"
-REPO_ROOT  = "/test/repo"
-
-db = duckdb.connect(METRICS_DB)
-ensure_schema(db)
-
-# Seed step_events: one developer step with known token counts
-upsert_synthetic_event(
-    db,
-    {"repo_root": REPO_ROOT, "change_id": CHANGE_ID},
-    agent_name="developer",
-    step_id="execute-next-task",
-    phase="implement",
-    usage={
-        "model": "claude-sonnet-4-6",
-        "input_tokens": 12000,
-        "output_tokens": 2500,
-        "cache_read_input_tokens": 8000,
-        "cache_creation_input_tokens": 3000,
-        "cost_usd": 0.12,
-        "duration_ms": 90000,
-        "turns": 8,
-        "tool_calls": {"Read": 15, "Grep": 5, "Edit": 3},
-    },
-    started_at="2026-04-20T10:00:00",
-    ended_at="2026-04-20T10:01:30",
-)
-
-# Seed feature_metrics: feature schema with full resolution + churn
-upsert_feature_metrics(
-    db,
-    REPO_ROOT,
-    CHANGE_ID,
-    schema_name="feature",
-    tasks_total=8,
-    tasks_planned=8,
-    tasks_added=0,
-    tasks_completed=7,
-    tasks_failed=1,
-    resolve_rate=0.875,
-    pass_at_1=0.75,
-    pass_at_2=0.875,
-    regressions=0,
-    regression_rate=0.0,
-    retries_total=1,
-    human_interventions=0,
-    files_changed=6,
-    insertions=150,
-    deletions=40,
-    total_commits=10,
-    rework_commits=1,
-    rework_rate=0.1,
-    review_scores_json=json.dumps([8, 9]),
-    review_score_avg=8.5,
-    wall_clock_minutes=60.0,
-    source="test-projection-fixture",
-)
-
-db.close()
-print("Seed OK")
-PY
-
-seed_exit=$?
-check "database seeded without error" $seed_exit
-
-if [[ $seed_exit -ne 0 ]]; then
-  echo "Results: $pass passed, $fail failed"
-  exit 1
-fi
-
-# ── Run compute-swe-metrics.sh against the fixture ───────────────────────────
+# ── Run 1 ─────────────────────────────────────────────────────────────────────
 set +e
-OUTPUT=$(bash "$SCRIPT" "$STATE_DIR" 2>"$TMPDIR_LOCAL/err.txt")
-SCRIPT_EXIT=$?
+OUTPUT1=$(bash "$SCRIPT" "$STATE_DIR" 2>"$TMPDIR_LOCAL/err1.txt")
+EXIT1=$?
 set -e
 
-check "script exits 0" $([[ "$SCRIPT_EXIT" -eq 0 ]] && echo 0 || echo 1)
+check "run 1 exits 0" $([[ "$EXIT1" -eq 0 ]] && echo 0 || echo 1)
 
-if [[ "$SCRIPT_EXIT" -ne 0 ]]; then
-  echo "stderr: $(cat "$TMPDIR_LOCAL/err.txt")"
-  echo "stdout: $OUTPUT"
+if [[ "$EXIT1" -ne 0 ]]; then
+  echo "  stderr: $(cat "$TMPDIR_LOCAL/err1.txt")"
   echo "Results: $pass passed, $fail failed"
   exit 1
 fi
 
-# ── Assert: output is under metrics: key ──────────────────────────────────────
-check_contains "output has top-level metrics: key" "$OUTPUT" "^metrics:"
+# ── Run 2 (determinism check — UC-E3) ────────────────────────────────────────
+set +e
+OUTPUT2=$(bash "$SCRIPT" "$STATE_DIR" 2>"$TMPDIR_LOCAL/err2.txt")
+EXIT2=$?
+set -e
 
-# ── Assert: required-for-feature keys from metrics-schema.md ─────────────────
-echo ""
-echo "--- tokens ---"
-check_contains "tokens.input is present"          "$OUTPUT" "input:"
-check_contains "tokens.output is present"         "$OUTPUT" "output:"
-check_contains "tokens.cache_creation is present" "$OUTPUT" "cache_creation:"
-check_contains "tokens.cache_read is present"     "$OUTPUT" "cache_read:"
-check_contains "tokens.total is present"          "$OUTPUT" "total:"
+check "run 2 exits 0" $([[ "$EXIT2" -eq 0 ]] && echo 0 || echo 1)
 
-echo ""
-echo "--- cost ---"
-check_contains "cost.gross_usd is present"         "$OUTPUT" "gross_usd:"
-check_contains "cost.net_usd is present"           "$OUTPUT" "net_usd:"
-check_contains "cost.model is present"             "$OUTPUT" "model:"
-check_contains "cost.pricing.input is present"     "$OUTPUT" "pricing:"
+# Two runs byte-identical — use temp files, no /dev/fd substitution
+echo "$OUTPUT1" > "$TMPDIR_LOCAL/run1.txt"
+echo "$OUTPUT2" > "$TMPDIR_LOCAL/run2.txt"
+DIFF_RUNS=$(diff "$TMPDIR_LOCAL/run1.txt" "$TMPDIR_LOCAL/run2.txt" || true)
+check "two successive runs byte-identical" \
+  $([[ -z "$DIFF_RUNS" ]] && echo 0 || echo 1)
 
-echo ""
-echo "--- top-level scalars ---"
-check_contains "turns is present"                  "$OUTPUT" "turns:"
-check_contains "tool_calls is present"             "$OUTPUT" "tool_calls:"
-check_contains "wall_clock_minutes is present"     "$OUTPUT" "wall_clock_minutes:"
-check_contains "category is present"               "$OUTPUT" "category:"
+if [[ -n "$DIFF_RUNS" ]]; then
+  echo "  diff between run1 and run2:"
+  echo "$DIFF_RUNS" | head -20
+fi
 
-echo ""
-echo "--- resolution ---"
-check_contains "resolution: block is present"       "$OUTPUT" "resolution:"
-check_contains "tasks_total is present"             "$OUTPUT" "tasks_total:"
-check_contains "tasks_completed is present"         "$OUTPUT" "tasks_completed:"
-check_contains "resolve_rate is present"            "$OUTPUT" "resolve_rate:"
-check_contains "pass_at_1 is present"               "$OUTPUT" "pass_at_1:"
-check_contains "pass_at_2 is present"               "$OUTPUT" "pass_at_2:"
-check_contains "regression_rate is present"         "$OUTPUT" "regression_rate:"
+# ── Diff against committed baseline fixture ───────────────────────────────────
+DIFF_FIXTURE=$(diff "$TMPDIR_LOCAL/run1.txt" "$BASELINE_FIXTURE" || true)
+check "output matches baseline fixture (byte-identical)" \
+  $([[ -z "$DIFF_FIXTURE" ]] && echo 0 || echo 1)
 
-echo ""
-echo "--- churn ---"
-check_contains "churn: block is present"            "$OUTPUT" "churn:"
-check_contains "churn.files_changed is present"     "$OUTPUT" "files_changed:"
-check_contains "churn.insertions is present"        "$OUTPUT" "insertions:"
-check_contains "churn.deletions is present"         "$OUTPUT" "deletions:"
-check_contains "churn.total_commits is present"     "$OUTPUT" "total_commits:"
+if [[ -n "$DIFF_FIXTURE" ]]; then
+  echo "  diff (output vs fixture):"
+  echo "$DIFF_FIXTURE" | head -40
+fi
 
-echo ""
-echo "--- reviews ---"
-check_contains "review_scores is present"           "$OUTPUT" "review_scores:"
-check_contains "review_score_avg is present"        "$OUTPUT" "review_score_avg:"
-
-echo ""
-echo "--- benchmarks ---"
-check_contains "benchmarks: block is present"       "$OUTPUT" "benchmarks:"
-check_contains "cost_per_task_usd is present"       "$OUTPUT" "cost_per_task_usd:"
-
-echo ""
-echo "--- per_agent_tokens / per_agent_tools ---"
-check_contains "per_agent_tokens is present"        "$OUTPUT" "per_agent_tokens:"
-check_contains "per_agent_tools is present"         "$OUTPUT" "per_agent_tools:"
-
-echo ""
-echo "--- per_step ---"
-check_contains "per_step: block is present"         "$OUTPUT" "per_step:"
-
-echo ""
-echo "--- source provenance (duckdb@) ---"
-check_contains "metrics.source with duckdb@ present" "$OUTPUT" "source: "
+# ── Structural sanity: output has metrics: top-level key ─────────────────────
+if echo "$OUTPUT1" | grep -q "^metrics:"; then
+  printf "PASS: output has top-level metrics: key\n"
+  ((pass++)) || true
+else
+  printf "FAIL: output is missing top-level metrics: key\n"
+  ((fail++)) || true
+fi
 
 echo ""
 echo "Results: $pass passed, $fail failed"

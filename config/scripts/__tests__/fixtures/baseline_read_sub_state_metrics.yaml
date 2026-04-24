@@ -1,0 +1,6 @@
+metrics:
+  tokens:
+    total: 843804
+  duration_ms: 9615807
+  churn:
+    files_changed: 0
