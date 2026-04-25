@@ -13,15 +13,15 @@ Orchestrator (Claude Code / Codex / any host)
 ├── NATIVE (native_opus, native_sonnet, native_o3...)
 │   → Host's built-in sub-agent
 │
-└── PROXY (qwen, klm-local, qwen-local...)
+└── PROXY (qwen, qwen-local...)
     → llm_submit → Monitor → llm_result
     │
     ▼
 LLM Proxy (:4000)
 │
 ├── OpenRouter     → "qwen": model ID + API key
-├── LLM Manager    → "qwen-local": pod name + manager key
-└── Direct vLLM    → "klm-local": tailnet hostname, no auth
+└── LLM Manager    → "qwen-local": pod name + manager key
+                     (resolves to tailnet hostname `http://<pod-name>:8000`)
 ```
 
 **Agents don't know which model runs them.** The mapping is in `routes.json`:
@@ -34,8 +34,7 @@ LLM Proxy (:4000)
   },
   "models": {
     "qwen":       { "url": "https://openrouter.ai/api/v1", "model": "qwen/qwen3-coder-30b-a3b-instruct" },
-    "qwen-local": { "url": "http://localhost:3456/v1", "model": "coder" },
-    "klm-local":  { "url": "http://gpu27b:8000/v1" }
+    "qwen-local": { "url": "http://localhost:3456/v1", "model": "coder" }
   }
 }
 ```
@@ -120,8 +119,7 @@ See `setup-vllm.sh` for model serving config (reasoning parser, tool parser, eph
 
 ```
 "developer": "qwen"          → OpenRouter ($0.08/M tokens)
-"developer": "qwen-local"    → LLM Manager → RunPod pod "coder"
-"developer": "klm-local"     → Direct vLLM on `http://gpu27b:8000/v1`
+"developer": "qwen-local"    → LLM Manager → RunPod pod via tailnet (`http://<pod-name>:8000`)
 "developer": "native_sonnet" → Claude Sonnet sub-agent
 ```
 
@@ -136,7 +134,7 @@ See `EXPERIMENT.md` for model evaluation data:
 | Fix from feedback | PASS | None |
 
 - 121 tok/s on A40 ($0.35/hr) via vLLM
-- Tailnet direct access uses pod hostnames like `gpu27b:8000` and `gpu80b:8000` instead of a localhost tunnel
+- Tailnet direct access uses pod hostnames like `vllm-qwen27b:8000` and `vllm-qwen35b:8000` (matches `POD_NAME` in the profile env) instead of a localhost tunnel
 - Thinking variant: no improvement, slower, worse at fixes
 - Total experiment cost: $4.05 across 4 experiments
 

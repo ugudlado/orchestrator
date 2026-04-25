@@ -21,9 +21,6 @@ models:
     model: coder
     api_key: $LLM_MANAGER_KEY
 
-  klm-local:
-    url: http://gpu27b:8000/v1
-
 # Backend → model-id mapping for cost computation in record.py.
 # Keys match `agents.<agent>` values for native (non-proxy) backends.
 # Values match model_id in the DuckDB pricing table.
