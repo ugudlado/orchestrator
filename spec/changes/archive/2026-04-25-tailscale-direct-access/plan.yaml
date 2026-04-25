@@ -1,0 +1,244 @@
+feature: tailscale-direct-access
+phases:
+  - name: specify
+    goal: Produce high-quality artifacts that make implementation straightforward.
+    steps:
+      - id: workflow-init
+        agent: workflow-init
+        goal: Bootstrap a new workflow in one agent spawn.
+        inputs:
+          - slug
+          - repo_root
+          - schema
+          - flags
+          - change_description
+        outputs:
+          - worktree_path
+          - branch
+          - linear_ticket_id
+          - workflow_plan
+          - resolved_flags
+          - plan_yaml_path
+        rules:
+          - Fail loud if project.yaml is missing or the Linear config for this repo is absent when flags.linear is true.
+          - Never touch files outside the worktree, project.yaml, or the active state.yaml.
+          - The first-phase step_history entry is this agent's own; do not pre-populate history entries for downstream steps.
+        instruction: |
+          You are the workflow-init agent. Execute your responsibilities in order:
+          worktree → project context → Linear ticket → state.yaml write. Validate evidence after each stage. Emit a JSON outputs dict at the end with the five declared outputs (use null for skipped ones — e.g., worktree_path when flags.worktree is false, linear_ticket_id when flags.linear is false).
+
+          On failure at any stage: return status: failed with a clear reason; do NOT attempt partial cleanup (leave the state for debugging).
+        verify:
+          - worktree_path exists and is a directory (or null if flags.worktree false)
+          - branch exists via git branch --list (or null if worktree null)
+          - linear_ticket_id matches team prefix regex (or null if flags.linear false)
+          - workflow_plan is a non-empty dict with at least one phase
+          - state.yaml at $WORKFLOW_STATE_DIR/<slug>/state.yaml contains project_context_loaded: true
+          - plan.yaml exists at $WORKFLOW_STATE_DIR/<slug>/plan.yaml
+      - id: design-and-draft-artifacts
+        agent: architect
+        goal: Produce high-quality artifacts that make implementation straightforward.
+        inputs:
+          - phase_context_bundle (includes discovery_result)
+          - ux-artifacts.yaml (optional, per contracts/ux-artifacts.md)
+        outputs:
+          - updated_artifact_set
+          - design_direction
+          - complexity
+        rules:
+          - Every implementation task has a preceding test task.
+          - Keep explicit red-green-refactor order in task text.
+          - Design selection and artifact writing happen in one spawn — no round-trip between them.
+          - Keep artifact content traceable to accepted requirements.
+          - Avoid implementation details in spec/design — those belong in tasks.
+          - Tasks must be small, verifiable, and ordered.
+          - Attach verification criteria per task.
+          - Output MUST follow the Task Format Contract in contracts/artifact-formats.md.
+        instruction: |
+          ## Part 1: Design Selection
+
+          1. Read the discovery brief at $WORKFLOW_STATE_DIR/$CHANGE_ID/discovery.md for constraints, integration points, open questions, and recommended approach. In --light mode discovery is filtered — if discovery.md is absent, skip this read and use the change description from state.yaml as the sole input. Do NOT fail on missing discovery.md when flags.light is true.
+
+          2. Generate 2-3 design approaches with trade-offs.
+
+          3. Select an approach using the auto-selection heuristic (always applied — no interactive pause here).
+
+          4. Record the chosen direction and rationale in discovery.md's "Key Decisions" section per CONVENTIONS.md § Discovery Brief Format Contract.
+
+          ## Part 2: Artifact Generation
+
+          5. For each output file (spec.md, design.md, tasks.md) — in dependency order:
+             - Missing: does not exist → generate.
+             - Stale: state.yaml records a review rejection or refresh_artifacts: true → regenerate.
+             - Current: exists and no refresh signal → skip.
+
+          6. For each file needing generation:
+             a. Read the template from $ORCHESTRATOR_HOME/config/templates/$SCHEMA/<template>.
+             b. Read the artifact's format contract from contracts/artifact-formats.md.
+             c. Generate using available context (discovery brief, design direction, change description).
+             d. Write to $WORKFLOW_STATE_DIR/$CHANGE_ID/<file>.
+
+          7. Generate tasks.md:
+             - Read spec.md for requirements and acceptance criteria.
+             - Read design.md for approach and component breakdown.
+             - If ux-artifacts.yaml exists: reference ux-prototype.html in UI task descriptions.
+             - Generate the fewest tasks that cover all acceptance criteria.
+             - Write using Task Format Contract (contracts/artifact-formats.md § Task Format Contract).
+             - When tdd_required: every implementation task has a preceding test task.
+
+          8. Update state.yaml step_history per CONVENTIONS.md § State Updates.
+
+          ## Part 3: Artifact Review (interactive mode only)
+
+          9. If auto=false:
+             - Print a summary of each artifact written: file name, section count, task count.
+             - Print the full contents of tasks.md so the user can review scope.
+             - Pause and prompt: "Review spec.md, design.md, tasks.md in $WORKFLOW_STATE_DIR/$CHANGE_ID/. Reply 'ok' to continue, or describe changes needed."
+             - If the user requests changes: apply them to the relevant artifacts and re-present.
+             - Once confirmed: proceed to next step.
+             If auto=true: skip this pause and return STATUS: completed immediately.
+        verify:
+          - spec.md exists in $WORKFLOW_STATE_DIR/$CHANGE_ID/
+          - design.md exists in $WORKFLOW_STATE_DIR/$CHANGE_ID/
+          - tasks.md exists with at least one task
+          - spec.md has Acceptance Criteria section with testable criteria
+          - tasks.md follows the Task Format Contract
+          - tasks.md covers every acceptance criterion from spec
+          - Every task has a Verify field with concrete check
+          - Key Decisions section populated in discovery.md
+      - id: preview-route
+        inline: true
+        run: scripts/inline/preview-route.sh
+        goal: Show which agent→model routes will run this feature and an estimate from archive history.
+        inputs:
+          - state.yaml
+          - tasks.md
+        outputs:
+          - route_preview
+        rules:
+          - Non-blocking. A script failure or missing pricing table must not halt the phase.
+          - Informational only — never gate on estimate size. No budget caps here.
+          - Estimate source is descriptive (archive median), not predictive. Callers tune future estimates by comparing estimate_vs_actual after complete phase.
+        instruction: |
+          0. Re-entry check: if state.yaml already has a `route_preview:` block for this change, skip re-running the estimator. Append a step_history entry marking this re-entry and exit.
+          1. Run the estimator: `$ORCHESTRATOR_HOME/config/scripts/estimate-cost.sh $WORKFLOW_STATE_DIR/$CHANGE_ID/state.yaml`
+          2. If the script exits non-zero or stdout is empty, write a fallback block to state.yaml.
+          3. Otherwise append the captured `route_preview:` block to state.yaml as a top-level key. Idempotent — overwrite if the block already exists.
+          4. Update state.yaml step_history per CONVENTIONS.md § State Updates with status: completed and artifacts: [state.yaml].
+        verify:
+          assertions:
+            - state.yaml contains a top-level `route_preview:` block (either full estimate or `status: estimate_unavailable`)
+            - step_history[-1].step_id is `preview-route` with status: completed
+  - name: implement
+    goal: Deliver all tasks with review and verification loops.
+    steps:
+      - id: capture-test-baseline
+        inline: true
+        run: scripts/inline/capture-test-baseline.sh
+        goal: Record the pre-implementation test suite state for later regression detection.
+        inputs:
+          - project.verify_commands (from spec/project.yaml)
+        outputs:
+          - test_baseline
+        rules:
+          - Run once at the start of the implement phase, before any task executes.
+          - Capture only counts — not logs, not diffs. Baseline must be small and durable.
+          - If the test command does not exist or does not emit parseable counts, write baseline.skipped: true with a reason instead of failing.
+          - Never fail the phase on baseline capture. A missing baseline disables the regression gate; it does not block implementation.
+        instruction: |
+          1. Read spec/project.yaml for the test command under verify_commands.
+          2. Run the test command with its standard output captured.
+          3. Parse the output for pass / fail / skip counts using project-idiomatic patterns.
+          4. Write baseline information to state.yaml.
+          5. Update state.yaml step_history per CONVENTIONS.md § State Updates.
+        verify:
+          evidence_required: true
+          assertions:
+            - state.yaml contains a top-level `baseline:` block
+            - If baseline.skipped is not true, baseline has numeric passing/failing/skipped/total fields
+            - step_history entry recorded for this step
+      - id: execute-next-task
+        agent: developer
+        goal: Execute the next ready task and update progress state.
+        inputs:
+          - tasks.md (format: contracts/artifact-formats.md § Task Format Contract)
+          - phase_context_bundle
+        outputs:
+          - task_execution_result
+        rules:
+          - Pick only ready tasks (dependencies satisfied).
+          - Keep code changes scoped to the selected task.
+          - Mark task progress immediately after execution.
+          - Global retry cap: if total retries across all tasks in this phase exceeds 10, follow Escalation Protocol.
+        instruction: |
+          0. Re-entry check (per CONVENTIONS.md § Idempotent Re-Entry): read state.yaml for task_checkpoint.
+          1. Read tasks.md to find the next unchecked task.
+          2. If no unchecked tasks remain: this step's repeat condition is met — advance.
+          3. Identify which files are relevant to the task from spec/design context.
+          4. Implement the changes described in the task.
+          5. Run project verification commands as defined in project.yaml quality_bar.
+        verify:
+          evidence_required: true
+          after_each:
+            - The completed task is marked [x] in tasks.md
+            - Task's verification criteria are met with evidence
+            - type-check passes
+            - test passes (if tests exist for changed files)
+            - No regression: baseline.passing (if captured) equals current passing count
+            - Changes committed per Auto-Commit Convention (or skipped if no changes)
+          repeat_done_when:
+            - No unchecked tasks (- [ ]) remain in tasks.md
+  - name: complete
+    goal: Verify final quality and archive.
+    steps:
+      - id: compute-prediction-accuracy
+        inline: true
+        run: scripts/inline/compute-prediction-accuracy.sh
+        goal: Compare predicted task scope versus actual task scope and record the result.
+        inputs:
+          - final_signoff_decision
+          - tasks.md (actual tasks including fix tasks)
+          - spec.md or fix-plan.md (predicted scope)
+          - git diff (actual files changed)
+        outputs:
+          - prediction_accuracy_result
+      - id: run-learn-cycle
+        inline: true
+        run: scripts/inline/run-learn-cycle.sh
+        goal: Capture learnings from the completed workflow.
+        inputs:
+          - state.yaml
+        outputs:
+          - learn_result
+      - id: mark-change-completed
+        inline: true
+        run: scripts/inline/mark-change-completed.sh
+        goal: Write completion fields to state.yaml and validate step_history usage coverage.
+        inputs:
+          - state.yaml (active change)
+        outputs:
+          - state_completion_fields
+      - id: compute-swe-metrics
+        inline: true
+        run: scripts/inline/compute-swe-metrics.sh
+        goal: Compute workflow metrics for the completed change.
+        inputs:
+          - state.yaml
+        outputs:
+          - swe_metrics
+      - id: archive-completed-change
+        inline: true
+        run: scripts/inline/archive-completed-change.sh
+        goal: Move the completed change into the archive.
+        inputs:
+          - state.yaml
+        outputs:
+          - archive_result
+      - id: remove-worktree
+        inline: true
+        run: scripts/inline/remove-worktree.sh
+        goal: Clean up the worktree after archival.
+        inputs:
+          - state.yaml
+        outputs:
+          - remove_worktree_result

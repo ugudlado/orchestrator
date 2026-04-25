@@ -1,0 +1,274 @@
+change_description: Move RunPod access off localhost SSH tunneling and onto Tailscale-reachable
+  endpoints.
+change_id: tailscale-direct-access
+created_at: '2026-04-25T00:00:00Z'
+flags:
+  agents: false
+  auto: false
+  discovery: false
+  light: true
+  linear: false
+  phase_review: false
+  tdd_required: false
+  ux_design: false
+  worktree: false
+project_context_loaded: true
+workflow_plan:
+  specify:
+    active:
+    - workflow-init
+    - design-and-draft-artifacts
+    - preview-route
+    filtered:
+    - id: explore
+      reason: flag discovery=false
+    - id: ux-design
+      reason: flag ux_design=false
+    - id: run-phase-review
+      reason: flag phase_review=false
+  implement:
+    active:
+    - capture-test-baseline
+    - execute-next-task
+    filtered:
+    - id: run-ux-critique
+      reason: flag ux_design=false
+    - id: run-phase-review
+      reason: flag phase_review=false
+  complete:
+    active:
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+worktree_path: null
+branch: null
+route_preview:
+  status: estimate_unavailable
+  reason: estimator not found at /Users/spidey/.local/share/mise/installs/node/24.14.1/lib/node_modules/@mariozechner/pi-coding-agent/config/scripts/estimate-cost.sh
+next_step:
+  phase: complete
+  step_id: archive-completed-change
+phase: complete
+schema: feature
+slug: tailscale-direct-access
+status: completed
+step_history:
+- step_id: workflow-init
+  phase: specify
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T10:29:19Z'
+  ended_at: '2026-04-25T10:29:19Z'
+  usage: {}
+  evidence:
+    outputs:
+      worktree_path: null
+      branch: null
+      linear_ticket_id: null
+      workflow_plan:
+        specify:
+          active:
+          - workflow-init
+          - design-and-draft-artifacts
+          - preview-route
+          filtered:
+          - id: explore
+            reason: flag discovery=false
+          - id: ux-design
+            reason: flag ux_design=false
+          - id: run-phase-review
+            reason: flag phase_review=false
+        implement:
+          active:
+          - capture-test-baseline
+          - execute-next-task
+          filtered:
+          - id: run-ux-critique
+            reason: flag ux_design=false
+          - id: run-phase-review
+            reason: flag phase_review=false
+        complete:
+          active:
+          - compute-prediction-accuracy
+          - run-learn-cycle
+          - mark-change-completed
+          - compute-swe-metrics
+          - archive-completed-change
+          - remove-worktree
+          filtered: []
+      resolved_flags:
+        agents: false
+        auto: false
+        discovery: false
+        light: true
+        linear: false
+        phase_review: false
+        tdd_required: false
+        ux_design: false
+        worktree: false
+      plan_yaml_path: /Users/spidey/code/orchestrator/.state/tailscale-direct-access/plan.yaml
+- step_id: design-and-draft-artifacts
+  phase: specify
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T10:38:11Z'
+  ended_at: '2026-04-25T10:38:11Z'
+  usage: {}
+  evidence:
+    outputs:
+      updated_artifact_set:
+      - discovery.md
+      - spec.md
+      - design.md
+      - tasks.md
+      design_direction: Direct tailnet access with conditional legacy tunnel fallback
+      complexity: S
+- step_id: preview-route
+  phase: specify
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T10:38:39Z'
+  ended_at: '2026-04-25T10:38:39Z'
+  usage: {}
+  evidence:
+    outputs:
+      route_preview:
+        status: estimate_unavailable
+        reason: estimator not found at /Users/spidey/.local/share/mise/installs/node/24.14.1/lib/node_modules/@mariozechner/pi-coding-agent/config/scripts/estimate-cost.sh
+- step_id: capture-test-baseline
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T10:40:08Z'
+  ended_at: '2026-04-25T10:40:08Z'
+  usage: {}
+  evidence:
+    outputs:
+      test_baseline:
+        captured_at: '2026-04-25T10:39:59Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 350
+        failing: 2
+        skipped: 0
+        total: 352
+        exit_code: 1
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T10:44:00Z'
+  ended_at: '2026-04-25T10:44:00Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_execution_result:
+        final_status: task_completed
+        tasks_completed: 1
+        tasks_failed: 0
+        changed_files:
+        - scripts/setup-vllm.sh
+        - scripts/gpu.sh
+        - .state/tailscale-direct-access/tasks.md
+        verification:
+          bash_n: passed
+          rg: passed
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-04-25T10:52:25Z'
+  ended_at: '2026-04-25T10:52:25Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_execution_result:
+        final_status: all_tasks_complete
+        tasks_completed: 3
+        tasks_failed: 0
+        changed_files:
+        - scripts/setup-vllm.sh
+        - scripts/gpu.sh
+        - scripts/llm-manager/server.js
+        - scripts/routes.yaml
+        - scripts/sample-routes.yaml
+        - scripts/README.md
+        - .state/tailscale-direct-access/tasks.md
+        verification:
+          bash_n: passed
+          node_check: passed
+          rg_no_localhost_8000: passed
+- step_id: compute-prediction-accuracy
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T10:53:33Z'
+  ended_at: '2026-04-25T10:53:33Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy_result:
+        computed_at: '2026-04-25T10:53:26Z'
+        predicted_tasks: 3
+        actual_tasks: 3
+        fix_task_count: 0
+        rework_rate: 0.0
+        task_delta: 0
+        task_accuracy_pct: 100.0
+        predicted_file_count: 8
+        actual_file_count: 0
+        file_delta: -8
+        file_overlap_pct: 0.0
+- step_id: run-learn-cycle
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T10:53:39Z'
+  ended_at: '2026-04-25T10:53:39Z'
+  usage: {}
+  evidence:
+    outputs:
+      learn_result:
+        learn_skipped: true
+        learn_error: final_signoff_decision not present; complete phase run without
+          approval
+- step_id: mark-change-completed
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T10:53:55Z'
+  ended_at: '2026-04-25T10:53:55Z'
+  usage: {}
+  evidence:
+    outputs:
+      state_completion_fields:
+        status: completed
+        completed_at: '2026-04-25T10:53:49Z'
+        archive_path: spec/changes/archive/2026-04-25-tailscale-direct-access/
+- step_id: compute-swe-metrics
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T10:54:19Z'
+  ended_at: '2026-04-25T10:54:19Z'
+  usage: {}
+  evidence:
+    outputs:
+      swe_metrics:
+        status: computation_failed
+        error: 'ERROR: no events for change_id'
+completed_at: '2026-04-25T10:53:49Z'
+archive_path: spec/changes/archive/2026-04-25-tailscale-direct-access/
