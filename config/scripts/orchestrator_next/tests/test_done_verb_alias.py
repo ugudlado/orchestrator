@@ -144,21 +144,6 @@ class TestUsageBannerMentionsBothVerbs(unittest.TestCase):
             f"Expected 'orchestrator done' in usage banner.\nBanner: {banner!r}",
         )
 
-    def test_banner_mentions_record_verb(self) -> None:
-        """(c) Stage A usage banner also includes 'orchestrator record' (compat).
-
-        NOTE: This test is intentionally deleted in T-25 (Stage C) because the banner
-        drops 'orchestrator record' from the Stage C banner. The Stage-C replacement
-        is test_stage_c_banner below, which asserts the OPPOSITE.
-        """
-        banner = self._get_banner()
-        self.assertIn(
-            "orchestrator record",
-            banner,
-            f"Expected 'orchestrator record' in usage banner for Stage A compat.\nBanner: {banner!r}",
-        )
-
-
 class TestStageCDeprecation(unittest.TestCase):
     """T-24 (RED): Stage C tests — all should FAIL until T-25 lands.
 
