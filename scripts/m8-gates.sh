@@ -41,8 +41,12 @@ echo "  pass"
 echo "Gate 5: test suite"
 python3 -m unittest discover -s config/scripts/tests 2>&1 | tail -3
 
-echo "Gate 6: CLI supports next and done|record"
-./bin/orchestrator 2>&1 | grep -qE "orchestrator (done|record)" || { echo "  fail"; exit 1; }
+echo "Gate 6: CLI banner advertises done (strict) and does NOT mention record"
+banner=$(./bin/orchestrator 2>&1 || true)
+echo "$banner" | grep -q "orchestrator done" || { echo "  fail: 'orchestrator done' not found in banner"; exit 1; }
+if echo "$banner" | grep -q "orchestrator record"; then
+  echo "  fail: banner still mentions 'orchestrator record' — update bin/orchestrator banner (T-25)"; exit 1
+fi
 echo "  pass"
 
 echo "All M8 gates PASS"
