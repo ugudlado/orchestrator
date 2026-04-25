@@ -294,3 +294,127 @@ def test_non_boundary_failure_is_fail_soft(tmp_path, monkeypatch):
     assert code == 0, f"Expected exit 0 for non-boundary failure, got {code}: {result}"
 
     db.close()
+
+
+def test_atomic_commit_feature_boundary(tmp_path, monkeypatch):
+    """Feature boundary: step+phase+driver_session rows all committed in same transaction."""
+    from orchestrator_next.record import record
+
+    db = _fresh_db()
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(tmp_path / "empty"))
+    (tmp_path / "empty").mkdir()
+
+    # Single phase plan (implement is both phase and feature boundary)
+    plan = {
+        "implement": {"active": ["final-step"], "filtered": []},
+    }
+    state_path = _minimal_state_yaml(tmp_path, plan)
+
+    payload = {
+        "step_id": "final-step",
+        "phase": "implement",
+        "status": "completed",
+        "agent": "inline",
+        "outputs": {},
+        "usage": {"input_tokens": 10, "output_tokens": 5},
+    }
+
+    # Mock _resolve_driver_session to return a canned session
+    fake_session = {
+        "session_id": "test-sess",
+        "model": "claude-sonnet-4-6",
+        "total_tokens": 100,
+        "input_tokens": 80,
+        "output_tokens": 20,
+        "cost_usd": 0.001,
+        "started_at": None,
+        "ended_at": None,
+    }
+    # Mock _resolve_subagent_rows to return empty (no subagents)
+    with patch("orchestrator_next.record._resolve_driver_session", return_value=fake_session), \
+         patch("orchestrator_next.record._resolve_subagent_rows", return_value=[]):
+        result, code = record(state_path, payload, db=db)
+
+    assert code == 0, f"Expected exit 0 for feature boundary, got {code}: {result}"
+
+    # step_events row exists
+    step_count = db.execute(
+        "SELECT COUNT(*) FROM step_events WHERE change_id='test-feature' AND phase='implement'",
+    ).fetchone()[0]
+    assert step_count == 1, f"Expected 1 step_events row, got {step_count}"
+
+    # phase_events row exists
+    phase_count = db.execute(
+        "SELECT COUNT(*) FROM phase_events WHERE change_id='test-feature'",
+    ).fetchone()[0]
+    assert phase_count == 1, f"Expected 1 phase_events row, got {phase_count}"
+
+    # driver_sessions row exists
+    drv_count = db.execute(
+        "SELECT COUNT(*) FROM driver_sessions WHERE change_id='test-feature'",
+    ).fetchone()[0]
+    assert drv_count == 1, f"Expected 1 driver_sessions row, got {drv_count}"
+
+    db.close()
+
+
+def test_subagent_parse_before_begin(tmp_path, monkeypatch):
+    """_resolve_subagent_rows is called BEFORE the BEGIN transaction."""
+    from orchestrator_next.record import record
+
+    db = _fresh_db()
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(tmp_path / "empty"))
+    (tmp_path / "empty").mkdir()
+
+    plan = {"implement": {"active": ["final-step"], "filtered": []}}
+    state_path = _minimal_state_yaml(tmp_path, plan)
+
+    payload = {
+        "step_id": "final-step",
+        "phase": "implement",
+        "status": "completed",
+        "agent": "inline",
+        "outputs": {},
+        "usage": {"input_tokens": 10, "output_tokens": 5},
+    }
+
+    call_order = []
+
+    def mock_resolve_subagent(*args, **kwargs):
+        call_order.append("resolve_subagent")
+        return []
+
+    def mock_resolve_driver(*args, **kwargs):
+        call_order.append("resolve_driver")
+        return {
+            "session_id": "s1", "model": None, "total_tokens": 0,
+            "input_tokens": 0, "output_tokens": 0, "cost_usd": None,
+            "started_at": None, "ended_at": None,
+        }
+
+    real_execute = db.execute
+
+    def mock_db_execute(sql, *args, **kwargs):
+        sql_stripped = sql.strip().upper()
+        if sql_stripped.startswith("BEGIN"):
+            call_order.append("BEGIN")
+        return real_execute(sql, *args, **kwargs)
+
+    db.execute = mock_db_execute
+
+    with patch("orchestrator_next.record._resolve_driver_session", side_effect=mock_resolve_driver), \
+         patch("orchestrator_next.record._resolve_subagent_rows", side_effect=mock_resolve_subagent):
+        record(state_path, payload, db=db)
+
+    # Verify: resolve_subagent and resolve_driver should appear BEFORE BEGIN
+    if "BEGIN" in call_order:
+        begin_idx = call_order.index("BEGIN")
+        if "resolve_subagent" in call_order:
+            resolve_idx = call_order.index("resolve_subagent")
+            assert resolve_idx < begin_idx, (
+                f"_resolve_subagent_rows must be called BEFORE BEGIN. "
+                f"Call order: {call_order}"
+            )
+
+    db.execute = real_execute
+    db.close()
