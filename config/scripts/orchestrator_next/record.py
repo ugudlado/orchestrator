@@ -13,12 +13,51 @@ import json
 import os
 import re
 import sys
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from orchestrator_next.parser import ContractError, load_contract_for_step, load_state
+
+
+# ---------------------------------------------------------------------------
+# Boundary detection (FR-4)
+# ---------------------------------------------------------------------------
+
+class BoundaryKind(str, Enum):
+    NONE = "none"
+    PHASE = "phase"
+    FEATURE = "feature"
+
+
+def _detect_boundary(
+    workflow_plan: dict,
+    phase: str,
+    step_id: str,
+    status: str,
+) -> BoundaryKind:
+    """Return BoundaryKind based on workflow_plan and current step.
+
+    Returns NONE for any status != 'completed'.
+    Returns NONE if step_id is not the last element in workflow_plan[phase].active.
+    Returns PHASE if step_id is last in active AND phase is not the last key in workflow_plan.
+    Returns FEATURE if step_id is last in active AND phase IS the last key in workflow_plan.
+    """
+    if status != "completed":
+        return BoundaryKind.NONE
+
+    phase_block = workflow_plan.get(phase) or {}
+    active = phase_block.get("active") or []
+    if not active or step_id != active[-1]:
+        return BoundaryKind.NONE
+
+    # step_id is the last in active — at minimum a phase boundary
+    phase_keys = list(workflow_plan.keys())
+    if phase_keys and phase == phase_keys[-1]:
+        return BoundaryKind.FEATURE
+    return BoundaryKind.PHASE
 
 
 # ---------------------------------------------------------------------------
