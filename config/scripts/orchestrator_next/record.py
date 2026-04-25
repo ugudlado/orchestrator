@@ -61,6 +61,48 @@ def _detect_boundary(
 
 
 # ---------------------------------------------------------------------------
+# Phase boundary write helper (FR-5)
+# ---------------------------------------------------------------------------
+
+_INSERT_PHASE_EVENT = """
+INSERT OR REPLACE INTO phase_events (
+  repo_root, change_id, phase, attempt,
+  step_count, cost_usd, input_tokens, output_tokens,
+  cache_read_input_tokens, cache_creation_input_tokens,
+  duration_ms, started_at, ended_at
+)
+SELECT
+  ? AS repo_root,
+  ? AS change_id,
+  ? AS phase,
+  ? AS attempt,
+  COUNT(*)                                      AS step_count,
+  COALESCE(SUM(cost_usd), 0.0)                 AS cost_usd,
+  COALESCE(SUM(input_tokens), 0)               AS input_tokens,
+  COALESCE(SUM(output_tokens), 0)              AS output_tokens,
+  COALESCE(SUM(cache_read_input_tokens), 0)    AS cache_read_input_tokens,
+  COALESCE(SUM(cache_creation_input_tokens), 0) AS cache_creation_input_tokens,
+  COALESCE(SUM(duration_ms), 0)                AS duration_ms,
+  MIN(started_at)                               AS started_at,
+  MAX(ended_at)                                 AS ended_at
+FROM step_events
+WHERE repo_root = ? AND change_id = ? AND phase = ?
+"""
+
+
+def _write_phase_event(db, repo_root: str, change_id: str, phase: str, attempt: int) -> None:
+    """Insert a phase_events row aggregated from step_events.
+
+    Caller is responsible for transaction control (BEGIN/COMMIT/ROLLBACK).
+    All SQL uses parameterised execution (NFR-5).
+    """
+    db.execute(_INSERT_PHASE_EVENT, [
+        repo_root, change_id, phase, attempt,
+        repo_root, change_id, phase,
+    ])
+
+
+# ---------------------------------------------------------------------------
 # Cost computation helpers (ISSUE-17)
 # ---------------------------------------------------------------------------
 
