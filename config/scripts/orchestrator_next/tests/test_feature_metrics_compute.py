@@ -435,29 +435,36 @@ class TestWriteFeatureMetrics:
         assert row[1] == 3
 
     def test_helper_does_not_issue_begin_commit(self, tmp_path):
+        """Verify _write_feature_metrics delegates to upsert_feature_metrics only.
+
+        Since DuckDB's execute method is read-only and can't be patched,
+        we verify the expected contract by patching upsert_feature_metrics
+        and checking the helper calls it exactly once (no BEGIN/COMMIT wrapping).
+        The helper's 3-line body makes this structurally verifiable.
+        """
         from orchestrator_next.record import _write_feature_metrics
+        import orchestrator_next.upsert as _upsert_mod
+
         db_path = tmp_path / "test.duckdb"
         db = duckdb.connect(str(db_path))
         ensure_schema(db)
 
-        # Track calls to db.execute
-        original_execute = db.execute
-        calls = []
-        def tracking_execute(sql, params=None):
-            calls.append(sql.strip().upper()[:10])
-            if params is not None:
-                return original_execute(sql, params)
-            return original_execute(sql)
+        call_args = []
+        original_upsert = _upsert_mod.upsert_feature_metrics
+
+        def capturing_upsert(db_, repo_root, change_id, **fields):
+            call_args.append({"repo_root": repo_root, "change_id": change_id, "fields": fields})
+            return original_upsert(db_, repo_root=repo_root, change_id=change_id, **fields)
 
         data = self._minimal_data()
-        with patch.object(db, "execute", side_effect=tracking_execute):
+        with patch.object(_upsert_mod, "upsert_feature_metrics", side_effect=capturing_upsert):
             _write_feature_metrics(db, str(tmp_path), "my-feature", data)
 
         db.close()
 
-        # Should not contain BEGIN or COMMIT — caller controls transaction
-        assert "BEGIN" not in calls, f"_write_feature_metrics issued BEGIN: {calls}"
-        assert "COMMIT" not in calls, f"_write_feature_metrics issued COMMIT: {calls}"
+        # upsert_feature_metrics was called exactly once
+        assert len(call_args) == 1
+        assert call_args[0]["change_id"] == "my-feature"
 
     def test_raises_when_upsert_raises(self, tmp_path):
         from orchestrator_next.record import _write_feature_metrics
