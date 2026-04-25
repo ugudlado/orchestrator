@@ -30,7 +30,7 @@ Rules every agent must follow when running in this repo. CLAUDE.md auto-loads in
 
 ### State updates
 
-- **Use `orchestrator record <state.yaml>`** with a JSON payload on stdin for all `step_history` appends. Never edit `state.yaml` directly with Write/Edit — `record.py` validates shape; direct edits have corrupted state in past runs.
+- **Use `orchestrator done <state.yaml>`** with a JSON payload on stdin for all `step_history` appends. Never edit `state.yaml` directly with Write/Edit — `record.py` validates shape; direct edits have corrupted state in past runs.
 - State file lives at `$WORKFLOW_STATE_DIR/<change_id>/state.yaml`. Required top-level keys: `schema`, `flags`. Merge precedence for flags: `cli_flags` > `state_flags` > `schema_defaults`.
 
 ### Paths

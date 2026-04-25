@@ -13,12 +13,343 @@ import json
 import os
 import re
 import sys
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from orchestrator_next.parser import ContractError, load_contract_for_step, load_state
+from orchestrator_next.upsert import upsert_step_event
+
+
+# ---------------------------------------------------------------------------
+# Boundary detection (FR-4)
+# ---------------------------------------------------------------------------
+
+class BoundaryKind(str, Enum):
+    NONE = "none"
+    PHASE = "phase"
+    FEATURE = "feature"
+
+
+def _detect_boundary(
+    workflow_plan: dict,
+    phase: str,
+    step_id: str,
+    status: str,
+) -> BoundaryKind:
+    """Return BoundaryKind based on workflow_plan and current step.
+
+    Returns NONE for any status != 'completed'.
+    Returns NONE if step_id is not the last element in workflow_plan[phase].active.
+    Returns PHASE if step_id is last in active AND phase is not the last key in workflow_plan.
+    Returns FEATURE if step_id is last in active AND phase IS the last key in workflow_plan.
+    """
+    if status != "completed":
+        return BoundaryKind.NONE
+
+    phase_block = workflow_plan.get(phase) or {}
+    active = phase_block.get("active") or []
+    if not active or step_id != active[-1]:
+        return BoundaryKind.NONE
+
+    # step_id is the last in active — at minimum a phase boundary
+    phase_keys = list(workflow_plan.keys())
+    if phase_keys and phase == phase_keys[-1]:
+        return BoundaryKind.FEATURE
+    return BoundaryKind.PHASE
+
+
+# ---------------------------------------------------------------------------
+# Phase boundary write helper (FR-5)
+# ---------------------------------------------------------------------------
+
+_INSERT_PHASE_EVENT = """
+INSERT OR REPLACE INTO phase_events (
+  repo_root, change_id, phase, attempt,
+  step_count, cost_usd, input_tokens, output_tokens,
+  cache_read_input_tokens, cache_creation_input_tokens,
+  duration_ms, started_at, ended_at
+)
+SELECT
+  ? AS repo_root,
+  ? AS change_id,
+  ? AS phase,
+  ? AS attempt,
+  COUNT(*)                                      AS step_count,
+  COALESCE(SUM(cost_usd), 0.0)                 AS cost_usd,
+  COALESCE(SUM(input_tokens), 0)               AS input_tokens,
+  COALESCE(SUM(output_tokens), 0)              AS output_tokens,
+  COALESCE(SUM(cache_read_input_tokens), 0)    AS cache_read_input_tokens,
+  COALESCE(SUM(cache_creation_input_tokens), 0) AS cache_creation_input_tokens,
+  COALESCE(SUM(duration_ms), 0)                AS duration_ms,
+  MIN(started_at)                               AS started_at,
+  MAX(ended_at)                                 AS ended_at
+FROM step_events
+WHERE repo_root = ? AND change_id = ? AND phase = ?
+"""
+
+
+def _write_phase_event(db, repo_root: str, change_id: str, phase: str, attempt: int) -> None:
+    """Insert a phase_events row aggregated from step_events.
+
+    Caller is responsible for transaction control (BEGIN/COMMIT/ROLLBACK).
+    All SQL uses parameterised execution (NFR-5).
+    """
+    db.execute(_INSERT_PHASE_EVENT, [
+        repo_root, change_id, phase, attempt,
+        repo_root, change_id, phase,
+    ])
+
+
+# ---------------------------------------------------------------------------
+# Driver session resolution helpers (FR-6)
+# ---------------------------------------------------------------------------
+
+_INSERT_DRIVER_SESSION = """
+INSERT OR REPLACE INTO driver_sessions (
+  repo_root, change_id, session_id, model,
+  total_tokens, input_tokens, output_tokens, cost_usd,
+  started_at, ended_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+
+def _resolve_driver_session(state: dict, change_id: str, db=None) -> dict:
+    """Resolve the driver session and return its usage dict.
+
+    Resolution order:
+      1. $ORCHESTRATOR_DRIVER_SESSION_ID env var.
+      2. Scan ~/.claude/projects/<repo-slug>/ for most recent *.jsonl by mtime.
+
+    Raises RuntimeError if session_id cannot be resolved.
+
+    Args:
+        state: parsed state dict (needs 'repo_root').
+        change_id: feature change_id for logging.
+        db: optional open DuckDB connection for cost computation.
+
+    Returns:
+        dict with keys: session_id, model, total_tokens, input_tokens,
+        output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+        cost_usd, started_at, ended_at.
+    """
+    from orchestrator_next.jsonl_usage import extract_driver_usage
+
+    repo_root = state.get("repo_root") or ""
+
+    # Step 1: env var
+    session_id = os.environ.get("ORCHESTRATOR_DRIVER_SESSION_ID") or ""
+
+    # Step 2: scan for most recent JSONL by mtime
+    if not session_id:
+        from pathlib import Path as _Path
+
+        def _repo_slug(rr: str) -> str:
+            return rr.replace("/", "-")
+
+        slug_dir = _Path.home() / ".claude" / "projects" / _repo_slug(repo_root)
+        if slug_dir.exists():
+            jsonl_files = list(slug_dir.glob("*.jsonl"))
+            if jsonl_files:
+                newest = max(jsonl_files, key=lambda p: p.stat().st_mtime)
+                session_id = newest.stem
+
+    if not session_id:
+        raise RuntimeError(
+            f"[done] driver session_id not resolvable for change_id={change_id!r}: "
+            f"set $ORCHESTRATOR_DRIVER_SESSION_ID or ensure a JSONL exists under "
+            f"~/.claude/projects/<repo-slug>/"
+        )
+
+    usage = extract_driver_usage(repo_root, session_id)
+    if not usage:
+        usage = {}
+
+    # Compute cost_usd if a DB is available
+    if db is not None and usage:
+        model, cost = _compute_cost_usd(db, "driver-loop", usage)
+        if cost is not None:
+            usage["cost_usd"] = cost
+        if model and not usage.get("model"):
+            usage["model"] = model
+
+    input_tok = usage.get("input_tokens") or 0
+    output_tok = usage.get("output_tokens") or 0
+    return {
+        "session_id": session_id,
+        "model": usage.get("model"),
+        "total_tokens": input_tok + output_tok,
+        "input_tokens": input_tok,
+        "output_tokens": output_tok,
+        "cache_read_input_tokens": usage.get("cache_read_input_tokens") or 0,
+        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens") or 0,
+        "cost_usd": usage.get("cost_usd"),
+        "started_at": None,  # JSONL aggregate doesn't expose session start/end directly
+        "ended_at": None,
+    }
+
+
+def _write_driver_session(db, repo_root: str, change_id: str, session: dict) -> None:
+    """Insert a driver_sessions row. Caller controls transaction.
+
+    Args:
+        db: open DuckDB connection (transaction open, caller controls).
+        repo_root: absolute path to the repo root.
+        change_id: feature identifier.
+        session: dict returned by _resolve_driver_session.
+    """
+    db.execute(_INSERT_DRIVER_SESSION, [
+        repo_root,
+        change_id,
+        session["session_id"],
+        session.get("model"),
+        session.get("total_tokens") or 0,
+        session.get("input_tokens") or 0,
+        session.get("output_tokens") or 0,
+        session.get("cost_usd") or 0.0,  # NOT NULL — default to 0.0 when unresolved
+        session.get("started_at"),
+        session.get("ended_at"),
+    ])
+
+
+# ---------------------------------------------------------------------------
+# Subagent absorption helpers (FR-6a)
+# ---------------------------------------------------------------------------
+
+def _resolve_subagent_rows(
+    repo_root: str,
+    change_id: str,
+    session_id: str,
+) -> list[dict]:
+    """Discover sub-agent JSONLs and parse usage. Pure parsing — no DB operations.
+
+    Returns a list of dicts:
+        {"agent_id", "agent_name", "step_id", "phase", "usage"}
+
+    Per-row failures:
+      - Missing or malformed meta.json → agent_name='subagent-unknown', row still emitted.
+      - JSONL with no usable turns → row skipped (logged to stderr).
+      - Other parse errors → row skipped (logged to stderr).
+
+    Runs OUTSIDE the boundary transaction (keeps BEGIN/COMMIT window short).
+    """
+    from orchestrator_next.jsonl_usage import (
+        discover_subagents,
+        extract_agent_usage,
+        locate_subagent_jsonl_path,
+    )
+
+    agent_ids = discover_subagents(repo_root, session_id)
+    result = []
+
+    for agent_id in agent_ids:
+        step_id = f"subagent-{agent_id}"
+        agent_name = "subagent-unknown"
+
+        # Read agentType from meta.json sidecar (fail-soft: fallback to unknown)
+        try:
+            jsonl_path = locate_subagent_jsonl_path(
+                repo_root, agent_id, driver_session_hint=session_id
+            )
+            if jsonl_path is not None:
+                meta_path = jsonl_path.parent / f"agent-{agent_id}.meta.json"
+                if meta_path.exists():
+                    import json as _json
+                    meta = _json.loads(meta_path.read_text())
+                    agent_type = meta.get("agentType") or ""
+                    if agent_type:
+                        agent_name = agent_type
+        except Exception as exc:  # noqa: BLE001 — meta parse is best-effort
+            sys.stderr.write(
+                f"[done] subagent meta read failed for agent_id={agent_id!r}: {exc}\n"
+            )
+            # agent_name stays "subagent-unknown"
+
+        # Extract usage from JSONL — skip row if no usable turns
+        try:
+            usage = extract_agent_usage(
+                repo_root, agent_id, driver_session_hint=session_id
+            )
+            if not usage:
+                sys.stderr.write(
+                    f"[done] subagent {agent_id!r}: no usable JSONL turns, skipping row\n"
+                )
+                continue
+        except Exception as exc:  # noqa: BLE001 — JSONL parse is best-effort
+            sys.stderr.write(
+                f"[done] subagent JSONL parse failed for agent_id={agent_id!r}: {exc}\n"
+            )
+            continue
+
+        result.append({
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "step_id": step_id,
+            "phase": "meta",
+            "usage": usage,
+        })
+
+    return result
+
+
+def _write_subagent_events(
+    db,
+    repo_root: str,
+    change_id: str,
+    rows: list[dict],
+) -> None:
+    """Insert one synthetic step_events row per subagent tuple via upsert_synthetic_event.
+
+    Honors the legacy idempotency check: skip if a row already exists for
+    (repo_root, change_id, phase='meta', step_id, attempt=1) with non-zero input_tokens.
+
+    Computes cost_usd via _compute_cost_usd per row when the DB has pricing rows.
+
+    Per-row insert errors are logged to stderr but do not raise (fail-soft per row,
+    consistent with the discovery pass).
+
+    Caller controls the transaction (BEGIN/COMMIT/ROLLBACK).
+    """
+    from orchestrator_next.upsert import upsert_synthetic_event as _upsert_syn
+
+    for row in rows:
+        agent_id = row["agent_id"]
+        agent_name = row["agent_name"]
+        step_id = row["step_id"]
+        phase = row["phase"]
+        usage = dict(row["usage"])  # copy — we may mutate it
+
+        try:
+            # Idempotency check: skip if row already exists with non-zero input_tokens
+            existing = db.execute(
+                "SELECT input_tokens FROM step_events "
+                "WHERE repo_root=? AND change_id=? AND phase=? AND step_id=? AND attempt=1",
+                [repo_root, change_id, phase, step_id],
+            ).fetchone()
+            if existing is not None and existing[0] is not None and existing[0] > 0:
+                continue
+
+            # Compute cost_usd via pricing DB
+            model, cost = _compute_cost_usd(db, agent_name, usage)
+            if cost is not None:
+                usage["cost_usd"] = cost
+            if model and not usage.get("model"):
+                usage["model"] = model
+
+            _upsert_syn(
+                db,
+                {"repo_root": repo_root, "change_id": change_id},
+                agent_name=agent_name,
+                step_id=step_id,
+                phase=phase,
+                usage=usage,
+            )
+        except Exception as exc:  # noqa: BLE001 — per-row fail-soft
+            sys.stderr.write(
+                f"[done] subagent write failed for agent_id={agent_id!r}: {exc}\n"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +641,7 @@ def record(
         db: open DuckDB connection for pricing lookups, or None for the
             offline/test path (cost computation is skipped with a warning).
     """
-    required = {"step_id", "phase", "status", "outputs"}
+    required = {"step_id", "phase", "outputs"}
     missing = required - payload.keys()
     if missing:
         return (
@@ -320,7 +651,21 @@ def record(
 
     step_id = payload["step_id"]
     phase = payload["phase"]
-    status = payload["status"]
+    # status is optional; default 'completed' for backward compat (FR-2).
+    status = payload.get("status", "completed")
+
+    _VALID_STATUSES = {"completed", "recovered", "abandoned"}
+    if status not in _VALID_STATUSES:
+        return (
+            {
+                "action": "error",
+                "reason": "invalid_status",
+                "status": status,
+                "valid_statuses": sorted(_VALID_STATUSES),
+            },
+            3,
+        )
+
     outputs: dict[str, Any] = payload.get("outputs") or {}
 
     # Load contract to validate expected_outputs
@@ -506,6 +851,10 @@ def record(
     history.append(entry)
     state_raw["step_history"] = history
 
+    # FR-2: abandoned status → set state.yaml.status = blocked
+    if status == "abandoned":
+        state_raw["status"] = "blocked"
+
     # Advance next_step
     next_step = _compute_next_step(state_raw, step_id, state_yaml_path)
     if next_step:
@@ -560,6 +909,79 @@ def record(
                 f"{step_id!r} phase={phase!r}: {exc}\n"
             )
 
+    # FR-2/FR-5/FR-6/FR-6a: step_events upsert + boundary writes.
+    # Non-boundary calls: fail-soft (preserves current record.py behavior).
+    # Boundary calls: fatal-on-failure (BEGIN/COMMIT/ROLLBACK).
+    # Subagent JSONL parsing runs OUTSIDE the transaction to keep the
+    # BEGIN/COMMIT window short (design.md Trade-offs).
+    if db is not None:
+        from orchestrator_next.parser import _parse_history_entry
+
+        change_id_val = state_raw.get("change_id") or ""
+        repo_root_val = state_raw.get("repo_root") or ""
+        ctx = {"repo_root": repo_root_val, "change_id": change_id_val}
+        workflow_plan = state_raw.get("workflow_plan") or {}
+        boundary = _detect_boundary(workflow_plan, phase, step_id, status)
+
+        # Build a StepHistoryEntry from the entry dict for upsert_step_event
+        _step_entry = _parse_history_entry(entry)
+
+        if boundary == BoundaryKind.NONE:
+            # Non-boundary: fail-soft step write
+            try:
+                upsert_step_event(db, _step_entry, ctx)
+            except Exception as exc:  # noqa: BLE001 — non-boundary is fail-soft
+                sys.stderr.write(f"[done] step write failed: {exc}\n")
+        else:
+            # Boundary path: JSONL parsing runs BEFORE BEGIN to keep tx window short.
+            subagent_rows: list[dict] = []
+            session: dict = {}
+            if boundary == BoundaryKind.FEATURE:
+                # _resolve_driver_session and _resolve_subagent_rows run OUTSIDE BEGIN.
+                try:
+                    session = _resolve_driver_session(state_raw, change_id_val, db=db)
+                except Exception as _exc:
+                    sys.stderr.write(
+                        f"[done] driver session resolution failed: {_exc}\n"
+                    )
+                    return (
+                        {
+                            "action": "error",
+                            "reason": "driver_session_resolution_failed",
+                            "detail": str(_exc),
+                        },
+                        5,
+                    )
+                subagent_rows = _resolve_subagent_rows(
+                    repo_root_val, change_id_val, session.get("session_id", "")
+                )
+
+            # Atomic boundary write — fatal on failure (NFR-2, NFR-3, OQ-2).
+            db.execute("BEGIN")
+            try:
+                upsert_step_event(db, _step_entry, ctx)
+                _write_phase_event(
+                    db, repo_root_val, change_id_val, phase, entry["attempt"]
+                )
+                if boundary == BoundaryKind.FEATURE:
+                    _write_driver_session(db, repo_root_val, change_id_val, session)
+                    _write_subagent_events(db, repo_root_val, change_id_val, subagent_rows)
+                db.execute("COMMIT")
+            except Exception as _exc:
+                db.execute("ROLLBACK")
+                sys.stderr.write(
+                    f"[done] boundary write failed ({boundary.value}): {_exc}\n"
+                )
+                return (
+                    {
+                        "action": "error",
+                        "reason": "boundary_write_failed",
+                        "boundary": boundary.value,
+                        "detail": str(_exc),
+                    },
+                    5,
+                )  # fatal non-zero exit
+
     # Workflow-issue retro: if the payload carries workflow_issues, append
     # each one to spec/changes/<change_id>/retro.md. Best-effort — any
     # failure here never blocks the record.
@@ -612,7 +1034,7 @@ def record(
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        print("Usage: orchestrator record <state.yaml>  (JSON payload on stdin)",
+        print("Usage: orchestrator done <state.yaml>  (JSON payload on stdin)",
               file=sys.stderr)
         return 3
     state_yaml_path = argv[1]

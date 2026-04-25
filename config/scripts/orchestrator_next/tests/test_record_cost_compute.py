@@ -47,13 +47,19 @@ _STUB_CONTRACT = textwrap.dedent("""\
 
 
 def _write_state(tmp_path) -> str:
-    """Write a minimal state.yaml and return its path."""
+    """Write a minimal state.yaml and return its path.
+
+    Note: 'trailing-step' is intentionally added after 'execute-next-task'
+    so that execute-next-task is NOT the last step (not a boundary step).
+    This prevents _detect_boundary() from triggering FEATURE boundary logic,
+    which would require a real JSONL session file to exist.
+    """
     state = {
         "change_id": "cost-compute-test",
         "phase": "implement",
         "workflow_plan": {
             "implement": {
-                "active": ["execute-next-task"],
+                "active": ["execute-next-task", "trailing-step"],
                 "filtered": [],
             }
         },

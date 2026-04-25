@@ -26,9 +26,9 @@ for id in compute-swe-metrics compute-prediction-accuracy archive-completed-chan
 done
 echo "  pass"
 
-echo "Gate 4: 8 inline scripts (5 absorbed into workflow-init agent, HL-287 rev-2)"
+echo "Gate 4: 10 inline scripts (8 pre-Phase4 baseline + 4 Phase-4 additions - 2 ingest-auto deleted in Stage C)"
 count=$(find scripts/inline/ -maxdepth 1 -name '*.sh' -o -name '*.py' | wc -l | tr -d ' ')
-[ "$count" = "8" ] && echo "  pass ($count)" || { echo "  fail ($count)"; exit 1; }
+[ "$count" = "10" ] && echo "  pass ($count)" || { echo "  fail ($count)"; exit 1; }
 
 echo "Gate 4b: workflow-init agent + contract exist and feature/bugfix/spike schemas reference it"
 [ -f "agents/workflow-init.md" ] || { echo "  fail: agents/workflow-init.md missing"; exit 1; }
@@ -41,8 +41,12 @@ echo "  pass"
 echo "Gate 5: test suite"
 python3 -m unittest discover -s config/scripts/tests 2>&1 | tail -3
 
-echo "Gate 6: CLI supports next and record"
-./bin/orchestrator 2>&1 | grep -q "orchestrator record" || { echo "  fail"; exit 1; }
+echo "Gate 6: CLI banner advertises done (strict) and does NOT mention record"
+banner=$(./bin/orchestrator 2>&1 || true)
+echo "$banner" | grep -q "orchestrator done" || { echo "  fail: 'orchestrator done' not found in banner"; exit 1; }
+if echo "$banner" | grep -q "orchestrator record"; then
+  echo "  fail: banner still mentions 'orchestrator record' — update bin/orchestrator banner (T-25)"; exit 1
+fi
 echo "  pass"
 
 echo "All M8 gates PASS"

@@ -85,7 +85,7 @@ Build the active step list using the resolved flags:
 ### 4. Dispatch loop — HL-287 M5: use the `orchestrator` CLI
 
 The dispatch loop is now a thin wrapper around `orchestrator next` and
-`orchestrator record`. Pre/post stamping (started_at / completed_at /
+`orchestrator done`. Pre/post stamping (started_at / completed_at /
 status / usage / evidence) is applied uniformly by the CLI — do NOT
 write per-step stamping prose.
 
@@ -132,11 +132,11 @@ LOOP:
       # HL-287 M3 inline-script dispatch
       run action.run with action.inputs as env vars
       collect outputs (last stdout line as JSON dict)
-      orchestrator record state.yaml <<< {step_id, phase, status, outputs, usage, evidence}
+      orchestrator done state.yaml <<< {step_id, phase, status, outputs, usage, evidence}
   IF action.action == "run_inline" AND action.agent != "inline":
       # Legacy inline-instruction (pre-M3, being phased out)
       execute action.instruction in context with action.inputs / action.rules
-      orchestrator record state.yaml <<< {step_id, phase, status: completed, outputs, usage}
+      orchestrator done state.yaml <<< {step_id, phase, status: completed, outputs, usage}
   IF action.action == "run_step":
       # Agent spawn. Load agent .md from $ORCHESTRATOR_HOME/agents/<action.agent>.md
       # and run action.run (adapter path) with the agent's prompt + action.inputs.
@@ -152,7 +152,7 @@ LOOP:
       # re-derive these from memory — plan.yaml is the single source.
 
       # 1. Collect agent result (wait for background task to complete).
-      # 2. Pass outputs to orchestrator record payload.
+      # 2. Pass outputs to orchestrator done payload.
 
       # 3. MANDATORY: USAGE CAPTURE — after any agent Task completes, extract from
       #    the result <usage> block:
@@ -163,7 +163,7 @@ LOOP:
       #      duration_ms              — from <usage> duration_ms (if present)
       #      tool_calls               — a dict of {tool_name: count} tallied from the
       #                                 agent's tool use blocks in the result (if visible)
-      #    Include these under the `usage` key in the `orchestrator record` payload.
+      #    Include these under the `usage` key in the `orchestrator done` payload.
       #    If a field is absent from the result, omit it — do not pass 0 or null.
       #    Example record payload usage block:
       #      "usage": {"input_tokens": 45230, "output_tokens": 3210, "duration_ms": 87400,
@@ -171,7 +171,7 @@ LOOP:
       #    After recording, assert step_history[-1].usage.input_tokens is non-null/non-zero
       #    for any agent (non-inline) step — record.py enforces this (FR-11).
 
-      orchestrator record state.yaml <<< {step_id, phase, status, outputs, usage, evidence}
+      orchestrator done state.yaml <<< {step_id, phase, status, outputs, usage, evidence}
   IF action.action == "resume_step":
       # Always log to stderr — even under flags.auto == true — so operators see resume events.
       print(f"RESUMING step {action.step_id} (attempt {action.attempt})", file=sys.stderr)
