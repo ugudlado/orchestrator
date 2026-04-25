@@ -1034,7 +1034,7 @@ def record(
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
-        print("Usage: orchestrator record <state.yaml>  (JSON payload on stdin)",
+        print("Usage: orchestrator done <state.yaml>  (JSON payload on stdin)",
               file=sys.stderr)
         return 3
     state_yaml_path = argv[1]
