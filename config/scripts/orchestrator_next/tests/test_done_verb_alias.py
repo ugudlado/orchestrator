@@ -127,35 +127,32 @@ class TestDoneVerbDispatch(unittest.TestCase):
         )
 
 
-class TestUsageBannerMentionsBothVerbs(unittest.TestCase):
-    """Verify that the usage banner in Stage A mentions both 'done' and 'record' verbs."""
+def _get_banner() -> str:
+    """Run bin/orchestrator with no args and return stderr (the usage banner)."""
+    return _run_orchestrator([]).stderr
 
-    def _get_banner(self) -> str:
-        """Run bin/orchestrator with no args and return stderr (the usage banner)."""
-        result = _run_orchestrator([])
-        return result.stderr
+
+class TestUsageBannerMentionsDone(unittest.TestCase):
+    """Verify that the usage banner mentions 'done' (Stage A+C requirement)."""
 
     def test_banner_mentions_done_verb(self) -> None:
-        """(c) Stage A usage banner includes 'orchestrator done'."""
-        banner = self._get_banner()
+        """(c) Usage banner includes 'orchestrator done'."""
+        banner = _get_banner()
         self.assertIn(
             "orchestrator done",
             banner,
             f"Expected 'orchestrator done' in usage banner.\nBanner: {banner!r}",
         )
 
+
 class TestStageCDeprecation(unittest.TestCase):
-    """T-24 (RED): Stage C tests — all should FAIL until T-25 lands.
+    """T-24 (RED) / T-25 (GREEN): Stage C tests.
 
     Stage C requirements (FR-12):
     - Banner mentions only 'done', not 'record', 'ingest-driver', or 'ingest-subagents'.
     - 'record' verb still routes silently (backward compat, undocumented).
     - 'ingest-driver' and 'ingest-subagents' are fully removed verbs (return non-zero).
     """
-
-    def _get_banner(self) -> str:
-        result = _run_orchestrator([])
-        return result.stderr
 
     def test_stage_c_banner(self) -> None:
         """(a) Stage C usage banner does NOT mention 'ingest-driver', 'ingest-subagents',
@@ -164,7 +161,7 @@ class TestStageCDeprecation(unittest.TestCase):
         FR-12: After Stage C, the banner shows only 'done'. 'record' is kept for
         silent routing but must not appear in the usage banner.
         """
-        banner = self._get_banner()
+        banner = _get_banner()
         self.assertNotIn(
             "ingest-driver",
             banner,
