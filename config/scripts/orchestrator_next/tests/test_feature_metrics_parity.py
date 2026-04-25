@@ -1,22 +1,23 @@
-"""T-9 (RED) / T-10 (GREEN): Parity test against done-verb-level-aware-writes fixture.
+"""T-9 (RED written before Stage A) / T-10 (GREEN) / T-15 (snapshot-swap after Stage B).
 
-Runs BOTH the legacy ingest-feature-metrics.py script AND the absorbed
-_resolve_feature_metrics + _write_feature_metrics path against the archived
-fixture, then asserts equal across 24 non-audit columns (source excluded).
+Parity test for the absorbed feature_metrics path.
 
-Per cycle-20 rule: shape/value parity against at least one real payload.
+After Stage B (T-14), the legacy ingest-feature-metrics.py script is deleted.
+This test (T-15) compares the absorbed path's output against a pre-captured
+JSON snapshot recorded during T-10 (before the legacy script was deleted).
 
-After T-14 (legacy script deleted), T-15 rewrites this test to compare against
-a captured JSON snapshot instead of re-running the legacy script.
+Snapshot file: tests/fixtures/feature_metrics_expected.json
+Fixture: spec/changes/archive/2026-04-25-done-verb-level-aware-writes/
+
+Per cycle-20 rule: shape/value parity against a real payload from prior implementation.
+The snapshot was captured by running both legacy and absorbed paths against the
+fixture and verifying they matched; the snapshot represents the shared output.
 """
 from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import duckdb
@@ -42,7 +43,7 @@ _ORCHESTRATOR_HOME = os.environ.get(
 _ARCHIVE_DIR = Path(_ORCHESTRATOR_HOME) / "spec" / "changes" / "archive" / "2026-04-25-done-verb-level-aware-writes"
 _FIXTURE_STATE = _ARCHIVE_DIR / "state.yaml"
 _FIXTURE_TASKS = _ARCHIVE_DIR / "tasks.md"
-_LEGACY_SCRIPT = Path(_ORCHESTRATOR_HOME) / "scripts" / "inline" / "ingest-feature-metrics.py"
+_SNAPSHOT_FILE = Path(_HERE) / "fixtures" / "feature_metrics_expected.json"
 
 # The 24 non-audit columns to compare (excludes source and computed_at per FR-6/design.md)
 _PARITY_COLUMNS = [
@@ -91,79 +92,46 @@ def _fetch_row_as_dict(db, column_names: list) -> dict | None:
     return {col: row_dict.get(col) for col in column_names}
 
 
-@pytest.fixture(scope="module")
-def tmp_dir_module(tmp_path_factory):
-    return tmp_path_factory.mktemp("parity")
-
-
-def test_fixture_exists():
-    """Sanity check: the archive fixture and legacy script are present."""
+def test_fixture_and_snapshot_exist():
+    """Sanity check: the archive fixture and expected snapshot are present."""
     assert _FIXTURE_STATE.exists(), f"Fixture state.yaml missing at {_FIXTURE_STATE}"
     assert _FIXTURE_TASKS.exists(), f"Fixture tasks.md missing at {_FIXTURE_TASKS}"
-    assert _LEGACY_SCRIPT.exists(), f"Legacy script missing at {_LEGACY_SCRIPT}"
+    assert _SNAPSHOT_FILE.exists(), f"Snapshot file missing at {_SNAPSHOT_FILE}"
 
 
-def test_parity_between_legacy_and_absorbed(tmp_path):
-    """Both implementations produce identical values for 24 non-audit columns."""
+def test_parity_against_snapshot(tmp_path):
+    """Absorbed path produces identical values to the pre-captured snapshot."""
+    # --- Load expected snapshot ---
+    with open(_SNAPSHOT_FILE) as f:
+        expected_row = json.load(f)
+
     # --- Load and patch state ---
     state = _load_patched_state(_FIXTURE_STATE, _FIXTURE_TASKS)
     change_id = state["change_id"]  # "done-verb-level-aware-writes"
     repo_root = state.get("repo_root", "")
 
-    # Write patched state to tmp so legacy script can read it
-    patched_state_path = tmp_path / "state.yaml"
-    with open(patched_state_path, "w") as f:
-        yaml.safe_dump(state, f, sort_keys=False)
-
-    # --- Path A: legacy script ---
-    legacy_db_path = tmp_path / "legacy.duckdb"
-    legacy_db = duckdb.connect(str(legacy_db_path))
-    ensure_schema(legacy_db)
-    legacy_db.close()
-
-    env_a = {
-        **os.environ,
-        "ORCHESTRATOR_HOME": _ORCHESTRATOR_HOME,
-        "METRICS_DB": str(legacy_db_path),
-    }
-    proc = subprocess.run(
-        [sys.executable, str(_LEGACY_SCRIPT), str(patched_state_path)],
-        capture_output=True, text=True, env=env_a,
-    )
-    assert proc.returncode == 0, (
-        f"Legacy script failed (exit {proc.returncode}):\n"
-        f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
-    )
-
-    legacy_db = duckdb.connect(str(legacy_db_path))
-    legacy_row = _fetch_row_as_dict(legacy_db, _PARITY_COLUMNS)
-    legacy_db.close()
-    assert legacy_row is not None, "Legacy script produced no feature_metrics row"
-
-    # --- Path B: absorbed path ---
-    absorbed_db_path = tmp_path / "absorbed.duckdb"
-    absorbed_db = duckdb.connect(str(absorbed_db_path))
-    ensure_schema(absorbed_db)
+    # --- Run absorbed path ---
+    db = duckdb.connect(":memory:")
+    ensure_schema(db)
 
     fm_data = _resolve_feature_metrics(state, change_id)
-    # Override repo_root and change_id in fm_data aren't needed — they're passed separately
-    _write_feature_metrics(absorbed_db, repo_root, change_id, fm_data)
+    _write_feature_metrics(db, repo_root, change_id, fm_data)
 
-    absorbed_row = _fetch_row_as_dict(absorbed_db, _PARITY_COLUMNS)
-    absorbed_db.close()
-    assert absorbed_row is not None, "Absorbed path produced no feature_metrics row"
+    actual_row = _fetch_row_as_dict(db, _PARITY_COLUMNS)
+    db.close()
+    assert actual_row is not None, "Absorbed path produced no feature_metrics row"
 
-    # --- Assert parity ---
+    # --- Assert parity against snapshot ---
     mismatches = []
     for col in _PARITY_COLUMNS:
-        legacy_val = legacy_row[col]
-        absorbed_val = absorbed_row[col]
-        if legacy_val != absorbed_val:
+        expected_val = expected_row.get(col)
+        actual_val = actual_row.get(col)
+        if expected_val != actual_val:
             mismatches.append(
-                f"  {col!r}: legacy={legacy_val!r}  absorbed={absorbed_val!r}"
+                f"  {col!r}: expected={expected_val!r}  actual={actual_val!r}"
             )
 
     assert not mismatches, (
-        f"Parity mismatch between legacy script and absorbed path:\n"
+        f"Parity mismatch between absorbed path and snapshot:\n"
         + "\n".join(mismatches)
     )
