@@ -21,7 +21,7 @@ LLM Proxy (:4000)
 │
 ├── OpenRouter     → "qwen": model ID + API key
 ├── LLM Manager    → "qwen-local": pod name + manager key
-└── Direct vLLM    → "klm-local": localhost, no auth
+└── Direct vLLM    → "klm-local": tailnet hostname, no auth
 ```
 
 **Agents don't know which model runs them.** The mapping is in `routes.json`:
@@ -35,7 +35,7 @@ LLM Proxy (:4000)
   "models": {
     "qwen":       { "url": "https://openrouter.ai/api/v1", "model": "qwen/qwen3-coder-30b-a3b-instruct" },
     "qwen-local": { "url": "http://localhost:3456/v1", "model": "coder" },
-    "klm-local":  { "url": "http://localhost:8000/v1" }
+    "klm-local":  { "url": "http://gpu27b:8000/v1" }
   }
 }
 ```
@@ -102,12 +102,15 @@ Claude Code integration. Three tools:
 Shell-based RunPod lifecycle (predates the UI):
 
 ```bash
-./gpu.sh create          # provision pod + volume + tunnel
-./gpu.sh status          # pod + vLLM health
-./gpu.sh terminate       # destroy pod
-./gpu.sh restart-vllm    # restart model serving
-./gpu.sh supervise       # auto-recreate on failure + budget kill
+PROFILE=qwen27b ./gpu.sh create   # load scripts/profiles/qwen27b.env
+PROFILE=qwen35b ./gpu.sh create   # load scripts/profiles/qwen35b.env
+./gpu.sh status                   # pod + vLLM health
+./gpu.sh terminate                # destroy pod
+./gpu.sh restart-vllm             # restart model serving
+./gpu.sh supervise                # auto-recreate on failure + budget kill
 ```
+
+Profiles are simple env files in `scripts/profiles/` that override the shared `.env` after it is loaded. When Tailscale is configured, the direct URL lands on `http://<pod-name>:$REMOTE_PORT`; the SSH tunnel remains an explicit fallback for non-tailnet runs.
 
 See `setup-vllm.sh` for model serving config (reasoning parser, tool parser, ephemeral disk mode).
 
@@ -118,7 +121,7 @@ See `setup-vllm.sh` for model serving config (reasoning parser, tool parser, eph
 ```
 "developer": "qwen"          → OpenRouter ($0.08/M tokens)
 "developer": "qwen-local"    → LLM Manager → RunPod pod "coder"
-"developer": "klm-local"     → Direct vLLM on localhost
+"developer": "klm-local"     → Direct vLLM on `http://gpu27b:8000/v1`
 "developer": "native_sonnet" → Claude Sonnet sub-agent
 ```
 
@@ -133,6 +136,7 @@ See `EXPERIMENT.md` for model evaluation data:
 | Fix from feedback | PASS | None |
 
 - 121 tok/s on A40 ($0.35/hr) via vLLM
+- Tailnet direct access uses pod hostnames like `gpu27b:8000` and `gpu80b:8000` instead of a localhost tunnel
 - Thinking variant: no improvement, slower, worse at fixes
 - Total experiment cost: $4.05 across 4 experiments
 
@@ -147,6 +151,7 @@ See `EXPERIMENT.md` for model evaluation data:
 | `LLM_MANAGER_KEY` | Auth for LLM Manager API |
 | `GPU_TYPE` | Default GPU (e.g. `NVIDIA A40`) |
 | `GPU_FALLBACKS` | Comma-separated fallback GPUs |
+| `PROFILE` / `PROFILE_FILE` | Optional profile env override loaded after `.env` (e.g. `qwen27b`, `qwen35b`) |
 | `VLLM_MODEL` | HuggingFace model ID |
 | `VLLM_MAX_LEN` | Max context tokens (default 65536) |
 | `VOLUME_NAME` | Network volume name (`none` = ephemeral) |

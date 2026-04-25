@@ -172,11 +172,9 @@ async function getCachedPods() {
 }
 
 function getPodEndpoint(pod) {
-  // Find the SSH port to construct the tunnel URL
-  // When tunnel is active, vLLM is on localhost:8000
-  // For now, pods are accessed via SSH tunnel — the proxy routes to localhost:8000
-  // TODO: support direct pod IP access for hosted deployments
-  return "http://localhost:8000";
+  // Tailnet direct access uses the pod name as the stable hostname.
+  const host = pod.name || pod.id;
+  return `http://${host}:8000`;
 }
 
 app.get("/v1/models", authMiddleware, async (_req, res) => {

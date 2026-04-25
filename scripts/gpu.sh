@@ -4,6 +4,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/.env}"
+PROFILE="${PROFILE:-}"
+PROFILE_FILE="${PROFILE_FILE:-}"
 LAST_POD_FILE="${LAST_POD_FILE:-$SCRIPT_DIR/.runpod-pod-id}"
 
 # Default RunPod create args (base values).
@@ -21,18 +23,53 @@ DEFAULT_VOLUME_CREATE_DC="EU-SE-1"
 DEFAULT_VLLM_MODEL="QuantTrio/Qwen3-Coder-30B-A3B-Instruct-AWQ"
 DEFAULT_VLLM_MAX_LEN="65536"
 
-if [ -f "$ENV_FILE" ]; then
-  # shellcheck source=/dev/null
-  set -a
-  . "$ENV_FILE"
-  set +a
+load_env_file() {
+  local env_path="$1"
+  if [ -f "$env_path" ]; then
+    # shellcheck source=/dev/null
+    set -a
+    . "$env_path"
+    set +a
+  fi
+}
+
+resolve_profile_file() {
+  if [ -n "$PROFILE_FILE" ]; then
+    if [ ! -f "$PROFILE_FILE" ]; then
+      echo "PROFILE_FILE does not exist: $PROFILE_FILE" >&2
+      exit 1
+    fi
+    printf '%s\n' "$PROFILE_FILE"
+    return 0
+  fi
+
+  if [ -n "$PROFILE" ]; then
+    local candidate="$SCRIPT_DIR/profiles/$PROFILE.env"
+    if [ ! -f "$candidate" ]; then
+      echo "PROFILE '$PROFILE' not found at $candidate" >&2
+      exit 1
+    fi
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  return 1
+}
+
+load_env_file "$ENV_FILE"
+if PROFILE_ENV_FILE="$(resolve_profile_file)"; then
+  load_env_file "$PROFILE_ENV_FILE"
 fi
 
 POD_ID="${POD_ID:-}"
 LOCAL_PORT="${LOCAL_PORT:-8000}"
 REMOTE_PORT="${REMOTE_PORT:-8000}"
+VLLM_PORT="${VLLM_PORT:-$REMOTE_PORT}"
 VLLM_MODEL="${VLLM_MODEL:-$DEFAULT_VLLM_MODEL}"
 VLLM_MAX_LEN="${VLLM_MAX_LEN:-$DEFAULT_VLLM_MAX_LEN}"
+TAILSCALE_AUTHKEY="${TAILSCALE_AUTHKEY:-}"
+TAILSCALE_HOSTNAME="${TAILSCALE_HOSTNAME:-}"
+TAILSCALE_STATE_FILE="${TAILSCALE_STATE_FILE:-/workspace/tailscale.state}"
 TUNNEL_PID_FILE="${TUNNEL_PID_FILE:-$SCRIPT_DIR/.tunnel-pid}"
 SPEND_LOG="${SPEND_LOG:-$SCRIPT_DIR/.spend-log}"
 SUPERVISOR_LOG="${SUPERVISOR_LOG:-$SCRIPT_DIR/.supervisor.log}"
@@ -50,6 +87,29 @@ notify() {
     osascript -e "display notification \"$msg\" with title \"$title\"" 2>/dev/null || true
   fi
 }
+
+direct_access_enabled() {
+  [ -n "$TAILSCALE_AUTHKEY" ]
+}
+
+effective_tailnet_hostname() {
+  if [ -n "$TAILSCALE_HOSTNAME" ]; then
+    printf '%s' "$TAILSCALE_HOSTNAME"
+  elif [ "$SPOT" = "1" ]; then
+    printf '%s-spot' "$CREATE_POD_NAME"
+  else
+    printf '%s' "$CREATE_POD_NAME"
+  fi
+}
+
+pod_access_url() {
+  if direct_access_enabled; then
+    printf 'http://%s:%s' "$(effective_tailnet_hostname)" "$REMOTE_PORT"
+  else
+    printf 'http://localhost:%s' "$LOCAL_PORT"
+  fi
+}
+
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
 SSH_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -i $SSH_KEY"
 RUNPOD_BIN="${RUNPOD_BIN:-}"
@@ -100,8 +160,11 @@ usage() {
   echo "                   auto-restart vLLM if it dies, kill on budget hit"
   echo ""
   echo "Env vars (also read from \$ENV_FILE=$ENV_FILE):"
+  echo "  PROFILE=<name> or PROFILE_FILE=<path> (loads after $ENV_FILE)"
   echo "  VLLM_MODEL=$VLLM_MODEL"
   echo "  VLLM_MAX_LEN=$VLLM_MAX_LEN"
+  echo "  TAILSCALE_AUTHKEY=${TAILSCALE_AUTHKEY:-<unset>}"
+  echo "  TAILSCALE_HOSTNAME=${TAILSCALE_HOSTNAME:-<auto>}"
   echo "  LOCAL_PORT=$LOCAL_PORT  REMOTE_PORT=$REMOTE_PORT"
   echo "  SPOT=$SPOT  SPOT_BID_PER_GPU=\$$SPOT_BID_PER_GPU  DAILY_BUDGET=\$$DAILY_BUDGET"
   echo "  SUPERVISOR_POLL_SECS=$SUPERVISOR_POLL_SECS  SUPERVISOR_MAX_FAILS_PER_HOUR=$SUPERVISOR_MAX_FAILS_PER_HOUR"
@@ -233,8 +296,25 @@ wait_for_ssh() {
   exit 1
 }
 
+build_remote_env_prefix() {
+  local var value prefix=""
+
+  if [ -z "$TAILSCALE_HOSTNAME" ]; then
+    TAILSCALE_HOSTNAME="$(effective_tailnet_hostname)"
+  fi
+
+  for var in VLLM_MODEL VLLM_MAX_LEN VLLM_PORT VLLM_GPU_UTIL VLLM_TOOL_PARSER VLLM_REASONING_PARSER TAILSCALE_AUTHKEY TAILSCALE_HOSTNAME TAILSCALE_STATE_FILE; do
+    value="${!var:-}"
+    if [ -n "$value" ]; then
+      prefix+="$var=$(printf '%q' "$value") "
+    fi
+  done
+  printf '%s' "$prefix"
+}
+
 run_remote_setup() {
   local setup_dest="/workspace/setup-vllm.sh"
+  local remote_env
 
   if [ -z "$CREATE_RUNPOD_VOLUME_ID" ]; then
     echo "WARNING: no network volume attached — model will not persist across pod recreations."
@@ -243,13 +323,14 @@ run_remote_setup() {
   echo "Copying setup script to pod ($setup_dest)..."
   scp $SSH_OPTS -P "$POD_SSH_PORT" "$SCRIPT_DIR/setup-vllm.sh" "root@$POD_IP:$setup_dest"
 
-  echo "Running remote vLLM setup (model=$VLLM_MODEL)..."
+  remote_env="$(build_remote_env_prefix)"
+  if direct_access_enabled; then
+    echo "Running remote vLLM setup (model=$VLLM_MODEL, access=tailnet)..."
+  else
+    echo "Running remote vLLM setup (model=$VLLM_MODEL, access=legacy tunnel fallback)..."
+  fi
   ssh $SSH_OPTS -p "$POD_SSH_PORT" "root@$POD_IP" \
-    "chmod +x $setup_dest && \
-     VLLM_MODEL='$VLLM_MODEL' \
-     VLLM_MAX_LEN='$VLLM_MAX_LEN' \
-     VLLM_PORT='$REMOTE_PORT' \
-     bash $setup_dest"
+    "chmod +x $setup_dest && ${remote_env}bash $setup_dest"
 }
 
 kill_existing_tunnel() {
@@ -458,10 +539,19 @@ create_pod() {
     get_pod_endpoint
     wait_for_ssh
     run_remote_setup
-    open_tunnel_bg
+    if direct_access_enabled; then
+      kill_existing_tunnel
+    else
+      open_tunnel_bg
+    fi
     record_spend_start
     echo ""
-    echo "✅ Spot pod ready. vLLM serving $VLLM_MODEL on http://localhost:$LOCAL_PORT"
+    if direct_access_enabled; then
+      echo "✅ Spot pod ready. vLLM serving $VLLM_MODEL on http://$(effective_tailnet_hostname):$REMOTE_PORT"
+      echo "   Tailscale direct access is active; run '$0 tunnel' only for the fallback path."
+    else
+      echo "✅ Spot pod ready. vLLM serving $VLLM_MODEL on http://localhost:$LOCAL_PORT"
+    fi
     echo "   Run '$0 supervise' to auto-recreate on interruption."
     return 0
   fi
@@ -552,14 +642,28 @@ create_pod() {
   get_pod_endpoint
   wait_for_ssh
   run_remote_setup
-  open_tunnel_bg
+  if direct_access_enabled; then
+    kill_existing_tunnel
+  else
+    open_tunnel_bg
+  fi
   record_spend_start
 
   echo ""
-  echo "✅ Pod ready. vLLM serving $VLLM_MODEL on http://localhost:$LOCAL_PORT"
+  if direct_access_enabled; then
+    echo "✅ Pod ready. vLLM serving $VLLM_MODEL on http://$(effective_tailnet_hostname):$REMOTE_PORT"
+    echo "   Tailscale direct access is active; use '$0 tunnel' only for the legacy fallback."
+  else
+    echo "✅ Pod ready. vLLM serving $VLLM_MODEL on http://localhost:$LOCAL_PORT"
+  fi
   echo ""
   echo "Common commands:"
-  echo "  curl http://localhost:$LOCAL_PORT/v1/models"
+  if direct_access_enabled; then
+    echo "  curl http://$(effective_tailnet_hostname):$REMOTE_PORT/v1/models"
+    echo "  $0 tunnel       # open the legacy SSH tunnel fallback"
+  else
+    echo "  curl http://localhost:$LOCAL_PORT/v1/models"
+  fi
   echo "  $0 logs         # tail vLLM log"
   echo "  $0 ssh          # shell on pod"
   echo "  $0 restart-vllm # bounce vLLM without recreating pod"
@@ -599,11 +703,11 @@ restart_vllm_on_pod() {
   detect_runpod_cli
   get_pod_endpoint
   wait_for_ssh
+  local remote_env
+  remote_env="$(build_remote_env_prefix)"
   echo "Restarting vLLM on pod (model=$VLLM_MODEL)..."
   ssh $SSH_OPTS -p "$POD_SSH_PORT" "root@$POD_IP" \
-    "pkill -9 -f 'vllm serve' 2>/dev/null; sleep 3; \
-     VLLM_MODEL='$VLLM_MODEL' VLLM_MAX_LEN='$VLLM_MAX_LEN' VLLM_PORT='$REMOTE_PORT' \
-     bash /workspace/setup-vllm.sh"
+    "pkill -9 -f 'vllm serve' 2>/dev/null; sleep 3; ${remote_env}bash /workspace/setup-vllm.sh"
   echo "vLLM restarted. Tunnel (if any) should resume automatically once server is up."
 }
 
@@ -632,11 +736,20 @@ pod_status() {
   fi
 
   echo ""
-  echo "vLLM (via tunnel):"
-  if curl -fsS --max-time 3 "http://localhost:$LOCAL_PORT/v1/models" 2>/dev/null | jq -r '.data[0].id' 2>/dev/null | head -1; then
-    :
+  if direct_access_enabled; then
+    echo "vLLM (direct tailnet):"
+    if curl -fsS --max-time 3 "$(pod_access_url)/v1/models" 2>/dev/null | jq -r '.data[0].id' 2>/dev/null | head -1; then
+      :
+    else
+      echo "  unreachable on $(pod_access_url)"
+    fi
   else
-    echo "  unreachable on localhost:$LOCAL_PORT"
+    echo "vLLM (via tunnel):"
+    if curl -fsS --max-time 3 "http://localhost:$LOCAL_PORT/v1/models" 2>/dev/null | jq -r '.data[0].id' 2>/dev/null | head -1; then
+      :
+    else
+      echo "  unreachable on localhost:$LOCAL_PORT"
+    fi
   fi
 }
 
@@ -704,10 +817,17 @@ health_check() {
 
   if [ "$status" != "RUNNING" ]; then echo "status=$status"; return 1; fi
 
-  # Probe vLLM via tunnel
-  if ! curl -fsS --max-time 5 "http://localhost:$LOCAL_PORT/v1/models" >/dev/null 2>&1; then
-    echo "vllm-unreachable (uptime=${uptime}s)"
-    return 2
+  # Probe vLLM directly when tailnet access is enabled; otherwise probe the local tunnel URL.
+  if direct_access_enabled; then
+    if ! curl -fsS --max-time 5 "$(pod_access_url)/v1/models" >/dev/null 2>&1; then
+      echo "vllm-unreachable (uptime=${uptime}s)"
+      return 2
+    fi
+  else
+    if ! curl -fsS --max-time 5 "http://localhost:$LOCAL_PORT/v1/models" >/dev/null 2>&1; then
+      echo "vllm-unreachable (uptime=${uptime}s)"
+      return 2
+    fi
   fi
 
   echo "healthy uptime=${uptime}s"
@@ -789,7 +909,11 @@ supervise_pod() {
         get_pod_endpoint 2>/dev/null || { notify "Supervisor" "Endpoint fetch failed"; continue; }
         wait_for_ssh 2>/dev/null || { notify "Supervisor" "SSH wait failed"; continue; }
         run_remote_setup
-        open_tunnel_bg
+        if direct_access_enabled; then
+          kill_existing_tunnel
+        else
+          open_tunnel_bg
+        fi
         record_spend_start
         notify "Supervisor" "Pod back online"
         consecutive_fails=0
