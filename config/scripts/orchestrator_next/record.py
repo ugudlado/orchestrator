@@ -103,6 +103,117 @@ def _write_phase_event(db, repo_root: str, change_id: str, phase: str, attempt: 
 
 
 # ---------------------------------------------------------------------------
+# Driver session resolution helpers (FR-6)
+# ---------------------------------------------------------------------------
+
+_INSERT_DRIVER_SESSION = """
+INSERT OR REPLACE INTO driver_sessions (
+  repo_root, change_id, session_id, model,
+  total_tokens, input_tokens, output_tokens, cost_usd,
+  started_at, ended_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+
+def _resolve_driver_session(state: dict, change_id: str, db=None) -> dict:
+    """Resolve the driver session and return its usage dict.
+
+    Resolution order:
+      1. $ORCHESTRATOR_DRIVER_SESSION_ID env var.
+      2. Scan ~/.claude/projects/<repo-slug>/ for most recent *.jsonl by mtime.
+
+    Raises RuntimeError if session_id cannot be resolved.
+
+    Args:
+        state: parsed state dict (needs 'repo_root').
+        change_id: feature change_id for logging.
+        db: optional open DuckDB connection for cost computation.
+
+    Returns:
+        dict with keys: session_id, model, total_tokens, input_tokens,
+        output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+        cost_usd, started_at, ended_at.
+    """
+    from orchestrator_next.jsonl_usage import extract_driver_usage
+
+    repo_root = state.get("repo_root") or ""
+
+    # Step 1: env var
+    session_id = os.environ.get("ORCHESTRATOR_DRIVER_SESSION_ID") or ""
+
+    # Step 2: scan for most recent JSONL by mtime
+    if not session_id:
+        from pathlib import Path as _Path
+
+        def _repo_slug(rr: str) -> str:
+            return rr.replace("/", "-")
+
+        slug_dir = _Path.home() / ".claude" / "projects" / _repo_slug(repo_root)
+        if slug_dir.exists():
+            jsonl_files = list(slug_dir.glob("*.jsonl"))
+            if jsonl_files:
+                newest = max(jsonl_files, key=lambda p: p.stat().st_mtime)
+                session_id = newest.stem
+
+    if not session_id:
+        raise RuntimeError(
+            f"[done] driver session_id not resolvable for change_id={change_id!r}: "
+            f"set $ORCHESTRATOR_DRIVER_SESSION_ID or ensure a JSONL exists under "
+            f"~/.claude/projects/<repo-slug>/"
+        )
+
+    usage = extract_driver_usage(repo_root, session_id)
+    if not usage:
+        usage = {}
+
+    # Compute cost_usd if a DB is available
+    if db is not None and usage:
+        model, cost = _compute_cost_usd(db, "driver-loop", usage)
+        if cost is not None:
+            usage["cost_usd"] = cost
+        if model and not usage.get("model"):
+            usage["model"] = model
+
+    input_tok = usage.get("input_tokens") or 0
+    output_tok = usage.get("output_tokens") or 0
+    return {
+        "session_id": session_id,
+        "model": usage.get("model"),
+        "total_tokens": input_tok + output_tok,
+        "input_tokens": input_tok,
+        "output_tokens": output_tok,
+        "cache_read_input_tokens": usage.get("cache_read_input_tokens") or 0,
+        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens") or 0,
+        "cost_usd": usage.get("cost_usd"),
+        "started_at": None,  # JSONL aggregate doesn't expose session start/end directly
+        "ended_at": None,
+    }
+
+
+def _write_driver_session(db, repo_root: str, change_id: str, session: dict) -> None:
+    """Insert a driver_sessions row. Caller controls transaction.
+
+    Args:
+        db: open DuckDB connection (transaction open, caller controls).
+        repo_root: absolute path to the repo root.
+        change_id: feature identifier.
+        session: dict returned by _resolve_driver_session.
+    """
+    db.execute(_INSERT_DRIVER_SESSION, [
+        repo_root,
+        change_id,
+        session["session_id"],
+        session.get("model"),
+        session.get("total_tokens") or 0,
+        session.get("input_tokens") or 0,
+        session.get("output_tokens") or 0,
+        session.get("cost_usd"),
+        session.get("started_at"),
+        session.get("ended_at"),
+    ])
+
+
+# ---------------------------------------------------------------------------
 # Cost computation helpers (ISSUE-17)
 # ---------------------------------------------------------------------------
 
