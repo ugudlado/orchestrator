@@ -349,7 +349,7 @@ fi
 cat <<YAML
 route_preview:
   schema: $SCHEMA
-  generated_at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  generated_at: "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   agents:
 ${AGENTS_YAML}${ESTIMATE_BLOCK}
 YAML
