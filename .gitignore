@@ -25,5 +25,6 @@ spec/changes/*/state.yaml
 
 # Cross-repo metrics runtime artifacts (per-machine, never gitted)
 *.duckdb
+*.duckdb.bak-*
 /metrics-registry.yaml
 .claude/metrics.jsonl
