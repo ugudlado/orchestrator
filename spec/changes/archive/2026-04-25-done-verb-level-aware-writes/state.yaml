@@ -1,0 +1,881 @@
+branch: feature/done-verb-level-aware-writes
+change_id: done-verb-level-aware-writes
+created_at: 2026-04-24 23:34:09+00:00
+flags:
+  agents: false
+  auto: false
+  discovery: true
+  light: false
+  linear: true
+  phase_review: true
+  tdd_required: true
+  ux_design: false
+  worktree: true
+linear_ticket: null
+next_step:
+  phase: complete
+  step_id: archive-completed-change
+phase: complete
+project_context_at: 2026-04-24 23:34:09+00:00
+project_context_loaded: true
+repo_root: /Users/spidey/code/orchestrator
+retries:
+  run-phase-review: 1
+schema: feature
+slug: done-verb-level-aware-writes
+status: completed
+step_history:
+- agent: workflow-init
+  attempt: 1
+  ended_at: '2026-04-24T23:34:38Z'
+  evidence:
+    outputs:
+      branch: feature/done-verb-level-aware-writes
+      linear_ticket_id: null
+      resolved_flags:
+        agents: false
+        auto: false
+        discovery: true
+        light: false
+        linear: true
+        phase_review: true
+        tdd_required: true
+        ux_design: false
+        worktree: true
+      slug: done-verb-level-aware-writes
+      worktree_path: /Users/spidey/code/feature_worktrees/done-verb-level-aware-writes
+  phase: specify
+  started_at: '2026-04-24T23:34:09Z'
+  status: completed
+  step_id: workflow-init
+  usage:
+    input_tokens: 1
+    output_tokens: 1
+- agent: discoverer
+  attempt: 1
+  ended_at: '2026-04-24T23:43:44Z'
+  evidence:
+    outputs:
+      discovery_result: .state/done-verb-level-aware-writes/discovery.md
+  phase: specify
+  started_at: '2026-04-24T23:43:44Z'
+  status: completed
+  step_id: explore
+  usage:
+    input_tokens: 120000
+    output_tokens: 4500
+- agent: discoverer
+  attempt: 2
+  ended_at: '2026-04-24T23:44:28Z'
+  evidence:
+    file: .state/done-verb-level-aware-writes/discovery.md
+    note: supersedes orphaned in_progress row from durable-intent dispatch path
+    outputs:
+      discovery_result: .state/done-verb-level-aware-writes/discovery.md
+  phase: specify
+  started_at: '2026-04-24T23:44:28Z'
+  status: completed
+  step_id: explore
+  usage:
+    cost_usd: 0.4275
+    duration_ms: 486788
+    input_tokens: 120000
+    model: claude-sonnet-4-6
+    output_tokens: 4500
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-24T23:51:48Z'
+  evidence:
+    outputs:
+      complexity: S
+      design_direction: Staged alias migration (Approach B)
+      design_path: /Users/spidey/code/orchestrator/.state/done-verb-level-aware-writes/design.md
+      spec_path: /Users/spidey/code/orchestrator/.state/done-verb-level-aware-writes/spec.md
+      tasks_path: /Users/spidey/code/orchestrator/.state/done-verb-level-aware-writes/tasks.md
+      updated_artifact_set:
+      - spec.md
+      - design.md
+      - tasks.md
+  phase: specify
+  started_at: '2026-04-24T23:51:48Z'
+  status: completed
+  step_id: design-and-draft-artifacts
+  usage: {}
+- agent: architect
+  attempt: 2
+  ended_at: '2026-04-24T23:52:23Z'
+  evidence:
+    note: supersedes orphaned in_progress row from durable-intent dispatch path
+    outputs:
+      complexity: S
+      design_direction: Staged alias migration (Approach B)
+      design_path: /Users/spidey/code/orchestrator/.state/done-verb-level-aware-writes/design.md
+      spec_path: /Users/spidey/code/orchestrator/.state/done-verb-level-aware-writes/spec.md
+      tasks_path: /Users/spidey/code/orchestrator/.state/done-verb-level-aware-writes/tasks.md
+      updated_artifact_set:
+      - spec.md
+      - design.md
+      - tasks.md
+  phase: specify
+  started_at: '2026-04-24T23:52:23Z'
+  status: completed
+  step_id: design-and-draft-artifacts
+  usage:
+    cost_usd: 1.93926
+    duration_ms: 395021
+    input_tokens: 89284
+    model: claude-opus-4-7
+    output_tokens: 8000
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-24T23:52:51Z'
+  evidence:
+    note: non-blocking failure recorded as completed per step contract rule 'Non-blocking.
+      A script failure or missing pricing table must not halt the phase.'
+    outputs:
+      route_preview:
+        reason: "estimate-cost.sh datetime JSON serialization bug \u2014 non-blocking\
+          \ per contract"
+        status: estimate_unavailable
+    script: scripts/inline/preview-route.sh
+  phase: specify
+  started_at: '2026-04-24T23:52:51Z'
+  status: completed
+  step_id: preview-route
+  usage: {}
+- agent: inline
+  attempt: 1
+  ended_at: '2026-04-25T00:02:23Z'
+  evidence:
+    outputs:
+      findings_count:
+        critical: 1
+        important: 2
+        minor: 4
+      phase_review_report: .state/done-verb-level-aware-writes/review-specify.md
+      review_score:
+        dimensions:
+          code_quality: 7
+          correctness: 7
+          security: 9
+          simplicity: 9
+          spec_compliance: 5
+        overall: 5
+      verdict: FAIL
+  phase: specify
+  started_at: '2026-04-25T00:02:23Z'
+  status: failed
+  step_id: run-phase-review
+  usage:
+    input_tokens: 150000
+    output_tokens: 6000
+- step_id: design-and-draft-artifacts
+  phase: specify
+  status: completed
+  agent: architect
+  attempt: 3
+  started_at: '2026-04-25T00:08:08Z'
+  ended_at: '2026-04-25T00:08:08Z'
+  usage:
+    input_tokens: 65000
+    output_tokens: 4500
+    model: claude-opus-4.7
+    cost_usd: 1.3125
+  evidence:
+    outputs:
+      updated_artifact_set:
+      - spec.md
+      - design.md
+      - tasks.md
+      - discovery.md
+      design_direction: Staged alias migration (Approach B) + Option A subagent absorption
+      complexity: S
+      fix_resolved: FT-1
+    note: 'FT-1 critical finding resolved: subagent absorption added to design and
+      spec atomically per cycle-11 rule'
+- step_id: design-and-draft-artifacts
+  phase: specify
+  status: completed
+  agent: architect
+  attempt: 4
+  started_at: '2026-04-25T00:11:08Z'
+  ended_at: '2026-04-25T00:11:08Z'
+  usage:
+    input_tokens: 5000
+    output_tokens: 4500
+    model: claude-opus-4-7
+    cost_usd: 0.41250000000000003
+  evidence:
+    outputs:
+      updated_artifact_set:
+      - spec.md
+      - design.md
+      - tasks.md
+      - discovery.md
+      design_direction: Staged alias migration (Approach B) + Option A subagent absorption
+      complexity: S
+      fixes_resolved:
+      - FT-1
+      - FT-2
+      - FT-3
+    note: FT-1 resolved by architect respawn (subagent absorption); FT-2 resolved
+      by approach-b verify clause rewrite (TDD-red gate window); FT-3 resolved by
+      full tasks.md reformat to Task Format Contract
+- step_id: run-phase-review
+  phase: specify
+  status: completed
+  agent: reviewer
+  attempt: 2
+  started_at: '2026-04-25T00:15:49Z'
+  ended_at: '2026-04-25T00:15:49Z'
+  usage:
+    input_tokens: 85000
+    output_tokens: 4000
+  evidence:
+    outputs:
+      phase_review_report: .state/done-verb-level-aware-writes/review-specify.md
+      review_score:
+        overall: 9
+        dimensions:
+          spec_compliance: 9
+          correctness: 9
+          security: 9
+          simplicity: 9
+          code_quality: 9
+      verdict: PASS
+      round: 2
+      findings_count:
+        critical: 0
+        important: 0
+        minor: 4
+- step_id: run-phase-review
+  phase: specify
+  status: completed
+  agent: reviewer
+  attempt: 3
+  started_at: '2026-04-25T00:16:28Z'
+  ended_at: '2026-04-25T00:16:28Z'
+  usage:
+    input_tokens: 79612
+    output_tokens: 5000
+    duration_ms: 258287
+    model: claude-sonnet-4-6
+    cost_usd: 0.313836
+  evidence:
+    outputs:
+      phase_review_report: .state/done-verb-level-aware-writes/review-specify.md
+      verdict: PASS
+      round: 2
+    note: 'Round 2 PASS: all 3 fix tasks (FT-1, FT-2, FT-3) verified resolved; 4 minor
+      findings remain non-blocking. supersedes orphaned in_progress row.'
+- step_id: spec-signoff
+  phase: specify
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T06:19:50Z'
+  ended_at: '2026-04-25T06:19:50Z'
+  usage: {}
+  evidence:
+    outputs:
+      signoff: approved
+      approver: user
+      directive: complete all
+    note: User approved spec phase via 'lets complete all' directive; advancing to
+      implement phase
+- step_id: capture-test-baseline
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T06:20:35Z'
+  ended_at: '2026-04-25T06:20:35Z'
+  usage: {}
+  evidence:
+    outputs:
+      test_baseline:
+        captured_at: '2026-04-25T06:20:20Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 227
+        failing: 5
+        skipped: 0
+        total: 232
+        exit_code: 1
+    note: 5 pre-existing failures captured as baseline; new feature must not increase
+      fail count
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-04-25T06:26:57Z'
+  ended_at: '2026-04-25T06:26:57Z'
+  usage:
+    input_tokens: 1
+  evidence:
+    outputs:
+      task_execution_result: 'T-1 RED: test_migration_0003.py written. 4 tests fail
+        as expected (phase_events/driver_sessions not yet created).'
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 2
+  started_at: '2026-04-25T06:27:48Z'
+  ended_at: '2026-04-25T06:27:48Z'
+  usage:
+    input_tokens: 1
+  evidence:
+    outputs:
+      task_execution_result: 'T-2 GREEN: 0003_phase_events_driver_sessions.sql created.
+        All 4 T-1 tests pass. Suite: 234 passing, 2 pre-existing failures.'
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 3
+  started_at: '2026-04-25T06:28:44Z'
+  ended_at: '2026-04-25T06:28:44Z'
+  usage:
+    input_tokens: 1
+  evidence:
+    outputs:
+      task_execution_result: 'T-3 RED: test_boundary_detection.py written. ImportError:
+        cannot import _detect_boundary (expected).'
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 4
+  started_at: '2026-04-25T06:29:40Z'
+  ended_at: '2026-04-25T06:29:40Z'
+  usage:
+    input_tokens: 1
+  evidence:
+    outputs:
+      task_execution_result: 'T-4 GREEN: _detect_boundary + BoundaryKind implemented
+        in record.py. All 14 T-3 tests pass. Suite: 248 passing.'
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 5
+  started_at: '2026-04-25T06:30:57Z'
+  ended_at: '2026-04-25T06:30:57Z'
+  usage:
+    input_tokens: 1
+  evidence:
+    outputs:
+      task_execution_result: 'T-5 RED: test_phase_boundary_write.py written. ImportError:
+        cannot import _write_phase_event (expected).'
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 6
+  started_at: '2026-04-25T06:31:44Z'
+  ended_at: '2026-04-25T06:31:44Z'
+  usage:
+    input_tokens: 1
+  evidence:
+    outputs:
+      task_execution_result: 'T-6 GREEN: _write_phase_event implemented. T-5 tests
+        pass. Suite: 250 passing, 3 new T-11 RED failures expected.'
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 7
+  started_at: '2026-04-25T06:32:43Z'
+  ended_at: '2026-04-25T06:32:43Z'
+  usage:
+    input_tokens: 1
+  evidence:
+    outputs:
+      task_execution_result: 'T-7 RED: test_feature_boundary_write.py written. ImportError:
+        cannot import _resolve_driver_session (expected).'
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 8
+  started_at: '2026-04-25T06:33:37Z'
+  ended_at: '2026-04-25T06:33:37Z'
+  usage:
+    input_tokens: 1
+  evidence:
+    outputs:
+      task_execution_result: 'T-8 GREEN: _resolve_driver_session + _write_driver_session
+        implemented. All 6 T-7 tests pass. Suite: 256 passing.'
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 9
+  started_at: '2026-04-25T06:34:58Z'
+  ended_at: '2026-04-25T06:34:58Z'
+  usage:
+    input_tokens: 1
+  evidence:
+    outputs:
+      task_execution_result: 'T-8a RED: test_subagent_absorption.py written. ImportError:
+        cannot import _resolve_subagent_rows (expected).'
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 10
+  started_at: '2026-04-25T06:36:16Z'
+  ended_at: '2026-04-25T06:36:16Z'
+  usage:
+    input_tokens: 1
+  evidence:
+    outputs:
+      task_execution_result: 'T-8b GREEN: _resolve_subagent_rows + _write_subagent_events
+        implemented. All 9 T-8a tests pass. Suite: 265 passing.'
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 11
+  started_at: '2026-04-25T06:37:24Z'
+  ended_at: '2026-04-25T06:37:24Z'
+  usage:
+    input_tokens: 1
+  evidence:
+    outputs:
+      task_execution_result: 'T-9 RED: test_done_status_dispatch.py written. 10 failures
+        as expected (record does not yet dispatch on status or write step_events).'
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 12
+  started_at: '2026-04-25T06:39:38Z'
+  ended_at: '2026-04-25T06:39:38Z'
+  usage:
+    input_tokens: 1
+  evidence:
+    outputs:
+      task_execution_result: 'T-10 GREEN: status dispatch implemented. Missing status
+        defaults to completed, invalid exits 3, abandoned sets blocked, step_events
+        upsert added for non-boundary. All 11 T-9 tests pass. Suite: 276 passing.'
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 13
+  started_at: '2026-04-25T06:40:41Z'
+  ended_at: '2026-04-25T06:40:41Z'
+  usage:
+    input_tokens: 1
+  evidence:
+    outputs:
+      task_execution_result: 'T-11 RED: Atomic boundary write tests added. test_atomic_commit_phase_boundary,
+        test_rollback_on_failure, test_atomic_commit_feature_boundary, test_subagent_parse_before_begin
+        all fail as expected (BEGIN/COMMIT wiring not yet in record()).'
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 14
+  started_at: '2026-04-25T06:52:22Z'
+  ended_at: '2026-04-25T06:52:22Z'
+  usage:
+    input_tokens: 58779
+    output_tokens: 8000
+    duration_ms: 1798386
+    model: claude-sonnet-4-6
+    cost_usd: 0.29633699999999996
+  evidence:
+    outputs:
+      task_execution_result: chain_1_complete
+      tasks_completed:
+      - T-1
+      - T-2
+      - T-3
+      - T-4
+      - T-5
+      - T-6
+      - T-7
+      - T-8
+      - T-8a
+      - T-8b
+      - T-9
+      - T-10
+      - T-11
+      - T-12
+      - T-28
+      test_counts:
+        passing: 281
+        failing: 2
+        total: 283
+      self_review_score: 9
+    note: 'Chain 1 (Stage A backend): migration 0003 + all helpers + status dispatch
+      + atomic boundary writes. 54 new tests, 0 regressions vs baseline (failures
+      went from 5 to 2 due to baseline being captured pre-worktree-checkout)'
+- step_id: T-16-stage-a-checkpoint
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T07:00:40Z'
+  ended_at: '2026-04-25T07:00:40Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+  evidence:
+    outputs:
+      task_checkpoint:
+        task_id: T-16
+        status: completed
+        evidence:
+          gate_exit: 0
+          test_count: 286
+          pre_existing_failures: 2
+          new_tests_added: 5
+          coverage_note: Chain 2 changes are in bin/orchestrator (not a Python module)
+            and test_done_verb_alias.py. No record.py lines changed in T-13..T-16;
+            coverage criterion trivially satisfied.
+          m8_gates_exit: 0
+          commits:
+          - 7a853f7 T-13 RED
+          - 69b582c T-14 GREEN
+          - b554e7f T-15 gate update
+- step_id: task_checkpoint_chain3
+  phase: implement
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T07:09:02Z'
+  ended_at: '2026-04-25T07:09:02Z'
+  usage:
+    input_tokens: 1000
+    output_tokens: 500
+  evidence:
+    outputs:
+      tasks_completed:
+      - T-17
+      - T-18
+      - T-19
+      - T-20
+      - T-21
+      - T-22
+      - T-23
+      test_counts:
+        passing: 286
+        failing: 2
+      m8_gates_state: intentionally_red_until_T-25
+- step_id: T-24
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-04-25T07:15:51Z'
+  ended_at: '2026-04-25T07:15:51Z'
+  usage:
+    input_tokens: 5000
+    output_tokens: 500
+  evidence:
+    outputs:
+      summary: T-24 RED tests committed
+- step_id: T-25
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-04-25T07:18:11Z'
+  ended_at: '2026-04-25T07:18:11Z'
+  usage:
+    input_tokens: 8000
+    output_tokens: 800
+  evidence:
+    outputs:
+      summary: 'T-25 Stage C: banner and verb tuple updated, ingest functions removed,
+        gate green'
+- step_id: T-26
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-04-25T07:21:30Z'
+  ended_at: '2026-04-25T07:21:30Z'
+  usage:
+    input_tokens: 6000
+    output_tokens: 600
+  evidence:
+    outputs:
+      summary: T-26 ingest-auto steps deleted, complete-phase updated, gate 4 count
+        updated to 10
+- step_id: T-27
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-04-25T07:21:57Z'
+  ended_at: '2026-04-25T07:21:57Z'
+  usage:
+    input_tokens: 4000
+    output_tokens: 400
+  evidence:
+    outputs:
+      smoke_result: 'complete-phase.yaml verified: no ingest-auto steps, all 7 contracts
+        exist, phase_events+driver_sessions tables present in metrics.duckdb'
+- step_id: T-29
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-04-25T07:22:28Z'
+  ended_at: '2026-04-25T07:22:28Z'
+  usage:
+    input_tokens: 4000
+    output_tokens: 400
+  evidence:
+    outputs:
+      summary: 'T-29 checkpoint: 288 passing, 2 pre-existing failures, all gates pass,
+        banner shows done only'
+- step_id: execute-next-task
+  phase: implement
+  status: completed
+  agent: developer
+  attempt: 15
+  started_at: '2026-04-25T07:24:24Z'
+  ended_at: '2026-04-25T07:24:24Z'
+  usage:
+    input_tokens: 95493
+    output_tokens: 8000
+    duration_ms: 709115
+    model: claude-sonnet-4-6
+    cost_usd: 0.406479
+  evidence:
+    outputs:
+      task_execution_result: all_tasks_completed
+      tasks_completed:
+      - T-13
+      - T-14
+      - T-15
+      - T-16
+      - T-17
+      - T-18
+      - T-19
+      - T-20
+      - T-21
+      - T-22
+      - T-23
+      - T-24
+      - T-25
+      - T-26
+      - T-27
+      - T-29
+      test_counts:
+        passing: 288
+        failing: 2
+        total: 290
+      commits_made: 27
+      self_review_score: 9.8
+    note: Chain 2+3+4 (Stage A verb, Stage B caller migration, Stage C deprecation
+      + simplify pass). All 29 implement tasks done (+ T-8a, T-8b). m8-gates exit
+      0. 213 lines of _ingest_*_main removed.
+- step_id: run-phase-review
+  phase: implement
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: '2026-04-25T07:34:18Z'
+  ended_at: '2026-04-25T07:34:18Z'
+  usage:
+    input_tokens: 50000
+    output_tokens: 5000
+  evidence:
+    outputs:
+      verdict: PASS
+      phase_review_report: .state/done-verb-level-aware-writes/review-implement.md
+      review_score:
+        overall: 9
+        dimensions:
+          spec_compliance: 9
+          correctness: 9
+          security: 9
+          simplicity: 9
+          code_quality: 9
+- step_id: run-phase-review
+  phase: implement
+  status: completed
+  agent: reviewer
+  attempt: 2
+  started_at: '2026-04-25T07:37:15Z'
+  ended_at: '2026-04-25T07:37:15Z'
+  usage:
+    input_tokens: 94926
+    output_tokens: 5000
+    duration_ms: 589802
+    model: claude-sonnet-4-6
+    cost_usd: 0.359778
+  evidence:
+    outputs:
+      phase_review_report: .state/done-verb-level-aware-writes/review-implement.md
+      verdict: PASS
+      ac_verification:
+        passed: 11
+        failed: 0
+        total: 11
+      findings_count:
+        critical: 0
+        important: 0
+        minor: 2
+    note: Implement phase PASS 9/9. M-1 fixed in follow-up commit 2c90b62. Retro started
+      at .state/done-verb-level-aware-writes/retro.md.
+- step_id: compute-prediction-accuracy
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T07:38:14Z'
+  ended_at: '2026-04-25T07:38:14Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy_result:
+        computed_at: '2026-04-25T07:38:01Z'
+        predicted_tasks: 8
+        actual_tasks: 31
+        fix_task_count: 23
+        rework_rate: 0.742
+        task_delta: 23
+        task_accuracy_pct: 25.8
+        predicted_file_count: 39
+        actual_file_count: 26
+        file_delta: -13
+        file_overlap_pct: 51.3
+    note: Best-effort metric. Script's task-suffix classifier counted intentional
+      subdivisions (T-8a, T-8b) as fix tasks, inflating rework_rate. Real fix tasks
+      were FT-1, FT-2, FT-3 from one review round. File delta -13 = predicted 39 vs
+      actual 26 because spec.md listed exhaustive caller sites (incl. test fixtures)
+      that weren't all touched.
+- step_id: run-learn-cycle
+  phase: complete
+  status: completed
+  agent: workflow-improver
+  attempt: 1
+  started_at: '2026-04-25T07:38:35Z'
+  ended_at: '2026-04-25T07:38:35Z'
+  usage:
+    input_tokens: 1
+    output_tokens: 1
+    model: claude-sonnet-4-6
+    cost_usd: 1.8e-05
+  evidence:
+    outputs:
+      learn_result:
+        status: retro_only
+        retro_path: .state/done-verb-level-aware-writes/retro.md
+        discoveries: 3
+    note: Full /learn skill invocation deferred; retro.md captures 3 bugs (dispatcher
+      _resolve_tasks_md, estimate-cost datetime, orphan in_progress) with fix directions.
+- step_id: mark-change-completed
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T07:39:13Z'
+  ended_at: '2026-04-25T07:39:13Z'
+  usage: {}
+  evidence:
+    outputs:
+      state_completion_fields:
+        status: completed
+        completed_at: '2026-04-25T07:38:47Z'
+        archive_path: spec/changes/archive/2026-04-25-done-verb-level-aware-writes/
+    script: scripts/inline/mark-change-completed.sh
+- step_id: ingest-driver-auto
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T07:39:47Z'
+  ended_at: '2026-04-25T07:39:47Z'
+  usage: {}
+  evidence:
+    outputs:
+      ingest_driver_result:
+        skipped: true
+        reason: fail-soft per contract
+    note: Legacy step from frozen plan.yaml; deleted in this very feature (T-26).
+- step_id: ingest-subagents-auto
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T07:39:53Z'
+  ended_at: '2026-04-25T07:39:53Z'
+  usage: {}
+  evidence:
+    outputs:
+      ingest_subagents_result:
+        skipped: true
+        reason: fail-soft per contract
+    note: Legacy step from frozen plan.yaml; deleted in this very feature (T-26).
+- step_id: ingest-feature-metrics
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T07:40:04Z'
+  ended_at: '2026-04-25T07:40:04Z'
+  usage: {}
+  evidence:
+    outputs:
+      feature_metrics_ingested:
+        skipped: true
+        reason: non-blocking
+    note: non-blocking metrics ingestion
+- step_id: compute-swe-metrics
+  phase: complete
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-04-25T07:40:39Z'
+  ended_at: '2026-04-25T07:40:39Z'
+  usage: {}
+  evidence:
+    outputs:
+      swe_metrics:
+        skipped: true
+        reason: no events for change_id
+    note: non-blocking
+title: "Done verb level-aware writes \u2014 Phase 4 of workflow-engine-as-state-machine"
+workflow_plan:
+  complete:
+    active:
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - ingest-driver-auto
+    - ingest-subagents-auto
+    - ingest-feature-metrics
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+  implement:
+    active:
+    - capture-test-baseline
+    - execute-next-task
+    - run-phase-review
+    filtered:
+    - id: run-ux-critique
+      reason: flag ux_design=false
+  specify:
+    active:
+    - workflow-init
+    - explore
+    - design-and-draft-artifacts
+    - preview-route
+    - run-phase-review
+    filtered:
+    - id: ux-design
+      reason: flag ux_design=false
+worktree_path: /Users/spidey/code/feature_worktrees/done-verb-level-aware-writes
+completed_at: '2026-04-25T07:38:47Z'
+archive_path: spec/changes/archive/2026-04-25-done-verb-level-aware-writes/
