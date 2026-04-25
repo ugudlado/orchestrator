@@ -640,7 +640,7 @@ def record(
         db: open DuckDB connection for pricing lookups, or None for the
             offline/test path (cost computation is skipped with a warning).
     """
-    required = {"step_id", "phase", "status", "outputs"}
+    required = {"step_id", "phase", "outputs"}
     missing = required - payload.keys()
     if missing:
         return (
@@ -650,7 +650,21 @@ def record(
 
     step_id = payload["step_id"]
     phase = payload["phase"]
-    status = payload["status"]
+    # status is optional; default 'completed' for backward compat (FR-2).
+    status = payload.get("status", "completed")
+
+    _VALID_STATUSES = {"completed", "recovered", "abandoned"}
+    if status not in _VALID_STATUSES:
+        return (
+            {
+                "action": "error",
+                "reason": "invalid_status",
+                "status": status,
+                "valid_statuses": sorted(_VALID_STATUSES),
+            },
+            3,
+        )
+
     outputs: dict[str, Any] = payload.get("outputs") or {}
 
     # Load contract to validate expected_outputs
@@ -836,6 +850,10 @@ def record(
     history.append(entry)
     state_raw["step_history"] = history
 
+    # FR-2: abandoned status → set state.yaml.status = blocked
+    if status == "abandoned":
+        state_raw["status"] = "blocked"
+
     # Advance next_step
     next_step = _compute_next_step(state_raw, step_id, state_yaml_path)
     if next_step:
@@ -889,6 +907,29 @@ def record(
                 f"[record] warning: failed to delete in_progress DB row for "
                 f"{step_id!r} phase={phase!r}: {exc}\n"
             )
+
+    # FR-2/FR-5/FR-6/FR-6a: step_events upsert + boundary writes.
+    # Non-boundary calls: fail-soft (preserves current record.py behavior).
+    # Boundary calls: fatal-on-failure (BEGIN/COMMIT/ROLLBACK; see T-12 for wiring).
+    if db is not None:
+        from orchestrator_next.parser import _parse_history_entry
+        from orchestrator_next.upsert import upsert_step_event
+
+        change_id_val = state_raw.get("change_id") or ""
+        repo_root_val = state_raw.get("repo_root") or ""
+        ctx = {"repo_root": repo_root_val, "change_id": change_id_val}
+        workflow_plan = state_raw.get("workflow_plan") or {}
+        boundary = _detect_boundary(workflow_plan, phase, step_id, status)
+
+        # Build a StepHistoryEntry from the entry dict for upsert_step_event
+        _step_entry = _parse_history_entry(entry)
+
+        if boundary == BoundaryKind.NONE:
+            # Non-boundary: fail-soft step write
+            try:
+                upsert_step_event(db, _step_entry, ctx)
+            except Exception as exc:  # noqa: BLE001 — non-boundary is fail-soft
+                sys.stderr.write(f"[done] step write failed: {exc}\n")
 
     # Workflow-issue retro: if the payload carries workflow_issues, append
     # each one to spec/changes/<change_id>/retro.md. Best-effort — any
