@@ -868,19 +868,39 @@ def _write_feature_metrics(db, repo_root: str, change_id: str, data: dict) -> No
 def _resolve_tasks_md(state_raw: dict[str, Any]) -> Path | None:
     """Resolve the tasks.md path from state.yaml fields.
 
-    Preference: explicit `tasks_path`, else `<worktree_path>/spec/changes/<change_id>/tasks.md`.
-    Returns None if neither shape can be constructed.
+    Tries each candidate in order, returning the first that exists on disk:
+      1. explicit `tasks_path` field
+      2. `<repo_root>/.state/<change_id>/tasks.md` — canonical location since
+         the workflow-engine refactor's path convention
+      3. `<worktree_path>/spec/changes/<change_id>/tasks.md` — legacy location
+
+    Returns the first candidate that exists, or the last constructible candidate
+    if none exist (lets the caller decide between None-path and missing-file).
+    Returns None only if no candidate can be constructed at all.
     """
+    candidates: list[Path] = []
+
     raw_path = state_raw.get("tasks_path")
     if isinstance(raw_path, str) and raw_path:
-        return Path(os.path.expanduser(raw_path))
+        candidates.append(Path(os.path.expanduser(raw_path)))
+
+    repo_root = state_raw.get("repo_root")
+    change_id = state_raw.get("change_id")
+    if isinstance(repo_root, str) and repo_root and isinstance(change_id, str) and change_id:
+        candidates.append(Path(os.path.expanduser(repo_root)) / ".state" / change_id / "tasks.md")
 
     worktree = state_raw.get("worktree_path")
-    change_id = state_raw.get("change_id")
     if isinstance(worktree, str) and worktree and isinstance(change_id, str) and change_id:
-        return Path(os.path.expanduser(worktree)) / "spec" / "changes" / change_id / "tasks.md"
+        candidates.append(Path(os.path.expanduser(worktree)) / "spec" / "changes" / change_id / "tasks.md")
 
-    return None
+    if not candidates:
+        return None
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    return candidates[-1]
 
 
 def _check_all_tasks_completed(state_raw: dict[str, Any]) -> bool:
