@@ -55,7 +55,7 @@ Each phase below will get its own backlog entry + `/specify` run when the prior 
 
 3. **`report-views-retire-cli`** — create `feature_report`, `phase_report`, `agent_report`, `repo_report` as DuckDB views; rewrite `compute-swe-metrics.sh` to query the view directly; retire `orchestrator metrics` and `orchestrator cost` CLI. Medium: ~500 lines deleted, ~150 added as view migrations.
 
-4. **`done-verb-level-aware-writes`** — rename `record` → `done`; `done` detects phase/feature boundaries and writes to `phase_events` + `feature_metrics` + `driver_sessions` tables automatically on the boundary step. Absorbs `ingest-driver` / `ingest-subagents` as internal code paths. Salvage path (`status: recovered`) lands here. Large: the semantic heart of the change.
+4. **`done-verb-level-aware-writes`** — ✅ shipped 2026-04-25 (archive: `spec/changes/archive/2026-04-25-done-verb-level-aware-writes/`). Rename `record` → `done` with `payload.status` dispatch (`completed`/`recovered`/`abandoned`); level-aware writes to `phase_events` + `driver_sessions` via migration 0003 inside atomic DuckDB transactions; absorbed `_ingest_driver_main` + `_ingest_subagents_main` (213 lines deleted). 28 commits, 54 new tests, scores: specify 9/9 (round 2), implement 9/9 (round 1). Phase 5 (`cleanup-and-delete`) remains — absorb `ingest-feature-metrics` and final cleanup.
 
 5. **`cleanup-and-delete`** — remove `ingest-feature-metrics.py` as a separate step (absorbed into `done`), delete `ingest-driver` / `ingest-subagents` CLI entry points, delete `metrics_report.py`, delete projection code in `cost_report.py` that views now cover. Small: mostly deletions.
 
