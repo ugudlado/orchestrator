@@ -126,15 +126,15 @@ def test_fr5_skill_background_spawn():
 # ---------------------------------------------------------------------------
 
 def test_fr6_agents_forbid_state_edits():
-    """developer.md and workflow-init.md must contain `orchestrator record` and
+    """developer.md and workflow-init.md must contain `orchestrator done` and
     a prohibition phrase (NOT) near state.yaml edits.
     """
     for agent_file in ("agents/developer.md", "agents/workflow-init.md"):
         content = _read(agent_file)
 
-        assert "orchestrator record" in content, (
-            f"{agent_file} does not contain 'orchestrator record'. "
-            "Add a State Updates section referencing the record command."
+        assert "orchestrator done" in content, (
+            f"{agent_file} does not contain 'orchestrator done'. "
+            "Update the State Updates section to reference 'orchestrator done' (FR-9 Stage B migration)."
         )
 
         # Check for a prohibition: "NOT" or "MUST NOT" near state.yaml
