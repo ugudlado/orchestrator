@@ -197,6 +197,47 @@ class TestRunGitChurn:
         assert result["total_commits"] == 0
         assert result["files_changed"] == 0
 
+    def test_success_path_with_mocked_git(self):
+        """Lines 670-708: success path exercised by mocking subprocess.run.
+
+        The git log format is '%H %s', so lines are '<sha> <subject>'.
+        The rework regex '^(fix|rework):' never matches because SHA comes first
+        (legacy behavior preserved verbatim per FR-1 / NFR-3).
+        """
+        import subprocess
+        sha_a = "aaa0000000000000000000000000000000000001"
+        sha_b = "bbb0000000000000000000000000000000000002"
+        log_output = f"{sha_a} feat: add thing for my-feature\n{sha_b} fix: patch for my-feature\n"
+        name_output = "src/foo.py\nsrc/bar.py\n"
+        numstat_output = "10\t5\tsrc/foo.py\n3\t1\tsrc/bar.py\n"
+
+        call_count = [0]
+
+        def fake_run(cmd, **kwargs):
+            call_count[0] += 1
+            proc = MagicMock()
+            proc.returncode = 0
+            if "--format=%H %s" in " ".join(cmd):
+                proc.stdout = log_output
+            elif "--name-only" in cmd:
+                proc.stdout = name_output
+            elif "--numstat" in cmd:
+                proc.stdout = numstat_output
+            else:
+                proc.stdout = ""
+            return proc
+
+        with patch("subprocess.run", side_effect=fake_run):
+            result = run_git_churn("/some/path", "my-feature")
+
+        assert result["total_commits"] == 2
+        # SHA-prefixed lines: '^(fix|rework):' never matches (verbatim legacy behavior)
+        assert result["rework_commits"] == 0
+        assert result["rework_rate"] == 0.0
+        assert result["files_changed"] == 2
+        assert result["insertions"] == 13   # 10 + 3
+        assert result["deletions"] == 6     # 5 + 1
+
 
 # ---------------------------------------------------------------------------
 # T-1e: extract_review_scores — averages step_history[].review_score.overall
@@ -245,6 +286,18 @@ class TestExtractReviewScores:
         result = extract_review_scores({})
         assert result["avg"] is None
 
+    def test_non_dict_entry_skipped(self):
+        """Line 730: non-dict entries in step_history are silently skipped."""
+        state = {
+            "step_history": [
+                "not-a-dict",
+                {"review_score": {"overall": 9}},
+            ]
+        }
+        result = extract_review_scores(state)
+        assert result["scores_list"] == [9.0]
+        assert result["avg"] == 9.0
+
 
 # ---------------------------------------------------------------------------
 # T-1f: wall_clock_minutes — parses ISO timestamps, returns None when missing
@@ -279,6 +332,25 @@ class TestWallClockMinutes:
         }
         result = wall_clock_minutes(state)
         assert result == 30.0
+
+    def test_handles_naive_datetime_objects(self):
+        """Line 760: naive datetime (no tzinfo) is treated as UTC."""
+        import datetime as dt
+        state = {
+            "started_at": dt.datetime(2026, 1, 1, 0, 0, 0),   # no tzinfo
+            "completed_at": dt.datetime(2026, 1, 1, 0, 15, 0),  # no tzinfo
+        }
+        result = wall_clock_minutes(state)
+        assert result == 15.0
+
+    def test_returns_none_for_unparseable_string(self):
+        """Lines 770-772, 777: unparseable timestamp string returns None."""
+        state = {
+            "started_at": "not-a-timestamp",
+            "completed_at": "2026-01-01T00:00:00Z",
+        }
+        result = wall_clock_minutes(state)
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
