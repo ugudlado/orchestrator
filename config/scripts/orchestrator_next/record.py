@@ -214,6 +214,144 @@ def _write_driver_session(db, repo_root: str, change_id: str, session: dict) -> 
 
 
 # ---------------------------------------------------------------------------
+# Subagent absorption helpers (FR-6a)
+# ---------------------------------------------------------------------------
+
+def _resolve_subagent_rows(
+    repo_root: str,
+    change_id: str,
+    session_id: str,
+) -> list[dict]:
+    """Discover sub-agent JSONLs and parse usage. Pure parsing — no DB operations.
+
+    Returns a list of dicts:
+        {"agent_id", "agent_name", "step_id", "phase", "usage"}
+
+    Per-row failures:
+      - Missing or malformed meta.json → agent_name='subagent-unknown', row still emitted.
+      - JSONL with no usable turns → row skipped (logged to stderr).
+      - Other parse errors → row skipped (logged to stderr).
+
+    Runs OUTSIDE the boundary transaction (keeps BEGIN/COMMIT window short).
+    """
+    from orchestrator_next.jsonl_usage import (
+        discover_subagents,
+        extract_agent_usage,
+        locate_subagent_jsonl_path,
+    )
+
+    agent_ids = discover_subagents(repo_root, session_id)
+    result = []
+
+    for agent_id in agent_ids:
+        step_id = f"subagent-{agent_id}"
+        agent_name = "subagent-unknown"
+
+        # Read agentType from meta.json sidecar (fail-soft: fallback to unknown)
+        try:
+            jsonl_path = locate_subagent_jsonl_path(
+                repo_root, agent_id, driver_session_hint=session_id
+            )
+            if jsonl_path is not None:
+                meta_path = jsonl_path.parent / f"agent-{agent_id}.meta.json"
+                if meta_path.exists():
+                    import json as _json
+                    meta = _json.loads(meta_path.read_text())
+                    agent_type = meta.get("agentType") or ""
+                    if agent_type:
+                        agent_name = agent_type
+        except Exception as exc:  # noqa: BLE001 — meta parse is best-effort
+            sys.stderr.write(
+                f"[done] subagent meta read failed for agent_id={agent_id!r}: {exc}\n"
+            )
+            # agent_name stays "subagent-unknown"
+
+        # Extract usage from JSONL — skip row if no usable turns
+        try:
+            usage = extract_agent_usage(
+                repo_root, agent_id, driver_session_hint=session_id
+            )
+            if not usage:
+                sys.stderr.write(
+                    f"[done] subagent {agent_id!r}: no usable JSONL turns, skipping row\n"
+                )
+                continue
+        except Exception as exc:  # noqa: BLE001 — JSONL parse is best-effort
+            sys.stderr.write(
+                f"[done] subagent JSONL parse failed for agent_id={agent_id!r}: {exc}\n"
+            )
+            continue
+
+        result.append({
+            "agent_id": agent_id,
+            "agent_name": agent_name,
+            "step_id": step_id,
+            "phase": "meta",
+            "usage": usage,
+        })
+
+    return result
+
+
+def _write_subagent_events(
+    db,
+    repo_root: str,
+    change_id: str,
+    rows: list[dict],
+) -> None:
+    """Insert one synthetic step_events row per subagent tuple via upsert_synthetic_event.
+
+    Honors the legacy idempotency check: skip if a row already exists for
+    (repo_root, change_id, phase='meta', step_id, attempt=1) with non-zero input_tokens.
+
+    Computes cost_usd via _compute_cost_usd per row when the DB has pricing rows.
+
+    Per-row insert errors are logged to stderr but do not raise (fail-soft per row,
+    consistent with the discovery pass).
+
+    Caller controls the transaction (BEGIN/COMMIT/ROLLBACK).
+    """
+    from orchestrator_next.upsert import upsert_synthetic_event as _upsert_syn
+
+    for row in rows:
+        agent_id = row["agent_id"]
+        agent_name = row["agent_name"]
+        step_id = row["step_id"]
+        phase = row["phase"]
+        usage = dict(row["usage"])  # copy — we may mutate it
+
+        try:
+            # Idempotency check: skip if row already exists with non-zero input_tokens
+            existing = db.execute(
+                "SELECT input_tokens FROM step_events "
+                "WHERE repo_root=? AND change_id=? AND phase=? AND step_id=? AND attempt=1",
+                [repo_root, change_id, phase, step_id],
+            ).fetchone()
+            if existing is not None and existing[0] is not None and existing[0] > 0:
+                continue
+
+            # Compute cost_usd via pricing DB
+            model, cost = _compute_cost_usd(db, agent_name, usage)
+            if cost is not None:
+                usage["cost_usd"] = cost
+            if model and not usage.get("model"):
+                usage["model"] = model
+
+            _upsert_syn(
+                db,
+                {"repo_root": repo_root, "change_id": change_id},
+                agent_name=agent_name,
+                step_id=step_id,
+                phase=phase,
+                usage=usage,
+            )
+        except Exception as exc:  # noqa: BLE001 — per-row fail-soft
+            sys.stderr.write(
+                f"[done] subagent write failed for agent_id={agent_id!r}: {exc}\n"
+            )
+
+
+# ---------------------------------------------------------------------------
 # Cost computation helpers (ISSUE-17)
 # ---------------------------------------------------------------------------
 

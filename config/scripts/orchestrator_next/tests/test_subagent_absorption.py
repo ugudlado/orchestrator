@@ -306,7 +306,7 @@ def test_write_subagent_events_cost_computed(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
 
     rows = _resolve_subagent_rows(repo_root, change_id, session_id)
-    _write_subagent_events(db, repo_root, change_id, rows, db=db)
+    _write_subagent_events(db, repo_root, change_id, rows)
 
     row = db.execute(
         "SELECT cost_usd, input_tokens FROM step_events WHERE phase='meta' AND step_id=?",
