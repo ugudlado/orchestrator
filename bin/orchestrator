@@ -80,14 +80,21 @@ def _append_in_progress_state_entry_if_absent(
     _history = list(_state_raw.get("step_history") or [])
 
     # Check if an in_progress entry already exists for (step_id, phase).
+    # Also skip the pre-stamp when a terminal entry (completed/failed/escalate_to_architect)
+    # already exists for the same (step_id, phase, attempt) — the dispatcher saw the row
+    # but a stale state read or path-resolution mismatch caused it to dispatch the same
+    # step again. Pre-stamping in that case creates an orphan in_progress row at the
+    # tail that masks the prior completion on the next `next` call.
+    _TERMINAL_STATUSES = {"completed", "failed", "escalate_to_architect", "blocked"}
     for _e in _history:
-        if (
-            isinstance(_e, dict)
-            and _e.get("step_id") == step_id
-            and _e.get("phase") == phase
-            and _e.get("status") == "in_progress"
-        ):
+        if not isinstance(_e, dict):
+            continue
+        if _e.get("step_id") != step_id or _e.get("phase") != phase:
+            continue
+        if _e.get("status") == "in_progress":
             return  # already present — no write needed
+        if _e.get("status") in _TERMINAL_STATUSES and _e.get("attempt") == attempt:
+            return  # terminal entry exists for this attempt — do not orphan it
 
     _history.append({
         "step_id": step_id,
