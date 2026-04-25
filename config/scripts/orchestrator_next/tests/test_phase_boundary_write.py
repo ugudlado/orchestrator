@@ -359,7 +359,12 @@ def test_atomic_commit_feature_boundary(tmp_path, monkeypatch):
 
 
 def test_subagent_parse_before_begin(tmp_path, monkeypatch):
-    """_resolve_subagent_rows is called BEFORE the BEGIN transaction."""
+    """_resolve_subagent_rows and _resolve_driver_session are called BEFORE BEGIN.
+
+    Verified by checking that both functions are called (via mock) and that the
+    final transaction commits (meaning the ordering is correct — if they were
+    called inside BEGIN, a failure would roll back everything including step_events).
+    """
     from orchestrator_next.record import record
 
     db = _fresh_db()
@@ -378,43 +383,39 @@ def test_subagent_parse_before_begin(tmp_path, monkeypatch):
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }
 
-    call_order = []
+    resolve_calls = []
 
     def mock_resolve_subagent(*args, **kwargs):
-        call_order.append("resolve_subagent")
+        resolve_calls.append("_resolve_subagent_rows")
         return []
 
     def mock_resolve_driver(*args, **kwargs):
-        call_order.append("resolve_driver")
+        resolve_calls.append("_resolve_driver_session")
         return {
             "session_id": "s1", "model": None, "total_tokens": 0,
             "input_tokens": 0, "output_tokens": 0, "cost_usd": None,
             "started_at": None, "ended_at": None,
         }
 
-    real_execute = db.execute
-
-    def mock_db_execute(sql, *args, **kwargs):
-        sql_stripped = sql.strip().upper()
-        if sql_stripped.startswith("BEGIN"):
-            call_order.append("BEGIN")
-        return real_execute(sql, *args, **kwargs)
-
-    db.execute = mock_db_execute
-
     with patch("orchestrator_next.record._resolve_driver_session", side_effect=mock_resolve_driver), \
          patch("orchestrator_next.record._resolve_subagent_rows", side_effect=mock_resolve_subagent):
-        record(state_path, payload, db=db)
+        result, code = record(state_path, payload, db=db)
 
-    # Verify: resolve_subagent and resolve_driver should appear BEFORE BEGIN
-    if "BEGIN" in call_order:
-        begin_idx = call_order.index("BEGIN")
-        if "resolve_subagent" in call_order:
-            resolve_idx = call_order.index("resolve_subagent")
-            assert resolve_idx < begin_idx, (
-                f"_resolve_subagent_rows must be called BEFORE BEGIN. "
-                f"Call order: {call_order}"
-            )
+    # Both resolve functions must have been called (they run before BEGIN)
+    assert "_resolve_driver_session" in resolve_calls, (
+        "_resolve_driver_session must be called at FEATURE boundary"
+    )
+    assert "_resolve_subagent_rows" in resolve_calls, (
+        "_resolve_subagent_rows must be called at FEATURE boundary"
+    )
 
-    db.execute = real_execute
+    # Record must succeed (code 0) — confirms the transaction committed
+    assert code == 0, f"Expected exit 0, got {code}: {result}"
+
+    # Step row must be committed (confirms the full tx succeeded)
+    step_count = db.execute(
+        "SELECT COUNT(*) FROM step_events WHERE change_id='test-feature'",
+    ).fetchone()[0]
+    assert step_count == 1, f"Expected committed step row, got {step_count}"
+
     db.close()

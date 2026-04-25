@@ -64,8 +64,13 @@ _CHANGE_ID = "test-feature"
 
 
 def _write_state(tmp_path, *, step_history=None, step_ids=None) -> str:
-    """Write a minimal state.yaml with optional pre-seeded step_history."""
-    active = step_ids or ["execute-next-task"]
+    """Write a minimal state.yaml with optional pre-seeded step_history.
+
+    Note: default active list includes 'trailing-step' after the real steps so
+    the test step is NOT the last step (not a boundary). This avoids triggering
+    FEATURE boundary logic, which requires a real JSONL session file.
+    """
+    active = step_ids or ["execute-next-task", "trailing-step"]
     state = {
         "change_id": _CHANGE_ID,
         "phase": "implement",
@@ -358,9 +363,11 @@ class TestTwoCycleInvariant:
         context = {"repo_root": _REPO_ROOT, "change_id": _CHANGE_ID}
 
         # ----- Cycle 1: "next" simulation -----
+        # 'trailing-step' is added so review-task is NOT the last step, avoiding
+        # FEATURE boundary logic that would require a real JSONL session file.
         state_path = _write_state(
             tmp_path,
-            step_ids=["execute-next-task", "review-task"],
+            step_ids=["execute-next-task", "review-task", "trailing-step"],
             step_history=[_in_progress_yaml_entry("execute-next-task")],
         )
         _seed_db_in_progress(in_memory_db, step_id="execute-next-task", attempt=1)

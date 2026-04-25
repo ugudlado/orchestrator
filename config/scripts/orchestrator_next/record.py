@@ -20,6 +20,7 @@ from typing import Any
 import yaml
 
 from orchestrator_next.parser import ContractError, load_contract_for_step, load_state
+from orchestrator_next.upsert import upsert_step_event
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +208,7 @@ def _write_driver_session(db, repo_root: str, change_id: str, session: dict) -> 
         session.get("total_tokens") or 0,
         session.get("input_tokens") or 0,
         session.get("output_tokens") or 0,
-        session.get("cost_usd"),
+        session.get("cost_usd") or 0.0,  # NOT NULL — default to 0.0 when unresolved
         session.get("started_at"),
         session.get("ended_at"),
     ])
@@ -910,10 +911,11 @@ def record(
 
     # FR-2/FR-5/FR-6/FR-6a: step_events upsert + boundary writes.
     # Non-boundary calls: fail-soft (preserves current record.py behavior).
-    # Boundary calls: fatal-on-failure (BEGIN/COMMIT/ROLLBACK; see T-12 for wiring).
+    # Boundary calls: fatal-on-failure (BEGIN/COMMIT/ROLLBACK).
+    # Subagent JSONL parsing runs OUTSIDE the transaction to keep the
+    # BEGIN/COMMIT window short (design.md Trade-offs).
     if db is not None:
         from orchestrator_next.parser import _parse_history_entry
-        from orchestrator_next.upsert import upsert_step_event
 
         change_id_val = state_raw.get("change_id") or ""
         repo_root_val = state_raw.get("repo_root") or ""
@@ -930,6 +932,55 @@ def record(
                 upsert_step_event(db, _step_entry, ctx)
             except Exception as exc:  # noqa: BLE001 — non-boundary is fail-soft
                 sys.stderr.write(f"[done] step write failed: {exc}\n")
+        else:
+            # Boundary path: JSONL parsing runs BEFORE BEGIN to keep tx window short.
+            subagent_rows: list[dict] = []
+            session: dict = {}
+            if boundary == BoundaryKind.FEATURE:
+                # _resolve_driver_session and _resolve_subagent_rows run OUTSIDE BEGIN.
+                try:
+                    session = _resolve_driver_session(state_raw, change_id_val, db=db)
+                except Exception as _exc:
+                    sys.stderr.write(
+                        f"[done] driver session resolution failed: {_exc}\n"
+                    )
+                    return (
+                        {
+                            "action": "error",
+                            "reason": "driver_session_resolution_failed",
+                            "detail": str(_exc),
+                        },
+                        5,
+                    )
+                subagent_rows = _resolve_subagent_rows(
+                    repo_root_val, change_id_val, session.get("session_id", "")
+                )
+
+            # Atomic boundary write — fatal on failure (NFR-2, NFR-3, OQ-2).
+            db.execute("BEGIN")
+            try:
+                upsert_step_event(db, _step_entry, ctx)
+                _write_phase_event(
+                    db, repo_root_val, change_id_val, phase, entry["attempt"]
+                )
+                if boundary == BoundaryKind.FEATURE:
+                    _write_driver_session(db, repo_root_val, change_id_val, session)
+                    _write_subagent_events(db, repo_root_val, change_id_val, subagent_rows)
+                db.execute("COMMIT")
+            except Exception as _exc:
+                db.execute("ROLLBACK")
+                sys.stderr.write(
+                    f"[done] boundary write failed ({boundary.value}): {_exc}\n"
+                )
+                return (
+                    {
+                        "action": "error",
+                        "reason": "boundary_write_failed",
+                        "boundary": boundary.value,
+                        "detail": str(_exc),
+                    },
+                    5,
+                )  # fatal non-zero exit
 
     # Workflow-issue retro: if the payload carries workflow_issues, append
     # each one to spec/changes/<change_id>/retro.md. Best-effort — any
