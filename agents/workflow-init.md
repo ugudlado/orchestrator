@@ -87,7 +87,7 @@ handles everything needed before the first real step runs.
 
 ## State Updates
 
-State updates MUST use `orchestrator record` — MUST NOT directly edit state.yaml. See CLAUDE.md § Repo Wiring.
+State updates MUST use `orchestrator done` — MUST NOT directly edit state.yaml. See CLAUDE.md § Repo Wiring.
 
 ## Constraints
 
