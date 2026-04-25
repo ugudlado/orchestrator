@@ -30,7 +30,7 @@ metrics:
     "output_tokens": 24300, "step_count": 7, "total_tokens": 456451}, "discoverer":
     {"cost_usd": 0.304467, "duration_ms": 357694, "input_tokens": 80489, "output_tokens":
     4200, "step_count": 1, "total_tokens": 84689}, "inline": {"cost_usd": 0.0, "duration_ms":
-    0, "input_tokens": 0, "output_tokens": 0, "step_count": 9, "total_tokens": 0},
+    0, "input_tokens": 0, "output_tokens": 0, "step_count": 8, "total_tokens": 0},
     "reviewer": {"cost_usd": 0.363894, "duration_ms": 885669, "input_tokens": 97298,
     "output_tokens": 4800, "step_count": 3, "total_tokens": 102098}, "workflow-improver":
     {"cost_usd": 0.240354, "duration_ms": 380326, "input_tokens": 62618, "output_tokens":
@@ -74,11 +74,6 @@ metrics:
       tool_uses: 24
       total_tokens: 84689
     ingest-driver-auto:
-      duration_ms: 0
-      executions: 1
-      tool_uses: 0
-      total_tokens: 0
-    ingest-feature-metrics:
       duration_ms: 0
       executions: 1
       tool_uses: 0
