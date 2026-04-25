@@ -36,10 +36,35 @@ from orchestrator_next.upsert import ensure_schema  # noqa: E402
 # Fixture paths
 # ---------------------------------------------------------------------------
 
-_ORCHESTRATOR_HOME = os.environ.get(
-    "ORCHESTRATOR_HOME",
-    str(Path(_HERE).parent.parent.parent.parent),
-)
+def _find_orchestrator_home() -> str:
+    """Find the orchestrator repo root that contains the archive fixture.
+
+    Resolution order:
+      1. ORCHESTRATOR_HOME env var (if it contains the archive fixture).
+      2. Worktree root's sibling: <worktree>/../orchestrator/
+         (worktrees live at feature_worktrees/<slug>/, main repo is code/orchestrator/).
+      3. Worktree root itself (the worktree IS the main repo in non-worktree mode).
+    """
+    archive_rel = "spec/changes/archive/2026-04-25-done-verb-level-aware-writes"
+    worktree_root = str(Path(_HERE).parent.parent.parent.parent)
+
+    candidates = [
+        os.environ.get("ORCHESTRATOR_HOME", ""),
+        # Worktree siblings: feature_worktrees/<slug>/ → ../../orchestrator
+        str(Path(worktree_root).parent.parent / "orchestrator"),
+        str(Path(worktree_root).parent / "orchestrator"),
+        worktree_root,
+    ]
+
+    for candidate in candidates:
+        if candidate and Path(candidate, archive_rel).exists():
+            return candidate
+
+    # Return the env var or worktree root as the best guess
+    return os.environ.get("ORCHESTRATOR_HOME", worktree_root)
+
+
+_ORCHESTRATOR_HOME = _find_orchestrator_home()
 _ARCHIVE_DIR = Path(_ORCHESTRATOR_HOME) / "spec" / "changes" / "archive" / "2026-04-25-done-verb-level-aware-writes"
 _FIXTURE_STATE = _ARCHIVE_DIR / "state.yaml"
 _FIXTURE_TASKS = _ARCHIVE_DIR / "tasks.md"

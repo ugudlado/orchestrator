@@ -555,11 +555,10 @@ def parse_tasks(tasks_md: Path) -> dict:
     Returns:
         tasks_total, tasks_completed, tasks_failed, resolve_rate
     """
-    import re as _re
     text = tasks_md.read_text()
-    total = len(_re.findall(r"^\s*-\s*\[", text, _re.MULTILINE))
-    completed = len(_re.findall(r"^\s*-\s*\[x\]", text, _re.MULTILINE | _re.IGNORECASE))
-    skipped = len(_re.findall(r"^\s*-\s*\[~\]", text, _re.MULTILINE))
+    total = len(re.findall(r"^\s*-\s*\[", text, re.MULTILINE))
+    completed = len(re.findall(r"^\s*-\s*\[x\]", text, re.MULTILINE | re.IGNORECASE))
+    skipped = len(re.findall(r"^\s*-\s*\[~\]", text, re.MULTILINE))
     failed = total - completed - skipped
     resolve_rate = completed / total if total > 0 else 0.0
     return {
@@ -750,16 +749,15 @@ def wall_clock_minutes(state: dict):
 
     Returns None if either timestamp is missing or unparseable.
     """
-    import datetime as _datetime
     started_at = state.get("started_at")
     completed_at = state.get("completed_at")
     if not started_at or not completed_at:
         return None
 
     def _parse_ts(ts):
-        if isinstance(ts, _datetime.datetime):
+        if isinstance(ts, _dt.datetime):
             if ts.tzinfo is None:
-                return ts.replace(tzinfo=_datetime.timezone.utc)
+                return ts.replace(tzinfo=_dt.timezone.utc)
             return ts
         s = str(ts).strip()
         # Normalize space-separated UTC offset to ISO 8601
@@ -767,8 +765,8 @@ def wall_clock_minutes(state: dict):
         s = re.sub(r"\+00:00$", "Z", s)
         for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"):
             try:
-                parsed = _datetime.datetime.strptime(s.rstrip("Z"), fmt.rstrip("Z"))
-                return parsed.replace(tzinfo=_datetime.timezone.utc)
+                parsed = _dt.datetime.strptime(s.rstrip("Z"), fmt.rstrip("Z"))
+                return parsed.replace(tzinfo=_dt.timezone.utc)
             except ValueError:
                 continue
         return None
