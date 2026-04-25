@@ -350,7 +350,19 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         return {"action": "complete_workflow"}, 1
 
     # --- Load contract for the next step
-    contract = load_contract_for_step(next_step_id, state_yaml_path)
+    try:
+        contract = load_contract_for_step(next_step_id, state_yaml_path)
+    except FileNotFoundError:
+        # Fall back to inline-only contract with minimal data when the step
+        # contract was deleted after workflow_plan was frozen at workflow-init.
+        # Mirrors the resume_step branch above.
+        contract = StepContract(
+            id=next_step_id,
+            agent="inline",
+            run=None,
+            instruction="",
+            rules=[],
+        )
     attempt = _compute_attempt(state.step_history, state.phase, next_step_id)
     env = _build_env(state, next_step_id, attempt)
     inputs_resolved, _missing = _resolve_inputs(state, contract)

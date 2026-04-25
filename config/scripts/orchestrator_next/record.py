@@ -542,6 +542,329 @@ def _utcnow_iso() -> str:
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# ---------------------------------------------------------------------------
+# Phase 5: six computation functions lifted verbatim from
+# scripts/inline/ingest-feature-metrics.py (FR-1).
+# Signatures and logic are byte-equivalent; _SLUG_RE is dropped because
+# upsert_feature_metrics already enforces the slug guard (design.md Component 1).
+# ---------------------------------------------------------------------------
+
+def parse_tasks(tasks_md: Path) -> dict:
+    """Count [x], [ ], and [~] task markers.
+
+    Returns:
+        tasks_total, tasks_completed, tasks_failed, resolve_rate
+    """
+    text = tasks_md.read_text()
+    total = len(re.findall(r"^\s*-\s*\[", text, re.MULTILINE))
+    completed = len(re.findall(r"^\s*-\s*\[x\]", text, re.MULTILINE | re.IGNORECASE))
+    skipped = len(re.findall(r"^\s*-\s*\[~\]", text, re.MULTILINE))
+    failed = total - completed - skipped
+    resolve_rate = completed / total if total > 0 else 0.0
+    return {
+        "tasks_total": total,
+        "tasks_planned": total,
+        "tasks_added": 0,
+        "tasks_completed": completed,
+        "tasks_failed": max(failed, 0),
+        "resolve_rate": round(resolve_rate, 6),
+    }
+
+
+def compute_retries(state: dict) -> dict:
+    """Sum retries.* keys and extract human_interventions.
+
+    Returns:
+        retries_total, human_interventions
+    """
+    retries_section = state.get("retries") or {}
+    if isinstance(retries_section, dict):
+        retries_total = sum(
+            v for v in retries_section.values() if isinstance(v, (int, float))
+        )
+    else:
+        retries_total = 0
+
+    human_interventions = state.get("human_interventions") or 0
+    return {
+        "retries_total": int(retries_total),
+        "human_interventions": int(human_interventions),
+    }
+
+
+def compute_resolution(
+    tasks_total,
+    tasks_completed,
+    retries_total: int,
+    step_history: list,
+    quarantine_events,
+) -> dict:
+    """Derive pass_at_1, pass_at_2, regressions, regression_rate.
+
+    Approximation note: state.yaml retries are keyed by step_id (e.g.
+    "execute-next-task"), not by task_id — so per-task attempt granularity
+    is unavailable. We use:
+      pass_at_1 = max(0, tasks_total - retries_total) / tasks_total
+      pass_at_2 = tasks_completed / tasks_total
+    This satisfies the monotonicity invariant pass_at_2 >= pass_at_1 and
+    is the tightest approximation possible without per-task retry records.
+    quarantine_events would normally reduce the numerator, but since
+    quarantined tasks are not counted in tasks_completed either, the formula
+    stays consistent.
+
+    Returns all-None when tasks_total is None or zero (spike path).
+    """
+    if not tasks_total:
+        return {
+            "pass_at_1": None,
+            "pass_at_2": None,
+            "regressions": None,
+            "regression_rate": None,
+        }
+
+    tc = tasks_completed if isinstance(tasks_completed, int) else 0
+
+    pass_at_1 = round(max(0, tasks_total - retries_total) / tasks_total, 6)
+    pass_at_2 = round(tc / tasks_total, 6)
+
+    regressions = sum(
+        1 for e in step_history
+        if isinstance(e, dict) and e.get("regression")
+    )
+    regression_rate = round(regressions / tasks_total, 6)
+
+    return {
+        "pass_at_1": pass_at_1,
+        "pass_at_2": pass_at_2,
+        "regressions": regressions,
+        "regression_rate": regression_rate,
+    }
+
+
+def run_git_churn(worktree: str, change_id: str) -> dict:
+    """Count files_changed, insertions, deletions, total_commits, rework_commits.
+
+    Searches git log for commits whose message contains the change_id or
+    feature/<change_id> branch name. Falls back to zeros on any git failure.
+    """
+    import subprocess as _subprocess
+    defaults: dict = {
+        "files_changed": 0,
+        "insertions": 0,
+        "deletions": 0,
+        "total_commits": 0,
+        "rework_commits": 0,
+        "rework_rate": 0.0,
+    }
+    try:
+        result = _subprocess.run(
+            ["git", "-C", worktree, "log",
+             "--grep", change_id,
+             "--no-merges",
+             "--format=%H %s"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return defaults
+
+        lines = [ln for ln in result.stdout.strip().splitlines() if ln.strip()]
+        total_commits = len(lines)
+        # Match legacy compute-swe-metrics.sh: grep -c "^fix:" behavior (NFR-3)
+        rework_commits = sum(
+            1 for ln in lines if re.match(r"^(fix|rework):", ln)
+        )
+        rework_rate = rework_commits / total_commits if total_commits > 0 else 0.0
+
+        if not lines:
+            return defaults
+
+        # Get first and last commit SHA for diff range
+        last_sha = lines[-1].split()[0]
+        first_sha = lines[0].split()[0]
+
+        # files_changed via --name-only diff
+        name_result = _subprocess.run(
+            ["git", "-C", worktree, "diff", "--name-only", f"{last_sha}^..{first_sha}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        files_changed = len([
+            ln for ln in name_result.stdout.splitlines() if ln.strip()
+        ]) if name_result.returncode == 0 else 0
+
+        # insertions/deletions via --numstat
+        num_result = _subprocess.run(
+            ["git", "-C", worktree, "diff", "--numstat", f"{last_sha}^..{first_sha}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        insertions = 0
+        deletions = 0
+        if num_result.returncode == 0:
+            for row in num_result.stdout.splitlines():
+                parts = row.split()
+                if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+                    insertions += int(parts[0])
+                    deletions += int(parts[1])
+
+        return {
+            "files_changed": files_changed,
+            "insertions": insertions,
+            "deletions": deletions,
+            "total_commits": total_commits,
+            "rework_commits": rework_commits,
+            "rework_rate": round(rework_rate, 6),
+        }
+    except Exception:
+        return defaults
+
+
+def extract_review_scores(state: dict) -> dict:
+    """Extract review_score.overall from step_history entries.
+
+    Returns:
+        scores_list (list of ints/floats), avg (float or None)
+    """
+    step_history = state.get("step_history") or []
+    scores: list = []
+    for entry in step_history:
+        if not isinstance(entry, dict):
+            continue
+        review_score = entry.get("review_score")
+        if isinstance(review_score, dict):
+            overall = review_score.get("overall")
+            if overall is not None:
+                try:
+                    scores.append(float(overall))
+                except (TypeError, ValueError):
+                    pass
+
+    avg = round(sum(scores) / len(scores), 4) if scores else None
+    return {
+        "scores_list": scores,
+        "avg": avg,
+    }
+
+
+def wall_clock_minutes(state: dict):
+    """Compute wall clock in minutes from state started_at and completed_at.
+
+    Returns None if either timestamp is missing or unparseable.
+    """
+    started_at = state.get("started_at")
+    completed_at = state.get("completed_at")
+    if not started_at or not completed_at:
+        return None
+
+    def _parse_ts(ts):
+        if isinstance(ts, _dt.datetime):
+            if ts.tzinfo is None:
+                return ts.replace(tzinfo=_dt.timezone.utc)
+            return ts
+        s = str(ts).strip()
+        # Normalize space-separated UTC offset to ISO 8601
+        s = s.replace(" ", "T")
+        s = re.sub(r"\+00:00$", "Z", s)
+        for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S"):
+            try:
+                parsed = _dt.datetime.strptime(s.rstrip("Z"), fmt.rstrip("Z"))
+                return parsed.replace(tzinfo=_dt.timezone.utc)
+            except ValueError:
+                continue
+        return None
+
+    start = _parse_ts(started_at)
+    end = _parse_ts(completed_at)
+    if start is None or end is None:
+        return None
+    delta = (end - start).total_seconds()
+    return round(delta / 60.0, 4)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: _resolve_feature_metrics_tasks_path — tasks.md path resolver
+# (separate from _resolve_tasks_md which uses a different fallback path)
+# ---------------------------------------------------------------------------
+
+def _resolve_feature_metrics_tasks_path(state: dict) -> Path:
+    """Resolve tasks.md path for feature_metrics computation.
+
+    Preference: state.tasks_path (explicit), else <repo_root>/.state/<change_id>/tasks.md.
+    Mirrors ingest-feature-metrics.py lines 360-365.
+    """
+    tasks_path_str = state.get("tasks_path") or ""
+    if tasks_path_str:
+        return Path(tasks_path_str)
+    repo_root = str(state.get("repo_root") or "")
+    change_id = str(state.get("change_id") or "")
+    return Path(repo_root) / ".state" / change_id / "tasks.md"
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: _resolve_feature_metrics and _write_feature_metrics (FR-1, FR-2)
+# ---------------------------------------------------------------------------
+
+def _resolve_feature_metrics(state: dict, change_id: str) -> dict:
+    """Pure compute. Returns kwargs dict for upsert_feature_metrics.
+
+    Raises:
+        FileNotFoundError: tasks.md missing for feature/bugfix schemas.
+        RuntimeError:      started_at or completed_at missing on feature/bugfix.
+    """
+    schema = str(state.get("schema") or "feature")
+    worktree = str(state.get("worktree_path") or state.get("repo_root") or "")
+
+    if schema in ("feature", "bugfix"):
+        if not state.get("started_at") or not state.get("completed_at"):
+            raise RuntimeError(
+                f"_resolve_feature_metrics: state missing started_at/completed_at "
+                f"for schema={schema}"
+            )
+
+    tasks_md = _resolve_feature_metrics_tasks_path(state)
+    if schema in ("feature", "bugfix") and not tasks_md.is_file():
+        raise FileNotFoundError(
+            f"_resolve_feature_metrics: tasks.md not found at {tasks_md} "
+            f"(required for schema={schema})"
+        )
+
+    if tasks_md.is_file():
+        task_counts = parse_tasks(tasks_md)
+    else:
+        task_counts = {
+            "tasks_total": None, "tasks_planned": None, "tasks_added": None,
+            "tasks_completed": None, "tasks_failed": None, "resolve_rate": None,
+        }
+
+    retries = compute_retries(state)
+    resolution = compute_resolution(
+        tasks_total=task_counts.get("tasks_total"),
+        tasks_completed=task_counts.get("tasks_completed"),
+        retries_total=retries["retries_total"],
+        step_history=state.get("step_history") or [],
+        quarantine_events=state.get("quarantine_events"),
+    )
+    churn = run_git_churn(worktree, change_id)
+    reviews = extract_review_scores(state)
+    wc = wall_clock_minutes(state)
+
+    return {
+        "schema_name": schema,
+        **task_counts,
+        **retries,
+        **resolution,
+        **churn,
+        "review_scores_json": json.dumps(reviews["scores_list"]),
+        "review_score_avg": reviews["avg"],
+        "wall_clock_minutes": wc,
+        "source": f"done@{_utcnow_iso()}",
+    }
+
+
+def _write_feature_metrics(db, repo_root: str, change_id: str, data: dict) -> None:
+    """Calls upsert_feature_metrics. Caller controls transaction. Exceptions propagate."""
+    from orchestrator_next.upsert import upsert_feature_metrics as _upsert_fm
+    _upsert_fm(db, repo_root=repo_root, change_id=change_id, **data)
+
+
 def _resolve_tasks_md(state_raw: dict[str, Any]) -> Path | None:
     """Resolve the tasks.md path from state.yaml fields.
 
@@ -909,7 +1232,7 @@ def record(
                 f"{step_id!r} phase={phase!r}: {exc}\n"
             )
 
-    # FR-2/FR-5/FR-6/FR-6a: step_events upsert + boundary writes.
+    # FR-2/FR-5/FR-6/FR-6a/Phase-5: step_events upsert + boundary writes.
     # Non-boundary calls: fail-soft (preserves current record.py behavior).
     # Boundary calls: fatal-on-failure (BEGIN/COMMIT/ROLLBACK).
     # Subagent JSONL parsing runs OUTSIDE the transaction to keep the
@@ -921,66 +1244,109 @@ def record(
         repo_root_val = state_raw.get("repo_root") or ""
         ctx = {"repo_root": repo_root_val, "change_id": change_id_val}
         workflow_plan = state_raw.get("workflow_plan") or {}
-        boundary = _detect_boundary(workflow_plan, phase, step_id, status)
 
         # Build a StepHistoryEntry from the entry dict for upsert_step_event
         _step_entry = _parse_history_entry(entry)
 
-        if boundary == BoundaryKind.NONE:
-            # Non-boundary: fail-soft step write
+        # Phase 5 (FR-3): absorbed feature_metrics write.
+        # Fires when step_id == "mark-change-completed" AND status == "completed".
+        # Resolve runs OUTSIDE BEGIN (git-log + tasks.md parsing — keeps tx window short).
+        if step_id == "mark-change-completed" and status == "completed":
+            try:
+                fm_data = _resolve_feature_metrics(state_raw, change_id_val)
+            except Exception as exc:
+                sys.stderr.write(f"[done] feature_metrics resolution failed: {exc}\n")
+                return (
+                    {
+                        "action": "error",
+                        "reason": "feature_metrics_resolution_failed",
+                        "detail": str(exc),
+                    },
+                    5,
+                )
+            db.execute("BEGIN")
             try:
                 upsert_step_event(db, _step_entry, ctx)
-            except Exception as exc:  # noqa: BLE001 — non-boundary is fail-soft
-                sys.stderr.write(f"[done] step write failed: {exc}\n")
+                _write_feature_metrics(db, repo_root_val, change_id_val, fm_data)
+                db.execute("COMMIT")
+            except Exception as exc:
+                db.execute("ROLLBACK")
+                sys.stderr.write(f"[done] feature_metrics write failed: {exc}\n")
+                return (
+                    {
+                        "action": "error",
+                        "reason": "feature_metrics_write_failed",
+                        "detail": str(exc),
+                    },
+                    5,
+                )
+            _phase5_handled = True
         else:
-            # Boundary path: JSONL parsing runs BEFORE BEGIN to keep tx window short.
-            subagent_rows: list[dict] = []
-            session: dict = {}
-            if boundary == BoundaryKind.FEATURE:
-                # _resolve_driver_session and _resolve_subagent_rows run OUTSIDE BEGIN.
+            _phase5_handled = False
+
+        if _phase5_handled:
+            # Phase 5 path handled the step write — skip the Phase 4 boundary path.
+            # mark-change-completed is NOT phase-last in _complete-phase.yaml so
+            # _detect_boundary would have returned NONE anyway; the trigger upgrades
+            # it to a fatal transactional write for that one step.
+            pass
+        else:
+            boundary = _detect_boundary(workflow_plan, phase, step_id, status)
+            if boundary == BoundaryKind.NONE:
+                # Non-boundary: fail-soft step write
                 try:
-                    session = _resolve_driver_session(state_raw, change_id_val, db=db)
+                    upsert_step_event(db, _step_entry, ctx)
+                except Exception as exc:  # noqa: BLE001 — non-boundary is fail-soft
+                    sys.stderr.write(f"[done] step write failed: {exc}\n")
+            else:
+                # Boundary path: JSONL parsing runs BEFORE BEGIN to keep tx window short.
+                subagent_rows: list[dict] = []
+                session: dict = {}
+                if boundary == BoundaryKind.FEATURE:
+                    # _resolve_driver_session and _resolve_subagent_rows run OUTSIDE BEGIN.
+                    try:
+                        session = _resolve_driver_session(state_raw, change_id_val, db=db)
+                    except Exception as _exc:
+                        sys.stderr.write(
+                            f"[done] driver session resolution failed: {_exc}\n"
+                        )
+                        return (
+                            {
+                                "action": "error",
+                                "reason": "driver_session_resolution_failed",
+                                "detail": str(_exc),
+                            },
+                            5,
+                        )
+                    subagent_rows = _resolve_subagent_rows(
+                        repo_root_val, change_id_val, session.get("session_id", "")
+                    )
+
+                # Atomic boundary write — fatal on failure (NFR-2, NFR-3, OQ-2).
+                db.execute("BEGIN")
+                try:
+                    upsert_step_event(db, _step_entry, ctx)
+                    _write_phase_event(
+                        db, repo_root_val, change_id_val, phase, entry["attempt"]
+                    )
+                    if boundary == BoundaryKind.FEATURE:
+                        _write_driver_session(db, repo_root_val, change_id_val, session)
+                        _write_subagent_events(db, repo_root_val, change_id_val, subagent_rows)
+                    db.execute("COMMIT")
                 except Exception as _exc:
+                    db.execute("ROLLBACK")
                     sys.stderr.write(
-                        f"[done] driver session resolution failed: {_exc}\n"
+                        f"[done] boundary write failed ({boundary.value}): {_exc}\n"
                     )
                     return (
                         {
                             "action": "error",
-                            "reason": "driver_session_resolution_failed",
+                            "reason": "boundary_write_failed",
+                            "boundary": boundary.value,
                             "detail": str(_exc),
                         },
                         5,
-                    )
-                subagent_rows = _resolve_subagent_rows(
-                    repo_root_val, change_id_val, session.get("session_id", "")
-                )
-
-            # Atomic boundary write — fatal on failure (NFR-2, NFR-3, OQ-2).
-            db.execute("BEGIN")
-            try:
-                upsert_step_event(db, _step_entry, ctx)
-                _write_phase_event(
-                    db, repo_root_val, change_id_val, phase, entry["attempt"]
-                )
-                if boundary == BoundaryKind.FEATURE:
-                    _write_driver_session(db, repo_root_val, change_id_val, session)
-                    _write_subagent_events(db, repo_root_val, change_id_val, subagent_rows)
-                db.execute("COMMIT")
-            except Exception as _exc:
-                db.execute("ROLLBACK")
-                sys.stderr.write(
-                    f"[done] boundary write failed ({boundary.value}): {_exc}\n"
-                )
-                return (
-                    {
-                        "action": "error",
-                        "reason": "boundary_write_failed",
-                        "boundary": boundary.value,
-                        "detail": str(_exc),
-                    },
-                    5,
-                )  # fatal non-zero exit
+                    )  # fatal non-zero exit
 
     # Workflow-issue retro: if the payload carries workflow_issues, append
     # each one to spec/changes/<change_id>/retro.md. Best-effort — any

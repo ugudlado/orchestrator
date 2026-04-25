@@ -26,9 +26,9 @@ for id in compute-swe-metrics compute-prediction-accuracy archive-completed-chan
 done
 echo "  pass"
 
-echo "Gate 4: 10 inline scripts (8 pre-Phase4 baseline + 4 Phase-4 additions - 2 ingest-auto deleted in Stage C)"
+echo "Gate 4: 9 inline scripts (10 post-Phase4 - 1 ingest-feature-metrics deleted in Phase 5)"
 count=$(find scripts/inline/ -maxdepth 1 -name '*.sh' -o -name '*.py' | wc -l | tr -d ' ')
-[ "$count" = "10" ] && echo "  pass ($count)" || { echo "  fail ($count)"; exit 1; }
+[ "$count" = "9" ] && echo "  pass ($count)" || { echo "  fail ($count)"; exit 1; }
 
 echo "Gate 4b: workflow-init agent + contract exist and feature/bugfix/spike schemas reference it"
 [ -f "agents/workflow-init.md" ] || { echo "  fail: agents/workflow-init.md missing"; exit 1; }

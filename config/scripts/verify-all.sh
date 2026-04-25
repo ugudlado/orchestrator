@@ -104,10 +104,6 @@ run_bash_test \
   "$REPO_ROOT/config/tests/test-orchestrator-metrics-json-shape.sh"
 
 run_bash_test \
-  "test-ingest-feature-metrics.sh" \
-  "$REPO_ROOT/config/scripts/__tests__/test-ingest-feature-metrics.sh"
-
-run_bash_test \
   "test-complete-phase-order.sh" \
   "$REPO_ROOT/config/tests/test-complete-phase-order.sh"
 

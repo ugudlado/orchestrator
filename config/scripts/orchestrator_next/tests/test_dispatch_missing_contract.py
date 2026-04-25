@@ -1,0 +1,75 @@
+"""
+FT-20 regression test for dispatch.py.
+
+When workflow_plan is frozen at workflow-init time and a step contract
+referenced in the plan is later deleted (e.g. Stage B of cleanup-and-delete
+removed `ingest-feature-metrics.yaml` while the in-flight workflow's plan
+still listed it), the dispatcher must NOT raise FileNotFoundError. It must
+fall back to a minimal inline contract so the workflow can advance past
+the orphaned step.
+"""
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+import pytest
+import yaml
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from orchestrator_next.dispatch import dispatch  # noqa: E402
+from orchestrator_next.parser import load_state  # noqa: E402
+
+
+def _write_state(tmp_path: Path, *, deleted_step: str) -> Path:
+    state = {
+        "schema": "feature",
+        "change_id": "ft20-test",
+        "slug": "ft20-test",
+        "status": "active",
+        "repo_root": str(tmp_path),
+        "phase": "complete",
+        "next_step": {"phase": "complete", "step_id": deleted_step},
+        "workflow_plan": {
+            "complete": {
+                "active": [deleted_step, "remove-worktree"],
+                "filtered": [],
+            },
+        },
+        "step_history": [],
+        "flags": {},
+    }
+    state_path = tmp_path / "state.yaml"
+    state_path.write_text(yaml.safe_dump(state))
+
+    # Also drop a minimal plan.yaml so dispatch's _load_plan succeeds.
+    plan = {
+        "phases": [
+            {
+                "name": "complete",
+                "steps": [
+                    {"id": deleted_step, "agent": "inline", "goal": "deleted"},
+                    {"id": "remove-worktree", "agent": "inline", "goal": "ok"},
+                ],
+            }
+        ]
+    }
+    (tmp_path / "plan.yaml").write_text(yaml.safe_dump(plan))
+    return state_path
+
+
+def test_dispatch_falls_back_when_contract_missing(tmp_path):
+    """The orphan step path: contract YAML deleted after workflow-init."""
+    state_path = _write_state(tmp_path, deleted_step="step-deleted-from-disk")
+    state = load_state(str(state_path))
+    action, exit_code = dispatch(state, str(state_path))
+    assert exit_code == 0, f"expected exit 0, got {exit_code}"
+    assert action["step_id"] == "step-deleted-from-disk"
+    # Stub contract: agent defaults to "inline", run is None, no instruction.
+    assert action["agent"] == "inline"
+    assert action.get("run") is None
