@@ -24,7 +24,7 @@ instruction: |
     METRICS_DB        — path to metrics.duckdb (optional; defaults to $ORCHESTRATOR_HOME/metrics.duckdb)
 
   Exit non-zero on any error (fail loud). Record the step_history entry via
-  `orchestrator record` (MUST use record, MUST NOT edit state.yaml directly).
+  `orchestrator done` (MUST use done, MUST NOT edit state.yaml directly).
 
 verify:
   - feature_metrics row exists for (repo_root, change_id) after the step
