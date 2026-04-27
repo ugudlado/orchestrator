@@ -11,11 +11,15 @@ VOLUME_MOUNT_PATH="${VOLUME_MOUNT_PATH:-/workspace}"
 VLLM_GPU_UTIL="${VLLM_GPU_UTIL:-0.9}"
 VLLM_TOOL_PARSER="${VLLM_TOOL_PARSER:-qwen3_coder}"
 VLLM_REASONING_PARSER="${VLLM_REASONING_PARSER:-}"
-VLLM_LOG="${VLLM_LOG:-$VOLUME_MOUNT_PATH/vllm.log}"
+# Free-form extra flags appended to vllm serve. Used for hardware-specific
+# workarounds (e.g. --gdn-prefill-backend triton on CUDA<12.6 + Hopper/Ampere).
+VLLM_EXTRA_ARGS="${VLLM_EXTRA_ARGS:-}"
 TAILSCALE_AUTHKEY="${TAILSCALE_AUTHKEY:-}"
-TAILSCALE_HOSTNAME="${TAILSCALE_HOSTNAME:-}"
-TAILSCALE_STATE_FILE="${TAILSCALE_STATE_FILE:-$VOLUME_MOUNT_PATH/tailscale.state}"
-TAILSCALE_LOG="${TAILSCALE_LOG:-$VOLUME_MOUNT_PATH/tailscaled.log}"
+TAILSCALE_HOSTNAME="${TAILSCALE_HOSTNAME:-$(hostname -s 2>/dev/null || hostname)}"
+# Per-pod files so multiple pods sharing this network volume don't overwrite each other.
+VLLM_LOG="${VLLM_LOG:-$VOLUME_MOUNT_PATH/vllm-${TAILSCALE_HOSTNAME}.log}"
+TAILSCALE_STATE_FILE="${TAILSCALE_STATE_FILE:-$VOLUME_MOUNT_PATH/tailscale-${TAILSCALE_HOSTNAME}.state}"
+TAILSCALE_LOG="${TAILSCALE_LOG:-$VOLUME_MOUNT_PATH/tailscaled-${TAILSCALE_HOSTNAME}.log}"
 VLLM_BIND_HOST="${VLLM_BIND_HOST:-127.0.0.1}"
 VLLM_PROBE_HOST="${VLLM_PROBE_HOST:-127.0.0.1}"
 
@@ -92,7 +96,7 @@ install_vllm_if_missing() {
     return
   fi
   echo "Installing vLLM (this takes a few minutes)..."
-  pip install --upgrade 'vllm>=0.15.0' 2>&1 | tail -5
+  pip install --upgrade --timeout 120 --retries 5 'vllm>=0.15.0' 2>&1 | tail -5
 }
 
 stop_existing_vllm() {
@@ -127,6 +131,11 @@ serve_model() {
   fi
   if [ -n "$VLLM_REASONING_PARSER" ]; then
     extra_args+=(--enable-reasoning --reasoning-parser "$VLLM_REASONING_PARSER")
+  fi
+  if [ -n "$VLLM_EXTRA_ARGS" ]; then
+    # Word-split intentional — VLLM_EXTRA_ARGS holds CLI flags.
+    # shellcheck disable=SC2206
+    extra_args+=($VLLM_EXTRA_ARGS)
   fi
   echo "  extra flags: ${extra_args[*]:-none}"
 
@@ -175,6 +184,14 @@ wait_until_serving() {
 }
 
 main() {
+  # --bench-only: print hardware info and exit (skip vLLM serve).
+  if [ "${1:-}" = "--bench-only" ]; then
+    echo "=== GPU hardware info ==="
+    nvidia-smi
+    echo "=== Bench-only mode — exiting ==="
+    exit 0
+  fi
+
   echo "=== vLLM setup ==="
   verify_volume_mount
   ensure_cache_dirs
