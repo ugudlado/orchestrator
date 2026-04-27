@@ -98,20 +98,7 @@ Claude Code integration. Three tools:
 
 ### GPU Scripts
 
-Shell-based RunPod lifecycle (predates the UI):
-
-```bash
-PROFILE=qwen27b ./gpu.sh create   # load scripts/profiles/qwen27b.env
-PROFILE=qwen35b ./gpu.sh create   # load scripts/profiles/qwen35b.env
-./gpu.sh status                   # pod + vLLM health
-./gpu.sh terminate                # destroy pod
-./gpu.sh restart-vllm             # restart model serving
-./gpu.sh supervise                # auto-recreate on failure + budget kill
-```
-
-Profiles are simple env files in `scripts/profiles/` that override the shared `.env` after it is loaded. When Tailscale is configured, the direct URL lands on `http://<pod-name>:$REMOTE_PORT`; the SSH tunnel remains an explicit fallback for non-tailnet runs.
-
-See `setup-vllm.sh` for model serving config (reasoning parser, tool parser, ephemeral disk mode).
+GPU-pod provisioning and the vLLM serving harness moved to a separate repo: [hopper](~/code/hopper). The orchestrator agent harness (`mcp-qwen`, `llm-manager`, `routes.yaml`) still lives here and consumes hopper's output via Tailscale hostnames (e.g. `vllm-qwen27b-vast:8000`).
 
 ---
 
