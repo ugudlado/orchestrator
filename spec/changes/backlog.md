@@ -19,6 +19,169 @@
 
 # Features
 
+## cost-summary-on-archive
+
+**Auto-render `cost-summary.md` next to retro.md at archive time** (score 9.2)
+
+**Recurrence:** 1
+
+### Idea
+
+Today, after a feature lands, all the cost / token / timing data exists in DuckDB (`feature_report` view + `step_events` table) but the user has to manually run `/telemetry` or `metrics-query.sh` to see it. The data is captured; the consumption side is manual.
+
+Add a render step inside `mark-change-completed.yaml` (or `archive-completed-change.yaml`) that queries `feature_report` for the just-completed `change_id`, joins per-step rows from `step_events`, and writes `spec/changes/archive/<date>-<slug>/cost-summary.md` with:
+
+- **Totals**: `cost_usd`, input/output/cache tokens, total tokens, wall-clock `duration_ms`
+- **Per-agent breakdown** (from `per_agent_metrics` JSON in `feature_report`)
+- **Per-phase timing** (group `step_events` by phase: "specify 14m, implement 38m, complete 6m")
+- **Top 3 most expensive steps** (by `cost_usd` from `step_events`)
+- **Per-step timing detail** (sub-bullets under each phase: "execute-next-task 31m [hot retry]")
+
+Folds in idea #4 from the cost-metrics ideation session — step-grain timing — into the same template so it ships with the summary in one feature instead of two.
+
+### Why Now
+
+- All the SQL infrastructure exists (`feature_report` view shipped via `report-views-retire-cli`, `step_events` shipped via `subprocess-per-step-observability`). The work is one template + one step-contract edit.
+- Closes the loop: every feature ends with a self-contained cost report next to its `retro.md`. No more "where did the time go on that one?" guessing.
+- Prerequisite for `cost-delta-baseline` — having the rendered template makes it trivial to add a "Nx median" line later.
+- Cheap precursor to the autopilot cost tail and to any future regression-detection work.
+
+### Scope
+
+1. New SQL query (or named query in `metrics-query.sh`): `feature-summary <change_id>` returning the full row + per-step rollup.
+2. New template at `config/templates/feature/cost-summary.md` with sections for totals, per-agent, per-phase, top-3 steps.
+3. Edit `config/steps/archive-completed-change.yaml` (or `mark-change-completed.yaml`) to render the template into the archive directory.
+4. Test: archive a small completed feature and assert `cost-summary.md` exists with non-empty sections.
+
+### Out of scope
+
+- Comparison vs baseline (covered by `cost-delta-baseline`).
+- Real-time emit during autopilot (covered by `autopilot-cost-tail`).
+- Changing `feature_report` view shape — read-only consumer.
+
+### Priority
+
+- User value: 9/10 (visibility every feature, zero manual queries)
+- Strategic fit: 9/10 (closes the metrics consumption loop)
+- Technical leverage: 8/10 (~50 lines: template + SQL + step edit)
+- Effort: small
+- **Score: 8.4**
+
+### Source
+
+- Ideation session 2026-05-03 with the user — bundled #1+#4 from a 5-idea ranking.
+
+---
+
+## cost-delta-baseline
+
+**Surface "Nx median" delta line in cost-summary.md** (score 9.1)
+
+**Recurrence:** 1
+
+### Idea
+
+Once `cost-summary.md` exists per feature, add a single line comparing this feature against rolling baseline: "this feature was 1.4× median cost, 2.1× median tokens, 0.9× median wall-clock vs the prior 30 days."
+
+Mechanism:
+
+1. New DuckDB view `feature_baseline` computing 30-day rolling median (per `repo_root`) of `cost_usd`, `total_tokens`, `duration_ms` from `feature_report`. Use `PERCENTILE_CONT(0.5)` over a window.
+2. New named query `cost-delta <change_id>` returning the ratios.
+3. Update the `cost-summary.md` template (from `cost-summary-on-archive`) to include a "Delta vs baseline" section near the top.
+
+This is the cheap precursor to the existing `metrics-regression-detection` backlog item — gives the *signal* (one line per feature) without the alerting / autopilot-breaker complexity. If a delta line consistently shouts "3× median" across 3 features, that's the trigger to invest in the full regression detector.
+
+### Why Now
+
+- Depends on `cost-summary-on-archive` — only meaningful once the template exists. Ships immediately after.
+- Median-based deltas are immediately readable; humans don't need to query DuckDB to know "this one was expensive."
+- Cheaper than the full regression-detection feature (no `metrics_anomalies` table, no autopilot breaker), but captures 80% of the user-visible value: "is this feature an outlier?"
+
+### Scope
+
+1. New migration adding `feature_baseline` view (window-based median, partitioned by `repo_root`).
+2. New named query `cost-delta` in `metrics-query.sh` returning ratios for a given `change_id`.
+3. Update `cost-summary.md` template to render delta section.
+4. Test: median calculation against a fixture with 3+ features per repo.
+
+### Out of scope
+
+- Anomaly storage (`metrics_anomalies` table) — that's the regression-detection feature.
+- Autopilot stop-on-regression breaker.
+- Per-step deltas (just feature-level for now).
+- Cross-repo deltas (per-`repo_root` only).
+
+### Priority
+
+- User value: 7/10
+- Strategic fit: 8/10
+- Technical leverage: 8/10 (~30 lines SQL + small template edit)
+- Effort: small
+- **Score: 7.5**
+
+### Dependencies
+
+- Hard: `cost-summary-on-archive` (template must exist).
+
+### Source
+
+- Ideation session 2026-05-03 with the user — idea #3 from a 5-idea ranking.
+
+---
+
+## autopilot-cost-tail
+
+**One-line cost summary in autopilot transcript per iteration** (score 9.0)
+
+**Recurrence:** 1
+
+### Idea
+
+In `config/steps/autopilot-iterate.yaml`, after each child feature archives, query the recent-features metrics and emit one line into the autopilot transcript:
+
+```
+[FT-XX cost-summary-on-archive] $0.74 / 12m / 84k tokens / 2.1× median
+```
+
+Surfaces runaway-cost runs in real time without grepping logs or running `/telemetry` after the fact. Especially valuable in long-running autopilot sessions (5+ iterations) where the user only watches the tail.
+
+### Why Now
+
+- Builds on `cost-summary-on-archive` (uses the same query) and `cost-delta-baseline` (the median ratio).
+- Tiny — one bash invocation + one log line in `autopilot-iterate.yaml`.
+- Closes the autopilot-specific visibility gap: today, you have to wait for the session-report phase to see any cost numbers.
+
+### Scope
+
+1. Add a sub-step in `autopilot-iterate.yaml` STEP D.5 (or a new STEP D.6) that runs `metrics-query.sh feature-summary <ticket-slug> --tail` and emits the formatted line.
+2. New `--tail` mode for the `feature-summary` query (or new named query `cost-tail <change_id>`) returning a single formatted line.
+3. Test: run autopilot with 1 iteration; assert the tail line appears in stderr / transcript.
+
+### Out of scope
+
+- Cost dashboards / time-series rendering.
+- Mid-iteration cost emits (only after-archive).
+- Stopping autopilot on cost (covered by `metrics-regression-detection`).
+
+### Priority
+
+- User value: 7/10 (real-time visibility in long autopilot runs)
+- Strategic fit: 7/10
+- Technical leverage: 8/10 (~10 lines: one query + one log line)
+- Effort: extra-small
+- **Score: 6.5**
+
+### Dependencies
+
+- Hard: `cost-summary-on-archive` (uses its query).
+- Soft: `cost-delta-baseline` (the "Nx median" segment of the line — degrades gracefully to omitting that segment if delta isn't computed yet).
+
+### Source
+
+- Ideation session 2026-05-03 with the user — idea #5 from a 5-idea ranking.
+
+---
+
 ## workflow-engine-as-state-machine
 
 **Parent vision: collapse the orchestrator CLI to two verbs (`next` / `done`), move reports to DuckDB views, and encode a proper state machine with durable intent and crash-safe resume** (score 8.5)
