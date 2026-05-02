@@ -16,7 +16,12 @@ flags_read:
 rules:
   - Target score is quality_bar.min_phase_review_score from project.yaml — retry until met.
   - Maximum retries from quality_bar.max_retry_rounds — escalate to user if exhausted.
+  - "When flags.light is true: lower target review_score to 7 and max_retries to 4 — light mode trades quality bar for speed on tight-scope changes."
+  - Run type-check + test + build commands at every phase boundary before scoring.
   - Capture concrete findings with fix direction — every finding must be actionable.
+  - Issues found during verification become new tasks in the current phase. Never skip ahead with unresolved findings.
+  - Do not advance with unresolved critical findings — these block phase completion regardless of overall score.
+  - "When flags.bugfix is true: zero regressions tolerated. No existing tests may break."
   - Fix tasks must be minimal and scoped to the specific failure — no refactoring, no improvements.
   - Score of 10 is a first-pass bonus — only achievable when no retries were used this round.
   - Operate at staff-level review quality — catch architectural issues, not just surface bugs.

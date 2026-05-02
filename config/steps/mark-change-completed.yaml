@@ -14,6 +14,7 @@ rules:
   - Run immediately before compute-swe-metrics so completed_at is available for JSONL time-window bounding.
   - Validator is non-blocking — always exits 0 regardless of coverage ratio.
   - archive_path uses ISO date prefix from completed_at (YYYY-MM-DD-<change-id>).
+  - Verify all acceptance criteria with evidence before marking the change completed.
 
 instruction: |
   0. Re-entry check: read state.yaml for `completed_at`. If already set and

@@ -29,12 +29,12 @@ instruction: |
     - spec/project.yaml has `vision:` key (grep -q "^vision:" spec/project.yaml)
     - $ORCHESTRATOR_HOME/config/workflows/ directory contains at least one .yaml file
     - $WORKFLOW_STATE_DIR is writable (mkdir -p $WORKFLOW_STATE_DIR)
-    If ANY fail → invoke: Skill({ skill: "develop", args: "--bootstrap" })
+    If ANY fail → invoke: Skill({ skill: "orchestrate", args: "--bootstrap" })
     Then RE-RUN checks 3. If still failing → ABORT with specific check that failed.
 
   CHECK 4 — Vision is not a placeholder:
     Read spec/project.yaml. Verify vision.purpose is not empty and not the string "TODO".
-    If FAILS → ABORT: "spec/project.yaml has no vision section. Run /develop --bootstrap
+    If FAILS → ABORT: "spec/project.yaml has no vision section. Run /orchestrate --bootstrap
     and fill in the vision.purpose field. Autopilot needs this to evaluate valuable work."
 
   If all checks pass → output: STATUS: completed

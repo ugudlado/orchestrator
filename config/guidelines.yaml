@@ -1,40 +1,36 @@
-# Workflow selection guidelines — LLM picks best match by semantic similarity.
-# Each entry describes the intent and context where that schema should be used.
+# Workflow selection guidelines — read by config/steps/select-workflow.yaml
+# at orchestrate-time. Trigger keywords are the literal-match fast path;
+# semantic match against the description is the fallback.
 
 feature: >
-  Use for any change that adds, modifies, or cleans up production behavior.
-  The schema scales from full discovery-through-archive for substantial new
-  capabilities down to a lightweight path for tight-scope work via the
-  --light flag.
-
-  Full path (default): new API endpoint, new UI component, new workflow
-  schema — anything that benefits from discovery, design, and phased review.
-
-  Light path (--light): dependency bumps, renames, config tweaks, typo
-  fixes, small UI polish, adding a single flag, and other housekeeping
-  where the spec is a short idea doc and the whole thing ships in an
-  afternoon. Triggers: "bump", "rename", "tweak", "small change", "quick
-  fix", "cleanup". Light mode skips discovery/design/UX/TDD/simplify/
-  phase-reviews/worktree/Linear by default; add --tdd or similar to
-  re-enable a specific gate.
+  Default schema for any change that adds, modifies, or cleans up
+  production behavior. Full pipeline: discovery → design → execute →
+  review → archive.
+  Triggers: "add", "implement", "feature", "build", "create".
+  Compose with --light for tight-scope work that lowers the review
+  threshold to 7.
 
 bugfix: >
-  Use when something is broken, regressing, or producing incorrect output.
-  Examples: test failure, runtime error, wrong calculation, broken integration.
-  Triggers: "fix", "broken", "regression", "crash", "error when doing X".
+  Use when something is broken, regressing, or producing incorrect
+  output. Same pipeline shape as feature but starts with diagnose
+  (reproduce + root-cause) and the first task is always the regression
+  test.
+  Triggers: "fix", "broken", "regression", "crash", "error when".
 
 spike: >
-  Use when exploring an unknown problem space before committing to a solution.
-  Produces a time-boxed findings document, not production code.
-  Examples: "prototype X", "explore Y", "POC for Z", "try approach A".
+  Use for time-boxed exploration before committing to a solution.
+  Produces a working prototype and findings, archived as throwaway.
+  No worktree by default.
+  Triggers: "prototype", "explore", "POC", "try", "spike".
 
 bootstrap: >
-  Use only to initialize a new project repo with standard tooling (Makefile, CLAUDE.md,
-  spec/project.yaml, .gitignore). Runs in-place, no worktree, no Linear ticket.
-  Triggers: "setup tooling", "bootstrap this repo", "initialize project".
+  Initialize a new project repo with standard tooling (Makefile,
+  CLAUDE.md, project.yaml, .gitignore). Runs in-place, no worktree,
+  no Linear.
+  Triggers: "bootstrap", "setup tooling", "initialize project".
 
 autopilot: >
-  Use to run an autonomous multi-iteration development loop — picks work from the
-  backlog, executes each ticket via /develop with full autonomy, and records a session
-  log across context resets. No worktree, no per-change state.yaml in the main flow.
-  Triggers: "autopilot", "autonomous", "run N iterations", "self-improve".
+  Autonomous multi-iteration development loop. Picks work from the
+  backlog, executes each ticket via /orchestrate with full autonomy,
+  records a session log across context resets.
+  Triggers: "autopilot", "autonomous", "run N iterations".

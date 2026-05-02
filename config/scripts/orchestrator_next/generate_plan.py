@@ -83,9 +83,25 @@ def _resolve_phases(schema: dict[str, Any]) -> list[dict[str, Any]]:
     """
     Return a flat list of fully-resolved phase dicts from a schema.
 
-    Inline-expands `include: _<name>` entries.
+    Inline-expands `include: _<name>` entries. Phase-less schemas (top-level
+    `steps:` with no `phases:`) synthesize a single phase named "main"; the
+    rest of the engine treats them identically to legacy multi-phase schemas.
     """
-    raw_phases = schema.get("phases", [])
+    raw_phases = schema.get("phases")
+    if not raw_phases:
+        steps = schema.get("steps")
+        if not steps:
+            return []
+        synthetic: dict[str, Any] = {
+            "name": "main",
+            "goal": schema.get("description", ""),
+            "steps": steps,
+        }
+        for key in ("verify", "verify_when", "outputs", "rules"):
+            if key in schema:
+                synthetic[key] = schema[key]
+        return [synthetic]
+
     resolved: list[dict[str, Any]] = []
     for phase_entry in raw_phases:
         if "include" in phase_entry:

@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: "Workflow router — detects intent and loads the right schema. This skill should be used when the user says 'orchestrate', 'start a feature', 'fix a bug', 'do a chore', 'run a spike', 'bootstrap this repo', or describes development work that maps to a workflow type (feature, bugfix, chore, spike, bootstrap, autopilot)."
+description: "Workflow router — detects intent and loads the right schema. This skill should be used when the user says 'orchestrate', 'start a feature', 'fix a bug', 'run a spike', 'bootstrap this repo', or describes development work that maps to a workflow type (feature, bugfix, spike, bootstrap, autopilot)."
 user-invocable: true
 args:
   - name: request
@@ -45,41 +45,38 @@ contract listed above.
 
 ## Execution
 
-### 1. Resolve schema and flags
+### 1. Select workflow
 
-1. Read `$ORCHESTRATOR_HOME/config/guidelines.yaml`.
-2. Match the user's request to the best workflow schema (feature, bugfix, chore, spike, bootstrap, autopilot).
-3. Read the schema YAML: `$ORCHESTRATOR_HOME/config/workflows/<schema>.yaml`.
-4. Resolve flags:
-   - Start with schema `defaults:` (e.g., `tdd_required: true, auto: false`)
-   - Apply any user-provided flags via the schema's `flags:` mapping (e.g., `--no-tdd` sets `tdd_required: false`)
-   - The resolved flag set determines which steps run and which rules activate
-5. Tell the user which schema and flags were resolved.
+Run the `select-workflow` step contract — `$ORCHESTRATOR_HOME/config/steps/select-workflow.yaml`. This is a pre-init step (state.yaml does not exist yet); follow its `instruction:` block in this conversation, treating its `outputs:` as the result.
 
-### 2. Check for resume
+The contract owns the matching logic — trigger keywords, CLI-flag binding, resume detection, semantic fallback, halt-on-ambiguity. Do not duplicate it here.
 
-Read `$WORKFLOW_STATE_DIR/*/state.yaml` for any active change (status: active) matching this repo. If found:
-- Read `next_step` from state.yaml to get the resume point (phase + step_id)
-- Read `flags` from state.yaml (flags were resolved at workflow start and persisted)
-- Skip to that phase and step in the dispatch loop below
-- Tell the user: "Resuming <change_id> at <phase>/<step_id>"
+After the step emits `{schema, reason, confidence, considered}`:
 
-If no active state, this is a new workflow — proceed from the first phase and step.
+1. Read the schema YAML: `$ORCHESTRATOR_HOME/config/workflows/<schema>.yaml`. Workflow files declare `steps:` (and rarely `defaults:` overrides). They do NOT declare their own flags — flag definitions live in `$ORCHESTRATOR_HOME/config/flags.yaml`.
+2. Resolve flags by merging in this order:
+   - `flags.yaml.gates.<flag>.default` and `flags.yaml.behavioral.<flag>.default` — global defaults.
+   - Workflow's `defaults:` block (if present) — overrides for this schema.
+   - User-supplied CLI flags resolved via `flags.yaml.cli.<--name>.sets` — final override.
+3. Tell the user the schema, the reason it was selected, the confidence tier, and the resolved flags.
+
+### 2. Resume entry point
+
+If the select-workflow step emitted `confidence: resume`, it has already pointed at an active state.yaml. Read its `next_step` (phase + step_id), read its persisted `flags`, and enter the dispatch loop at that point. Tell the user: "Resuming <change_id> at <phase>/<step_id>."
+
+Otherwise this is a new workflow — proceed from the first phase and step.
 
 ### 3. Build filtered step list
 
-For each phase in the schema:
-- If a phase has `include: _<name>` instead of inline fields, read the phase
-  definition from `$ORCHESTRATOR_HOME/config/workflows/_<name>.yaml` and use
-  its fields (goal, rules, verify, steps). Schema-level overrides (e.g., a
-  different `verify.metrics.review_score.min`) take precedence over the included
-  definition.
+The `workflow-init` agent does this work — it reads the workflow's `steps:`, the resolved flags, and `flags.yaml.gates`, then writes `workflow_plan` into state.yaml. The driver does not pre-compute it inline.
 
-Build the active step list using the resolved flags:
-- `step-id if <flag>` → include only when flag is truthy
-- `step-id if not <flag>` → include only when flag is falsy
-- Plain `step-id` or `id: step-id` → always include
-- Preserve ordering — steps execute in the order listed
+Filtering rule for any reader auditing the resolution:
+- Walk `steps:` in declared order.
+- For each step, find every gate flag in `flags.yaml.gates` whose `steps:` list includes this step ID. The step is active iff every such flag resolves truthy. Otherwise it is filtered with `reason: "flag <name>=false"`.
+- Steps not referenced by any gate are unconditionally active.
+- Preserve ordering.
+
+Legacy multi-phase schemas (spike): if a phase has `include: _<name>`, read the fragment from `$ORCHESTRATOR_HOME/config/workflows/_<name>.yaml` and inline its `steps:`. Flat schemas (feature, bugfix, bootstrap, autopilot) skip this — `generate_plan` synthesizes a single `main` phase.
 
 
 ### 4. Dispatch loop — HL-287 M5: use the `orchestrator` CLI
@@ -195,17 +192,14 @@ defines how to spawn the architect and re-dispatch.
 
 ### 5. Phase transitions
 
-After all steps in a phase complete:
-- Verify phase-level `verify:` block (commands, assertions, metrics)
-- If phase has `requires:` — this was already validated at phase start
-- Advance `phase` field in state.yaml to the next phase
-- Continue the dispatch loop with the next phase's steps
+Flat schemas (feature, bugfix, bootstrap, autopilot) have a single `main` phase — no advancement needed; `complete_workflow` fires when the last step completes.
 
-If `orchestrator next` returns `complete_workflow` AND stderr shows
-`WARNING: phase 'X' is complete but workflow_plan has other phases (...)` —
-do NOT treat as terminal. Update state.yaml `phase:` field to the next phase
-per schema ordering and re-dispatch. This is the driver's responsibility; the
-CLI emits a loud hint but does not auto-advance.
+Multi-phase schemas (spike) need driver-side phase advancement. After all steps in a phase complete:
+- Verify phase-level `verify:` block if present (commands, assertions, metrics).
+- Advance the `phase` field in state.yaml to the next phase.
+- Continue the dispatch loop with that phase's steps.
+
+If `orchestrator next` returns `complete_workflow` AND stderr shows `WARNING: phase 'X' is complete but workflow_plan has other phases (...)` — do NOT treat as terminal. Update state.yaml `phase:` and re-dispatch. The CLI emits the hint but does not auto-advance.
 
 ### Key rules
 

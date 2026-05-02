@@ -50,40 +50,9 @@ Run every verification step and capture output. Do not claim "it works" — prov
 
 If any check fails → fix the issue. Do not pass to reviewer with known failures.
 
-### 4. Self-Review (score yourself honestly)
+### 4. Hand Off to Reviewer
 
-Before handing off, review your own changes using the **same full rubric** the reviewer will use. You and the reviewer independently evaluate the same dimensions — two perspectives on the same criteria catches more issues than two different checklists.
-
-#### Checklist (all items required)
-
-- **Spec compliance**: implements what the task requires (check Why); no adds/misses vs. scope; approach matches design.md
-- **Correctness**: logic correct (off-by-one, races, null derefs); edge cases (empty, boundaries, errors) handled; no silent error swallowing
-- **Security**: no XSS (innerHTML with user data), no injection, no hardcoded secrets, no dynamic code execution on user strings
-- **Simplicity**: simplest implementation that satisfies the requirement; no premature abstractions, dead code, or unused flags
-- **Code quality**: follows project conventions; no duplicated logic; tested path == runtime path; clean separation of concerns
-- **Scope discipline**: changes scoped to the task; no drive-by refactors; no new conventions without justification
-
-#### Score Yourself
-
-| Dimension | What to check | Score |
-|-----------|---------------|-------|
-| **Spec compliance** | Does code match what spec.md + design.md require? | ?/10 |
-| **Correctness** | Logic errors, edge cases, error handling | ?/10 |
-| **Security** | XSS, injection, hardcoded secrets, OWASP top 10 | ?/10 |
-| **Simplicity** | Is this the minimal solution? Any unnecessary abstraction? | ?/10 |
-| **Code quality** | Conventions, DRY, separation of concerns | ?/10 |
-
-**You must reach an overall self-assessment of 9/10 before passing to reviewer.**
-
-If your honest self-assessment is below 9:
-- Identify the failing checklist items and weak dimensions
-- Fix the issues
-- Re-verify (step 3)
-- Re-review and re-score
-
-Do NOT inflate your score. The reviewer runs the same checklist independently — dishonest self-assessment wastes everyone's time and the feedback loop costs more than fixing it now.
-
-### 5. Hand Off to Reviewer
+The reviewer is the external 9/10 quality gate — it runs the rubric independently. Your job is to hand off honest evidence, not a self-score.
 
 Report to the orchestrator with:
 
@@ -99,16 +68,7 @@ Report to the orchestrator with:
 - Build: [exit code]
 - Task-specific: [evidence]
 
-### Self-Review Score: N/10
-| Dimension | Score | Notes |
-|-----------|-------|-------|
-| Spec compliance | N/10 | |
-| Correctness | N/10 | |
-| Security | N/10 | |
-| Simplicity | N/10 | |
-| Code quality | N/10 | |
-
-### Checklist items failed: [list any that didn't pass, or "none"]
+### Known concerns: [list anything you're unsure about, or "none"]
 ```
 
 ## Handling Review Feedback
@@ -118,95 +78,20 @@ When the reviewer rejects:
 2. Fix all issues marked "must fix"
 3. For suggestions, use your judgment but err toward accepting
 4. Re-run full self-verify cycle (not just the changed parts)
-5. Re-score and include what changed in the resubmission
+5. Note what changed in the resubmission
 
 ## Schema-Specific Behavior
 
 - **feature (not tdd_required)**: Implementation first. Tests optional but type-check + build required.
 - **bugfix**: Write regression test first (proves the bug exists), then fix (test turns green).
-- **feature (tdd_required)**: Full TDD protocol below.
-
-## TDD Protocol (when tdd_required is set)
-
-Write the test first. Watch it fail. Write minimal code to pass.
-
-**Core principle:** If you didn't watch the test fail, you don't know if it tests the right thing.
-
-### The Iron Law
-
-```
-NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
-```
-
-Write code before the test? Delete it. Start over. Don't keep it as "reference."
-
-### Red-Green-Refactor
-
-**RED — Write Failing Test**
-- One behavior per test, clear name describing behavior, real code (no mocks unless unavoidable)
-- Run the test. Confirm it **fails** (not errors), for the expected reason (feature missing, not typos)
-
-**GREEN — Minimal Code**
-- Write the simplest code to pass the test. Don't add features beyond what the test requires.
-- Run the test. Confirm it passes. Confirm other tests still pass.
-
-**REFACTOR — Clean Up (after green only)**
-- Remove duplication, improve names, extract helpers. Keep tests green. Don't add behavior.
-
-**Repeat** for the next behavior.
-
-### Testing Anti-Patterns
-
-Assert on real behavior, not mock existence. Don't add test-only methods to production code. If you must mock, mock the full data structure — not just the fields your test reads. If mock setup is longer than test logic, the test is wrong.
-
-### Red Flags — STOP and Start Over
-
-- Code written before test
-- Test passes immediately (never saw it fail)
-- Can't explain why test failed
-- "Keep as reference" / "I'll test after" / "too simple to test" — all mean: delete, start over
-
-### TDD Verification Checklist
-
-- [ ] Every new function has a test
-- [ ] Watched each test fail for the expected reason before implementing
-- [ ] Wrote minimal code to pass
-- [ ] Real code, not mocks (unless unavoidable)
-- [ ] Edge cases and errors covered
+- **feature (tdd_required)**: Strict red-green-refactor — see the TDD rule in `execute-next-task.yaml`.
 
 ## On Failure
 
 - **Tests fail**: Use `systematic-debugging` skill — no guess-fixes
 - **Build fails**: Read error output, trace the issue, fix root cause
-- **Design conflict**: If the task seems to contradict design.md, flag it — don't silently deviate
-- **After 3 failed attempts**: Escalate to orchestrator with what you tried and why it didn't work
-
-## Architectural Escalation
-
-When you hit a genuine design conflict during implementation, escalate to the architect.
-Do NOT guess. Do NOT silently deviate from design.md.
-
-**Escalate when you encounter:**
-1. **Design contradiction** — task instruction conflicts with design.md or spec.md
-2. **Missing design coverage** — task requires a decision design.md does not address
-3. **Scope ambiguity** — genuinely unclear whether a behavior is in or out of scope, with cascade risk
-4. **Architectural dependency** — implementing requires a structural decision affecting other tasks
-
-**Do NOT escalate:** implementation details, test strategy, library usage, minor uncertainty answerable by re-reading the spec.
-
-Return this structured block to the orchestrator:
-
-```
-STATUS: escalate_to_architect
-type: <contradiction|missing_coverage|scope_ambiguity|architectural_dependency>
-task_id: T-<N>
-context: |
-  <2-4 sentences: what the task requires, what spec/design says, why they conflict>
-question: |
-  <single, concrete question the architect must answer to unblock you>
-attempted: |
-  <what you already tried or considered>
-```
+- **Design conflict**: Escalate to architect — see `config/steps/contracts/architect-escalation.md` for when to escalate and the required output block. Do NOT guess or silently deviate from design.md.
+- **After max_retry_rounds attempts**: Escalate to orchestrator with what you tried and why it didn't work
 
 ## State Updates
 
@@ -217,4 +102,4 @@ State updates MUST use `orchestrator done` — MUST NOT directly edit state.yaml
 - Don't make architectural decisions — those were made in spec/design
 - Don't refactor code outside your task scope
 - Don't skip self-verification — every claim needs evidence
-- Don't pass to reviewer with a self-score below 9
+- Don't claim completion when verify_commands fail; fix or escalate

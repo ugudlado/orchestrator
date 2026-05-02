@@ -1,138 +1,134 @@
 name: spec-workflow-grammar
-version: 3
+version: 4
 
 description: >
-  Formal grammar for the spec workflow system. Defines what's valid YAML
-  for schemas, steps, project configs, and state files. Any agent can use
-  this grammar to parse, validate, create, and improve workflow definitions.
+  Formal grammar for the workflow system. Defines what's valid YAML for
+  workflow schemas, step contracts, the central flag registry, project
+  configs, and state files.
+  v4: Schemas collapsed to flat `steps:` lists. Phase grouping removed
+  from user-facing config (engine synthesizes a single `main` phase).
+  Flags and defaults moved to a central `config/flags.yaml`. Schema
+  files now declare only `steps:` (and rarely `defaults:` overrides
+  or workflow-level `rules:`).
 
 # ─── SCHEMA GRAMMAR ────────────────────────────────────────────────
+# Schema name comes from the filename: config/workflows/<name>.yaml.
+# Spike retains a legacy multi-phase shape for the dispatcher's attempt
+# counting; new schemas should use the flat shape.
 
 schema:
   required:
-    name: string                    # Schema identifier (e.g., "feature", "bugfix")
-    version: integer
-    uses:
-      project: path                 # $REPO_ROOT/spec/project.yaml
-      steps: path                   # $ORCHESTRATOR_HOME/config/steps/
-      templates: path               # $ORCHESTRATOR_HOME/config/templates/<name>/
-    phases: list<phase>             # Ordered execution phases
+    steps: list<step_entry>           # Ordered execution steps
 
   optional:
-    description: string
-    defaults: map<string, any>      # Flag defaults (e.g., tdd_required: true)
-    flags: map<flag_def>            # CLI flags that modify defaults
-    rules: list<rule>               # Schema-level rules (always active)
+    defaults: map<string, any>        # Per-workflow overrides of flags.yaml gate/behavioral defaults
+    rules: list<rule>                 # Workflow-level rules (rare — prefer step-contract rules)
 
-# ─── PHASE GRAMMAR ─────────────────────────────────────────────────
+  legacy_optional:                    # Only present in schemas that genuinely need them (spike).
+    phases: list<phase>               # Legacy multi-phase shape
 
-phase:
-  required:
-    name: string                    # Phase identifier (e.g., "specify", "implement")
-    goal: string                    # One-line purpose
-    steps: list<step_entry>         # Ordered step references
-
-  optional:
-    requires: string                # Phase dependency (must complete before this starts)
-    outputs: list<output>           # Artifacts this phase produces
-    rules: list<string>             # Phase-level rules
-    verify: verify_block            # Exit criteria (checked before phase completes)
-
-# ─── STEP ENTRY GRAMMAR ───────────────────────────────────────────
-# Steps in a phase can be strings (simple) or objects (conditional)
+# ─── STEP ENTRY GRAMMAR ────────────────────────────────────────────
+# Steps in a workflow's `steps:` list are usually plain strings.
+# Use the dict form only when overriding `repeat_until` from the contract.
+# Flag-based gating ("step-id if <flag>") is gone — gates live in
+# config/flags.yaml.
 
 step_entry:
   forms:
-    # Simple — always runs
     - pattern: "<step-id>"
-      example: "load-project-context"
+      example: "execute-next-task"
 
-    # Conditional if — runs when flag is truthy
-    - pattern: "<step-id> if <flag>"
-      example: "create-linear-ticket if linear"
-
-    # Conditional if not — runs when flag is falsy
-    - pattern: "<step-id> if not <flag>"
-      example: "phase-signoff if not auto_approve_phases"
-
-    # Object — when attaching agent, rules, repeat, or condition
     - pattern:
-        id: string                  # Step ID
-        agent: string               # Agent that executes this step (e.g., "discoverer", "architect", "developer", "reviewer")
-        if: string                  # Flag condition — "flag" (truthy) or "not flag" (falsy)
-        repeat_until: string        # Condition name (step repeats until met)
-        rules_when:                 # Flag-conditional rules
-          <flag>: list<string>      # Rules when flag is truthy
-          not <flag>: list<string>  # Rules when flag is falsy
-        extra_rules: list<string>   # Always-on rules for this step in this schema
+        id: string                    # Step ID
+        repeat_until: string          # Override contract's repeat predicate
+        extra_rules: list<string>     # Inject rules just for this schema's use of the step
+        rules_when:                   # Flag-conditional rules (rare)
+          <flag>: list<string>
+          not <flag>: list<string>
 
-  # Agent field can also appear on simple/conditional forms via object notation.
-  # Steps without agent: run in the orchestrator's context (lightweight ops like signoff, linear ticket, archive).
+# ─── PHASE GRAMMAR (legacy) ────────────────────────────────────────
+# Only used by spike. Engine synthesizes a single "main" phase for any
+# schema with top-level `steps:`.
 
-# ─── STEP CONTRACT GRAMMAR ────────────────────────────────────────
+phase:
+  required:
+    name: string
+    steps: list<step_entry>
+
+  optional:
+    requires: string                  # Previous phase that must complete first
+    goal: string
+    rules: list<string>
+    verify: verify_block
+    include: string                   # _<name> fragment (e.g. _complete-phase-spike)
+
+# ─── STEP CONTRACT GRAMMAR ─────────────────────────────────────────
 
 step:
   required:
-    id: string                      # Unique step identifier
+    id: string
     version: integer
-    intent: string                  # One-line purpose
-    instruction: string             # Multi-line execution logic (agent follows this)
+    intent: string                    # One-line purpose
+    instruction: string               # Multi-line execution logic
 
   optional:
-    inputs: list<string>            # What this step reads
-    rules: list<string>             # Step-level rules (always applied)
-    verify: verify_block | list<string>  # Post-execution checks
-    outputs: list<string>           # What this step produces
+    agent: string                     # Agent that runs this step (omitted for inline scripts)
+    inline: boolean                   # True for scripted steps with no agent spawn
+    run: path                         # Adapter or script path
+    inputs: list<string>
+    outputs: list<string>
+    rules: list<string>               # Step rules (always applied)
+    flags_read: list<flag_ref>        # Documents which flags this step honors
+    verify: verify_block | list<string>
+    repeat_until: string              # If the step loops internally (e.g. all_tasks_completed)
 
-# ─── OUTPUT GRAMMAR ────────────────────────────────────────────────
+# ─── FLAG REGISTRY GRAMMAR ─────────────────────────────────────────
+# Single source of truth: config/flags.yaml.
 
-output:
+flag_registry:
   required:
-    file: string                    # Output filename (e.g., "spec.md")
-    template: string                # Template path relative to uses.templates
+    gates:                            # Flags that filter steps from a workflow's list
+      <flag>:
+        steps: list<string>           # Step IDs this gate controls
+        default: boolean              # Global default (workflow `defaults:` may override)
+    cli:                              # CLI flags users type
+      <--name>:
+        sets: map<string, any>        # Underlying flag values to apply
+        description: string
 
   optional:
-    requires: list<string>          # Other outputs that must exist first
+    behavioral:                       # Flags that change behavior without filtering steps
+      <flag>:
+        default: boolean
+        description: string
 
-# ─── VERIFY GRAMMAR ───────────────────────────────────────────────
-# Used at phase and step level. Defines concrete exit criteria.
+# ─── VERIFY GRAMMAR ────────────────────────────────────────────────
 
 verify_block:
   optional:
-    commands: list<string>          # Shell commands that must exit 0
-    assertions: list<string>        # Plain-English checks the agent evaluates
-    metrics:                        # Numeric thresholds
+    commands: list<string>
+    assertions: list<string>
+    metrics:
       <name>:
-        min: number                 # Minimum value
-        max: number                 # Maximum value (optional)
-        when: string                # Only check when flag is truthy (optional)
-    max_retries: integer            # Bound on fix iterations before escalation
-    on_max_retries: string          # Action when retries exhausted (default: escalate)
-    after_each: list<string>        # For repeating steps: check after each iteration
-    repeat_done_when: list<string>  # For repeating steps: when to stop repeating
+        min: number
+        max: number
+        when: string                  # Only check when flag is truthy
+    max_retries: integer
+    on_max_retries: string
 
-# ─── RULE GRAMMAR ─────────────────────────────────────────────────
+# ─── RULE GRAMMAR ──────────────────────────────────────────────────
 
 rule:
   forms:
-    # Simple — always active
-    - pattern: string
+    - pattern: string                 # Plain rule
       example: "Keep changes scoped to the current task."
 
-    # Identified — can be overridden by ID at lower levels
     - pattern:
-        id: string
+        id: string                    # Named rule (overridable by id at lower tiers)
         rule: string
-        when: string                # Only active when flag/condition is truthy (optional)
+        when: string                  # Only active when flag is truthy
 
-# ─── FLAG GRAMMAR ──────────────────────────────────────────────────
-
-flag_def:
-  pattern:
-    --<name>:
-      sets: map<string, any>       # Flag values to set (e.g., { tdd_required: false })
-
-# ─── PROJECT CONFIG GRAMMAR ───────────────────────────────────────
+# ─── PROJECT CONFIG GRAMMAR ────────────────────────────────────────
 
 project:
   required:
@@ -152,196 +148,52 @@ project:
     storage:
       active_changes_root: path
       repo_archive_root: path
-      archive_on: list<string>
-    state_contract:
-      file: path
-      required: list<string>
-      merge_precedence: list<string>
-    schemas: list<string>           # Available schema names
-    signoff_policy: map<string, string>  # phase → "required" | "optional"
-    rules: list<rule>               # Project-level rules (cascade to all schemas)
+    signoff_policy: map<string, string>
+    rules: list<rule>
 
-# ─── STATE FILE GRAMMAR ───────────────────────────────────────────
+# ─── STATE FILE GRAMMAR ────────────────────────────────────────────
 
 state:
   required:
-    schema: string                  # Which schema is active
+    schema: string                    # Filename of the active workflow (e.g. "feature")
     status: enum[active, completed, paused]
-    phase: string                   # Current phase name
-    step_id: string                 # Current or last completed step
-    flags: map<string, any>         # Resolved flag values
+    phase: string                     # "main" for flat schemas; phase name for spike
+    flags: map<string, any>           # Resolved flag values (after CLI + workflow defaults + flags.yaml)
+    workflow_plan: map                # { phase: { active: [...], filtered: [...] } }
     started_at: datetime
-    updated_at: datetime
 
   optional:
-    description: string
     change_id: string
     next_step:
       phase: string
       step_id: string
-      instruction: string           # What to do next (for resume)
     step_history: list<step_record>
-    quality_scores: list<number>
-    verification_results: map
-    metrics: swe_metrics                # SWE-bench-aligned metrics (computed at completion)
+    metrics: swe_metrics
 
 step_record:
   required:
     step_id: string
     phase: string
-    status: enum[completed, skipped, failed, retried]
+    status: enum[completed, skipped, failed, escalate_to_architect]
   optional:
-    agent: string                   # Agent that executed this step (audit trail for /learn)
-    skip_reason: string
+    agent: string
     started_at: datetime
     completed_at: datetime
-    retries: integer
-    learnings: list<learning>
-
-learning:
-  required:
-    type: enum[mistake, insight, retry, decision, skip]
-    detail: string
-  optional:
-    step_id: string
-    phase: string
-    timestamp: datetime
-
-# ─── SWE METRICS GRAMMAR ─────────────────────────────────────────
-# Metrics aligned to published benchmark methodologies for direct comparison.
-# Computed at feature completion by parsing session transcripts + git history.
-#
-# Standard references:
-#   - SWE-bench: resolve_rate = FULL resolved / total instances (F2P=1 AND P2P=1)
-#   - Aider: pass@1 = first-attempt success, pass@2 = success after one retry
-#   - Terminal-Bench: binary task score, tokens/task, cost/task
-#   - OpenReview "How Do Coding Agents Spend Your Money?": token breakdown methodology
-
-swe_metrics:
-  optional:
-    # ── Tokens (from session transcript parsing) ──────────────────
-    # Methodology: sum usage{} from every assistant message in session JSONL.
-    # Matches SWE-bench HAL leaderboard token tracking.
-    tokens:
-      input: integer                    # Raw input tokens (excludes cache)
-      output: integer                   # Generated output tokens
-      cache_creation: integer           # Tokens written to prompt cache
-      cache_read: integer               # Tokens served from cache (billed at 10%)
-      total: integer                    # input + output + cache_creation (billable)
-
-    # ── Cost (USD) ────────────────────────────────────────────────
-    # Formula: (input * input_price) + (output * output_price)
-    #          + (cache_creation * input_price) + (cache_read * cache_price)
-    # Matches SWE-bench HAL: "without accounting for caching benefits"
-    # Also compute cache-adjusted cost for internal efficiency tracking.
-    cost:
-      gross_usd: number                 # Full cost ignoring cache discounts
-      net_usd: number                   # Actual cost with cache discounts applied
-      model: string                     # Model used (for price lookup)
-      pricing:                          # Prices used ($/1M tokens, for reproducibility)
-        input: number
-        output: number
-        cache_read: number
-
-    # ── Efficiency ────────────────────────────────────────────────
-    turns: integer                      # Agent loop iterations (= assistant message count)
-    tool_calls: integer                 # Total tool invocations
-    wall_clock_minutes: number          # Elapsed: completed_at - started_at
-    api_calls: integer                  # LLM inference calls (≈ turns, but counts retries)
-
-    # ── Task Resolution (SWE-bench aligned) ───────────────────────
-    # Maps workflow concepts to SWE-bench F2P/P2P methodology:
-    #   F2P (fail-to-pass) = acceptance criteria that must be satisfied
-    #   P2P (pass-to-pass) = existing tests that must not regress
-    resolution:
-      tasks_total: integer              # Total tasks (planned + added)
-      tasks_planned: integer            # Tasks from original tasks.md
-      tasks_added: integer              # Tasks added during implementation
-      tasks_completed: integer          # Tasks that passed verification
-      tasks_failed: integer             # Tasks that failed after max retries
-
-      # SWE-bench-style resolve rate per task:
-      #   resolved = task passes ALL acceptance tests AND zero regressions
-      #   resolve_rate = resolved_count / tasks_total
-      resolve_rate: number              # 0.0–1.0
-
-      # Aider-style pass@k:
-      #   pass_at_1 = tasks passing review on FIRST attempt / tasks_total
-      #   pass_at_2 = tasks passing within 2 attempts / tasks_total
-      pass_at_1: number                 # First-attempt success rate (0.0–1.0)
-      pass_at_2: number                 # Success within 2 attempts (0.0–1.0)
-
-      # Regression tracking (P2P equivalent):
-      regressions: integer              # Existing tests broken by changes
-      regression_rate: number           # regressions / total_existing_tests (0.0–1.0)
-
-    # ── Rework & Intervention ─────────────────────────────────────
-    retries:
-      total: integer                    # Total retry attempts across all steps
-      by_phase: map<string, integer>    # Retries per phase
-    human_interventions: integer        # Times human corrected or redirected
-    rework_commits: integer             # fix: commits within this feature branch
-    rework_rate: number                 # rework_commits / total_commits (0.0–1.0)
-
-    # ── Code Churn (from git) ─────────────────────────────────────
-    churn:
-      files_changed: integer
-      insertions: integer
-      deletions: integer
-      total_commits: integer            # Non-merge commits in feature branch
-
-    # ── Quality ───────────────────────────────────────────────────
-    review_scores: list<number>         # Phase review scores (mirrors quality_scores)
-    review_score_avg: number            # Mean of review_scores
-    lint_delta: integer                 # New lint violations introduced (0 = clean)
-
-    # ── Classification (for aggregation & trending) ───────────────
-    complexity: enum[XS, S, M, L]      # From Linear ticket or manual tag
-    category: string                    # feature/bugfix/refactor/chore/spike
-
-    # ── Derived Benchmark Comparisons ─────────────────────────────
-    # Computed from above fields. Stored for quick dashboard access.
-    benchmarks:
-      cost_per_task_usd: number         # net_usd / tasks_total (SWE-bench style)
-      cost_per_resolution_usd: number   # net_usd / tasks_completed (efficiency-adjusted)
-      tokens_per_task: integer          # tokens.total / tasks_total
-      tokens_per_resolution: integer    # tokens.total / tasks_completed
-      input_output_ratio: number        # tokens.input / tokens.output
-      cache_hit_rate: number            # cache_read / (input + cache_creation + cache_read)
-
-    # ── Per-Agent Attribution ─────────────────────────────────────────
-    # Computed by compute-swe-metrics.sh from step_history[].usage entries.
-    # Grouped by agent name (e.g., "developer", "reviewer").
-    per_agent_tokens: string            # JSON object: { agent: { total_tokens, tool_uses, duration_ms, steps } }
-                                        # Example: '{"developer":{"total_tokens":18500,"tool_uses":7,"duration_ms":42000,"steps":1}}'
-    per_agent_tools: string             # JSON object: { agent: { ToolName: count, ... } }
-                                        # Example: '{"developer":{"Read":89,"Bash":45,"Grep":30,"Edit":12}}'
-                                        # Tool names are as-is from agent results (no enum). Sum of values equals tool_uses for that agent.
-                                        # Entries without tools: sub-map in state.yaml are skipped (backward compatible with pre-HL-276).
+    attempt: integer
+    usage: map                        # { input_tokens, output_tokens, cache_read_input_tokens, cost_usd, duration_ms, tool_calls }
+    evidence: map
 
 # ─── EVOLUTION ─────────────────────────────────────────────────────
 #
-# Two things evolve at different rates:
+# Workflow (frequent): /learn proposes changes to step contracts, the
+# flag registry, agent prompts, project rules, and templates.
 #
-# WORKFLOW (frequent — after every feature cycle):
-#   /learn evaluates each cycle and proposes changes to:
-#   - Schemas:   add/remove steps, reorder phases, add rules, adjust verify
-#   - Steps:     improve instructions, add verify checks, refine rules
-#   - Project:   add project-wide rules, adjust quality_bar, change signoff
-#   - Templates: improve artifact structure based on what produced better specs
-#
-# GRAMMAR (rare — when a new construct is needed):
-#   When the workflow hits a pattern that can't be expressed:
-#   1. Agent proposes a grammar addition (syntax + rationale + example)
-#   2. Human approves
-#   3. Grammar version increments
-#   4. Workflow files can now use the new construct
+# Grammar (rare): when a workflow needs a construct this grammar can't
+# express, propose an addition with rationale and example.
 #
 # Evolution log:
-#   v1: Initial grammar — schemas, phases, steps, verify, rules, flags
-#   v2: Added agent: field to step_entry (declares which agent runs the step)
-#       and step_record (audit trail for /learn to identify which agent caused issues)
-#   v3: Added swe_metrics type to state — SWE-bench/Aider/Terminal-Bench-aligned
-#       metrics computed at completion from session transcripts + git history.
-#       Enables benchmark-comparable measurement: resolve_rate, pass@k, cost/task,
-#       tokens/task, rework_rate, regression tracking.
+#   v1: schemas, phases, steps, verify, rules, flags
+#   v2: agent field on step entries
+#   v3: swe_metrics for benchmark-aligned measurement
+#   v4: phases collapsed to flat steps; flags/defaults moved to
+#       central flags.yaml; workflow files reduced to `steps:` only

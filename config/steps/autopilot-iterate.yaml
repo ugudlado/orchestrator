@@ -1,7 +1,7 @@
 id: autopilot-iterate
 version: 1
 
-intent: One iteration of the autopilot loop — pick the most valuable ticket, execute it via /develop with full autonomy, record outcome, then clear context.
+intent: One iteration of the autopilot loop — pick the most valuable ticket, execute it via /orchestrate with full autonomy, record outcome, then clear context.
 
 inputs:
   - SESSION_ID (from autopilot-session-init output or _checkpoint.json on resume)
@@ -15,8 +15,10 @@ rules:
   - Write session iteration record BEFORE /clear.
   - Archive session to archive/sessions_archive.yaml if this was the last iteration.
   - On 2 consecutive spawn failures: write stop_reason to checkpoint, stop loop cleanly.
-  - Context budget: <200 tokens net added per iteration. No full file reads.
-  - "The /develop invocation MUST execute the full workflow including the complete phase (learn cycle, metrics collection). Never merge-and-skip — the complete phase feeds the self-improving loop. <!-- learned: 2026-04-11, source: autopilot-session-001, cycle: 14, hits: 0, misses: 0, repo: orchestrator -->"
+  - If backlog is empty, stop the loop cleanly — not an error.
+  - Never re-derive state from memory — always read _checkpoint.json or sessions.yaml.
+  - Context budget: <200 tokens net added per iteration. No full file reads — use grep or targeted reads.
+  - "The /orchestrate invocation MUST execute the full workflow including the complete phase (learn cycle, metrics collection). Never merge-and-skip — the complete phase feeds the self-improving loop. <!-- learned: 2026-04-11, source: autopilot-session-001, cycle: 14, hits: 0, misses: 0, repo: orchestrator -->"
 
 instruction: |
   Read current state from $WORKFLOW_STATE_DIR/autopilot/_checkpoint.json:
@@ -62,9 +64,9 @@ instruction: |
   If TICKET is EMPTY → set all_iterations_completed = true, skip to STEP E.
   If FLAGS is "none" or empty → treat as no extra flags.
 
-  STEP C — Execute (invoke /develop with full autonomy):
+  STEP C — Execute (invoke /orchestrate with full autonomy):
   EXTRA_FLAGS=$(if [ "$FLAGS" = "none" ] || [ -z "$FLAGS" ]; then echo ""; else echo "$FLAGS"; fi)
-  Skill({ skill: "develop", args: "$TICKET --auto --agents $EXTRA_FLAGS" })
+  Skill({ skill: "orchestrate", args: "$TICKET --auto --agents $EXTRA_FLAGS" })
   Wait for it to return synchronously.
 
   STEP D — Validate outcome:

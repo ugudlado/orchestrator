@@ -6,9 +6,6 @@
 
 name: complete
 goal: Verify final quality and archive.
-rules:
-  - Verify all acceptance criteria with evidence.
-  - Archive only from canonical active state.
 verify:
   commands: $project.verify_commands
   assertions:

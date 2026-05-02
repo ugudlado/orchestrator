@@ -36,27 +36,33 @@ handles everything needed before the first real step runs.
 
 2. **Load project context:**
    - Read `<repo_root>/spec/project.yaml`. If missing, stop with error
-     "spec/project.yaml not found. Run /develop --bootstrap to initialize."
+     "spec/project.yaml not found. Run /orchestrate --bootstrap to initialize."
    - Warn if older than 30 days.
    - Read the workflow schema from the global schemas path (CLAUDE.md § Repo Wiring).
+     Workflow files declare `steps:` only — that is the canonical list of what this workflow runs. The schema name comes from the filename (e.g. `feature.yaml` → schema `feature`).
+   - Read `$ORCHESTRATOR_HOME/config/flags.yaml` — the central flag registry:
+     - `gates: { <flag>: { steps: [...], default: <bool> } }` — flags that *filter* steps. A step listed in `gates.<flag>.steps` runs only if `<flag>` resolves truthy.
+     - `behavioral: { <flag>: { default: <bool> } }` — flags that change step/agent behavior but don't filter.
+     - `cli: { <--flag>: { sets: { ... } } }` — CLI flags (already resolved by the dispatcher; you receive the resulting `flags` map as input).
+   - Resolve effective flags by merging: (1) `gates.<flag>.default` and `behavioral.<flag>.default` from flags.yaml, then (2) CLI overrides from the input `flags` map.
    - Apply ux_design auto-detection per the frontend-tech list in CLAUDE.md § Repo Wiring — if none of those techs are in `project.yaml.tech_stack`, default `flags.ux_design = false`.
-   - Compute the `workflow_plan`: for each phase in the schema, list the
-     active steps (apply `if <flag>` gates against resolved flags) and the
-     filtered steps. Resolve `include: _<name>` directives inline.
+   - Compute the `workflow_plan`. The schema defines a single phase named `main` (synthesized by generate_plan from `steps:`):
+     - Walk `steps:` in declared order.
+     - For each step, check whether any gate flag in `flags.yaml.gates` lists this step. If yes, the step is active iff every such flag resolves truthy. If no gate flag references it, the step is unconditionally active. Otherwise mark it filtered with `reason: "flag <name>=false"`.
+     - Resolve `include: _<name>` directives inline if any (legacy multi-phase schemas like spike still use these).
 
    The key is `active:` (not `active_steps:`) — this is the shape the dispatcher reads.
-   Canonical `workflow_plan` example:
+   Canonical `workflow_plan` example (single-phase shape):
 
    ```yaml
    workflow_plan:
-     specify:
-       active: [workflow-init, design-and-draft-artifacts, preview-route]
+     main:
+       active: [workflow-init, design-and-draft-artifacts, preview-route, capture-test-baseline, execute-next-task, run-phase-review, archive-completed-change, remove-worktree]
        filtered:
          - id: explore
            reason: "flag discovery=false"
-     implement:
-       active: [capture-test-baseline, execute-next-task, run-phase-review]
-       filtered: []
+         - id: ux-design
+           reason: "flag ux_design=false"
    ```
 
    The key is `active:` (not `active_steps:`) — this is the shape the dispatcher reads.

@@ -31,7 +31,7 @@ entirely to the `autopilot` workflow schema — no loop logic lives in this skil
 
 The schema (`$ORCHESTRATOR_HOME/config/workflows/autopilot.yaml`) owns all execution:
 - **preflight** phase — repo checks, session init
-- **iterate** phase — pick → develop → record → clear (repeated N times)
+- **iterate** phase — pick → orchestrate → record → clear (repeated N times)
 - **report** phase — session summary table + resume instructions
 
 Each phase's steps are defined as step contracts in `$ORCHESTRATOR_HOME/config/steps/autopilot-*.yaml`.
@@ -58,7 +58,7 @@ The schema walks its three phases using the step contracts — all logic is in t
 - Does not implement the iteration loop — that's `autopilot-iterate.yaml`
 - Does not manage session files — that's `autopilot-session-init.yaml`
 - Does not pick work — that's the ideator step inside `autopilot-iterate.yaml`
-- Does not duplicate logic from the develop or orchestrate skills
+- Does not duplicate logic from the orchestrate skill
 
 ## Error Handling
 

@@ -190,7 +190,7 @@ verify_commands:
 
 quality_bar:
   min_phase_review_score: 9
-  max_retry_rounds: 3
+  max_retry_rounds: 8
   scoring:
     critical_cap: 5
     important_cap: 7
@@ -219,9 +219,6 @@ signoff_policy:
   diagnose: required
   implement: required
   complete: required
-  explore: optional
-  prototype: optional
-  summarize: optional
 
 rules:
   - id: evidence-based

@@ -1,0 +1,181 @@
+"""
+Workflow schema load test — exercises the real schemas in config/workflows/
+through generate_plan to catch syntax breaks, missing step contracts,
+malformed flag definitions, and include-resolution failures before
+they hit autopilot.
+
+Closes the T-0 gap from .tmp/develop-schema-spec.md: previously no test
+loaded the production workflow YAMLs, so freehand schema edits had no
+automated safety net.
+
+Each schema runs with its declared `defaults` flags. The workflow_plan
+is derived directly from the schema's resolved phases, with every step
+counted as active (gating-flag filtering is exercised separately by
+test_generate_plan.test_light_flag_drops_filtered_steps).
+"""
+
+import os
+import re
+import sys
+from pathlib import Path
+
+import pytest
+import yaml
+
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from orchestrator_next.generate_plan import generate_plan  # noqa: E402
+
+_REAL_HOME = Path(_SCRIPTS_DIR)  # _SCRIPTS_DIR resolves to <repo>/config
+_REPO_ROOT = _REAL_HOME.parent
+_WORKFLOWS_DIR = _REAL_HOME / "workflows"
+
+# Schemas exercised by orchestrate / autopilot. Excludes:
+#   _complete-phase, _complete-phase-spike — include-only fragments
+#   autopilot, bootstrap                   — inline-script-driven, not run via generate_plan
+_USER_FACING_SCHEMAS = ["feature", "bugfix", "spike", "bootstrap"]
+
+_STEP_REF_RE = re.compile(r"^([a-zA-Z0-9_-]+)(?:\s+if\s+(?:not\s+)?[a-zA-Z0-9_]+)?$")
+
+
+def _step_id_of(entry):
+    """Extract the step id from a schema step entry (string form or dict form)."""
+    if isinstance(entry, str):
+        m = _STEP_REF_RE.match(entry.strip())
+        return m.group(1) if m else entry.strip()
+    if isinstance(entry, dict):
+        return entry.get("id") or entry.get("include")
+    return None
+
+
+def _resolve_phases_for_test(schema):
+    """Mirror generate_plan._resolve_phases minimally, expanding `include:` entries."""
+    raw_phases = schema.get("phases", [])
+    out = []
+    for phase in raw_phases:
+        if "include" in phase:
+            include_path = _WORKFLOWS_DIR / f"{phase['include']}.yaml"
+            included = yaml.safe_load(include_path.read_text())
+            merged = dict(included)
+            for k, v in phase.items():
+                if k == "include":
+                    continue
+                merged[k] = v
+            out.append(merged)
+        else:
+            out.append(phase)
+    return out
+
+
+def _build_workflow_plan(schema):
+    """Build a workflow_plan that marks every declared step active.
+
+    Phase-less schemas (top-level `steps:`) synthesize a single `main` phase
+    matching the engine's _resolve_phases behavior.
+    """
+    if not schema.get("phases") and schema.get("steps"):
+        active = []
+        for step_entry in schema.get("steps", []) or []:
+            step_id = _step_id_of(step_entry)
+            if step_id and not step_id.startswith("_"):
+                active.append(step_id)
+        return {"main": {"active": active, "filtered": []}}
+
+    plan = {}
+    for phase in _resolve_phases_for_test(schema):
+        name = phase.get("name")
+        if not name:
+            continue
+        active = []
+        for step_entry in phase.get("steps", []) or []:
+            step_id = _step_id_of(step_entry)
+            if step_id and not step_id.startswith("_"):
+                active.append(step_id)
+        plan[name] = {"active": active, "filtered": []}
+    return plan
+
+
+def _write_stub_project(repo_root: Path) -> None:
+    """Minimal project.yaml — generate_plan only reads `rules` and `verify_commands`."""
+    project = {
+        "version": 1,
+        "project": {"name": "schema-load-test", "repo": "schema-load-test"},
+        "rules": [],
+        "verify_commands": {"test": "pytest"},
+    }
+    p = repo_root / "spec" / "project.yaml"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(yaml.safe_dump(project, sort_keys=False))
+
+
+def _write_state(state_dir: Path, schema_name: str, schema: dict) -> Path:
+    workflow_plan = _build_workflow_plan(schema)
+    first_phase = next(iter(workflow_plan)) if workflow_plan else ""
+    state = {
+        "change_id": f"schema-load-{schema_name}",
+        "slug": f"schema-load-{schema_name}",
+        "schema": schema_name,
+        "status": "active",
+        "repo_root": str(state_dir.parent.parent),
+        "flags": dict(schema.get("defaults") or {}),
+        "workflow_plan": workflow_plan,
+        "phase": first_phase,
+        "step_history": [],
+    }
+    state_dir.mkdir(parents=True, exist_ok=True)
+    p = state_dir / "state.yaml"
+    p.write_text(yaml.safe_dump(state, sort_keys=False))
+    return p
+
+
+@pytest.mark.parametrize("schema_name", _USER_FACING_SCHEMAS)
+def test_real_schema_generates_plan(tmp_path, monkeypatch, schema_name):
+    """Each production schema must load and produce a plan covering every active step."""
+    schema_path = _WORKFLOWS_DIR / f"{schema_name}.yaml"
+    assert schema_path.exists(), f"missing real schema at {schema_path}"
+    schema = yaml.safe_load(schema_path.read_text())
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    _write_stub_project(repo_root)
+    state_path = _write_state(repo_root / ".state" / schema_name, schema_name, schema)
+
+    monkeypatch.setenv("ORCHESTRATOR_HOME", str(_REPO_ROOT))
+
+    generate_plan(str(state_path))
+
+    plan_path = state_path.parent / "plan.yaml"
+    assert plan_path.exists(), f"plan.yaml not written for {schema_name}"
+    plan = yaml.safe_load(plan_path.read_text())
+
+    assert plan["schema"] == schema_name
+    assert plan["phases"], f"plan has no phases for {schema_name}"
+
+    expected_plan = _build_workflow_plan(schema)
+    expected_phase_names = list(expected_plan.keys())
+    actual_phase_names = [p["name"] for p in plan["phases"]]
+    assert actual_phase_names == expected_phase_names, (
+        f"{schema_name}: phase order mismatch — expected {expected_phase_names}, got {actual_phase_names}"
+    )
+
+    for phase in plan["phases"]:
+        expected_step_ids = expected_plan[phase["name"]]["active"]
+        actual_step_ids = [s["id"] for s in phase["steps"]]
+        assert actual_step_ids == expected_step_ids, (
+            f"{schema_name}/{phase['name']}: step list mismatch — "
+            f"expected {expected_step_ids}, got {actual_step_ids}"
+        )
+        for step in phase["steps"]:
+            step_id = step["id"]
+            contract_path = _REAL_HOME / "steps" / f"{step_id}.yaml"
+            assert contract_path.exists(), (
+                f"{schema_name}/{phase['name']}: step '{step_id}' has no contract at {contract_path} "
+                f"(phantom reference — generate_plan silently skips these)"
+            )
+            assert "agent" in step, (
+                f"{schema_name}/{phase['name']}/{step_id}: missing agent in resolved step block"
+            )
