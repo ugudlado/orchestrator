@@ -46,12 +46,17 @@ Each phase's steps are defined as step contracts in `$ORCHESTRATOR_HOME/config/s
 ### 2. Invoke autopilot schema via orchestrate
 
 ```
-Skill({ skill: "orchestrate", args: "autopilot [N] [--focus \"$FOCUS\"]" })
+Skill({ skill: "orchestrate", args: "autopilot [N] --autopilot [--focus \"$FOCUS\"]" })
 ```
 
 The word "autopilot" in the request is the intent signal — orchestrate detects it,
 loads the autopilot schema, and passes `N` and `--focus` through as schema flags.
 The schema walks its three phases using the step contracts — all logic is in the contracts.
+
+**The `--autopilot` CLI flag is mandatory and non-negotiable.** It is defined in
+`config/flags.yaml` and flips `auto=true, agents=true` so the run is fully
+autonomous (no signoff prompts, agent spawns instead of inline). The orchestrate
+driver MUST NOT pause to confirm autonomy — autopilot is autonomous by definition.
 
 ## What This Skill Does NOT Do
 

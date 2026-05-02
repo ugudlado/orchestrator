@@ -37,5 +37,11 @@ cli:
       linear: false
     description: Tight-scope path. Reviewer lowers threshold to 7.
 
+  --autopilot:
+    sets:
+      auto: true
+      agents: true
+    description: Full autonomy. Implicit when the autopilot skill dispatches; do not pause for signoff or flag confirmation.
+
   # --bugfix routes to the bugfix schema via select-workflow rather than
   # flipping flags on feature. select-workflow.yaml owns this routing.
