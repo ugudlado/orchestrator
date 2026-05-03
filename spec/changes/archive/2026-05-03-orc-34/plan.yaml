@@ -1,0 +1,428 @@
+feature: orc-34
+phases:
+- goal: ''
+  name: main
+  steps:
+  - agent: workflow-init
+    goal: ''
+    id: workflow-init
+    inputs:
+    - slug
+    - repo_root
+    - schema
+    - flags
+    - change_description
+    outputs:
+    - worktree_path
+    - branch
+    - linear_ticket_id
+    - workflow_plan
+    - resolved_flags
+    - plan_yaml_path
+    rules:
+    - Fail loud if project.yaml is missing or the Linear config for this repo is absent
+      when flags.linear is true.
+    - Never touch files outside the worktree, project.yaml, or the active state.yaml.
+    - The first-phase step_history entry is this agent's own; do not pre-populate
+      history entries for downstream steps.
+    - Never claim completion without running verification. Show output.
+    - Keep changes scoped to the current task. No "while I'm here" improvements.
+    - Artifacts must exist before implementation begins.
+    - Update state.yaml after every step. This enables pause/resume.
+    - Max 3 retry attempts per step. After that, pause and report.
+    - User approval required at phase boundaries per signoff_policy.
+    - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+      wiring belongs in install.sh or per-tool config.
+  - agent: discoverer
+    goal: ''
+    id: diagnose
+    inputs:
+    - phase_context_bundle
+    outputs:
+    - diagnosis_result
+    rules:
+    - "Reproduction MUST be runnable \u2014 a command or script, not just a description."
+    - Root cause must identify the EXACT line(s) where behavior diverges from expected.
+    - Do not propose a fix during diagnosis. Diagnosis and fix are separate concerns.
+    - For codebase-wide pattern bugs: search the ENTIRE source tree (including gitignored
+        source dirs), cross-check catalog count against `find + grep + wc -l`.
+    - Catalog count mismatch protocol: if fresh grep count differs from earlier count
+        by >0, update the impact assessment to use the fresh count. If counts differ
+        by >20%, investigate the discrepancy (new files? false positives?) before
+        proceeding.
+    - Never claim completion without running verification. Show output.
+    - Keep changes scoped to the current task. No "while I'm here" improvements.
+    - Artifacts must exist before implementation begins.
+    - Update state.yaml after every step. This enables pause/resume.
+    - Max 3 retry attempts per step. After that, pause and report.
+    - User approval required at phase boundaries per signoff_policy.
+    - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+      wiring belongs in install.sh or per-tool config.
+  - agent: architect
+    goal: ''
+    id: design-and-draft-artifacts
+    inputs:
+    - phase_context_bundle (includes discovery_result)
+    - ux-artifacts.yaml (optional, per contracts/ux-artifacts.md)
+    outputs:
+    - updated_artifact_set
+    - design_direction
+    - complexity
+    rules:
+    - "Design selection and artifact writing happen in one spawn \u2014 no round-trip\
+      \ between them."
+    - Keep artifact content traceable to accepted requirements.
+    - "Avoid implementation details in spec/design \u2014 those belong in tasks."
+    - "Keep scope explicit \u2014 every spec must declare both in-scope and out-of-scope."
+    - "Make acceptance criteria testable \u2014 each AC must be verifiable by a concrete\
+      \ command or assertion."
+    - "Resolve major design decisions before implementation begins \u2014 do not defer\
+      \ to the implementation phase."
+    - Tasks must be small, verifiable, and ordered.
+    - Attach verification criteria per task.
+    - Output MUST follow the Task Format Contract in contracts/artifact-formats.md.
+    - "When flags.light is true: keep spec.md terse \u2014 one paragraph of context\
+      \ plus a short acceptance list. No discovery section when discovery was skipped."
+    - 'When flags.bugfix is true: first task MUST be the regression test, second task
+      MUST be the fix. Order matters.'
+    - 'When spec or design introduces a new archive/state path for any producer (autopilot,
+      spike, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`)
+      and confirm the new path is matched before committing the artifact. Otherwise
+      downstream consumers (telemetry, learn, workflow-improver) silently skip the
+      new producer. <!-- learned: 2026-04-16, source: HL-278, cycle: 10, hits: 7,
+      misses: 1, repo: orchestrator -->'
+    - "SQL sketches in design.md that reference specific field names must be validated\
+      \ against a live row from the target DB (or schema file) before finalizing.\
+      \ Add an explicit note in the task or run a one-query T-0 validation \u2014\
+      \ field name drift between sketch and schema is a common first-review failure.\
+      \ <!-- learned: 2026-04-17, source: learn-and-telemetry-on-duckdb, cycle: 12,\
+      \ hits: 5, misses: 1, repo: orchestrator -->"
+    - "Design claims about caller-site capabilities (e.g., 'X already holds an open\
+      \ connection', 'Y already imports Z', 'the caller has access to W') must be\
+      \ verified by grep against HEAD before finalizing the artifact \u2014 not inferred\
+      \ from pattern-matching similar code paths. Unverified caller-site claims that\
+      \ prove false become critical findings at phase review and force a full re-spin\
+      \ of all three artifacts. <!-- learned: 2026-04-20, source: pricing-table-in-duckdb,\
+      \ cycle: 16, hits: 2, misses: 1, repo: orchestrator -->"
+    - 'Performance budgets in design.md must cite absolute production targets (e.g.,
+      ''p99 < 10ms per call under production load'') rather than synthetic microbenchmark
+      targets (e.g., ''1000 calls in 50ms in a tight loop''). Microbenchmark budgets
+      are easy to set but mislead developers into pivoting away from correct designs
+      when the benchmark fails under artificial conditions that do not match the real
+      workload. <!-- learned: 2026-04-20, source: pricing-table-in-duckdb, cycle:
+      16, hits: 2, misses: 1, repo: orchestrator -->'
+    - Never claim completion without running verification. Show output.
+    - Keep changes scoped to the current task. No "while I'm here" improvements.
+    - Artifacts must exist before implementation begins.
+    - Update state.yaml after every step. This enables pause/resume.
+    - Max 3 retry attempts per step. After that, pause and report.
+    - User approval required at phase boundaries per signoff_policy.
+    - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+      wiring belongs in install.sh or per-tool config.
+  - agent: inline
+    goal: ''
+    id: capture-test-baseline
+    inputs:
+    - project.verify_commands (from spec/project.yaml)
+    outputs:
+    - test_baseline
+    rules:
+    - Run once at the start of the implement phase, before any task executes.
+    - "Capture only counts \u2014 not logs, not diffs. Baseline must be small and\
+      \ durable."
+    - If the test command does not exist or does not emit parseable counts, write baseline.skipped: true
+        with a reason instead of failing.
+    - Never fail the phase on baseline capture. A missing baseline disables the regression
+      gate; it does not block implementation.
+    - Never claim completion without running verification. Show output.
+    - Keep changes scoped to the current task. No "while I'm here" improvements.
+    - Artifacts must exist before implementation begins.
+    - Update state.yaml after every step. This enables pause/resume.
+    - Max 3 retry attempts per step. After that, pause and report.
+    - User approval required at phase boundaries per signoff_policy.
+    - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+      wiring belongs in install.sh or per-tool config.
+  - agent: developer
+    goal: ''
+    id: execute-next-task
+    inputs:
+    - "{'tasks.md (format': 'contracts/artifact-formats.md \xA7 Task Format Contract)'}"
+    - phase_context_bundle
+    outputs:
+    - task_execution_result
+    rules:
+    - Pick only ready tasks (dependencies satisfied).
+    - Keep code changes scoped to the selected task.
+    - Mark task progress immediately after execution.
+    - Global retry cap: "if total retries across all tasks in this phase exceeds 10,\
+        \ follow Escalation Protocol (CONVENTIONS.md \xA7 Error Recovery Contract).\
+        \ Prevents infinite retry loops across many tasks."
+    - ? When keeping an intentionally broad pattern (e.g., `except Exception`), annotate
+        it inline with a justification comment (e.g., `# Intentionally broad
+      : <reason>`). Silent exceptions must never be ambiguous.
+    - "When replacing a tool or artifact (e.g., poetry\u2192uv, webpack\u2192vite),\
+      \ delete the old tool's generated files from disk \u2014 even if gitignored.\
+      \ Stale artifacts cause confusion."
+    - When the task references ux-prototype.html, read it as a visual reference for
+      the approved design direction. Match layout, styling, and interaction patterns
+      from the prototype. If ux-prototype.html does not exist, proceed from spec text
+      alone.
+    - 'When flags.tdd_required is true, follow strict red-green-refactor: write the
+      failing test first, run it and confirm it fails for the expected reason (feature
+      missing, not typo), then write the minimal code to pass, then refactor with
+      tests green. No production code without a failing test first. Use real code
+      over mocks unless unavoidable; if mock setup is longer than test logic, the
+      test is wrong. Cover edge cases and error paths.'
+    - 'When flags.light is true: keep changes minimal and focused. No scope creep.
+      One concern per change.'
+    - "When flags.bugfix is true: write the regression test BEFORE the fix \u2014\
+      \ the test must fail until the fix lands. Make the smallest change that fixes\
+      \ the root cause; prefer changing 1 line over 5. Use existing patterns in the\
+      \ codebase over introducing new ones. Do NOT refactor surrounding code, add\
+      \ unnecessary error handling, or add comments to unchanged code."
+    - 'When flags.bugfix is true: after implementing the fix, re-run the reproduction
+      script from diagnosis.md to confirm it works. Then check whether the change
+      could break other callers of the modified code.'
+    - "When removing or renaming a step/artifact from a workflow schema, grep the\
+      \ entire config directory for ALL references to it (step contracts, conventions,\
+      \ other schemas, agent definitions) \u2014 not just the files listed in the\
+      \ spec. Stale references cause behavioral bugs in auto-approval and validation\
+      \ paths. <!-- learned: 2026-04-11, source: HL-272, cycle: 14, hits: 8, misses:\
+      \ 1, repo: orchestrator -->"
+    - "When removing a block from a prose file (SKILL.md, CONVENTIONS.md, agent definition),\
+      \ grep the entire file for forward references pointing to that block ('below',\
+      \ 'above', 'see \xA7', 'YAML glob below') and update or remove them atomically\
+      \ in the same commit. Dangling forward references pass tests but break the reader's\
+      \ mental model and fail phase review. <!-- learned: 2026-04-17, source: learn-and-telemetry-on-duckdb,\
+      \ cycle: 12, hits: 5, misses: 1, repo: orchestrator -->"
+    - "Do not modify files outside the task's declared Files: list, even for observations\
+      \ that feel like improvements (new backlog entries, follow-up tickets, documentation\
+      \ drift, unrelated test fixes). Mid-task observations belong in the commit footer\
+      \ or the step evidence block \u2014 not in files that are not task-scoped. Out-of-scope\
+      \ edits will be reverted by the driver and add noise to the diff. <!-- learned:\
+      \ 2026-04-20, source: pricing-table-in-duckdb, cycle: 16, hits: 1, misses: 1,\
+      \ repo: orchestrator -->"
+    - "When spec.md's AC Verify line names a specific test file and method (e.g.,\
+      \ `test_dispatch_resume.py::test_resume_emits_stderr_log`), the developer MUST\
+      \ produce an executable test \u2014 even if the contract under test is a prompt,\
+      \ skill file, or prose artifact. A fixture or subprocess test can stand in for\
+      \ a non-executable target. Do not silently substitute a prose-only contract.\
+      \ If an executable test is genuinely infeasible (e.g., the target is a multi-process\
+      \ system with no injectable seam), escalate to the architect per contracts/architect-escalation.md\
+      \ with explicit justification before the task is marked complete. <!-- learned:\
+      \ 2026-04-21, source: durable-intent-and-resume, cycle: 17, hits: 1, misses:\
+      \ 1, repo: orchestrator -->"
+    - Never claim completion without running verification. Show output.
+    - Keep changes scoped to the current task. No "while I'm here" improvements.
+    - Artifacts must exist before implementation begins.
+    - Update state.yaml after every step. This enables pause/resume.
+    - Max 3 retry attempts per step. After that, pause and report.
+    - User approval required at phase boundaries per signoff_policy.
+    - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+      wiring belongs in install.sh or per-tool config.
+    repeat_until: all_tasks_completed
+  - agent: reviewer
+    goal: ''
+    id: run-phase-review
+    inputs:
+    - task_execution_result
+    - phase_context_bundle
+    outputs:
+    - phase_review_report
+    rules:
+    - "Target score is quality_bar.min_phase_review_score from project.yaml \u2014\
+      \ retry until met."
+    - "Maximum retries from quality_bar.max_retry_rounds \u2014 escalate to user if\
+      \ exhausted."
+    - "When flags.light is true: lower target review_score to 7 and max_retries to\
+      \ 4 \u2014 light mode trades quality bar for speed on tight-scope changes."
+    - Run type-check + test + build commands at every phase boundary before scoring.
+    - "Capture concrete findings with fix direction \u2014 every finding must be actionable."
+    - Issues found during verification become new tasks in the current phase. Never
+      skip ahead with unresolved findings.
+    - "Do not advance with unresolved critical findings \u2014 these block phase completion\
+      \ regardless of overall score."
+    - 'When flags.bugfix is true: zero regressions tolerated. No existing tests may
+      break.'
+    - "Fix tasks must be minimal and scoped to the specific failure \u2014 no refactoring,\
+      \ no improvements."
+    - "Score of 10 is a first-pass bonus \u2014 only achievable when no retries were\
+      \ used this round."
+    - "Operate at staff-level review quality \u2014 catch architectural issues, not\
+      \ just surface bugs."
+    - Artifact structural compliance with contracts/artifact-formats.md format contracts
+      is a review criterion.
+    - "When a finding requires a new requirement, the fix MUST update spec.md (FR\
+      \ + AC), design.md, and tasks.md atomically \u2014 partial updates that sync\
+      \ only one artifact leave the feature in an inconsistent state and will fail\
+      \ re-review. <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb, cycle:\
+      \ 11, hits: 2, misses: 5, repo: orchestrator -->"
+    - "For tasks that spec describes as a rewrite, projection, or byte-compatible\
+      \ replacement of an existing producer, AC verification MUST include a value/shape\
+      \ parity check against at least one real payload from the prior implementation\
+      \ \u2014 key-presence alone is insufficient. Reviewer must run both the old\
+      \ producer and the new one on a real archived fixture and diff the top-level\
+      \ output keys; any key reduction is an important finding. <!-- learned: 2026-04-20,\
+      \ source: single-source-metrics-via-step-events, cycle: 12, hits: 1, misses:\
+      \ 1, repo: orchestrator -->"
+    - Never claim completion without running verification. Show output.
+    - Keep changes scoped to the current task. No "while I'm here" improvements.
+    - Artifacts must exist before implementation begins.
+    - Update state.yaml after every step. This enables pause/resume.
+    - Max 3 retry attempts per step. After that, pause and report.
+    - User approval required at phase boundaries per signoff_policy.
+    - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+      wiring belongs in install.sh or per-tool config.
+  - agent: inline
+    goal: ''
+    id: compute-prediction-accuracy
+    inputs:
+    - final_signoff_decision
+    - tasks.md (actual tasks including fix tasks)
+    - spec.md or fix-plan.md (predicted scope)
+    - git diff (actual files changed)
+    outputs:
+    - prediction_accuracy_result
+    rules:
+    - "Prediction accuracy failure is non-blocking \u2014 if computation fails, log\
+      \ a warning and return success."
+    - Read state.yaml from the active change directory (this step runs before archive).
+    - Predicted task count comes from tasks.md: count all tasks (lines matching "^-
+        \["). Original predicted = tasks with "T-" prefix (not "T-Nb" fix variants).
+        Total actual = all tasks including fix tasks.
+    - Rework rate = fix tasks / total tasks. Fix tasks are those added during implementation
+      (IDs like T-2b, T-3b, T-fix-*, or explicitly labelled "fix" in the task name).
+    - Predicted files come from the spec artifact's "Files" or "File Modification
+      Table" section. Actual files come from git diff --name-only between the feature
+      branch and main.
+    - Do not fail or block the complete phase over accuracy computation errors.
+    - Never claim completion without running verification. Show output.
+    - Keep changes scoped to the current task. No "while I'm here" improvements.
+    - Artifacts must exist before implementation begins.
+    - Update state.yaml after every step. This enables pause/resume.
+    - Max 3 retry attempts per step. After that, pause and report.
+    - User approval required at phase boundaries per signoff_policy.
+    - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+      wiring belongs in install.sh or per-tool config.
+  - agent: workflow-improver
+    goal: ''
+    id: run-learn-cycle
+    inputs:
+    - final_signoff_decision
+    outputs:
+    - learn_result
+    rules:
+    - "Learning failure is non-blocking \u2014 if /learn fails, log a warning and\
+      \ return success."
+    - Read state.yaml from the active change directory (this step runs before archive).
+    - In --auto mode, rule changes apply without user confirmation.
+    - "Never skip compute-prediction-accuracy or run-learn-cycle steps during autopilot\
+      \ \u2014 these feed the self-improving loop and must run even when --auto is\
+      \ set. A `skipped: true` outcome is only valid when an enumerated gating flag\
+      \ is set (e.g. ux_design=false for ux steps). Session token budget, time pressure,\
+      \ 'capture via retro', or any cost-based justification is NEVER a valid skip\
+      \ reason for feedback-loop steps. Budget pressure is a signal to stop earlier,\
+      \ not to skip learning. <!-- learned: 2026-04-05, source: HL-203, cycle: 6,\
+      \ hits: 5, misses: 1, repo: orchestrator -->"
+    - Never claim completion without running verification. Show output.
+    - Keep changes scoped to the current task. No "while I'm here" improvements.
+    - Artifacts must exist before implementation begins.
+    - Update state.yaml after every step. This enables pause/resume.
+    - Max 3 retry attempts per step. After that, pause and report.
+    - User approval required at phase boundaries per signoff_policy.
+    - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+      wiring belongs in install.sh or per-tool config.
+  - agent: inline
+    goal: ''
+    id: mark-change-completed
+    inputs:
+    - state.yaml (active change)
+    outputs:
+    - state_completion_fields
+    rules:
+    - Run immediately before compute-swe-metrics so completed_at is available for
+      JSONL time-window bounding.
+    - "Validator is non-blocking \u2014 always exits 0 regardless of coverage ratio."
+    - archive_path uses ISO date prefix from completed_at (YYYY-MM-DD-<change-id>).
+    - Verify all acceptance criteria with evidence before marking the change completed.
+    - Never claim completion without running verification. Show output.
+    - Keep changes scoped to the current task. No "while I'm here" improvements.
+    - Artifacts must exist before implementation begins.
+    - Update state.yaml after every step. This enables pause/resume.
+    - Max 3 retry attempts per step. After that, pause and report.
+    - User approval required at phase boundaries per signoff_policy.
+    - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+      wiring belongs in install.sh or per-tool config.
+  - agent: inline
+    goal: ''
+    id: compute-swe-metrics
+    inputs:
+    - final_signoff_decision
+    - project_storage_config
+    outputs:
+    - swe_metrics
+    rules:
+    - "Metrics script failure is non-blocking \u2014 proceed with null placeholders."
+    - Metrics MUST be written to state.yaml before any archive step runs.
+    - Never claim completion without running verification. Show output.
+    - Keep changes scoped to the current task. No "while I'm here" improvements.
+    - Artifacts must exist before implementation begins.
+    - Update state.yaml after every step. This enables pause/resume.
+    - Max 3 retry attempts per step. After that, pause and report.
+    - User approval required at phase boundaries per signoff_policy.
+    - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+      wiring belongs in install.sh or per-tool config.
+  - agent: inline
+    goal: ''
+    id: archive-completed-change
+    inputs:
+    - swe_metrics
+    - project_storage_config
+    outputs:
+    - archive_record
+    rules:
+    - "Source from active root ($WORKFLOW_STATE_DIR/$CHANGE_ID) \u2014 the canonical\
+      \ active state. Do not archive from any other location."
+    - Archive to repo (spec/changes/archive/YYYY-MM-DD-<change-id>).
+    - Preserve .spec.yaml, all generated artifacts, and state.yaml (with metrics).
+    - "state.yaml MUST already contain status: completed, completed_at, archive_path,\
+      \ and metrics \u2014 these are written by mark-change-completed and compute-swe-metrics\
+      \ steps that run before this step. Do NOT rewrite them here."
+    - "Cleanup failure is non-blocking \u2014 the archive is the priority."
+    - Never claim completion without running verification. Show output.
+    - Keep changes scoped to the current task. No "while I'm here" improvements.
+    - Artifacts must exist before implementation begins.
+    - Update state.yaml after every step. This enables pause/resume.
+    - Max 3 retry attempts per step. After that, pause and report.
+    - User approval required at phase boundaries per signoff_policy.
+    - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+      wiring belongs in install.sh or per-tool config.
+  - agent: inline
+    goal: ''
+    id: remove-worktree
+    inputs:
+    - state.yaml (worktree_path, slug)
+    outputs: []
+    rules:
+    - "Only remove worktrees under ~/code/feature_worktrees/ \u2014 safety guard."
+    - Use git branch -d (not -D) to prevent deleting unmerged work.
+    - Prune stale worktree references after removal.
+    - Never claim completion without running verification. Show output.
+    - Keep changes scoped to the current task. No "while I'm here" improvements.
+    - Artifacts must exist before implementation begins.
+    - Update state.yaml after every step. This enables pause/resume.
+    - Max 3 retry attempts per step. After that, pause and report.
+    - User approval required at phase boundaries per signoff_policy.
+    - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+      wiring belongs in install.sh or per-tool config.
+resolved_flags:
+  worktree: true
+  phase_review: true
+  portless: true
+  metrics: true
+  linear: true
+  tdd_required: true
+  auto: true
+  agents: true
+  light: false
+schema: bugfix

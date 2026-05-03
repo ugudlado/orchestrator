@@ -1,0 +1,271 @@
+change_id: orc-34
+slug: orc-34
+schema: bugfix
+status: completed
+repo_root: /Users/spidey/code/orchestrator
+flags:
+  worktree: true
+  phase_review: true
+  portless: true
+  metrics: true
+  linear: false
+  tdd_required: true
+  auto: true
+  agents: true
+  light: false
+workflow_plan:
+  main:
+    active:
+    - workflow-init
+    - diagnose
+    - design-and-draft-artifacts
+    - capture-test-baseline
+    - execute-next-task
+    - run-phase-review
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+phase: main
+next_step:
+  phase: main
+  step_id: archive-completed-change
+step_history:
+- step_id: workflow-init
+  phase: main
+  status: completed
+  agent: workflow-init
+  attempt: 1
+  started_at: '2026-05-03T12:09:57Z'
+  ended_at: '2026-05-03T12:15:22Z'
+  usage:
+    input_tokens: 12000
+    output_tokens: 3000
+    duration_ms: 318000
+  evidence:
+    outputs:
+      worktree_path: ~/code/feature_worktrees/orc-34
+      branch: bugfix/orc-34
+      linear_ticket_id: null
+      workflow_plan:
+        main:
+          active:
+          - workflow-init
+          - diagnose
+          - design-and-draft-artifacts
+          - capture-test-baseline
+          - execute-next-task
+          - run-phase-review
+          - compute-prediction-accuracy
+          - run-learn-cycle
+          - mark-change-completed
+          - compute-swe-metrics
+          - archive-completed-change
+          - remove-worktree
+          filtered: []
+      resolved_flags:
+        worktree: true
+        phase_review: true
+        portless: true
+        metrics: true
+        linear: true
+        tdd_required: true
+        auto: true
+        agents: true
+        light: false
+      plan_yaml_path: /Users/spidey/code/orchestrator/.state/orc-34/plan.yaml
+- step_id: diagnose
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T12:17:58Z'
+  ended_at: '2026-05-03T12:17:58Z'
+  usage: {}
+  evidence:
+    outputs:
+      diagnosis_result: spec/changes/orc-34/diagnose.md
+    reproduction_command: REPO_ROOT=$TMPDIR/repo WORKFLOW_STATE_DIR=$TMPDIR/state
+      ORCHESTRATOR_HOME=$HOME/.config/orchestrator PYTHONPATH=/Users/spidey/code/orchestrator/config/scripts
+      bash /Users/spidey/code/orchestrator/skills/orchestrate/scripts/seed-state.sh
+      repro-orc-34 bugfix && grep started_at $TMPDIR/state/repro-orc-34/state.yaml
+    root_cause_line: skills/orchestrate/scripts/seed-state.sh:237 (created_at present,
+      started_at absent from state dict); config/scripts/orchestrator_next/record.py:816
+      (requires started_at)
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T12:20:18Z'
+  ended_at: '2026-05-03T12:20:18Z'
+  usage: {}
+  evidence:
+    outputs:
+      updated_artifact_set:
+      - spec.md
+      - design.md
+      - tasks.md
+      design_direction: Add started_at key to seed-state.sh inline state dict using
+        shared timestamp variable; pin with test assertion
+      complexity: XS
+- step_id: capture-test-baseline
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T12:20:53Z'
+  ended_at: '2026-05-03T12:20:53Z'
+  usage: {}
+  evidence:
+    outputs:
+      test_baseline:
+        captured_at: '2026-05-03T12:20:42Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 353
+        failing: 3
+        skipped: 0
+        total: 356
+        exit_code: 1
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T12:25:07Z'
+  ended_at: '2026-05-03T12:25:07Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_execution_result:
+        completed:
+        - T-1
+        - T-2
+        - T-3
+        - T-4
+        regression_check: pass
+    verify_output: 356 passed 0 failed; started_at present in fresh seed; no feature_metrics_resolution_failed
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T12:26:54Z'
+  ended_at: '2026-05-03T12:26:54Z'
+  usage: {}
+  evidence:
+    outputs:
+      phase_review_report:
+        overall: 10
+        dimensions:
+          spec_compliance: 10
+          correctness: 10
+          security: 10
+          simplicity: 10
+          code_quality: 10
+        verdict: PASS
+        findings: []
+- step_id: compute-prediction-accuracy
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T12:27:24Z'
+  ended_at: '2026-05-03T12:27:24Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy_result:
+        computed_at: '2026-05-03T12:27:17Z'
+        predicted_tasks: 0
+        actual_tasks: 0
+        fix_task_count: 0
+        rework_rate: 0.0
+        task_delta: 0
+        task_accuracy_pct: 100.0
+        predicted_file_count: null
+        actual_file_count: null
+        file_delta: null
+        file_overlap_pct: null
+        note: "ORC-35: script reads tasks.md from state dir; tasks.md actually lives\
+          \ in spec/changes/orc-34/ \u2014 non-blocking, computed zeros"
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T12:28:39Z'
+  ended_at: '2026-05-03T12:28:39Z'
+  usage: {}
+  evidence:
+    outputs:
+      learn_result:
+        completed: true
+        rules_added: 0
+        rules_updated: 0
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T12:28:59Z'
+  ended_at: '2026-05-03T12:28:59Z'
+  usage: {}
+  evidence:
+    outputs:
+      state_completion_fields:
+        status: completed
+        completed_at: '2026-05-03T12:28:55Z'
+        archive_path: spec/changes/archive/2026-05-03-orc-34/
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-05-03T12:29:08Z'
+  ended_at: '2026-05-03T12:29:08Z'
+  usage: {}
+  evidence:
+    outputs:
+      state_completion_fields:
+        status: completed
+        completed_at: '2026-05-03T12:28:55Z'
+        archive_path: spec/changes/archive/2026-05-03-orc-34/
+- step_id: compute-swe-metrics
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T12:29:21Z'
+  ended_at: '2026-05-03T12:29:21Z'
+  usage: {}
+  evidence:
+    outputs:
+      swe_metrics:
+        resolve_rate: 1.0
+        pass_at_1: 1.0
+        pass_at_2: 1.0
+        regression_rate: 0.0
+        tasks_completed: 4
+        tasks_total: 4
+        retries_total: 0
+        wall_clock_minutes: 13.8
+- step_id: archive-completed-change
+  phase: main
+  status: in_progress
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T12:29:22.603706+00:00'
+created_at: '2026-05-03T12:09:48Z'
+title: "ORC-34 \u2014 Add started_at to seed-state.sh canonical state.yaml"
+worktree_path: ~/code/feature_worktrees/orc-34
+branch: bugfix/orc-34
+linear_ticket_id: null
+project_context_loaded: true
+project_context_at: '2026-05-03T12:15:06Z'
+started_at: '2026-05-03T12:15:06Z'
+completed_at: '2026-05-03T12:28:55Z'
+archive_path: spec/changes/archive/2026-05-03-orc-34/
