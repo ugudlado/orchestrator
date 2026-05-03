@@ -11,7 +11,7 @@
   Verify: `grep -n "seed-state.sh" skills/orchestrate/SKILL.md` returns at least one hit inside Section 2, and a manual read shows the numbered sub-step is placed before Section 4 dispatch loop instructions.
   depends: T-2
 
-- [ ] T-4: Run the regression test suite from T-1 plus the existing orchestrator_next test suite. T-1's primary test must now PASS. Idempotency and fail-loud tests must PASS. No existing test in `config/scripts/orchestrator_next/tests/` may regress.
+- [x] T-4: Run the regression test suite from T-1 plus the existing orchestrator_next test suite. T-1's primary test must now PASS. Idempotency and fail-loud tests must PASS. No existing test in `config/scripts/orchestrator_next/tests/` may regress.
   Verify: `pytest config/scripts/orchestrator_next/tests/` exits 0 with the new tests in the green count.
   depends: T-3
 
