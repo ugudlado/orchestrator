@@ -1,10 +1,10 @@
 """
 Tests for archive-completed-change.sh backlog cleanup.
 
-T-5 (RED): archive-completed-change.sh removes spec/changes/backlog/<CHANGE_ID>/
-after archiving, via a separate cleanup commit.
-
-Design spec: design.md §3
+archive-completed-change.sh removes the H2 section keyed by CHANGE_ID from
+spec/changes/backlog.md after archiving, via a separate cleanup commit.
+The backlog migrated from a per-slug directory layout to a single file
+with one H2 per slug; these tests reflect the current layout.
 """
 from __future__ import annotations
 
@@ -53,8 +53,9 @@ def archive_env(tmp_path):
       - state/  — workflow state dir (WORKFLOW_STATE_DIR)
 
     Inside repo:
-      - spec/changes/archive/   (archive destination parent)
-      - spec/changes/backlog/test-slug/backlog.md  (tracked & committed)
+      - spec/changes/archive/  (archive destination parent)
+      - spec/changes/backlog.md  (tracked & committed; contains an H2 for test-slug
+        plus a sibling H2 to prove only the matching section is stripped)
 
     Inside state:
       - test-slug/state.yaml  (source for archive script)
@@ -81,11 +82,19 @@ def archive_env(tmp_path):
     archive_parent = repo / "spec" / "changes" / "archive"
     archive_parent.mkdir(parents=True)
 
-    # Create backlog dir with content and commit it
-    backlog_dir = repo / "spec" / "changes" / "backlog" / "test-slug"
-    backlog_dir.mkdir(parents=True)
-    (backlog_dir / "backlog.md").write_text("# test-slug\n\nStub backlog entry.\n")
-    _git(repo, "add", "spec/changes/backlog/test-slug")
+    # Create the consolidated backlog file with two entries; only test-slug
+    # should be removed by the archive script.
+    backlog_file = repo / "spec" / "changes" / "backlog.md"
+    backlog_file.parent.mkdir(parents=True, exist_ok=True)
+    backlog_file.write_text(
+        "# Backlog\n\n"
+        "## test-slug\n\n"
+        "Stub backlog entry for the slug under test.\n\n"
+        "---\n\n"
+        "## other-slug\n\n"
+        "Sibling entry that must survive cleanup.\n"
+    )
+    _git(repo, "add", "spec/changes/backlog.md")
     _git(repo, "commit", "-m", "chore: add test-slug backlog entry")
 
     # Create workflow state source
@@ -110,7 +119,7 @@ def archive_env(tmp_path):
     return {
         "repo": repo,
         "state_root": state_root,
-        "backlog_dir": backlog_dir,
+        "backlog_file": backlog_file,
         "archive_path": archive_path,
         "env": env,
     }
@@ -134,16 +143,20 @@ class TestArchiveBacklogCleanup:
             f"Script exited {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
 
-    def test_backlog_dir_removed_after_archive(self, archive_env):
-        """archive-completed-change.sh removes spec/changes/backlog/<CHANGE_ID>/ after archiving."""
+    def test_backlog_section_removed_after_archive(self, archive_env):
+        """archive-completed-change.sh strips the CHANGE_ID H2 from backlog.md and leaves siblings intact."""
         subprocess.run(
             ["bash", SCRIPT_PATH],
             env=archive_env["env"],
             capture_output=True,
             text=True,
         )
-        assert not archive_env["backlog_dir"].exists(), (
-            f"Backlog directory still exists: {archive_env['backlog_dir']}"
+        text = archive_env["backlog_file"].read_text()
+        assert "## test-slug" not in text, (
+            f"test-slug section still present in backlog.md:\n{text}"
+        )
+        assert "## other-slug" in text, (
+            f"sibling other-slug section was incorrectly removed:\n{text}"
         )
 
     def test_cleanup_commit_in_git_log(self, archive_env):
