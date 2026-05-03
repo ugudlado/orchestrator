@@ -15,7 +15,7 @@
   Verify: `pytest config/scripts/orchestrator_next/tests/` exits 0 with the new tests in the green count.
   depends: T-3
 
-- [ ] T-5: Manually exercise the fix end-to-end against this very feature's worktree as proof: from a clean tmp dir, run the seeder, then `bin/orchestrator next <state.yaml>`, confirm the action JSON's `step_id` is `workflow-init` (the first active step in the bugfix schema) and exit code is not 3.
+- [x] T-5: Manually exercise the fix end-to-end against this very feature's worktree as proof: from a clean tmp dir, run the seeder, then `bin/orchestrator next <state.yaml>`, confirm the action JSON's `step_id` is `workflow-init` (the first active step in the bugfix schema) and exit code is not 3.
   Verify: stdout from `orchestrator next` is valid JSON containing `"step_id": "workflow-init"` and `"action": "run_step"`; exit code is 0.
   depends: T-4
 
