@@ -29,7 +29,7 @@ modes from `diagnose.md` against current HEAD and verifies the fix:
 
 ---
 
-## T-2: Core path change — `seed-state.sh`, skills defaults, `.gitignore`
+## [x] T-2: Core path change — `seed-state.sh`, skills defaults, `.gitignore`
 
 **Description.** Flip the `WORKFLOW_STATE_DIR` default from `$REPO_ROOT/.state` to
 `$REPO_ROOT/spec/changes` at every place it is set. Add the two `.gitignore` patterns.

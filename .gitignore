@@ -18,6 +18,7 @@ htmlcov/
 
 # Per-change workflow state (ephemeral)
 spec/changes/*/state.yaml
+spec/changes/*/plan.yaml
 
 .env
 .mcp.json

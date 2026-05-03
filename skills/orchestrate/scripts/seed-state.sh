@@ -8,7 +8,7 @@
 #
 # Required environment:
 #   REPO_ROOT            — root of the target git repo (default: git rev-parse --show-toplevel)
-#   WORKFLOW_STATE_DIR   — directory that holds per-feature state dirs (default: $REPO_ROOT/.state)
+#   WORKFLOW_STATE_DIR   — directory that holds per-feature state dirs (default: $REPO_ROOT/spec/changes)
 #   ORCHESTRATOR_HOME    — path to orchestrator config (default: $HOME/.config/orchestrator)
 #
 # Exit codes:
@@ -46,7 +46,7 @@ if [[ -z "$REPO_ROOT" ]]; then
     exit 1
 fi
 
-WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/.state}"
+WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}"
 ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
 
 # ---------------------------------------------------------------------------
