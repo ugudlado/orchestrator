@@ -37,8 +37,9 @@ Rules every agent must follow when running in this repo. CLAUDE.md auto-loads in
 
 | Purpose | Path |
 |---|---|
-| Active workflow state | `$REPO_ROOT/.state/<slug>/state.yaml` |
-| Archived features | `$REPO_ROOT/spec/changes/archive/<date>-<slug>/` |
+| Active workflow state | `$REPO_ROOT/spec/changes/<slug>/state.yaml` (gitignored) |
+| Active workflow artifacts | `$REPO_ROOT/spec/changes/<slug>/{spec,design,tasks,diagnose}.md` |
+| Archived features | `$REPO_ROOT/spec/changes/archive/<date>-<slug>/` (state + artifacts merged) |
 | Backlog (CLI-managed) | `$REPO_ROOT/spec/changes/backlog/` — read/write via `backlog` CLI only |
 | Global schemas | `$ORCHESTRATOR_HOME/config/workflows/<schema>.yaml` |
 | Global step contracts | `$ORCHESTRATOR_HOME/config/steps/<step>.yaml` |

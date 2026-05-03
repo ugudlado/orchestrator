@@ -124,7 +124,7 @@ the entire `if [ -n "$state_files" ]` block).
 
 ---
 
-## T-6: CLAUDE.md docs
+## [x] T-6: CLAUDE.md docs
 
 **Description.** Update `CLAUDE.md` Paths table row "Active workflow state" to point at
 `$REPO_ROOT/spec/changes/<slug>/state.yaml`. Sweep the rest of the file for any other
