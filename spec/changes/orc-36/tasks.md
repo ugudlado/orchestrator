@@ -71,7 +71,7 @@ sibling-lookup assumption so a future reader doesn't re-introduce drift.
 
 ---
 
-## T-4: Archive script rewrite — `cp -R` → `mv`
+## [x] T-4: Archive script rewrite — `cp -R` → `mv`
 
 **Description.** Rewrite `archive-completed-change.sh` to use `mv` instead of
 `cp -R`. The single rename atomically moves `state.yaml`, `plan.yaml`, and all artifacts

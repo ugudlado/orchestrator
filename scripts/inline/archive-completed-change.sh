@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
-# archive-completed-change.sh — copy workflow state to repo archive + commit.
+# archive-completed-change.sh — move workflow state to repo archive + commit.
 #
-# Env inputs:  REPO_ROOT, WORKFLOW_STATE_DIR, CHANGE_ID, ARCHIVE_PATH
+# Env inputs:  REPO_ROOT, CHANGE_ID, ARCHIVE_PATH
 #              (ARCHIVE_PATH is relative to REPO_ROOT, e.g. "spec/changes/archive/2026-04-18-hl-287")
+#              WORKFLOW_STATE_DIR is accepted for interface compatibility but not used to
+#              locate the source — source is always $REPO_ROOT/spec/changes/$CHANGE_ID.
 # Outputs:     {archive_record: {archived_at, archive_path, commit_sha}}
 #   or        {archive_record: {skipped: true, reason}}
 
 set -uo pipefail
 
 REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
-WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-}"
 CHANGE_ID="${CHANGE_ID:-}"
 ARCHIVE_PATH="${ARCHIVE_PATH:-}"
 
-if [ -z "$WORKFLOW_STATE_DIR" ] || [ -z "$CHANGE_ID" ] || [ -z "$ARCHIVE_PATH" ]; then
+if [ -z "$CHANGE_ID" ] || [ -z "$ARCHIVE_PATH" ]; then
   printf '%s\n' '{"archive_record": {"skipped": true, "reason": "missing required env vars"}}'
   exit 0
 fi
 
-SRC="$WORKFLOW_STATE_DIR/$CHANGE_ID"
+# Source is always spec/changes/<slug>/ — the single canonical location for all
+# artifacts (state.yaml, plan.yaml, spec.md, design.md, tasks.md, etc.).
+SRC="$REPO_ROOT/spec/changes/$CHANGE_ID"
 DST="$REPO_ROOT/$ARCHIVE_PATH"
 
 if [ ! -d "$SRC" ]; then
@@ -27,7 +30,14 @@ if [ ! -d "$SRC" ]; then
 fi
 
 mkdir -p "$(dirname "$DST")"
-cp -R "$SRC" "$DST"
+mv "$SRC" "$DST"
+
+# Defensive cleanup: remove legacy .state/<slug>/ if it still exists from a
+# pre-consolidation run (ORC-36 one-time migration or CI override).
+LEGACY_STATE_DIR="${REPO_ROOT}/.state/${CHANGE_ID}"
+if [ -d "$LEGACY_STATE_DIR" ]; then
+  rm -rf "$LEGACY_STATE_DIR"
+fi
 
 ARCHIVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 cd "$REPO_ROOT"
