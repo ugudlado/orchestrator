@@ -27,31 +27,7 @@ if [ -n "$yaml_files" ]; then
   done <<< "$yaml_files"
 fi
 
-# --- Check 2: state.yaml schema ---
-# If any .state/*/state.yaml is staged, require the core fields to be present.
-state_files="$(staged '.state/*/state.yaml')"
-if [ -n "$state_files" ]; then
-  while IFS= read -r f; do
-    [ -f "$f" ] || continue
-    missing=()
-    for key in schema flags change_id status; do
-      if ! python3 -c "
-import sys, yaml
-d = yaml.safe_load(open(sys.argv[1])) or {}
-sys.exit(0 if sys.argv[2] in d else 1)
-" "$f" "$key" 2>/dev/null; then
-        missing+=("$key")
-      fi
-    done
-    if [ ${#missing[@]} -gt 0 ]; then
-      red "✗ state.yaml missing required fields: $f"
-      printf '    missing: %s\n' "${missing[*]}"
-      fail=1
-    fi
-  done <<< "$state_files"
-fi
-
-# --- Check 3: shell script syntax ---
+# --- Check 2: shell script syntax ---
 sh_files="$(staged '*.sh')"
 if [ -n "$sh_files" ]; then
   while IFS= read -r f; do

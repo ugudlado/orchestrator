@@ -93,7 +93,7 @@ flow.
 
 ---
 
-## T-5: Step contracts + skills + agents — text sweep
+## [x] T-5: Step contracts + skills + agents — text sweep
 
 **Description.** Mechanical update of every step contract, skill file, and agent file
 that references `.state/` literally or hints at the old default. Variable references
