@@ -150,6 +150,14 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
     assert state.phase, "state.yaml missing phase"
     assert state.workflow_plan, "state.yaml missing workflow_plan"
 
+    # ORC-34 regression: both created_at and started_at must be present and equal
+    state_raw = yaml.safe_load(state_yaml_path.read_text())
+    assert "created_at" in state_raw, "state.yaml missing created_at"
+    assert "started_at" in state_raw, "state.yaml missing started_at (ORC-34: seed-state.sh must write started_at)"
+    assert state_raw["started_at"] == state_raw["created_at"], (
+        f"started_at ({state_raw.get('started_at')!r}) != created_at ({state_raw.get('created_at')!r})"
+    )
+
     # Verify orchestrator next accepts the seeded pair (AC-6: not exit 3)
     orchestrator_bin = _REPO_ROOT / "bin" / "orchestrator"
     next_env = os.environ.copy()

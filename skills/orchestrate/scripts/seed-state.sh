@@ -234,8 +234,10 @@ state = {
         "step_id": first_step,
     },
     "step_history": [],
-    "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
 }
+now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+state["created_at"] = now_iso
+state["started_at"] = now_iso
 
 with open(state_yaml_path, "w") as f:
     yaml.safe_dump(state, f, sort_keys=False, allow_unicode=True)
