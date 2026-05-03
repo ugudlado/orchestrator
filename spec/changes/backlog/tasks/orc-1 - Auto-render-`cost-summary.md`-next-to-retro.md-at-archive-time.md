@@ -4,7 +4,7 @@ title: Auto-render `cost-summary.md` next to retro.md at archive time
 status: To Do
 assignee: []
 created_date: '2026-05-03 10:55'
-updated_date: '2026-05-03 11:00'
+updated_date: '2026-05-03 11:07'
 labels:
   - slug-cost-summary-on-archive
   - feature
@@ -16,7 +16,7 @@ references:
     Ideation session 2026-05-03 with the user — bundled #1+#4 from a 5-idea
     ranking.
 priority: high
-ordinal: 1000
+ordinal: 34000
 ---
 
 ## Description

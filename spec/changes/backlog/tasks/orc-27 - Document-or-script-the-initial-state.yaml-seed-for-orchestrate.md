@@ -1,10 +1,10 @@
 ---
 id: ORC-27
 title: Document or script the initial state.yaml seed for /orchestrate
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-03 10:56'
-updated_date: '2026-05-03 11:00'
+updated_date: '2026-05-03 11:53'
 labels:
   - slug-document-or-script-state-seeding
   - bug
