@@ -1,9 +1,16 @@
 # Backlog Archive
 
-<!-- Entries retired from backlog.md. Each block records a `dropped_at`
+<!-- Entries retired from the backlog. Each block records a `dropped_at`
      or `shipped_at` date and a one-paragraph reason. Kept for historical
      reference so the decision is traceable; ideator ignores this file.
- -->
+
+     Note (2026-05-03): the live backlog migrated from a single
+     spec/changes/backlog.md file to the `backlog` CLI (per-task files
+     under spec/changes/backlog/). 33 active entries were converted to
+     CLI tasks ORC-1..ORC-33 with `slug-<orig-slug>` labels for traceback.
+     The pre-migration file is preserved at git ref dfafcf4..HEAD~ for
+     anyone needing the verbatim historical layout.
+-->
 
 ## autopilot-wakeup-discipline
 
