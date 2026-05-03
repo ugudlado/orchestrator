@@ -32,13 +32,6 @@ fi
 mkdir -p "$(dirname "$DST")"
 mv "$SRC" "$DST"
 
-# Defensive cleanup: remove legacy .state/<slug>/ if it still exists from a
-# pre-consolidation run (ORC-36 one-time migration or CI override).
-LEGACY_STATE_DIR="${REPO_ROOT}/.state/${CHANGE_ID}"
-if [ -d "$LEGACY_STATE_DIR" ]; then
-  rm -rf "$LEGACY_STATE_DIR"
-fi
-
 ARCHIVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 cd "$REPO_ROOT"
 git add "$ARCHIVE_PATH"

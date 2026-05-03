@@ -2,15 +2,14 @@ project_name: "orchestrator"
 default_status: "Backlog"
 statuses: ["Backlog", "To Do", "In Progress", "Done"]
 labels: []
-definition_of_done: []
 date_format: yyyy-mm-dd
 max_column_width: 20
-default_editor: "code --wait"
 auto_open_browser: true
 default_port: 6420
-remote_operations: false
+remote_operations: true
 auto_commit: false
 bypass_git_hooks: false
 check_active_branches: true
-active_branch_days: 15
+active_branch_days: 30
 task_prefix: "ORC"
+backlog_directory: "spec/changes/backlog"

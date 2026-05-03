@@ -781,16 +781,12 @@ def wall_clock_minutes(state: dict):
 
 # ---------------------------------------------------------------------------
 # Phase 5: _resolve_feature_metrics_tasks_path — tasks.md path resolver
-# (separate from _resolve_tasks_md which uses a different fallback path)
 # ---------------------------------------------------------------------------
 
 def _resolve_feature_metrics_tasks_path(state: dict) -> Path:
     """Resolve tasks.md path for feature_metrics computation.
 
     Preference: state.tasks_path (explicit), else <repo_root>/spec/changes/<change_id>/tasks.md.
-    tasks.md is a workflow artifact written by agents under spec/changes/<slug>/ — same
-    directory as spec.md, design.md, diagnose.md. Do NOT look in .state/<slug>/; that
-    directory is retired in ORC-36 and was never the artifact location.
     Mirrors ingest-feature-metrics.py lines 360-365.
     """
     tasks_path_str = state.get("tasks_path") or ""
@@ -874,13 +870,10 @@ def _resolve_tasks_md(state_raw: dict[str, Any]) -> Path | None:
 
     Tries each candidate in order, returning the first that exists on disk:
       1. explicit `tasks_path` field
-      2. `<repo_root>/.state/<change_id>/tasks.md` — canonical location since
-         the workflow-engine refactor's path convention
-      3. `<worktree_path>/spec/changes/<change_id>/tasks.md` — legacy location
+      2. `<worktree_path or repo_root>/spec/changes/<change_id>/tasks.md`
 
     Returns the first candidate that exists, or the last constructible candidate
-    if none exist (lets the caller decide between None-path and missing-file).
-    Returns None only if no candidate can be constructed at all.
+    if none exist. Returns None only if no candidate can be constructed at all.
     """
     candidates: list[Path] = []
 
@@ -888,14 +881,10 @@ def _resolve_tasks_md(state_raw: dict[str, Any]) -> Path | None:
     if isinstance(raw_path, str) and raw_path:
         candidates.append(Path(os.path.expanduser(raw_path)))
 
-    repo_root = state_raw.get("repo_root")
     change_id = state_raw.get("change_id")
-    if isinstance(repo_root, str) and repo_root and isinstance(change_id, str) and change_id:
-        candidates.append(Path(os.path.expanduser(repo_root)) / ".state" / change_id / "tasks.md")
-
-    worktree = state_raw.get("worktree_path")
-    if isinstance(worktree, str) and worktree and isinstance(change_id, str) and change_id:
-        candidates.append(Path(os.path.expanduser(worktree)) / "spec" / "changes" / change_id / "tasks.md")
+    root = state_raw.get("worktree_path") or state_raw.get("repo_root")
+    if isinstance(root, str) and root and isinstance(change_id, str) and change_id:
+        candidates.append(Path(os.path.expanduser(root)) / "spec" / "changes" / change_id / "tasks.md")
 
     if not candidates:
         return None

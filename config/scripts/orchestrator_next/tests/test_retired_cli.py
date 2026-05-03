@@ -8,7 +8,7 @@ Scenarios:
   (b) `bin/orchestrator metrics --change-id foo` exits 3 similarly — stderr contains
       "Usage:" and does NOT contain "metrics".
   (c) Grep assertion: `rg -l 'orchestrator (cost|metrics)' bin/ config/scripts/ scripts/
-      skills/ --glob '!**/archive/**' --glob '!**/.state/**' --glob '!**/backlog.md'`
+      skills/ --glob '!**/archive/**' --glob '!**/backlog.md'`
       returns zero matches — no production code references the retired verbs.
 
 Expected RED state at T-10:
@@ -109,7 +109,7 @@ class TestNoProductionReferencesToRetiredVerbs(unittest.TestCase):
         """rg finds zero matches for 'orchestrator (cost|metrics)' in production directories.
 
         Scans: bin/, config/scripts/, scripts/, skills/
-        Excludes: archive/, .state/, backlog.md, and test directories.
+        Excludes: archive/, backlog.md, and test directories.
 
         Test directories (tests/, __tests__/) are excluded because:
         - test_retired_cli.py (this file) legitimately documents the retired verbs in
@@ -135,8 +135,6 @@ class TestNoProductionReferencesToRetiredVerbs(unittest.TestCase):
                 "skills/",
                 "--glob",
                 "!**/archive/**",
-                "--glob",
-                "!**/.state/**",
                 "--glob",
                 "!**/backlog.md",
                 "--glob",
