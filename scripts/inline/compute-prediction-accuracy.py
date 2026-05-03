@@ -77,6 +77,8 @@ def main() -> int:
         print(json.dumps({"error": "STATE_YAML_PATH missing or not a file"}))
         return 3
 
+    # Sibling lookup: tasks.md and spec.md live alongside state.yaml in
+    # spec/changes/<slug>/ (the canonical artifact dir, ORC-36). Do NOT diverge.
     state_dir = Path(state_path).parent
     tasks_md = state_dir / "tasks.md"
     spec_md = state_dir / "spec.md"

@@ -11,6 +11,8 @@
 
 set -euo pipefail
 
+# Caller must pass spec/changes/<slug>/ as <state_dir> (ORC-36 canonical layout).
+# Do NOT pass .state/<slug>/ — that directory is retired and no longer created.
 STATE_DIR="${1:?Usage: compute-swe-metrics.sh <state_dir>}"
 STATE_YAML="$STATE_DIR/state.yaml"
 

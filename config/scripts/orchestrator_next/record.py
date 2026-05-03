@@ -787,7 +787,10 @@ def wall_clock_minutes(state: dict):
 def _resolve_feature_metrics_tasks_path(state: dict) -> Path:
     """Resolve tasks.md path for feature_metrics computation.
 
-    Preference: state.tasks_path (explicit), else <repo_root>/.state/<change_id>/tasks.md.
+    Preference: state.tasks_path (explicit), else <repo_root>/spec/changes/<change_id>/tasks.md.
+    tasks.md is a workflow artifact written by agents under spec/changes/<slug>/ — same
+    directory as spec.md, design.md, diagnose.md. Do NOT look in .state/<slug>/; that
+    directory is retired in ORC-36 and was never the artifact location.
     Mirrors ingest-feature-metrics.py lines 360-365.
     """
     tasks_path_str = state.get("tasks_path") or ""
@@ -795,7 +798,8 @@ def _resolve_feature_metrics_tasks_path(state: dict) -> Path:
         return Path(tasks_path_str)
     repo_root = str(state.get("repo_root") or "")
     change_id = str(state.get("change_id") or "")
-    return Path(repo_root) / ".state" / change_id / "tasks.md"
+    # Sibling lookup: tasks.md lives alongside spec.md/design.md in spec/changes/<slug>/.
+    return Path(repo_root) / "spec" / "changes" / change_id / "tasks.md"
 
 
 # ---------------------------------------------------------------------------

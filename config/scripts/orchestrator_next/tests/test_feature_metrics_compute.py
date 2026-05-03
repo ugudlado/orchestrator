@@ -439,10 +439,14 @@ class TestResolveFeatureMetrics:
         assert result is not None
 
     def test_fallback_tasks_path_state_change_dir(self, tmp_path):
-        """Falls back to <repo_root>/.state/<change_id>/tasks.md when tasks_path absent."""
+        """Falls back to <repo_root>/spec/changes/<change_id>/tasks.md when tasks_path absent.
+
+        Updated in ORC-36: fallback was .state/<change_id>/ (retired). Now resolves to
+        spec/changes/<change_id>/ — the canonical artifact directory.
+        """
         from orchestrator_next.record import _resolve_feature_metrics
-        # Create the fallback path
-        fallback = tmp_path / ".state" / "my-feature" / "tasks.md"
+        # Create the fallback path at the new canonical location.
+        fallback = tmp_path / "spec" / "changes" / "my-feature" / "tasks.md"
         fallback.parent.mkdir(parents=True)
         fallback.write_text("- [x] T1\n- [ ] T2\n")
         state = self._make_state(tmp_path, with_tasks=False, tasks_path_override=None)

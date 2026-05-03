@@ -50,7 +50,7 @@ modes from `diagnose.md` against current HEAD and verifies the fix:
 
 ---
 
-## T-3: Consumer rewiring — `record.py`, `compute-prediction-accuracy.py`, `compute-swe-metrics.sh`
+## [x] T-3: Consumer rewiring — `record.py`, `compute-prediction-accuracy.py`, `compute-swe-metrics.sh`
 
 **Description.** Update `_resolve_feature_metrics_tasks_path` to resolve `tasks.md` under
 `$WORKFLOW_STATE_DIR/<change_id>/` (using env-var with `spec/changes` default). Verify
