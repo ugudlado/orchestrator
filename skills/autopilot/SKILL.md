@@ -1,24 +1,12 @@
 ---
 name: autopilot
-description: "Autonomous self-improving development loop. Picks work from backlog, runs the develop workflow with full autonomy flags (--auto --agents), learns and improves workflow. This skill should be used when user says 'autopilot', 'autonomous', 'run N iterations', 'self-improve'."
+description: "Run one fully-autonomous development iteration. Picks a ticket (from --focus or backlog via ideator), then dispatches /orchestrate with --autopilot. This skill should be used when the user says 'autopilot', 'autonomous', 'self-improve'."
 user-invocable: true
 args:
-  - name: iterations
-    description: "Number of iterations to run (default: 1)"
+  - name: focus
+    description: "Optional ticket ID, slug, or focus hint. If provided and it looks like a ticket/slug, use it directly; otherwise pass to ideator as a focus area."
     required: false
-  - name: "--focus"
-    description: "Steering hint for ideator prioritization (e.g., focus on workflow reliability)"
-    type: option
 ---
-
-## Variables
-
-```
-REPO_ROOT=${REPO_ROOT:-$(git rev-parse --show-toplevel)}
-REPO_NAME=${REPO_NAME:-$(basename "$REPO_ROOT")}
-ORCHESTRATOR_HOME=${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}
-WORKFLOW_STATE_DIR=${WORKFLOW_STATE_DIR:-$REPO_ROOT/.state}
-```
 
 ## Input
 
@@ -26,47 +14,56 @@ $ARGUMENTS
 
 ## Overview
 
-This skill is the entry point for the autonomous development loop. It delegates
-entirely to the `autopilot` workflow schema — no loop logic lives in this skill.
+`/autopilot` is a thin wrapper that runs **one** complete autonomous feature workflow.
 
-The schema (`$ORCHESTRATOR_HOME/config/workflows/autopilot.yaml`) owns all execution:
-- **preflight** phase — repo checks, session init
-- **iterate** phase — pick → orchestrate → record → clear (repeated N times)
-- **report** phase — session summary table + resume instructions
+- If `$ARGUMENTS` is empty → invoke `ideate --next` to pick the most valuable backlog item.
+- If `$ARGUMENTS` looks like a ticket/slug (matches `^[A-Z]+-\d+$` or `^[a-z][a-z0-9-]*$`) → use it directly.
+- Otherwise treat it as a focus hint → invoke `ideate --next --focus "<hint>"`.
 
-Each phase's steps are defined as step contracts in `$ORCHESTRATOR_HOME/config/steps/autopilot-*.yaml`.
+Then dispatch `/orchestrate <slug> --autopilot` and let it run to completion. No iteration loop, no session state, no checkpoints — those concepts were removed.
 
 ## Execution
 
-### 1. Parse Arguments
-
-- Extract iteration count (default: 1). Must be a positive integer.
-- Extract `--focus` hint if provided (passed through to schema flags).
-
-### 2. Invoke autopilot schema via orchestrate
+### 1. Resolve the slug
 
 ```
-Skill({ skill: "orchestrate", args: "autopilot [N] --autopilot [--focus \"$FOCUS\"]" })
+INPUT = trim($ARGUMENTS)
+
+IF INPUT is empty:
+    pick = invoke Skill({ skill: "ideate", args: "--next" })
+ELSE IF INPUT matches ^[A-Z]+-\d+$ OR ^[a-z][a-z0-9-]*$:
+    SLUG = INPUT
+    GOTO step 2
+ELSE:
+    pick = invoke Skill({ skill: "ideate", args: "--next --focus \"$INPUT\"" })
+
+# Parse the ITEM line from ideator's --next output:
+#   ITEM: <ID or title>
+#   SCHEMA: <feature|bugfix|chore|spike>
+#   REASON: ...
+#   PERSISTED: no
+SLUG = first line matching `^ITEM:\s*(\S+)` from `pick`
+
+IF SLUG is empty or unparseable:
+    HALT — print: "Autopilot: ideator returned no actionable item. Run /ideate manually to seed the backlog."
 ```
 
-The word "autopilot" in the request is the intent signal — orchestrate detects it,
-loads the autopilot schema, and passes `N` and `--focus` through as schema flags.
-The schema walks its three phases using the step contracts — all logic is in the contracts.
+### 2. Dispatch orchestrate with full autonomy
 
-**The `--autopilot` CLI flag is mandatory and non-negotiable.** It is defined in
-`config/flags.yaml` and flips `auto=true, agents=true` so the run is fully
-autonomous (no signoff prompts, agent spawns instead of inline). The orchestrate
-driver MUST NOT pause to confirm autonomy — autopilot is autonomous by definition.
+```
+Skill({ skill: "orchestrate", args: "$SLUG --autopilot" })
+```
+
+`--autopilot` is defined in `config/flags.yaml` and flips `auto=true, agents=true`. The orchestrate skill runs the full feature workflow (specify → implement → complete) without signoff prompts and spawns specialist agents instead of running inline. Do not pause for confirmation.
 
 ## What This Skill Does NOT Do
 
-- Does not implement the iteration loop — that's `autopilot-iterate.yaml`
-- Does not manage session files — that's `autopilot-session-init.yaml`
-- Does not pick work — that's the ideator step inside `autopilot-iterate.yaml`
-- Does not duplicate logic from the orchestrate skill
+- No iteration loop. One run, one feature.
+- No session files, checkpoints, or rollups.
+- Does not duplicate orchestrate logic — orchestrate handles preflight, workflow-init, dispatch, and complete.
+- Does not pick the ticket itself — defers to ideator (or accepts an explicit slug).
 
-## Error Handling
+## Failure modes
 
-All error handling is defined in the schema phase `verify:` blocks and step contracts.
-If the schema aborts (pre-flight failure, empty backlog, consecutive spawn failures),
-the step contracts write the appropriate state and surface clear messages.
+- **No actionable item** — ideator returns nothing parseable: halt with the message above. User runs `/ideate` to seed backlog.
+- **Orchestrate fails mid-run** — surfaces inside orchestrate; this skill exits with whatever orchestrate returns. No retry, no fallback.

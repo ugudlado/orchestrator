@@ -16,7 +16,7 @@ Load only the contracts relevant to your step:
 | Resume Token | `contracts/resume-token.md` | orchestrate skill, workflow-state.sh, auto-continue.sh |
 | UX Artifacts | `contracts/ux-artifacts.md` | ux-design, design-and-draft-artifacts, execute-next-task |
 | Auto-Commit | `contracts/auto-commit.md` | execute-next-task |
-| Metrics Schema | `contracts/metrics-schema.md` | compute-swe-metrics, autopilot-session-report, telemetry, learn, workflow-improver |
+| Metrics Schema | `contracts/metrics-schema.md` | compute-swe-metrics, telemetry, learn, workflow-improver |
 | Step Dispatch (CLI interface, JSON schema, exit codes) | `contracts/step-dispatch.md` | orchestrate skill, adapter authors, callers of `orchestrator next` |
 | Run Field Migration (adding `run:` adapter path to a step) | `contracts/migration-run-field.md` | developer adding subprocess adapter to a step contract |
 
@@ -497,7 +497,7 @@ When writing or evaluating a step that reads or writes `metrics:` fields, load
 `contracts/metrics-schema.md` for the authoritative field list and the explicit-null
 vs omit contract. Key rules summarized:
 
-- `resolution.*` fields are explicit YAML null (`~`) for spike and autopilot; real values for feature/bugfix/chore.
-- `review_scores` is omitted entirely (no key) for spike and autopilot.
+- `resolution.*` fields are explicit YAML null (`~`) for spike; real values for feature/bugfix/chore.
+- `review_scores` is omitted entirely (no key) for spike.
 - `tokens`, `cost`, `churn`, `per_agent_*` are always present for all schemas.
 - `category` identifies the schema so consumers can group across schema types.

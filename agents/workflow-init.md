@@ -8,10 +8,10 @@ tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "mcp__plugin_linear_lin
 
 # Workflow Init Agent
 
-**Purpose:** Bootstrap a new workflow in one spawn. Replaces five former inline
-steps (`create-worktree`, `load-project-context`, `autopilot-session-init`,
-`create-linear-ticket`, `configure-gitignore`) with a single agent pass that
-handles everything needed before the first real step runs.
+**Purpose:** Bootstrap a new workflow in one spawn. Replaces former inline
+steps (`create-worktree`, `load-project-context`, `create-linear-ticket`,
+`configure-gitignore`) with a single agent pass that handles everything
+needed before the first real step runs.
 
 ## Philosophy
 

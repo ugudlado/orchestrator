@@ -9,7 +9,8 @@ make lint-contracts
 echo "Gate 2: no workflow schema refs to deleted contracts"
 # M4-deleted: 7 folded contracts
 # rev-2-deleted: 5 contracts absorbed by workflow-init agent
-DELETED="design-exploration create-or-refresh-artifacts validate-artifacts run-implement-review final-signoff phase-signoff verify-spike-findings create-worktree load-project-context configure-gitignore autopilot-session-init create-linear-ticket"
+# autopilot-collapse-deleted: 3 contracts removed when /autopilot became a thin wrapper
+DELETED="design-exploration create-or-refresh-artifacts validate-artifacts run-implement-review final-signoff phase-signoff verify-spike-findings create-worktree load-project-context configure-gitignore autopilot-session-init create-linear-ticket autopilot-preflight autopilot-iterate autopilot-session-report"
 fail=0
 for id in $DELETED; do
   if grep -rE "^\s*-\s+$id\b" config/workflows/ 2>/dev/null; then

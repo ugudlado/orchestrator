@@ -1,5 +1,0 @@
-steps:
-  - autopilot-preflight
-  - workflow-init
-  - autopilot-iterate
-  - autopilot-session-report

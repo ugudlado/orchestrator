@@ -28,9 +28,3 @@ bootstrap: >
   CLAUDE.md, project.yaml, .gitignore). Runs in-place, no worktree,
   no Linear.
   Triggers: "bootstrap", "setup tooling", "initialize project".
-
-autopilot: >
-  Autonomous multi-iteration development loop. Picks work from the
-  backlog, executes each ticket via /orchestrate with full autonomy,
-  records a session log across context resets.
-  Triggers: "autopilot", "autonomous", "run N iterations".

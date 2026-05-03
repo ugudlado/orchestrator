@@ -2,10 +2,10 @@ id: workflow-init
 version: 1
 
 intent: >
-  Bootstrap a new workflow in one agent spawn. Replaces five former inline
-  steps (create-worktree, load-project-context, autopilot-session-init,
-  create-linear-ticket, configure-gitignore) with a single agent pass. The
-  agent has MCP Linear access and performs git worktree ops directly.
+  Bootstrap a new workflow in one agent spawn. Replaces former inline
+  steps (create-worktree, load-project-context, create-linear-ticket,
+  configure-gitignore) with a single agent pass. The agent has MCP
+  Linear access and performs git worktree ops directly.
 
 agent: workflow-init
 
