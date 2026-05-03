@@ -33,7 +33,8 @@ fi
 SLUG="$1"
 SCHEMA="$2"
 shift 2
-FLAG_OVERRIDES=("$@")   # e.g. auto=true agents=true tdd_required=false
+# Remaining positional args are flag overrides: key=value pairs
+# (passed to OVERRIDE_ARGS_JSON builder below via "$@")
 
 # ---------------------------------------------------------------------------
 # Environment resolution
