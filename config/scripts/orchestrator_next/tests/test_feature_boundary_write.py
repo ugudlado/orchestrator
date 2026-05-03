@@ -36,24 +36,32 @@ from orchestrator_next.upsert import ensure_schema  # noqa: E402
 # JSONL fixture helpers
 # ---------------------------------------------------------------------------
 
-def _write_jsonl(path: Path, turns: int = 2, model: str = "claude-sonnet-4-6") -> None:
-    """Write a minimal JSONL file with `turns` assistant turns."""
+def _write_jsonl(
+    path: Path, turns: int = 2, model: str | None = "claude-sonnet-4-6"
+) -> None:
+    """Write a minimal JSONL file with `turns` assistant turns.
+
+    When ``model`` is None, omit ``message.model`` (simulates clients that
+    only emit usage totals).
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as f:
         for i in range(turns):
+            msg: dict = {
+                "usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 50,
+                    "cache_read_input_tokens": 10,
+                    "cache_creation_input_tokens": 5,
+                },
+                "content": [],
+            }
+            if model is not None:
+                msg["model"] = model
             row = {
                 "type": "assistant",
                 "timestamp": f"2026-01-01T00:0{i}:00.000Z",
-                "message": {
-                    "model": model,
-                    "usage": {
-                        "input_tokens": 100,
-                        "output_tokens": 50,
-                        "cache_read_input_tokens": 10,
-                        "cache_creation_input_tokens": 5,
-                    },
-                    "content": [],
-                },
+                "message": msg,
             }
             f.write(json.dumps(row) + "\n")
 
@@ -185,6 +193,36 @@ def test_resolve_cost_usd_from_jsonl(tmp_path, monkeypatch):
     assert abs(result["cost_usd"] - expected_cost) < 0.00001, (
         f"cost_usd mismatch: expected ~{expected_cost:.8f}, got {result['cost_usd']}"
     )
+
+
+def test_resolve_cost_usd_jsonl_without_model_uses_default_pricing(tmp_path, monkeypatch):
+    """No model in JSONL lines → still priced via __default__ when DB present."""
+    session_id = "no-model-session"
+    repo_root = "/test/repo"
+    slug = _make_slug(repo_root)
+
+    jsonl_path = _projects_dir(tmp_path) / slug / f"{session_id}.jsonl"
+    _write_jsonl(jsonl_path, turns=2, model=None)
+
+    monkeypatch.setenv("ORCHESTRATOR_DRIVER_SESSION_ID", session_id)
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+
+    db = duckdb.connect(":memory:")
+    ensure_schema(db)
+
+    state = {"repo_root": repo_root, "change_id": "test-feature"}
+    result = _resolve_driver_session(state, "test-feature", db=db)
+    db.close()
+
+    # 2 turns × (100 in, 50 out, 10 cache_read, 5 cache_creation) at __default__ MTok rates
+    expected_cost = (
+        200 * 15.0 + 100 * 75.0 + 20 * 1.50 + 10 * 18.75
+    ) / 1_000_000
+    assert result.get("cost_usd") is not None, "cost_usd should be computed via __default__"
+    assert abs(result["cost_usd"] - expected_cost) < 0.00001, (
+        f"cost_usd mismatch: expected ~{expected_cost:.8f}, got {result['cost_usd']}"
+    )
+    assert result.get("model") == "__default__"
 
 
 # ---------------------------------------------------------------------------

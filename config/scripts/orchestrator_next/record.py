@@ -469,6 +469,18 @@ def _lookup_price(db, model_id: str, effective_at: "_dt.datetime") -> dict | Non
     }
 
 
+def _billable_token_units(usage: dict | None) -> int:
+    """Sum of input/output/cache token counts for cost eligibility (ISSUE-inline-cost)."""
+    if not isinstance(usage, dict):
+        return 0
+    return int(
+        (usage.get("input_tokens") or 0)
+        + (usage.get("output_tokens") or 0)
+        + (usage.get("cache_read_input_tokens") or 0)
+        + (usage.get("cache_creation_input_tokens") or 0)
+    )
+
+
 def _compute_cost_usd(
     db, agent: str, usage: dict, *, now: "_dt.datetime | None" = None
 ) -> tuple[str | None, float | None]:
@@ -479,6 +491,8 @@ def _compute_cost_usd(
       1. routes.agents[agent] → backend_name
       2a. routes.backends[backend_name] → model_id  (for native_* keys)
       2b. routes.models[backend_name].model → model_id  (for proxy models)
+      2c. If still unresolved but billable tokens > 0, use model_id '__default__'
+          so DuckDB pricing applies (same table row _lookup_price already falls back to).
     Price lookup: _lookup_price(db, model_id, now) with __default__ fallback.
 
     Returns (model_id, cost_usd) or (model_id, None) if pricing unavailable,
@@ -491,31 +505,38 @@ def _compute_cost_usd(
     # This path lets synthetic rows (driver-loop) compute cost without being
     # registered in routes.yaml.
     model_id: str | None = usage.get("model") if isinstance(usage, dict) else None
+    bills = _billable_token_units(usage)
 
     if not model_id:
         # Step 1: agent → backend
         backend = (routes.get("agents") or {}).get(agent)
-        if not backend:
-            sys.stderr.write(
-                f"[record] cost_usd: agent {agent!r} not in routes.yaml and "
-                f"usage.model not set; skipping cost computation\n"
-            )
-            return None, None
+        if backend:
+            # Step 2: backend → model_id
+            backends_map = routes.get("backends") or {}
+            if backend in backends_map:
+                model_id = backends_map[backend]
+            else:
+                # Try routes.models.<backend>.model (proxy path)
+                model_entry = (routes.get("models") or {}).get(backend)
+                if isinstance(model_entry, dict):
+                    model_id = model_entry.get("model")
+            if not model_id and bills == 0:
+                sys.stderr.write(
+                    f"[record] cost_usd: backend {backend!r} for agent {agent!r} "
+                    f"not resolved to a model_id; skipping cost computation\n"
+                )
 
-        # Step 2: backend → model_id
-        backends_map = routes.get("backends") or {}
-        if backend in backends_map:
-            model_id = backends_map[backend]
-        else:
-            # Try routes.models.<backend>.model (proxy path)
-            model_entry = (routes.get("models") or {}).get(backend)
-            if isinstance(model_entry, dict):
-                model_id = model_entry.get("model")
+        # Step 2c: token-backed fallback — inline / driver-loop / unknown agents
+        # often have JSONL totals but no model string; price via __default__ row.
+        if not model_id and bills > 0:
+            model_id = "__default__"
+
         if not model_id:
-            sys.stderr.write(
-                f"[record] cost_usd: backend {backend!r} for agent {agent!r} "
-                f"not resolved to a model_id; skipping cost computation\n"
-            )
+            if not backend:
+                sys.stderr.write(
+                    f"[record] cost_usd: agent {agent!r} not in routes.yaml and "
+                    f"usage.model not set; skipping cost computation\n"
+                )
             return None, None
 
     # Step 3: look up price from DuckDB (with __default__ fallback inside _lookup_price)
@@ -1156,7 +1177,7 @@ def record(
         except Exception as exc:  # noqa: BLE001 — enrichment is best-effort
             sys.stderr.write(f"[record] jsonl enrichment failed for agent_id={agent_id}: {exc}\n")
 
-    if agent != "inline" and not usage.get("cost_usd"):
+    if db is not None and not usage.get("cost_usd"):
         resolved_model, computed_cost = _compute_cost_usd(db, agent, usage)
         if resolved_model is not None and computed_cost is not None:
             usage["model"] = resolved_model

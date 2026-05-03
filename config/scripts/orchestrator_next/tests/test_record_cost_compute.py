@@ -1,12 +1,13 @@
 """T-5/T-6: record() populates usage.model and usage.cost_usd via DuckDB.
 
-Six cases:
+Seven cases:
   1. developer agent (native_sonnet) → cost_usd computed, model set to claude-sonnet-4-6
   2. architect agent (native_opus)   → cost_usd computed using opus rates
   3. cache_read_input_tokens present → included in cost at cache_read rate
   4. payload already has cost_usd    → existing value preserved, not clobbered
-  5. inline agent (unresolvable)     → cost_usd stays unset, no exception
-  6. db=None                         → no exception, cost_usd unset, stderr warning emitted
+  5. inline agent, no tokens         → cost_usd stays unset, no exception
+  6. inline agent + tokens           → cost_usd from DuckDB __default__ row, model __default__
+  7. db=None                         → no exception, cost_usd unset (pricing skipped)
 """
 from __future__ import annotations
 
@@ -259,7 +260,7 @@ class TestRecordCostCompute:
         )
 
     def test_skips_when_agent_unresolvable(self, tmp_path, in_memory_db):
-        """Inline agent (not in routes.yaml) — cost_usd should stay unset, no exception.
+        """Inline agent with no billable tokens — cost_usd stays unset, no exception.
 
         Using agent=inline which is exempt from Check B (usage not required).
         cost_usd absent from the written entry is acceptable — fail-open behaviour.
@@ -282,10 +283,36 @@ class TestRecordCostCompute:
             f"Expected cost_usd=None for inline agent, got {usage.get('cost_usd')!r}"
         )
 
-    def test_db_none_no_exception_and_cost_usd_unset(self, tmp_path, capsys):
+    def test_computes_cost_for_inline_when_tokens_use_default_pricing(
+        self, tmp_path, in_memory_db
+    ):
+        """inline + input/output tokens → priced via __default__ row (no routes entry)."""
+        state_path = _write_state(tmp_path)
+        payload = {
+            "step_id": "execute-next-task",
+            "phase": "implement",
+            "status": "completed",
+            "agent": "inline",
+            "outputs": {"task_execution_result": {"task_id": "T-1"}},
+            "usage": {"input_tokens": 2000, "output_tokens": 1000, "duration_ms": 1},
+        }
+        result, exit_code = record(state_path, payload, db=in_memory_db)
+        assert exit_code == 0, f"record() failed: {result}"
+
+        usage = _get_recorded_usage(state_path)
+        # __default__ from 0001_seed_pricing.sql: input 15.00 / MTok, output 75.00 / MTok
+        expected_cost = 2000 * 15.0 / 1_000_000 + 1000 * 75.0 / 1_000_000
+        assert usage.get("model") == "__default__", (
+            f"Expected model='__default__', got {usage.get('model')!r}"
+        )
+        assert usage.get("cost_usd") == pytest.approx(expected_cost, rel=1e-6), (
+            f"Expected cost_usd≈{expected_cost}, got {usage.get('cost_usd')!r}"
+        )
+
+    def test_db_none_no_exception_and_cost_usd_unset(self, tmp_path):
         """record(state_yaml_path, payload, db=None) — offline/test path.
 
-        No exception raised; usage.cost_usd remains unset; stderr warning emitted.
+        No exception raised; usage.cost_usd remains unset (pricing not invoked).
         """
         state_path = _write_state(tmp_path)
         payload = _base_payload(
@@ -300,6 +327,3 @@ class TestRecordCostCompute:
         assert usage.get("cost_usd") is None, (
             f"Expected cost_usd=None with db=None, got {usage.get('cost_usd')!r}"
         )
-
-        captured = capsys.readouterr()
-        assert captured.err, "Expected a stderr warning when db=None"
