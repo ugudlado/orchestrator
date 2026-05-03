@@ -35,32 +35,26 @@ git add "$ARCHIVE_PATH"
 git commit -m "archive: $CHANGE_ID — complete phase artifacts" 2>/dev/null
 SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
 
-# After the archive commit succeeds, remove the backlog entry (idempotent).
-# Backlog lives in a single file (spec/changes/backlog.md) with one H2 per
-# slug. If the section exists, strip it and the Summary-table row. Leaves
-# the rest of the file untouched.
-BACKLOG_FILE="$REPO_ROOT/spec/changes/backlog.md"
-if [ -f "$BACKLOG_FILE" ] && grep -qE "^## $CHANGE_ID$" "$BACKLOG_FILE"; then
-  python3 - "$BACKLOG_FILE" "$CHANGE_ID" <<'PY'
-import re, sys
-path, slug = sys.argv[1], sys.argv[2]
-text = open(path).read()
-# Remove the Summary-table row: `| N | [slug](#slug) | ... |`
-text = re.sub(rf"^\| \d+ \| \[{re.escape(slug)}\]\(#{re.escape(slug)}\)[^\n]*\n", "", text, flags=re.MULTILINE)
-# Remove the H2 block: `## slug\n` through the next `## ` or `---\n\n`
-# Simplest: split on H2, drop the matching chunk.
-parts = re.split(r"(?m)^## ", text)
-kept = [parts[0]]
-for p in parts[1:]:
-    head = p.split("\n", 1)[0].strip()
-    if head == slug:
-        continue
-    kept.append(p)
-text = ("## ").join(kept)
-open(path, "w").write(text)
-PY
-  git -C "$REPO_ROOT" add "$BACKLOG_FILE"
-  git -C "$REPO_ROOT" commit -m "cleanup: remove $CHANGE_ID from backlog.md" >/dev/null 2>&1 || true
+# After the archive commit succeeds, mark the matching backlog task as Done
+# (idempotent). Backlog lives in spec/changes/backlog/ managed by the
+# `backlog` CLI; tasks carry a `slug-<change_id>` label set at migration time.
+# Look up the task id by label match, then transition status. If no match,
+# skip silently — the change may have predated the backlog migration or
+# never had a backlog entry.
+if command -v backlog >/dev/null 2>&1 && [ -d "$REPO_ROOT/spec/changes/backlog" ]; then
+  TASK_ID=$(backlog task list --plain 2>/dev/null \
+            | grep -oE "ORC-[0-9]+" \
+            | while read -r tid; do
+                if backlog task "$tid" --plain 2>/dev/null \
+                   | grep -qE "^Labels:.*\bslug-${CHANGE_ID}\b"; then
+                  echo "$tid"; break
+                fi
+              done | head -1)
+  if [ -n "$TASK_ID" ]; then
+    backlog task edit "$TASK_ID" -s Done >/dev/null 2>&1 || true
+    git -C "$REPO_ROOT" add "spec/changes/backlog/tasks/" >/dev/null 2>&1 || true
+    git -C "$REPO_ROOT" commit -m "cleanup: mark $TASK_ID ($CHANGE_ID) Done" >/dev/null 2>&1 || true
+  fi
 fi
 
 printf '%s\n' "{\"archive_record\": {\"archived_at\": \"$ARCHIVED_AT\", \"archive_path\": \"$ARCHIVE_PATH\", \"commit_sha\": \"$SHA\"}}"

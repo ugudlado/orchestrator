@@ -40,10 +40,13 @@ instruction: |
      If cleanup fails (permission error, file lock), log a warning but do not
      fail — the archive is already committed.
 
-  5.5. Remove the backlog entry if present: spec/changes/backlog/$CHANGE_ID/.
-     Use `git rm -r` to stage the deletion, then commit as
-     "cleanup: remove $CHANGE_ID from backlog". This step is idempotent —
-     if no backlog entry exists, skip silently. Cleanup failure is non-blocking.
+  5.5. Mark the matching backlog task as Done if present. Backlog tasks
+     live under spec/changes/backlog/ and are managed by the `backlog` CLI.
+     Each migrated task carries a `slug-$CHANGE_ID` label; look up the task
+     id via `backlog task list --plain` + label match, then run
+     `backlog task edit <id> -s Done`. Commit the task-file change as
+     "cleanup: mark <id> ($CHANGE_ID) Done". Idempotent — skip silently
+     if no matching task exists. Cleanup failure is non-blocking.
 
   6. Update state.yaml step_history per CONVENTIONS.md § State Updates.
 

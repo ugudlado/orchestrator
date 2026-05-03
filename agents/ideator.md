@@ -48,25 +48,39 @@ Read existing code to understand what's actually there (not just what's document
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 ls "$REPO_ROOT/.state"                 # active local workflow state
-cat "$REPO_ROOT/spec/changes/backlog.md"  # proposed ideas (single consolidated file)
+backlog task list --plain              # all open tickets (CLI-managed under spec/changes/backlog/)
 ls "$REPO_ROOT/spec/changes/archive"   # completed changes
 ```
 
-Before recommending an existing idea, verify that it is still relevant:
+The backlog is managed by the **`backlog` CLI** (per-task markdown files under
+`spec/changes/backlog/tasks/`). Use the CLI for all reads — never grep the
+task files directly.
 
-1. Read `spec/changes/backlog.md` — a single file with all pending ideas, split into
-   **## Features** and **## Bugs** sections. Each entry is an H2 keyed by slug,
-   with a score line, and retains the full idea body (Idea / Why Now / Prototype / Priority).
-2. Read `spec/changes/archive/*/{spec.md,tasks.md,state.yaml}` for completed work that may have already implemented or superseded the idea.
+| Need | Command |
+|---|---|
+| List all open | `backlog task list --plain` |
+| Filter by priority | `backlog task list --priority high --plain` |
+| Filter by status | `backlog task list -s "To Do" --plain` |
+| Full body of one task | `backlog task <ORC-id> --plain` |
+| Keyword search | `backlog search "<query>" --type task --plain` |
+
+Each migrated task carries labels: `slug-<original-slug>`, `feature`|`bug`,
+`score-X.X`, `recurrence-N`. The score and recurrence labels are the
+fine-grained tiebreaks behind the coarse `high|medium|low` priority bucket.
+
+Before recommending an existing task, verify that it is still relevant:
+
+1. List candidates via `backlog task list -s "To Do" --plain` and read full bodies via `backlog task <id> --plain`.
+2. Read `spec/changes/archive/*/{spec.md,tasks.md,state.yaml}` for completed work that may have already implemented or superseded the task.
 3. Search the current repo for concrete implementation evidence using `rg`, `rg --files`, and focused file reads.
-4. Classify each backlog idea:
+4. Classify each backlog task:
    - `fresh` — no current implementation found; still valuable.
    - `partially_done` — some pieces exist, but meaningful acceptance criteria remain.
    - `stale` — already implemented or no longer true.
    - `superseded` — replaced by a newer design, contract, or workflow direction.
-5. Exclude `stale` and `superseded` ideas from top recommendations unless the user asks for cleanup.
+5. Exclude `stale` and `superseded` tasks from top recommendations unless the user asks for cleanup.
 
-Do not trust old priority scores without this freshness check.
+Do not trust old priority labels without this freshness check.
 
 ### 3. Explore Opportunities
 
@@ -138,28 +152,24 @@ Effort divisor: small=1, medium=2, large=3
 
 ### 7. Persistence
 
-Default behavior is **no persistence**. Do not create tickets, backlog directories, specs, prototypes, diagrams, or files unless the user explicitly asks to store the result.
+Default behavior is **no persistence**. Do not create tasks, backlog entries, specs, prototypes, diagrams, or files unless the user explicitly asks to store the result.
 
-When the user explicitly asks to create backlog entries, create a backlog change directory for each accepted idea:
+When the user explicitly asks to create backlog entries, use the `backlog` CLI:
 
 ```bash
-mkdir -p spec/changes/backlog/[ID]
+backlog task create "<title>" \
+  -d "<description with Idea / Why Now / Prototype sections>" \
+  --priority <high|medium|low>      # bucket: score>=9 high, 7.5-8.9 medium, <7.5 low
+  -l slug-<id>,<feature|bug>,score-<X.X>,recurrence-1 \
+  --ac "<acceptance criterion 1>" --ac "<criterion 2>" \
+  --ref "<source 1>" \
+  --no-dod-defaults
 ```
 
-Then write `.spec.yaml`:
-```yaml
-schema: <feature|bugfix>
-feature-id: <ID>
-status: proposed
-category: <new-feature|improvement|bugfix|simplification>
-priority: <score>
-source: ideator
-created: <YYYY-MM-DD>
-```
+Where the description is a markdown body covering:
 
-And write a lightweight `idea.md` (NOT a full spec — that's the develop workflow's job):
 ```markdown
-# [Title]
+**Original score:** <X.X> | **Recurrence:** 1
 
 ## Idea
 [2-3 sentences — what and why]
@@ -177,6 +187,8 @@ And write a lightweight `idea.md` (NOT a full spec — that's the develop workfl
 - Effort: small|medium|large
 - **Score: X.X**
 ```
+
+Never edit `spec/changes/backlog/tasks/` files directly. All writes go through `backlog task create` / `backlog task edit`.
 
 ### 8. Report
 

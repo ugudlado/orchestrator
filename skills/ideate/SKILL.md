@@ -22,13 +22,13 @@ args:
    - the project context from `spec/project.yaml`
    - instructions to inspect current repo state before ranking anything
 4. Require the `ideator` agent to perform a freshness pass:
-   - Read existing backlog entries from `spec/changes/backlog.md` (single file; Features and Bugs sections).
+   - List existing backlog tasks via `backlog task list --plain` (managed by the `backlog` CLI under `spec/changes/backlog/`). Filter by status (`-s "To Do"`) to exclude already-completed work; use `backlog task <id> --plain` for full body and `backlog search "<query>" --plain` for keyword scans.
    - Read completed work from `spec/changes/archive/*`.
    - Search the current repo for concrete evidence that each candidate is still missing.
-   - Classify each backlog idea as `fresh`, `partially_done`, `stale`, or `superseded`.
-   - Exclude `stale` and `superseded` ideas from "next best" recommendations unless the user explicitly asks for historical backlog cleanup.
+   - Classify each backlog task as `fresh`, `partially_done`, `stale`, or `superseded`.
+   - Exclude `stale` and `superseded` tasks from "next best" recommendations unless the user explicitly asks for historical backlog cleanup.
 5. For `--next` or requests like "next N best ideas":
-   - Do not sort by stored priority alone.
+   - Do not sort by stored priority alone (the CLI's `high|medium|low` is a coarse bucket; tasks carry `score-X.X` and `recurrence-N` labels for finer-grained tiebreaks).
    - Re-rank live candidates using product vision, current project state, web research, strategic fit, dependency order, risk reduction, and effort.
    - Prefer ideas that unblock deterministic workflow execution or prevent recurring workflow failures.
 6. For `--refresh`:
