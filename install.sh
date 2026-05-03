@@ -60,6 +60,9 @@ setup_core() {
 
   safe_ln "$ORCHESTRATOR_DIR/config" "$ORCHESTRATOR_HOME/config"
   echo "  Config: $ORCHESTRATOR_HOME/config -> $ORCHESTRATOR_DIR/config"
+
+  safe_ln "$ORCHESTRATOR_DIR/scripts" "$ORCHESTRATOR_HOME/scripts"
+  echo "  Scripts: $ORCHESTRATOR_HOME/scripts -> $ORCHESTRATOR_DIR/scripts"
 }
 
 setup_claude() {
