@@ -46,21 +46,20 @@ setup_core() {
   echo "Syncing core config..."
   mkdir -p "$ORCHESTRATOR_HOME"
 
-  # Symlink config directories
-  for dir in "$ORCHESTRATOR_DIR/config"/*/; do
-    [ -d "$dir" ] || continue
-    safe_ln "${dir%/}" "$ORCHESTRATOR_HOME/$(basename "$dir")"
+  # Migrate from legacy flat layout: remove any old per-subdir/per-file symlinks
+  # at the install root that point into $ORCHESTRATOR_DIR/config/. The canonical
+  # layout is $ORCHESTRATOR_HOME/config -> $ORCHESTRATOR_DIR/config.
+  for entry in "$ORCHESTRATOR_HOME"/*; do
+    [ -L "$entry" ] || continue
+    local target
+    target="$(readlink "$entry")"
+    case "$target" in
+      "$ORCHESTRATOR_DIR/config"/*) rm "$entry"; echo "  removed legacy ${entry#$HOME/}" ;;
+    esac
   done
 
-  # Symlink top-level config files
-  for file in "$ORCHESTRATOR_DIR/config"/*.yaml; do
-    [ -f "$file" ] || continue
-    safe_ln "$file" "$ORCHESTRATOR_HOME/$(basename "$file")"
-  done
-
-  local dir_count=$(ls -d "$ORCHESTRATOR_HOME"/*/ 2>/dev/null | wc -l | tr -d ' ')
-  local file_count=$(ls "$ORCHESTRATOR_HOME"/*.yaml 2>/dev/null | wc -l | tr -d ' ')
-  echo "  Config: $dir_count dirs, $file_count files linked to $ORCHESTRATOR_HOME"
+  safe_ln "$ORCHESTRATOR_DIR/config" "$ORCHESTRATOR_HOME/config"
+  echo "  Config: $ORCHESTRATOR_HOME/config -> $ORCHESTRATOR_DIR/config"
 }
 
 setup_claude() {
