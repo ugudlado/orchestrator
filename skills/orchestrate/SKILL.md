@@ -64,7 +64,27 @@ After the step emits `{schema, reason, confidence, considered}`:
 
 If the select-workflow step emitted `confidence: resume`, it has already pointed at an active state.yaml. Read its `next_step` (phase + step_id), read its persisted `flags`, and enter the dispatch loop at that point. Tell the user: "Resuming <change_id> at <phase>/<step_id>."
 
-Otherwise this is a new workflow — proceed from the first phase and step.
+Otherwise this is a new workflow — proceed to sub-step 2.1 to seed state before entering the dispatch loop.
+
+#### 2.1 Seed state for new workflows
+
+Run `skills/orchestrate/scripts/seed-state.sh <slug> <schema> [flag=value ...]` where:
+- `<slug>` is the change_id / feature slug for this workflow (derived from the request or Linear ticket).
+- `<schema>` is the schema name emitted by the select-workflow step (e.g. `bugfix`, `feature`, `spike`).
+- `[flag=value ...]` are any resolved CLI flag overrides (e.g. `auto=true agents=true tdd_required=false`).
+
+Example:
+```
+bash skills/orchestrate/scripts/seed-state.sh my-feature-slug feature auto=true agents=true
+```
+
+After the script exits 0, assert that both files exist before proceeding:
+- `$WORKFLOW_STATE_DIR/<slug>/state.yaml`
+- `$WORKFLOW_STATE_DIR/<slug>/plan.yaml`
+
+If either file is absent, the seeder printed an error to stderr — surface it to the user and halt. Do NOT proceed to the dispatch loop with a missing state.yaml (that is the exact bug this step was added to prevent).
+
+The seeder is idempotent: re-running it when state.yaml already exists exits 0 without overwriting. This makes the seed step safe to repeat on re-entry.
 
 ### 3. Build filtered step list
 

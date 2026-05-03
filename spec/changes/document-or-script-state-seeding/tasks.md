@@ -7,7 +7,7 @@
   Verify: from a clean tmp `WORKFLOW_STATE_DIR`, running `bash skills/orchestrate/scripts/seed-state.sh <slug> bugfix` exits 0 and creates both `state.yaml` and `plan.yaml`. `python -c 'from orchestrator_next.parser import load_state; load_state("<path>")'` succeeds.
   depends: T-1
 
-- [ ] T-3: Update `skills/orchestrate/SKILL.md` Section 2 (lines 63-67) to add a numbered seed sub-step (e.g., "2.1 Seed state for new workflows") that calls `skills/orchestrate/scripts/seed-state.sh <slug> <schema> [flag=value ...]` and verifies state.yaml + plan.yaml exist before the Section 4 dispatch loop runs. Keep the resume branch unchanged. Per spec.md FR-5.
+- [x] T-3: Update `skills/orchestrate/SKILL.md` Section 2 (lines 63-67) to add a numbered seed sub-step (e.g., "2.1 Seed state for new workflows") that calls `skills/orchestrate/scripts/seed-state.sh <slug> <schema> [flag=value ...]` and verifies state.yaml + plan.yaml exist before the Section 4 dispatch loop runs. Keep the resume branch unchanged. Per spec.md FR-5.
   Verify: `grep -n "seed-state.sh" skills/orchestrate/SKILL.md` returns at least one hit inside Section 2, and a manual read shows the numbered sub-step is placed before Section 4 dispatch loop instructions.
   depends: T-2
 
