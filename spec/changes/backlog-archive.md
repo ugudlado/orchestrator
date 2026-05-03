@@ -5,6 +5,40 @@
      reference so the decision is traceable; ideator ignores this file.
  -->
 
+## autopilot-wakeup-discipline
+
+**Rule: under --auto with background agents, minimize redundant ScheduleWakeup polling** (score 5.5 at time of retirement)
+
+**Dropped:** 2026-05-03
+**Reason:** Invalidated by autopilot collapse (commit fa6112d). The entry described
+discipline for the multi-iteration autopilot driver loop's ScheduleWakeup polling
+between iterations. After the collapse, `/autopilot` is a single-iteration thin
+wrapper around `/orchestrate` — there is no driver loop owning wakeups, no
+between-iteration polling. The general "don't ScheduleWakeup when task notifications
+suffice" heuristic is now an orchestrate-skill prompt concern (not a separate ticket)
+and is implicitly addressed by the simpler dispatch shape.
+
+**Recurrence at retirement:** 1
+
+### Retired body
+
+> **Idea**: Autopilot driver emits ScheduleWakeup calls to check on background agents
+> (`dev running on T-X, check in 4min`). Each wakeup = full conversation re-hydration =
+> millions of cache_read tokens. Task completions already fire `<task-notification>`
+> automatically. The wakeup polling is redundant with the notification system and
+> adds ~$40 to a typical feature's driver-loop cost.
+>
+> **Scope**: Add a rule to autopilot/orchestrate skill dispatch prompt: rely on
+> task-notification events, not ScheduleWakeup, for wait-only purposes. Allowed:
+> external resources, time-gated re-assessment, user-requested periodic reports.
+> Forbidden: "dev still running, check in 5min".
+>
+> **Expected savings**: ~30% driver-loop cache_reads per autopilot feature.
+>
+> **Source**: single-source-metrics-via-step-events post-ship cost analysis (2026-04-20).
+
+---
+
 ## backfill-step-history-jsonl
 
 **Backfill step_history Coverage from JSONL** (score 8.5 at time of retirement)

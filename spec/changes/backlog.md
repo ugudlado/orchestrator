@@ -129,56 +129,57 @@ This is the cheap precursor to the existing `metrics-regression-detection` backl
 
 ---
 
-## autopilot-cost-tail
+## cost-tail-on-orchestrate-complete
 
-**One-line cost summary in autopilot transcript per iteration** (score 9.0)
+**One-line cost summary at end of every /orchestrate run** (score 6.5)
 
 **Recurrence:** 1
 
 ### Idea
 
-In `config/steps/autopilot-iterate.yaml`, after each child feature archives, query the recent-features metrics and emit one line into the autopilot transcript:
+After any `/orchestrate` run completes, emit one line to the transcript summarizing the just-shipped feature:
 
 ```
-[FT-XX cost-summary-on-archive] $0.74 / 12m / 84k tokens / 2.1× median
+[fix-archive-backlog-cleanup-tests] $0.74 / 12m / 84k tokens / 2.1× median
 ```
 
-Surfaces runaway-cost runs in real time without grepping logs or running `/telemetry` after the fact. Especially valuable in long-running autopilot sessions (5+ iterations) where the user only watches the tail.
+The orchestrate skill already runs `scripts/cost-report.sh --change-id $CHANGE_ID` at `complete_workflow` time and includes its stdout in the final message. This entry asks for an additional `--tail` mode of that script (or a new named query) that emits a single compact line, so terminal-tailers and `/autopilot` consumers see at-a-glance cost without grepping the multi-line report.
 
 ### Why Now
 
 - Builds on `cost-summary-on-archive` (uses the same query) and `cost-delta-baseline` (the median ratio).
-- Tiny — one bash invocation + one log line in `autopilot-iterate.yaml`.
-- Closes the autopilot-specific visibility gap: today, you have to wait for the session-report phase to see any cost numbers.
+- Tiny — one query mode + one log line in `orchestrate` complete-phase prose.
+- Especially valuable when `/autopilot` chains via shell loops or remote-agent runners: the tail is the only signal the wrapper sees.
 
 ### Scope
 
-1. Add a sub-step in `autopilot-iterate.yaml` STEP D.5 (or a new STEP D.6) that runs `metrics-query.sh feature-summary <ticket-slug> --tail` and emits the formatted line.
-2. New `--tail` mode for the `feature-summary` query (or new named query `cost-tail <change_id>`) returning a single formatted line.
-3. Test: run autopilot with 1 iteration; assert the tail line appears in stderr / transcript.
+1. New `--tail` mode (or new named query `cost-tail <change_id>`) in `metrics-query.sh` returning a single formatted line.
+2. Edit `skills/orchestrate/SKILL.md` complete-phase block: after the cost-report stdout, also emit the tail line on its own.
+3. Test: archive a small completed feature and assert the tail line is present + matches the expected shape.
 
 ### Out of scope
 
 - Cost dashboards / time-series rendering.
-- Mid-iteration cost emits (only after-archive).
-- Stopping autopilot on cost (covered by `metrics-regression-detection`).
+- Mid-feature cost emits.
+- Stopping work on cost (covered by `metrics-regression-detection`).
 
 ### Priority
 
-- User value: 7/10 (real-time visibility in long autopilot runs)
+- User value: 7/10 (one-line at-a-glance cost after every shipped feature)
 - Strategic fit: 7/10
-- Technical leverage: 8/10 (~10 lines: one query + one log line)
+- Technical leverage: 8/10 (~10 lines: one query mode + one log line)
 - Effort: extra-small
 - **Score: 6.5**
 
 ### Dependencies
 
 - Hard: `cost-summary-on-archive` (uses its query).
-- Soft: `cost-delta-baseline` (the "Nx median" segment of the line — degrades gracefully to omitting that segment if delta isn't computed yet).
+- Soft: `cost-delta-baseline` (the "Nx median" segment — degrades gracefully if delta isn't computed yet).
 
 ### Source
 
 - Ideation session 2026-05-03 with the user — idea #5 from a 5-idea ranking.
+- Reframed 2026-05-03 after autopilot collapse (commit fa6112d) removed `autopilot-iterate.yaml`; mechanism moved to the orchestrate complete-phase.
 
 ---
 
@@ -296,12 +297,12 @@ The setup itself is small (~3 lines of JSON), but the supporting context is the 
 
 ## metrics-regression-detection
 
-**Metrics Regression Detection + Autopilot Breaker** (score 8.2)
+**Metrics Regression Detection + Regression-Breaker Exit Code** (score 7.8)
 
 **Recurrence:** 1
 
 ### Idea
-Turn the metrics stack from a passive ledger into an active guardrail. Detect feature-level and step-level regressions against rolling baselines, surface them in `/telemetry`, and stop `/autopilot` from compounding damage when the last 3 runs all regressed.
+Turn the metrics stack from a passive ledger into an active guardrail. Detect feature-level and step-level regressions against rolling baselines, surface them in `/telemetry`, and let an external loop runner halt on a `regression_breaker` exit code when the last 3 features each regressed.
 
 ### Evidence
 - `execute-next-task` averaged ~19 min across 2 samples — no rolling baseline exists to flag drift.
@@ -320,17 +321,20 @@ Turn the metrics stack from a passive ledger into an active guardrail. Detect fe
    - step `duration_ms` > 2× median for same `step_id`
    - single-agent token spike > 2× median
 4. Surface top anomalies in `/telemetry`.
-5. Autopilot breaker: the iterate step refuses to pick new work if the last 3 completed features each appear in `metrics_anomalies`; writes `stop_reason: regression_breaker` to checkpoint.
+5. Regression breaker: `/orchestrate` complete-phase exits with non-zero code (e.g. 23, `EXIT_REGRESSION_BREAKER`) when the just-shipped feature appears in `metrics_anomalies` AND the prior 2 features also did. External loop runners (autopilot wrapper scripts, remote-agent harnesses) can then stop calling `/autopilot` on regression. Writing the breaker as an exit code, not an in-process check, makes it composable with any runner — including the single-iteration thin-wrapper autopilot.
 
 ### Why Now
 Prerequisite: fix-cost-usd-and-widen-token-split (baselines on zeros are meaningless) and backfill-step-history-jsonl (needs full history). This caps the observability arc — once it lands, future regressions self-report.
 
 ### Priority
-- User value: 9/10
+- User value: 8/10 (passive surfacing + composable breaker, no per-runner integration)
 - Strategic fit: 8/10
 - Technical leverage: 8/10
 - Effort: medium
-- **Score: 8.2**
+- **Score: 7.8**
+
+### Source
+Reframed 2026-05-03 after autopilot collapse (commit fa6112d): the original "autopilot-iterate writes stop_reason to _checkpoint.json" mechanism is dead. Replaced with a CLI exit-code that any external runner can act on.
 
 ---
 
@@ -603,10 +607,10 @@ As the orchestrator runs longer autonomous sessions (autopilot with multiple ite
 **Recurrence:** 1
 
 ### Idea
-When a workflow fails mid-execution (agent crash, user abort, max retries exceeded), the git worktree at `~/code/feature_worktrees/$SLUG` and the branch `feature/$SLUG` are left behind. The `remove-worktree.yaml` step only runs in the `complete` phase, so any workflow that stops before completion leaks worktrees. Over time, `git worktree list` accumulates stale entries, and `~/code/feature_worktrees/` fills with abandoned directories. Add: (1) a `make clean-worktrees` target that lists stale worktrees (no matching active state.yaml) and offers to remove them, (2) a check in `create-worktree.yaml` that warns if more than 5 worktrees exist (suggesting cleanup), and (3) guidance in the `on_max_retries: escalate` handler to mention worktree cleanup.
+When a workflow fails mid-execution (agent crash, user abort, max retries exceeded), the git worktree at `~/code/feature_worktrees/$SLUG` and the branch `feature/$SLUG` are left behind. The `remove-worktree.yaml` step only runs in the `complete` phase, so any workflow that stops before completion leaks worktrees. Over time, `git worktree list` accumulates stale entries, and `~/code/feature_worktrees/` fills with abandoned directories. Add: (1) a `make clean-worktrees` target that lists stale worktrees (no matching active state.yaml) and offers to remove them, (2) a check in `create-worktree.yaml` (or `workflow-init`) that warns if more than 5 worktrees exist (suggesting cleanup), and (3) guidance in the `on_max_retries: escalate` handler to mention worktree cleanup.
 
 ### Why Now
-The autopilot mode runs multiple iterations, each potentially creating a worktree. If any iteration fails and the next starts, worktrees accumulate. The `doctor` command does not check for orphaned worktrees. This is the kind of slow resource leak that is invisible until disk space runs low.
+Any failed `/orchestrate` run leaks one worktree. Spike runs that abort, bugfix runs that escalate, autopilot runs whose external loop stops mid-feature — all leave the same trail. The `doctor` command does not check for orphaned worktrees. This is the kind of slow resource leak that is invisible until disk space runs low. Today (2026-05-03) `git worktree list` shows two stale entries (`cost-summary-on-archive`, `runpod-model-switch`) that demonstrate the gap.
 
 ### Priority
 - User value: 7/10
@@ -1296,32 +1300,3 @@ Decide which, apply the one-line edit.
 spec/changes/archive/2026-04-19-fix-inline-scripts-tmpdir/retro.md §ISSUE-29
 
 ---
-
-
----
-
-## autopilot-wakeup-discipline
-
-**Rule: under --auto with background agents, minimize redundant ScheduleWakeup polling** (score 5.5)
-
-**Recurrence:** 1 — source: single-source-metrics-via-step-events post-ship review (2026-04-20: driver-loop cost $190 = 74% cache reads, ~30% attributed to 31 ScheduleWakeup-driven re-hydrations redundant with task-notification system)
-
-### Idea
-
-Autopilot driver emits ScheduleWakeup calls to check on background agents (`dev running on T-X, check in 4min`). Each wakeup = full conversation re-hydration = millions of cache_read tokens. Task completions already fire `<task-notification>` automatically. The wakeup polling is redundant with the notification system and adds ~$40 to a typical feature's driver-loop cost.
-
-### Scope
-
-1. Add a rule to autopilot skill or orchestrate skill dispatch prompt: "When agents are running in the background and no deterministic polling is required, rely on task-notification events. Do not emit ScheduleWakeup for wait-only purposes."
-2. Allowed wakeup cases: (a) watching an external resource the agent system can't notify on (e.g., a deploy URL), (b) time-gated events like "check in 30min to re-assess", (c) user explicitly asked for periodic reports.
-3. Forbidden cases: "dev still running, check in 5min" — just wait for the notification.
-4. Measure: compare driver-loop cache_reads across next 2 autopilot runs vs historical ~$140 cache-read cost.
-
-### Expected savings
-
-~30% driver-loop cache_reads per autopilot feature. For opus-4.7 runs, ~$40–50 savings per feature.
-
-### Source
-
-- single-source-metrics-via-step-events post-ship cost analysis (2026-04-20)
-- `orchestrator cost --change-id single-source-metrics-via-step-events` showed 31 ScheduleWakeup tool calls alongside 465 turns × ~200K cache prefix = 93M cache reads
