@@ -73,11 +73,21 @@ def _run_seed(
     state_dir: Path,
     extra_env: dict | None = None,
 ) -> subprocess.CompletedProcess:
-    """Run seed-state.sh with the given slug/schema and isolated env vars."""
+    """Run seed-state.sh with the given slug/schema and isolated env vars.
+
+    PYTHONPATH is set to the real config/scripts directory so the subprocess
+    can import orchestrator_next regardless of where repo_root (the fake test
+    repo) points.  The script respects an existing PYTHONPATH by prepending.
+    """
     env = os.environ.copy()
     env["REPO_ROOT"] = str(repo_root)
     env["WORKFLOW_STATE_DIR"] = str(state_dir)
     env["ORCHESTRATOR_HOME"] = _ORCHESTRATOR_HOME
+    # Ensure orchestrator_next is importable inside the subprocess:
+    # _HERE.parents[1] == config/scripts/ (parent of orchestrator_next package)
+    real_scripts_dir = str(_HERE.parents[1])
+    existing_pypath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{real_scripts_dir}:{existing_pypath}" if existing_pypath else real_scripts_dir
     if extra_env:
         env.update(extra_env)
     return subprocess.run(
