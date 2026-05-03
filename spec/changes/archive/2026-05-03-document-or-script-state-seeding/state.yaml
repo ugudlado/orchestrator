@@ -1,0 +1,384 @@
+change_id: document-or-script-state-seeding
+slug: document-or-script-state-seeding
+schema: bugfix
+status: completed
+title: Document or script the initial state.yaml seed for /orchestrate
+repo_root: /Users/spidey/code/orchestrator
+worktree_path: /Users/spidey/code/feature_worktrees/document-or-script-state-seeding
+linear_ticket: ORC-27
+phase: main
+project_context_loaded: true
+project_context_at: '2026-05-03T11:14:15Z'
+created_at: '2026-05-03T11:14:15Z'
+started_at: '2026-05-03T11:14:15Z'
+flags:
+  auto: true
+  agents: true
+  tdd_required: true
+  phase_review: true
+  worktree: true
+  metrics: true
+  linear: false
+  portless: true
+  light: false
+  discovery: false
+  ux_design: false
+  design_exploration: false
+workflow_plan:
+  main:
+    active:
+    - workflow-init
+    - diagnose
+    - design-and-draft-artifacts
+    - capture-test-baseline
+    - execute-next-task
+    - run-phase-review
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+next_step:
+  phase: main
+  step_id: archive-completed-change
+step_history:
+- step_id: workflow-init
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T11:14:15Z'
+  ended_at: '2026-05-03T11:14:43Z'
+  usage: {}
+  evidence:
+    outputs:
+      slug: document-or-script-state-seeding
+      worktree_path: /Users/spidey/code/feature_worktrees/document-or-script-state-seeding
+      branch: bugfix/document-or-script-state-seeding
+      linear_ticket_id: null
+      workflow_plan:
+        main:
+          active:
+          - workflow-init
+          - diagnose
+          - design-and-draft-artifacts
+          - capture-test-baseline
+          - execute-next-task
+          - run-phase-review
+          - compute-prediction-accuracy
+          - run-learn-cycle
+          - mark-change-completed
+          - compute-swe-metrics
+          - archive-completed-change
+          - remove-worktree
+          filtered: []
+      resolved_flags:
+        auto: true
+        agents: true
+        tdd_required: true
+        phase_review: true
+        worktree: true
+        metrics: true
+        linear: false
+        portless: true
+        light: false
+        discovery: false
+        ux_design: false
+        design_exploration: false
+      plan_yaml_path: /Users/spidey/code/orchestrator/.state/document-or-script-state-seeding/plan.yaml
+- step_id: diagnose
+  phase: main
+  status: completed
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-05-03T11:20:45Z'
+  ended_at: '2026-05-03T11:20:45Z'
+  usage:
+    input_tokens: 18000
+    output_tokens: 2800
+    duration_ms: 180000
+    cost_usd: 0.03
+    tool_calls:
+      Read: 12
+      Bash: 28
+  evidence:
+    outputs:
+      diagnosis_result:
+        path: /Users/spidey/code/feature_worktrees/document-or-script-state-seeding/spec/changes/document-or-script-state-seeding/diagnosis.md
+        root_cause_file: skills/orchestrate/SKILL.md
+        root_cause_line_range: skills/orchestrate/SKILL.md:63-67
+        proposed_approach: Introduce a canonical, documented or scripted state.yaml
+          materialization step in skills/orchestrate/SKILL.md between schema selection
+          and the dispatch loop, so fresh workflows have a deterministic path from
+          zero to a valid state.yaml + plan.yaml.
+        unresolved_questions:
+        - 'Script vs CLI extension: bash script (skills/orchestrate/scripts/seed-state.sh)
+          or extension to orchestrator next (--init schema=bugfix ...)?'
+        - 'Generated plan.yaml coupling: should seeder invoke generate_plan directly,
+          or should orchestrator next auto-generate plan.yaml if missing?'
+        - Canonical minimum fields for a seeded state.yaml that passes record.py validation.
+    diagnosis_path: /Users/spidey/code/feature_worktrees/document-or-script-state-seeding/spec/changes/document-or-script-state-seeding/diagnosis.md
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: architect
+  attempt: 1
+  started_at: '2026-05-03T11:26:19Z'
+  ended_at: '2026-05-03T11:26:19Z'
+  usage:
+    input_tokens: 38000
+    output_tokens: 6500
+    duration_ms: 620000
+    tool_calls:
+      Read: 7
+      Bash: 9
+      Write: 4
+  evidence:
+    outputs:
+      design_direction: Ship skills/orchestrate/scripts/seed-state.sh (bash) that
+        writes canonical state.yaml and runs generate_plan; update SKILL.md Section
+        2 to call it before the dispatch loop.
+      complexity: S
+      updated_artifact_set:
+        spec: /Users/spidey/code/feature_worktrees/document-or-script-state-seeding/spec/changes/document-or-script-state-seeding/spec.md
+        design: /Users/spidey/code/feature_worktrees/document-or-script-state-seeding/spec/changes/document-or-script-state-seeding/design.md
+        fix_plan: /Users/spidey/code/feature_worktrees/document-or-script-state-seeding/spec/changes/document-or-script-state-seeding/fix-plan.md
+        tasks: /Users/spidey/code/feature_worktrees/document-or-script-state-seeding/spec/changes/document-or-script-state-seeding/tasks.md
+    tasks_path: /Users/spidey/code/feature_worktrees/document-or-script-state-seeding/spec/changes/document-or-script-state-seeding/tasks.md
+- step_id: capture-test-baseline
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T11:26:41Z'
+  ended_at: '2026-05-03T11:26:41Z'
+  usage: {}
+  evidence:
+    outputs:
+      test_baseline:
+        captured_at: '2026-05-03T11:26:28Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 350
+        failing: 3
+        skipped: 0
+        total: 353
+        exit_code: 1
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-03T11:37:37Z'
+  ended_at: '2026-05-03T11:37:37Z'
+  usage:
+    input_tokens: 85000
+    output_tokens: 8500
+  evidence:
+    outputs:
+      task_execution_result:
+        task_id: T-1 through T-5
+        status: completed
+        files:
+        - config/scripts/orchestrator_next/tests/test_seed_state.py
+        - skills/orchestrate/scripts/seed-state.sh
+        - skills/orchestrate/SKILL.md
+        - spec/changes/document-or-script-state-seeding/tasks.md
+        verify_passed: true
+    commit_sha: 33eb0245cb98076d9c3315e768186b56e32abe9d
+    tasks_md_marked: T-1 T-2 T-3 T-4 T-5
+    test_results: 356 passed (353 baseline + 3 new seed tests)
+    branch: bugfix/document-or-script-state-seeding
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 2
+  started_at: '2026-05-03T11:41:18Z'
+  ended_at: '2026-05-03T11:41:18Z'
+  usage:
+    input_tokens: 42866
+    tool_calls:
+      total: 88
+    duration_ms: 829036
+  evidence:
+    outputs:
+      task_execution_result:
+        all_tasks_completed: true
+        tasks:
+        - T-1
+        - T-2
+        - T-3
+        - T-4
+        - T-5
+        commits:
+        - 2f35974
+        - 2fb7f1a
+        - 85ef244
+        - e046694
+        - 33eb024
+        - ee9dbe2
+        tests:
+          passing: 356
+          failing: 0
+          delta_vs_baseline: 6
+    test_count: 356
+    regression_status: no_regression
+    simplify_commit: ee9dbe2
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: '2026-05-03T11:44:52Z'
+  ended_at: '2026-05-03T11:44:52Z'
+  usage:
+    input_tokens: 57004
+    duration_ms: 163711
+    tool_calls:
+      total: 32
+  evidence:
+    outputs:
+      phase_review_report:
+        verdict: pass
+        review_score:
+          overall: 9
+          dimensions:
+            spec_compliance: 10
+            correctness: 9
+            security: 10
+            simplicity: 9
+            code_quality: 10
+        findings:
+          critical: []
+          important: []
+          nits:
+          - seed-state.sh:202 next() with no fallback (defensive nit)
+          - test_seed_state.py import inside test body (intentional, harmless)
+          - "SKILL.md \xA73 could note that seeder pre-computes workflow_plan (clarity\
+            \ nit)"
+        ac_verification: 6/6 ACs PASS
+        tests:
+          passing: 356
+          failing: 0
+    tests_passing: 356
+    regressions: 0
+    commits_reviewed: 6
+- step_id: compute-prediction-accuracy
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T11:45:18Z'
+  ended_at: '2026-05-03T11:45:18Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy_result:
+        computed_at: '2026-05-03T11:45:08Z'
+        predicted_tasks: 0
+        actual_tasks: 0
+        fix_task_count: 0
+        rework_rate: 0.0
+        task_delta: 0
+        task_accuracy_pct: 100.0
+        note: "Script reports 0 tasks because it looks for tasks.md in state-yaml\
+          \ dir; actual tasks.md lives under worktree spec/changes/<slug>/. Best-effort\
+          \ path drift \u2014 non-blocking. Likely overlaps with ORC-32 (read-sub-state-metrics\
+          \ outdated paths)."
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: workflow-improver
+  attempt: 1
+  started_at: '2026-05-03T11:51:47Z'
+  ended_at: '2026-05-03T11:51:47Z'
+  usage:
+    input_tokens: 22000
+    output_tokens: 1800
+    duration_ms: 95000
+    tool_calls:
+      Read: 14
+      Edit: 4
+      Bash: 17
+  evidence:
+    outputs:
+      learn_result:
+        verdict: clean_pass
+        step_contracts_updated: 4
+        rules_added: 0
+        workflow_fixes: 0
+        cycle: 21
+        quality_bar:
+          green_base: 9
+          stable: true
+          avg_review_score: 8.6
+    rules_with_hit_counter_updates: 11
+    no_new_rules: true
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T11:52:06Z'
+  ended_at: '2026-05-03T11:52:06Z'
+  usage: {}
+  evidence:
+    outputs:
+      state_completion_fields:
+        status: completed
+        completed_at: '2026-05-03T11:52:01Z'
+        archive_path: spec/changes/archive/2026-05-03-document-or-script-state-seeding/
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-05-03T11:52:38Z'
+  ended_at: '2026-05-03T11:52:38Z'
+  usage: {}
+  evidence:
+    outputs:
+      state_completion_fields:
+        status: completed
+        completed_at: '2026-05-03T11:52:01Z'
+        archive_path: spec/changes/archive/2026-05-03-document-or-script-state-seeding/
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 3
+  started_at: '2026-05-03T11:52:49Z'
+  ended_at: '2026-05-03T11:52:49Z'
+  usage: {}
+  evidence:
+    outputs:
+      state_completion_fields:
+        status: completed
+        completed_at: '2026-05-03T11:52:01Z'
+        archive_path: spec/changes/archive/2026-05-03-document-or-script-state-seeding/
+- step_id: compute-swe-metrics
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T11:53:14Z'
+  ended_at: '2026-05-03T11:53:14Z'
+  usage: {}
+  evidence:
+    outputs:
+      swe_metrics:
+        pass_at_1: 1.0
+        resolve_rate: 1.0
+        regression_rate: 0.0
+        tasks_completed: 5
+        wall_clock_minutes: 37.77
+- step_id: archive-completed-change
+  phase: main
+  status: in_progress
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-03T11:53:19.296225+00:00'
+completed_at: '2026-05-03T11:52:01Z'
+archive_path: spec/changes/archive/2026-05-03-document-or-script-state-seeding/
