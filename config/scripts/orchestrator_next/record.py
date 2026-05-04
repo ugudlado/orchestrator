@@ -804,19 +804,46 @@ def wall_clock_minutes(state: dict):
 # Phase 5: _resolve_feature_metrics_tasks_path — tasks.md path resolver
 # ---------------------------------------------------------------------------
 
-def _resolve_feature_metrics_tasks_path(state: dict) -> Path:
-    """Resolve tasks.md path for feature_metrics computation.
+def _resolve_workflow_artifact_path(state_raw: dict[str, Any], filename: str) -> Path | None:
+    """Unified resolver for workflow artifact files (tasks.md, design.md, etc.).
 
-    Preference: state.tasks_path (explicit), else <repo_root>/spec/changes/<change_id>/tasks.md.
-    Mirrors ingest-feature-metrics.py lines 360-365.
+    Resolution order:
+      1. If filename == "tasks.md" and state_raw has an explicit ``tasks_path``
+         override, return that path immediately.
+      2. If ``worktree_path`` is set AND that directory exists on disk, return
+         ``<worktree_path>/spec/changes/<change_id>/<filename>``.
+      3. Else if ``repo_root`` is set, return
+         ``<repo_root>/spec/changes/<change_id>/<filename>``.
+      4. Return None when no candidate can be constructed at all.
     """
-    tasks_path_str = state.get("tasks_path") or ""
-    if tasks_path_str:
-        return Path(tasks_path_str)
-    repo_root = str(state.get("repo_root") or "")
-    change_id = str(state.get("change_id") or "")
-    # Sibling lookup: tasks.md lives alongside spec.md/design.md in spec/changes/<slug>/.
-    return Path(repo_root) / "spec" / "changes" / change_id / "tasks.md"
+    # 1. Explicit tasks_path override (tasks.md only).
+    if filename == "tasks.md":
+        raw_path = state_raw.get("tasks_path")
+        if isinstance(raw_path, str) and raw_path:
+            return Path(os.path.expanduser(raw_path))
+
+    change_id = state_raw.get("change_id")
+    if not (isinstance(change_id, str) and change_id):
+        return None
+
+    # 2. Worktree path — only when the directory actually exists.
+    worktree_path = state_raw.get("worktree_path")
+    if isinstance(worktree_path, str) and worktree_path:
+        wt = Path(os.path.expanduser(worktree_path))
+        if wt.is_dir():
+            return wt / "spec" / "changes" / change_id / filename
+
+    # 3. Fall back to repo_root.
+    repo_root = state_raw.get("repo_root")
+    if isinstance(repo_root, str) and repo_root:
+        return Path(os.path.expanduser(repo_root)) / "spec" / "changes" / change_id / filename
+
+    return None
+
+
+def _resolve_feature_metrics_tasks_path(state: dict) -> Path:
+    """Thin wrapper: resolve tasks.md path for feature_metrics computation."""
+    return _resolve_workflow_artifact_path(state, "tasks.md") or Path("")
 
 
 # ---------------------------------------------------------------------------
@@ -887,40 +914,17 @@ def _write_feature_metrics(db, repo_root: str, change_id: str, data: dict) -> No
 
 
 def _resolve_tasks_md(state_raw: dict[str, Any]) -> Path | None:
-    """Resolve the tasks.md path from state.yaml fields.
-
-    Tries each candidate in order, returning the first that exists on disk:
-      1. explicit `tasks_path` field
-      2. `<worktree_path or repo_root>/spec/changes/<change_id>/tasks.md`
-
-    Returns the first candidate that exists, or the last constructible candidate
-    if none exist. Returns None only if no candidate can be constructed at all.
-    """
-    candidates: list[Path] = []
-
-    raw_path = state_raw.get("tasks_path")
-    if isinstance(raw_path, str) and raw_path:
-        candidates.append(Path(os.path.expanduser(raw_path)))
-
-    change_id = state_raw.get("change_id")
-    root = state_raw.get("worktree_path") or state_raw.get("repo_root")
-    if isinstance(root, str) and root and isinstance(change_id, str) and change_id:
-        candidates.append(Path(os.path.expanduser(root)) / "spec" / "changes" / change_id / "tasks.md")
-
-    if not candidates:
-        return None
-
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-
-    return candidates[-1]
+    """Thin wrapper: resolve tasks.md path from state.yaml fields."""
+    return _resolve_workflow_artifact_path(state_raw, "tasks.md")
 
 
 def _check_all_tasks_completed(state_raw: dict[str, Any]) -> bool:
     """Return True iff no unchecked `- [ ]` items remain in tasks.md.
 
-    Missing or unreadable tasks.md returns True (fail-open: advance).
+    Returns True (fail-open) only when path is None — i.e., state has no fields
+    from which a candidate path can even be constructed.  When a candidate path
+    is constructible but the file is missing or unreadable, returns False
+    (fail-closed) so the workflow does not silently skip unfinished tasks.
     """
     path = _resolve_tasks_md(state_raw)
     if path is None:
@@ -928,7 +932,7 @@ def _check_all_tasks_completed(state_raw: dict[str, Any]) -> bool:
     try:
         text = path.read_text()
     except (FileNotFoundError, OSError):
-        return True
+        return False  # fail-closed: expected file missing → tasks not yet complete
     return re.search(r"^\s*-\s*\[\s*\]", text, re.MULTILINE) is None
 
 

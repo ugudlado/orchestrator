@@ -28,7 +28,7 @@
     `action["step_id"] == "execute-next-task"` (NOT `run-phase-review`).
     Test FAILS on main and on post-T-2 (record.py-only fix); PASSES after T-2.5.
 
-- [ ] T-2 Fix root cause — unify resolvers and tighten fail-open in `record.py` (depends: T-1)
+- [x] T-2 Fix root cause — unify resolvers and tighten fail-open in `record.py` (depends: T-1)
   - **Files**:
     - `config/scripts/orchestrator_next/record.py` (lines 807-819, 889-932)
   - **Why**: Single resolver removes ORC-36 divergence; fail-closed
