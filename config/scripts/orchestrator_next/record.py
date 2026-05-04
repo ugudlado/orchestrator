@@ -936,7 +936,7 @@ def _check_all_tasks_completed(state_raw: dict[str, Any]) -> bool:
     return re.search(r"^\s*-\s*\[\s*\]", text, re.MULTILINE) is None
 
 
-_REPEAT_PREDICATES = {
+REPEAT_PREDICATES = {
     "all_tasks_completed": _check_all_tasks_completed,
 }
 
@@ -963,7 +963,7 @@ def _compute_next_step(
     except (FileNotFoundError, ContractError):
         contract = None
     if contract is not None and contract.repeat_until:
-        predicate = _REPEAT_PREDICATES.get(contract.repeat_until)
+        predicate = REPEAT_PREDICATES.get(contract.repeat_until)
         if predicate is None:
             sys.stderr.write(
                 f"[record] unknown repeat_until predicate "

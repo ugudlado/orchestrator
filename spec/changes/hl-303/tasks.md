@@ -53,7 +53,7 @@
     - `bash spec/changes/hl-303/repro.sh` prints `OK: predicate correctly detected unchecked tasks`.
     - `grep -c 'def _resolve_tasks_md\|def _resolve_feature_metrics_tasks_path\|def _resolve_workflow_artifact_path' config/scripts/orchestrator_next/record.py` returns `3` (one helper, two thin wrappers).
 
-- [ ] T-2.5 Close the second fail-open seam in `dispatch.py` — honor `repeat_until` in the history-walk (depends: T-2)
+- [x] T-2.5 Close the second fail-open seam in `dispatch.py` — honor `repeat_until` in the history-walk (depends: T-2)
   - **Files**:
     - `config/scripts/orchestrator_next/dispatch.py` (lines 314-319)
     - `config/scripts/orchestrator_next/record.py` (export `_REPEAT_PREDICATES`

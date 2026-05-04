@@ -29,6 +29,7 @@ from orchestrator_next.parser import (
     load_contract_for_step,
 )
 from orchestrator_next import resolver
+from orchestrator_next.record import REPEAT_PREDICATES
 
 # Terminal statuses: these entries do not need retry
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "blocked", "escalate_to_architect", "skipped"})
@@ -317,6 +318,17 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         if not _find_completed_step(state.step_history, state.phase, sid):
             next_step_id = sid
             break
+        # Step is marked completed — but if its contract declares repeat_until,
+        # evaluate the predicate. If False, re-emit this step (don't advance).
+        try:
+            sid_contract = load_contract_for_step(sid, state_yaml_path)
+        except (FileNotFoundError, ContractError):
+            sid_contract = None
+        if sid_contract is not None and sid_contract.repeat_until:
+            predicate = REPEAT_PREDICATES.get(sid_contract.repeat_until)
+            if predicate is not None and not predicate(state.raw):
+                next_step_id = sid
+                break
 
     # --- Check: all phase steps completed → verify or advance/complete
     if next_step_id is None:
