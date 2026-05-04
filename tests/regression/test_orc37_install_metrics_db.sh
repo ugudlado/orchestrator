@@ -119,18 +119,21 @@ import duckdb
 db = duckdb.connect('$DB_PATH')
 db.execute("""
   INSERT INTO step_events (
-    change_id, step_id, phase, status,
-    started_at, completed_at, duration_s,
+    repo_root, change_id, step_id, phase, status,
+    attempt, agent_name,
+    started_at, ended_at, duration_ms,
     input_tokens, output_tokens, cost_usd,
-    model, agent_label
+    model
   ) VALUES (
+    '/regression',
     'orc37-regression-marker',
     'test-idempotency',
     'regression',
     'completed',
-    now(), now(), 0.0,
+    1, 'regression-test',
+    now(), now(), 0,
     0, 0, 0.0,
-    'test', 'regression-test'
+    'test'
   )
 """)
 db.close()
