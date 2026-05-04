@@ -18,6 +18,15 @@
   - **Verify**:
     - On main: `cd config/scripts/orchestrator_next && python -m pytest tests/test_resolve_tasks_md.py::test_check_all_tasks_completed_fail_closed_when_path_missing -v` exits non-zero (assertion fails — current code returns True).
     - After T-2: same command exits zero.
+  - **Extension (added during T-2 architect consultation — see escalation note below)**:
+    Also add `test_dispatch_repeats_step_when_predicate_false` to
+    `config/scripts/orchestrator_next/tests/test_dispatch.py` (extend or create).
+    Build a `State` whose `step_history` contains a `completed` entry for
+    `execute-next-task` (which has `repeat_until: all_tasks_completed`),
+    a `tasks.md` with at least one `- [ ]` unchecked item, and call
+    `dispatch.dispatch(state, state_yaml_path)`. Assert the returned
+    `action["step_id"] == "execute-next-task"` (NOT `run-phase-review`).
+    Test FAILS on main and on post-T-2 (record.py-only fix); PASSES after T-2.5.
 
 - [ ] T-2 Fix root cause — unify resolvers and tighten fail-open in `record.py` (depends: T-1)
   - **Files**:
@@ -44,7 +53,47 @@
     - `bash spec/changes/hl-303/repro.sh` prints `OK: predicate correctly detected unchecked tasks`.
     - `grep -c 'def _resolve_tasks_md\|def _resolve_feature_metrics_tasks_path\|def _resolve_workflow_artifact_path' config/scripts/orchestrator_next/record.py` returns `3` (one helper, two thin wrappers).
 
-- [ ] T-3 Propagate `WORKTREE_ARTIFACT_DIR` env from parser + step-dispatch (depends: T-2)
+- [ ] T-2.5 Close the second fail-open seam in `dispatch.py` — honor `repeat_until` in the history-walk (depends: T-2)
+  - **Files**:
+    - `config/scripts/orchestrator_next/dispatch.py` (lines 314-319)
+    - `config/scripts/orchestrator_next/record.py` (export `_REPEAT_PREDICATES`
+      so dispatch can import it without circularity — promote to module-level
+      shared symbol or move to a small `predicates.py` if imports are awkward)
+    - `config/scripts/orchestrator_next/tests/test_dispatch.py` (extend or create)
+  - **Why**: `dispatch.dispatch()` independently walks `step_history` and
+    treats any step with a `completed` entry as advanced — ignoring both
+    `state.next_step` (set by `record._compute_next_step`) and
+    `contract.repeat_until`. Without this fix, hl-303's T-2 record.py fix is
+    insufficient: dispatch silently advances `execute-next-task` →
+    `run-phase-review` while unchecked tasks remain, recreating ORC-37's
+    manual-reviewer-rejection workaround inside this very run. See design.md
+    § "Two fail-open seams, not one".
+  - **Approach**:
+    1. In `dispatch.py`, inside the history-walk loop (lines 314-319), when
+       `_find_completed_step` returns True for a step, also load that step's
+       contract and check `contract.repeat_until`. If a predicate is declared
+       and returns False against `state_raw`, select that step as
+       `next_step_id` (re-emit) and break.
+    2. Reuse the predicate map already defined in `record.py` —
+       `_REPEAT_PREDICATES = {"all_tasks_completed": _check_all_tasks_completed}`.
+       Either import it into dispatch or lift both predicate map and
+       `_check_all_tasks_completed` into a small shared module
+       (`predicates.py`) imported by both. Pick whichever yields cleaner
+       imports (no circular import). One source of truth for predicate
+       evaluation.
+    3. Convert `state` (typed `State`) to the raw dict form the predicate
+       expects — reuse the same approach `record.py` uses. If `State`
+       does not already expose a `to_raw()` round-trip, read state.yaml
+       once via the existing `_load_plan` style helper.
+  - **Verify**:
+    - `cd config/scripts/orchestrator_next && python -m pytest tests/test_dispatch.py::test_dispatch_repeats_step_when_predicate_false -v` exits zero.
+    - `cd config/scripts/orchestrator_next && python -m pytest tests/ -v` — all green.
+    - Manual: with hl-303's own state.yaml (T-2 marked complete, T-3+ unchecked),
+      `orchestrator next /Users/spidey/code/orchestrator/spec/changes/hl-303/state.yaml`
+      returns `step_id: execute-next-task` (NOT `run-phase-review`).
+    - `grep -c '_REPEAT_PREDICATES\|repeat_until' config/scripts/orchestrator_next/dispatch.py` returns ≥ 1.
+
+- [ ] T-3 Propagate `WORKTREE_ARTIFACT_DIR` env from parser + step-dispatch (depends: T-2.5)
   - **Files**:
     - `config/scripts/orchestrator_next/parser.py` (~line 180)
     - `config/steps/contracts/step-dispatch.md` (env table)
