@@ -65,6 +65,27 @@ setup_core() {
   echo "  Scripts: $ORCHESTRATOR_HOME/scripts -> $ORCHESTRATOR_DIR/scripts"
 }
 
+setup_metrics_db() {
+  echo "Initializing metrics DB..."
+  local db_path="$ORCHESTRATOR_HOME/metrics.duckdb"
+
+  # Idempotent: ensure_schema uses CREATE TABLE IF NOT EXISTS, so
+  # re-running on a populated DB is a no-op.
+  PYTHONPATH="$ORCHESTRATOR_DIR/config/scripts" \
+    python3 -c "
+import duckdb
+from orchestrator_next.upsert import ensure_schema
+db = duckdb.connect('$db_path')
+ensure_schema(db)
+db.close()
+" || {
+    echo "  warning: failed to initialize metrics.duckdb at $db_path" >&2
+    return 1
+  }
+
+  echo "  Metrics DB: $db_path (schema initialized)"
+}
+
 setup_claude() {
   echo "Syncing Claude Code..."
 
@@ -188,6 +209,7 @@ main() {
   setup_python_deps
   setup_env
   setup_core
+  setup_metrics_db || true
   setup_claude
   setup_codex
   setup_git_hooks
