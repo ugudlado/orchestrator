@@ -65,6 +65,7 @@ def _build_env(
         "ORCHESTRATOR_ATTEMPT": str(attempt),
         "ORCHESTRATOR_WORKFLOW_DIR": state.workflow_dir,
         "ORCHESTRATOR_REPO_ROOT": state.repo_root,
+        "ORCHESTRATOR_WORKTREE_ARTIFACT_DIR": state.worktree_artifact_dir,
     }
 
 

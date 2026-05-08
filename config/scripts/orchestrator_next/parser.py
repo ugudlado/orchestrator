@@ -68,6 +68,7 @@ class State:
     step_history: list[StepHistoryEntry]
     raw: dict[str, Any]  # full state.yaml for any extra fields
     complexity: str | None = None  # HL-291: optional closed set {XS,S,M,L,XL}
+    worktree_artifact_dir: str = ""  # HL-303: base path for tracked artifacts (spec/design/tasks/diagnose)
 
 
 def _contract_search_dirs(state_yaml_path: str) -> list[str]:
@@ -201,6 +202,15 @@ def load_state(state_yaml_path: str) -> State:
         or str(raw.get("repo_root") or "")
     )
 
+    # HL-303: worktree_artifact_dir points to $WORKTREE_ROOT/spec/changes when
+    # worktree_path is set; falls back to $REPO_ROOT/spec/changes otherwise.
+    worktree_path = raw.get("worktree_path", "")
+    repo_root_raw = str(raw.get("repo_root") or "")
+    artifact_base = worktree_path or repo_root_raw
+    if artifact_base.startswith("~"):
+        artifact_base = os.path.expanduser(artifact_base)
+    worktree_artifact_dir = os.path.join(artifact_base, "spec", "changes") if artifact_base else ""
+
     history_raw = raw.get("step_history") or []
     step_history = [_parse_history_entry(e) for e in history_raw if isinstance(e, dict)]
 
@@ -213,6 +223,7 @@ def load_state(state_yaml_path: str) -> State:
         step_history=step_history,
         raw=raw,
         complexity=complexity,
+        worktree_artifact_dir=worktree_artifact_dir,
     )
 
 
