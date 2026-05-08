@@ -255,6 +255,23 @@ usage:
 - **Token fields are agent-step only.** Never write token fields on inline entries.
 - **Inline steps use `agent: inline`.** Do not use a real agent name for inline steps.
 
+## Artifact Layout: State vs Tracked Artifacts
+
+After HL-303, workflow artifacts are split across two directories:
+
+| Variable | Contents | Committed? | Location |
+|----------|----------|------------|----------|
+| `$WORKFLOW_STATE_DIR/$CHANGE_ID/` | `state.yaml`, `plan.yaml` | No (gitignored) | Always `$REPO_ROOT/spec/changes/<slug>/` |
+| `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/` | `spec.md`, `design.md`, `tasks.md`, `diagnose.md`, UX files | Yes (committed) | `$WORKTREE_ROOT/spec/changes/<slug>/` when `flags.worktree=true`, else same as state dir |
+
+`WORKTREE_ARTIFACT_DIR` defaults to `${WORKTREE_ROOT:-$REPO_ROOT}/spec/changes` so that
+agents that run inside a worktree write tracked artifacts to the worktree branch, while
+agents running without a worktree continue to write both artifacts and state to `$REPO_ROOT`.
+
+Steps that write tracked artifacts (spec.md, design.md, tasks.md, diagnose.md, UX files)
+MUST use `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/`, not `$WORKFLOW_STATE_DIR/$CHANGE_ID/`, as
+the artifact destination.
+
 ## State Updates
 
 Every step that modifies `state.yaml` MUST use the standardized `step_history` entry
@@ -294,7 +311,8 @@ step_history:
 - **Use exact field names** — `step_id`, `phase`, `status`, `agent`, `artifacts`.
 - **Status values**: `completed`, `failed`, `blocked` — no other values.
 - **Artifacts field**: only include files the step created or modified in
-  `$WORKFLOW_STATE_DIR/$CHANGE_ID/`. Omit for steps that don't produce artifacts.
+  `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/` (tracked artifacts) or `$WORKFLOW_STATE_DIR/$CHANGE_ID/`
+  (state files). Omit for steps that don't produce artifacts.
 - **`review_score`**: only present on `run-phase-review` entries. Must be a structured object — see State Field Registry for format.
 - **Timestamps**: `started_at` and `completed_at` use ISO 8601 format (`2026-04-04T20:00:00Z`).
   Both are required on all entries. The orchestrator records `started_at` before
