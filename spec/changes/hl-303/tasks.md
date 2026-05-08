@@ -93,7 +93,7 @@
       returns `step_id: execute-next-task` (NOT `run-phase-review`).
     - `grep -c '_REPEAT_PREDICATES\|repeat_until' config/scripts/orchestrator_next/dispatch.py` returns ≥ 1.
 
-- [ ] T-3 Propagate `WORKTREE_ARTIFACT_DIR` env from parser + step-dispatch (depends: T-2.5)
+- [x] T-3 Propagate `WORKTREE_ARTIFACT_DIR` env from parser + step-dispatch (depends: T-2.5)
   - **Files**:
     - `config/scripts/orchestrator_next/parser.py` (~line 180)
     - `config/steps/contracts/step-dispatch.md` (env table)
@@ -108,7 +108,7 @@
     - `python -c "from orchestrator_next.parser import load_state; s = load_state('spec/changes/hl-303/state.yaml'); print(s.worktree_artifact_dir)"` prints the worktree path.
     - `grep ORCHESTRATOR_WORKTREE_ARTIFACT_DIR config/steps/contracts/step-dispatch.md` returns one line.
 
-- [ ] T-4 Redirect writer step contracts to `$WORKTREE_ARTIFACT_DIR` (depends: T-3)
+- [x] T-4 Redirect writer step contracts to `$WORKTREE_ARTIFACT_DIR` (depends: T-3)
   - **Files**:
     - `config/steps/design-and-draft-artifacts.yaml` (lines 41, 72, 90, 96-97)
     - `config/steps/diagnose.yaml`
@@ -124,7 +124,7 @@
     - `grep -n WORKTREE_ARTIFACT_DIR config/steps/design-and-draft-artifacts.yaml config/steps/diagnose.yaml config/steps/ux-design.yaml` returns one or more lines per file.
     - `grep -n 'WORKFLOW_STATE_DIR/$CHANGE_ID/\(spec\|design\|tasks\|diagnose\|ux-\)' config/steps/*.yaml` returns no matches.
 
-- [ ] T-5 Update workflow-init verify-block + ensure worktree artifact dir exists (depends: T-4)
+- [x] T-5 Update workflow-init verify-block + ensure worktree artifact dir exists (depends: T-4)
   - **Files**:
     - `config/steps/workflow-init.yaml` (verify block lines 50-51 and instruction body)
   - **Why**: After `git worktree add`, the artifact directory under the
@@ -138,7 +138,7 @@
     - `grep -A4 '^verify:' config/steps/workflow-init.yaml` shows both checks.
     - Dry-run a workflow-init: artifact dir exists post-step.
 
-- [ ] T-6 Update archive script to merge tracked artifacts (worktree) with state (repo_root) (depends: T-4)
+- [x] T-6 Update archive script to merge tracked artifacts (worktree) with state (repo_root) (depends: T-4)
   - **Files**:
     - `scripts/inline/archive-completed-change.sh`
     - `config/steps/archive-completed-change.yaml` (rules + instruction body)
@@ -161,7 +161,7 @@
       a fake repo_root with `state.yaml`, runs the script, asserts
       both files in the archive destination. `bash config/tests/test-archive-merges-worktree-artifacts.sh` exits zero.
 
-- [ ] T-7 Update CONVENTIONS.md and skill headers (depends: T-4)
+- [x] T-7 Update CONVENTIONS.md and skill headers (depends: T-4)
   - **Files**:
     - `config/steps/CONVENTIONS.md` (line 297 and surrounding section)
     - `skills/orchestrate/SKILL.md` (line 20, 82-83, 139)
@@ -178,7 +178,7 @@
   - **Verify**:
     - `grep -n WORKTREE_ARTIFACT_DIR config/steps/CONVENTIONS.md skills/*/SKILL.md CLAUDE.md` returns matches in each file.
 
-- [ ] T-8 Confirm `.gitignore` covers state/plan only (no change unless gap) (depends: T-7)
+- [x] T-8 Confirm `.gitignore` covers state/plan only (no change unless gap) (depends: T-7)
   - **Files**:
     - `.gitignore` (lines 20-21)
   - **Why**: Confirm scope — state.yaml/plan.yaml ignored at repo_root;
@@ -192,7 +192,7 @@
     - `cd /Users/spidey/code/feature_worktrees/hl-303 && touch spec/changes/hl-303/probe.md && git check-ignore -v spec/changes/hl-303/probe.md; rm spec/changes/hl-303/probe.md` → `git check-ignore` exits non-zero (file is NOT ignored).
     - `cd /Users/spidey/code/feature_worktrees/hl-303 && touch spec/changes/hl-303/state.yaml; git check-ignore -v spec/changes/hl-303/state.yaml; rm spec/changes/hl-303/state.yaml` → `git check-ignore` exits zero (file IS ignored).
 
-- [ ] T-9 Run full test suite — zero new failures (depends: T-2, T-6)
+- [x] T-9 Run full test suite — zero new failures (depends: T-2, T-6)
   - **Files**: none (verification step)
   - **Why**: Ensure resolver + writer changes do not regress other tests.
   - **Verify**:
@@ -201,7 +201,7 @@
     - `bash config/tests/test-remove-worktree-safe-branch-delete.sh` — pass.
     - `bash spec/changes/hl-303/repro.sh` — prints OK line.
 
-- [ ] T-10 End-to-end validation on this run (depends: T-9)
+- [x] T-10 End-to-end validation on this run (depends: T-9)
   - **Files**: none (validation only)
   - **Why**: hl-303 is the migration test case; the run itself proves the layout works.
   - **Verify**:
