@@ -69,7 +69,7 @@ instruction: |
      a. Read the template from $ORCHESTRATOR_HOME/config/templates/$SCHEMA/<template>.
      b. Read the artifact's format contract from contracts/artifact-formats.md.
      c. Generate using available context (discovery brief, design direction, change description).
-     d. Write to $WORKFLOW_STATE_DIR/$CHANGE_ID/<file>.
+     d. Write to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/<file>.
 
   7. Generate tasks.md:
      - Read spec.md for requirements and acceptance criteria.
@@ -87,14 +87,14 @@ instruction: |
      - Print a summary of each artifact written: file name, section count, task count.
      - Print the full contents of tasks.md so the user can review scope.
      - Pause and prompt: "Review spec.md, design.md, tasks.md in
-       $WORKFLOW_STATE_DIR/$CHANGE_ID/. Reply 'ok' to continue, or describe changes needed."
+       $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/. Reply 'ok' to continue, or describe changes needed."
      - If the user requests changes: apply them to the relevant artifacts and re-present.
      - Once confirmed: proceed to next step.
      If auto=true: skip this pause and return STATUS: completed immediately.
 
 verify:
-  - spec.md exists in $WORKFLOW_STATE_DIR/$CHANGE_ID/
-  - design.md exists in $WORKFLOW_STATE_DIR/$CHANGE_ID/
+  - spec.md exists in $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/
+  - design.md exists in $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/
   - tasks.md exists with at least one task
   - spec.md has Acceptance Criteria section with testable criteria
   - tasks.md follows the Task Format Contract
