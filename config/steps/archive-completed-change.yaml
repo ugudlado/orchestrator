@@ -11,13 +11,14 @@ inputs:
   - project_storage_config
 
 rules:
-  - Source from active root ($WORKFLOW_STATE_DIR/$CHANGE_ID) — the canonical active state. Do not archive from any other location.
+  - "HL-303: Collect from two sources — worktree ($WORKTREE_ARTIFACT_DIR/$CHANGE_ID/) for tracked artifacts (spec.md, design.md, tasks.md, diagnose.md), and repo_root ($WORKFLOW_STATE_DIR/$CHANGE_ID/) for state/plan (state.yaml, plan.yaml). Both are merged into a single archive destination."
   - Archive to repo (spec/changes/archive/YYYY-MM-DD-<change-id>).
   - Preserve .spec.yaml, all generated artifacts, and state.yaml (with metrics).
   - "state.yaml MUST already contain status: completed, completed_at, archive_path,
     and metrics — these are written by mark-change-completed and compute-swe-metrics
     steps that run before this step. Do NOT rewrite them here."
   - Cleanup failure is non-blocking — the archive is the priority.
+  - When flags.worktree is false (or worktree_path is absent), WORKTREE_ROOT will be empty and only the repo_root source is used — behavior is backward-compatible.
 
 instruction: |
   1. Read storage config from project.yaml:
@@ -29,10 +30,14 @@ instruction: |
      (Do not derive the date independently — read it from state.yaml to stay
      consistent with the path recorded in `archive_path`.)
 
-  3. Copy all artifacts from $WORKFLOW_STATE_DIR/$CHANGE_ID/ to archive:
-     - .spec.yaml (change metadata)
-     - All generated artifacts (spec.md, design.md, tasks.md, etc.)
-     - state.yaml (workflow audit trail — already has metrics + completion status)
+  3. Collect all artifacts into the archive directory from two sources (HL-303):
+     a. Worktree source ($WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ — i.e. $WORKTREE_ROOT/spec/changes/$CHANGE_ID/):
+        tracked artifacts: spec.md, design.md, tasks.md, diagnose.md, ux-prototype.html, etc.
+        Skip this step if WORKTREE_ROOT is empty (non-worktree workflow).
+     b. Repo-root source ($WORKFLOW_STATE_DIR/$CHANGE_ID/):
+        state files: state.yaml, plan.yaml, .spec.yaml
+        Copy after the worktree source so repo_root wins on any filename collision.
+     Both directories are removed after copying (cleanup).
 
   4. Commit the archive to the repo.
 
