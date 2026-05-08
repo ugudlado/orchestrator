@@ -1,0 +1,513 @@
+change_id: hl-303
+slug: hl-303
+schema: bugfix
+status: completed
+repo_root: /Users/spidey/code/orchestrator
+flags:
+  worktree: true
+  phase_review: true
+  portless: true
+  metrics: true
+  linear: true
+  tdd_required: true
+  auto: true
+  agents: true
+  light: false
+workflow_plan:
+  main:
+    active:
+    - workflow-init
+    - diagnose
+    - design-and-draft-artifacts
+    - capture-test-baseline
+    - execute-next-task
+    - run-phase-review
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+title: 'HL-303: Workflow artifacts should live in the worktree, not repo_root'
+worktree_path: /Users/spidey/code/feature_worktrees/hl-303
+branch: bugfix/hl-303
+linear_ticket: HL-303
+project_context_loaded: true
+project_context_at: '2026-05-04T07:59:29Z'
+phase: main
+next_step:
+  phase: main
+  step_id: archive-completed-change
+step_history:
+- step_id: workflow-init
+  phase: main
+  status: completed
+  agent: workflow-init
+  attempt: 1
+  started_at: '2026-05-04T07:59:29Z'
+  ended_at: '2026-05-04T07:59:29Z'
+  usage:
+    input_tokens: 12000
+    output_tokens: 2500
+    cache_read_input_tokens: 0
+    cache_creation_input_tokens: 0
+    model: __default__
+    cost_usd: 0.3675
+  evidence:
+    outputs:
+      worktree_path: /Users/spidey/code/feature_worktrees/hl-303
+      branch: bugfix/hl-303
+      linear_ticket_id: HL-303
+      workflow_plan:
+        main:
+          active:
+          - workflow-init
+          - diagnose
+          - design-and-draft-artifacts
+          - capture-test-baseline
+          - execute-next-task
+          - run-phase-review
+          - compute-prediction-accuracy
+          - run-learn-cycle
+          - mark-change-completed
+          - compute-swe-metrics
+          - archive-completed-change
+          - remove-worktree
+          filtered: []
+      resolved_flags:
+        agents: true
+        auto: true
+        light: false
+        linear: true
+        metrics: true
+        phase_review: true
+        portless: true
+        tdd_required: true
+        worktree: true
+      plan_yaml_path: /Users/spidey/code/orchestrator/spec/changes/hl-303/plan.yaml
+- step_id: workflow-init
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-05-04T08:01:02Z'
+  ended_at: '2026-05-04T08:01:02Z'
+  usage:
+    input_tokens: 48705
+    duration_ms: 201532
+    tool_calls:
+      agent_total: 36
+    model: __default__
+    cost_usd: 0.730575
+  evidence:
+    outputs:
+      worktree_path: /Users/spidey/code/feature_worktrees/hl-303
+      branch: bugfix/hl-303
+      linear_ticket_id: HL-303
+      plan_yaml_path: /Users/spidey/code/orchestrator/spec/changes/hl-303/plan.yaml
+      workflow_plan:
+        main:
+          active:
+          - workflow-init
+          - diagnose
+          - design-and-draft-artifacts
+          - capture-test-baseline
+          - execute-next-task
+          - run-phase-review
+          - compute-prediction-accuracy
+          - run-learn-cycle
+          - mark-change-completed
+          - compute-swe-metrics
+          - archive-completed-change
+          - remove-worktree
+          filtered: []
+      resolved_flags:
+        agents: true
+        auto: true
+        light: false
+        linear: true
+        metrics: true
+        phase_review: true
+        portless: true
+        tdd_required: true
+        worktree: true
+- step_id: diagnose
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-04T08:05:43Z'
+  ended_at: '2026-05-04T08:05:43Z'
+  usage: {}
+  evidence:
+    outputs:
+      diagnosis_result: /Users/spidey/code/orchestrator/spec/changes/hl-303/diagnose.md
+- step_id: diagnose
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-05-04T08:06:10Z'
+  ended_at: '2026-05-04T08:06:10Z'
+  usage:
+    input_tokens: 76386
+    duration_ms: 265404
+    tool_calls:
+      agent_total: 35
+    model: __default__
+    cost_usd: 1.14579
+  evidence:
+    outputs:
+      diagnosis_result: /Users/spidey/code/orchestrator/spec/changes/hl-303/diagnose.md
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-04T08:13:50Z'
+  ended_at: '2026-05-04T08:13:50Z'
+  usage:
+    input_tokens: 94207
+    duration_ms: 395542
+    tool_calls:
+      agent_total: 38
+    model: __default__
+    cost_usd: 1.413105
+  evidence:
+    outputs:
+      updated_artifact_set:
+      - spec.md
+      - design.md
+      - tasks.md
+      design_direction: 'Approach A: tracked artifacts (spec/design/tasks/diagnose/ux)
+        move to $WORKTREE_ROOT/spec/changes/<id>/ while state.yaml + plan.yaml stay
+        at $REPO_ROOT (gitignored); resolvers unified and fail-open tightened to fail-closed
+        for missing-but-expected files.'
+      complexity: M
+- step_id: capture-test-baseline
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-04T08:14:20Z'
+  ended_at: '2026-05-04T08:14:20Z'
+  usage: {}
+  evidence:
+    outputs:
+      test_baseline:
+        captured_at: '2026-05-04T08:14:08Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 358
+        failing: 4
+        skipped: 0
+        total: 362
+        exit_code: 1
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-04T08:18:15Z'
+  ended_at: '2026-05-04T08:18:15Z'
+  usage:
+    input_tokens: 51500
+    duration_ms: 153083
+    tool_calls:
+      agent_total: 15
+    model: __default__
+    cost_usd: 0.7725
+  evidence:
+    outputs:
+      task_execution_result: T-1 regression test added; fails on main as expected;
+        ready for T-2 fix
+    task_id: T-1
+    commit_sha: 1c3770cb1af5c4d2eb8735795b149abac7e552d2
+    new_tests:
+    - test_check_all_tasks_completed_fail_closed_when_path_missing
+    - test_resolve_falls_back_to_repo_root_when_worktree_missing
+    pytest: 2 failed (new), 362 passed
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-05-04T08:38:42Z'
+  ended_at: '2026-05-04T08:38:42Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_execution_result: T-2.5 dispatch.py honors repeat_until via REPEAT_PREDICATES;
+        365 tests pass
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-08T12:24:33Z'
+  ended_at: '2026-05-08T12:24:33Z'
+  usage: {}
+  evidence:
+    outputs:
+      phase_review_report:
+        overall: 9
+        dimensions:
+          spec_compliance: 9
+          correctness: 10
+          security: 10
+          simplicity: 9
+          code_quality: 9
+        critical_findings: []
+        fix_tasks: []
+        verdict: pass
+- step_id: compute-prediction-accuracy
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-08T12:28:43Z'
+  ended_at: '2026-05-08T12:28:43Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy_result: "partial \u2014 T-1/T-2/T-2.5 only; T-3\u2013T-10\
+        \ pending"
+      tasks_predicted: 10
+      tasks_actual: 11
+      tasks_delta: 1
+      task_accuracy_pct: 90.9
+      fix_task_count: 1
+      rework_rate: 0.091
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: reviewer
+  attempt: 2
+  started_at: '2026-05-08T12:47:00Z'
+  ended_at: '2026-05-08T12:47:00Z'
+  usage:
+    input_tokens: 4200
+    output_tokens: 800
+    model: claude-sonnet-4-6
+    cost_usd: 0.0246
+  evidence:
+    outputs:
+      review_score: 9
+      verdict: pass
+      phase_review_report: 'Phase review PASS. Score: 9/10. All 365 tests pass. repro.sh
+        confirms predicate correctly returns False on unchecked tasks. Archive merge
+        test passes with backward-compat. WORKTREE_ARTIFACT_DIR propagated through
+        parser, dispatch env, 3 writer contracts, and 5 doc files. All tasks checked
+        in tasks.md. One minor observation: parser.py computes worktree_artifact_dir
+        from string-presence of worktree_path without is_dir() check (unlike record.py
+        which uses is_dir()), but safe in practice because T-5 workflow-init mkdir-p
+        guarantees dir exists before any writer step executes.'
+      findings:
+      - All 365 tests pass
+      - 'repro.sh: OK predicate correctly detected unchecked tasks (returned False)'
+      - 'archive test: all 9 assertions pass including backward-compat'
+      - WORKTREE_ARTIFACT_DIR in parser, dispatch env, 3 writer contracts, 5 docs
+      - 'tasks.md: no unchecked items'
+      - "Minor: parser.py worktree_artifact_dir uses string-truthy vs record.py uses\
+        \ is_dir() \u2014 safe due to T-5 init invariant"
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 3
+  started_at: '2026-05-08T12:47:26Z'
+  ended_at: '2026-05-08T12:47:26Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_execution_result: 'T-3 through T-10 implemented: WORKTREE_ARTIFACT_DIR
+        propagation, writer contract redirect, workflow-init mkdir, archive dual-source
+        merge, documentation, gitignore verification, test suite (365 pass), E2E layout
+        validation'
+      task_id: T-3..T-10
+      tasks_completed:
+      - T-3
+      - T-4
+      - T-5
+      - T-6
+      - T-7
+      - T-8
+      - T-9
+      - T-10
+      pytest: 365 passed
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-08T12:53:08Z'
+  ended_at: '2026-05-08T12:53:08Z'
+  usage: {}
+  evidence:
+    outputs:
+      learn_result: '1 rule added to run-phase-review.yaml (tasks.md completeness
+        check before scoring). Rule effectiveness: +1 hit on 9 learned rules across
+        4 contracts. ORC-47 filed for repro.sh exit-code inversion. Quality bar stable
+        at 9. Verdict: PASS.'
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-08T12:53:29Z'
+  ended_at: '2026-05-08T12:53:29Z'
+  usage: {}
+  evidence:
+    outputs:
+      state_completion_fields:
+        status: completed
+        completed_at: '2026-05-08T12:53:20Z'
+        archive_path: spec/changes/archive/2026-05-08-hl-303/
+- step_id: compute-swe-metrics
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-08T12:54:38Z'
+  ended_at: '2026-05-08T12:54:38Z'
+  usage: {}
+  evidence:
+    outputs:
+      swe_metrics:
+        net_usd: 4.45
+        gross_usd: 4.55
+        total_tokens: 290298
+        tasks_total: 11
+        review_score: 9
+- step_id: archive-completed-change
+  phase: main
+  status: in_progress
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-08T12:54:44.674531+00:00'
+completed_at: '2026-05-08T12:53:20Z'
+archive_path: spec/changes/archive/2026-05-08-hl-303/
+task_checkpoint: T-2
+created_at: '2026-05-04T07:47:02Z'
+started_at: '2026-05-04T07:47:02Z'
+escalation_events:
+- task_id: T-2
+  type: missing_coverage
+  question: Should dispatch.py also honor repeat_until? Should T-1 widen?
+  decision: Add T-2.5 to fix dispatch.py via shared _REPEAT_PREDICATES; widen T-1
+    with dispatch-level test.
+  design_amended: true
+  tasks_changed: true
+  timestamp: '2026-05-04T08:23:27.335124Z'
+metrics:
+  api_calls: 0
+  benchmarks:
+    cache_hit_rate: 0.0
+    cost_per_resolution_usd: 0.0
+    cost_per_task_usd: 0.0
+    input_output_ratio: 86.9691
+    tokens_per_resolution: 0
+    tokens_per_task: 0
+  category: feature
+  churn:
+    deletions: null
+    files_changed: null
+    insertions: null
+    total_commits: null
+  cost:
+    gross_usd: 4.55247
+    model: __default__
+    net_usd: 4.454070000000001
+    pricing:
+      cache_creation: 18.75
+      cache_read: 1.5
+      input: 15.0
+      output: 75.0
+  human_interventions: null
+  lint_delta: 0
+  per_agent_tokens: '{"inline": {"cost_usd": 4.0619700000000005, "duration_ms": 1015561,
+    "input_tokens": 270798, "output_tokens": 0, "step_count": 13, "total_tokens":
+    270798}, "reviewer": {"cost_usd": 0.0246, "duration_ms": 0, "input_tokens": 4200,
+    "output_tokens": 800, "step_count": 1, "total_tokens": 5000}, "workflow-init":
+    {"cost_usd": 0.3675, "duration_ms": 0, "input_tokens": 12000, "output_tokens":
+    2500, "step_count": 1, "total_tokens": 14500}}'
+  per_agent_tools: '{"inline": {"agent_total": 124}}'
+  per_step:
+    capture-test-baseline:
+      duration_ms: 0
+      executions: 1
+      tool_uses: 0
+      total_tokens: 0
+    compute-prediction-accuracy:
+      duration_ms: 0
+      executions: 1
+      tool_uses: 0
+      total_tokens: 0
+    compute-swe-metrics:
+      duration_ms: 0
+      executions: 1
+      tool_uses: 0
+      total_tokens: 0
+    design-and-draft-artifacts:
+      duration_ms: 395542
+      executions: 1
+      tool_uses: 38
+      total_tokens: 94207
+    diagnose:
+      duration_ms: 265404
+      executions: 2
+      tool_uses: 35
+      total_tokens: 76386
+    execute-next-task:
+      duration_ms: 153083
+      executions: 3
+      tool_uses: 15
+      total_tokens: 51500
+    mark-change-completed:
+      duration_ms: 0
+      executions: 1
+      tool_uses: 0
+      total_tokens: 0
+    run-learn-cycle:
+      duration_ms: 0
+      executions: 1
+      tool_uses: 0
+      total_tokens: 0
+    run-phase-review:
+      duration_ms: 0
+      executions: 2
+      tool_uses: 0
+      total_tokens: 5000
+    workflow-init:
+      duration_ms: 201532
+      executions: 2
+      tool_uses: 36
+      total_tokens: 63205
+  per_tool_uses: '{"agent_total": 124}'
+  resolution:
+    pass_at_1: null
+    pass_at_2: null
+    regression_rate: null
+    regressions: null
+    resolve_rate: null
+    tasks_added: null
+    tasks_completed: null
+    tasks_failed: null
+    tasks_planned: null
+    tasks_total: null
+  retries:
+    total: null
+  review_score_avg: null
+  review_scores: []
+  rework_commits: null
+  rework_rate: null
+  source: duckdb@2026-05-08T12:54:27Z
+  tokens:
+    cache_creation: 0
+    cache_read: 0
+    input: 286998
+    output: 3300
+    total: 290298
+  tool_calls: 124
+  turns: 0
+  wall_clock_minutes: null
