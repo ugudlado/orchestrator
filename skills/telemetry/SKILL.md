@@ -27,6 +27,7 @@ REPO_ROOT=${REPO_ROOT:-$(git rev-parse --show-toplevel)}
 REPO_NAME=${REPO_NAME:-$(basename "$REPO_ROOT")}
 ORCHESTRATOR_HOME=${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}
 WORKFLOW_STATE_DIR=${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}
+WORKTREE_ARTIFACT_DIR="${WORKTREE_ARTIFACT_DIR:-${WORKTREE_ROOT:-$REPO_ROOT}/spec/changes}"
 METRICS_QUERY=${METRICS_QUERY:-$(git rev-parse --show-toplevel)/config/scripts/metrics-query.sh}
 FLEET_FLAG=${FLEET_FLAG:-}   # set to "--fleet" when invoked with --fleet
 ```

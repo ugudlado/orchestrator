@@ -39,6 +39,11 @@ instruction: |
   five declared outputs (use null for skipped ones — e.g., worktree_path
   when flags.worktree is false, linear_ticket_id when flags.linear is false).
 
+  When flags.worktree is true: after running `git worktree add` to create
+  the worktree, immediately run:
+    mkdir -p $WORKTREE_ROOT/spec/changes/$CHANGE_ID
+  This ensures the artifact directory exists before any writer step runs.
+
   On failure at any stage: return status: failed with a clear reason; do
   NOT attempt partial cleanup (leave the state for debugging).
 
@@ -49,3 +54,4 @@ verify:
   - workflow_plan is a non-empty dict with at least one phase
   - state.yaml at $WORKFLOW_STATE_DIR/<slug>/state.yaml contains project_context_loaded: true
   - plan.yaml exists at $WORKFLOW_STATE_DIR/<slug>/plan.yaml
+  - when flags.worktree is true: $WORKTREE_ROOT/spec/changes/$CHANGE_ID/ directory exists

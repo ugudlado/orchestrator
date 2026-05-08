@@ -51,8 +51,9 @@ terminated by a newline). The canonical form uses `sort_keys=True, indent=2`.
     "ORCHESTRATOR_PHASE":        "specify",
     "ORCHESTRATOR_STEP_ID":      "explore",
     "ORCHESTRATOR_ATTEMPT":      "1",
-    "ORCHESTRATOR_WORKFLOW_DIR": "/path/to/.workflows/my-feature",
-    "ORCHESTRATOR_REPO_ROOT":    "/path/to/code/orchestrator"
+    "ORCHESTRATOR_WORKFLOW_DIR":           "/path/to/.workflows/my-feature",
+    "ORCHESTRATOR_REPO_ROOT":              "/path/to/code/orchestrator",
+    "ORCHESTRATOR_WORKTREE_ARTIFACT_DIR":  "/path/to/feature_worktrees/my-feature/spec/changes"
   }
 }
 ```
@@ -68,7 +69,7 @@ terminated by a newline). The canonical form uses `sort_keys=True, indent=2`.
   "agent": "inline",
   "instruction": "…",
   "rules": ["…"],
-  "env": { /* same 6 ORCHESTRATOR_* keys */ }
+  "env": { /* same 7 ORCHESTRATOR_* keys */ }
 }
 ```
 
@@ -149,7 +150,7 @@ copied from the step_history entry's `escalation:` sub-block.
 ## Environment Variable Contract
 
 When `action ∈ {run_step, run_inline, resume_step}`, the response includes an `env`
-object with exactly these six keys:
+object with exactly these seven keys:
 
 | Variable | Value | Description |
 |----------|-------|-------------|
@@ -159,6 +160,7 @@ object with exactly these six keys:
 | `ORCHESTRATOR_ATTEMPT` | string (integer) | 1-based attempt number, CLI-computed |
 | `ORCHESTRATOR_WORKFLOW_DIR` | absolute path | Workflow state directory (from `state.yaml worktree_path`) |
 | `ORCHESTRATOR_REPO_ROOT` | absolute path | Repository root (from `ORCHESTRATOR_REPO_ROOT` env at invocation time) |
+| `ORCHESTRATOR_WORKTREE_ARTIFACT_DIR` | absolute path | Base path for tracked workflow artifacts (spec/design/tasks/diagnose); points to `$WORKTREE_ROOT/spec/changes` when `flags.worktree=true`, otherwise `$REPO_ROOT/spec/changes`. |
 
 Callers set these variables in the environment of the adapter or inline agent they
 spawn. Adapters read them to locate `state.yaml`, compute their output paths, and
