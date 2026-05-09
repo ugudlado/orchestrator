@@ -208,8 +208,8 @@ LOOP:
       #    for any agent (non-inline) step — record.py enforces this (FR-11).
 
       # 4. MANDATORY: AGENT IDENTITY CAPTURE — when spawning an agent via the Task
-      #    tool, the result text contains a line `agentId: <17hex>`. Extract that
-      #    hex value (the JSONL filename stem) and pass it as `agent_id` in the
+      #    tool, extract agentId from the Task tool result text (it contains a line
+      #    `agentId: <17hex>`). Use that hex value (the JSONL filename stem) as `agent_id` in the
       #    done payload, alongside the agent role from `action.agent` (returned by
       #    `orchestrator next`) which goes in the `agent` field.
       #
