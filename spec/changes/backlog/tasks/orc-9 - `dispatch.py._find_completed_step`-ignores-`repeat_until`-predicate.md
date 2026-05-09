@@ -1,10 +1,10 @@
 ---
 id: ORC-9
 title: '`dispatch.py._find_completed_step` ignores `repeat_until` predicate'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-03 10:55'
-updated_date: '2026-05-03 11:00'
+updated_date: '2026-05-09 21:19'
 labels:
   - slug-dispatch-repeat-until-honor
   - feature
@@ -63,3 +63,9 @@ Affects every workflow that uses `repeat_until`. Currently only `execute-next-ta
 - [ ] #3 Test: `test_dispatch.py::test_repeat_until_keeps_step_active` — seed `execute-next-task` with one completed entry + tasks.md containing unchecked tasks; assert `orchestrator next` returns `execute-next-task` again, not the following step.
 - [ ] #4 Migration: existing in-flight workflows may have phantom `execute-next-task` entries that were never cleaned up. The fix is backward-compatible: once dispatch honors repeat_until, stale entries become harmless.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Bug was already fixed in HL-303 (commit 7bdd31c) before ORC-9 workflow was initialized. Both seams fixed: (1) record.py::_compute_next_step now consults repeat_until predicate, (2) dispatch.py history-walk loop re-emits step when predicate returns False. All 4 regression tests pass. Archived 2026-05-10-orc-9.
+<!-- SECTION:FINAL_SUMMARY:END -->
