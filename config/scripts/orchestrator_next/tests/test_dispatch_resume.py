@@ -414,7 +414,7 @@ import duckdb as _duckdb
 _HERE_SUB = _os.path.dirname(_os.path.abspath(__file__))
 _WORKTREE_ROOT_SUB = _os.path.abspath(_os.path.join(_HERE_SUB, "..", "..", "..", ".."))
 _SCRIPTS_DIR_SUB = _os.path.join(_WORKTREE_ROOT_SUB, "config", "scripts")
-_BIN_ORCHESTRATOR_SUB = _os.path.join(_WORKTREE_ROOT_SUB, "bin", "orchestrator")
+_BIN_ORCHESTRATOR_SUB = _os.path.join(_os.path.expanduser("~"), ".local", "bin", "orchestrator")
 _STEP_CONTRACTS_DIR_SUB = _os.path.join(
     _WORKTREE_ROOT_SUB, "config", "scripts", "tests", "fixtures", "step_contracts"
 )

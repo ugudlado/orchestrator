@@ -38,7 +38,7 @@ import duckdb
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _WORKTREE_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
 _SCRIPTS_DIR = os.path.join(_WORKTREE_ROOT, "config", "scripts")
-_BIN_ORCHESTRATOR = os.path.join(_WORKTREE_ROOT, "bin", "orchestrator")
+_BIN_ORCHESTRATOR = os.path.join(os.path.expanduser("~"), ".local", "bin", "orchestrator")
 # Reuse step contracts from the existing tests/fixtures directory.
 _STEP_CONTRACTS_DIR = os.path.join(
     _WORKTREE_ROOT, "config", "scripts", "tests", "fixtures", "step_contracts"

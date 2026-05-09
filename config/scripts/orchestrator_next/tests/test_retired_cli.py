@@ -26,7 +26,7 @@ import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _WORKTREE_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
-_BIN_ORCHESTRATOR = os.path.join(_WORKTREE_ROOT, "bin", "orchestrator")
+_BIN_ORCHESTRATOR = os.path.join(os.path.expanduser("~"), ".local", "bin", "orchestrator")
 
 
 def _run_orchestrator(args: list[str]) -> subprocess.CompletedProcess:
