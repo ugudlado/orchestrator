@@ -240,6 +240,85 @@ def main() -> None:
             except Exception as _ape:  # noqa: BLE001 — state.yaml append must not block action emit
                 print(f"warning: state.yaml pending append failed — {_ape}", file=sys.stderr)
 
+        # Inline script execution: run the script synchronously and record.
+        # This eliminates the driver's responsibility to shell-out and call done.
+        if (
+            action.get("action") == "run_inline"
+            and action.get("agent") == "inline"
+            and action.get("run")
+        ):
+            import subprocess as _sp
+            from orchestrator_next.record import record as _record
+
+            _run_path = action["run"]
+            # Resolve relative paths against repo_root
+            if not os.path.isabs(_run_path):
+                _run_path = os.path.join(state.repo_root, _run_path)
+
+            _script_env = {**os.environ, **action.get("env", {})}
+            _proc = _sp.run(
+                ["bash", _run_path],
+                capture_output=True,
+                env=_script_env,
+            )
+            # Forward script stderr to our stderr so operator can see it
+            if _proc.stderr:
+                sys.stderr.buffer.write(_proc.stderr)
+                sys.stderr.buffer.flush()
+
+            _step_id = action["step_id"]
+            _phase = action["phase"]
+            _attempt = action["attempt"]
+
+            if _proc.returncode != 0:
+                _record(
+                    state_yaml_path,
+                    {
+                        "step_id": _step_id,
+                        "phase": _phase,
+                        "attempt": _attempt,
+                        "status": "failed",
+                        "outputs": {},
+                        "evidence": {"summary": f"script exited {_proc.returncode}"},
+                    },
+                    db=_db,
+                )
+                action = {
+                    "action": "failed",
+                    "step_id": _step_id,
+                    "phase": _phase,
+                    "stderr": _proc.stderr.decode(errors="replace").strip(),
+                }
+                exit_code = 3
+            else:
+                _stdout_lines = _proc.stdout.decode(errors="replace").strip().splitlines()
+                _outputs = {}
+                if _stdout_lines:
+                    try:
+                        import json as _json
+                        _outputs = _json.loads(_stdout_lines[-1])
+                    except (_json.JSONDecodeError, ValueError):
+                        pass
+                _record(
+                    state_yaml_path,
+                    {
+                        "step_id": _step_id,
+                        "phase": _phase,
+                        "attempt": _attempt,
+                        "status": "completed",
+                        "outputs": _outputs,
+                        "evidence": {"outputs": _outputs, "summary": "inline script completed"},
+                    },
+                    db=_db,
+                )
+                action = {
+                    "action": "recorded",
+                    "step_id": _step_id,
+                    "phase": _phase,
+                    "outputs": _outputs,
+                }
+                exit_code = 0
+
         action["cost_so_far"] = _cost_so_far
         print(emit_json(action), end="")
     finally:

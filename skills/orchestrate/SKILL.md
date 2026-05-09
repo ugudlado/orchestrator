@@ -152,11 +152,13 @@ LOOP:
       STOP (workflow done) — include cost_tail as the headline, then cost_report stdout below it
   IF action.action == "blocked":            STOP (escalate or fix)
   IF action.action == "verify_phase":       run action.commands + action.assertions
-  IF action.action == "run_inline" AND action.agent == "inline":
-      # HL-287 M3 inline-script dispatch
-      run action.run with action.inputs as env vars
-      collect outputs (last stdout line as JSON dict)
-      orchestrator done state.yaml <<< {step_id, phase, status, outputs, usage, evidence}
+  IF action.action == "recorded":
+      # CLI executed the inline script and recorded the result — nothing for driver to do.
+      # Loop continues to call `orchestrator next` for the next step.
+      continue
+  IF action.action == "failed":
+      # CLI executed the inline script and it exited non-zero — recorded internally.
+      STOP (surface action.stderr to user, check the script)
   IF action.action == "run_inline" AND action.agent != "inline":
       # Legacy inline-instruction (pre-M3, being phased out)
       execute action.instruction in context with action.inputs / action.rules
@@ -199,7 +201,7 @@ LOOP:
   IF action.action == "resume_step":
       # Always log to stderr — even under flags.auto == true — so operators see resume events.
       print(f"RESUMING step {action.step_id} (attempt {action.attempt})", file=sys.stderr)
-      # Then execute identically to run_step (action.run present) or run_inline (no action.run).
+      # Then execute identically to run_step (action.run present) or run_inline (no action.run, LLM instruction only).
       spawn agent(action.agent) with prompt=action.instruction, rules=action.rules,
             step_context=action.step_context, inputs=action.inputs,
             expecting=action.expected_outputs,
