@@ -1028,10 +1028,13 @@ def record(
 
     outputs: dict[str, Any] = payload.get("outputs") or {}
 
-    # Load contract to validate expected_outputs
+    # Load contract once; reused for expected_outputs validation and Check B
+    # (agent guard + token check). ContractError treated as missing file —
+    # fall back to no-contract behavior rather than blocking the record.
     try:
         contract = load_contract_for_step(step_id, state_yaml_path)
-    except FileNotFoundError:
+    except (FileNotFoundError, ContractError) as _e:
+        sys.stderr.write(f"[record] contract load failed for {step_id}: {_e}\n")
         contract = None
 
     if contract is not None and status == "completed":
@@ -1073,6 +1076,28 @@ def record(
     # ORC-45: removed the agent_id-only escape hatch. agent_id enrichment
     # happens downstream; it does not excuse zero-token payloads at record time.
     # Completed non-inline steps MUST have input_tokens > 0 OR output_tokens > 0.
+    #
+    # ORC-48: if the contract declares an agent but the payload omits 'agent',
+    # reject early so the driver knows it must include the field. Without this
+    # guard, record.py silently defaults to 'inline', corrupting DuckDB metrics.
+    contract_agent = contract.agent if contract is not None else None
+    if status == "completed" and contract_agent and contract_agent != "inline":
+        if "agent" not in payload:
+            return (
+                {
+                    "reason": "payload_missing_agent_for_agent_step",
+                    "step_id": step_id,
+                    "expected_agent": contract_agent,
+                    "hint": (
+                        "step contract declares agent: %s but payload omitted "
+                        "the 'agent' field. The driver must include agent and "
+                        "agent_id (extracted from the Task result text) in the "
+                        "done payload. See skills/orchestrate/SKILL.md."
+                    ) % contract_agent,
+                },
+                3,
+            )
+
     agent = payload.get("agent", "inline")
     payload_usage = payload.get("usage") or {}
     if status == "completed" and agent != "inline":
