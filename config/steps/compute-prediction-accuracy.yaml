@@ -1,4 +1,4 @@
 id: compute-prediction-accuracy
 inline: true
-run: scripts/inline/compute-prediction-accuracy.py
+run: scripts/inline/compute-prediction-accuracy.sh
 version: 1
