@@ -64,38 +64,37 @@ From the `recent-features` rows (each row contains `change_id`, `status`,
 `completed_at`, and `payload_json` with the full metrics block):
 
 **Cost & Tokens**
-- Total cost (USD) — sum of `metrics.cost.net_usd` from `payload_json`
+- Total cost (USD) — sum of `cost_usd` from `payload_json`
 - Average cost per feature
-- Total tokens — sum of `metrics.tokens.total` (with input/output/cache breakdown)
-- Average cache hit rate — `metrics.benchmarks.cache_hit_rate`
+- Total tokens — sum of `total_tokens` (with `input_tokens`/`output_tokens`/`cache_read_input_tokens` breakdown)
+- Average cache hit rate — `cache_hit_rate`
 
 **Time**
-- Total wall clock minutes — sum of `metrics.wall_clock_minutes`
+- Total wall clock minutes — sum of `wall_clock_minutes`
 - Average time per feature
 
 **Quality**
-- Average review score — `metrics.review_score_avg`
-- Pass@1 rate — fraction of features where `metrics.resolution.pass_at_1` > 0
-- Average rework rate — `metrics.rework_rate`
-- Regression rate — `metrics.resolution.regression_rate`
+- Average review score — `review_score_avg`
+- Pass@1 rate — fraction of features where `pass_at_1` > 0
+- Average rework rate — `rework_rate`
+- Regression rate — `regression_rate`
 
 **Efficiency**
-- Average turns per feature — `metrics.turns`
-- Average tool calls per feature — `metrics.tool_calls`
-- Total retries — sum of `metrics.retries.total`
+- Average turns per feature — `turns`
+- Average tool calls per feature — `tool_calls_count`
+- Total retries — sum of `retries_total`
 - Retry hotspots — steps with highest retry counts across features
 
 **Code Churn**
-- Average files changed per feature
-- Average insertions/deletions per feature
+- Average files changed per feature — `files_changed`
+- Average insertions/deletions per feature — `insertions` / `deletions`
 
 ### 3. Per-step timing breakdown (when available)
 
-From state.yaml step_history entries that have `started_at` and `completed_at`:
-
-- Compute duration per step: `completed_at - started_at`
-- Group by phase, show phase total and per-step breakdown
-- Flag outliers: steps taking >2x the average for that step type
+From `per_step_metrics` view (backed by `step_events`):
+- Run `$METRICS_QUERY step-cost-hotspots $FLEET_FLAG --limit 10` for top expensive steps
+- Group by phase (from `step_events.phase`), show phase total and per-step cost/duration
+- Flag outliers: steps with duration >2x the average for that step type
 
 ### 4. Render dashboard
 
