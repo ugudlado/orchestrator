@@ -259,13 +259,27 @@ def main() -> None:
             import subprocess as _sp
             from orchestrator_next.record import record as _record
 
+            # Close DB before running inline script — the script may need read-only
+            # access (e.g. compute-swe-metrics) and DuckDB blocks concurrent access.
+            if _db is not None:
+                try:
+                    _db.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                _db = None
+
             _run_path = action["run"]
             # Resolve relative paths against the orchestrator home (where step scripts live)
             if not os.path.isabs(_run_path):
                 _orchestrator_home = os.environ.get("ORCHESTRATOR_HOME") or _WORKTREE_ROOT
                 _run_path = os.path.join(_orchestrator_home, "config", _run_path)
 
-            _script_env = {**os.environ, **action.get("env", {})}
+            _script_env = {
+                **os.environ,
+                **action.get("env", {}),
+                "STATE_YAML_PATH": state_yaml_path,
+                "REPO_ROOT": state.repo_root,
+            }
             _proc = _sp.run(
                 ["bash", _run_path],
                 capture_output=True,
