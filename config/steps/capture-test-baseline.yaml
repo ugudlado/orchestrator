@@ -14,44 +14,6 @@ rules:
   - If the test command does not exist or does not emit parseable counts, write baseline.skipped: true with a reason instead of failing.
   - Never fail the phase on baseline capture. A missing baseline disables the regression gate; it does not block implementation.
 
-instruction: |
-  1. Read spec/project.yaml for the test command under verify_commands (typical key: test).
-     If no test command is defined, write `baseline: { skipped: true, reason: "no test command in project.yaml" }`
-     to state.yaml and return completed.
-
-  2. Run the test command with its standard output captured.
-     Do not fail on non-zero exit — a red baseline is still a valid baseline
-     (regressions are measured as deltas from this starting point, not from green).
-
-  3. Parse the output for pass / fail / skip counts using project-idiomatic patterns:
-     - pytest:    "N passed", "N failed", "N skipped"
-     - vitest:    "N passed | N failed"
-     - jest:      "Tests: N passed, N failed"
-     - go test:   "ok" lines and "FAIL" lines
-     - cargo:     "test result: ok. N passed; N failed"
-     If the format is not recognized, record raw output in baseline.raw_tail (last 20 lines) and set baseline.skipped: true.
-
-  4. Write to state.yaml:
-     ```yaml
-     baseline:
-       captured_at: "<ISO 8601 timestamp>"
-       test_command: "<the command that ran>"
-       passing: <N>
-       failing: <N>
-       skipped: <N>
-       total: <N>
-       exit_code: <code>
-     ```
-     If unparseable, write instead:
-     ```yaml
-     baseline:
-       captured_at: "<ISO 8601 timestamp>"
-       skipped: true
-       reason: "<short reason>"
-     ```
-
-  5. Update state.yaml step_history per CONVENTIONS.md § State Updates.
-
 verify:
   evidence_required: true
   assertions:

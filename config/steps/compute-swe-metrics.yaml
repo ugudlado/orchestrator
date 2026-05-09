@@ -14,33 +14,6 @@ rules:
   - Metrics script failure is non-blocking — proceed with null placeholders.
   - Metrics MUST be written to state.yaml before any archive step runs.
 
-instruction: |
-  1. Read storage config from project.yaml:
-     - active_changes_root: $WORKFLOW_STATE_DIR
-
-  2. **Compute SWE metrics**:
-     a. Check if $ORCHESTRATOR_HOME/scripts/inline/compute-swe-metrics.sh exists.
-     b. If yes: run it and validate the output contains a `metrics:` YAML block.
-        ```bash
-        $ORCHESTRATOR_HOME/scripts/inline/compute-swe-metrics.sh "$WORKFLOW_STATE_DIR/$CHANGE_ID"
-        ```
-        The script reads token/cost data from step_history[].usage in state.yaml,
-        computes resolution stats from tasks.md, and git churn from commit history.
-        Append the output to state.yaml.
-     c. If script missing or fails: write a minimal metrics block with null placeholders
-        so downstream consumers can read the structure:
-        ```yaml
-        metrics:
-          status: script_unavailable
-          reason: "<error message or 'script not found'>"
-          resolution: { resolve_rate: null, pass_at_1: null, pass_at_2: null, regression_rate: null }
-          cost: { net_usd: null, gross_usd: null }
-          tokens: { total: null, input: null, output: null }
-        ```
-        Do NOT fail — metrics are non-blocking.
-
-  3. Update state.yaml step_history per CONVENTIONS.md § State Updates.
-
 verify:
   - state.yaml contains a `metrics:` block (even if placeholder)
 
