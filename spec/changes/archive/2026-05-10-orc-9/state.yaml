@@ -1,0 +1,259 @@
+change_id: orc-9
+slug: orc-9
+schema: bugfix
+status: completed
+repo_root: /Users/spidey/code/orchestrator
+flags:
+  worktree: true
+  phase_review: true
+  portless: true
+  metrics: true
+  linear: true
+  ux_design: false
+  tdd_required: true
+  auto: true
+  agents: true
+  light: false
+workflow_plan:
+  main:
+    active:
+    - workflow-init
+    - diagnose
+    - design-and-draft-artifacts
+    - capture-test-baseline
+    - execute-next-task
+    - run-phase-review
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+phase: main
+next_step:
+  phase: main
+  step_id: remove-worktree
+step_history:
+- step_id: workflow-init
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:10:57Z'
+  ended_at: '2026-05-09T21:10:57Z'
+  usage: {}
+  evidence:
+    outputs:
+      worktree_path: /Users/spidey/code/feature_worktrees/orc-9
+      branch: orc/orc-9
+      linear_ticket_id: null
+      workflow_plan:
+        main:
+          active:
+          - workflow-init
+          - diagnose
+          - design-and-draft-artifacts
+          - capture-test-baseline
+          - execute-next-task
+          - run-phase-review
+          - compute-prediction-accuracy
+          - run-learn-cycle
+          - mark-change-completed
+          - compute-swe-metrics
+          - archive-completed-change
+          - remove-worktree
+          filtered: []
+      resolved_flags:
+        worktree: true
+        phase_review: true
+        portless: true
+        metrics: true
+        linear: true
+        ux_design: false
+        tdd_required: true
+        auto: true
+        agents: true
+        light: false
+      plan_yaml_path: /Users/spidey/code/orchestrator/spec/changes/orc-9/plan.yaml
+    summary: inline script completed
+- step_id: diagnose
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:14:24Z'
+  ended_at: '2026-05-09T21:14:24Z'
+  usage: {}
+  evidence:
+    outputs:
+      diagnosis_result: diagnose.md written
+    summary: "Root cause traced to dispatch.py _find_completed_step not consulting\
+      \ repeat_until predicate \u2014 fix already present on main in commit 7bdd31c\
+      \ (hl-303 T-2.5). Two seams identified: record.py _compute_next_step and dispatch.py\
+      \ history-walk loop. All 4 regression tests pass."
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:16:26Z'
+  ended_at: '2026-05-09T21:16:26Z'
+  usage: {}
+  evidence:
+    outputs:
+      updated_artifact_set: n/a
+      design_direction: bug already fixed in HL-303
+      complexity: trivial
+    summary: "Skipped \u2014 bug already fixed in HL-303 (commit 7bdd31c); no design\
+      \ work needed."
+- step_id: capture-test-baseline
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:16:30Z'
+  ended_at: '2026-05-09T21:16:30Z'
+  usage: {}
+  evidence:
+    outputs:
+      baseline_test_results: '4 passed: test_dispatch_repeats_step_when_predicate_false,
+        test_repeats_when_unchecked_tasks_present, test_advances_when_all_tasks_checked,
+        test_no_repeat_when_contract_lacks_repeat_until'
+    summary: All 4 repeat_until regression tests pass on current main. Fix verified.
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:16:40Z'
+  ended_at: '2026-05-09T21:16:40Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_execution_result: "verified \u2014 bug fixed in HL-303, 4 tests pass"
+    summary: "No tasks to execute \u2014 bug was already fixed in HL-303. All 4 regression\
+      \ tests pass on current main."
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-05-09T21:17:25Z'
+  ended_at: '2026-05-09T21:17:25Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_execution_result: "verified \u2014 bug fixed in HL-303, 4 tests pass"
+    summary: "No implementation tasks \u2014 bug already fixed. tasks.md created with\
+      \ no unchecked items."
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:17:42Z'
+  ended_at: '2026-05-09T21:17:42Z'
+  usage: {}
+  evidence:
+    outputs:
+      phase_review_report: "score: 10/10 \u2014 bug fixed in HL-303 (commit 7bdd31c),\
+        \ all 4 regression tests pass, no implementation required"
+    summary: 'Phase review: ORC-9 bug confirmed fixed. 4/4 tests pass. No regressions.
+      Score 10/10.'
+- step_id: compute-prediction-accuracy
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:17:46Z'
+  ended_at: '2026-05-09T21:17:46Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy:
+        computed_at: '2026-05-09T21:17:46Z'
+        predicted_tasks: 0
+        actual_tasks: 0
+        fix_task_count: 0
+        rework_rate: 0.0
+        task_delta: 0
+        task_accuracy_pct: 100.0
+        predicted_file_count: null
+        actual_file_count: null
+        file_delta: null
+        file_overlap_pct: null
+    summary: inline script completed
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:17:57Z'
+  ended_at: '2026-05-09T21:17:57Z'
+  usage: {}
+  evidence:
+    outputs:
+      learn_result: "learn_skipped: true, learn_error: no implementation changes to\
+        \ learn from \u2014 ORC-9 bug was already fixed in HL-303"
+    summary: "Learn cycle skipped \u2014 no code changes in this workflow. Bug was\
+      \ pre-fixed."
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:18:01Z'
+  ended_at: '2026-05-09T21:18:01Z'
+  usage: {}
+  evidence:
+    outputs:
+      status: completed
+      completed_at: '2026-05-09T21:18:01Z'
+      archive_path: spec/changes/archive/2026-05-09-orc-9/
+    summary: inline script completed
+- step_id: compute-swe-metrics
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:18:04Z'
+  ended_at: '2026-05-09T21:18:04Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+- step_id: archive-completed-change
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:18:06Z'
+  ended_at: '2026-05-09T21:18:06Z'
+  usage: {}
+  evidence:
+    outputs:
+      archive_record:
+        skipped: true
+        reason: missing required env vars
+    summary: inline script completed
+- step_id: remove-worktree
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:18:12Z'
+  ended_at: '2026-05-09T21:18:12Z'
+  usage: {}
+  evidence:
+    outputs:
+      removed: false
+      reason: 'worktree path missing: '
+    summary: inline script completed
+created_at: '2026-05-09T21:09:29Z'
+started_at: '2026-05-09T21:09:29Z'
+project_context_loaded: true
+worktree_path: /Users/spidey/code/feature_worktrees/orc-9
+branch: orc/orc-9
+completed_at: '2026-05-09T21:18:01Z'
+archive_path: spec/changes/archive/2026-05-09-orc-9/
