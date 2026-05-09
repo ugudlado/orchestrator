@@ -310,6 +310,67 @@ check "T-8: per_agent_metrics count correct after rebuild" "$PA_REB" "2"
 # per_step_metrics: 2 (feature-full only)
 check "T-8: per_step_metrics count correct after rebuild" "$PS_REB" "2"
 
+# ── T-DN1: Dirname fallback positive (legacy-feature) ────────────────────────
+echo ""
+echo "=== T-DN1: Dirname fallback (legacy-feature) ==="
+
+FIXTURE_LEGACY="$ARCHIVE_DIR/legacy-feature"
+mkdir -p "$FIXTURE_LEGACY"
+cat > "$FIXTURE_LEGACY/state.yaml" <<'YAML'
+schema: feature
+status: completed
+started_at: "2026-02-01T00:00:00Z"
+completed_at: "2026-02-02T00:00:00Z"
+step_history:
+  - step_id: implement
+    phase: implementation
+    status: completed
+    agent: developer
+    started_at: "2026-02-01T01:00:00Z"
+    completed_at: "2026-02-01T02:00:00Z"
+    usage:
+      total_tokens: 100
+      tool_uses: 2
+      duration_ms: 60000
+YAML
+
+STDERR_DN1=$(bash "$SCRIPT" "$FAKE_REPO" 2>&1 1>/dev/null)
+EXIT_DN1=$?
+check_zero_exit "T-DN1: exits 0 with missing change_id" "$EXIT_DN1"
+check_contains  "T-DN1: warn emitted for dirname fallback" "$STDERR_DN1" "warn: change_id absent, using dirname fallback: legacy-feature"
+
+SH_DN1=$(duckdb -csv "$TEST_DB" "SELECT COUNT(*) FROM step_history WHERE change_id='legacy-feature'" 2>/dev/null | tail -n +2)
+check "T-DN1: step_history has 1 row for legacy-feature" "$SH_DN1" "1"
+
+# ── T-DN2: Dirname fallback hits slug guard (Bad_Slug) ───────────────────────
+echo ""
+echo "=== T-DN2: Dirname fallback hits slug guard (Bad_Slug) ==="
+
+FIXTURE_BAD="$ARCHIVE_DIR/Bad_Slug"
+mkdir -p "$FIXTURE_BAD"
+cat > "$FIXTURE_BAD/state.yaml" <<'YAML'
+schema: feature
+status: completed
+started_at: "2026-02-01T00:00:00Z"
+completed_at: "2026-02-02T00:00:00Z"
+step_history:
+  - step_id: implement
+    phase: implementation
+    status: completed
+    agent: developer
+    started_at: "2026-02-01T01:00:00Z"
+    completed_at: "2026-02-01T02:00:00Z"
+YAML
+
+STDERR_DN2=$(bash "$SCRIPT" "$FAKE_REPO" 2>&1 1>/dev/null)
+EXIT_DN2=$?
+check_zero_exit "T-DN2: exits 0 when slug guard rejects dirname" "$EXIT_DN2"
+check_contains  "T-DN2: dirname fallback warn emitted" "$STDERR_DN2" "warn: change_id absent, using dirname fallback: Bad_Slug"
+check_contains  "T-DN2: slug guard skip warn emitted" "$STDERR_DN2" "skip: change_id has unsafe chars: Bad_Slug"
+
+SH_DN2=$(duckdb -csv "$TEST_DB" "SELECT COUNT(*) FROM step_history WHERE change_id='Bad_Slug'" 2>/dev/null | tail -n +2)
+check "T-DN2: no rows ingested for Bad_Slug" "$SH_DN2" "0"
+
 # ── T-13: json_extract-free consumer check (AC-3) ──────────────────────────────
 echo ""
 echo "=== T-13: json_extract-free access to per_agent_metrics ==="
