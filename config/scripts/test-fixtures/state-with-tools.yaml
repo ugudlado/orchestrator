@@ -5,14 +5,14 @@
 #   reviewer:  { Read: 4, Grep: 1 }
 #
 # Step breakdown:
-#   step1 (developer): Read:3 Bash:2 Edit:1 Grep:1  (tools: present)
-#   step2 (developer): Read:5 Bash:3 Edit:2 Grep:1  (tools: present)
-#   step3 (developer): (no tools: key — backward compat, pre-HL-276 entry)
-#   step4 (developer): tools: {}                     (zero tool calls)
-#   step5 (reviewer):  Read:4 Grep:1                 (tools: present)
+#   step1 (developer): Read:3 Bash:2 Edit:1 Grep:1  (tool_calls: present)
+#   step2 (developer): Read:5 Bash:3 Edit:2 Grep:1  (tool_calls: present)
+#   step3 (developer): (no tool_calls: key — backward compat, pre-HL-276 entry)
+#   step4 (developer): tool_calls: {}                (zero tool calls)
+#   step5 (reviewer):  Read:4 Grep:1                 (tool_calls: present)
 #
-# Note: step3 has no tools: key — skipped silently by compute-swe-metrics.sh.
-# Note: step4 has tools: {} — equivalent to absent, no tool data accumulated.
+# Note: step3 has no tool_calls: key — skipped silently by compute-swe-metrics.sh.
+# Note: step4 has tool_calls: {} — equivalent to absent, no tool data accumulated.
 
 schema: feature
 status: completed
@@ -34,7 +34,7 @@ step_history:
       cache_read_input_tokens: 100
       total_tokens: 6500
       tool_uses: 7
-      tools:
+      tool_calls:
         Read: 3
         Bash: 2
         Edit: 1
@@ -53,7 +53,7 @@ step_history:
       cache_read_input_tokens: 200
       total_tokens: 11000
       tool_uses: 11
-      tools:
+      tool_calls:
         Read: 5
         Bash: 3
         Edit: 2
@@ -86,7 +86,7 @@ step_history:
       cache_read_input_tokens: 0
       total_tokens: 1200
       tool_uses: 0
-      tools: {}
+      tool_calls: {}
       duration_ms: 5000
   - step_id: run-phase-review
     phase: implement
@@ -101,7 +101,7 @@ step_history:
       cache_read_input_tokens: 150
       total_tokens: 8300
       tool_uses: 5
-      tools:
+      tool_calls:
         Read: 4
         Grep: 1
       duration_ms: 20000

@@ -221,7 +221,7 @@ usage:
   total_tokens: 18500
   cost_usd: 0.0023
   tool_uses: 7
-  tools:
+  tool_calls:
     Read: 3
     Bash: 2
     Edit: 1
@@ -297,7 +297,7 @@ step_history:
       total_tokens: 18500
       cost_usd: 0.0023           # from proxy pricing lookup; omit if unavailable
       tool_uses: 7
-      tools:
+      tool_calls:
         Read: 3
         Bash: 2
         Edit: 1
@@ -365,7 +365,7 @@ find data where they expect it.
 | `task_checkpoint` | object | execute-next-task | `{ task_id: "T-3", status: "completed", committed_at: "<ISO>" }` |
 | `workflow_plan` | object | load-project-context | `{ <phase>: { active: [...], filtered: [...] } }`. Includes resolved from schema. Dispatch loop MUST walk ALL phases/steps — workflow is not complete until every active step in every phase is dispatched. |
 | `step_history[].review_score` | object | run-phase-review | `{ overall: 9, dimensions: { spec_compliance: 9, correctness: 10, security: 9, simplicity: 9, code_quality: 9 } }` |
-| `step_history[].usage` | object | orchestrate skill (dispatch loop) | `{ input_tokens: N, output_tokens: N, cache_creation_input_tokens: N, cache_read_input_tokens: N, total_tokens: N, tool_uses: N, tools: { ToolName: N, ... }, duration_ms: N }`. Only for steps with agent: field. `tools:` is a per-tool-type breakdown where the sum of all values equals `tool_uses`. Omit `tools:` or write `tools: {}` when no tool calls were made. Compute-swe-metrics reads these fields for cost calculation and tool attribution. |
+| `step_history[].usage` | object | orchestrate skill (dispatch loop) | `{ input_tokens: N, output_tokens: N, cache_creation_input_tokens: N, cache_read_input_tokens: N, total_tokens: N, tool_uses: N, tool_calls: { ToolName: N, ... }, duration_ms: N }`. Only for steps with agent: field. `tool_calls:` is a per-tool-type breakdown where the sum of all values equals `tool_uses`. Omit `tool_calls:` or write `tool_calls: {}` when no tool calls were made. Compute-swe-metrics reads these fields for cost calculation and tool attribution. |
 | `escalation_events` | list | orchestrate skill (escalation routing) | See `contracts/architect-escalation.md` § State Recording. Each entry: `{ task_id, type, question, decision, design_amended, tasks_changed, timestamp }` |
 
 ### Rules
