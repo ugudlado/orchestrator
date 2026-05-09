@@ -137,6 +137,8 @@ def test_agent_contract_response_has_agent_no_action(tmp_path):
         version: 1
         agent: developer
         instruction: Do something.
+        inputs: []
+        outputs: []
         rules: []
     """)
 
@@ -188,6 +190,8 @@ def test_all_steps_done_exits_1_no_json(tmp_path):
         version: 1
         agent: developer
         instruction: Do something.
+        inputs: []
+        outputs: []
         rules: []
     """)
 
@@ -237,6 +241,8 @@ def test_blocked_step_exits_2_no_json(tmp_path):
         version: 1
         agent: developer
         instruction: Do something.
+        inputs: []
+        outputs: []
         rules: []
     """)
 

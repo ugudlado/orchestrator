@@ -5,11 +5,12 @@
 # Usage:
 #   orchestrator next <state.yaml>
 #
-# Exit codes:
-#   0 — action returned (run_step / run_inline / resume_step / verify_phase)
-#   1 — complete_workflow
-#   2 — blocked (escalate_to_architect or blocked status)
-#   3 — error (malformed input, missing file, slug-guard failure)
+# Exit codes (ORC-45 two-path dispatch protocol):
+#   0 + JSON with agent key  — agent step; driver spawns Agent tool
+#   0 + no JSON              — inline script ran and recorded; driver loops
+#   1                        — workflow complete; driver reads state.yaml
+#   2                        — step blocked; driver reads state.yaml
+#   3                        — ContractDispatchError or other error
 """
 Entry point for the `orchestrator` CLI.
 
@@ -139,7 +140,7 @@ def main() -> None:
     state_yaml_path = args[1]
 
     try:
-        from orchestrator_next.parser import load_state
+        from orchestrator_next.parser import load_state, ContractDispatchError
         from orchestrator_next.dispatch import dispatch, emit_json
     except ImportError as exc:
         print(f"error: failed to import orchestrator_next — {exc}", file=sys.stderr)
@@ -205,55 +206,64 @@ def main() -> None:
         except FileNotFoundError as exc:
             print(f"error: {exc}", file=sys.stderr)
             sys.exit(3)
+        except ContractDispatchError as exc:
+            # step has neither agent: nor run: — exit 3 with diagnostic
+            print(str(exc), file=sys.stderr)
+            sys.exit(3)
         except Exception as exc:  # noqa: BLE001 — dispatch errors should be surfaced
             print(f"error: dispatch failed — {exc}", file=sys.stderr)
             sys.exit(3)
 
-        # Post-dispatch pending write — gated by action verb.
-        # Writes in_progress row to DB and appends matching state.yaml entry.
-        _STEP_VERBS = {"run_step", "run_inline", "resume_step"}
-        if _db is not None and action.get("action") in _STEP_VERBS:
-            from datetime import datetime, timezone
-            _started_at = action.get("started_at") or datetime.now(timezone.utc).isoformat()
-            try:
-                upsert_pending_step_event(
-                    _db,
-                    repo_root=state.repo_root,
-                    change_id=state.change_id,
-                    phase=action["phase"],
-                    step_id=action["step_id"],
-                    attempt=int(action["attempt"]),
-                    agent_name=action.get("agent", "inline"),
-                    started_at=_started_at,
-                )
-            except Exception as _upe:  # noqa: BLE001 — pending upsert must not block action emit
-                print(f"warning: pending upsert failed — {_upe}", file=sys.stderr)
-            try:
-                _append_in_progress_state_entry_if_absent(
-                    state_yaml_path,
-                    step_id=action["step_id"],
-                    phase=action["phase"],
-                    attempt=int(action["attempt"]),
-                    agent=action.get("agent", "inline"),
-                    started_at=_started_at,
-                )
-            except Exception as _ape:  # noqa: BLE001 — state.yaml append must not block action emit
-                print(f"warning: state.yaml pending append failed — {_ape}", file=sys.stderr)
+        # Exit 1 (complete) or exit 2 (blocked) — no JSON, just close DB and exit.
+        if exit_code in (1, 2):
+            sys.exit(exit_code)  # finally block will close _db
 
-        # Inline script execution: run the script synchronously and record.
-        # This eliminates the driver's responsibility to shell-out and call done.
-        if (
-            action.get("action") == "run_inline"
-            and action.get("agent") == "inline"
-            and action.get("run")
-        ):
+        # --- Agent path (exit 0 + JSON with agent key) ---
+        if action.get("agent"):
+            # Post-dispatch pending write — agent step entering in_progress.
+            if _db is not None:
+                from datetime import datetime, timezone
+                _started_at = action.get("started_at") or datetime.now(timezone.utc).isoformat()
+                try:
+                    upsert_pending_step_event(
+                        _db,
+                        repo_root=state.repo_root,
+                        change_id=state.change_id,
+                        phase=action["phase"],
+                        step_id=action["step_id"],
+                        attempt=int(action["attempt"]),
+                        agent_name=action["agent"],
+                        started_at=_started_at,
+                    )
+                except Exception as _upe:  # noqa: BLE001 — pending upsert must not block action emit
+                    print(f"warning: pending upsert failed — {_upe}", file=sys.stderr)
+                try:
+                    _append_in_progress_state_entry_if_absent(
+                        state_yaml_path,
+                        step_id=action["step_id"],
+                        phase=action["phase"],
+                        attempt=int(action["attempt"]),
+                        agent=action["agent"],
+                        started_at=_started_at,
+                    )
+                except Exception as _ape:  # noqa: BLE001 — state.yaml append must not block action emit
+                    print(f"warning: state.yaml pending append failed — {_ape}", file=sys.stderr)
+
+            # Emit JSON with cost_so_far; driver spawns Agent tool.
+            action["cost_so_far"] = _cost_so_far
+            print(emit_json(action), end="")
+            sys.exit(0)  # finally block will close _db
+
+        # --- Inline script path (exit 0 + no JSON) ---
+        if action.get("run"):
             import subprocess as _sp
             from orchestrator_next.record import record as _record
 
             _run_path = action["run"]
-            # Resolve relative paths against repo_root
+            # Resolve relative paths against the orchestrator home (where step scripts live)
             if not os.path.isabs(_run_path):
-                _run_path = os.path.join(state.repo_root, _run_path)
+                _orchestrator_home = os.environ.get("ORCHESTRATOR_HOME") or _WORKTREE_ROOT
+                _run_path = os.path.join(_orchestrator_home, "config", _run_path)
 
             _script_env = {**os.environ, **action.get("env", {})}
             _proc = _sp.run(
@@ -283,13 +293,9 @@ def main() -> None:
                     },
                     db=_db,
                 )
-                action = {
-                    "action": "failed",
-                    "step_id": _step_id,
-                    "phase": _phase,
-                    "stderr": _proc.stderr.decode(errors="replace").strip(),
-                }
-                exit_code = 3
+                # Surface script failure via stderr; exit 3 signals script error
+                print(f"error: inline script failed (exit {_proc.returncode}): {_run_path}", file=sys.stderr)
+                sys.exit(3)  # finally block will close _db
             else:
                 _stdout_lines = _proc.stdout.decode(errors="replace").strip().splitlines()
                 _outputs = {}
@@ -311,16 +317,9 @@ def main() -> None:
                     },
                     db=_db,
                 )
-                action = {
-                    "action": "recorded",
-                    "step_id": _step_id,
-                    "phase": _phase,
-                    "outputs": _outputs,
-                }
-                exit_code = 0
+                # No JSON on stdout — driver loops by calling orchestrator next again
+                sys.exit(0)  # finally block will close _db
 
-        action["cost_so_far"] = _cost_so_far
-        print(emit_json(action), end="")
     finally:
         if _db is not None:
             try:

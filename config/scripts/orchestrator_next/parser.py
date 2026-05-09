@@ -23,6 +23,10 @@ class ContractError(ValueError):
     """Raised when a step contract is structurally invalid (HL-287 M2)."""
 
 
+class ContractDispatchError(ValueError):
+    """Raised when a step contract has neither agent: nor run: (ORC-45)."""
+
+
 @dataclass
 class StepContract:
     """Contract fields needed by the dispatcher.
@@ -31,7 +35,7 @@ class StepContract:
     Backward-compatible: contracts that don't declare the fields get `[]`.
     """
     id: str
-    agent: str
+    agent: str | None  # None = not declared (ORC-45: use run: path)
     run: str | None  # None = inline-only
     instruction: str
     rules: list[str]
@@ -137,7 +141,7 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
             allowed_tools = [str(x) if not isinstance(x, str) else x for x in raw_allowed]
             return StepContract(
                 id=data.get("id", step_id),
-                agent=data.get("agent", "inline"),
+                agent=data.get("agent") or None,
                 run=data.get("run"),
                 instruction=data.get("instruction", ""),
                 rules=data.get("rules", []),

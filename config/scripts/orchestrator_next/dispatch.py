@@ -1,15 +1,14 @@
 """
 Pure dispatcher: State → (action_dict, exit_code).
 
-Action types:
-  run_inline        — step has no run: field
-  run_step          — step has run: field
-  resume_step       — last history entry is in_progress (post-reconcile DB truth)
-  verify_phase      — all phase steps terminal, phase has verify block unevaluated
-  complete_workflow — all phases complete
-  blocked           — last entry is escalate_to_architect or blocked
+Protocol (ORC-45 two-path dispatch):
+  exit 0 + JSON with agent key  → driver spawns Agent tool
+  exit 0 + no JSON              → inline script ran and recorded; driver loops
+  exit 1                        → workflow complete; driver reads state.yaml
+  exit 2                        → step blocked; driver reads state.yaml
+  exit 3                        → ContractDispatchError (missing agent: and run:)
 
-Exit codes: 0=action, 1=complete_workflow, 2=blocked, 3=error.
+No action field. No signal field. No verify_phase.
 """
 from __future__ import annotations
 
@@ -23,6 +22,7 @@ import yaml
 
 from orchestrator_next.parser import (
     ContractError,
+    ContractDispatchError,
     State,
     StepContract,
     StepHistoryEntry,
@@ -177,7 +177,8 @@ def _resolve_allowed_tools(contract: StepContract) -> list[str]:
       - allowed_tools non-empty, no widening → sorted intersection
       - allowed_tools empty (absent/null/[]) → sorted full role list
     """
-    if contract.agent == "inline":
+    # For inline-script steps (no agent or agent="inline"), tools don't apply
+    if not contract.agent or contract.agent == "inline":
         if contract.allowed_tools:
             print(
                 f"WARNING: allowed_tools on inline step {contract.id!r} ignored",
@@ -257,17 +258,9 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
     step_ids = _phase_step_ids(state)
     last = _get_last_entry(state.step_history)
 
-    # --- Check: last entry is a blocking status → blocked
+    # --- Check: last entry is a blocking status → exit 2, no JSON (ORC-45)
     if last is not None and last.phase == state.phase and last.status in _BLOCKING_STATUSES:
-        action: dict[str, Any] = {
-            "action": "blocked",
-            "reason": last.status,
-            "phase": state.phase,
-            "step_id": last.step_id,
-        }
-        if last.escalation:
-            action["escalation"] = last.escalation
-        return action, 2
+        return {}, 2
 
     # --- Check: last entry is in_progress → resume (post-reconcile, this is the DB truth)
     if (
@@ -294,14 +287,12 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         inputs_resolved, _missing = _resolve_inputs(state, contract)
         resolved_allowed_tools = _resolve_allowed_tools(contract)
         action = {
-            "action": "resume_step",
             "step_id": step_id,
             "phase": state.phase,
             "attempt": attempt,
             "is_resume": True,
             "started_at": last.started_at,
             "agent": contract.agent,
-            "run": contract.run,
             "instruction": contract.instruction,
             "rules": contract.rules,
             "inputs": inputs_resolved,
@@ -331,19 +322,8 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
                 next_step_id = sid
                 break
 
-    # --- Check: all phase steps completed → verify or advance/complete
+    # --- Check: all phase steps completed → exit 1, no JSON (ORC-45)
     if next_step_id is None:
-        verify_block = _phase_verify_block(state)
-        if verify_block and not _phase_verify_evaluated(state.step_history, state.phase):
-            # Phase done but verify not yet run
-            action = {
-                "action": "verify_phase",
-                "phase": state.phase,
-                "commands": verify_block.get("commands", []),
-                "assertions": verify_block.get("assertions", []),
-            }
-            return action, 0
-
         # Warn if this phase is not the last in workflow_plan (driver must advance phase)
         plan = (state.workflow_plan or {})
         phase_names = list(plan.keys())
@@ -359,8 +339,8 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
                     file=sys.stderr,
                 )
 
-        # All phases complete (T-2: only single phase in fixtures, so this is "all done")
-        return {"action": "complete_workflow"}, 1
+        # All phases complete — exit 1, no JSON
+        return {}, 1
 
     # --- Load contract for the next step
     try:
@@ -387,16 +367,13 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
     # with contracts that declare `inputs:` but whose producers haven't
     # yet been migrated to emit them under `evidence.outputs.<name>`.
 
-    # HL-287 M3: inline: true + run: → execute the script directly (not an agent).
-    # Legacy run_step is agent-spawn with run: as an adapter path.
-    if contract.inline and contract.run:
+    # ORC-45 two-path dispatch: agent: → spawn; run: → execute inline; else → error.
+    if contract.agent:
         action = {
-            "action": "run_inline",
             "step_id": next_step_id,
             "phase": state.phase,
             "attempt": attempt,
-            "agent": "inline",
-            "run": contract.run,
+            "agent": contract.agent,
             "instruction": contract.instruction,
             "rules": contract.rules,
             "inputs": inputs_resolved,
@@ -404,13 +381,15 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "resolved_allowed_tools": resolved_allowed_tools,
             "env": env,
         }
+        plan_data = _load_plan(state_yaml_path)
+        action["step_context"] = _find_step_in_plan(plan_data, state.phase, next_step_id)
+        return action, 0
     elif contract.run:
+        # Inline script executed synchronously by CLI — no JSON emitted, exit 0
         action = {
-            "action": "run_step",
             "step_id": next_step_id,
             "phase": state.phase,
             "attempt": attempt,
-            "agent": contract.agent,
             "run": contract.run,
             "instruction": contract.instruction,
             "rules": contract.rules,
@@ -419,26 +398,13 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "resolved_allowed_tools": resolved_allowed_tools,
             "env": env,
         }
+        plan_data = _load_plan(state_yaml_path)
+        action["step_context"] = _find_step_in_plan(plan_data, state.phase, next_step_id)
+        return action, 0
     else:
-        action = {
-            "action": "run_inline",
-            "step_id": next_step_id,
-            "phase": state.phase,
-            "attempt": attempt,
-            "agent": contract.agent,
-            "instruction": contract.instruction,
-            "rules": contract.rules,
-            "inputs": inputs_resolved,
-            "expected_outputs": contract.outputs,
-            "resolved_allowed_tools": resolved_allowed_tools,
-            "env": env,
-        }
-
-    # Attach step_context from plan.yaml for all agent-spawning action types
-    plan_data = _load_plan(state_yaml_path)
-    action["step_context"] = _find_step_in_plan(plan_data, state.phase, next_step_id)
-
-    return action, 0
+        raise ContractDispatchError(
+            f"step_contract_missing_run: {next_step_id}"
+        )
 
 
 def emit_json(obj: dict[str, Any]) -> str:
