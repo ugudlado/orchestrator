@@ -52,6 +52,13 @@ mkdir -p "$DST"
 [ -d "$RR_SRC" ] && cp -a "$RR_SRC"/. "$DST"/ && rm -rf "$RR_SRC"
 
 ARCHIVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# Write cost-summary.md into the archive dir before committing.
+COST_REPORT_SCRIPT="$(dirname "$0")/../cost-report.sh"
+if [ -f "$COST_REPORT_SCRIPT" ] && [ -n "${ORCHESTRATOR_HOME:-}" ]; then
+  bash "$COST_REPORT_SCRIPT" --change-id "$CHANGE_ID" > "$DST/cost-summary.md" 2>/dev/null || true
+fi
+
 cd "$REPO_ROOT"
 git add "$ARCHIVE_PATH"
 git commit -m "archive: $CHANGE_ID — complete phase artifacts" 2>/dev/null

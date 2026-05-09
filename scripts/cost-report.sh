@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# Decision gate (T-9): inline formatter diff-empty against render_markdown_feature;
-# legacy renderer to be removed in T-12.
-#
 # cost-report.sh — Markdown cost summary for workflow-complete.
-# Usage: cost-report.sh --change-id <cid>
+# Usage: cost-report.sh --change-id <cid> [--tail]
 # Reads: $METRICS_DB or $ORCHESTRATOR_HOME/metrics.duckdb
-# Writes: 8-section markdown report to stdout
+# Writes: full 8-section markdown report to stdout (default)
+#         --tail: single summary line: "<id>: $X.XX · Ym · Z steps · Nx median"
 # Exit codes:
 #   0 — success
 #   1 — no events for change_id (or DB/query error)
@@ -15,15 +13,20 @@ set -uo pipefail
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 CHANGE_ID=""
+TAIL_MODE=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --change-id)
       CHANGE_ID="$2"
       shift 2
       ;;
+    --tail)
+      TAIL_MODE=true
+      shift
+      ;;
     *)
       echo "error: unknown argument '$1'" >&2
-      echo "Usage: cost-report.sh --change-id <change-id>" >&2
+      echo "Usage: cost-report.sh --change-id <change-id> [--tail]" >&2
       exit 3
       ;;
   esac
@@ -133,16 +136,26 @@ duckdb -readonly -json "$DB_PATH" -c "
   ORDER BY agent_name ASC, calls DESC, tool_name ASC" \
   > "$TMPDIR_REPORT/per_agent_tools.json"
 
+# ── Query 8: feature_baseline (median delta) ─────────────────────────────────
+duckdb -readonly -json "$DB_PATH" \
+  -c "SELECT change_id, cost_usd, duration_ms, step_count,
+             median_cost_usd, median_duration_ms, repo_feature_count
+      FROM feature_baseline
+      WHERE change_id = '$CHANGE_ID'" \
+  > "$TMPDIR_REPORT/baseline.json" 2>/dev/null || echo "[]" > "$TMPDIR_REPORT/baseline.json"
+
 # ── Inline python3 formatter ──────────────────────────────────────────────────
 CHANGE_ID_PY="$CHANGE_ID"
 DB_PATH_PY="$DB_PATH"
 TMPDIR_REPORT_PY="$TMPDIR_REPORT"
 ORCHESTRATOR_NEXT_PARENT_PY="$ORCHESTRATOR_NEXT_PARENT"
+TAIL_MODE_PY="$TAIL_MODE"
 
 python3 -c "
 import sys, json, os
 
 tmpdir = '$TMPDIR_REPORT_PY'
+tail_mode = '$TAIL_MODE_PY' == 'true'
 
 def load(fname):
     with open(os.path.join(tmpdir, fname)) as f:
@@ -155,12 +168,14 @@ agent_json          = load('agent.json')
 native_json         = load('native_tools.json')
 mcp_json            = load('mcp_calls.json')
 per_agent_tools_json = load('per_agent_tools.json')
+baseline_json       = load('baseline.json')
 
 if not feature_json:
     sys.stderr.write('error: no events for change_id=$CHANGE_ID_PY\n')
     sys.exit(1)
 
 r = feature_json[0]
+b = baseline_json[0] if baseline_json else None
 
 # ── Formatting helpers (mirror _fmt_* from cost_report.py) ────────────────────
 def fmt_usd(v):
@@ -190,6 +205,21 @@ def md_table(headers, rows):
         lines_t.append(f'| {sep.join(str(c) for c in row)} |')
     return '\n'.join(lines_t)
 
+def nx_label(cost, median):
+    if not median or median == 0:
+        return 'n/a'
+    ratio = float(cost) / float(median)
+    return f'{ratio:.2f}x median'
+
+# ── Tail mode: single summary line ────────────────────────────────────────────
+if tail_mode:
+    cost  = fmt_usd(r['cost_usd'])
+    dur   = fmt_ms(r['duration_ms'])
+    steps = r['step_count']
+    nx    = nx_label(r['cost_usd'], b['median_cost_usd'] if b else None)
+    print(f'$CHANGE_ID_PY: {cost} · {dur} · {steps} steps · {nx}')
+    sys.exit(0)
+
 lines = []
 
 # 1. Executive Summary
@@ -206,7 +236,22 @@ rework_ratio = float(r['rework_ratio']) if r.get('rework_ratio') is not None els
 lines.append(f'| Rework ratio | {rework_ratio:.1%} |')
 lines.append('')
 
-# 2. Per-Phase
+# 2. Median Delta
+lines.append('## Median Delta')
+lines.append('')
+if b and b.get('median_cost_usd') and b['median_cost_usd'] > 0:
+    n = b['repo_feature_count']
+    lines.append(f'| Metric | This run | Repo median (n={n}) | Delta |')
+    lines.append('| --- | --- | --- | --- |')
+    cost_nx   = float(r['cost_usd']) / float(b['median_cost_usd'])
+    dur_nx    = float(r['duration_ms']) / float(b['median_duration_ms']) if b.get('median_duration_ms') and b['median_duration_ms'] > 0 else None
+    lines.append(f'| Cost    | {fmt_usd(r[\"cost_usd\"])} | {fmt_usd(b[\"median_cost_usd\"])} | {cost_nx:.2f}x |')
+    lines.append(f'| Duration | {fmt_ms(r[\"duration_ms\"])} | {fmt_ms(b[\"median_duration_ms\"])} | {f\"{dur_nx:.2f}x\" if dur_nx else \"n/a\"} |')
+else:
+    lines.append('_Insufficient data for median comparison (need > 1 feature with cost > 0)._')
+lines.append('')
+
+# 3. Per-Phase
 lines.append('## Per-Phase')
 lines.append('')
 if phase_json:
@@ -227,7 +272,7 @@ else:
     lines.append('_No data._')
 lines.append('')
 
-# 3. Per-Agent
+# 4. Per-Agent
 lines.append('## Per-Agent')
 lines.append('')
 if agent_json:
@@ -248,7 +293,7 @@ else:
     lines.append('_No data._')
 lines.append('')
 
-# 4. Per-Model
+# 5. Per-Model
 lines.append('## Per-Model')
 lines.append('')
 if per_model_json:
@@ -268,7 +313,7 @@ else:
     lines.append('_No data._')
 lines.append('')
 
-# 5. Native Tools
+# 6. Native Tools
 lines.append('## Native Tools')
 lines.append('')
 if native_json:
@@ -288,7 +333,7 @@ else:
     lines.append('_No native tool calls._')
 lines.append('')
 
-# 6. MCP Calls
+# 7. MCP Calls
 lines.append('## MCP Calls')
 lines.append('')
 if mcp_json:
@@ -308,7 +353,7 @@ else:
     lines.append('_No MCP calls._')
 lines.append('')
 
-# 7. Per-Agent Tool Use
+# 8. Per-Agent Tool Use
 lines.append('## Per-Agent Tool Use')
 lines.append('')
 if per_agent_tools_json:
@@ -331,7 +376,7 @@ else:
     lines.append('_No tool call data._')
     lines.append('')
 
-# 8. Anomalies — import _anomalies from cost_report.py (preserved per D-1)
+# 9. Anomalies — import _anomalies from cost_report.py (preserved per D-1)
 lines.append('## Anomalies')
 lines.append('')
 lines.append('### Tool not in role')

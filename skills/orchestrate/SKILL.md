@@ -138,16 +138,18 @@ LOOP:
   # `complete_workflow` — this is NOT a failure. Always parse stdout JSON
   # regardless of exit code inside this dispatch loop.
   action = orchestrator next $WORKFLOW_STATE_DIR/$CHANGE_ID/state.yaml
+  # Show running cost after every step (AC-3, ORC-42). cost_so_far is always
+  # present in the action dict (0.0 when DB unavailable). Skip if 0.
+  IF action.cost_so_far > 0:
+      print(f"  [cost so far: ${action.cost_so_far:.2f}]")
 
   IF action.action == "complete_workflow":
-      # Cost report: run `scripts/cost-report.sh --change-id <change_id>` and include
-      # its stdout verbatim in the final message to the user. This is the canonical
-      # end-of-workflow cost summary (HL-290). No file is committed; no archive
-      # side-effect. If `cost-report.sh` exits non-zero, the wrap-up's final
-      # message must convey a non-zero failure (include script stderr verbatim)
-      # — do not silently skip.
+      # Full cost report + one-line tail summary.
+      # Run both; include both in the final message to the user.
+      # If cost-report.sh exits non-zero, include script stderr verbatim — do not skip.
       cost_report = run `scripts/cost-report.sh --change-id $CHANGE_ID`
-      STOP (workflow done) — include cost_report stdout in your final message
+      cost_tail   = run `scripts/cost-report.sh --change-id $CHANGE_ID --tail`
+      STOP (workflow done) — include cost_tail as the headline, then cost_report stdout below it
   IF action.action == "blocked":            STOP (escalate or fix)
   IF action.action == "verify_phase":       run action.commands + action.assertions
   IF action.action == "run_inline" AND action.agent == "inline":
