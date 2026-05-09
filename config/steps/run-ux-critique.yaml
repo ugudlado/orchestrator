@@ -55,6 +55,6 @@ verify:
   - All verify_commands pass after fixes
 
 outputs:
-  - critique_score: number
-  - critique_skipped: boolean
-  - critique_retries: number
+  - critique_score
+  - critique_skipped
+  - critique_retries
