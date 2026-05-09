@@ -73,19 +73,9 @@ else
 fi
 
 # ── Ensure schema ────────────────────────────────────────────────────────
+# features, per_agent_metrics, per_step_metrics are views (migration 0005).
+# step_history is a legacy YAML-ingest table kept for old archives.
 duckdb "$DB" <<'SQL'
-CREATE TABLE IF NOT EXISTS features (
-  repo_root      VARCHAR NOT NULL,
-  change_id      VARCHAR NOT NULL,
-  schema         VARCHAR,
-  status         VARCHAR,
-  started_at     VARCHAR,
-  completed_at   VARCHAR,
-  payload_json   VARCHAR,
-  ingested_at    TIMESTAMP DEFAULT current_timestamp,
-  PRIMARY KEY (repo_root, change_id)
-);
-
 CREATE TABLE IF NOT EXISTS step_history (
   repo_root     VARCHAR NOT NULL,
   change_id     VARCHAR NOT NULL,
@@ -101,29 +91,6 @@ CREATE TABLE IF NOT EXISTS step_history (
   duration_ms   BIGINT,
   tools_json    VARCHAR,
   PRIMARY KEY (repo_root, change_id, step_ord)
-);
-
-CREATE TABLE IF NOT EXISTS per_agent_metrics (
-  repo_root     VARCHAR NOT NULL,
-  change_id     VARCHAR NOT NULL,
-  agent         VARCHAR NOT NULL,
-  total_tokens  BIGINT,
-  cost_usd      DOUBLE,
-  tool_uses     INTEGER,
-  duration_ms   BIGINT,
-  steps         INTEGER,
-  PRIMARY KEY (repo_root, change_id, agent)
-);
-
-CREATE TABLE IF NOT EXISTS per_step_metrics (
-  repo_root     VARCHAR NOT NULL,
-  change_id     VARCHAR NOT NULL,
-  step_id       VARCHAR NOT NULL,
-  total_tokens  BIGINT,
-  tool_uses     INTEGER,
-  duration_ms   BIGINT,
-  cost_usd      DOUBLE,
-  PRIMARY KEY (repo_root, change_id, step_id)
 );
 
 CREATE TABLE IF NOT EXISTS per_agent_tool_uses (
@@ -167,12 +134,9 @@ SQL
 if [[ "$REBUILD" == true ]]; then
   q_repo_rb="${REPO_ROOT//\'/\'\'}"
   duckdb "$DB" <<SQL
-DELETE FROM step_history          WHERE repo_root = '$q_repo_rb';
-DELETE FROM per_agent_metrics     WHERE repo_root = '$q_repo_rb';
-DELETE FROM per_step_metrics      WHERE repo_root = '$q_repo_rb';
-DELETE FROM per_agent_tool_uses   WHERE repo_root = '$q_repo_rb';
-DELETE FROM per_tool_uses         WHERE repo_root = '$q_repo_rb';
-DELETE FROM features              WHERE repo_root = '$q_repo_rb';
+DELETE FROM step_history        WHERE repo_root = '$q_repo_rb';
+DELETE FROM per_agent_tool_uses WHERE repo_root = '$q_repo_rb';
+DELETE FROM per_tool_uses       WHERE repo_root = '$q_repo_rb';
 SQL
   echo "rebuild: deleted existing rows for $REPO_ROOT"
 fi
@@ -227,20 +191,12 @@ for state_file in $ARCHIVE_GLOB; do
   q_completed=$(sql_quote "$completed")
   q_payload=$(sql_quote "$json")
 
-  # 1. Child-first delete for (repo_root, change_id)
+  # 1. Delete old step_history rows before reinserting (features/per_agent/per_step are views)
   duckdb "$DB" <<SQL || { failed=$((failed + 1)); continue; }
-DELETE FROM step_history      WHERE repo_root = '$q_repo' AND change_id = '$q_change';
-DELETE FROM per_agent_metrics WHERE repo_root = '$q_repo' AND change_id = '$q_change';
-DELETE FROM per_step_metrics  WHERE repo_root = '$q_repo' AND change_id = '$q_change';
+DELETE FROM step_history WHERE repo_root = '$q_repo' AND change_id = '$q_change';
 SQL
 
-  # 2. Existing features upsert
-  duckdb "$DB" <<SQL || { failed=$((failed + 1)); continue; }
-INSERT OR REPLACE INTO features (repo_root, change_id, schema, status, started_at, completed_at, payload_json)
-VALUES ('$q_repo', '$q_change', '$q_schema', '$q_status', '$q_started', '$q_completed', '$q_payload');
-SQL
-
-  # 3. Child insert — step_history
+  # 2. step_history insert
   step_count=$(yq '.step_history | length' "$state_file" 2>/dev/null || echo "0")
   if [[ "$step_count" =~ ^[0-9]+$ && "$step_count" -gt 0 ]]; then
     for step_ord in $(seq 0 $((step_count - 1))); do
@@ -289,32 +245,7 @@ SQL
     done
   fi
 
-  # 4. Child insert — per_agent_metrics (per_agent_tokens is a JSON-string scalar)
-  per_agent_json=$(yq -r '.metrics.per_agent_tokens // ""' "$state_file" 2>/dev/null || echo "")
-  if [[ -n "$per_agent_json" && "$per_agent_json" != "null" ]]; then
-    while IFS= read -r agent_key; do
-      [[ -z "$agent_key" ]] && continue
-      pa_tokens=$(echo "$per_agent_json" | yq -p=json -r ".[\"$agent_key\"].total_tokens // null" 2>/dev/null || echo "null")
-      pa_cost=$(  echo "$per_agent_json" | yq -p=json -r ".[\"$agent_key\"].cost_usd      // null" 2>/dev/null || echo "null")
-      pa_tools=$( echo "$per_agent_json" | yq -p=json -r ".[\"$agent_key\"].tool_uses     // null" 2>/dev/null || echo "null")
-      pa_dur=$(   echo "$per_agent_json" | yq -p=json -r ".[\"$agent_key\"].duration_ms   // null" 2>/dev/null || echo "null")
-      pa_steps=$( echo "$per_agent_json" | yq -p=json -r ".[\"$agent_key\"].steps         // null" 2>/dev/null || echo "null")
-
-      q_agent=$(sql_quote "$agent_key")
-      PA_TOKENS=$(  [[ "$pa_tokens" == "null" ]] && echo "NULL" || echo "$pa_tokens")
-      PA_COST=$(    [[ "$pa_cost"   == "null" ]] && echo "NULL" || echo "$pa_cost")
-      PA_TOOLS=$(   [[ "$pa_tools"  == "null" ]] && echo "NULL" || echo "$pa_tools")
-      PA_DUR=$(     [[ "$pa_dur"    == "null" ]] && echo "NULL" || echo "$pa_dur")
-      PA_STEPS=$(   [[ "$pa_steps"  == "null" ]] && echo "NULL" || echo "$pa_steps")
-
-      duckdb "$DB" <<SQL 2>/dev/null || true
-INSERT INTO per_agent_metrics (repo_root, change_id, agent, total_tokens, cost_usd, tool_uses, duration_ms, steps)
-VALUES ('$q_repo', '$q_change', '$q_agent', $PA_TOKENS, $PA_COST, $PA_TOOLS, $PA_DUR, $PA_STEPS);
-SQL
-    done < <(echo "$per_agent_json" | yq -p=json -r 'keys | .[]' 2>/dev/null)
-  fi
-
-  # 4b. Child insert — per_agent_tool_uses (per_agent_tools is a JSON-string scalar)
+  # 4. per_agent_tool_uses (per_agent_tools is a JSON-string scalar)
   per_agent_tools_json=$(yq -r '.metrics.per_agent_tools // ""' "$state_file" 2>/dev/null || echo "")
   if [[ -n "$per_agent_tools_json" && "$per_agent_tools_json" != "null" && "$per_agent_tools_json" != "{}" ]]; then
     while IFS= read -r agent_key; do
@@ -346,29 +277,6 @@ INSERT INTO per_tool_uses (repo_root, change_id, tool_name, uses)
 VALUES ('$q_repo', '$q_change', '$q_tool', $pt_uses);
 SQL
     done < <(echo "$per_tool_json" | yq -p=json -r 'keys | .[]' 2>/dev/null)
-  fi
-
-  # 5. Child insert — per_step_metrics (per_step is a YAML map)
-  per_step_type=$(yq '.metrics.per_step | type' "$state_file" 2>/dev/null || echo "")
-  if [[ "$per_step_type" == "!!map" ]]; then
-    while IFS= read -r ps_step_id; do
-      [[ -z "$ps_step_id" ]] && continue
-      ps_tokens=$(yq -r ".metrics.per_step[\"$ps_step_id\"].total_tokens // null" "$state_file" 2>/dev/null || echo "null")
-      ps_tools=$(  yq -r ".metrics.per_step[\"$ps_step_id\"].tool_uses     // null" "$state_file" 2>/dev/null || echo "null")
-      ps_dur=$(    yq -r ".metrics.per_step[\"$ps_step_id\"].duration_ms   // null" "$state_file" 2>/dev/null || echo "null")
-      ps_cost=$(   yq -r ".metrics.per_step[\"$ps_step_id\"].cost_usd      // null" "$state_file" 2>/dev/null || echo "null")
-
-      q_ps_id=$(sql_quote "$ps_step_id")
-      PS_TOKENS=$(  [[ "$ps_tokens" == "null" ]] && echo "NULL" || echo "$ps_tokens")
-      PS_TOOLS=$(   [[ "$ps_tools"  == "null" ]] && echo "NULL" || echo "$ps_tools")
-      PS_DUR=$(     [[ "$ps_dur"    == "null" ]] && echo "NULL" || echo "$ps_dur")
-      PS_COST=$(    [[ "$ps_cost"   == "null" ]] && echo "NULL" || echo "$ps_cost")
-
-      duckdb "$DB" <<SQL 2>/dev/null || true
-INSERT INTO per_step_metrics (repo_root, change_id, step_id, total_tokens, tool_uses, duration_ms, cost_usd)
-VALUES ('$q_repo', '$q_change', '$q_ps_id', $PS_TOKENS, $PS_TOOLS, $PS_DUR, $PS_COST);
-SQL
-    done < <(yq -r '.metrics.per_step | keys | .[]' "$state_file" 2>/dev/null)
   fi
 
   ingested=$((ingested + 1))
