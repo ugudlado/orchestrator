@@ -1,10 +1,13 @@
 ---
 id: ORC-1
-title: Auto-render `cost-summary.md` next to retro.md at archive time
-status: To Do
-assignee: []
+title: >-
+  Cost reporting pipeline: cost-summary.md at archive + median delta + run-end
+  tail
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-05-03 10:55'
-updated_date: '2026-05-03 11:07'
+updated_date: '2026-05-09 10:51'
 labels:
   - slug-cost-summary-on-archive
   - feature
@@ -13,8 +16,9 @@ labels:
 dependencies: []
 references:
   - >-
-    Ideation session 2026-05-03 with the user — bundled #1+#4 from a 5-idea
-    ranking.
+    https://linear.app/home-labs-experiments/issue/HL-302/auto-render-cost-summarymd-next-to-retromd-at-archive-time
+  - >-
+    https://linear.app/home-labs-experiments/issue/HL-290/duckdb-cost-report-generator-complete-phase-integration
 priority: high
 ordinal: 34000
 ---
@@ -22,63 +26,46 @@ ordinal: 34000
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-<!-- migrated from spec/changes/backlog.md slug: cost-summary-on-archive -->
+Consolidates ORC-1, ORC-2, and ORC-3 into a single deliverable.
 
-**Original score:** 9.2 | **Recurrence:** 1
+cost-report.sh already works and produces a full 8-section report to stdout.
+The orchestrate skill already calls it at workflow completion. Three gaps remain:
 
-## Idea
-
-Today, after a feature lands, all the cost / token / timing data exists in DuckDB (`feature_report` view + `step_events` table) but the user has to manually run `/telemetry` or `metrics-query.sh` to see it. The data is captured; the consumption side is manual.
-
-Add a render step inside `mark-change-completed.yaml` (or `archive-completed-change.yaml`) that queries `feature_report` for the just-completed `change_id`, joins per-step rows from `step_events`, and writes `spec/changes/archive/<date>-<slug>/cost-summary.md` with:
-
-- **Totals**: `cost_usd`, input/output/cache tokens, total tokens, wall-clock `duration_ms`
-- **Per-agent breakdown** (from `per_agent_metrics` JSON in `feature_report`)
-- **Per-phase timing** (group `step_events` by phase: "specify 14m, implement 38m, complete 6m")
-- **Top 3 most expensive steps** (by `cost_usd` from `step_events`)
-- **Per-step timing detail** (sub-bullets under each phase: "execute-next-task 31m [hot retry]")
-
-Folds in idea #4 from the cost-metrics ideation session — step-grain timing — into the same template so it ships with the summary in one feature instead of two.
-
-## Why Now
-
-- All the SQL infrastructure exists (`feature_report` view shipped via `report-views-retire-cli`, `step_events` shipped via `subprocess-per-step-observability`). The work is one template + one step-contract edit.
-- Closes the loop: every feature ends with a self-contained cost report next to its `retro.md`. No more "where did the time go on that one?" guessing.
-- Prerequisite for `cost-delta-baseline` — having the rendered template makes it trivial to add a "Nx median" line later.
-- Cheap precursor to the autopilot cost tail and to any future regression-detection work.
+1. cost-summary.md not written to archive — archive-completed-change.sh never captures cost-report.sh stdout to a file
+2. No median delta — no per-repo baseline view to compare this run's cost against the repo median
+3. No run-end tail line — cost-report.sh has no --tail mode for a single summary line
 
 ## Scope
 
-1. New SQL query (or named query in `metrics-query.sh`): `feature-summary <change_id>` returning the full row + per-step rollup.
-2. New template at `config/templates/feature/cost-summary.md` with sections for totals, per-agent, per-phase, top-3 steps.
-3. Edit `config/steps/archive-completed-change.yaml` (or `mark-change-completed.yaml`) to render the template into the archive directory.
-4. Test: archive a small completed feature and assert `cost-summary.md` exists with non-empty sections.
-
-## Out of scope
-
-- Comparison vs baseline (covered by `cost-delta-baseline`).
-- Real-time emit during autopilot (covered by `autopilot-cost-tail`).
-- Changing `feature_report` view shape — read-only consumer.
-
-## Priority
-
-- User value: 9/10 (visibility every feature, zero manual queries)
-- Strategic fit: 9/10 (closes the metrics consumption loop)
-- Technical leverage: 8/10 (~50 lines: template + SQL + step edit)
-- Effort: small
-- **Score: 8.4**
-
-## Source
-
-- Ideation session 2026-05-03 with the user — bundled #1+#4 from a 5-idea ranking.
-
----
+A. Add 3 lines to archive-completed-change.sh: call cost-report.sh, write output to $DST/cost-summary.md
+B. Add feature_baseline DuckDB view (window median of cost_usd partitioned by repo_root)
+C. Add --tail flag to cost-report.sh: single line "orc-39: $50.79 · 131m · 34 steps · 2.9x median"
+D. Add median delta section to cost-report.sh formatter (reuses feature_baseline view)
+E. Wire tail line into orchestrate skill SKILL.md run-end block (after full report)
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 New SQL query (or named query in `metrics-query.sh`): `feature-summary <change_id>` returning the full row + per-step rollup.
-- [ ] #2 New template at `config/templates/feature/cost-summary.md` with sections for totals, per-agent, per-phase, top-3 steps.
-- [ ] #3 Edit `config/steps/archive-completed-change.yaml` (or `mark-change-completed.yaml`) to render the template into the archive directory.
-- [ ] #4 Test: archive a small completed feature and assert `cost-summary.md` exists with non-empty sections.
+- [x] #1 New SQL query (or named query in `metrics-query.sh`): `feature-summary <change_id>` returning the full row + per-step rollup.
+- [x] #2 New template at `config/templates/feature/cost-summary.md` with sections for totals, per-agent, per-phase, top-3 steps.
+- [x] #3 Edit `config/steps/archive-completed-change.yaml` (or `mark-change-completed.yaml`) to render the template into the archive directory.
+- [x] #4 Test: archive a small completed feature and assert `cost-summary.md` exists with non-empty sections.
+- [x] #5 archive-completed-change.sh calls cost-report.sh and writes cost-summary.md to archive dir
+- [ ] #6 feature_baseline view exists in metrics.duckdb with per-repo median cost_usd
+- [x] #7 cost-report.sh --tail mode prints single summary line with cost, duration, steps, and Nx median
+- [ ] #8 cost-report.sh full report includes a Median Delta section showing Nx repo median
+- [ ] #9 skills/orchestrate/SKILL.md run-end block emits tail line after full cost report
+- [ ] #10 tests: archive a completed feature and assert cost-summary.md exists with non-empty Executive Summary
+- [ ] #11 ORC-2 and ORC-3 backlog tasks archived/marked Done
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented all 4 pieces:
+- 0004_feature_baseline_view.sql migration: MEDIAN() window function partitioned by repo_root
+- cost-report.sh: added --tail flag (single line) + Median Delta section in full report
+- archive-completed-change.sh: calls cost-report.sh and writes cost-summary.md before git commit
+- SKILL.md: run-end block now emits tail headline + full report
+All 365 tests passing.
+<!-- SECTION:NOTES:END -->

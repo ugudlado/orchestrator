@@ -1,10 +1,10 @@
 ---
 id: ORC-3
 title: One-line cost summary at end of every /orchestrate run
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-03 10:55'
-updated_date: '2026-05-03 11:00'
+updated_date: '2026-05-09 10:46'
 labels:
   - slug-cost-tail-on-orchestrate-complete
   - feature
@@ -84,3 +84,9 @@ The orchestrate skill already runs `scripts/cost-report.sh --change-id $CHANGE_I
 - [ ] #2 Edit `skills/orchestrate/SKILL.md` complete-phase block: after the cost-report stdout, also emit the tail line on its own.
 - [ ] #3 Test: archive a small completed feature and assert the tail line is present + matches the expected shape.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Absorbed into ORC-1 (Cost reporting pipeline). --tail flag and run-end tail line are now part of ORC-1 scope.
+<!-- SECTION:FINAL_SUMMARY:END -->

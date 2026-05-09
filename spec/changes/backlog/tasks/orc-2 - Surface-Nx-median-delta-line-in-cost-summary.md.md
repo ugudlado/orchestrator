@@ -1,10 +1,10 @@
 ---
 id: ORC-2
 title: Surface "Nx median" delta line in cost-summary.md
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-03 10:55'
-updated_date: '2026-05-03 11:00'
+updated_date: '2026-05-09 10:46'
 labels:
   - slug-cost-delta-baseline
   - feature
@@ -83,3 +83,9 @@ This is the cheap precursor to the existing `metrics-regression-detection` backl
 - [ ] #3 Update `cost-summary.md` template to render delta section.
 - [ ] #4 Test: median calculation against a fixture with 3+ features per repo.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Absorbed into ORC-1 (Cost reporting pipeline). Median delta section + feature_baseline view are now part of ORC-1 scope.
+<!-- SECTION:FINAL_SUMMARY:END -->
