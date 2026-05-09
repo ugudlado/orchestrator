@@ -2,27 +2,3 @@ id: compute-prediction-accuracy
 inline: true
 run: scripts/inline/compute-prediction-accuracy.py
 version: 1
-
-intent: Compare what the spec predicted (task count, files to change) against what actually happened, and write a prediction_accuracy block to state.yaml for /learn to consume.
-
-
-inputs:
-  - final_signoff_decision
-  - tasks.md (actual tasks including fix tasks)
-  - spec.md or fix-plan.md (predicted scope)
-  - git diff (actual files changed)
-
-rules:
-  - Prediction accuracy failure is non-blocking — if computation fails, log a warning and return success.
-  - Read state.yaml from the active change directory (this step runs before archive).
-  - Predicted task count comes from tasks.md: count all tasks (lines matching "^- \["). Original predicted = tasks with "T-" prefix (not "T-Nb" fix variants). Total actual = all tasks including fix tasks.
-  - Rework rate = fix tasks / total tasks. Fix tasks are those added during implementation (IDs like T-2b, T-3b, T-fix-*, or explicitly labelled "fix" in the task name).
-  - Predicted files come from the spec artifact's "Files" or "File Modification Table" section. Actual files come from git diff --name-only between the feature branch and main.
-  - Do not fail or block the complete phase over accuracy computation errors.
-
-verify:
-  - prediction_accuracy block exists in state.yaml (either with data or with status: computation_failed)
-  - Step completed (either accuracy computed or accuracy_skipped recorded in step result)
-
-outputs:
-  - prediction_accuracy_result

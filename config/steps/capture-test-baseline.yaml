@@ -2,24 +2,3 @@ id: capture-test-baseline
 inline: true
 run: scripts/inline/capture-test-baseline.sh
 version: 1
-
-intent: Record the pre-implementation test suite state for later regression detection.
-
-inputs:
-  - project.verify_commands (from spec/project.yaml)
-
-rules:
-  - Run once at the start of the implement phase, before any task executes.
-  - Capture only counts — not logs, not diffs. Baseline must be small and durable.
-  - If the test command does not exist or does not emit parseable counts, write baseline.skipped: true with a reason instead of failing.
-  - Never fail the phase on baseline capture. A missing baseline disables the regression gate; it does not block implementation.
-
-verify:
-  evidence_required: true
-  assertions:
-    - state.yaml contains a top-level `baseline:` block
-    - If baseline.skipped is not true, baseline has numeric passing/failing/skipped/total fields
-    - step_history entry recorded for this step
-
-outputs:
-  - test_baseline

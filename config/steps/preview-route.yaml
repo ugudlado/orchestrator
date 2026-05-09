@@ -2,22 +2,3 @@ id: preview-route
 inline: true
 run: scripts/inline/preview-route.sh
 version: 1
-
-intent: Show which agent→model routes will run this feature and an estimate from archive history.
-
-inputs:
-  - state.yaml
-  - tasks.md
-
-rules:
-  - Non-blocking. A script failure or missing pricing table must not halt the phase.
-  - Informational only — never gate on estimate size. No budget caps here.
-  - Estimate source is descriptive (archive median), not predictive. Callers tune future estimates by comparing estimate_vs_actual after complete phase.
-
-verify:
-  assertions:
-    - state.yaml contains a top-level `route_preview:` block (either full estimate or `status: estimate_unavailable`)
-    - step_history[-1].step_id is `preview-route` with status: completed
-
-outputs:
-  - route_preview

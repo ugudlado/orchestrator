@@ -54,24 +54,22 @@ def test_fr1_workflow_init_active_key():
 # FR-3: preview-route.yaml outputs uses bareword `route_preview`, not prose phrase
 # ---------------------------------------------------------------------------
 
-def test_fr3_preview_route_output_identifier():
-    """config/steps/preview-route.yaml must have `route_preview` as an outputs key.
+def test_fr3_preview_route_script_path():
+    """config/steps/preview-route.yaml run: must point to the inline script.
 
     Must NOT contain the literal phrase 'state.yaml route_preview block'.
-    Must contain `route_preview` as a bareword outputs entry.
+    Must contain run: pointing to scripts/inline/preview-route.sh.
     """
     content = _read("config/steps/preview-route.yaml")
 
     # Must NOT contain the prose phrase
     assert "state.yaml route_preview block" not in content, (
         "config/steps/preview-route.yaml still contains 'state.yaml route_preview block'. "
-        "Replace with the bareword `route_preview` in the outputs list."
     )
 
-    # Must contain `route_preview` as a bareword (outputs entry)
-    assert re.search(r"^\s*-\s+route_preview\s*$", content, re.MULTILINE), (
-        "config/steps/preview-route.yaml does not contain `route_preview` as a "
-        "list entry under outputs. Add `- route_preview` to the outputs section."
+    # Must contain run: pointing to the inline script
+    assert "scripts/inline/preview-route.sh" in content, (
+        "config/steps/preview-route.yaml run: must reference 'scripts/inline/preview-route.sh'."
     )
 
 
@@ -197,21 +195,9 @@ def test_fr9_skill_usage_capture_mandatory():
 # ---------------------------------------------------------------------------
 
 def test_fr10_compute_swe_metrics_path():
-    """config/steps/compute-swe-metrics.yaml must reference scripts/inline/compute-swe-metrics.sh.
-    Must NOT contain the buggy path without /inline/.
-    """
+    """config/steps/compute-swe-metrics.yaml run: must point to scripts/inline/compute-swe-metrics.sh."""
     content = _read("config/steps/compute-swe-metrics.yaml")
 
-    # Must NOT contain the old incorrect path (without /inline/)
-    assert "$ORCHESTRATOR_HOME/scripts/compute-swe-metrics.sh" not in content, (
-        "config/steps/compute-swe-metrics.yaml still references "
-        "'$ORCHESTRATOR_HOME/scripts/compute-swe-metrics.sh' (missing /inline/). "
-        "Change to '$ORCHESTRATOR_HOME/scripts/inline/compute-swe-metrics.sh'."
-    )
-
-    # Must contain the correct path
-    assert "$ORCHESTRATOR_HOME/scripts/inline/compute-swe-metrics.sh" in content, (
-        "config/steps/compute-swe-metrics.yaml does not reference "
-        "'$ORCHESTRATOR_HOME/scripts/inline/compute-swe-metrics.sh'. "
-        "Update instruction step 2a with the correct path."
+    assert "scripts/inline/compute-swe-metrics.sh" in content, (
+        "config/steps/compute-swe-metrics.yaml run: must reference 'scripts/inline/compute-swe-metrics.sh'."
     )

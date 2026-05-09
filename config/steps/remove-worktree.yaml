@@ -2,20 +2,3 @@ id: remove-worktree
 inline: true
 run: scripts/inline/remove-worktree.sh
 version: 1
-
-intent: Remove the feature worktree and clean up the feature branch after archive.
-
-inputs:
-  - state.yaml (worktree_path, slug)
-
-rules:
-  - Only remove worktrees under ~/code/feature_worktrees/ — safety guard.
-  - Use git branch -d (not -D) to prevent deleting unmerged work.
-  - Prune stale worktree references after removal.
-
-verify:
-  - Worktree directory no longer exists at ~/code/feature_worktrees/$SLUG
-  - git worktree list does not include the removed path
-  - Feature branch deleted (or warning logged if unmerged)
-
-outputs: []

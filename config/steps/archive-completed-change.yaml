@@ -2,29 +2,3 @@ id: archive-completed-change
 inline: true
 run: scripts/inline/archive-completed-change.sh
 version: 6
-
-intent: Copy completed change artifacts to the repo archive and commit.
-
-
-inputs:
-  - swe_metrics
-  - project_storage_config
-
-rules:
-  - "HL-303: Collect from two sources — worktree ($WORKTREE_ARTIFACT_DIR/$CHANGE_ID/) for tracked artifacts (spec.md, design.md, tasks.md, diagnose.md), and repo_root ($WORKFLOW_STATE_DIR/$CHANGE_ID/) for state/plan (state.yaml, plan.yaml). Both are merged into a single archive destination."
-  - Archive to repo (spec/changes/archive/YYYY-MM-DD-<change-id>).
-  - Preserve .spec.yaml, all generated artifacts, and state.yaml (with metrics).
-  - "state.yaml MUST already contain status: completed, completed_at, archive_path,
-    and metrics — these are written by mark-change-completed and compute-swe-metrics
-    steps that run before this step. Do NOT rewrite them here."
-  - Cleanup failure is non-blocking — the archive is the priority.
-  - When flags.worktree is false (or worktree_path is absent), WORKTREE_ROOT will be empty and only the repo_root source is used — behavior is backward-compatible.
-
-verify:
-  - Archive directory exists in repo at spec/changes/archive/
-  - All artifacts copied from active change dir to archive
-  - state.yaml in archive contains `status: completed` (written by mark-change-completed)
-  - state.yaml in archive contains a `metrics:` block (written by compute-swe-metrics)
-
-outputs:
-  - archive_record

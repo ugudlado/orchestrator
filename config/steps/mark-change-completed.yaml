@@ -2,25 +2,3 @@ id: mark-change-completed
 inline: true
 run: scripts/inline/mark-change-completed.sh
 version: 1
-
-intent: Write completion fields to state.yaml and validate step_history usage coverage.
-
-# Inline step — no agent field. Executed directly by the orchestrator dispatch loop.
-
-inputs:
-  - state.yaml (active change)
-
-rules:
-  - Run immediately before compute-swe-metrics so completed_at is available for JSONL time-window bounding.
-  - Validator is non-blocking — always exits 0 regardless of coverage ratio.
-  - archive_path uses ISO date prefix from completed_at (YYYY-MM-DD-<change-id>).
-  - Verify all acceptance criteria with evidence before marking the change completed.
-
-verify:
-  - state.yaml contains top-level `status: completed`
-  - state.yaml contains top-level `completed_at` (non-empty ISO 8601 string)
-  - state.yaml contains top-level `archive_path` (non-empty string starting with spec/changes/archive/)
-  - Validator ran and exited 0 (workflow continues)
-
-outputs:
-  - state_completion_fields
