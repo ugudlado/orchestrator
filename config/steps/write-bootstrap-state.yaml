@@ -1,5 +1,6 @@
 id: write-bootstrap-state
-version: 1
+version: 2
+run: scripts/inline/write-bootstrap-state.sh
 
 intent: Write .tooling-state.json to mark bootstrap complete. Enables idempotency.
 

@@ -1,5 +1,6 @@
 id: setup-portless
-version: 1
+version: 2
+run: scripts/inline/setup-portless.sh
 
 intent: Configure portless named .localhost dev URL for web projects.
 

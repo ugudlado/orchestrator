@@ -1,5 +1,6 @@
 id: check-linear-config
-version: 1
+version: 2
+run: scripts/inline/check-linear-config.sh
 
 intent: Check if repo is registered in Linear config. Informational only — never blocks.
 

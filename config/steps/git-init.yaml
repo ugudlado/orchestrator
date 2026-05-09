@@ -1,5 +1,6 @@
 id: git-init
-version: 1
+version: 2
+run: scripts/inline/git-init.sh
 
 intent: Ensure the repo is a git repository. Initialize if not.
 

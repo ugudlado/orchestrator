@@ -1,5 +1,6 @@
 id: bootstrap-commit
-version: 1
+version: 2
+run: scripts/inline/bootstrap-commit.sh
 
 intent: Stage all bootstrap-generated files and create the initial git commit.
 

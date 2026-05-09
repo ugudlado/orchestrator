@@ -1,5 +1,6 @@
 id: run-quality-baseline
-version: 1
+version: 2
+run: scripts/inline/run-quality-baseline.sh
 
 intent: Run all quality gates, auto-fix where possible, establish passing baseline.
 

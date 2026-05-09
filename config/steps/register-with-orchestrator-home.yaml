@@ -1,5 +1,6 @@
 id: register-with-orchestrator-home
-version: 1
+version: 2
+run: scripts/inline/register-with-orchestrator-home.sh
 
 intent: >
   Append the bootstrapped repo to the cross-repo metrics registry

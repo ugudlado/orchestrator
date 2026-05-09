@@ -1,5 +1,6 @@
 id: verify-report
-version: 1
+version: 2
+run: scripts/inline/verify-report.sh
 
 intent: Print a final summary of all bootstrap steps and their outcomes.
 
