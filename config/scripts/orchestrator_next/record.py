@@ -1028,6 +1028,27 @@ def record(
 
     outputs: dict[str, Any] = payload.get("outputs") or {}
 
+    # Load contract once; reused for expected_outputs validation and Check B
+    # (agent guard + token check). ContractError treated as missing file —
+    # fall back to no-contract behavior rather than blocking the record.
+    try:
+        contract = load_contract_for_step(step_id, state_yaml_path)
+    except (FileNotFoundError, ContractError) as _e:
+        sys.stderr.write(f"[record] contract load failed for {step_id}: {_e}\n")
+        contract = None
+
+    if contract is not None and status == "completed":
+        missing_out = [k for k in contract.outputs if k not in outputs]
+        if missing_out:
+            return (
+                {
+                    "reason": "missing_outputs",
+                    "step_id": step_id,
+                    "missing_outputs": missing_out,
+                },
+                3,
+            )
+
     # Check A: workflow_plan.active shape on workflow-init completion.
     # Root cause of ISSUE-1: dispatcher reads .active to build the work queue;
     # an empty or missing list causes it to immediately return complete_workflow.
@@ -1045,27 +1066,6 @@ def record(
                     "reason": "workflow_plan_active_missing_or_empty",
                     "phases": bad_phases,
                     "hint": "workflow_plan[<phase>].active must be a non-empty list of step IDs",
-                },
-                3,
-            )
-
-    # Load contract once; reused for expected_outputs validation, Check B
-    # agent guard, and token check. ContractError is treated the same as a
-    # missing file — fall back to no-contract behavior rather than blocking.
-    try:
-        contract = load_contract_for_step(step_id, state_yaml_path)
-    except (FileNotFoundError, ContractError) as _e:
-        sys.stderr.write(f"[record] contract load failed for {step_id}: {_e}\n")
-        contract = None
-
-    if contract is not None and status == "completed":
-        missing_out = [k for k in contract.outputs if k not in outputs]
-        if missing_out:
-            return (
-                {
-                    "reason": "missing_outputs",
-                    "step_id": step_id,
-                    "missing_outputs": missing_out,
                 },
                 3,
             )
@@ -1092,7 +1092,7 @@ def record(
                         "step contract declares agent: %s but payload omitted "
                         "the 'agent' field. The driver must include agent and "
                         "agent_id (extracted from the Task result text) in the "
-                        "done payload. See skills/orchestrate/SKILL.md line ~210."
+                        "done payload. See skills/orchestrate/SKILL.md."
                     ) % contract_agent,
                 },
                 3,
