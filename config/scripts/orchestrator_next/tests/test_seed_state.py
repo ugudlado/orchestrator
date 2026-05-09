@@ -187,8 +187,8 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
             f"stdout: {next_result.stdout!r}"
         )
 
-    assert action.get("action") in ("run_step", "run_inline"), (
-        f"Expected run_step or run_inline action, got: {action.get('action')!r}\n"
+    assert "agent" in action or "run" in action, (
+        f"Expected agent or run key in response (ORC-45 two-path), got: {list(action.keys())!r}\n"
         f"Full action: {action}"
     )
     assert action.get("step_id") == "workflow-init", (

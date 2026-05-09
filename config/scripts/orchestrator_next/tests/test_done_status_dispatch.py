@@ -258,7 +258,7 @@ def test_missing_status_defaults_to_completed(tmp_path, monkeypatch):
 
     result, code = record(state_path, payload, db=db)
     assert code == 0, f"Expected exit 0 when status absent, got {code}: {result}"
-    assert result.get("action") == "recorded"
+    assert "step_id" in result  # ORC-45: recorded response contains step_id (action field removed)
 
     # Step row should have status='completed'
     step_row = db.execute(

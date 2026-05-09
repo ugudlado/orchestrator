@@ -160,8 +160,8 @@ class TestResumeStepActionShape:
         state = _make_state_with_inprogress("my-resume-step", "developer")
         action, code = dispatch(state, state_yaml_path)
 
-        assert action["action"] == "resume_step", (
-            f"Expected action='resume_step', got: {action['action']!r}"
+        assert action.get("is_resume") is True and "agent" in action, (
+            "Expected is_resume=True and agent key (ORC-45: no action field)"
         )
         assert action.get("is_resume") is True, (
             f"Expected is_resume=True, got: {action.get('is_resume')!r}"
@@ -186,7 +186,7 @@ class TestResumeStepActionShape:
         state = _make_state_with_inprogress("my-resume-step", "developer", attempt=1)
         action, code = dispatch(state, state_yaml_path)
 
-        assert action["action"] == "resume_step"
+        assert action.get("is_resume") is True and "agent" in action  # ORC-45: no action field
         assert action.get("is_resume") is True
         assert action["attempt"] == 1, (
             f"Expected attempt=1 (preserved), got: {action['attempt']} "
@@ -213,7 +213,7 @@ class TestResumeStepActionShape:
         )
         action, code = dispatch(state, state_yaml_path)
 
-        assert action["action"] == "resume_step"
+        assert action.get("is_resume") is True and "agent" in action  # ORC-45: no action field
         assert action.get("started_at") == original_started_at, (
             f"Expected started_at={original_started_at!r}, got: {action.get('started_at')!r}"
         )
@@ -284,7 +284,7 @@ class TestResumeStepActionShape:
         )
         action, code = dispatch(state, state_yaml_path)
 
-        assert action["action"] == "resume_step"
+        assert action.get("is_resume") is True and "agent" in action  # ORC-45: no action field
         assert action["attempt"] == 2, (
             f"Expected attempt=2 (preserved from in_progress entry), got: {action['attempt']} "
             "(must NOT return _compute_attempt which would give max(1,2,2)+1=3)"
@@ -314,13 +314,13 @@ class TestResumeStepContractFields:
         state = _make_state_with_inprogress("contract-step", "developer")
         action, code = dispatch(state, state_yaml_path)
 
-        assert action["action"] == "resume_step"
+        assert action.get("is_resume") is True and "agent" in action  # ORC-45: no action field
         # All fields required by FR-3 for driver re-spawn
         for field in ("inputs", "env", "step_context", "resolved_allowed_tools",
                       "instruction", "rules"):
             assert field in action, f"Missing required field: {field!r}"
-        # run is present (possibly None per design.md pseudocode)
-        assert "run" in action, "Missing 'run' key — design.md pseudocode sets it unconditionally"
+        # ORC-45: run: is not included in agent-path response (agent key presence = agent path)
+        # run: is only present in inline-script path responses
         # env block has all ORCHESTRATOR_* vars
         env = action["env"]
         for key in ("ORCHESTRATOR_CHANGE_ID", "ORCHESTRATOR_PHASE", "ORCHESTRATOR_STEP_ID",
@@ -342,7 +342,7 @@ class TestResumeStepContractFields:
         state = _make_state_with_inprogress("tools-step", "developer")
         action, code = dispatch(state, state_yaml_path)
 
-        assert action["action"] == "resume_step"
+        assert action.get("is_resume") is True and "agent" in action  # ORC-45: no action field
         assert "resolved_allowed_tools" in action
         assert sorted(action["resolved_allowed_tools"]) == ["Bash", "Glob", "Grep", "Read"]
 
@@ -361,7 +361,7 @@ class TestResumeStepContractFields:
         state = _make_state_with_inprogress("env-step", "developer", attempt=1)
         action, code = dispatch(state, state_yaml_path)
 
-        assert action["action"] == "resume_step"
+        assert action.get("is_resume") is True and "agent" in action  # ORC-45: no action field
         assert action["attempt"] == 1
         assert action["env"]["ORCHESTRATOR_ATTEMPT"] == "1", (
             f"ORCHESTRATOR_ATTEMPT must reflect preserved attempt=1, "
@@ -383,7 +383,7 @@ class TestResumeStepContractFields:
         state = _make_state_with_inprogress("ctx-step", "developer")
         action, code = dispatch(state, state_yaml_path)
 
-        assert action["action"] == "resume_step"
+        assert action.get("is_resume") is True and "agent" in action  # ORC-45: no action field
         assert "step_context" in action
         assert action["step_context"].get("id") == "ctx-step", (
             f"step_context must identify the resumed step, got: {action['step_context']}"
@@ -582,7 +582,7 @@ class TestResumeStepDriverContract(_unittest.TestCase):
         )
         action = _json.loads(result.stdout)
         self.assertEqual(
-            action.get("action"), "resume_step",
+            action.get("is_resume"), True,  # ORC-45: check is_resume instead of action
             f"Expected action=resume_step, got: {action.get('action')!r}\nstdout: {result.stdout}",
         )
         self.assertTrue(
@@ -685,9 +685,9 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
         self.assertEqual(result1.returncode, 0,
                          f"First next failed. stderr: {result1.stderr}")
         action1 = _json.loads(result1.stdout)
-        self.assertIn(
-            action1.get("action"), ("run_step", "run_inline"),
-            f"Expected run_step or run_inline, got: {action1.get('action')!r}",
+        self.assertTrue(
+            "agent" in action1 or "run" in action1,
+            f"Expected agent or run key (ORC-45), got: {list(action1.keys())!r}",
         )
         attempt1 = action1.get("attempt")
         self.assertIsNotNone(attempt1, "First next must return an attempt")
@@ -717,10 +717,9 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
         self.assertEqual(result2.returncode, 0,
                          f"Second next failed. stderr: {result2.stderr}")
         action2 = _json.loads(result2.stdout)
-        self.assertEqual(
-            action2.get("action"), "resume_step",
-            f"Expected resume_step on second next, got: {action2.get('action')!r}\n"
-            f"stdout: {result2.stdout}",
+        self.assertTrue(
+            action2.get("is_resume") is True and "agent" in action2,
+            f"Expected is_resume=True and agent key on second next (ORC-45), got: {action2!r}",
         )
         self.assertTrue(action2.get("is_resume"),
                         f"Expected is_resume=True, got: {action2.get('is_resume')!r}")
@@ -779,8 +778,8 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
         self.assertEqual(result1.returncode, 0,
                          f"First next failed. stderr: {result1.stderr}")
         action1 = _json.loads(result1.stdout)
-        self.assertIn(action1.get("action"), ("run_step", "run_inline"),
-                      f"Expected run_step or run_inline, got: {action1.get('action')!r}")
+        self.assertTrue("agent" in action1 or "run" in action1,
+                      f"Expected agent or run key (ORC-45), got: {list(action1.keys())!r}")
 
         # Step 2 — (crash) no record call
 
@@ -789,8 +788,8 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
         self.assertEqual(result2.returncode, 0,
                          f"Second next (resume) failed. stderr: {result2.stderr}")
         action2 = _json.loads(result2.stdout)
-        self.assertEqual(action2.get("action"), "resume_step",
-                         f"Expected resume_step, got: {action2.get('action')!r}")
+        self.assertTrue(action2.get("is_resume") is True and "agent" in action2,
+                         f"Expected is_resume=True+agent key (ORC-45), got: {action2!r}")
 
         # Step 4 — record terminal payload for step-inline-only
         # step-inline-only contract has outputs: [result], agent: inline.
@@ -841,9 +840,9 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
         self.assertEqual(result3.returncode, 0,
                          f"Third next failed. stderr: {result3.stderr}")
         action3 = _json.loads(result3.stdout)
-        self.assertNotEqual(
-            action3.get("action"), "resume_step",
-            f"Third next must NOT return resume_step; got: {action3.get('action')!r}",
+        self.assertFalse(
+            action3.get("is_resume"),
+            f"Third next must NOT be a resume (ORC-45: check is_resume); got: {action3!r}",
         )
         self.assertEqual(
             action3.get("step_id"), "step-with-run",
@@ -884,7 +883,7 @@ class TestResumeLogDriverContract(_unittest.TestCase):
 
     def test_resume_step_emits_resuming_log(self):
         result = self._run_fixture({
-            "action": "resume_step",
+            "is_resume": True,  # ORC-45: check is_resume instead of action field,
             "step_id": "design-and-draft-artifacts",
             "attempt": 2,
         })
@@ -898,7 +897,7 @@ class TestResumeLogDriverContract(_unittest.TestCase):
     def test_resume_step_log_fires_under_auto_flag(self):
         """AC-9 explicit: the log MUST fire even when flags.auto=true."""
         result = self._run_fixture(
-            {"action": "resume_step", "step_id": "execute-next-task", "attempt": 1},
+            {"is_resume": True, "agent": "developer", "step_id": "execute-next-task", "attempt": 1},
             auto=True,
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
@@ -907,7 +906,7 @@ class TestResumeLogDriverContract(_unittest.TestCase):
     def test_non_resume_action_emits_no_resuming_log(self):
         """Negative: run_step etc. must NOT produce the RESUMING log."""
         result = self._run_fixture({
-            "action": "run_step",
+            "agent": "developer",
             "step_id": "explore",
             "attempt": 1,
         })

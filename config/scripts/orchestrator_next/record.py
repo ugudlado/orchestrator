@@ -1006,7 +1006,7 @@ def record(
     missing = required - payload.keys()
     if missing:
         return (
-            {"action": "error", "reason": "payload_missing_keys", "missing": sorted(missing)},
+            {"reason": "payload_missing_keys", "missing": sorted(missing)},
             3,
         )
 
@@ -1019,7 +1019,6 @@ def record(
     if status not in _VALID_STATUSES:
         return (
             {
-                "action": "error",
                 "reason": "invalid_status",
                 "status": status,
                 "valid_statuses": sorted(_VALID_STATUSES),
@@ -1040,7 +1039,6 @@ def record(
         if missing_out:
             return (
                 {
-                    "action": "validation_error",
                     "reason": "missing_outputs",
                     "step_id": step_id,
                     "missing_outputs": missing_out,
@@ -1062,7 +1060,6 @@ def record(
         if bad_phases:
             return (
                 {
-                    "action": "validation_error",
                     "reason": "workflow_plan_active_missing_or_empty",
                     "phases": bad_phases,
                     "hint": "workflow_plan[<phase>].active must be a non-empty list of step IDs",
@@ -1086,7 +1083,6 @@ def record(
         if not has_tokens:
             return (
                 {
-                    "action": "validation_error",
                     "reason": "agent_step_missing_usage",
                     "step_id": step_id,
                     "agent": agent,
@@ -1110,7 +1106,6 @@ def record(
     except yaml.YAMLError as e:
         return (
             {
-                "action": "error",
                 "reason": "state_yaml_parse_failure",
                 "detail": str(e),
                 "hint": (
@@ -1234,7 +1229,6 @@ def record(
             f.write(pre_write_bytes)
         return (
             {
-                "action": "error",
                 "reason": "state_yaml_parse_failure",
                 "detail": str(e),
                 "hint": (
@@ -1296,7 +1290,6 @@ def record(
                 sys.stderr.write(f"[done] feature_metrics resolution failed: {exc}\n")
                 return (
                     {
-                        "action": "error",
                         "reason": "feature_metrics_resolution_failed",
                         "detail": str(exc),
                     },
@@ -1312,7 +1305,6 @@ def record(
                 sys.stderr.write(f"[done] feature_metrics write failed: {exc}\n")
                 return (
                     {
-                        "action": "error",
                         "reason": "feature_metrics_write_failed",
                         "detail": str(exc),
                     },
@@ -1350,7 +1342,6 @@ def record(
                         )
                         return (
                             {
-                                "action": "error",
                                 "reason": "driver_session_resolution_failed",
                                 "detail": str(_exc),
                             },
@@ -1378,7 +1369,6 @@ def record(
                     )
                     return (
                         {
-                            "action": "error",
                             "reason": "boundary_write_failed",
                             "boundary": boundary.value,
                             "detail": str(_exc),
@@ -1426,7 +1416,6 @@ def record(
                 sys.stderr.write(f"[record] retro append failed: {exc}\n")
 
     response: dict[str, Any] = {
-        "action": "recorded",
         "step_id": step_id,
         "attempt": entry["attempt"],
         "next_step": next_step,

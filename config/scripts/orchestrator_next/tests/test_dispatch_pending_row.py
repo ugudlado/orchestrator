@@ -77,11 +77,15 @@ def _write_state_yaml(directory: str, content: str) -> str:
     return state_path
 
 
-def _run_next(state_yaml_path: str, metrics_db_path: str) -> subprocess.CompletedProcess:
+def _run_next(
+    state_yaml_path: str,
+    metrics_db_path: str,
+    contracts_dir: str | None = None,
+) -> subprocess.CompletedProcess:
     """Invoke `bin/orchestrator next <state_yaml_path>` with an isolated METRICS_DB."""
     env = os.environ.copy()
     env["METRICS_DB"] = metrics_db_path
-    env["ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE"] = _STEP_CONTRACTS_DIR
+    env["ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE"] = contracts_dir or _STEP_CONTRACTS_DIR
     env["PYTHONPATH"] = _SCRIPTS_DIR
     env.pop("ORCHESTRATOR_HOME", None)
     return subprocess.run(
@@ -129,6 +133,21 @@ def _load_state_yaml(state_yaml_path: str) -> dict:
         return yaml.safe_load(f) or {}
 
 
+def _write_agent_contract(contracts_dir: str, step_id: str, agent: str = "developer") -> str:
+    """Write a minimal agent contract YAML to contracts_dir and return path."""
+    path = os.path.join(contracts_dir, f"{step_id}.yaml")
+    with open(path, "w") as f:
+        f.write(textwrap.dedent(f"""            id: {step_id}
+            version: 1
+            agent: {agent}
+            instruction: Test step.
+            inputs: []
+            outputs: []
+            rules: []
+        """))
+    return path
+
+
 # ---------------------------------------------------------------------------
 # Test cases
 # ---------------------------------------------------------------------------
@@ -142,6 +161,8 @@ class TestDispatchPendingRow(unittest.TestCase):
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp(prefix="orch_pending_row_test_")
         self._metrics_db_path = os.path.join(self._tmpdir, "test.duckdb")
+        self._contracts_dir = os.path.join(self._tmpdir, "contracts")
+        os.makedirs(self._contracts_dir, exist_ok=True)
 
     def tearDown(self):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
@@ -175,13 +196,17 @@ class TestDispatchPendingRow(unittest.TestCase):
             """,
         )
         _write_plan_yaml(state_dir, step_id="step-with-run", agent="discoverer")
+        _write_agent_contract(self._contracts_dir, "step-with-run", agent="discoverer")
 
-        result = _run_next(state_path, self._metrics_db_path)
+        result = _run_next(state_path, self._metrics_db_path, self._contracts_dir)
 
         self.assertEqual(result.returncode, 0, f"Expected exit 0, stderr: {result.stderr}")
         action = json.loads(result.stdout)
-        self.assertEqual(action.get("action"), "run_step",
-                         f"Expected run_step action, got: {action.get('action')}")
+        self.assertIn("agent", action,
+                      f"Expected agent key in response (ORC-45 two-path), got: {list(action.keys())}")
+        self.assertEqual(action.get("agent"), "discoverer",
+                         f"Expected agent=discoverer, got: {action.get('agent')}")
+        self.assertNotIn("action", action, "action field must be absent (ORC-45)")
 
         db = duckdb.connect(self._metrics_db_path)
         try:
@@ -224,8 +249,9 @@ class TestDispatchPendingRow(unittest.TestCase):
             """,
         )
         _write_plan_yaml(state_dir, step_id="step-with-run", agent="discoverer")
+        _write_agent_contract(self._contracts_dir, "step-with-run", agent="discoverer")
 
-        result = _run_next(state_path, self._metrics_db_path)
+        result = _run_next(state_path, self._metrics_db_path, self._contracts_dir)
         self.assertEqual(result.returncode, 0, f"Expected exit 0, stderr: {result.stderr}")
 
         state = _load_state_yaml(state_path)
@@ -268,13 +294,14 @@ class TestDispatchPendingRow(unittest.TestCase):
             step_history: []
             """,
         )
-        _write_plan_yaml(state_dir, step_id="step-inline-only", agent="inline")
+        _write_plan_yaml(state_dir, step_id="step-inline-only", agent="developer")
+        _write_agent_contract(self._contracts_dir, "step-inline-only", agent="developer")
 
-        result = _run_next(state_path, self._metrics_db_path)
+        result = _run_next(state_path, self._metrics_db_path, self._contracts_dir)
         self.assertEqual(result.returncode, 0, f"Expected exit 0, stderr: {result.stderr}")
         action = json.loads(result.stdout)
-        self.assertEqual(action.get("action"), "run_inline",
-                         f"Expected run_inline action, got: {action.get('action')}")
+        self.assertIn("agent", action, f"Expected agent key (ORC-45 two-path), got: {list(action.keys())}")
+        self.assertNotIn("action", action, "action field must be absent (ORC-45)")
 
         db = duckdb.connect(self._metrics_db_path)
         try:
@@ -311,9 +338,10 @@ class TestDispatchPendingRow(unittest.TestCase):
             step_history: []
             """,
         )
-        _write_plan_yaml(state_dir, step_id="step-inline-only", agent="inline")
+        _write_plan_yaml(state_dir, step_id="step-inline-only", agent="developer")
+        _write_agent_contract(self._contracts_dir, "step-inline-only", agent="developer")
 
-        result = _run_next(state_path, self._metrics_db_path)
+        result = _run_next(state_path, self._metrics_db_path, self._contracts_dir)
         self.assertEqual(result.returncode, 0, f"Expected exit 0, stderr: {result.stderr}")
 
         state = _load_state_yaml(state_path)
@@ -364,13 +392,11 @@ class TestDispatchPendingRow(unittest.TestCase):
                 ended_at: "2026-04-18T10:30:00Z"
             """,
         )
-        _write_plan_yaml(state_dir, step_id="step-inline-only", agent="inline")
+        _write_plan_yaml(state_dir, step_id="step-inline-only", agent="developer")
+        _write_agent_contract(self._contracts_dir, "step-inline-only", agent="developer")
 
-        result = _run_next(state_path, self._metrics_db_path)
-        self.assertEqual(result.returncode, 0, f"Expected exit 0, stderr: {result.stderr}")
-        action = json.loads(result.stdout)
-        self.assertEqual(action.get("action"), "verify_phase",
-                         f"Expected verify_phase, got: {action.get('action')}")
+        result = _run_next(state_path, self._metrics_db_path, self._contracts_dir)
+        self.assertEqual(result.returncode, 1, f"Expected exit 1 (complete_workflow, verify_phase removed in ORC-45), stderr: {result.stderr}")
 
         db = duckdb.connect(self._metrics_db_path)
         try:
@@ -387,7 +413,7 @@ class TestDispatchPendingRow(unittest.TestCase):
             if isinstance(e, dict) and e.get("status") == "in_progress"
         ]
         self.assertEqual(len(in_progress), 0,
-                         f"verify_phase must not add in_progress to state.yaml, got: {in_progress}")
+                         f"complete_workflow (verify_phase removed in ORC-45) must not add in_progress to state.yaml, got: {in_progress}")
 
     def test_complete_workflow_no_in_progress_row(self):
         """
@@ -419,13 +445,11 @@ class TestDispatchPendingRow(unittest.TestCase):
                 ended_at: "2026-04-18T10:30:00Z"
             """,
         )
-        _write_plan_yaml(state_dir, step_id="step-inline-only", agent="inline")
+        _write_plan_yaml(state_dir, step_id="step-inline-only", agent="developer")
+        _write_agent_contract(self._contracts_dir, "step-inline-only", agent="developer")
 
-        result = _run_next(state_path, self._metrics_db_path)
+        result = _run_next(state_path, self._metrics_db_path, self._contracts_dir)
         self.assertEqual(result.returncode, 1, f"Expected exit 1 (complete_workflow), stderr: {result.stderr}")
-        action = json.loads(result.stdout)
-        self.assertEqual(action.get("action"), "complete_workflow",
-                         f"Expected complete_workflow, got: {action.get('action')}")
 
         db = duckdb.connect(self._metrics_db_path)
         try:
@@ -473,12 +497,10 @@ class TestDispatchPendingRow(unittest.TestCase):
             """,
         )
         _write_plan_yaml(state_dir, step_id="step-inline-only", agent="developer")
+        _write_agent_contract(self._contracts_dir, "step-inline-only", agent="developer")
 
-        result = _run_next(state_path, self._metrics_db_path)
+        result = _run_next(state_path, self._metrics_db_path, self._contracts_dir)
         self.assertEqual(result.returncode, 2, f"Expected exit 2 (blocked), stderr: {result.stderr}")
-        action = json.loads(result.stdout)
-        self.assertEqual(action.get("action"), "blocked",
-                         f"Expected blocked, got: {action.get('action')}")
 
         db = duckdb.connect(self._metrics_db_path)
         try:
@@ -527,12 +549,13 @@ class TestDispatchPendingRow(unittest.TestCase):
             """,
         )
         _write_plan_yaml(state_dir, step_id="step-with-run", agent="discoverer")
+        _write_agent_contract(self._contracts_dir, "step-with-run", agent="discoverer")
 
-        result = _run_next(state_path, self._metrics_db_path)
+        result = _run_next(state_path, self._metrics_db_path, self._contracts_dir)
         self.assertEqual(result.returncode, 0, f"Expected exit 0, stderr: {result.stderr}")
         action = json.loads(result.stdout)
-        self.assertEqual(action.get("action"), "run_step",
-                         f"Expected run_step, got: {action.get('action')}")
+        self.assertIn("agent", action, f"Expected agent key (ORC-45), got: {list(action.keys())}")
+        self.assertNotIn("action", action, "action field must be absent (ORC-45)")
         self.assertEqual(action.get("attempt"), 2,
                          f"Expected attempt=2 (after failed attempt=1), got: {action.get('attempt')}")
 

@@ -134,38 +134,48 @@ invites drift when step contracts update.
 
 ```
 LOOP:
-  # NOTE: `orchestrator next` exits with code 1 when the action is
-  # `complete_workflow` — this is NOT a failure. Always parse stdout JSON
-  # regardless of exit code inside this dispatch loop.
-  action = orchestrator next $WORKFLOW_STATE_DIR/$CHANGE_ID/state.yaml
-  # Show running cost after every step (AC-3, ORC-42). cost_so_far is always
-  # present in the action dict (0.0 when DB unavailable). Skip if 0.
-  IF action.cost_so_far > 0:
-      print(f"  [cost so far: ${action.cost_so_far:.2f}]")
+  # ORC-45 two-path dispatch protocol:
+  #   exit 0 + JSON with `agent` key  → spawn agent
+  #   exit 0 + no JSON                → inline script ran and recorded; loop again
+  #   exit 1                          → workflow complete
+  #   exit 2                          → step blocked
+  #   exit 3                          → ContractDispatchError (missing agent: and run:)
+  exit_code, stdout = orchestrator next $WORKFLOW_STATE_DIR/$CHANGE_ID/state.yaml
 
-  IF action.action == "complete_workflow":
+  IF exit_code == 1:
+      # Workflow complete — no JSON on stdout.
       # Full cost report + one-line tail summary.
       # Run both; include both in the final message to the user.
       # If cost-report.sh exits non-zero, include script stderr verbatim — do not skip.
       cost_report = run `scripts/cost-report.sh --change-id $CHANGE_ID`
       cost_tail   = run `scripts/cost-report.sh --change-id $CHANGE_ID --tail`
       STOP (workflow done) — include cost_tail as the headline, then cost_report stdout below it
-  IF action.action == "blocked":            STOP (escalate or fix)
-  IF action.action == "verify_phase":       run action.commands + action.assertions
-  IF action.action == "recorded":
-      # CLI executed the inline script and recorded the result — nothing for driver to do.
+
+  IF exit_code == 2:
+      # Step blocked — no JSON on stdout. Read state.yaml for reason/escalation.
+      STOP (read state.yaml step_history[-1] for escalation details, escalate or fix)
+
+  IF exit_code == 3:
+      # ContractDispatchError — step has neither agent: nor run:.
+      STOP (surface stderr to user, add agent: or run: to the step contract)
+
+  IF exit_code == 0 AND stdout is empty:
+      # Inline script ran synchronously and was recorded by CLI — nothing for driver to do.
       # Loop continues to call `orchestrator next` for the next step.
       continue
-  IF action.action == "failed":
-      # CLI executed the inline script and it exited non-zero — recorded internally.
-      STOP (surface action.stderr to user, check the script)
-  IF action.action == "run_inline" AND action.agent != "inline":
-      # Legacy inline-instruction (pre-M3, being phased out)
-      execute action.instruction in context with action.inputs / action.rules
-      orchestrator done state.yaml <<< {step_id, phase, status: completed, outputs, usage}
-  IF action.action == "run_step":
-      # Agent spawn. Load agent .md from $ORCHESTRATOR_HOME/agents/<action.agent>.md
-      # and run action.run (adapter path) with the agent's prompt + action.inputs.
+
+  IF exit_code == 0 AND "agent" in action:
+      action = parse JSON from stdout
+      # Show running cost after every step (AC-3, ORC-42). cost_so_far is always
+      # present in the action dict (0.0 when DB unavailable). Skip if 0.
+      IF action.cost_so_far > 0:
+          print(f"  [cost so far: ${action.cost_so_far:.2f}]")
+
+      IF action.get("is_resume"):
+          # Resume: always log to stderr — even under flags.auto == true — so operators see resume events.
+          print(f"RESUMING step {action.step_id} (attempt {action.attempt})", file=sys.stderr)
+
+      # Agent spawn. Load agent .md from $ORCHESTRATOR_HOME/agents/<action.agent>.md.
       # Spawn with run_in_background: true as the default.
       # Exceptions: ideator and reviewer spawns are short-running and may be foreground.
       spawn agent(action.agent) with prompt=action.instruction, rules=action.rules,
@@ -198,25 +208,12 @@ LOOP:
       #    for any agent (non-inline) step — record.py enforces this (FR-11).
 
       orchestrator done state.yaml <<< {step_id, phase, status, outputs, usage, evidence}
-  IF action.action == "resume_step":
-      # Always log to stderr — even under flags.auto == true — so operators see resume events.
-      print(f"RESUMING step {action.step_id} (attempt {action.attempt})", file=sys.stderr)
-      # Then execute identically to run_step (action.run present) or run_inline (no action.run, LLM instruction only).
-      spawn agent(action.agent) with prompt=action.instruction, rules=action.rules,
-            step_context=action.step_context, inputs=action.inputs,
-            expecting=action.expected_outputs,
-            resolved_allowed_tools=action.resolved_allowed_tools, env=action.env,
-            run_in_background: true  # default; omit for ideator/reviewer
-      # Pass action.step_context into the prompt verbatim (goal, merged rules,
-      # inputs, outputs, verify, agent, repeat_until when present). Do NOT
-      # re-derive these from memory — plan.yaml is the single source.
-      # Apply the same MANDATORY USAGE CAPTURE as run_step above.
 ```
 
 Escalation (agent returns STATUS: escalate_to_architect): record a
 step_history entry with `status: escalate_to_architect` — `orchestrator
-next` on the following call returns `action: blocked`, which the loop
-surfaces. The architect escalation contract (steps/contracts/architect-escalation.md)
+next` on the following call exits 2 (blocked), which the loop surfaces.
+The architect escalation contract (steps/contracts/architect-escalation.md)
 defines how to spawn the architect and re-dispatch.
 
 ### 5. Phase transitions
@@ -228,7 +225,7 @@ Multi-phase schemas (spike) need driver-side phase advancement. After all steps 
 - Advance the `phase` field in state.yaml to the next phase.
 - Continue the dispatch loop with that phase's steps.
 
-If `orchestrator next` returns `complete_workflow` AND stderr shows `WARNING: phase 'X' is complete but workflow_plan has other phases (...)` — do NOT treat as terminal. Update state.yaml `phase:` and re-dispatch. The CLI emits the hint but does not auto-advance.
+If `orchestrator next` exits 1 AND stderr shows `WARNING: phase 'X' is complete but workflow_plan has other phases (...)` — do NOT treat as terminal. Update state.yaml `phase:` and re-dispatch. The CLI emits the hint but does not auto-advance.
 
 ### Key rules
 

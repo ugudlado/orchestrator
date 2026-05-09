@@ -171,7 +171,7 @@ class TestResolvedAllowedToolsInjection:
         from orchestrator_next.dispatch import dispatch
         state = _make_state(["my-step"])
         action, code = dispatch(state, str(state_dir / "state.yaml"))
-        assert action["action"] == "run_inline"
+        assert "agent" in action  # ORC-45: agent key indicates agent path
         assert "resolved_allowed_tools" in action
 
     def test_run_step_has_resolved_allowed_tools(self, steps_dir, agents_dir, state_dir, monkeypatch):
@@ -187,7 +187,7 @@ class TestResolvedAllowedToolsInjection:
         from orchestrator_next.dispatch import dispatch
         state = _make_state(["run-step"])
         action, code = dispatch(state, str(state_dir / "state.yaml"))
-        assert action["action"] == "run_step"
+        assert "agent" in action  # ORC-45: agent key indicates agent path
         assert "resolved_allowed_tools" in action
 
     def test_run_inline_with_run_has_resolved_allowed_tools(self, steps_dir, agents_dir, state_dir, monkeypatch):
@@ -202,7 +202,8 @@ class TestResolvedAllowedToolsInjection:
         from orchestrator_next.dispatch import dispatch
         state = _make_state(["inline-run-step"])
         action, code = dispatch(state, str(state_dir / "state.yaml"))
-        assert action["action"] == "run_inline"
+        # Under ORC-45: inline:true + run: contracts without a real agent go to run: path
+        # The test contract has agent="inline" which routes to agent path but resolved_allowed_tools=[]
         assert "resolved_allowed_tools" in action
 
     def test_resume_step_has_resolved_allowed_tools(self, steps_dir, agents_dir, state_dir, monkeypatch):
@@ -217,7 +218,7 @@ class TestResolvedAllowedToolsInjection:
         from orchestrator_next.dispatch import dispatch
         state = _make_state_with_inprogress("retry-step", "developer")
         action, code = dispatch(state, str(state_dir / "state.yaml"))
-        assert action["action"] == "resume_step"
+        assert action.get("is_resume") is True  # ORC-45: check is_resume flag
         assert "resolved_allowed_tools" in action
 
 

@@ -75,7 +75,6 @@ class TestCheckA:
         }
         result, exit_code = record(state_path, payload)
         assert exit_code == 3, f"Expected exit_code 3, got {exit_code}: {result}"
-        assert result["action"] == "validation_error"
         assert result["reason"] == "workflow_plan_active_missing_or_empty"
         assert "specify" in result["phases"]
 
@@ -102,7 +101,6 @@ class TestCheckA:
         }
         result, exit_code = record(state_path, payload)
         assert exit_code == 3, f"Expected exit_code 3, got {exit_code}: {result}"
-        assert result["action"] == "validation_error"
         assert result["reason"] == "workflow_plan_active_missing_or_empty"
         assert "implement" in result["phases"]
 
@@ -158,7 +156,6 @@ class TestCheckB:
         }
         result, exit_code = record(state_path, payload)
         assert exit_code == 3, f"Expected exit_code 3, got {exit_code}: {result}"
-        assert result["action"] == "validation_error"
         assert result["reason"] == "agent_step_missing_usage"
 
     def test_rejects_agent_step_with_zero_tokens(self, tmp_path):
@@ -174,7 +171,6 @@ class TestCheckB:
         }
         result, exit_code = record(state_path, payload)
         assert exit_code == 3, f"Expected exit_code 3, got {exit_code}: {result}"
-        assert result["action"] == "validation_error"
         assert result["reason"] == "agent_step_missing_usage"
 
     def test_accepts_agent_step_with_input_tokens(self, tmp_path):
@@ -190,7 +186,7 @@ class TestCheckB:
         }
         result, exit_code = record(state_path, payload)
         assert exit_code == 0, f"Expected exit_code 0, got {exit_code}: {result}"
-        assert result["action"] == "recorded"
+        assert "step_id" in result  # recorded response contains step_id
 
     def test_accepts_inline_step_without_usage(self, tmp_path):
         """Inline step (agent='inline') with empty usage → records cleanly."""
@@ -205,7 +201,7 @@ class TestCheckB:
         }
         result, exit_code = record(state_path, payload)
         assert exit_code == 0, f"Expected exit_code 0, got {exit_code}: {result}"
-        assert result["action"] == "recorded"
+        assert "step_id" in result  # recorded response contains step_id
 
     def test_accepts_default_agent_omitted_with_tokens(self, tmp_path):
         """When 'agent' is omitted it defaults to 'inline' — no rejection even with empty usage."""
@@ -220,7 +216,7 @@ class TestCheckB:
         }
         result, exit_code = record(state_path, payload)
         assert exit_code == 0, f"Expected exit_code 0 for implicit-inline, got {exit_code}: {result}"
-        assert result["action"] == "recorded"
+        assert "step_id" in result  # recorded response contains step_id
 
     def test_state_yaml_unchanged_on_check_b_rejection(self, tmp_path):
         """On Check B rejection, state.yaml must be byte-equal to its pre-call content."""
@@ -272,7 +268,6 @@ class TestCheckC:
         }
         result, exit_code = record(state_path, payload)
         assert exit_code == 4, f"Expected exit_code 4, got {exit_code}: {result}"
-        assert result["action"] == "error"
         assert result["reason"] == "state_yaml_parse_failure"
 
     def test_restores_state_yaml_on_parse_failure(self, tmp_path):

@@ -108,7 +108,7 @@ class TestPhaseCompletionWarning:
         # At least one remaining phase should be mentioned
         remaining_mentioned = "implement" in captured.err or "complete" in captured.err
         assert remaining_mentioned, "At least one remaining phase should appear in WARNING"
-        assert action["action"] == "complete_workflow"
+        assert code == 1
 
     def test_no_warning_on_terminal_phase(self, capsys):
         """
@@ -133,7 +133,7 @@ class TestPhaseCompletionWarning:
             for line in captured.err.splitlines()
         )
         assert not phase_warning, f"Unexpected phase WARNING on stderr: {captured.err!r}"
-        assert action["action"] == "complete_workflow"
+        assert code == 1
 
     def test_no_warning_on_single_phase_plan(self, capsys):
         """
@@ -152,4 +152,4 @@ class TestPhaseCompletionWarning:
         assert "WARNING" not in captured.err, (
             f"Unexpected WARNING for single-phase plan: {captured.err!r}"
         )
-        assert action["action"] == "complete_workflow"
+        assert code == 1

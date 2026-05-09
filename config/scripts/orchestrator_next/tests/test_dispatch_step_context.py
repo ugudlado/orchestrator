@@ -152,8 +152,7 @@ def test_run_inline_has_step_context(tmp_path, monkeypatch):
     state = _make_state_obj("implement", ["my-inline-step"])
     action, code = dispatch(state, state_yaml_path)
 
-    assert action["action"] == "run_inline"
-    assert "step_context" in action, "run_inline action must include step_context"
+    assert "step_context" in action, "agent/run action must include step_context (ORC-45)"
     ctx = action["step_context"]
     assert ctx["id"] == "my-inline-step"
     assert "rules" in ctx
@@ -184,8 +183,7 @@ def test_run_step_has_step_context(tmp_path, monkeypatch):
     state = _make_state_obj("implement", ["my-run-step"])
     action, code = dispatch(state, state_yaml_path)
 
-    assert action["action"] == "run_step"
-    assert "step_context" in action, "run_step action must include step_context"
+    assert "step_context" in action, "agent/run action must include step_context (ORC-45)"
     ctx = action["step_context"]
     assert ctx["id"] == "my-run-step"
     assert ctx["rules"] == ["Keep it scoped."]
@@ -237,11 +235,10 @@ def test_verify_phase_omits_step_context(tmp_path, monkeypatch):
         raw={"change_id": "test-feature"},
     )
 
+    # ORC-45: verify_phase removed; all steps complete → exit 1, empty action dict
     action, code = dispatch(state, state_yaml_path)
-    assert action["action"] == "verify_phase"
-    assert "step_context" not in action, (
-        "verify_phase action must NOT include step_context"
-    )
+    assert code == 1, f"Expected exit 1 (complete_workflow), got {code}"
+    assert "step_context" not in action, "complete_workflow (was verify_phase) must NOT include step_context"
 
 
 def test_missing_plan_yaml_exits_3(tmp_path, monkeypatch):

@@ -25,7 +25,7 @@ def main() -> int:
 
     auto = os.environ.get("FLAGS_AUTO", "false").lower() == "true"
 
-    if action.get("action") == "resume_step":
+    if action.get("is_resume"):  # ORC-45: check is_resume flag instead of action field
         step_id = action.get("step_id", "<unknown>")
         attempt = action.get("attempt", "?")
         # Per SKILL.md contract: log even under flags.auto = true.
