@@ -12,6 +12,7 @@ gates:
   portless:     { steps: [setup-portless],                  default: true  }
   metrics:      { steps: [register-with-orchestrator-home], default: true  }
   linear:       { steps: [check-linear-config],             default: true  }
+  ux_design:    { steps: [ux-design, run-ux-critique],      default: false } # <!-- learned: 2026-05-09, source: orc-39, cycle: 44, repo: orchestrator -->
 
 behavioral:
   tdd_required: { default: true,  description: "Strict red-green-refactor in execute-next-task" }

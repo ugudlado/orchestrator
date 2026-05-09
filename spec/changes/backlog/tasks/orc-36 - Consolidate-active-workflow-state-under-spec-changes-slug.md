@@ -1,10 +1,10 @@
 ---
 id: ORC-36
 title: Consolidate active workflow state under spec/changes/<slug>/
-status: Backlog
+status: Done
 assignee: []
 created_date: '2026-05-03 12:33'
-updated_date: '2026-05-03 12:34'
+updated_date: '2026-05-08 15:24'
 labels:
   - bug
   - refactor
@@ -78,3 +78,9 @@ ORC-35 considered three fix options: (A) dual-path lookup, (B) symlink at archit
 
 Note vs ORC-32: ORC-32 targets `read-sub-state-metrics.sh` path drift (autopilot-telemetry); same drift family, different scripts. ORC-32 stays open.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Consolidated active workflow state under spec/changes/<slug>/. Eliminated the .state/ split that caused 4 recurring bugs (ORC-34, ORC-35, archive dropping artifacts, prediction accuracy reporting 0/0). All 7 tasks complete and archived at spec/changes/archive/2026-05-03-orc-36/.
+<!-- SECTION:FINAL_SUMMARY:END -->

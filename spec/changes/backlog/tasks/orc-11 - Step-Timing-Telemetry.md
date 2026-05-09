@@ -1,10 +1,10 @@
 ---
 id: ORC-11
 title: Step Timing Telemetry
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-03 10:55'
-updated_date: '2026-05-03 11:00'
+updated_date: '2026-05-09 10:54'
 labels:
   - slug-step-timing-telemetry
   - feature
@@ -44,3 +44,9 @@ No visual prototype needed. The change is structural: update the orchestrate ski
 
 ---
 <!-- SECTION:DESCRIPTION:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Superseded. step_events already has started_at, ended_at, duration_ms — captured by orchestrator done. phase_report aggregates duration per phase. Timing data fully covered by existing DuckDB schema.
+<!-- SECTION:FINAL_SUMMARY:END -->

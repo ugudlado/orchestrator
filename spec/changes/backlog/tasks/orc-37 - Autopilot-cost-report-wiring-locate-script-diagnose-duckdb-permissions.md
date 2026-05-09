@@ -1,10 +1,10 @@
 ---
 id: ORC-37
 title: 'Autopilot cost-report wiring: locate script + diagnose duckdb permissions'
-status: Backlog
+status: Done
 assignee: []
 created_date: '2026-05-03 20:29'
-updated_date: '2026-05-03 20:42'
+updated_date: '2026-05-08 15:30'
 labels:
   - bug
   - orc-36-followup
@@ -36,3 +36,11 @@ Impact: every autopilot run silently misses its cost summary at the most importa
 - [x] #5 install.sh symlinks $REPO_ROOT/scripts/ to $ORCHESTRATOR_HOME/scripts/ (mirroring how it already symlinks config/), so ~/.config/orchestrator/scripts/cost-report.sh resolves
 - [ ] #6 install.sh creates ~/.config/orchestrator/ with proper ownership and pre-initializes metrics.duckdb (empty schema or touch) so first write doesn't hit permission/sandbox issues
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Autopilot cost-report wiring fixed. Scripts symlinked into ORCHESTRATOR_HOME, SKILL.md updated to use relative scripts/cost-report.sh path, fail-loud on non-zero exit, metrics.duckdb pre-created by install.sh.
+
+All 4 tasks committed (d048dc0 → 9d4083e) and archived at spec/changes/archive/2026-05-04-orc-37/.
+<!-- SECTION:FINAL_SUMMARY:END -->

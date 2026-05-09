@@ -38,7 +38,7 @@ workflow_plan:
 phase: main
 next_step:
   phase: main
-  step_id: archive-completed-change
+  step_id: remove-worktree
 step_history:
 - step_id: workflow-init
   phase: main
@@ -272,10 +272,28 @@ step_history:
         wall_clock_minutes: 652.1
 - step_id: archive-completed-change
   phase: main
-  status: in_progress
+  status: completed
   agent: inline
   attempt: 1
-  started_at: '2026-05-04T07:36:18.520854+00:00'
+  started_at: '2026-05-04T07:37:14Z'
+  ended_at: '2026-05-04T07:37:14Z'
+  usage: {}
+  evidence:
+    outputs:
+      archive_record:
+        archived_at: '2026-05-04T07:37:00Z'
+        archive_path: spec/changes/archive/2026-05-04-orc-37
+        commit_sha: e08b09e
+- step_id: remove-worktree
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-04T07:37:29Z'
+  ended_at: '2026-05-04T07:37:29Z'
+  usage: {}
+  evidence:
+    outputs: {}
 created_at: '2026-05-03T20:43:47Z'
 started_at: '2026-05-03T20:43:47Z'
 completed_at: '2026-05-04T07:35:55Z'

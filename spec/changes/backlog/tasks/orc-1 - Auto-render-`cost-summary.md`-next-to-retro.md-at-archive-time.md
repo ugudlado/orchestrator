@@ -3,7 +3,7 @@ id: ORC-1
 title: >-
   Cost reporting pipeline: cost-summary.md at archive + median delta + run-end
   tail
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-05-03 10:55'
@@ -69,3 +69,17 @@ Implemented all 4 pieces:
 - SKILL.md: run-end block now emits tail headline + full report
 All 365 tests passing.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented the full cost reporting pipeline in one feature (absorbed ORC-2 + ORC-3).
+
+Changes:
+- migration 0004: feature_baseline DuckDB view with per-repo MEDIAN() window function
+- cost-report.sh: --tail flag for single-line summary + Median Delta section in full report
+- archive-completed-change.sh: writes cost-summary.md to archive dir before git commit
+- SKILL.md: run-end block emits tail headline then full report
+
+Result: every archived feature now has a cost-summary.md automatically; every orchestrate run ends with a one-liner like "orc-39: $50.79 · 131m · 34 steps · 3.27x median".
+<!-- SECTION:FINAL_SUMMARY:END -->

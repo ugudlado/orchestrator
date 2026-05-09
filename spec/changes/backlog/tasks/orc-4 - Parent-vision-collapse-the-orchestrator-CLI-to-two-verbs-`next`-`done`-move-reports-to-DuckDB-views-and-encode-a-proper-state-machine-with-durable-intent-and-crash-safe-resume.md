@@ -7,7 +7,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-05-03 10:55'
-updated_date: '2026-05-03 11:00'
+updated_date: '2026-05-08 12:04'
 labels:
   - slug-workflow-engine-as-state-machine
   - feature
@@ -16,21 +16,7 @@ labels:
 dependencies: []
 references:
   - >-
-    Exploration session 2026-04-20: walked from "how are metrics calculated" →
-    "can DuckDB be the single source" → "what about durability on crash." Full
-    transcript is the discovery seed; archive at
-    `spec/changes/<phase-slug>/discovery.md` per phase.
-  - 'Related completed features: `single-source-metrics-via-step-events` (Apr 19'
-  - write path)
-  - '`sub-agent-token-ingest` (Apr 20'
-  - usage capture).
-  - >-
-    Related pending: `generate-plan-yaml-at-init` (orthogonal — concerns
-    dispatch context
-  - not metrics)
-  - >-
-    `metrics-regression-detection` (downstream — becomes trivial once phase 3
-    ships).
+    https://linear.app/home-labs-experiments/issue/HL-287/orchestrator-worker-rework-all-steps-are-agents-bookkeeping-moves-to
 priority: medium
 ordinal: 3000
 ---

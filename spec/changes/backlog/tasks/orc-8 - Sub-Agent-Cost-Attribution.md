@@ -4,13 +4,16 @@ title: Sub-Agent Cost Attribution
 status: To Do
 assignee: []
 created_date: '2026-05-03 10:55'
-updated_date: '2026-05-03 11:00'
+updated_date: '2026-05-08 12:04'
 labels:
   - slug-per-subagent-cost-attribution
   - feature
   - score-8.0
   - recurrence-1
 dependencies: []
+references:
+  - >-
+    https://linear.app/home-labs-experiments/issue/HL-281/metrics-pipeline-underreports-cost-parse-all-agent-usage-blocks-right
 priority: medium
 ordinal: 7000
 ---

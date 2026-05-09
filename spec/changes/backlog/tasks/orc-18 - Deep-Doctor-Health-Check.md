@@ -4,13 +4,16 @@ title: Deep Doctor Health Check
 status: To Do
 assignee: []
 created_date: '2026-05-03 10:55'
-updated_date: '2026-05-03 11:00'
+updated_date: '2026-05-08 12:05'
 labels:
   - slug-doctor-deep-check
   - feature
   - score-6.5
   - recurrence-2
 dependencies: []
+references:
+  - >-
+    https://linear.app/home-labs-experiments/issue/HL-294/orchestrator-doctor-health-check-subcommand
 priority: low
 ordinal: 17000
 ---
