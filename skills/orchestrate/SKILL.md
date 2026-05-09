@@ -207,7 +207,26 @@ LOOP:
       #    After recording, assert step_history[-1].usage.input_tokens is non-null/non-zero
       #    for any agent (non-inline) step — record.py enforces this (FR-11).
 
-      orchestrator done state.yaml <<< {step_id, phase, status, outputs, usage, evidence}
+      # 4. MANDATORY: AGENT IDENTITY CAPTURE — when spawning an agent via the Task
+      #    tool, the result text contains a line `agentId: <17hex>`. Extract that
+      #    hex value (the JSONL filename stem) and pass it as `agent_id` in the
+      #    done payload, alongside the agent role from `action.agent` (returned by
+      #    `orchestrator next`) which goes in the `agent` field.
+      #
+      #    Example payload:
+      #      {"step_id": "...", "phase": "...", "status": "completed",
+      #       "agent": "developer",            # from action.agent
+      #       "agent_id": "a6e7ca188209d1f47", # from Task result text (agentId: <17hex>)
+      #       "outputs": {...}, "usage": {...}, "evidence": {...}}
+      #
+      #    For inline-script steps (action has `run:` instead of `agent:`), omit
+      #    both fields — record.py defaults to agent="inline".
+      #
+      #    record.py will reject (exit 3) any completed agent-step payload that
+      #    omits the `agent` field — this is enforced to prevent silent metric
+      #    corruption (all steps appearing as 'inline' in DuckDB reports).
+
+      orchestrator done state.yaml <<< {step_id, phase, status, agent, agent_id, outputs, usage, evidence}
 ```
 
 Escalation (agent returns STATUS: escalate_to_architect): record a
