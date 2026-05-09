@@ -1,4 +1,3 @@
 id: mark-change-completed
-inline: true
 run: scripts/inline/mark-change-completed.sh
-version: 1
+version: 2

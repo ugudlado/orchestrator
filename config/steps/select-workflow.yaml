@@ -1,6 +1,5 @@
 id: select-workflow
-inline: true
-version: 1
+version: 2
 
 intent: >
   Pre-init step. Decide which workflow schema runs based on the user's

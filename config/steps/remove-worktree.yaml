@@ -1,4 +1,3 @@
 id: remove-worktree
-inline: true
 run: scripts/inline/remove-worktree.sh
-version: 1
+version: 2

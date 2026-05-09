@@ -1,4 +1,3 @@
 id: preview-route
-inline: true
 run: scripts/inline/preview-route.sh
-version: 1
+version: 2
