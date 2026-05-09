@@ -12,7 +12,7 @@
 set -uo pipefail
 
 REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
-CHANGE_ID="${CHANGE_ID:-${SLUG:-}}"
+CHANGE_ID="${CHANGE_ID:-${SLUG:-${ORCHESTRATOR_CHANGE_ID:-}}}"
 WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}"
 ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
 FLAGS_WORKTREE="${FLAGS_WORKTREE:-true}"
