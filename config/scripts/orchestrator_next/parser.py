@@ -104,16 +104,26 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
                 data = yaml.safe_load(f)
             # M2: contracts MUST declare `inputs:` and `outputs:` (may be
             # empty list, may not be absent). Missing raises ContractError.
+            # Exception: `inline: true` shell-script steps default to []
+            # because they take no structured inputs/outputs (just env vars
+            # and stdout JSON), so requiring the boilerplate is friction.
+            is_inline_script = data.get("inline") is True
             if "inputs" not in data:
-                raise ContractError(
-                    f"contract {step_id} is missing required `inputs:` field "
-                    f"(use `inputs: []` if the step needs none)"
-                )
+                if is_inline_script:
+                    data["inputs"] = []
+                else:
+                    raise ContractError(
+                        f"contract {step_id} is missing required `inputs:` field "
+                        f"(use `inputs: []` if the step needs none)"
+                    )
             if "outputs" not in data:
-                raise ContractError(
-                    f"contract {step_id} is missing required `outputs:` field "
-                    f"(use `outputs: []` if the step produces none)"
-                )
+                if is_inline_script:
+                    data["outputs"] = []
+                else:
+                    raise ContractError(
+                        f"contract {step_id} is missing required `outputs:` field "
+                        f"(use `outputs: []` if the step produces none)"
+                    )
             # Coerce to list[str]. M1 note: older contracts may have prose
             # bullets (with colons, parens) which yaml parses as dicts —
             # coerce to string for backward compatibility. Normalization to
