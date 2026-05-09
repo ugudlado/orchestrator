@@ -1028,24 +1028,6 @@ def record(
 
     outputs: dict[str, Any] = payload.get("outputs") or {}
 
-    # Load contract to validate expected_outputs
-    try:
-        contract = load_contract_for_step(step_id, state_yaml_path)
-    except FileNotFoundError:
-        contract = None
-
-    if contract is not None and status == "completed":
-        missing_out = [k for k in contract.outputs if k not in outputs]
-        if missing_out:
-            return (
-                {
-                    "reason": "missing_outputs",
-                    "step_id": step_id,
-                    "missing_outputs": missing_out,
-                },
-                3,
-            )
-
     # Check A: workflow_plan.active shape on workflow-init completion.
     # Root cause of ISSUE-1: dispatcher reads .active to build the work queue;
     # an empty or missing list causes it to immediately return complete_workflow.
@@ -1067,12 +1049,55 @@ def record(
                 3,
             )
 
+    # Load contract once; reused for expected_outputs validation, Check B
+    # agent guard, and token check. ContractError is treated the same as a
+    # missing file — fall back to no-contract behavior rather than blocking.
+    try:
+        contract = load_contract_for_step(step_id, state_yaml_path)
+    except (FileNotFoundError, ContractError) as _e:
+        sys.stderr.write(f"[record] contract load failed for {step_id}: {_e}\n")
+        contract = None
+
+    if contract is not None and status == "completed":
+        missing_out = [k for k in contract.outputs if k not in outputs]
+        if missing_out:
+            return (
+                {
+                    "reason": "missing_outputs",
+                    "step_id": step_id,
+                    "missing_outputs": missing_out,
+                },
+                3,
+            )
+
     # Check B: usage required for agent (non-inline) steps on completion.
     # Root cause of ISSUE-10.1: empty usage means cost report is blank and
     # telemetry has no data for the step.
     # ORC-45: removed the agent_id-only escape hatch. agent_id enrichment
     # happens downstream; it does not excuse zero-token payloads at record time.
     # Completed non-inline steps MUST have input_tokens > 0 OR output_tokens > 0.
+    #
+    # ORC-48: if the contract declares an agent but the payload omits 'agent',
+    # reject early so the driver knows it must include the field. Without this
+    # guard, record.py silently defaults to 'inline', corrupting DuckDB metrics.
+    contract_agent = contract.agent if contract is not None else None
+    if status == "completed" and contract_agent and contract_agent != "inline":
+        if "agent" not in payload:
+            return (
+                {
+                    "reason": "payload_missing_agent_for_agent_step",
+                    "step_id": step_id,
+                    "expected_agent": contract_agent,
+                    "hint": (
+                        "step contract declares agent: %s but payload omitted "
+                        "the 'agent' field. The driver must include agent and "
+                        "agent_id (extracted from the Task result text) in the "
+                        "done payload. See skills/orchestrate/SKILL.md line ~210."
+                    ) % contract_agent,
+                },
+                3,
+            )
+
     agent = payload.get("agent", "inline")
     payload_usage = payload.get("usage") or {}
     if status == "completed" and agent != "inline":
