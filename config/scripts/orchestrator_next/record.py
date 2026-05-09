@@ -1070,12 +1070,12 @@ def record(
     # Check B: usage required for agent (non-inline) steps on completion.
     # Root cause of ISSUE-10.1: empty usage means cost report is blank and
     # telemetry has no data for the step.
-    # JSONL enrichment path: if agent_id is present, usage will be populated
-    # from the sub-agent JSONL below — accept the payload even if tokens=0.
+    # ORC-45: removed the agent_id-only escape hatch. agent_id enrichment
+    # happens downstream; it does not excuse zero-token payloads at record time.
+    # Completed non-inline steps MUST have input_tokens > 0 OR output_tokens > 0.
     agent = payload.get("agent", "inline")
     payload_usage = payload.get("usage") or {}
-    has_agent_id = bool(payload.get("agent_id") or payload_usage.get("agent_id"))
-    if status == "completed" and agent != "inline" and not has_agent_id:
+    if status == "completed" and agent != "inline":
         has_tokens = (
             (isinstance(payload_usage.get("input_tokens"), (int, float)) and payload_usage["input_tokens"] > 0)
             or (isinstance(payload_usage.get("output_tokens"), (int, float)) and payload_usage["output_tokens"] > 0)
@@ -1086,7 +1086,7 @@ def record(
                     "reason": "agent_step_missing_usage",
                     "step_id": step_id,
                     "agent": agent,
-                    "hint": "agent steps must record usage.input_tokens or usage.output_tokens > 0, or pass agent_id for JSONL enrichment",
+                    "hint": "agent steps must record usage.input_tokens or usage.output_tokens > 0",
                 },
                 3,
             )
