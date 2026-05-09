@@ -1,5 +1,6 @@
 id: setup-claude-settings
-version: 1
+version: 2
+agent: developer
 
 intent: Generate a .claude/settings.json with baseline permissions so the workflow runs without user prompts.
 

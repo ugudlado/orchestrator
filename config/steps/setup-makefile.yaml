@@ -1,5 +1,6 @@
 id: setup-makefile
-version: 1
+version: 2
+agent: developer
 
 intent: Create or update a Makefile with standardized development commands for any project.
 

@@ -1,5 +1,6 @@
 id: detect-language
-version: 1
+version: 2
+agent: discoverer
 
 intent: Detect project language(s), package manager, and web framework presence.
 

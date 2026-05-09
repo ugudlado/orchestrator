@@ -1,5 +1,6 @@
 id: setup-claude-md
-version: 6
+version: 7
+agent: developer
 
 intent: Create CLAUDE.md and AGENTS.md as pointers to spec/project.yaml.
 

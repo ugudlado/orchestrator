@@ -1,5 +1,6 @@
 id: install-tooling
-version: 1
+version: 2
+agent: developer
 
 intent: Install and configure all quality gate tools for detected language(s).
 

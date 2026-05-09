@@ -1,5 +1,6 @@
 id: generate-project-yaml
-version: 4
+version: 5
+agent: developer
 
 intent: Create spec/project.yaml by selecting a stack template and customizing with user.
 
