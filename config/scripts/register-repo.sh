@@ -161,8 +161,8 @@ for state_file in $ARCHIVE_GLOB; do
   }
 
   if [[ -z "$change_id" ]]; then
-    skipped=$((skipped + 1))
-    continue
+    change_id=$(basename "$(dirname "$state_file")")
+    echo "warn: change_id absent, using dirname fallback: $change_id" >&2
   fi
 
   # Slug guard: reject change_ids with characters outside ^[a-z0-9._-]+$
