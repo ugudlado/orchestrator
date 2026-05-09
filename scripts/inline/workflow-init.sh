@@ -16,6 +16,7 @@ CHANGE_ID="${CHANGE_ID:-${SLUG:-}}"
 WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}"
 ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
 FLAGS_WORKTREE="${FLAGS_WORKTREE:-true}"
+WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-$HOME/code/feature_worktrees}"
 
 if [ -z "$CHANGE_ID" ]; then
   printf '%s\n' '{"error": "CHANGE_ID (or SLUG) is required"}' >&2
@@ -34,8 +35,8 @@ WORKTREE_PATH=""
 
 # --- Worktree creation -------------------------------------------------------
 if [ "$FLAGS_WORKTREE" = "true" ]; then
-  WORKTREE_PATH="$REPO_ROOT/../${REPO_ROOT##*/}-worktrees/$CHANGE_ID"
-  mkdir -p "$(dirname "$WORKTREE_PATH")"
+  WORKTREE_PATH="$WORKTREE_BASE_DIR/$CHANGE_ID"
+  mkdir -p "$WORKTREE_BASE_DIR"
 
   if git -C "$REPO_ROOT" worktree list --porcelain | grep -q "worktree $WORKTREE_PATH"; then
     printf 'worktree already exists at %s\n' "$WORKTREE_PATH" >&2
