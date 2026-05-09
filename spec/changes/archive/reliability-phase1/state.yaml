@@ -16,15 +16,15 @@ workflow_plan:
       - create-or-refresh-artifacts
       - run-phase-review
     filtered:
-      - create-linear-ticket  # linear=false
-      - phase-signoff  # auto=true
+      - create-linear-ticket # linear=false
+      - phase-signoff # auto=true
   implement:
     active:
       - execute-next-task
       - run-simplify
       - run-phase-review
     filtered:
-      - final-signoff  # auto=true
+      - final-signoff # auto=true
   complete:
     active:
       - run-feature-verification
@@ -83,3 +83,4 @@ step_history:
     started_at: "2026-04-10T21:15:00Z"
     completed_at: "2026-04-10T21:15:30Z"
 error_events: []
+change_id: reliability-phase1
