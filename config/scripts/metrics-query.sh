@@ -77,13 +77,13 @@ fi
 # ── Build SQL ────────────────────────────────────────────────────────────────
 case "$QUERY_ID" in
   cost-trend)
-    SQL="SELECT change_id, completed_at, json_extract(payload_json, '$.metrics.cost_usd') AS cost FROM features WHERE ${SCOPE} ORDER BY completed_at DESC${LIMIT_CLAUSE}"
+    SQL="SELECT change_id, completed_at, json_extract(payload_json, '$.cost_usd') AS cost FROM features WHERE ${SCOPE} ORDER BY completed_at DESC${LIMIT_CLAUSE}"
     ;;
   quality-trend)
-    SQL="SELECT change_id, completed_at, json_extract(payload_json, '$.metrics.quality_score') AS quality_score FROM features WHERE ${SCOPE} ORDER BY completed_at DESC${LIMIT_CLAUSE}"
+    SQL="SELECT change_id, completed_at, json_extract(payload_json, '$.review_score_avg') AS quality_score FROM features WHERE ${SCOPE} ORDER BY completed_at DESC${LIMIT_CLAUSE}"
     ;;
   retry-hotspots)
-    SQL="SELECT json_extract(s.value, '$.step_id') AS step_id, r.value AS reason, COUNT(DISTINCT f.change_id) AS feature_count, SUM(CAST(json_extract(s.value, '$.retries') AS INTEGER)) AS total_retries FROM features f, json_each(json_extract(f.payload_json, '$.step_history')) s, json_each(json_extract(s.value, '$.retry_reasons')) r WHERE ${SCOPE} GROUP BY step_id, reason ORDER BY total_retries DESC${LIMIT_CLAUSE}"
+    SQL="SELECT step_id, COUNT(DISTINCT change_id) AS feature_count, COUNT(*) AS total_retries FROM step_events WHERE ${SCOPE} AND attempt > 1 GROUP BY step_id ORDER BY total_retries DESC${LIMIT_CLAUSE}"
     ;;
   cycle-count)
     SQL="SELECT COUNT(*) AS cycle_count FROM features WHERE ${SCOPE}"
