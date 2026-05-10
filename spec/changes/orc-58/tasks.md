@@ -15,6 +15,6 @@
   Verify: `python3 spec/changes/orc-58/repro_bug1.py` shows `_check_all_tasks_completed` correctly reads tasks.md from repo_root when worktree-relative copy is absent. `python3 spec/changes/orc-58/repro_bug2.py` shows `step_history` length unchanged after reconcile when YAML has terminal entry for the same triple as a DB in_progress row.
   depends: T-2
 
-- [ ] T-5: Review checkpoint (phase gate)
+- [x] T-5: Review checkpoint (phase gate)
   Verify: All AC-1 through AC-6 from spec.md satisfied. `pytest config/scripts/orchestrator_next/tests/` exits 0. Diff limited to `record.py`, `reconcile.py`, and the two new test files.
   depends: T-3, T-4
