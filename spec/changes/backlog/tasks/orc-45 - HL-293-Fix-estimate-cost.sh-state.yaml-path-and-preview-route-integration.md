@@ -1,9 +1,10 @@
 ---
 id: ORC-45
 title: 'HL-293: Fix estimate-cost.sh state.yaml path and preview-route integration'
-status: Backlog
+status: Done
 assignee: []
 created_date: '2026-05-08 12:05'
+updated_date: '2026-05-10 11:54'
 labels:
   - bug
   - orchestrator
@@ -12,7 +13,7 @@ references:
   - >-
     https://linear.app/home-labs-experiments/issue/HL-293/fix-estimate-costsh-stateyaml-path-and-preview-route-integration
 priority: low
-ordinal: 42000
+ordinal: 1000
 ---
 
 ## Description

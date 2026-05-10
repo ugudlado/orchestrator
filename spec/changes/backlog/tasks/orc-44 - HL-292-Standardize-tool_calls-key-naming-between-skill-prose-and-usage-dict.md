@@ -1,9 +1,10 @@
 ---
 id: ORC-44
 title: 'HL-292: Standardize tool_calls key naming between skill prose and usage dict'
-status: Backlog
+status: In Progress
 assignee: []
 created_date: '2026-05-08 12:05'
+updated_date: '2026-05-10 11:31'
 labels:
   - bug
   - orchestrator
@@ -12,7 +13,7 @@ references:
   - >-
     https://linear.app/home-labs-experiments/issue/HL-292/standardize-tool-calls-key-naming-between-skill-prose-and-usage-dict
 priority: low
-ordinal: 41000
+ordinal: 2000
 ---
 
 ## Description
