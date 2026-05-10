@@ -7,11 +7,11 @@
   Verify: In `config/scripts/orchestrator_next/record.py` the priority-2 branch of `_resolve_workflow_artifact_path` now returns the worktree candidate only when `candidate.is_file()` is true; otherwise control falls through to priority 3. In `config/scripts/orchestrator_next/reconcile.py` the FR-5 `yaml_keys` comprehension no longer filters by `e.status == "in_progress"`. Run `pytest config/scripts/orchestrator_next/tests/test_resolve_artifact_fallback.py config/scripts/orchestrator_next/tests/test_reconcile_terminal_skip.py` — all cases pass.
   depends: T-1
 
-- [ ] T-3: Run full orchestrator_next test suite — zero new failures (depends: T-2)
+- [x] T-3: Run full orchestrator_next test suite — zero new failures (depends: T-2)
   Verify: `pytest config/scripts/orchestrator_next/tests/` exits 0 with no regressions in existing tests (test_repeat_until.py, test_reconcile_in_progress.py, test_dispatch*.py, etc.).
   depends: T-2
 
-- [ ] T-4: Verify reproduction scripts now reflect fixed behaviour (depends: T-2)
+- [x] T-4: Verify reproduction scripts now reflect fixed behaviour (depends: T-2)
   Verify: `python3 spec/changes/orc-58/repro_bug1.py` shows `_check_all_tasks_completed` correctly reads tasks.md from repo_root when worktree-relative copy is absent. `python3 spec/changes/orc-58/repro_bug2.py` shows `step_history` length unchanged after reconcile when YAML has terminal entry for the same triple as a DB in_progress row.
   depends: T-2
 
