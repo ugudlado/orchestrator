@@ -4,7 +4,7 @@ title: Metrics Regression Detection + Regression-Breaker Exit Code
 status: To Do
 assignee: []
 created_date: '2026-05-03 10:55'
-updated_date: '2026-05-03 11:00'
+updated_date: '2026-05-10 10:54'
 labels:
   - slug-metrics-regression-detection
   - feature
@@ -65,3 +65,19 @@ Reframed 2026-05-03 after autopilot collapse (commit fa6112d): the original "aut
 
 ---
 <!-- SECTION:DESCRIPTION:END -->
+
+## Acceptance Criteria
+<!-- AC:BEGIN -->
+- [ ] #1 New compute-metrics-regressions.yaml step; new metrics_anomalies table (change_id, anomaly_type, metric, observed, baseline_median, ratio, detected_at)
+- [ ] #2 Flag: feature cost_usd > 1.5x 30-day median; step duration_ms > 2x median; single-agent token spike > 2x median
+- [ ] #3 Surface top anomalies in /telemetry
+- [ ] #4 Regression breaker: complete-phase exits with EXIT_REGRESSION_BREAKER (e.g. 23) when just-shipped feature + prior 2 features all appear in metrics_anomalies
+<!-- AC:END -->
+
+
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Absorbed ORC-32 (read-sub-state-metrics.sh outdated paths ISSUE-26) — path fix is a prerequisite for regression detection baselines to have valid data. Fix must land first within this task's implementation.
+<!-- SECTION:NOTES:END -->

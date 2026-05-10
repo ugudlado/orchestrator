@@ -1,10 +1,12 @@
 ---
 id: ORC-13
-title: Implement /workflow-improve Skill
+title: >-
+  Implement /workflow-improve Skill (+ harden dispatch loop + fix missing
+  contracts)
 status: To Do
 assignee: []
 created_date: '2026-05-03 10:55'
-updated_date: '2026-05-03 11:00'
+updated_date: '2026-05-10 10:43'
 labels:
   - slug-workflow-improve-skill-implementation
   - feature
@@ -40,3 +42,18 @@ The orchestrator has 38 step contracts, 6 schemas, and 11 agents. As this grows,
 
 ---
 <!-- SECTION:DESCRIPTION:END -->
+
+## Acceptance Criteria
+<!-- AC:BEGIN -->
+- [ ] #1 Validate all schema step refs resolve to actual step contract YAMLs; missing contracts pre-filtered with warning (absorbs ORC-28)
+- [ ] #2 Validate all step contract agent: fields resolve to agent .md files
+- [ ] #3 Validate flags_read references exist in schema defaults; validate template references
+- [ ] #4 Add file-not-found guards to dispatch loop before each READ (step contract, agent def); add state.yaml write-after-verify pattern (absorbs ORC-14)
+- [ ] #5 Surface validation results as user-facing /workflow-improve CLI command (runtime-invocable, not Makefile target)
+<!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Absorbed ORC-28 (fix missing step contracts ISSUE-18) and ORC-14 (harden dispatch loop) — all three address workflow graph integrity and dispatch robustness from the same surface area. ORC-28 pre-filters missing contracts at workflow-init; ORC-14 adds guards mid-dispatch; ORC-13 makes this user-invokable as /workflow-improve.
+<!-- SECTION:NOTES:END -->

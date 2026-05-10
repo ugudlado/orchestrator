@@ -1,9 +1,10 @@
 ---
 id: ORC-48
 title: Agent spawn usage not flowing into DuckDB metrics
-status: Backlog
+status: Done
 assignee: []
 created_date: '2026-05-09 21:41'
+updated_date: '2026-05-10 10:53'
 labels:
   - bugfix
 dependencies: []
@@ -24,3 +25,9 @@ All steps in cost reports show as 'inline' agent with output_tokens=0 and model=
 - [ ] #3 model field resolves to actual model ID (not __default__) for agent steps
 - [ ] #4 rework_ratio computed correctly — not inflated by misattributed inline records
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Fixed in commit 26292ca (merged via ORC-48-complete workflow). record.py Check B now rejects completed agent-step payloads missing agent field; SKILL.md done template updated to include agent + agent_id. Fix verified present in current codebase.
+<!-- SECTION:FINAL_SUMMARY:END -->
