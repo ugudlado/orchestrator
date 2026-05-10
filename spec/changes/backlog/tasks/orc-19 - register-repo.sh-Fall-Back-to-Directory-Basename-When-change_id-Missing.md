@@ -1,7 +1,7 @@
 ---
 id: ORC-19
 title: 'register-repo.sh: Fall Back to Directory Basename When change_id Missing'
-status: In Progress
+status: Done
 assignee:
   - spidey
 created_date: '2026-05-03 10:55'
@@ -73,7 +73,18 @@ Log: `warn: change_id absent, using dirname fallback: <slug>`.
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [x] #1 All three legacy state.yaml files have explicit change_id field
-- [ ] #2 Dirname fallback branch added to register-repo.sh lines 163-166
-- [ ] #3 Warn message emitted when fallback is used
-- [ ] #4 Test case covers missing change_id path with safe dirname
+- [x] #2 Dirname fallback branch added to register-repo.sh lines 163-166
+- [x] #3 Warn message emitted when fallback is used
+- [x] #4 Test case covers missing change_id path with safe dirname
 <!-- AC:END -->
+
+## Final Summary
+
+Implemented dirname fallback in register-repo.sh when change_id is missing. Falls back to directory basename per FR-6 defensive ingest spec; existing slug validation remains intact. All three legacy archives now ingest with recovered step_history data.
+
+Changes:
+- register-repo.sh: Added fallback to dirname when change_id empty (lines 163-166)
+- Added warn log when fallback is used
+- Tests: T-DN1 and T-DN2 cover both success and error cases
+
+Merged in commit cd001f9.
