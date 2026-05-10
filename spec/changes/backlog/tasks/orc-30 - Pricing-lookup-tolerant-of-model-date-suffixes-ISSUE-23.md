@@ -1,10 +1,10 @@
 ---
 id: ORC-30
 title: Pricing lookup tolerant of model date-suffixes (ISSUE-23)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-03 10:56'
-updated_date: '2026-05-03 11:00'
+updated_date: '2026-05-10 16:37'
 labels:
   - slug-pricing-date-suffix-lookup
   - bug
@@ -12,7 +12,7 @@ labels:
   - recurrence-1
 dependencies: []
 priority: low
-ordinal: 29000
+ordinal: 1000
 ---
 
 ## Description
