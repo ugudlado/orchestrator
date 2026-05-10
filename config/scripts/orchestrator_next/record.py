@@ -818,8 +818,10 @@ def _resolve_workflow_artifact_path(state_raw: dict[str, Any], filename: str) ->
     Resolution order:
       1. If filename == "tasks.md" and state_raw has an explicit ``tasks_path``
          override, return that path immediately.
-      2. If ``worktree_path`` is set AND that directory exists on disk, return
-         ``<worktree_path>/spec/changes/<change_id>/<filename>``.
+      2. If ``worktree_path`` is set AND that directory exists on disk AND the
+         candidate file itself exists, return
+         ``<worktree_path>/spec/changes/<change_id>/<filename>``; otherwise fall
+         through to priority 3.
       3. Else if ``repo_root`` is set, return
          ``<repo_root>/spec/changes/<change_id>/<filename>``.
       4. Return None when no candidate can be constructed at all.
