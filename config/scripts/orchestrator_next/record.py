@@ -839,7 +839,9 @@ def _resolve_workflow_artifact_path(state_raw: dict[str, Any], filename: str) ->
     if isinstance(worktree_path, str) and worktree_path:
         wt = Path(os.path.expanduser(worktree_path))
         if wt.is_dir():
-            return wt / "spec" / "changes" / change_id / filename
+            candidate = wt / "spec" / "changes" / change_id / filename
+            if candidate.is_file():
+                return candidate
 
     # 3. Fall back to repo_root.
     repo_root = state_raw.get("repo_root")

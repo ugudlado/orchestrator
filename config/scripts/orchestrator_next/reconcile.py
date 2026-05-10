@@ -86,7 +86,6 @@ def reconcile_in_progress(state: State, db, context: dict) -> None:
     yaml_keys = {
         (e.phase, e.step_id, e.attempt)
         for e in state.step_history
-        if e.status == "in_progress"
     }
     for phase, step_id, attempt, agent_name, started_at in db_rows:
         if (phase, step_id, attempt) in yaml_keys:
