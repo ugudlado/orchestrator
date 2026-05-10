@@ -1,0 +1,372 @@
+change_id: orc-30
+slug: orc-30
+schema: bugfix
+status: completed
+repo_root: /Users/spidey/code/orchestrator
+flags:
+  worktree: true
+  phase_review: true
+  portless: true
+  metrics: true
+  linear: true
+  ux_design: false
+  tdd_required: true
+  auto: true
+  agents: true
+  light: false
+workflow_plan:
+  main:
+    active:
+    - workflow-init
+    - diagnose
+    - design-and-draft-artifacts
+    - capture-test-baseline
+    - execute-next-task
+    - run-phase-review
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered: []
+phase: main
+next_step:
+  phase: main
+  step_id: remove-worktree
+step_history:
+- step_id: workflow-init
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:22:30Z'
+  ended_at: '2026-05-09T21:22:30Z'
+  usage: {}
+  evidence:
+    outputs:
+      worktree_path: /Users/spidey/code/feature_worktrees/orc-30
+      branch: orc/orc-30
+      linear_ticket_id: null
+      workflow_plan:
+        main:
+          active:
+          - workflow-init
+          - diagnose
+          - design-and-draft-artifacts
+          - capture-test-baseline
+          - execute-next-task
+          - run-phase-review
+          - compute-prediction-accuracy
+          - run-learn-cycle
+          - mark-change-completed
+          - compute-swe-metrics
+          - archive-completed-change
+          - remove-worktree
+          filtered: []
+      resolved_flags:
+        worktree: true
+        phase_review: true
+        portless: true
+        metrics: true
+        linear: true
+        ux_design: false
+        tdd_required: true
+        auto: true
+        agents: true
+        light: false
+      plan_yaml_path: /Users/spidey/code/orchestrator/spec/changes/orc-30/plan.yaml
+    summary: inline script completed
+- step_id: diagnose
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:26:10Z'
+  ended_at: '2026-05-09T21:26:10Z'
+  usage: {}
+  evidence:
+    outputs:
+      diagnosis_result: diagnose.md written
+    summary: 'Root cause: _compute_cost_usd does direct model_id lookup, misses dated
+      IDs, falls through to default (opus-tier)'
+- step_id: diagnose
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-05-09T21:26:47Z'
+  ended_at: '2026-05-09T21:26:47Z'
+  usage:
+    input_tokens: 74514
+    duration_ms: 201071
+    tool_calls:
+      Read: 10
+      Bash: 12
+      Grep: 5
+      Glob: 3
+    model: __default__
+    cost_usd: 1.11771
+  evidence:
+    outputs:
+      diagnosis_result: "diagnose.md written \u2014 root cause: _lookup_price in record.py\
+        \ falls through to __default__ (opus-tier) for dated model IDs; fix is 3-line\
+        \ regex strip before fallback"
+    summary: 'Root cause in _lookup_price line 453: no date-strip before __default__
+      fallback. Impact: haiku overstated ~18x, sonnet ~5x. Fix: re.sub r-\d{8}$ before
+      _pick_row fallback.'
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:28:23Z'
+  ended_at: '2026-05-09T21:28:23Z'
+  usage: {}
+  evidence:
+    outputs:
+      updated_artifact_set: spec.md, design.md, tasks.md
+      design_direction: 3-line regex strip in _lookup_price before __default__ fallback
+      complexity: trivial
+    summary: 'spec/design/tasks written. Single task T-1: strip date suffix + test.'
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-05-09T21:28:37Z'
+  ended_at: '2026-05-09T21:28:37Z'
+  usage:
+    input_tokens: 44530
+    duration_ms: 56943
+    tool_calls:
+      Read: 3
+      Write: 3
+    model: __default__
+    cost_usd: 0.66795
+  evidence:
+    outputs:
+      updated_artifact_set: spec.md, design.md, tasks.md
+      design_direction: 3-line regex strip in _lookup_price before __default__ fallback
+      complexity: trivial
+    summary: 'spec/design/tasks written. Single task T-1: strip date suffix + unit
+      test.'
+- step_id: capture-test-baseline
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:29:06Z'
+  ended_at: '2026-05-09T21:29:06Z'
+  usage: {}
+  evidence:
+    outputs:
+      baseline:
+        captured_at: '2026-05-09T21:28:57Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 373
+        failing: 4
+        skipped: 0
+        total: 377
+        exit_code: 1
+    summary: inline script completed
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:31:35Z'
+  ended_at: '2026-05-09T21:31:35Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_execution_result: 'T-1 complete: _lookup_price strips date suffix, 3 new
+        tests pass'
+    summary: Added 3-line date-strip in _lookup_price, added test_pricing_lookup.py
+      with 3 cases. All pass.
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-05-09T21:31:54Z'
+  ended_at: '2026-05-09T21:31:54Z'
+  usage:
+    input_tokens: 34404
+    duration_ms: 131433
+    tool_calls:
+      Read: 5
+      Edit: 2
+      Bash: 4
+      Write: 1
+      Grep: 1
+    model: __default__
+    cost_usd: 0.51606
+  evidence:
+    outputs:
+      task_execution_result: 'T-1 complete: _lookup_price strips date suffix, 3 new
+        tests pass (16 total)'
+    summary: '3-line date-strip added in _lookup_price. test_pricing_lookup.py: 16
+      passed, 0 failed. RED confirmed before fix.'
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:33:20Z'
+  ended_at: '2026-05-09T21:33:20Z'
+  usage: {}
+  evidence:
+    outputs:
+      phase_review_report: "10/10 \u2014 3-line date-suffix strip is correct, minimal,\
+        \ and fully tested; 16/16 pricing tests pass, 0 regressions introduced"
+    summary: 'Implementation at record.py:455-457: re.sub strips -YYYYMMDD suffix
+      only when exact lookup fails, identity guard prevents redundant call, __default__
+      fallback preserved. All 3 TestDateSuffixStripping tests pass (sonnet@3.00, haiku@0.80,
+      unknown@15.00). Full suite: 379 passed, 1 pre-existing failure in test_seed_state.py
+      confirmed on main.'
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-05-09T21:33:32Z'
+  ended_at: '2026-05-09T21:33:32Z'
+  usage:
+    input_tokens: 33537
+    duration_ms: 72075
+    tool_calls:
+      Read: 3
+      Bash: 3
+      Grep: 2
+    model: __default__
+    cost_usd: 0.503055
+  evidence:
+    outputs:
+      phase_review_report: "10/10 \u2014 3-line fix correct, 16/16 tests pass, no\
+        \ regressions in 379-test suite"
+    summary: Score 10/10. Fix minimal and correct. Full suite 379 passed, 1 pre-existing
+      failure unchanged.
+- step_id: compute-prediction-accuracy
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:33:35Z'
+  ended_at: '2026-05-09T21:33:35Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy:
+        computed_at: '2026-05-09T21:33:35Z'
+        predicted_tasks: 0
+        actual_tasks: 0
+        fix_task_count: 0
+        rework_rate: 0.0
+        task_delta: 0
+        task_accuracy_pct: 100.0
+        predicted_file_count: null
+        actual_file_count: null
+        file_delta: null
+        file_overlap_pct: null
+    summary: inline script completed
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:38:12Z'
+  ended_at: '2026-05-09T21:38:12Z'
+  usage: {}
+  evidence:
+    outputs:
+      learn_result: 'learn_completed: true'
+    summary: "ORC-30 was clean (10/10, no genuine retries). Two-dispatch pattern (inline\
+      \ attempt=1 cost=0 + agent attempt=2 with cost) confirmed as dispatch artifact\
+      \ not failures. No new rules warranted. Updated hits counters on 9 learned rules\
+      \ across execute-next-task (+1 each x4), design-and-draft-artifacts (+1 each\
+      \ x4), run-phase-review (+1 each x3), run-learn-cycle (+1). Cycle 36; decay\
+      \ skipped (36 % 5 = 1, next decay at cycle 40). Quality bar unchanged (last-5\
+      \ avg 10.0, green_base stays at 9 \u2014 all-10 avg has no variance signal and\
+      \ perfect-or-fail gate is too brittle)."
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-05-09T21:38:40Z'
+  ended_at: '2026-05-09T21:38:40Z'
+  usage:
+    input_tokens: 55265
+    duration_ms: 266600
+    tool_calls:
+      Read: 8
+      Bash: 15
+      Edit: 4
+    model: __default__
+    cost_usd: 0.828975
+  evidence:
+    outputs:
+      learn_result: "learn_completed: true \u2014 hit counters updated on 12 rules\
+        \ across 4 contracts; no new rules needed; decay skipped (cycle 36)"
+    summary: ORC-30 produced no workflow rule changes. Hit counters incremented on
+      12 existing rules. Avg review score 10.0, quality bar stable at 9.
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:38:44Z'
+  ended_at: '2026-05-09T21:38:44Z'
+  usage: {}
+  evidence:
+    outputs:
+      status: completed
+      completed_at: '2026-05-09T21:38:44Z'
+      archive_path: spec/changes/archive/2026-05-09-orc-30/
+    summary: inline script completed
+- step_id: compute-swe-metrics
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:38:46Z'
+  ended_at: '2026-05-09T21:38:46Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+- step_id: archive-completed-change
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:38:49Z'
+  ended_at: '2026-05-09T21:38:49Z'
+  usage: {}
+  evidence:
+    outputs:
+      archive_record:
+        skipped: true
+        reason: missing required env vars
+    summary: inline script completed
+- step_id: remove-worktree
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-09T21:38:56Z'
+  ended_at: '2026-05-09T21:38:56Z'
+  usage: {}
+  evidence:
+    outputs:
+      removed: false
+      reason: 'worktree path missing: '
+    summary: inline script completed
+created_at: '2026-05-09T21:22:20Z'
+started_at: '2026-05-09T21:22:20Z'
+project_context_loaded: true
+worktree_path: /Users/spidey/code/feature_worktrees/orc-30
+branch: orc/orc-30
+completed_at: '2026-05-09T21:38:44Z'
+archive_path: spec/changes/archive/2026-05-09-orc-30/
