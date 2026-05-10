@@ -415,6 +415,9 @@ def _ensure_pricing_cache(db) -> dict[str, list]:
     return by_model
 
 
+_DATED_MODEL_SUFFIX_RE = re.compile(r"-\d{8}$")
+
+
 def _lookup_price(db, model_id: str, effective_at: "_dt.datetime") -> dict | None:
     """Look up pricing rates for model_id at effective_at from the DuckDB pricing table.
 
@@ -451,6 +454,11 @@ def _lookup_price(db, model_id: str, effective_at: "_dt.datetime") -> dict | Non
         return None
 
     row = _pick_row(model_id)
+    if row is None:
+        # ORC-30: dated model ID (e.g. claude-sonnet-4-6-20260315) → try base.
+        base = _DATED_MODEL_SUFFIX_RE.sub("", model_id)
+        if base != model_id:
+            row = _pick_row(base)
     if row is None:
         row = _pick_row("__default__")
     if row is None:
