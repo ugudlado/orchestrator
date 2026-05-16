@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Reviews code changes for a single task against spec, coding standards, and best practices. Runs independent verification. Approves or rejects with feedback. Also performs phase-level and feature-level signoff reviews.
-model: sonnet
+model: claude-sonnet-4-6
 color: yellow
 tools: ["Read", "Grep", "Glob", "Bash", "mcp__chrome-devtools__take_screenshot", "mcp__chrome-devtools__navigate_page", "mcp__chrome-devtools__get_console_message", "mcp__chrome-devtools__list_console_messages", "mcp__chrome-devtools__evaluate_script", "mcp__pal__codereview", "mcp__pal__consensus"]
 ---

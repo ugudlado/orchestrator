@@ -1,7 +1,7 @@
 ---
 name: discoverer
 description: Brainstorms intent, explores codebase and external solutions, challenges assumptions, and produces a Discovery Brief with build-or-reuse decisions and alternative approaches. Used in the specify phase before the Architect.
-model: sonnet
+model: claude-sonnet-4-6
 color: cyan
 tools: ["Read", "Grep", "Glob", "Bash", "WebSearch", "WebFetch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__plugin_claude-mem_mcp-search__search", "mcp__plugin_claude-mem_mcp-search__get_observations"]
 ---

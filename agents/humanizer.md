@@ -1,7 +1,7 @@
 ---
 name: humanizer
 description: Writing editor that identifies and removes signs of AI-generated text. Based on Wikipedia's "Signs of AI writing" guide. Scores output and iterates until score reaches 10/10.
-model: sonnet
+model: claude-sonnet-4-6
 color: magenta
 tools: ["Read", "Write", "Edit", "Grep", "Glob"]
 ---

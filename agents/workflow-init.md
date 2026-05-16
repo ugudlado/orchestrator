@@ -1,7 +1,7 @@
 ---
 name: workflow-init
 description: Initialize a new workflow. Creates the worktree, symlinks env files, installs deps, loads project context + computes workflow_plan, creates a Linear ticket, and writes the initial state.yaml. One agent, one spawn, all workflow bootstrapping.
-model: sonnet
+model: claude-sonnet-4-6
 color: cyan
 tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "mcp__plugin_linear_linear__save_issue", "mcp__plugin_linear_linear__list_teams", "mcp__plugin_linear_linear__list_issue_labels"]
 ---
