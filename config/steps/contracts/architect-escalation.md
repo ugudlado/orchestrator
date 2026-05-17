@@ -8,7 +8,7 @@ authoritatively rather than silently guessed at or worked around.
 
 Escalate when the developer encounters ANY of these during task implementation:
 
-1. **Design contradiction** — the task instruction conflicts with design.md or spec.md
+1. **Design contradiction** — the task instruction conflicts with design.md
    (e.g., "use X, not Y" in design.md but the task requires Y)
 2. **Missing design coverage** — the task requires a decision design.md does not address
    (e.g., a new data flow, error path, or component interaction not covered)
@@ -25,7 +25,7 @@ The developer resolves these independently — do not escalate:
 - **Implementation details** — which loop structure, variable names, internal helper design
 - **Test strategy** — how to structure tests, what to mock, test helper organization
 - **Library usage** — which method to call, how to use an API within an already-chosen library
-- **Minor uncertainty** — anything answerable by re-reading spec.md or design.md carefully
+- **Minor uncertainty** — anything answerable by re-reading design.md carefully
 - **Retry failures** — test failures, build errors, verification failures follow the Error
   Recovery Contract (contracts/error-recovery.md), not this protocol
 
@@ -38,7 +38,7 @@ STATUS: escalate_to_architect
 type: <contradiction|missing_coverage|scope_ambiguity|architectural_dependency>
 task_id: T-<N>
 context: |
-  <2-4 sentences: what the task requires, what the spec/design says, why they conflict>
+  <2-4 sentences: what the task requires, what design.md says, why they conflict>
 question: |
   <single, concrete question the architect must answer to unblock implementation>
 attempted: |
@@ -72,8 +72,7 @@ When the developer returns `STATUS: escalate_to_architect`, the orchestrator:
 1. **READ** `agents/architect.md` (Mode 3: Implementation Consultation)
 2. **READ** `contracts/architect-escalation.md` (this file)
 3. **SPAWN** architect agent with the following context bundle:
-   - `spec.md` — full specification
-   - `design.md` — full design
+   - `design.md` — full design (includes Acceptance Criteria)
    - The escalation block (type, task_id, context, question, attempted)
    - `tasks.md` with current completion status (which tasks are done, which are pending)
 4. **WAIT** for architect response
@@ -91,7 +90,7 @@ The architect responds with this structured block:
 ```
 DECISION: <concrete answer to the developer's question — one unambiguous directive>
 RATIONALE: |
-  <why this decision — grounded in spec.md, design.md, or simplicity principle>
+  <why this decision — grounded in design.md or simplicity principle>
 DESIGN_AMENDMENT: |
   <diff or prose update to design.md that captures this decision for future reference>
   — OR —

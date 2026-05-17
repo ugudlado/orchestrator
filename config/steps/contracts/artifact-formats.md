@@ -116,15 +116,18 @@ UC-E1: {title} — what happens when {error condition}.
 
 ### Consumers
 
-- `create-or-refresh-artifacts` — reads UC-N identifiers for spec.md traceability and scope/use cases for task derivation
+- `create-or-refresh-artifacts` — reads UC-N identifiers for design.md AC traceability and scope/use cases for task derivation
 - `run-phase-review` — verifies structural compliance
 
 ---
 
-## Specification Format Contract
+## Design Format Contract
 
-The `spec.md` file is a structural contract between `create-or-refresh-artifacts`
-(producer and task consumer) and `run-phase-review` (consumer).
+The `design.md` file is the single feature artifact — it carries both the design
+("how") and the Acceptance Criteria. It is a structural contract between
+`create-or-refresh-artifacts` (producer and task consumer) and `run-phase-review`
+(consumer). The product-level "what & why" (motivation, impact, alternatives at
+the feature level) lives on the Linear/backlog ticket, not in this file.
 
 ### Format
 
@@ -134,102 +137,6 @@ feature-id: FEATURE-ID
 linear-ticket: HL-XXX
 ---
 
-# Specification: {title}
-
-## Motivation
-
-{What problem does this solve and why.}
-
-## What Changes
-
-{High-level description of new or modified capabilities.}
-
-## Requirements
-
-### Functional
-
-1. **FR-1**: {requirement description}
-2. **FR-2**: {requirement description}
-
-### Non-Functional
-
-1. **NFR-1**: {requirement description}
-
-## Architecture
-
-{Components, data flow, file modification table.}
-
-## Test Strategy
-
-### Test File Paths
-
-{Map each component to its test file.}
-
-### Coverage Targets
-
-{Minimum 90% overall. Per-module targets if needed.}
-
-### Key Test Scenarios
-
-{Critical paths that MUST have test coverage.}
-
-## Acceptance Criteria
-
-- AC-1: {testable criterion using Given/When/Then} [traces: UC-N]
-- AC-2: {testable criterion} [traces: UC-N, UC-EN]
-
-## Alternatives Considered
-
-**Alternative N: {name}**
-Rejected. {Why rejected or why chosen approach is better.}
-
-## Impact
-
-{Breaking changes, migration, affected areas.}
-
-## Decisions
-
-- {Decision}: {rationale}
-```
-
-### Field rules
-
-| Field | Required | Format |
-|-------|----------|--------|
-| Frontmatter | Yes | YAML block with `feature-id` and `linear-ticket` |
-| Motivation | Yes | One or more paragraphs |
-| What Changes | Yes | Prose or bulleted list |
-| Functional Requirements | Yes | Numbered list, format: `N. **FR-N**: description` |
-| Non-Functional Requirements | Yes | Numbered list, format: `N. **NFR-N**: description`. Use "N/A" if genuinely none |
-| Architecture | Yes | File modification table for implementation-oriented specs; prose for conceptual |
-| Test Strategy | Contextual | Required when code changes exist. "N/A" for YAML/markdown-only changes |
-| Acceptance Criteria | Yes | Bulleted list, each with `[traces: UC-N]` referencing discovery.md use case(s) |
-| Alternatives Considered | Yes | At least one alternative per major design choice |
-| Impact | Yes | "No breaking changes" if none |
-| Decisions | Contextual | Populated when non-obvious choices were made |
-
-### Traceability rules
-
-- Every AC item MUST include `[traces: UC-N]` or `[traces: UC-N, UC-EN]`
-- The referenced UC-N must exist in the corresponding discovery.md
-- Every discovery.md use case (UC-N and UC-EN) should be traced by at least one AC
-- AC identifiers: `AC-1`, `AC-2`, ... sequential with no gaps
-
-### Consumers
-
-- `run-phase-review` — reads Acceptance Criteria for AC verification (implement phase) and verifies structural compliance and traceability
-
----
-
-## Design Format Contract
-
-The `design.md` file is a structural contract between `create-or-refresh-artifacts`
-(producer and task consumer) and `run-phase-review` (consumer).
-Only produced in the feature schema when `design=true`.
-
-### Format
-
-```markdown
 # Design: {title}
 
 ## Context
@@ -296,6 +203,11 @@ Only produced in the feature schema when `design=true`.
 
 {What was sacrificed and why it's acceptable.}
 
+## Acceptance Criteria
+
+- AC-1: {testable criterion using Given/When/Then} [traces: UC-N]
+- AC-2: {testable criterion} [traces: UC-N, UC-EN]
+
 ## Decisions
 
 - {Decision} → {Rationale} → {Consequence}
@@ -309,6 +221,7 @@ Only produced in the feature schema when `design=true`.
 
 | Field | Required | Format |
 |-------|----------|--------|
+| Frontmatter | Yes | YAML block with `feature-id` and `linear-ticket` |
 | Context | Yes | Prose describing problem space |
 | Goals | Yes | Bulleted list, at least one |
 | Non-Goals | Yes | Bulleted list, at least one |
@@ -322,12 +235,20 @@ Only produced in the feature schema when `design=true`.
 | Error Handling | Contextual | Required when external dependencies or user input involved |
 | Constraints | Yes | "None beyond standard project conventions" if genuinely none |
 | Trade-offs | Yes | At least one trade-off articulated |
+| Acceptance Criteria | Yes | Bulleted list, each with `[traces: UC-N]` referencing discovery.md use case(s) |
 | Decisions | Contextual | Populated when non-obvious choices made |
 | Open Questions | Yes | Empty section means no blockers |
 
+### Traceability rules
+
+- Every AC item MUST include `[traces: UC-N]` or `[traces: UC-N, UC-EN]`
+- The referenced UC-N must exist in the corresponding discovery.md
+- Every discovery.md use case (UC-N and UC-EN) should be traced by at least one AC
+- AC identifiers: `AC-1`, `AC-2`, ... sequential with no gaps
+
 ### Consumers
 
-- `run-phase-review` — verifies structural compliance
+- `run-phase-review` — reads Acceptance Criteria for AC verification (implement phase) and verifies structural compliance and traceability
 
 ---
 

@@ -51,7 +51,7 @@ fall back to matching `change_id` against the lowercased `TICKET_ID`.
 - **Match** → record `SLUG`, `STATE_FILE`, and read `flags.worktree`,
   `repo_root` from it. Set `ARTIFACT_DIR`: when `flags.worktree: true` →
   `$WORKTREE_BASE_DIR/$SLUG`, else `$REPO_ROOT/spec/changes/$SLUG`. This is
-  where `spec.md` / `design.md` / `tasks.md` live (CLAUDE.md § Paths —
+  where `design.md` / `tasks.md` live (CLAUDE.md § Paths —
   artifacts follow the worktree, state does not).
 
 ### 3. Enter the ticket's worktree or branch
@@ -80,13 +80,13 @@ override). Pass it:
 
 - The full ticket: `backlog task <id> --plain`
 - `SLUG`, `STATE_FILE`, `ARTIFACT_DIR`, the resolved working directory
-- The spec/design to review against: `$ARTIFACT_DIR/spec.md` and
-  `$ARTIFACT_DIR/design.md` (read both first; `design.md` may not exist).
-  If `spec.md` is absent, review against the ticket text and note the
-  missing spec in the verdict — do not block.
+- The design to review against: `$ARTIFACT_DIR/design.md` (read it first —
+  it carries both the design and the Acceptance Criteria; the product-level
+  what/why is on the ticket). If `design.md` is absent, review against the
+  ticket text and note the missing design in the verdict — do not block.
 - This instruction:
 
-  > Review this change against `$ARTIFACT_DIR/spec.md` + `design.md` and the
+  > Review this change against `$ARTIFACT_DIR/design.md` and the
   > per-task rubric (Mode 1).
   > Read `.review/AGENTS.md` for the session protocol. Record findings ONLY
   > through these two channels — do not edit production code:

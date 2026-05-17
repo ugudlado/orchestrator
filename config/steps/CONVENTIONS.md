@@ -26,7 +26,6 @@ use short names that map to the contract files:
 
 - `§ Task Format Contract` → `contracts/artifact-formats.md`
 - `§ Discovery Brief Format Contract` → `contracts/artifact-formats.md`
-- `§ Specification Format Contract` → `contracts/artifact-formats.md`
 - `§ Design Format Contract` → `contracts/artifact-formats.md`
 - `§ Diagnosis Format Contract` → `contracts/artifact-formats.md`
 - `§ Fix Plan Format Contract` → `contracts/artifact-formats.md`
@@ -262,13 +261,13 @@ After HL-303, workflow artifacts are split across two directories:
 | Variable | Contents | Committed? | Location |
 |----------|----------|------------|----------|
 | `$WORKFLOW_STATE_DIR/$CHANGE_ID/` | `state.yaml`, `plan.yaml` | No (gitignored) | Always `$REPO_ROOT/spec/changes/<slug>/` |
-| `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/` | `spec.md`, `design.md`, `tasks.md`, `diagnose.md`, UX files | Yes (committed) | `$WORKTREE_ROOT/spec/changes/<slug>/` when `flags.worktree=true`, else same as state dir |
+| `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/` | `design.md`, `tasks.md`, `diagnose.md`, UX files | Yes (committed) | `$WORKTREE_ROOT/spec/changes/<slug>/` when `flags.worktree=true`, else same as state dir |
 
 `WORKTREE_ARTIFACT_DIR` defaults to `${WORKTREE_ROOT:-$REPO_ROOT}/spec/changes` so that
 agents that run inside a worktree write tracked artifacts to the worktree branch, while
 agents running without a worktree continue to write both artifacts and state to `$REPO_ROOT`.
 
-Steps that write tracked artifacts (spec.md, design.md, tasks.md, diagnose.md, UX files)
+Steps that write tracked artifacts (design.md, tasks.md, diagnose.md, UX files)
 MUST use `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/`, not `$WORKFLOW_STATE_DIR/$CHANGE_ID/`, as
 the artifact destination.
 

@@ -51,7 +51,7 @@ fall back to matching `change_id` against the lowercased `TICKET_ID`.
 - **Match** → record `SLUG`, `STATE_FILE`, read `flags.worktree`,
   `repo_root`. Set `ARTIFACT_DIR`: when `flags.worktree: true` →
   `$WORKTREE_BASE_DIR/$SLUG`, else `$REPO_ROOT/spec/changes/$SLUG`. This is
-  where `spec.md` / `design.md` / `tasks.md` live (CLAUDE.md § Paths —
+  where `design.md` / `tasks.md` live (CLAUDE.md § Paths —
   artifacts follow the worktree, state does not).
 
 ### 3. Enter the ticket's worktree or branch
@@ -75,10 +75,11 @@ override). Pass it:
 
 - The full ticket: `backlog task <id> --plain`
 - `SLUG`, `STATE_FILE`, `ARTIFACT_DIR`, the resolved working directory
-- The spec/design to implement against: `$ARTIFACT_DIR/spec.md` and
-  `$ARTIFACT_DIR/design.md` (read both before coding; `design.md` may not
-  exist). If `spec.md` is absent, implement against the ticket text and
-  flag the missing spec in the result — do not block.
+- The design to implement against: `$ARTIFACT_DIR/design.md` (read it
+  before coding — it carries both the design and the Acceptance Criteria;
+  the product-level what/why is on the ticket). If `design.md` is absent,
+  implement against the ticket text and flag the missing design in the
+  result — do not block.
 - If a resolvr session exists: its path + `.review/AGENTS.md`, with the
   instruction to resolve every open thread via the documented protocol
   before completing.

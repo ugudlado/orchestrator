@@ -1,8 +1,15 @@
+---
+feature-id: FEATURE-ID
+linear-ticket: HL-XXX
+---
+
 # Design: {title}
 
 ## Context
 
-{Problem space, constraints, and existing system boundaries.}
+{Problem space, constraints, and existing system boundaries. The "what & why"
+(motivation, impact, alternatives at the product level) lives on the ticket —
+this section captures only what the design needs to stand on its own.}
 
 ## Goals / Non-Goals
 
@@ -63,6 +70,11 @@
 ## Trade-offs
 
 {What was sacrificed and why it's acceptable.}
+
+## Acceptance Criteria
+
+- AC-1: Given {precondition}, when {action}, then {outcome}. [traces: UC-1]
+- AC-2: Given {precondition}, when {action}, then {outcome}. [traces: UC-2, UC-E1]
 
 ## Decisions
 

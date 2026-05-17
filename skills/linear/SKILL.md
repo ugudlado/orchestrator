@@ -70,7 +70,7 @@ All Linear operations go through the `plugin:linear` MCP server:
 2. If `ticketing:` is not `linear` → skip all Linear calls silently.
 3. Call `mcp__plugin_linear_linear__save_issue` with:
    - `title`: concise description of the change
-   - `description`: summary from spec.md, diagnose.md, or user input (markdown supported)
+   - `description`: summary from design.md, diagnose.md, or user input (markdown supported)
    - `teamId`: `linear.team_id`
    - `projectId`: `linear.project_id`
    - `labelIds`: `linear.product_label_id` + type label + complexity label

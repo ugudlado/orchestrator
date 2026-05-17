@@ -104,7 +104,7 @@ entry (the original wall-clock time the step was first dispatched).
   "action": "verify_phase",
   "phase": "implement",
   "commands": ["bash scripts/verify-spec.sh"],
-  "assertions": ["spec.md exists and is non-empty"]
+  "assertions": ["design.md exists and is non-empty"]
 }
 ```
 

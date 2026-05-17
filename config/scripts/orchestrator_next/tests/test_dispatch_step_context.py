@@ -228,7 +228,7 @@ def test_verify_phase_omits_step_context(tmp_path, monkeypatch):
             "specify": {
                 "active": ["done-step"],
                 "filtered": [],
-                "verify": {"assertions": ["spec.md exists"]},
+                "verify": {"assertions": ["design.md exists"]},
             }
         },
         step_history=[entry],

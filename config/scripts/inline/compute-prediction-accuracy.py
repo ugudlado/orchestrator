@@ -45,10 +45,10 @@ def count_tasks(tasks_md: Path) -> tuple[int, int]:
     return predicted or actual, actual
 
 
-def extract_predicted_files(spec_md: Path) -> list[str] | None:
-    if not spec_md.is_file():
+def extract_predicted_files(design_md: Path) -> list[str] | None:
+    if not design_md.is_file():
         return None
-    text = spec_md.read_text()
+    text = design_md.read_text()
     # Very loose heuristic — find a markdown pipe table that has a column
     # named 'File' or a section with 'Files:' / 'Affected Files'.
     file_paths: list[str] = []
@@ -77,11 +77,11 @@ def main() -> int:
         print(json.dumps({"error": "STATE_YAML_PATH missing or not a file"}))
         return 3
 
-    # Sibling lookup: tasks.md and spec.md live alongside state.yaml in
+    # Sibling lookup: tasks.md and design.md live alongside state.yaml in
     # spec/changes/<slug>/ (the canonical artifact dir, ORC-36). Do NOT diverge.
     state_dir = Path(state_path).parent
     tasks_md = state_dir / "tasks.md"
-    spec_md = state_dir / "spec.md"
+    design_md = state_dir / "design.md"
 
     predicted_tasks, actual_tasks = count_tasks(tasks_md)
     fix_task_count = max(actual_tasks - predicted_tasks, 0)
@@ -92,7 +92,7 @@ def main() -> int:
         if actual_tasks > 0 else 100.0
     )
 
-    predicted_files = extract_predicted_files(spec_md)
+    predicted_files = extract_predicted_files(design_md)
     actual_files = git_diff_files(repo_root)
 
     if predicted_files is not None and actual_files is not None:

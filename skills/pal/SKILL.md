@@ -34,7 +34,7 @@ clink with codex codereviewer to review the changes in this diff (git diff <base
 Report findings with file paths, line numbers. Categorize as: critical, important, or advisory.
 ```
 
-### Artifact Review (spec/design)
+### Artifact Review (design.md)
 
 ```
 Use the PAL MCP clink tool:

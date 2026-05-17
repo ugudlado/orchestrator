@@ -395,7 +395,7 @@ def test_phase_verify_attached_to_last_step(tmp_path, monkeypatch):
                 "goal": "Specify.",
                 "rules": [],
                 "verify": {
-                    "assertions": ["spec.md exists"],
+                    "assertions": ["design.md exists"],
                 },
                 "steps": ["step-first", "step-last"],
             }
@@ -438,7 +438,7 @@ def test_phase_verify_attached_to_last_step(tmp_path, monkeypatch):
     assert "verify" in steps[-1], (
         f"Last step should have verify block, but it is absent"
     )
-    assert steps[-1]["verify"]["assertions"] == ["spec.md exists"]
+    assert steps[-1]["verify"]["assertions"] == ["design.md exists"]
 
 
 # ---------------------------------------------------------------------------

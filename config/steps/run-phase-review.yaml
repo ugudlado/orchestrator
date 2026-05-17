@@ -26,7 +26,7 @@ rules:
   - Score of 10 is a first-pass bonus — only achievable when no retries were used this round.
   - Operate at staff-level review quality — catch architectural issues, not just surface bugs.
   - Artifact structural compliance with contracts/artifact-formats.md format contracts is a review criterion.
-  - "When a finding requires a new requirement, the fix MUST update spec.md (FR + AC), design.md, and tasks.md atomically — partial updates that sync only one artifact leave the feature in an inconsistent state and will fail re-review. <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb, cycle: 11, hits: 8, misses: 6, repo: orchestrator -->"
+  - "When a finding requires a new requirement, the fix MUST update design.md (AC + design) and tasks.md atomically — partial updates that sync only one artifact leave the feature in an inconsistent state and will fail re-review. <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb, cycle: 11, hits: 8, misses: 6, repo: orchestrator -->"
   - "For tasks that spec describes as a rewrite, projection, or byte-compatible replacement of an existing producer, AC verification MUST include a value/shape parity check against at least one real payload from the prior implementation — key-presence alone is insufficient. Reviewer must run both the old producer and the new one on a real archived fixture and diff the top-level output keys; any key reduction is an important finding. <!-- learned: 2026-04-20, source: single-source-metrics-via-step-events, cycle: 12, hits: 7, misses: 2, repo: orchestrator -->"
   - "Before scoring the phase, count unchecked items (`- [ ]`) in tasks.md. If any unchecked tasks remain and they are not explicitly quarantined in state.yaml, return verdict: incomplete_phase listing the unchecked task IDs — do NOT proceed to scoring. This guards against dispatcher bugs or manual advances that reach run-phase-review before all tasks are complete. <!-- learned: 2026-05-08, source: hl-303, cycle: 38, hits: 6, misses: 0, repo: orchestrator -->"
 
@@ -77,8 +77,8 @@ instruction: |
 
   5c. AC verification with evidence (implement phase only):
      - If current phase is not implement: skip this step.
-     - Read spec.md (feature) or fix-plan.md (bugfix) for acceptance criteria,
-       using the format defined in CONVENTIONS.md § Specification Format Contract
+     - Read design.md (feature) or fix-plan.md (bugfix) for acceptance criteria,
+       using the format defined in CONVENTIONS.md § Design Format Contract
        or § Fix Plan Format Contract respectively.
      - For each acceptance criterion:
        a. Run the verification check (test, manual check, build gate, or file inspection).
