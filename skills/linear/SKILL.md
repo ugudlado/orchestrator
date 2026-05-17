@@ -5,40 +5,33 @@ user-invocable: true
 ---
 
 # Linear Issue Tracking
-Provides Linear issue management via the `plugin:linear` MCP server, backed by a centralized config at `~/.config/linear/config.yaml`. Used both directly (user-initiated) and by Spec workflow steps.
+
+Provides Linear issue management via the `plugin:linear` MCP server. All config is read
+from the repo's `spec/project.yaml` — no external config file needed.
 
 ---
 
 ## Configuration
 
-All team settings live in `~/.config/linear/config.yaml`. Read this file before any MCP call.
+Read Linear IDs from `spec/project.yaml`:
 
 ```yaml
-team:
-  name: Home Labs
-  id: <team-uuid>
-  prefix: HL
-  project_id: <project-uuid>   # "Tickets" project
-
-repos:
-  shell:
-    label_ids:
-      - <uuid>   # product label for this repo
-  algoviz:
-    label_ids:
-      - <uuid>
-  # ... one entry per registered repo
+ticketing: linear
+linear:
+  team_id: <uuid>
+  team_prefix: HL
+  project_id: <uuid>
+  product_label_id: <uuid>  # repo-specific product label
 ```
 
-**Repo detection**: Run `basename $(git rev-parse --show-toplevel)` to get the repo key.
-
-**Linear disabled**: If the repo is not listed under `repos:`, treat as `--no-linear` — skip all Linear calls without error. Never block on missing config.
+**Linear disabled**: If `ticketing:` is not `linear` in `spec/project.yaml`, skip all
+Linear calls without error. Never block on missing config.
 
 ---
 
 ## MCP Tools
 
-All Linear operations go through the `plugin:linear` MCP server. Use the full tool names as registered:
+All Linear operations go through the `plugin:linear` MCP server:
 
 | Operation | Tool |
 |-----------|------|
@@ -63,8 +56,6 @@ All Linear operations go through the `plugin:linear` MCP server. Use the full to
 | List milestones | `mcp__plugin_linear_linear__list_milestones` |
 | Get document | `mcp__plugin_linear_linear__get_document` |
 | List documents | `mcp__plugin_linear_linear__list_documents` |
-| Create document | `mcp__plugin_linear_linear__create_document` |
-| Update document | `mcp__plugin_linear_linear__update_document` |
 | Search documentation | `mcp__plugin_linear_linear__search_documentation` |
 | Get attachment | `mcp__plugin_linear_linear__get_attachment` |
 | Create attachment | `mcp__plugin_linear_linear__create_attachment` |
@@ -75,20 +66,19 @@ All Linear operations go through the `plugin:linear` MCP server. Use the full to
 
 ## Creating a New Issue
 
-1. Read `~/.config/linear/config.yaml` for `team.id`, `team.project_id`, and `repos.<repo>.label_ids`.
-2. Detect the repo key: `basename $(git rev-parse --show-toplevel)`.
-3. If repo not found in config → skip (--no-linear behavior).
-4. Call `mcp__plugin_linear_linear__save_issue` with:
+1. Read `spec/project.yaml` for `linear.team_id`, `linear.project_id`, `linear.product_label_id`.
+2. If `ticketing:` is not `linear` → skip all Linear calls silently.
+3. Call `mcp__plugin_linear_linear__save_issue` with:
    - `title`: concise description of the change
    - `description`: summary from spec.md, diagnose.md, or user input (markdown supported)
-   - `teamId`: `team.id` from config
-   - `projectId`: `team.project_id` from config
-   - `labelIds`: product label from `repos.<repo>.label_ids` + type label + complexity label
-5. Update `$WORKFLOW_STATE_DIR/<feature>/state.yaml` field `linear_ticket_id: HL-XXX` per State Field Registry.
+   - `teamId`: `linear.team_id`
+   - `projectId`: `linear.project_id`
+   - `labelIds`: `linear.product_label_id` + type label + complexity label
+4. Update `$WORKFLOW_STATE_DIR/<feature>/state.yaml` field `linear_ticket_id: HL-XXX`.
 
 ### Required Labels on Every New Ticket
 
-- **Product**: repo name label (UUID from `repos.<name>.label_ids`)
+- **Product**: `linear.product_label_id` from `spec/project.yaml`
 - **Type**: Feature | Bug | Improvement | Chore | Research
 - **Complexity**: XS | S | M | L
 
@@ -98,7 +88,8 @@ Use `mcp__plugin_linear_linear__list_issue_labels` to resolve label names to UUI
 
 ## Updating an Existing Issue
 
-Call `mcp__plugin_linear_linear__save_issue` with `id` set to the existing ticket ID (e.g. `HL-134`). Pass only the fields to change — the tool performs a partial update.
+Call `mcp__plugin_linear_linear__save_issue` with `id` set to the existing ticket ID (e.g. `HL-134`).
+Pass only the fields to change — the tool performs a partial update.
 
 Common update scenarios:
 - Changing status → pass `stateId` (resolve via `list_issue_statuses`)
@@ -108,8 +99,6 @@ Common update scenarios:
 ---
 
 ## Reading Issue Context (load-context)
-
-When a Spec workflow `load-context` step needs ticket body or state:
 
 ```
 mcp__plugin_linear_linear__get_issue  { id: "HL-XXX" }
@@ -121,11 +110,12 @@ The response includes `title`, `description`, `state`, `labels`, `assignee`, and
 
 ## Workflow Integration
 
-Step files under `$ORCHESTRATOR_HOME/steps/` are authoritative for **when** Linear calls run. This skill defines **how** (config lookup, tool selection, field mapping).
+Step files under `$ORCHESTRATOR_HOME/steps/` are authoritative for **when** Linear calls run.
+This skill defines **how** (config lookup, tool selection, field mapping).
 
 Key step files that invoke Linear:
 - `create-linear-ticket.yaml` — creates issue at specify phase
-- `check-linear-config.yaml` — checks repo registration at bootstrap (informational only, never blocks)
+- `check-linear-config.yaml` — checks ticketing config at bootstrap (informational only, never blocks)
 
 ### state.yaml Fields
 
@@ -142,5 +132,4 @@ Never invent ticket IDs. Use only values returned from MCP or provided by the us
 To enable Linear for a new repo:
 
 1. Create a product label in Linear for the repo.
-2. Add an entry under `repos:` in `~/.config/linear/config.yaml` with the label UUID.
-3. Run `/bootstrap` in the repo to verify the config is picked up.
+2. Run `/bootstrap` in the repo — it will ask for the ticketing backend and embed Linear IDs into `spec/project.yaml`.
