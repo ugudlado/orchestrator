@@ -8,7 +8,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SCRIPT="$REPO_ROOT/scripts/inline/archive-completed-change.sh"
+SCRIPT="$REPO_ROOT/config/scripts/inline/archive-completed-change.sh"
 
 # Create isolated temp dirs
 TMPDIR_BASE="$(mktemp -d)"

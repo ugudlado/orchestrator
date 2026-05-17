@@ -167,7 +167,7 @@ else
 fi
 
 # T-13: compute-swe-metrics.sh < 80 lines
-CSM_LINES=$(wc -l < "$REPO_ROOT/scripts/inline/compute-swe-metrics.sh")
+CSM_LINES=$(wc -l < "$REPO_ROOT/config/scripts/inline/compute-swe-metrics.sh")
 printf "%-60s " "compute-swe-metrics.sh < 80 lines (${CSM_LINES} lines)"
 if [[ "$CSM_LINES" -lt 80 ]]; then
   echo "PASS"

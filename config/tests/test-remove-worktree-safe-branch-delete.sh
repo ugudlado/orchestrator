@@ -12,7 +12,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SCRIPT="$REPO_ROOT/scripts/inline/remove-worktree.sh"
+SCRIPT="$REPO_ROOT/config/scripts/inline/remove-worktree.sh"
 
 pass=0
 fail=0

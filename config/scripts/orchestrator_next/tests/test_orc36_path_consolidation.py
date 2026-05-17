@@ -33,7 +33,7 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 _SEED_SCRIPT = _REPO_ROOT / "skills" / "orchestrate" / "scripts" / "seed-state.sh"
-_ARCHIVE_SCRIPT = _REPO_ROOT / "scripts" / "inline" / "archive-completed-change.sh"
+_ARCHIVE_SCRIPT = _REPO_ROOT / "config" / "scripts" / "inline" / "archive-completed-change.sh"
 _ORCHESTRATOR_HOME = os.environ.get(
     "ORCHESTRATOR_HOME", str(Path.home() / ".config" / "orchestrator")
 )

@@ -15,7 +15,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-SCRIPT="$REPO_ROOT/scripts/inline/compute-swe-metrics.sh"
+SCRIPT="$REPO_ROOT/config/scripts/inline/compute-swe-metrics.sh"
 FIXTURES_DIR="$(dirname "$0")/fixtures"
 BASELINE_SQL="$FIXTURES_DIR/baseline.duckdb.sql"
 BASELINE_FIXTURE="$FIXTURES_DIR/baseline_compute_swe_metrics.yaml"
