@@ -23,31 +23,11 @@ def _read(rel_path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# FR-1: workflow-init.md has `active:` as YAML key, not `active_steps:`
+# FR-1 removed: agents/workflow-init.md was deleted. The workflow-init step
+# now runs scripts/inline/workflow-init.sh (no agent spawn), so there is no
+# agent prose to assert on. The workflow_plan `active:` shape is enforced by
+# generate_plan and its own tests.
 # ---------------------------------------------------------------------------
-
-def test_fr1_workflow_init_active_key():
-    """agents/workflow-init.md must have `active:` as an indented YAML dict key.
-
-    The pattern (^|\\n)\\s+active: matches `active:` with leading whitespace
-    (i.e., as a YAML mapping key, not a bare word in prose).
-    """
-    content = _read("agents/workflow-init.md")
-
-    # Must contain `active:` as an indented YAML key
-    assert re.search(r"(^|\n)\s+active:", content), (
-        "agents/workflow-init.md does not contain 'active:' as an indented YAML key. "
-        "Add a canonical YAML example block showing the workflow_plan shape."
-    )
-
-    # Must NOT contain `active_steps:` as a YAML key (bare, with leading whitespace).
-    # Appearances inside backtick inline-code spans (commentary) are allowed.
-    # Strip all backtick-quoted spans before checking.
-    stripped = re.sub(r"`[^`]*`", "", content)
-    assert "active_steps:" not in stripped, (
-        "agents/workflow-init.md contains 'active_steps:' as a bare key (not in "
-        "backtick commentary). The dispatcher reads 'active:', not 'active_steps:'."
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -120,14 +100,14 @@ def test_fr5_skill_background_spawn():
 
 
 # ---------------------------------------------------------------------------
-# FR-6: developer.md and workflow-init.md both prohibit direct state.yaml edits
+# FR-6: developer.md prohibits direct state.yaml edits
 # ---------------------------------------------------------------------------
 
 def test_fr6_agents_forbid_state_edits():
-    """developer.md and workflow-init.md must contain `orchestrator done` and
-    a prohibition phrase (NOT) near state.yaml edits.
+    """developer.md must contain `orchestrator done` and a prohibition phrase
+    (NOT) near state.yaml edits.
     """
-    for agent_file in ("agents/developer.md", "agents/workflow-init.md"):
+    for agent_file in ("agents/developer.md",):
         content = _read(agent_file)
 
         assert "orchestrator done" in content, (
