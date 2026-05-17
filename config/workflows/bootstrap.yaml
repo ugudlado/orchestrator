@@ -5,7 +5,6 @@ steps:
   - install-tooling
   - generate-project-yaml
   - workflow-init
-  - setup-makefile
   - setup-claude-md
   - setup-claude-settings
   - run-quality-baseline
