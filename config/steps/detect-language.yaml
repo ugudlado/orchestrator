@@ -1,6 +1,6 @@
 id: detect-language
-version: 2
-agent: discoverer
+version: 3
+run: scripts/inline/detect-language.sh
 
 intent: Detect project language(s), package manager, and web framework presence.
 
