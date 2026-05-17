@@ -60,6 +60,21 @@ instruction: |
        - If web_project, append `web`
        - If frameworks detected (react, next, django, etc.), append them
      - `verify_commands` — filter to only commands with installed scripts
+     - `ticketing` — ask the user:
+       "Which ticketing backend for this repo? (backlog | linear)"
+       - If `linear`, ask for the Linear IDs to embed (find them in Linear settings or ~/.config/linear/config.yaml if it exists):
+         - team_id, team_prefix, project_id, product_label_id (repo-specific product label UUID)
+         Embed in project.yaml:
+         ```yaml
+         ticketing: linear
+         linear:
+           team_id: <uuid>
+           team_prefix: <prefix>
+           project_id: <uuid>
+           product_label_id: <uuid>
+         ```
+       - If `backlog`, set only: `ticketing: backlog`
+       After this, ~/.config/linear/config.yaml is not needed — all context lives in project.yaml.
 
      If `web_project`, add to conventions: `UI changes require /critique review.`
 
@@ -102,7 +117,8 @@ instruction: |
 
 verify:
   - spec/project.yaml exists with version 1 schema
-  - "File has all required fields: verify_commands, quality_bar, context.tech_stack, rules, signoff_policy, schemas, storage, state_contract"
+  - "File has all required fields: verify_commands, quality_bar, context.tech_stack, rules, signoff_policy, schemas, storage, state_contract, ticketing"
+  - ticketing field is one of: backlog, linear
   - User reviewed and approved the content
 
 outputs:

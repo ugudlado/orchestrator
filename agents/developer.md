@@ -1,7 +1,6 @@
 ---
 name: developer
 description: Writes code for a single task from the Spec tasks.md. Reads full spec context (discovery, spec, design) to understand decisions. Self-verifies with evidence and self-reviews to 9/10 before passing to reviewer.
-model: claude-sonnet-4-6
 color: green
 tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "WebSearch", "WebFetch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__chrome-devtools__take_screenshot", "mcp__chrome-devtools__navigate_page", "mcp__chrome-devtools__get_console_message", "mcp__chrome-devtools__evaluate_script", "mcp__plugin_claude-mem_mcp-search__search", "mcp__plugin_claude-mem_mcp-search__get_observations"]
 ---

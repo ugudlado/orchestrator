@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-linear-config.sh — Check if repo is registered in Linear config.
+# check-linear-config.sh — Check ticketing config in spec/project.yaml.
 # Informational only — never blocks bootstrap.
 #
 # Idempotent: read-only operation, safe to re-run.
@@ -11,22 +11,24 @@
 set -euo pipefail
 
 REPO="${ORCHESTRATOR_REPO_ROOT:-${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}}"
-LINEAR_CONFIG="$HOME/.config/linear/config.yaml"
-
 REPO_NAME=$(basename "$REPO")
+PROJECT_YAML="$REPO/spec/project.yaml"
 
-if [ ! -f "$LINEAR_CONFIG" ]; then
-  echo "[check-linear-config] Linear config not found at $LINEAR_CONFIG"
-  echo "[check-linear-config] Linear: not configured for \"$REPO_NAME\""
-  echo "[check-linear-config]   To enable: create ~/.config/linear/config.yaml"
-  echo "[check-linear-config]   Workflow will use --no-linear for this repo."
+if [ ! -f "$PROJECT_YAML" ]; then
+  echo "[check-linear-config] spec/project.yaml not found for \"$REPO_NAME\""
+  echo "[check-linear-config]   Ticketing: not configured — run /bootstrap to set up spec/project.yaml"
   exit 0
 fi
 
-if grep -q "\"$REPO_NAME\"\|'$REPO_NAME'\|$REPO_NAME:" "$LINEAR_CONFIG" 2>/dev/null; then
-  echo "[check-linear-config] Linear: enabled for \"$REPO_NAME\" with configured labels"
+TICKETING=$(grep "^ticketing:" "$PROJECT_YAML" 2>/dev/null | awk '{print $2}' | tr -d '"')
+
+if [ "$TICKETING" = "linear" ]; then
+  TEAM_PREFIX=$(grep "team_prefix:" "$PROJECT_YAML" | awk '{print $2}' | tr -d '"')
+  PROJECT_ID=$(grep "project_id:" "$PROJECT_YAML" | awk '{print $2}' | tr -d '"')
+  echo "[check-linear-config] Ticketing: linear (team: ${TEAM_PREFIX:-unknown}, project: ${PROJECT_ID:-unknown})"
+elif [ "$TICKETING" = "backlog" ]; then
+  echo "[check-linear-config] Ticketing: backlog"
 else
-  echo "[check-linear-config] Linear: not configured for \"$REPO_NAME\""
-  echo "[check-linear-config]   To enable: add a repo entry in ~/.config/linear/config.yaml"
-  echo "[check-linear-config]   Workflow will use --no-linear for this repo."
+  echo "[check-linear-config] Ticketing: not configured in spec/project.yaml"
+  echo "[check-linear-config]   Add 'ticketing: backlog' or 'ticketing: linear' to spec/project.yaml"
 fi

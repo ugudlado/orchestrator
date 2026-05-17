@@ -30,6 +30,8 @@ learnings: []
   #   learned: YYYY-MM-DD
   #   rule: What to do or avoid, and why
 
+ticketing: backlog  # backlog | linear
+
 context:
   tech_stack: [typescript, node, pnpm]
   conventions:

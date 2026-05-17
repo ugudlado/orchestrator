@@ -1,7 +1,7 @@
 id: "orchestrator-1137"
 project_name: "orchestrator"
 default_status: "Backlog"
-statuses: ["Backlog", "To Do", "In Progress", "Done"]
+statuses: ["Backlog", "To Do", "In Progress", "In Review", "QA Review", "Done"]
 labels: []
 date_format: yyyy-mm-dd
 max_column_width: 20
@@ -9,6 +9,7 @@ auto_open_browser: true
 default_port: 6420
 remote_operations: true
 auto_commit: false
+filesystem_only: false
 bypass_git_hooks: false
 check_active_branches: true
 active_branch_days: 30
