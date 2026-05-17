@@ -1,38 +1,3 @@
 id: check-linear-config
 version: 3
 run: scripts/inline/check-linear-config.sh
-
-intent: Check if repo has ticketing configured in spec/project.yaml. Informational only — never blocks.
-
-inputs:
-  - spec/project.yaml
-
-rules:
-  - This step is informational. Never block bootstrap on ticketing config.
-  - Never modify project.yaml automatically.
-  - Do not read ~/.config/linear/config.yaml — ticketing config lives in spec/project.yaml.
-
-instruction: |
-  1. Detect repo name: `basename $(git rev-parse --show-toplevel)`
-  2. Read `spec/project.yaml` and check the `ticketing:` field.
-
-  If `ticketing: linear` and `linear:` block is present:
-  ```
-  [bootstrap] Ticketing: linear (team: <team_prefix>, project: <project_id>)
-  ```
-
-  If `ticketing: backlog`:
-  ```
-  [bootstrap] Ticketing: backlog
-  ```
-
-  If spec/project.yaml missing or ticketing field absent:
-  ```
-  [bootstrap] Ticketing: not configured — run /bootstrap to set up spec/project.yaml
-  ```
-
-verify:
-  - Ticketing config checked (any result is valid — never blocks)
-
-outputs:
-  - ticketing_backend: string (backlog | linear | unknown)
