@@ -1,6 +1,6 @@
 project_name: "orchestrator"
 default_status: "Backlog"
-statuses: ["Backlog", "To Do", "In Progress", "Done"]
+statuses: ["Backlog", "To Do", "In Progress", "In Review", "QA Review", "Done"]
 labels: []
 definition_of_done: []
 date_format: yyyy-mm-dd
