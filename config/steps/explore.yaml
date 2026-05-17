@@ -1,10 +1,9 @@
 id: explore
-version: 3
+version: 4
 
 intent: Survey the problem space — constraints, patterns, and open questions.
 
 agent: discoverer
-run: config/scripts/adapters/claude_discoverer.py
 
 inputs:
   - phase_context_bundle

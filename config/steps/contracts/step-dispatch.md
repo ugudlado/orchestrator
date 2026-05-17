@@ -39,17 +39,16 @@ terminated by a newline). The canonical form uses `sort_keys=True, indent=2`.
 ```jsonc
 {
   "action": "run_step",
-  "step_id": "explore",
+  "step_id": "git-init",
   "phase": "specify",
   "attempt": 1,
-  "agent": "discoverer",
-  "run": "config/scripts/adapters/claude_discoverer.py",
+  "run": "scripts/inline/git-init.sh",
   "instruction": "…",
   "rules": ["…"],
   "env": {
     "ORCHESTRATOR_CHANGE_ID":    "my-feature",
     "ORCHESTRATOR_PHASE":        "specify",
-    "ORCHESTRATOR_STEP_ID":      "explore",
+    "ORCHESTRATOR_STEP_ID":      "git-init",
     "ORCHESTRATOR_ATTEMPT":      "1",
     "ORCHESTRATOR_WORKFLOW_DIR":           "/path/to/.workflows/my-feature",
     "ORCHESTRATOR_REPO_ROOT":              "/path/to/code/orchestrator",

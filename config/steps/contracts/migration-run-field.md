@@ -69,13 +69,6 @@ The script must:
 Scripts live in `config/scripts/inline/` for orchestrator-internal steps,
 or `scripts/inline/` for repo-specific steps.
 
-## Legacy note: `claude_discoverer.py`
-
-`explore.yaml` uses `run: config/scripts/adapters/claude_discoverer.py` — a subprocess
-adapter that predates the Agent-tool spawn model. It is the only remaining subprocess
-adapter and is intentionally not migrated. Do not use it as a template for new steps;
-use the agent-field pattern above instead.
-
 ## Bumping `version:`
 
 Every time a contract's `agent:` or `run:` field is added or changed, bump `version:` by 1.
