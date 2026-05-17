@@ -49,7 +49,10 @@ fall back to matching `change_id` against the lowercased `TICKET_ID`.
   `Ticket TICKET_ID has no spec/changes/<slug>/state.yaml — not initialized; left in In Progress.`
   Stop.
 - **Match** → record `SLUG`, `STATE_FILE`, read `flags.worktree`,
-  `repo_root`.
+  `repo_root`. Set `ARTIFACT_DIR`: when `flags.worktree: true` →
+  `$WORKTREE_BASE_DIR/$SLUG`, else `$REPO_ROOT/spec/changes/$SLUG`. This is
+  where `spec.md` / `design.md` / `tasks.md` live (CLAUDE.md § Paths —
+  artifacts follow the worktree, state does not).
 
 ### 3. Enter the ticket's worktree or branch
 
@@ -71,7 +74,11 @@ Spawn the `developer` agent (model inherits from this session — no model
 override). Pass it:
 
 - The full ticket: `backlog task <id> --plain`
-- `SLUG`, `STATE_FILE`, the resolved working directory
+- `SLUG`, `STATE_FILE`, `ARTIFACT_DIR`, the resolved working directory
+- The spec/design to implement against: `$ARTIFACT_DIR/spec.md` and
+  `$ARTIFACT_DIR/design.md` (read both before coding; `design.md` may not
+  exist). If `spec.md` is absent, implement against the ticket text and
+  flag the missing spec in the result — do not block.
 - If a resolvr session exists: its path + `.review/AGENTS.md`, with the
   instruction to resolve every open thread via the documented protocol
   before completing.
