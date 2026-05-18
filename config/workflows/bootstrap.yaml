@@ -9,7 +9,6 @@ steps:
   - setup-claude-settings
   - run-quality-baseline
   - setup-portless
-  - check-linear-config
   - write-bootstrap-state
   - register-with-orchestrator-home
   - verify-report

@@ -11,19 +11,17 @@ gates:
   phase_review: { steps: [run-phase-review],                default: true  }
   portless:     { steps: [setup-portless],                  default: true  }
   metrics:      { steps: [register-with-orchestrator-home], default: true  }
-  linear:       { steps: [check-linear-config],             default: true  }
   ux_design:    { steps: [ux-design, run-ux-critique],      default: false } # <!-- learned: 2026-05-09, source: orc-39, cycle: 44, repo: orchestrator -->
 
 behavioral:
   tdd_required: { default: true,  description: "Strict red-green-refactor in execute-next-task" }
   auto:         { default: false, description: "Skip signoff gates" }
   agents:       { default: false, description: "Spawn specialist agents instead of running inline" }
-  light:        { default: false, description: "Lower review threshold to 7, skip review/worktree/linear" }
+  light:        { default: false, description: "Lower review threshold to 7, skip review/worktree" }
 
 # CLI flags. Each `sets:` flips one or more underlying flags.
 cli:
   --no-tdd:      { sets: { tdd_required: false } }
-  --no-linear:   { sets: { linear: false } }
   --auto:        { sets: { auto: true } }
   --agents:      { sets: { agents: true } }
   --no-portless: { sets: { portless: false } }
@@ -35,7 +33,6 @@ cli:
       tdd_required: false
       phase_review: false
       worktree: false
-      linear: false
     description: Tight-scope path. Reviewer lowers threshold to 7.
 
   --autopilot:

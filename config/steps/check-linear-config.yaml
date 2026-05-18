@@ -1,3 +1,0 @@
-id: check-linear-config
-version: 3
-run: scripts/inline/check-linear-config.sh

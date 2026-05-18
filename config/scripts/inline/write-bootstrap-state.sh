@@ -56,7 +56,6 @@ state = {
     "language": "unknown",
     "package_manager": "unknown",
     "tool_calls": {},
-    "linear": {"enabled": False, "repo_key": None},
     "checks_passed": True,
 }
 
@@ -81,7 +80,6 @@ description: "Bootstrap $PROJECT_NAME repo tooling"
 phase: setup
 flags:
   portless: false
-  linear: false
 started_at: "$COMPLETED_AT"
 updated_at: "$COMPLETED_AT"
 step_history: []

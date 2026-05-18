@@ -1,22 +1,19 @@
 ---
 name: linear
-description: This skill should be used when the user asks to "create a Linear issue", "file a ticket", "open a Linear ticket", "update a Linear issue", "check a Linear ticket", "add a label to a ticket", "assign an issue", "close a ticket", or any time a workflow step invokes create-linear-ticket, check-linear-config, load-context, store-commit-report, or wrap-up with Linear fields. Also use when reading or writing linear-ticket in state.yaml.
+description: This skill should be used when the user asks to "create a Linear issue", "file a ticket", "open a Linear ticket", "update a Linear issue", "check a Linear ticket", "add a label to a ticket", "assign an issue", "close a ticket", or any time a workflow step needs to create/read a Linear ticket. Also use when reading or writing linear_ticket_id in state.yaml.
 user-invocable: true
 ---
 
 # Linear Issue Tracking
 
-Provides Linear issue management via the `plugin:linear` MCP server. All config is read
-from the repo's `spec/project.yaml` — no external config file needed.
+Provides Linear issue management via the `plugin:linear` MCP server.
 
----
-
-## Configuration
-
-Read Linear IDs from `spec/project.yaml`:
+Linear is driven entirely by the presence of a `linear:` block in the repo's
+`spec/project.yaml`. There is no separate config step and no flag — if the
+block is present, use it; if it is absent, skip every Linear call silently and
+never block.
 
 ```yaml
-ticketing: linear
 linear:
   team_id: <uuid>
   team_prefix: HL
@@ -24,8 +21,8 @@ linear:
   product_label_id: <uuid>  # repo-specific product label
 ```
 
-**Linear disabled**: If `ticketing:` is not `linear` in `spec/project.yaml`, skip all
-Linear calls without error. Never block on missing config.
+If `spec/project.yaml` has no `linear:` block (or no file), do nothing — this
+is the normal state for repos that use the `backlog` CLI instead.
 
 ---
 
@@ -66,15 +63,14 @@ All Linear operations go through the `plugin:linear` MCP server:
 
 ## Creating a New Issue
 
-1. Read `spec/project.yaml` for `linear.team_id`, `linear.project_id`, `linear.product_label_id`.
-2. If `ticketing:` is not `linear` → skip all Linear calls silently.
-3. Call `mcp__plugin_linear_linear__save_issue` with:
+1. Read `spec/project.yaml`. If there is no `linear:` block → skip silently.
+2. Call `mcp__plugin_linear_linear__save_issue` with:
    - `title`: concise description of the change
    - `description`: summary from design.md, diagnose.md, or user input (markdown supported)
    - `teamId`: `linear.team_id`
    - `projectId`: `linear.project_id`
    - `labelIds`: `linear.product_label_id` + type label + complexity label
-4. Update `$WORKFLOW_STATE_DIR/<feature>/state.yaml` field `linear_ticket_id: HL-XXX`.
+3. Update `$WORKFLOW_STATE_DIR/<feature>/state.yaml` field `linear_ticket_id: HL-XXX`.
 
 ### Required Labels on Every New Ticket
 
@@ -98,7 +94,7 @@ Common update scenarios:
 
 ---
 
-## Reading Issue Context (load-context)
+## Reading Issue Context
 
 ```
 mcp__plugin_linear_linear__get_issue  { id: "HL-XXX" }
@@ -108,16 +104,7 @@ The response includes `title`, `description`, `state`, `labels`, `assignee`, and
 
 ---
 
-## Workflow Integration
-
-Step files under `$ORCHESTRATOR_HOME/steps/` are authoritative for **when** Linear calls run.
-This skill defines **how** (config lookup, tool selection, field mapping).
-
-Key step files that invoke Linear:
-- `create-linear-ticket.yaml` — creates issue at specify phase
-- `check-linear-config.yaml` — checks ticketing config at bootstrap (informational only, never blocks)
-
-### state.yaml Fields
+## state.yaml Fields
 
 | Field | Description |
 |-------|-------------|
@@ -129,7 +116,6 @@ Never invent ticket IDs. Use only values returned from MCP or provided by the us
 
 ## Adding a New Repo
 
-To enable Linear for a new repo:
-
-1. Create a product label in Linear for the repo.
-2. Run `/bootstrap` in the repo — it will ask for the ticketing backend and embed Linear IDs into `spec/project.yaml`.
+Add a `linear:` block to the repo's `spec/project.yaml` (team_id, team_prefix,
+project_id, product_label_id) and create a matching product label in Linear.
+No other wiring is required — the skill keys off that block alone.
