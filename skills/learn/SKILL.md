@@ -1,10 +1,13 @@
 ---
 name: learn
-description: "Evaluate last feature's workflow compliance and route learned rules to step contracts and project.yaml learnings. Use after completing a feature, or when the user says \"learn\", \"evaluate workflow\", \"what did we learn\", \"update rules\"."
+description: "Evaluate last feature's workflow compliance and route learned rules to step contracts and project.yaml learnings. Use after completing a feature, or when the user says \"learn\", \"evaluate workflow\", \"what did we learn\", \"update rules\", \"reflect\", \"review sessions\", \"extract learnings\", \"diagnose\", \"analyze errors\", \"what's going wrong\", \"improve workflow\", \"validate hooks\", \"check step contracts\"."
 user-invocable: true
 args:
   - name: feature-id
     description: Feature ID to evaluate (defaults to most recently completed feature)
+    required: false
+  - name: --scope
+    description: "Bias the evaluation; one of: all (default — full compliance pass), errors (error-pattern → step-contract fixes, formerly /diagnose), workflow (hook/contract/schema infra, formerly /workflow-improve), session (session-mistake → project.yaml learnings, formerly /reflect)."
     required: false
 ---
 
@@ -25,6 +28,19 @@ $ARGUMENTS
 This skill runs the evaluation + self-improvement loop after a feature is completed. It assesses workflow compliance, routes learned rules to step contracts in `$ORCHESTRATOR_HOME/config/steps/` and project-specific learnings to `spec/project.yaml` `learnings:` section. Rules go into step contracts (deterministic, enforced at execution time). Project-specific learnings go into project.yaml (agent-agnostic, persists across sessions).
 
 ## Process
+
+### 0. Resolve scope
+
+Parse `--scope` from `$ARGUMENTS` (default `all`). It biases — does not replace — the pipeline below; every scope still runs Find Context → Route Findings → Report.
+
+| `--scope` | Emphasis in §3 evaluation & §4 routing | Replaces legacy skill |
+|---|---|---|
+| `all` | Full workflow-compliance pass (all axes) | — |
+| `errors` | Error patterns from logs/metrics → step-contract rule fixes | `/diagnose` |
+| `workflow` | Hook / step-contract / schema infrastructure defects | `/workflow-improve` |
+| `session` | Session mistakes → `spec/project.yaml` `learnings:` (skip step-contract routing) | `/reflect` |
+
+A narrow scope still produces the §5 report; it just weights which findings are surfaced and where they route in §4.
 
 ### 1. Find Context
 
