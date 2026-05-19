@@ -1,5 +1,4 @@
 steps:
-  - workflow-init
   - explore
   - diagnose
   - ux-design

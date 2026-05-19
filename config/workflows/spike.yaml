@@ -1,5 +1,4 @@
 steps:
-  - workflow-init
   - explore
   - design-and-draft-artifacts
   - execute-next-task

@@ -126,7 +126,7 @@ def _step_entry_for_id(phase_def: dict[str, Any], step_id: str) -> dict[str, Any
     Find the schema step entry matching step_id in a phase definition.
 
     Step entries may be:
-    - Plain string: "workflow-init"
+    - Plain string: "design-and-draft-artifacts"
     - String with gate: "explore if discovery"  (strip " if <flag>")
     - Dict: {id: ..., rules_when: ..., extra_rules: ..., repeat_until: ...}
 

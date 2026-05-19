@@ -1061,27 +1061,6 @@ def record(
                 3,
             )
 
-    # Check A: workflow_plan.active shape on workflow-init completion.
-    # Root cause of ISSUE-1: dispatcher reads .active to build the work queue;
-    # an empty or missing list causes it to immediately return complete_workflow.
-    if step_id == "workflow-init" and status == "completed":
-        plan = outputs.get("workflow_plan") or {}
-        bad_phases = [
-            p for p, body in plan.items()
-            if not isinstance(body, dict)
-            or not isinstance(body.get("active"), list)
-            or len(body["active"]) == 0
-        ]
-        if bad_phases:
-            return (
-                {
-                    "reason": "workflow_plan_active_missing_or_empty",
-                    "phases": bad_phases,
-                    "hint": "workflow_plan[<phase>].active must be a non-empty list of step IDs",
-                },
-                3,
-            )
-
     # Check B: usage required for agent (non-inline) steps on completion.
     # Root cause of ISSUE-10.1: empty usage means cost report is blank and
     # telemetry has no data for the step.

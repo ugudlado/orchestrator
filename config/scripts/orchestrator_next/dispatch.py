@@ -347,7 +347,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         contract = load_contract_for_step(next_step_id, state_yaml_path)
     except FileNotFoundError:
         # Fall back to inline-only contract with minimal data when the step
-        # contract was deleted after workflow_plan was frozen at workflow-init.
+        # contract was deleted after workflow_plan was frozen at pre-dispatch init.
         # Mirrors the resume_step branch above.
         contract = StepContract(
             id=next_step_id,

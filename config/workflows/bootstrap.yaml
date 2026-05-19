@@ -4,7 +4,6 @@ steps:
   - detect-language
   - install-tooling
   - generate-project-yaml
-  - workflow-init
   - setup-claude-md
   - setup-claude-settings
   - run-quality-baseline

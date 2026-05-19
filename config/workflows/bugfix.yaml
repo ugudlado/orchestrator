@@ -1,5 +1,4 @@
 steps:
-  - workflow-init
   - diagnose
   - design-and-draft-artifacts
   - capture-test-baseline
