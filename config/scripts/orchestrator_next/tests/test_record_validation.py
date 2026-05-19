@@ -65,7 +65,7 @@ class TestCheckA:
                 "slug": "x",
                 "worktree_path": None,
                 "branch": None,
-                "linear_ticket_id": None,
+                "ticket_id": None,
                 "workflow_plan": {
                     "specify": {"active": [], "filtered": []},
                 },
@@ -90,7 +90,7 @@ class TestCheckA:
                 "slug": "x",
                 "worktree_path": None,
                 "branch": None,
-                "linear_ticket_id": None,
+                "ticket_id": None,
                 "workflow_plan": {
                     "specify": {"active": ["workflow-init"], "filtered": []},
                     "implement": {"filtered": []},  # missing 'active' key
@@ -117,7 +117,7 @@ class TestCheckA:
                 "slug": "x",
                 "worktree_path": None,
                 "branch": None,
-                "linear_ticket_id": None,
+                "ticket_id": None,
                 "workflow_plan": {
                     "specify": {"active": [], "filtered": []},
                 },
