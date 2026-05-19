@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: "Claim and review the next In Review ticket. This skill should be used when the user says 'review', 'review next', 'review next ticket', 'do a review', or wants to process the review queue. Backlog status is the sole router — this skill only touches In Review tickets."
+description: "Claim and review the next Code Review ticket. This skill should be used when the user says 'review', 'review next', 'review next ticket', 'do a review', or wants to process the review queue. Backlog status is the sole router — this skill only touches Code Review tickets."
 user-invocable: true
 args:
   - name: agent-handle
@@ -22,16 +22,17 @@ AGENT_HANDLE=${1:-@reviewer}
 This skill is glue; the reviewer agent does the actual review. Backlog status
 is the only routing signal — never infer role from anything else.
 
-### 1. Claim the next In Review ticket (atomic)
+### 1. Claim the next Code Review ticket via `/backlog-manager`
 
-Run from `$REPO_ROOT` (backlog CLI requires repo-root cwd):
+The reviewer skill does not know or care which ticketing backend the repo
+uses — that's `/backlog-manager`'s job (it detects the backend from
+`ticketing:` in `spec/project.yaml` and runs the right commands). Load
+`/backlog-manager` and ask it to atomically claim the next **Code Review**
+ticket for `$AGENT_HANDLE`.
 
-```
-backlog task next --status "In Review" --agent "$AGENT_HANDLE"
-```
-
-`backlog task next` atomically claims and assigns in one call — no TOCTOU
-window. If it reports no ready task, stop and report "review queue empty".
+The claim must be atomic (claim + assign in one step — no TOCTOU window);
+`/backlog-manager` maps that to the backend's mechanism. If the queue is
+empty, stop and report "review queue empty".
 
 Capture the claimed `TICKET_ID` (e.g. `ORC-44`).
 
@@ -44,9 +45,10 @@ state whose `change_id` equals the ticket slug OR whose linear/ticket field
 matches `TICKET_ID` (case-insensitive). `linear_ticket_id` may be `null` —
 fall back to matching `change_id` against the lowercased `TICKET_ID`.
 
-- **No match** → this ticket is not workflow-initialized. Release the claim
-  (`backlog task edit <id> -a "" -s "In Review"`), report:
-  `Ticket TICKET_ID has no spec/changes/<slug>/state.yaml — not initialized; left in In Review.`
+- **No match** → this ticket is not workflow-initialized. Ask
+  `/backlog-manager` to release the claim (unassign, leave status Code
+  Review), report:
+  `Ticket TICKET_ID has no spec/changes/<slug>/state.yaml — not initialized; left in Code Review.`
   Stop. (Per strict premise: ideator/architect/human own To Do init.)
 - **Match** → record `SLUG`, `STATE_FILE`, and read `flags.worktree`,
   `repo_root` from it. Set `ARTIFACT_DIR`: when `flags.worktree: true` →
@@ -78,7 +80,8 @@ protocol surface the reviewer agent reads/writes.
 Spawn the `reviewer` agent (model inherits from this session — no model
 override). Pass it:
 
-- The full ticket: `backlog task <id> --plain`
+- The full ticket body (fetch it via `/backlog-manager` for the detected
+  backend — e.g. plain-text issue/task contents)
 - `SLUG`, `STATE_FILE`, `ARTIFACT_DIR`, the resolved working directory
 - The design to review against: `$ARTIFACT_DIR/design.md` (read it first —
   it carries both the design and the Acceptance Criteria; the product-level
@@ -93,17 +96,21 @@ override). Pass it:
   > 1. **Line-anchored findings** → create resolvr threads in the session
   >    JSON per `.review/AGENTS.md` (severity, anchor, agent message).
   > 2. **Structural rework** → append unchecked tasks to `tasks.md` and add
-  >    Implementation Plan subtasks to the ticket via the backlog CLI.
+  >    Implementation Plan subtasks to the ticket via `/backlog-manager`.
   > End with a verdict line: `VERDICT: APPROVED` or `VERDICT: CHANGES_REQUESTED`.
 
 ### 6. Drive the backlog transition
 
-- **`VERDICT: APPROVED`** → `backlog task edit <id> -s "QA Review"`.
+Drive the transition through `/backlog-manager` (it maps the status move to
+the detected backend):
+
+- **`VERDICT: APPROVED`** → transition the ticket to **QA Review**.
   Approval does not mean Done — a separate QA pass (future skill or human)
   moves `QA Review → Done`.
-- **`VERDICT: CHANGES_REQUESTED`** → `backlog task edit <id> -s "In Progress"`.
-  Same worktree/branch/state.yaml. No follow-up ticket — the resolvr threads
-  and unchecked `tasks.md` items ARE the rework. `/developer` re-picks this
-  same ticket and treats them like any other unchecked work.
+- **`VERDICT: CHANGES_REQUESTED`** → transition the ticket back to **In
+  Progress**. Same worktree/branch/state.yaml. No follow-up ticket — the
+  resolvr threads and unchecked `tasks.md` items ARE the rework.
+  `/developer` re-picks this same ticket and treats them like any other
+  unchecked work.
 
 Report the ticket ID, verdict, and transition taken.

@@ -1,6 +1,6 @@
 ---
 name: developer
-description: "Claim and implement the next In Progress ticket. This skill should be used when the user says 'develop', 'develop next', 'work next ticket', 'implement next', or wants to process the development queue. Backlog status is the sole router — this skill only touches In Progress tickets, including ones kicked back by review."
+description: "Claim and implement the next ready ticket. This skill should be used when the user says 'develop', 'develop next', 'work next ticket', 'implement next', or wants to process the development queue. Backlog status is the sole router — it claims In Progress tickets first (kicked-back rework), then falls back to Ready tickets (fresh work), promoting them to In Progress on claim."
 user-invocable: true
 args:
   - name: agent-handle
@@ -22,18 +22,24 @@ AGENT_HANDLE=${1:-@developer}
 This skill is glue; the developer agent writes the code. Backlog status is
 the only routing signal. A kicked-back ticket is just an In Progress ticket
 with extra unchecked `tasks.md` items and open resolvr threads — there is no
-special rework path.
+special rework path; it just sorts ahead of fresh Ready work.
 
-### 1. Claim the next In Progress ticket (atomic)
+### 1. Claim the next ticket via `/backlog-manager`
 
-Run from `$REPO_ROOT`:
+The developer skill does not know or care which ticketing backend the repo
+uses — that's `/backlog-manager`'s job (it detects the backend from
+`ticketing:` in `spec/project.yaml` and runs the right commands). Load
+`/backlog-manager` and ask it to atomically claim the next ticket for
+`$AGENT_HANDLE`, applying this policy:
 
-```
-backlog task next --status "In Progress" --agent "$AGENT_HANDLE"
-```
+1. **In Progress first** — kicked-back rework that's already mid-flight.
+2. **Then Ready** — fresh work; the claim must leave the ticket In Progress
+   so the rest of the workflow and the next `/developer` run see consistent
+   state.
 
-Atomic claim + assign — no TOCTOU window. If no ready task, stop and report
-"development queue empty". Capture `TICKET_ID`.
+The claim must be atomic (claim + assign in one step — no TOCTOU window);
+`/backlog-manager` maps that to the backend's mechanism. If both queues are
+empty, stop and report "development queue empty". Capture `TICKET_ID`.
 
 ### 2. Resolve the ticket's change directory (strict premise)
 
@@ -44,8 +50,8 @@ state whose `change_id` equals the ticket slug OR whose linear/ticket field
 matches `TICKET_ID` (case-insensitive). `linear_ticket_id` may be `null` —
 fall back to matching `change_id` against the lowercased `TICKET_ID`.
 
-- **No match** → not workflow-initialized. Release the claim
-  (`backlog task edit <id> -a "" -s "In Progress"`), report:
+- **No match** → not workflow-initialized. Ask `/backlog-manager` to release
+  the claim (unassign, leave status In Progress), report:
   `Ticket TICKET_ID has no spec/changes/<slug>/state.yaml — not initialized; left in In Progress.`
   Stop.
 - **Match** → record `SLUG`, `STATE_FILE`, read `flags.worktree`,
@@ -73,7 +79,8 @@ session or no open threads, it's a fresh implementation pass.
 Spawn the `developer` agent (model inherits from this session — no model
 override). Pass it:
 
-- The full ticket: `backlog task <id> --plain`
+- The full ticket body (fetch it via `/backlog-manager` for the detected
+  backend — e.g. plain-text issue/task contents)
 - `SLUG`, `STATE_FILE`, `ARTIFACT_DIR`, the resolved working directory
 - The design to implement against: `$ARTIFACT_DIR/design.md` (read it
   before coding — it carries both the design and the Acceptance Criteria;
@@ -84,7 +91,7 @@ override). Pass it:
   instruction to resolve every open thread via the documented protocol
   before completing.
 - The standing instruction to drive its work through the orchestrator step
-  loop (see step 6) and self-verify with evidence to 9/10.
+  loop (see step 6 below) and self-verify with evidence to 9/10.
 
 ### 6. Step loop
 
@@ -103,10 +110,6 @@ Repeat until `execute-next-task` reports all `tasks.md` items checked
 ### 7. Hand back to review
 
 When all tasks (including any reviewer-added rework items) are checked and
-self-verification passes, move the ticket to In Review:
-
-```
-backlog task edit <id> -s "In Review"
-```
-
-Report the ticket ID and that it is ready for `/reviewer`.
+self-verification passes, transition the ticket to Code Review via
+`/backlog-manager` (it maps the move to the detected backend). Report the
+ticket ID and that it is ready for `/reviewer`.
