@@ -1,0 +1,887 @@
+change_id: orc-59
+slug: orc-59
+schema: feature
+status: completed
+repo_root: /Users/spidey/code/orchestrator
+flags:
+  worktree: true
+  phase_review: true
+  portless: true
+  metrics: true
+  ux_design: false
+  tdd_required: true
+  auto: true
+  agents: true
+  light: false
+workflow_plan:
+  main:
+    active:
+    - workflow-init
+    - explore
+    - diagnose
+    - design-and-draft-artifacts
+    - preview-route
+    - capture-test-baseline
+    - execute-next-task
+    - run-phase-review
+    - compute-prediction-accuracy
+    - run-learn-cycle
+    - mark-change-completed
+    - compute-swe-metrics
+    - archive-completed-change
+    - remove-worktree
+    filtered:
+    - id: ux-design
+      reason: flag ux_design=false
+    - id: run-ux-critique
+      reason: flag ux_design=false
+phase: main
+next_step:
+  phase: main
+  step_id: remove-worktree
+step_history:
+- step_id: workflow-init
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-19T07:28:01Z'
+  ended_at: '2026-05-19T07:28:01Z'
+  usage: {}
+  evidence:
+    outputs:
+      worktree_path: /Users/spidey/code/feature_worktrees/orc-59
+      branch: orc/orc-59
+      linear_ticket_id: null
+      workflow_plan:
+        main:
+          active:
+          - workflow-init
+          - explore
+          - diagnose
+          - design-and-draft-artifacts
+          - preview-route
+          - capture-test-baseline
+          - execute-next-task
+          - run-phase-review
+          - compute-prediction-accuracy
+          - run-learn-cycle
+          - mark-change-completed
+          - compute-swe-metrics
+          - archive-completed-change
+          - remove-worktree
+          filtered:
+          - id: ux-design
+            reason: flag ux_design=false
+          - id: run-ux-critique
+            reason: flag ux_design=false
+      resolved_flags:
+        worktree: true
+        phase_review: true
+        portless: true
+        metrics: true
+        ux_design: false
+        tdd_required: true
+        auto: true
+        agents: true
+        light: false
+      plan_yaml_path: /Users/spidey/code/orchestrator/spec/changes/orc-59/plan.yaml
+    summary: inline script completed
+- step_id: explore
+  phase: main
+  status: completed
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-05-19T07:38:38Z'
+  ended_at: '2026-05-19T07:38:38Z'
+  usage:
+    input_tokens: 802
+    output_tokens: 6426
+    duration_ms: 590210
+    cache_read_input_tokens: 1248549
+    cache_creation_input_tokens: 149663
+    model: claude-sonnet-4-6
+    turns: 42
+    tool_calls:
+      Bash: 23
+      Read: 13
+    tool_calls_detail:
+    - tool_name: Bash
+      tool_use_id: toolu_012rZyj1BRoBFWCBnoTKXhJk
+      is_mcp: false
+      started_at: '2026-05-19T07:28:46.901Z'
+      duration_ms: 290
+    - tool_name: Read
+      tool_use_id: toolu_01ENi32E339jk87sE7exUJ6Z
+      is_mcp: false
+      started_at: '2026-05-19T07:28:47.121Z'
+      duration_ms: 187
+    - tool_name: Read
+      tool_use_id: toolu_01JSU5r2iQiq5JBCKavNnYpU
+      is_mcp: false
+      started_at: '2026-05-19T07:28:50.814Z'
+      duration_ms: 214
+    - tool_name: Read
+      tool_use_id: toolu_01NcqVsCszJhiYN8DzBzU2Wq
+      is_mcp: false
+      started_at: '2026-05-19T07:28:51.265Z'
+      duration_ms: 190
+    - tool_name: Read
+      tool_use_id: toolu_014988ibbt1TnqLKZEbfMtE9
+      is_mcp: false
+      started_at: '2026-05-19T07:28:54.830Z'
+      duration_ms: 236
+    - tool_name: Read
+      tool_use_id: toolu_01D9x6WUKUbLAVqHagYpPzBP
+      is_mcp: false
+      started_at: '2026-05-19T07:28:55.388Z'
+      duration_ms: 235
+    - tool_name: Read
+      tool_use_id: toolu_016ahUeAUP1XVE59oLi7mBMh
+      is_mcp: false
+      started_at: '2026-05-19T07:28:58.954Z'
+      duration_ms: 244
+    - tool_name: Read
+      tool_use_id: toolu_01D6JfZYehgUCmNBS9aokpG7
+      is_mcp: false
+      started_at: '2026-05-19T07:28:59.755Z'
+      duration_ms: 243
+    - tool_name: Read
+      tool_use_id: toolu_019UAmtQXPbyjW4EQRBsoqA9
+      is_mcp: false
+      started_at: '2026-05-19T07:28:59.865Z'
+      duration_ms: 225
+    - tool_name: Bash
+      tool_use_id: toolu_01D82TwicFPNkxZWJqJyR8Cz
+      is_mcp: false
+      started_at: '2026-05-19T07:29:04.712Z'
+      duration_ms: 258
+    - tool_name: Bash
+      tool_use_id: toolu_01F8WrVSMh4kcLAxW9ZcNg2k
+      is_mcp: false
+      started_at: '2026-05-19T07:29:05.656Z'
+      duration_ms: 264
+    - tool_name: Bash
+      tool_use_id: toolu_011k5vwCP7gc98aDnkMY3TtX
+      is_mcp: false
+      started_at: '2026-05-19T07:29:08.739Z'
+      duration_ms: 263
+    - tool_name: Bash
+      tool_use_id: toolu_01EHMTqkb8K8xkBAazrt5HTJ
+      is_mcp: false
+      started_at: '2026-05-19T07:29:10.064Z'
+      duration_ms: 255
+    - tool_name: Bash
+      tool_use_id: toolu_016AyvFSHsZCMEEKHPNDCQuP
+      is_mcp: false
+      started_at: '2026-05-19T07:29:14.492Z'
+      duration_ms: 260
+    - tool_name: Bash
+      tool_use_id: toolu_017DuPUcgvEu6J3WZbQYi3xc
+      is_mcp: false
+      started_at: '2026-05-19T07:29:17.401Z'
+      duration_ms: 256
+    - tool_name: Bash
+      tool_use_id: toolu_0184YnwyNdsPUKsM5vHtDgRB
+      is_mcp: false
+      started_at: '2026-05-19T07:29:21.383Z'
+      duration_ms: 263
+    - tool_name: Bash
+      tool_use_id: toolu_01LNwRLGRtej7NmFTQ2YUaGX
+      is_mcp: false
+      started_at: '2026-05-19T07:29:24.201Z'
+      duration_ms: 266
+    - tool_name: Read
+      tool_use_id: toolu_011ZKYbXt5Wr4evwpkgEgstW
+      is_mcp: false
+      started_at: '2026-05-19T07:29:26.347Z'
+      duration_ms: 235
+    - tool_name: Bash
+      tool_use_id: toolu_015nMGcYcwNiBFQXxWxn7kbY
+      is_mcp: false
+      started_at: '2026-05-19T07:29:30.230Z'
+      duration_ms: 256
+    - tool_name: Bash
+      tool_use_id: toolu_01Hoj3xitGRaAFUMf3kTUtYo
+      is_mcp: false
+      started_at: '2026-05-19T07:29:33.863Z'
+      duration_ms: 255
+    - tool_name: Read
+      tool_use_id: toolu_01CTcf5ZaVxMuRDY3EX527Sp
+      is_mcp: false
+      started_at: '2026-05-19T07:29:38.084Z'
+      duration_ms: 250
+    - tool_name: Bash
+      tool_use_id: toolu_01NaNJX5c6PEqVFxrJMS5tPM
+      is_mcp: false
+      started_at: '2026-05-19T07:29:41.505Z'
+      duration_ms: 252
+    - tool_name: Bash
+      tool_use_id: toolu_01MtFa5W6AymUwU8Yv6f6z9F
+      is_mcp: false
+      started_at: '2026-05-19T07:29:45.507Z'
+      duration_ms: 258
+    - tool_name: Bash
+      tool_use_id: toolu_01GeyBT3k9HdthDYM6QZRZe4
+      is_mcp: false
+      started_at: '2026-05-19T07:29:49.622Z'
+      duration_ms: 270
+    - tool_name: Bash
+      tool_use_id: toolu_01SEfspdmZvtWQhhPGQvtQTo
+      is_mcp: false
+      started_at: '2026-05-19T07:29:53.656Z'
+      duration_ms: 266
+    - tool_name: Bash
+      tool_use_id: toolu_01HEJS5cpfEz8R9gzGjvXpQ7
+      is_mcp: false
+      started_at: '2026-05-19T07:29:57.799Z'
+      duration_ms: 250
+    - tool_name: Bash
+      tool_use_id: toolu_01LPtEBJQ5u8EsUcj9DXjxt1
+      is_mcp: false
+      started_at: '2026-05-19T07:30:01.443Z'
+      duration_ms: 265
+    - tool_name: Bash
+      tool_use_id: toolu_01CpuBuiUikic2fNN9NEW7Ay
+      is_mcp: false
+      started_at: '2026-05-19T07:30:05.952Z'
+      duration_ms: 250
+    - tool_name: Bash
+      tool_use_id: toolu_01PEdD2DNgNJbo6aUpsfYJ14
+      is_mcp: false
+      started_at: '2026-05-19T07:30:10.319Z'
+      duration_ms: 270
+    - tool_name: Bash
+      tool_use_id: toolu_015F13uFpc5oPjNJjiJytQat
+      is_mcp: false
+      started_at: '2026-05-19T07:30:13.762Z'
+      duration_ms: 277
+    - tool_name: Read
+      tool_use_id: toolu_01HkbxdUuQTK1a3ck34BeNju
+      is_mcp: false
+      started_at: '2026-05-19T07:30:17.492Z'
+      duration_ms: 424015
+    - tool_name: Read
+      tool_use_id: toolu_015x3keDJCpFWvtQs3KZMSgs
+      is_mcp: false
+      started_at: '2026-05-19T07:30:17.880Z'
+      duration_ms: 251
+    - tool_name: Read
+      tool_use_id: toolu_01JXGCepLYJoEbx44XSDCmu1
+      is_mcp: false
+      started_at: '2026-05-19T07:37:25.273Z'
+      duration_ms: 234
+    - tool_name: Bash
+      tool_use_id: toolu_01WSmosm1YVUe4EVSaxKYvrf
+      is_mcp: false
+      started_at: '2026-05-19T07:37:36.569Z'
+      duration_ms: 254
+    - tool_name: Bash
+      tool_use_id: toolu_015ynoWxJSSNRztJijUJX6UW
+      is_mcp: false
+      started_at: '2026-05-19T07:38:12.681Z'
+      duration_ms: 268
+    - tool_name: Bash
+      tool_use_id: toolu_01YPHXK7XnwkWSmUnKTFFuWQ
+      is_mcp: false
+      started_at: '2026-05-19T07:38:16.564Z'
+      duration_ms: 286
+    agent_id: aa9f84b40a9f9be69
+    cost_usd: 1.03459695
+  evidence:
+    outputs:
+      discovery_result: spec/changes/orc-59/discovery.md
+    discrepancies: 3 active state.yaml files (orc-30/58/59) carry linear_ticket_id
+      in step_history evidence; CLAUDE.md false positive (0 occurrences); record.py
+      not affected
+- step_id: diagnose
+  phase: main
+  status: completed
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-05-19T07:41:13Z'
+  ended_at: '2026-05-19T07:41:13Z'
+  usage:
+    input_tokens: 26
+    output_tokens: 5279
+    duration_ms: 105388
+    tool_calls:
+      Read: 4
+      Bash: 5
+    cache_read_input_tokens: 536114
+    cache_creation_input_tokens: 115127
+    model: claude-sonnet-4-6
+    turns: 20
+    tool_calls_detail:
+    - tool_name: Read
+      tool_use_id: toolu_0183UZQ3T1whC5UFjwSU4Bow
+      is_mcp: false
+      started_at: '2026-05-19T07:39:24.836Z'
+      duration_ms: 253
+    - tool_name: Read
+      tool_use_id: toolu_01Vtki6EEFKXQKEBBdp6kEEx
+      is_mcp: false
+      started_at: '2026-05-19T07:39:25.156Z'
+      duration_ms: 564
+    - tool_name: Bash
+      tool_use_id: toolu_01KypE7L2mzVLFiSf8fusoQZ
+      is_mcp: false
+      started_at: '2026-05-19T07:39:31.167Z'
+      duration_ms: 263
+    - tool_name: Bash
+      tool_use_id: toolu_01Ji1VKumueCsNERi9go85BE
+      is_mcp: false
+      started_at: '2026-05-19T07:39:31.790Z'
+      duration_ms: 262
+    - tool_name: Bash
+      tool_use_id: toolu_0161QJteEErguhk7E4T6JGnt
+      is_mcp: false
+      started_at: '2026-05-19T07:39:35.831Z'
+      duration_ms: 258
+    - tool_name: Bash
+      tool_use_id: toolu_014Yfg2o1CsMmyUxgtxZBimE
+      is_mcp: false
+      started_at: '2026-05-19T07:39:36.670Z'
+      duration_ms: 248
+    - tool_name: Bash
+      tool_use_id: toolu_01E5n2i1Ve3oR2bpuRLsZnQS
+      is_mcp: false
+      started_at: '2026-05-19T07:39:40.088Z'
+      duration_ms: 248
+    - tool_name: Read
+      tool_use_id: toolu_01LJeJq4bXQeuTe4Q5iDxQcJ
+      is_mcp: false
+      started_at: '2026-05-19T07:39:46.374Z'
+      duration_ms: 250
+    - tool_name: Read
+      tool_use_id: toolu_01VoT7sQyZ7vtsmDyHtevo9L
+      is_mcp: false
+      started_at: '2026-05-19T07:39:46.888Z'
+      duration_ms: 227
+    - tool_name: Read
+      tool_use_id: toolu_01S5qL4aJJtbh2VMkE48LsWT
+      is_mcp: false
+      started_at: '2026-05-19T07:39:49.115Z'
+      duration_ms: 243
+    - tool_name: Bash
+      tool_use_id: toolu_014ATsUuBSRhYnkLWYkxxHUV
+      is_mcp: false
+      started_at: '2026-05-19T07:39:53.087Z'
+      duration_ms: 256
+    - tool_name: Bash
+      tool_use_id: toolu_01LRpLEUBMjGC2QhsmQ6yEey
+      is_mcp: false
+      started_at: '2026-05-19T07:40:48.504Z'
+      duration_ms: 256
+    - tool_name: Bash
+      tool_use_id: toolu_018Cm5sXhRyxnwG6VN9ogTgR
+      is_mcp: false
+      started_at: '2026-05-19T07:40:52.479Z'
+      duration_ms: 254
+    agent_id: a7ba246da764f8ef0
+    cost_usd: 0.67182345
+  evidence:
+    outputs:
+      diagnosis_result: spec/changes/orc-59/diagnose.md
+    rename_set: 13 occurrences across 8 files
+    frozen_set: 4 occurrences across 3 active state files (append-only telemetry)
+    grep_count: 17
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: architect
+  attempt: 1
+  started_at: '2026-05-19T07:45:49Z'
+  ended_at: '2026-05-19T07:45:49Z'
+  usage:
+    input_tokens: 68
+    output_tokens: 11141
+    duration_ms: 233539
+    cache_read_input_tokens: 1448603
+    cache_creation_input_tokens: 177385
+    model: claude-opus-4-7
+    turns: 32
+    tool_calls:
+      Read: 4
+      Bash: 7
+      Write: 2
+      Edit: 2
+    tool_calls_detail:
+    - tool_name: Read
+      tool_use_id: toolu_01WsuHM3qDNgWSrxP6iphDVd
+      is_mcp: false
+      started_at: '2026-05-19T07:41:51.109Z'
+      duration_ms: 248
+    - tool_name: Read
+      tool_use_id: toolu_01WbiyNFkKxjhU2SMnNEyWtW
+      is_mcp: false
+      started_at: '2026-05-19T07:41:51.531Z'
+      duration_ms: 240
+    - tool_name: Bash
+      tool_use_id: toolu_01G2Rm9TGqcUkV2Zfn8uhXVh
+      is_mcp: false
+      started_at: '2026-05-19T07:41:55.908Z'
+      duration_ms: 246
+    - tool_name: Bash
+      tool_use_id: toolu_019YTkCNwN8QDaULSCLmftBw
+      is_mcp: false
+      started_at: '2026-05-19T07:41:57.634Z'
+      duration_ms: 271
+    - tool_name: Bash
+      tool_use_id: toolu_01EAGNXv2B7SxKMiZUBNwmye
+      is_mcp: false
+      started_at: '2026-05-19T07:41:58.954Z'
+      duration_ms: 255
+    - tool_name: Read
+      tool_use_id: toolu_01LQhVAWCC4sa3yKfpYtasvu
+      is_mcp: false
+      started_at: '2026-05-19T07:42:06.514Z'
+      duration_ms: 242
+    - tool_name: Read
+      tool_use_id: toolu_014LmuwtFfffehhuim2wtFoj
+      is_mcp: false
+      started_at: '2026-05-19T07:42:07.305Z'
+      duration_ms: 243
+    - tool_name: Bash
+      tool_use_id: toolu_01Ft96sfx6ypUozbJ3FXAHoA
+      is_mcp: false
+      started_at: '2026-05-19T07:42:09.151Z'
+      duration_ms: 509
+    - tool_name: Bash
+      tool_use_id: toolu_01BFoaTW9KLXCV96hN9Du4By
+      is_mcp: false
+      started_at: '2026-05-19T07:42:14.769Z'
+      duration_ms: 261
+    - tool_name: Bash
+      tool_use_id: toolu_01PgHG8S21zgaEFjsHJDYeP4
+      is_mcp: false
+      started_at: '2026-05-19T07:43:11.727Z'
+      duration_ms: 299
+    - tool_name: Bash
+      tool_use_id: toolu_01UL4wQk8d4VX4QcqQnKgLSB
+      is_mcp: false
+      started_at: '2026-05-19T07:43:20.403Z'
+      duration_ms: 271
+    - tool_name: Write
+      tool_use_id: toolu_01KU9pEvjje7493bCecSoCG8
+      is_mcp: false
+      started_at: '2026-05-19T07:44:12.797Z'
+      duration_ms: 292
+    - tool_name: Write
+      tool_use_id: toolu_01Kd2QQiQr5MKEveLCytTwQ4
+      is_mcp: false
+      started_at: '2026-05-19T07:44:35.274Z'
+      duration_ms: 266
+    - tool_name: Edit
+      tool_use_id: toolu_01PGzhEgveWwwktdZKwn6PTX
+      is_mcp: false
+      started_at: '2026-05-19T07:44:46.293Z'
+      duration_ms: 278
+    - tool_name: Edit
+      tool_use_id: toolu_01XpmdrZ2NnXqrzQrjwTNNbo
+      is_mcp: false
+      started_at: '2026-05-19T07:45:26.425Z'
+      duration_ms: 255
+    agent_id: a5625724075c9797b
+    cost_usd: 6.33546825
+  evidence:
+    outputs:
+      updated_artifact_set:
+      - spec/changes/orc-59/design.md
+      - spec/changes/orc-59/tasks.md
+      design_direction: Direct in-place rename of 13-occurrence RENAME set; dual-key
+        shim rejected as permanent dead code
+      complexity: XS
+    task_count: 3
+    resolved: consumer-compat (only mark-change-completed.sh:29 reads as code, fallback
+      chain preserved) and record.py (0 occurrences, validates workflow_plan not this
+      field) both verified by grep at HEAD
+- step_id: preview-route
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-19T07:45:49Z'
+  ended_at: '2026-05-19T07:45:49Z'
+  usage: {}
+  evidence:
+    outputs:
+      route_preview:
+        status: estimate_unavailable
+        reason: 'ERROR: state.yaml not found at /Users/spidey/code/feature_worktrees/orc-59/state.yaml '
+        exit_code: 1
+    summary: inline script completed
+- step_id: capture-test-baseline
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-19T07:46:01Z'
+  ended_at: '2026-05-19T07:46:01Z'
+  usage: {}
+  evidence:
+    outputs:
+      baseline:
+        captured_at: '2026-05-19T07:45:53Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 387
+        failing: 4
+        skipped: 0
+        total: 391
+        exit_code: 1
+    summary: inline script completed
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-19T07:50:20Z'
+  ended_at: '2026-05-19T07:50:20Z'
+  usage:
+    input_tokens: 90000
+    output_tokens: 4500
+    duration_ms: 600000
+    tool_calls:
+      Read: 4
+      Bash: 10
+      Edit: 2
+    model: claude-sonnet-4-6
+    cost_usd: 0.3375
+  evidence:
+    outputs:
+      task_execution_result:
+        task: T-1
+        status: completed
+        verify_pytest_exit: 0
+        verify_grep_exit: 1
+        occurrences_renamed: 3
+        tasks_remaining:
+        - T-2
+        - T-3
+    summary: 'T-1: renamed 3 linear_ticket_id -> ticket_id fixture keys in test_record_validation.py;
+      pytest 11 passed exit 0, grep zero lines exit 1. task_checkpoint skipped (record.py
+      has no persistence for it).'
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 2
+  started_at: '2026-05-19T07:54:49Z'
+  ended_at: '2026-05-19T07:54:49Z'
+  usage:
+    input_tokens: 118000
+    output_tokens: 9200
+    agent_id: developer
+    model: claude-sonnet-4-6
+    cost_usd: 0.492
+  evidence:
+    outputs:
+      task_execution_result:
+        task: T-2
+        commit: 08aaab9
+        files_renamed: 6
+        tasks_marked: 1
+        tasks_remaining:
+        - T-3
+        verify: grep zero; spec/changes & record.py diffs empty; pytest 390 passed
+          + 1 pre-existing unrelated fail
+    commands:
+    - cmd: grep -rn linear_ticket_id config/ skills/
+      exit_code: 1
+      stdout_tail: (zero matches)
+    - cmd: git diff --name-only -- spec/changes/
+      exit_code: 0
+      stdout_tail: (empty)
+    - cmd: python -m pytest -q
+      exit_code: 1
+      stdout_tail: 1 failed, 390 passed (pre-existing at HEAD b0b6cea, unrelated)
+    counts:
+      files_renamed: 6
+      tasks_marked: 1
+      occurrences_removed: 10
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 3
+  started_at: '2026-05-19T07:57:33Z'
+  ended_at: '2026-05-19T07:57:33Z'
+  usage:
+    input_tokens: 95000
+    output_tokens: 4200
+    agent_id: developer
+    model: claude-opus-4-7
+    cost_usd: 1.74
+  evidence:
+    outputs:
+      task_execution_result:
+        task: T-3
+        kind: verification-only phase gate
+        commit: a24e7ef
+        files_renamed: 0
+        tasks_marked: 1
+        tasks_remaining: []
+        all_tasks_complete: true
+        verify: pytest 1 failed/390 passed (sole failure test_seed_state::test_seed_state_produces_dispatch_ready_pair
+          = known pre-existing baseline from 65644e5, delta=0); grep linear_ticket_id
+          zero (exit 1); git diff --stat 65644e5..HEAD = 7 rename files + tasks.md,
+          no state.yaml/archive/record.py
+        simplify_pass: skipped (flags.simplify absent in state.yaml; pure mechanical
+          rename, no-op regardless)
+      commands:
+      - cmd: python -m pytest -q
+        exit_code: 1
+        stdout_tail: 1 failed, 390 passed; sole failure test_seed_state_produces_dispatch_ready_pair
+          (pre-existing baseline, delta=0)
+      - cmd: grep -rn linear_ticket_id config/ skills/
+        exit_code: 1
+        stdout_tail: (zero matches)
+      - cmd: git diff --stat 65644e5..HEAD
+        exit_code: 0
+        stdout_tail: 7 rename files + tasks.md; no state.yaml/archive/record.py
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: '2026-05-19T08:00:56Z'
+  ended_at: '2026-05-19T08:00:56Z'
+  usage:
+    input_tokens: 41000
+    output_tokens: 5200
+    duration_ms: 300000
+    tool_calls:
+      Read: 4
+      Bash: 4
+      Write: 1
+      Edit: 3
+    agent_id: reviewer-orc-59-phase
+    model: claude-sonnet-4-6
+    cost_usd: 0.201
+  evidence:
+    outputs:
+      phase_review_report: spec/changes/orc-59/phase-review.md
+- step_id: compute-prediction-accuracy
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-19T08:01:34Z'
+  ended_at: '2026-05-19T08:01:34Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy:
+        computed_at: '2026-05-19T08:01:34Z'
+        predicted_tasks: 0
+        actual_tasks: 0
+        fix_task_count: 0
+        rework_rate: 0.0
+        task_delta: 0
+        task_accuracy_pct: 100.0
+        predicted_file_count: null
+        actual_file_count: null
+        file_delta: null
+        file_overlap_pct: null
+    summary: inline script completed
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: workflow-improver
+  attempt: 1
+  started_at: '2026-05-19T08:41:47Z'
+  ended_at: '2026-05-19T08:41:47Z'
+  usage:
+    input_tokens: 132
+    output_tokens: 4225
+    duration_ms: 2349230
+    tool_calls:
+      Read: 9
+      Bash: 5
+      Edit: 4
+    cache_read_input_tokens: 1648758
+    cache_creation_input_tokens: 279073
+    model: claude-sonnet-4-6
+    turns: 39
+    tool_calls_detail:
+    - tool_name: Read
+      tool_use_id: toolu_01Udkh4G4MCRd3HUnhogKpD2
+      is_mcp: false
+      started_at: '2026-05-19T08:02:28.352Z'
+      duration_ms: 243
+    - tool_name: Read
+      tool_use_id: toolu_017pbUstX8VkKhCodJEbLJsr
+      is_mcp: false
+      started_at: '2026-05-19T08:02:28.846Z'
+      duration_ms: 605
+    - tool_name: Read
+      tool_use_id: toolu_01MWe6iRvLCLSYhXrRTikTog
+      is_mcp: false
+      started_at: '2026-05-19T08:02:40.997Z'
+      duration_ms: 242
+    - tool_name: Bash
+      tool_use_id: toolu_01VivWATP822FXpkyovuPXWb
+      is_mcp: false
+      started_at: '2026-05-19T08:02:42.032Z'
+      duration_ms: 253
+    - tool_name: Bash
+      tool_use_id: toolu_01Vza41hVj14pUpofYDkuhjc
+      is_mcp: false
+      started_at: '2026-05-19T08:02:53.370Z'
+      duration_ms: 243
+    - tool_name: Bash
+      tool_use_id: toolu_01SybYnvwmWVd6CcPAvLmn5H
+      is_mcp: false
+      started_at: '2026-05-19T08:02:54.076Z'
+      duration_ms: 240
+    - tool_name: Read
+      tool_use_id: toolu_017SKKj4Dze7R1qMk5xEtpRd
+      is_mcp: false
+      started_at: '2026-05-19T08:03:04.885Z'
+      duration_ms: 263
+    - tool_name: Read
+      tool_use_id: toolu_01ApExttxMGwoXua1iU9tpA7
+      is_mcp: false
+      started_at: '2026-05-19T08:03:05.302Z'
+      duration_ms: 223
+    - tool_name: Read
+      tool_use_id: toolu_0182WYuNTW9ByDnRMdkRPiCY
+      is_mcp: false
+      started_at: '2026-05-19T08:03:32.896Z'
+      duration_ms: 247
+    - tool_name: Bash
+      tool_use_id: toolu_01E9AnCYsPKVfzopaz4EF2D9
+      is_mcp: false
+      started_at: '2026-05-19T08:03:38.341Z'
+      duration_ms: 262
+    - tool_name: Bash
+      tool_use_id: toolu_015rJXq9Ehqqqan1wLGBtW6p
+      is_mcp: false
+      started_at: '2026-05-19T08:03:38.928Z'
+      duration_ms: 259
+    - tool_name: Read
+      tool_use_id: toolu_01CwosR1a2U7KmZ4FhuYyREV
+      is_mcp: false
+      started_at: '2026-05-19T08:03:41.807Z'
+      duration_ms: 241
+    - tool_name: Read
+      tool_use_id: toolu_01PHRQxpHM2XetbQGhco6rfS
+      is_mcp: false
+      started_at: '2026-05-19T08:03:55.906Z'
+      duration_ms: 248
+    - tool_name: Read
+      tool_use_id: toolu_01XaCk3Bv2fH6xkEAtizoVMT
+      is_mcp: false
+      started_at: '2026-05-19T08:04:00.057Z'
+      duration_ms: 225
+    - tool_name: Edit
+      tool_use_id: toolu_014NXG2E27RtdFJVrRj7PbJ4
+      is_mcp: false
+      started_at: '2026-05-19T08:04:10.096Z'
+      duration_ms: 2164244
+    - tool_name: Edit
+      tool_use_id: toolu_01QrG4e53V3wTpLSz7nQ4HZZ
+      is_mcp: false
+      started_at: '2026-05-19T08:40:28.018Z'
+      duration_ms: 314
+    - tool_name: Edit
+      tool_use_id: toolu_012MCreaGFHFRjrxoGH6KJkS
+      is_mcp: false
+      started_at: '2026-05-19T08:40:41.974Z'
+      duration_ms: 237
+    - tool_name: Read
+      tool_use_id: toolu_01W9QDZrpj5jWYP5Qs2HnkJU
+      is_mcp: false
+      started_at: '2026-05-19T08:40:45.531Z'
+      duration_ms: 243
+    - tool_name: Edit
+      tool_use_id: toolu_01JsGgEXdH9vc2e4bcEkDd1E
+      is_mcp: false
+      started_at: '2026-05-19T08:40:53.673Z'
+      duration_ms: 269
+    - tool_name: Read
+      tool_use_id: toolu_01ToYdKmGQdEYdHeRRmMQayK
+      is_mcp: false
+      started_at: '2026-05-19T08:40:56.994Z'
+      duration_ms: 241
+    - tool_name: Read
+      tool_use_id: toolu_01QjKSPACM2xYSp7W1vYbPhm
+      is_mcp: false
+      started_at: '2026-05-19T08:41:00.538Z'
+      duration_ms: 238
+    - tool_name: Read
+      tool_use_id: toolu_013Bodrew5JzTVqQYJZJE4E6
+      is_mcp: false
+      started_at: '2026-05-19T08:41:04.031Z'
+      duration_ms: 212
+    agent_id: a02a4038394a1bb6d
+    cost_usd: 1.60492215
+  evidence:
+    outputs:
+      learn_result: 'learn_completed: true; 2 rules routed (task-checkpoint-engine-drift,
+        tdd-pure-mechanical-rename) to execute-next-task.yaml + CONVENTIONS.md; 2
+        observations discarded as noise; no new backlog tickets (ORC-60 already covers
+        pre-existing failure)'
+    learn_completed: true
+    contracts_modified:
+    - config/steps/execute-next-task.yaml
+    - config/steps/CONVENTIONS.md
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-19T08:41:47Z'
+  ended_at: '2026-05-19T08:41:47Z'
+  usage: {}
+  evidence:
+    outputs:
+      status: completed
+      completed_at: '2026-05-19T08:41:47Z'
+      archive_path: spec/changes/archive/2026-05-19-orc-59/
+    summary: inline script completed
+- step_id: compute-swe-metrics
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-19T08:41:54Z'
+  ended_at: '2026-05-19T08:41:54Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+- step_id: archive-completed-change
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-19T08:41:54Z'
+  ended_at: '2026-05-19T08:41:54Z'
+  usage: {}
+  evidence:
+    outputs:
+      archive_record:
+        skipped: true
+        reason: missing required env vars
+    summary: inline script completed
+- step_id: remove-worktree
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-19T08:41:55Z'
+  ended_at: '2026-05-19T08:41:55Z'
+  usage: {}
+  evidence:
+    outputs:
+      removed: false
+      reason: 'worktree path missing: '
+    summary: inline script completed
+created_at: '2026-05-19T07:27:53Z'
+started_at: '2026-05-19T07:27:53Z'
+project_context_loaded: true
+worktree_path: /Users/spidey/code/feature_worktrees/orc-59
+branch: orc/orc-59
+completed_at: '2026-05-19T08:41:47Z'
+archive_path: spec/changes/archive/2026-05-19-orc-59/
