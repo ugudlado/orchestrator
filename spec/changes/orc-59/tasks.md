@@ -13,7 +13,7 @@
     `python -m pytest tests/test_record_validation.py -q` → exits 0, all tests
     pass; `grep -n linear_ticket_id tests/test_record_validation.py` → no output.
 
-- [ ] T-2 Rename across producer, consumer, schema doc, and skill docs (depends: T-1)
+- [x] T-2 Rename across producer, consumer, schema doc, and skill docs (depends: T-1)
   - **Why**: AC-1, AC-4, AC-5 — atomically rename the single producer and single
     code consumer plus the schema/skill docs so producer and consumer key names
     match and the Linear name is fully de-leaked from the neutral contract.

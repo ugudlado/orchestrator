@@ -351,7 +351,7 @@ find data where they expect it.
 | `next_step` | object | phase-signoff, any step advancing flow | See `contracts/resume-token.md` |
 | `step_history` | list | All steps (append-only) | See § State Updates above |
 | `flags` | object | load-project-context | Resolved runtime flags (e.g., `{ tdd_required: true, ff: true }`) |
-| `linear_ticket_id` | string | create-linear-ticket | Linear issue ID (e.g., `HL-123`). Also stored in `.spec.yaml`. |
+| `ticket_id` | string | create-linear-ticket | Linear issue ID (e.g., `HL-123`). Also stored in `.spec.yaml`. |
 | `archive_path` | string | mark-change-completed | Relative to repo root (e.g., `spec/changes/archive/2026-04-04-HL-123/`) |
 | `completed_at` | string | mark-change-completed | ISO 8601 UTC timestamp when the change completed |
 | `metrics` | object | compute-swe-metrics (via archive-completed-change) | Full metrics block or `{ status: script_unavailable, reason: "..." }` |

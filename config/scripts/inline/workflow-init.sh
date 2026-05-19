@@ -5,9 +5,9 @@
 #              WORKFLOW_STATE_DIR — parent of per-feature state dirs
 #              ORCHESTRATOR_HOME  — path to orchestrator config
 #              FLAGS_WORKTREE     — "true" | "false" (default: true)
-#              FLAGS_LINEAR       — "true" | "false" (skipped; linear_ticket_id always null)
+#              FLAGS_LINEAR       — "true" | "false" (skipped; ticket_id always null)
 # Outputs (last stdout line, JSON):
-#   {worktree_path, branch, linear_ticket_id, workflow_plan, resolved_flags, plan_yaml_path}
+#   {worktree_path, branch, ticket_id, workflow_plan, resolved_flags, plan_yaml_path}
 
 set -uo pipefail
 
@@ -104,7 +104,7 @@ state = yaml.safe_load(Path(state_yaml).read_text())
 out = {
     "worktree_path": worktree_path,
     "branch": branch,
-    "linear_ticket_id": None,
+    "ticket_id": None,
     "workflow_plan": state.get("workflow_plan"),
     "resolved_flags": state.get("flags"),
     "plan_yaml_path": plan_yaml if Path(plan_yaml).exists() else None,
