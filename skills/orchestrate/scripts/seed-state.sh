@@ -1,59 +1,162 @@
 #!/usr/bin/env bash
-# seed-state.sh — Canonical-minimum state.yaml seeder for /orchestrate skill
+# seed-state.sh — Pre-dispatch workflow initializer for /orchestrate skill
 #
 # Usage: seed-state.sh <slug> <schema> [flag=value ...]
 #
-# Writes $WORKFLOW_STATE_DIR/<slug>/state.yaml and runs generate_plan to produce
-# plan.yaml next to it. Idempotent: exits 0 without overwriting an existing state.yaml.
+# When flags.worktree=true: creates the git worktree first, then writes
+# state.yaml and plan.yaml under $WORKTREE_PATH/spec/changes/<slug>/.
+# Otherwise writes under $WORKFLOW_STATE_DIR/<slug>/ (repo_root).
+# Idempotent: exits 0 without overwriting an existing state.yaml.
 #
 # Required environment:
 #   REPO_ROOT            — root of the target git repo (default: git rev-parse --show-toplevel)
-#   WORKFLOW_STATE_DIR   — directory that holds per-feature state dirs (default: $REPO_ROOT/spec/changes)
+#   WORKFLOW_STATE_DIR   — fallback state dir when worktree=false (default: $REPO_ROOT/spec/changes)
 #   ORCHESTRATOR_HOME    — path to orchestrator config (default: $HOME/.config/orchestrator)
 #
 # Exit codes:
-#   0 — state.yaml (and plan.yaml) exist in $WORKFLOW_STATE_DIR/<slug>/
-#   1 — pre-condition failure (missing project.yaml, schema, flags.yaml, etc.)
+#   0 — state.yaml (and plan.yaml) exist in the resolved state dir
+#   1 — pre-condition failure
 #   2 — generate_plan failed
 #
-# spec.md: FR-1..FR-4
-# design.md: Low-Level Design § Components
-
 set -euo pipefail
-
-# ---------------------------------------------------------------------------
-# Arg parsing
-# ---------------------------------------------------------------------------
 
 if [[ $# -lt 2 ]]; then
     echo "Usage: $0 <slug> <schema> [flag=value ...]" >&2
     exit 1
 fi
 
-SLUG="$1"
-SCHEMA="$2"
-shift 2
-# Remaining positional args are flag overrides: key=value pairs
-# (passed to OVERRIDE_ARGS_JSON builder below via "$@")
-
-# ---------------------------------------------------------------------------
-# Environment resolution
-# ---------------------------------------------------------------------------
+SLUG="$1"; SCHEMA="$2"; shift 2
 
 REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo "")}"
-if [[ -z "$REPO_ROOT" ]]; then
-    echo "error: REPO_ROOT is not set and git rev-parse failed — cannot locate repo root" >&2
-    exit 1
-fi
+[[ -n "$REPO_ROOT" ]] || { echo "error: cannot locate repo root" >&2; exit 1; }
 
 WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}"
 ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
+WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-$HOME/code/feature_worktrees}"
+
+PROJECT_YAML="$REPO_ROOT/spec/project.yaml"
+[[ -f "$PROJECT_YAML" ]] || { echo "error: spec/project.yaml not found at $PROJECT_YAML" >&2; exit 1; }
+
+SCHEMA_YAML="$ORCHESTRATOR_HOME/config/workflows/$SCHEMA.yaml"
+REPO_SCHEMA_OVERRIDE="$REPO_ROOT/.orchestrator/workflows/$SCHEMA.yaml"
+[[ -f "$REPO_SCHEMA_OVERRIDE" ]] && SCHEMA_YAML="$REPO_SCHEMA_OVERRIDE"
+[[ -f "$SCHEMA_YAML" ]] || { echo "error: schema '$SCHEMA' not found. Searched: $SCHEMA_YAML" >&2; exit 1; }
+
+FLAGS_YAML="$ORCHESTRATOR_HOME/config/flags.yaml"
+[[ -f "$FLAGS_YAML" ]] || { echo "error: flags.yaml not found at $FLAGS_YAML" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
-# Idempotency: skip if state.yaml already exists (FR-3)
+# Single Python pass: parse overrides, resolve worktree flag, emit state.yaml
+# Outputs two lines to stdout: "worktree=<true|false>" then "state_yaml=<path>"
+# The state_yaml path is provisional (worktree_path patched in after git ops).
 # ---------------------------------------------------------------------------
 
-STATE_DIR="$WORKFLOW_STATE_DIR/$SLUG"
+INIT_JSON=$(python3 - \
+    "$SLUG" "$SCHEMA" "$REPO_ROOT" \
+    "$SCHEMA_YAML" "$FLAGS_YAML" \
+    "$WORKFLOW_STATE_DIR" \
+    "$WORKTREE_BASE_DIR" \
+    "$@" \
+    <<'PYEOF'
+import sys, json
+from datetime import datetime, timezone
+from pathlib import Path
+import yaml
+
+slug, schema_name, repo_root = sys.argv[1], sys.argv[2], sys.argv[3]
+schema_yaml_path, flags_yaml_path = sys.argv[4], sys.argv[5]
+workflow_state_dir, worktree_base_dir = sys.argv[6], sys.argv[7]
+raw_overrides = sys.argv[8:]
+
+# Parse key=value overrides
+overrides: dict = {}
+for arg in raw_overrides:
+    if "=" not in arg:
+        print(f"error: flag override '{arg}' must be in key=value format", file=sys.stderr)
+        sys.exit(1)
+    k, v = arg.split("=", 1)
+    overrides[k] = True if v.lower() == "true" else (False if v.lower() == "false" else v)
+
+schema = yaml.safe_load(Path(schema_yaml_path).read_text())
+flags_def = yaml.safe_load(Path(flags_yaml_path).read_text()) or {}
+
+# Merge flags: gate defaults + behavioral defaults + CLI overrides
+flags: dict = {}
+for section in ("gates", "behavioral"):
+    for fname, fdata in (flags_def.get(section) or {}).items():
+        flags[fname] = fdata.get("default", False)
+
+known = set(flags.keys())
+for k, v in overrides.items():
+    if k not in known:
+        print(f"error: unknown flag override '{k}' — not listed in flags.yaml", file=sys.stderr)
+        sys.exit(1)
+    flags[k] = v
+
+# Build workflow_plan via gate-flag filter
+gates = flags_def.get("gates") or {}
+active, filtered = [], []
+for step_entry in schema.get("steps", []):
+    step_id = step_entry.get("id", "") if isinstance(step_entry, dict) else str(step_entry)
+    blocking = [f for f, fd in gates.items() if step_id in (fd.get("steps") or [])]
+    if all(flags.get(f, False) for f in blocking):
+        active.append(step_id)
+    else:
+        reason = next(f for f in blocking if not flags.get(f, False))
+        filtered.append({"id": step_id, "reason": f"flag {reason}=false"})
+
+if not active:
+    print("error: no active steps after gate-flag filtering", file=sys.stderr)
+    sys.exit(1)
+
+# Emit JSON consumed by bash for worktree setup + deferred state write
+print(json.dumps({
+    "worktree": bool(flags.get("worktree", False)),
+    "slug": slug,
+    "schema_name": schema_name,
+    "repo_root": repo_root,
+    "workflow_state_dir": workflow_state_dir,
+    "worktree_base_dir": worktree_base_dir,
+    "flags": flags,
+    "active": active,
+    "filtered": filtered,
+}))
+PYEOF
+) || exit 1
+
+USE_WORKTREE=$(python3 -c "import json,sys; print(json.loads(sys.stdin.read())['worktree'])" <<< "$INIT_JSON")
+
+# ---------------------------------------------------------------------------
+# Worktree creation (before any file writes so STATE_DIR resolves correctly)
+# ---------------------------------------------------------------------------
+
+BRANCH="orc/$SLUG"
+WORKTREE_PATH=""
+
+if [[ "$USE_WORKTREE" == "True" ]]; then
+    WORKTREE_PATH="$WORKTREE_BASE_DIR/$SLUG"
+    mkdir -p "$WORKTREE_BASE_DIR"
+
+    if git -C "$REPO_ROOT" worktree list --porcelain | grep -q "worktree $WORKTREE_PATH"; then
+        echo "worktree already exists at $WORKTREE_PATH" >&2
+    else
+        git -C "$REPO_ROOT" worktree add -b "$BRANCH" "$WORKTREE_PATH" HEAD 2>&1 >&2 || {
+            git -C "$REPO_ROOT" worktree add "$WORKTREE_PATH" "$BRANCH" 2>&1 >&2 || {
+                echo "error: git worktree add failed" >&2; exit 1
+            }
+        }
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Resolve STATE_DIR and write state.yaml
+# ---------------------------------------------------------------------------
+
+if [[ -n "$WORKTREE_PATH" ]]; then
+    STATE_DIR="$WORKTREE_PATH/spec/changes/$SLUG"
+else
+    STATE_DIR="$WORKFLOW_STATE_DIR/$SLUG"
+fi
 STATE_YAML="$STATE_DIR/state.yaml"
 
 if [[ -f "$STATE_YAML" ]]; then
@@ -61,222 +164,55 @@ if [[ -f "$STATE_YAML" ]]; then
     exit 0
 fi
 
-# ---------------------------------------------------------------------------
-# Pre-condition: spec/project.yaml must exist (FR-4)
-# ---------------------------------------------------------------------------
-
-PROJECT_YAML="$REPO_ROOT/spec/project.yaml"
-if [[ ! -f "$PROJECT_YAML" ]]; then
-    echo "error: spec/project.yaml not found at $PROJECT_YAML — cannot seed state" >&2
-    exit 1
-fi
-
-# ---------------------------------------------------------------------------
-# Pre-condition: schema YAML must resolve (FR-4)
-# ---------------------------------------------------------------------------
-
-SCHEMA_YAML="$ORCHESTRATOR_HOME/config/workflows/$SCHEMA.yaml"
-# Repo override takes precedence
-REPO_SCHEMA_OVERRIDE="$REPO_ROOT/.orchestrator/workflows/$SCHEMA.yaml"
-if [[ -f "$REPO_SCHEMA_OVERRIDE" ]]; then
-    SCHEMA_YAML="$REPO_SCHEMA_OVERRIDE"
-fi
-
-if [[ ! -f "$SCHEMA_YAML" ]]; then
-    echo "error: schema '$SCHEMA' not found. Searched: $SCHEMA_YAML" >&2
-    exit 1
-fi
-
-FLAGS_YAML="$ORCHESTRATOR_HOME/config/flags.yaml"
-if [[ ! -f "$FLAGS_YAML" ]]; then
-    echo "error: flags.yaml not found at $FLAGS_YAML" >&2
-    exit 1
-fi
-
-# ---------------------------------------------------------------------------
-# Delegate state.yaml construction to Python (YAML r/w — can't do in pure bash)
-# ---------------------------------------------------------------------------
-
 mkdir -p "$STATE_DIR"
 
-# Build flag overrides JSON string from "key=value" args
-# e.g. ["auto=true", "tdd_required=false"] → {"auto": true, "tdd_required": false}
-OVERRIDE_ARGS_JSON=$(python3 - "$@" <<'PYEOF'
-import sys
-import json
-
-overrides = {}
-for arg in sys.argv[1:]:
-    if "=" not in arg:
-        print(f"error: flag override '{arg}' must be in key=value format", file=sys.stderr)
-        sys.exit(1)
-    k, v = arg.split("=", 1)
-    if v.lower() == "true":
-        overrides[k] = True
-    elif v.lower() == "false":
-        overrides[k] = False
-    else:
-        overrides[k] = v
-print(json.dumps(overrides))
-PYEOF
-) || exit 1
-
-python3 - \
-    "$SLUG" \
-    "$SCHEMA" \
-    "$STATE_YAML" \
-    "$REPO_ROOT" \
-    "$SCHEMA_YAML" \
-    "$FLAGS_YAML" \
-    "$OVERRIDE_ARGS_JSON" \
-    <<'PYEOF'
-"""
-Inline Python: reads schema + flags, computes workflow_plan, writes state.yaml.
-Called from seed-state.sh; arguments are positional (no argparse).
-"""
-import sys
-import json
-import os
+python3 - "$STATE_YAML" "$WORKTREE_PATH" "$BRANCH" "$INIT_JSON" <<'PYEOF'
+import sys, json
 from datetime import datetime, timezone
 from pathlib import Path
-
 import yaml
 
-slug            = sys.argv[1]
-schema_name     = sys.argv[2]
-state_yaml_path = sys.argv[3]
-repo_root       = sys.argv[4]
-schema_yaml_path = sys.argv[5]
-flags_yaml_path = sys.argv[6]
-override_json   = sys.argv[7]
+state_yaml_path, worktree_path, branch = sys.argv[1], sys.argv[2] or None, sys.argv[3] or None
+d = json.loads(sys.argv[4])
 
-flag_overrides = json.loads(override_json)
-
-# Load schema
-with open(schema_yaml_path, "r") as f:
-    schema = yaml.safe_load(f)
-
-# Load flags.yaml
-with open(flags_yaml_path, "r") as f:
-    flags_def = yaml.safe_load(f)
-
-# Merge flags: gates defaults + behavioral defaults + CLI overrides
-flags: dict = {}
-for fname, fdata in (flags_def.get("gates") or {}).items():
-    flags[fname] = fdata.get("default", False)
-for fname, fdata in (flags_def.get("behavioral") or {}).items():
-    flags[fname] = fdata.get("default", False)
-
-# Apply overrides
-for k, v in flag_overrides.items():
-    # Validate override keys exist in flags.yaml (fail-loud per design.md)
-    known = set((flags_def.get("gates") or {}).keys()) | set((flags_def.get("behavioral") or {}).keys())
-    if k not in known:
-        print(f"error: unknown flag override '{k}' — not listed in flags.yaml", file=sys.stderr)
-        sys.exit(1)
-    flags[k] = v
-
-# Compute workflow_plan from schema steps + gate-flag filter (mirrors workflow-init rule)
-# bugfix.yaml and similar flat schemas have a top-level `steps:` list → synthesize `main` phase.
-gates = flags_def.get("gates") or {}
-
-raw_steps = schema.get("steps", [])
-# Flatten: steps may be strings or dicts with {id, ...}
-active = []
-filtered = []
-
-for step_entry in raw_steps:
-    if isinstance(step_entry, dict):
-        step_id = step_entry.get("id", "")
-    else:
-        step_id = str(step_entry)
-
-    # Check every gate flag that references this step
-    blocking_flags = [
-        fname
-        for fname, fdata in gates.items()
-        if step_id in (fdata.get("steps") or [])
-    ]
-    step_active = all(flags.get(f, False) for f in blocking_flags)
-
-    if step_active:
-        active.append(step_id)
-    else:
-        reason_flag = next(f for f in blocking_flags if not flags.get(f, False))
-        filtered.append({"id": step_id, "reason": f"flag {reason_flag}=false"})
-
-workflow_plan = {
-    "main": {
-        "active": active,
-        "filtered": filtered,
-    }
-}
-
-# First active step determines next_step
-if not active:
-    print("error: no active steps found after gate-flag filtering — cannot seed state", file=sys.stderr)
-    sys.exit(1)
-
-first_step = active[0]
-
-# Write state.yaml (FR-1 canonical minimum field set)
+now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 state = {
-    "change_id": slug,
-    "slug": slug,
-    "schema": schema_name,
-    "status": "active",
-    "repo_root": repo_root,
-    "flags": flags,
-    "workflow_plan": workflow_plan,
-    "phase": "main",
-    "next_step": {
-        "phase": "main",
-        "step_id": first_step,
-    },
-    "step_history": [],
+    "change_id": d["slug"], "slug": d["slug"], "schema": d["schema_name"],
+    "status": "active", "repo_root": d["repo_root"], "flags": d["flags"],
+    "workflow_plan": {"main": {"active": d["active"], "filtered": d["filtered"]}},
+    "phase": "main", "next_step": {"phase": "main", "step_id": d["active"][0]},
+    "step_history": [], "created_at": now, "started_at": now,
+    "project_context_loaded": True,
 }
-now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-state["created_at"] = now_iso
-state["started_at"] = now_iso
+if worktree_path:
+    state["worktree_path"] = worktree_path
+if branch:
+    state["branch"] = branch
 
-with open(state_yaml_path, "w") as f:
-    yaml.safe_dump(state, f, sort_keys=False, allow_unicode=True)
-
+Path(state_yaml_path).write_text(yaml.safe_dump(state, sort_keys=False, allow_unicode=True))
 print(f"seeded: {state_yaml_path}", file=sys.stderr)
 PYEOF
 
-PYTHON_EXIT=$?
-if [[ $PYTHON_EXIT -ne 0 ]]; then
-    # Clean up partial state.yaml so idempotency guard doesn't block future runs
-    rm -f "$STATE_YAML"
-    exit 1
-fi
+[[ $? -eq 0 ]] || { rm -f "$STATE_YAML"; exit 1; }
 
 # ---------------------------------------------------------------------------
-# Generate plan.yaml (FR-2)
+# Generate plan.yaml — lands next to state.yaml in STATE_DIR
 # ---------------------------------------------------------------------------
 
-# Find the python executable with orchestrator_next importable
-# The CLI bin/orchestrator uses python3 from PATH; we do the same.
-# The module is in config/scripts/ relative to REPO_ROOT.
-SCRIPTS_DIR="$REPO_ROOT/config/scripts"
-
-PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$SCRIPTS_DIR" \
+PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$REPO_ROOT/config/scripts" \
     python3 -m orchestrator_next.generate_plan "$STATE_YAML"
 GENPLAN_EXIT=$?
 
 if [[ $GENPLAN_EXIT -ne 0 ]]; then
     echo "error: generate_plan failed (exit $GENPLAN_EXIT) — removing partial state.yaml" >&2
-    rm -f "$STATE_YAML"
-    exit 2
+    rm -f "$STATE_YAML"; exit 2
 fi
 
 PLAN_YAML="${STATE_YAML%state.yaml}plan.yaml"
 if [[ ! -f "$PLAN_YAML" ]]; then
-    echo "error: generate_plan exited 0 but plan.yaml was not created at $PLAN_YAML" >&2
-    rm -f "$STATE_YAML"
-    exit 2
+    echo "error: generate_plan exited 0 but plan.yaml not created at $PLAN_YAML" >&2
+    rm -f "$STATE_YAML"; exit 2
 fi
 
 echo "seeded: $PLAN_YAML" >&2
-echo "seed-state: $SLUG ($SCHEMA) ready at $STATE_DIR" >&2
+echo "init-workflow: $SLUG ($SCHEMA) ready at $STATE_DIR" >&2
