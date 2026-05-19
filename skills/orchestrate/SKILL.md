@@ -65,19 +65,20 @@ After the step emits `{schema, reason, confidence, considered}`:
 
 If the select-workflow step emitted `confidence: resume`, it has already pointed at an active state.yaml. Read its `next_step` (phase + step_id), read its persisted `flags`, and enter the dispatch loop at that point. Tell the user: "Resuming <change_id> at <phase>/<step_id>."
 
-Otherwise this is a new workflow — proceed to sub-step 2.1 to seed state before entering the dispatch loop.
+Otherwise this is a new workflow — proceed to sub-step 2.1 to initialize state before entering the dispatch loop. This applies equally to full workflow runs and phase-constrained wrapper calls such as `/specify` (`--phase specify`); artifact-producing steps must never run before init has created the worktree/artifact directory.
 
-#### 2.1 Seed state for new workflows
+#### 2.1 Initialize new workflows
 
-Run `skills/orchestrate/scripts/seed-state.sh <slug> <schema> [flag=value ...]` where:
+Call the init script:
+
+```
+bash skills/orchestrate/scripts/seed-state.sh <slug> <schema> [flag=value ...]
+```
+
+Arguments:
 - `<slug>` is the change_id / feature slug for this workflow (derived from the request or Linear ticket).
 - `<schema>` is the schema name emitted by the select-workflow step (e.g. `bugfix`, `feature`, `spike`).
 - `[flag=value ...]` are any resolved CLI flag overrides (e.g. `auto=true agents=true tdd_required=false`).
-
-Example:
-```
-bash skills/orchestrate/scripts/seed-state.sh my-feature-slug feature auto=true agents=true
-```
 
 After the script exits 0, assert that both files exist before proceeding:
 - `$WORKFLOW_STATE_DIR/<slug>/state.yaml`
@@ -85,22 +86,9 @@ After the script exits 0, assert that both files exist before proceeding:
 
 If either file is absent, the seeder printed an error to stderr — surface it to the user and halt. Do NOT proceed to the dispatch loop with a missing state.yaml (that is the exact bug this step was added to prevent).
 
-The seeder is idempotent: re-running it when state.yaml already exists exits 0 without overwriting. This makes the seed step safe to repeat on re-entry.
+The script is the executable init contract. Do not duplicate its workflow-plan, worktree, artifact-dir, or state-stamping logic in this prompt or in wrapper skills. It is idempotent: re-running it when state.yaml already exists exits 0 without overwriting.
 
-### 3. Build filtered step list
-
-The `workflow-init` agent does this work — it reads the workflow's `steps:`, the resolved flags, and `flags.yaml.gates`, then writes `workflow_plan` into state.yaml. The driver does not pre-compute it inline.
-
-Filtering rule for any reader auditing the resolution:
-- Walk `steps:` in declared order.
-- For each step, find every gate flag in `flags.yaml.gates` whose `steps:` list includes this step ID. The step is active iff every such flag resolves truthy. Otherwise it is filtered with `reason: "flag <name>=false"`.
-- Steps not referenced by any gate are unconditionally active.
-- Preserve ordering.
-
-Legacy multi-phase schemas (spike): if a phase has `include: _<name>`, read the fragment from `$ORCHESTRATOR_HOME/config/workflows/_<name>.yaml` and inline its `steps:`. Flat schemas (feature, bugfix, bootstrap, autopilot) skip this — `generate_plan` synthesizes a single `main` phase.
-
-
-### 4. Dispatch loop — HL-287 M5: use the `orchestrator` CLI
+### 3. Dispatch loop — HL-287 M5: use the `orchestrator` CLI
 
 The dispatch loop is now a thin wrapper around `orchestrator next` and
 `orchestrator done`. Pre/post stamping (started_at / completed_at /
@@ -235,7 +223,7 @@ next` on the following call exits 2 (blocked), which the loop surfaces.
 The architect escalation contract (steps/contracts/architect-escalation.md)
 defines how to spawn the architect and re-dispatch.
 
-### 5. Phase transitions
+### 4. Phase transitions
 
 Flat schemas (feature, bugfix, bootstrap, autopilot) have a single `main` phase — no advancement needed; `complete_workflow` fires when the last step completes.
 

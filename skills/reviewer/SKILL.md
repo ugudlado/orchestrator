@@ -19,98 +19,64 @@ AGENT_HANDLE=${1:-@reviewer}
 
 ## Execution
 
-This skill is glue; the reviewer agent does the actual review. Backlog status
-is the only routing signal — never infer role from anything else.
+This skill is glue; the reviewer agent does the actual review. Keep ticket
+operations in `/backlog-manager`, workflow context in the orchestrator
+artifacts, and review standards in `agents/reviewer.md`.
 
-### 1. Claim the next Code Review ticket via `/backlog-manager`
+### 1. Claim work via `/backlog-manager`
 
-The reviewer skill does not know or care which ticketing backend the repo
-uses — that's `/backlog-manager`'s job (it detects the backend from
-`ticketing:` in `spec/project.yaml` and runs the right commands). Load
-`/backlog-manager` and ask it to atomically claim the next **Code Review**
-ticket for `$AGENT_HANDLE`.
+Load `/backlog-manager` and atomically claim the next `Code Review` ticket
+for `$AGENT_HANDLE`.
 
-The claim must be atomic (claim + assign in one step — no TOCTOU window);
-`/backlog-manager` maps that to the backend's mechanism. If the queue is
-empty, stop and report "review queue empty".
+If the queue is empty, stop and report `review queue empty`. Capture
+`TICKET_ID`.
 
-Capture the claimed `TICKET_ID` (e.g. `ORC-44`).
+### 2. Resolve workflow state
 
-### 2. Resolve the ticket's change directory (strict premise)
+Spec/worktree/init are assumed pre-done. Do not auto-init.
 
-Spec/worktree/init are assumed pre-done. Do NOT auto-init.
+Find the matching `$WORKFLOW_STATE_DIR/*/state.yaml` (skip `archive/` and
+`backlog/`) by `change_id`, `ticket_id`, or lowercased ticket slug.
 
-Scan `$WORKFLOW_STATE_DIR/*/state.yaml` (skip `archive/`, `backlog/`) for the
-state whose `change_id` equals the ticket slug OR whose linear/ticket field
-matches `TICKET_ID` (case-insensitive). `ticket_id` may be `null` —
-fall back to matching `change_id` against the lowercased `TICKET_ID`.
+- No match: append a ticket note that the workflow is not initialized, leave
+  the ticket in `Code Review`, and stop.
+- Match: record `SLUG`, `STATE_FILE`, `ARTIFACT_DIR`, and working directory.
+  Artifacts live at `$WORKTREE_BASE_DIR/$SLUG` when `flags.worktree: true`,
+  otherwise `$REPO_ROOT/spec/changes/$SLUG`.
 
-- **No match** → this ticket is not workflow-initialized. Ask
-  `/backlog-manager` to release the claim (unassign, leave status Code
-  Review), report:
-  `Ticket TICKET_ID has no spec/changes/<slug>/state.yaml — not initialized; left in Code Review.`
-  Stop. (Per strict premise: ideator/architect/human own To Do init.)
-- **Match** → record `SLUG`, `STATE_FILE`, and read `flags.worktree`,
-  `repo_root` from it. Set `ARTIFACT_DIR`: when `flags.worktree: true` →
-  `$WORKTREE_BASE_DIR/$SLUG`, else `$REPO_ROOT/spec/changes/$SLUG`. This is
-  where `design.md` / `tasks.md` live (CLAUDE.md § Paths —
-  artifacts follow the worktree, state does not).
+### 3. Run review
 
-### 3. Enter the ticket's worktree or branch
+Run `resolvr init "$PWD"` from the resolved working directory, then spawn the
+`reviewer` agent with:
 
-- `flags.worktree: true` → `cd "$WORKTREE_BASE_DIR/$SLUG"` (the established
-  worktree convention; `WORKTREE_BASE_DIR` defaults to
-  `~/code/feature_worktrees`).
-- else → `cd "$REPO_ROOT"` and `git checkout` the change's branch.
+- full ticket body
+- `STATE_FILE`, `ARTIFACT_DIR`, and working directory
+- `design.md` and `tasks.md` paths when present
+- `.review/AGENTS.md` and the review session path
 
-All subsequent steps run from the resolved working directory.
+The reviewer must not edit production code.
 
-### 4. Scaffold the resolvr review session
+### 4. Record blocking findings
 
-```
-resolvr init "$PWD"
-```
+For every approval-blocking issue, the reviewer must append an unchecked
+`tasks.md` item with:
 
-Idempotent — creates `.review/sessions/<branch>-code.json` +
-`.review/AGENTS.md` + `.review/CLAUDE.md` if absent, else reuses. This is the
-protocol surface the reviewer agent reads/writes.
+- exact code references
+- what is wrong
+- why it matters
+- what should be improved
+- how the developer verifies the fix
 
-### 5. Spawn the reviewer agent
+Line-anchored findings should also be recorded in resolvr. Non-blocking
+suggestions stay in the review report and do not become `tasks.md` items.
 
-Spawn the `reviewer` agent (model inherits from this session — no model
-override). Pass it:
+### 5. Transition the ticket
 
-- The full ticket body (fetch it via `/backlog-manager` for the detected
-  backend — e.g. plain-text issue/task contents)
-- `SLUG`, `STATE_FILE`, `ARTIFACT_DIR`, the resolved working directory
-- The design to review against: `$ARTIFACT_DIR/design.md` (read it first —
-  it carries both the design and the Acceptance Criteria; the product-level
-  what/why is on the ticket). If `design.md` is absent, review against the
-  ticket text and note the missing design in the verdict — do not block.
-- This instruction:
+Drive the transition through `/backlog-manager`:
 
-  > Review this change against `$ARTIFACT_DIR/design.md` and the
-  > per-task rubric (Mode 1).
-  > Read `.review/AGENTS.md` for the session protocol. Record findings ONLY
-  > through these two channels — do not edit production code:
-  > 1. **Line-anchored findings** → create resolvr threads in the session
-  >    JSON per `.review/AGENTS.md` (severity, anchor, agent message).
-  > 2. **Structural rework** → append unchecked tasks to `tasks.md` and add
-  >    Implementation Plan subtasks to the ticket via `/backlog-manager`.
-  > End with a verdict line: `VERDICT: APPROVED` or `VERDICT: CHANGES_REQUESTED`.
+- `VERDICT: APPROVED` -> move to `QA Review`
+- `VERDICT: CHANGES_REQUESTED` -> move to `In Progress`
 
-### 6. Drive the backlog transition
-
-Drive the transition through `/backlog-manager` (it maps the status move to
-the detected backend):
-
-- **`VERDICT: APPROVED`** → transition the ticket to **QA Review**.
-  Approval does not mean Done — a separate QA pass (future skill or human)
-  moves `QA Review → Done`.
-- **`VERDICT: CHANGES_REQUESTED`** → transition the ticket back to **In
-  Progress**. Same worktree/branch/state.yaml. No follow-up ticket — the
-  resolvr threads and unchecked `tasks.md` items ARE the rework.
-  `/developer` re-picks this same ticket and treats them like any other
-  unchecked work.
+Do not move review-owned tickets to `Done`.
 
 Report the ticket ID, verdict, and transition taken.

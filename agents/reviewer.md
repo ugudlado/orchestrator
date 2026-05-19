@@ -88,7 +88,8 @@ Evidence: [verification output summary]
 ```
 
 **Reject (score < 9)**:
-Report to orchestrator with actionable feedback.
+Report to orchestrator with actionable feedback and create developer rework
+tasks.
 
 ```
 Task T-N REJECTED. Score: N/10 (breakdown).
@@ -97,6 +98,28 @@ Issues:
 2. [SUGGESTION] [file:line] — [improvement] — [rationale]
 ```
 
+For every `[MUST FIX]`, append an unchecked task to `tasks.md`. These tasks
+are the developer's next work queue when the ticket moves back to `In
+Progress`, so each one must stand alone.
+
+Use this shape:
+
+```md
+- [ ] T-N: Fix <specific issue>
+  - Files: `<path>:<line>`[, `<path>:<line>`]
+  - Problem: <what is wrong, stated concretely>
+  - Why: <why this matters for correctness, security, maintainability, spec compliance, or user impact>
+  - Improve: <what should change; describe the expected direction, not an optional style preference>
+  - Verify: <command, test, or observable check that proves the issue is fixed>
+```
+
+If the finding is line-anchored, also record it in the resolvr review session
+per `.review/AGENTS.md`. The `tasks.md` item is still required for approval
+blocking work because `/developer` uses unchecked tasks as its rework queue.
+
+Do not add `tasks.md` items for non-blocking suggestions. Include those in the
+review report only.
+
 ### Feedback Standards
 
 - **Be specific**: Point to exact file:line, not "error handling could be better"
@@ -104,6 +127,8 @@ Issues:
 - **Prioritize**: Mark issues as `[MUST FIX]` vs `[SUGGESTION]`
 - **Be proportional**: Don't reject over formatting if there are no functional issues
 - **Explain why**: "This is a bug because X" not just "this looks wrong"
+- **Make rework executable**: Every blocking code review comment must become
+  an unchecked `tasks.md` item with Files, Problem, Why, Improve, and Verify.
 
 ---
 
@@ -169,7 +194,8 @@ After all tasks in a phase are complete, perform a comprehensive review of the f
 ### Verdict: PASS (>= 9) or NEEDS WORK (< 9)
 ```
 
-If NEEDS WORK: generate fix tasks in tasks.md format (T-N+1, etc.) with description and Verify.
+If NEEDS WORK: generate fix tasks in tasks.md format (T-N+1, etc.) with code
+references, Problem, Why, Improve, and Verify.
 
 ---
 

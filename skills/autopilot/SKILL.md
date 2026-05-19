@@ -60,7 +60,7 @@ Skill({ skill: "orchestrate", args: "$SLUG --autopilot" })
 
 - No iteration loop. One run, one feature.
 - No session files, checkpoints, or rollups.
-- Does not duplicate orchestrate logic — orchestrate handles preflight, workflow-init, dispatch, and complete.
+- Does not duplicate orchestrate logic — orchestrate handles preflight, pre-dispatch init, dispatch, and complete.
 - Does not pick the ticket itself — defers to ideator (or accepts an explicit slug).
 
 ## Failure modes

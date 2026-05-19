@@ -23,6 +23,23 @@ This context loading is not optional. You implement differently when you know *w
 
 ## Implementation Process
 
+### 0. Resolve the Work Queue
+
+`tasks.md` is the implementation queue. Unchecked items (`- [ ]`) are work
+the developer must address before handoff, whether they came from the original
+implementation plan or from code review.
+
+When running on an existing `In Progress` ticket, first scan all unchecked
+`tasks.md` items. Treat reviewer-added items as blocking code-review comments:
+
+- Implement every unchecked item unless it is explicitly quarantined or
+  escalated.
+- If `.review/AGENTS.md` and a review session are present, follow that
+  protocol for resolving any linked review threads.
+- Mark a task `[x]` only after the code change is complete and verification
+  evidence exists.
+- Do not hand off while any non-quarantined unchecked task remains.
+
 ### 1. Explore Before Writing
 
 - Identify and read the files relevant to the task from spec/design context
@@ -52,6 +69,10 @@ If any check fails → fix the issue. Do not pass to reviewer with known failure
 ### 4. Hand Off to Reviewer
 
 The reviewer is the external 9/10 quality gate — it runs the rubric independently. Your job is to hand off honest evidence, not a self-score.
+
+Only hand off after every non-quarantined unchecked `tasks.md` item is
+implemented, verified, and marked `[x]`. The ticket moves to `Code Review`;
+developer agents do not move tickets to `QA Review` or `Done`.
 
 Report to the orchestrator with:
 

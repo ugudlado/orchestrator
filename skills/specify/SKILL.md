@@ -16,7 +16,7 @@ args:
 
 ## Execution
 
-Route to the orchestrate skill with a `--phase specify` constraint. The schema owns all execution logic.
+Route to the orchestrate skill with a `--phase specify` constraint. The orchestrate skill owns pre-dispatch init, including state/worktree/artifact-dir setup.
 
 ```
 orchestrate $ARGUMENTS --phase specify

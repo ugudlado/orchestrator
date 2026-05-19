@@ -1,6 +1,6 @@
 ---
 name: developer
-description: "Claim and implement the next ready ticket. This skill should be used when the user says 'develop', 'develop next', 'work next ticket', 'implement next', or wants to process the development queue. Backlog status is the sole router — it claims In Progress tickets first (kicked-back rework), then falls back to Ready tickets (fresh work), promoting them to In Progress on claim."
+description: "Claim and implement the next development ticket. This skill should be used when the user says 'develop', 'develop next', 'work next ticket', 'implement next', or wants to process the development queue. Backlog status is the router: claim In Progress rework first, then Ready work; completed implementation moves to Code Review."
 user-invocable: true
 args:
   - name: agent-handle
@@ -19,97 +19,68 @@ AGENT_HANDLE=${1:-@developer}
 
 ## Execution
 
-This skill is glue; the developer agent writes the code. Backlog status is
-the only routing signal. A kicked-back ticket is just an In Progress ticket
-with extra unchecked `tasks.md` items and open resolvr threads — there is no
-special rework path; it just sorts ahead of fresh Ready work.
+This skill is glue; the developer agent writes the code. Keep ticket
+operations in `/backlog-manager`, workflow progression in the orchestrator,
+and implementation work in `agents/developer.md`.
 
-### 1. Claim the next ticket via `/backlog-manager`
+### 1. Claim work via `/backlog-manager`
 
-The developer skill does not know or care which ticketing backend the repo
-uses — that's `/backlog-manager`'s job (it detects the backend from
-`ticketing:` in `spec/project.yaml` and runs the right commands). Load
-`/backlog-manager` and ask it to atomically claim the next ticket for
-`$AGENT_HANDLE`, applying this policy:
+Load `/backlog-manager` and atomically claim the next ticket for
+`$AGENT_HANDLE`:
 
-1. **In Progress first** — kicked-back rework that's already mid-flight.
-2. **Then Ready** — fresh work; the claim must leave the ticket In Progress
-   so the rest of the workflow and the next `/developer` run see consistent
-   state.
+1. Claim `In Progress` first. These are active implementation tickets,
+   including code-review rework.
+2. If none exist, claim `Ready`.
+3. Fresh `Ready` claims must be moved to `In Progress` before coding.
 
-The claim must be atomic (claim + assign in one step — no TOCTOU window);
-`/backlog-manager` maps that to the backend's mechanism. If both queues are
-empty, stop and report "development queue empty". Capture `TICKET_ID`.
+If both queues are empty, stop and report `development queue empty`. Capture
+`TICKET_ID`.
 
-### 2. Resolve the ticket's change directory (strict premise)
+### 2. Resolve workflow state
 
-Spec/worktree/init are assumed pre-done. Do NOT auto-init.
+Spec/worktree/init are assumed pre-done. Do not auto-init.
 
-Scan `$WORKFLOW_STATE_DIR/*/state.yaml` (skip `archive/`, `backlog/`) for the
-state whose `change_id` equals the ticket slug OR whose linear/ticket field
-matches `TICKET_ID` (case-insensitive). `ticket_id` may be `null` —
-fall back to matching `change_id` against the lowercased `TICKET_ID`.
+Find the matching `$WORKFLOW_STATE_DIR/*/state.yaml` (skip `archive/` and
+`backlog/`) by `change_id`, `ticket_id`, or lowercased ticket slug.
 
-- **No match** → not workflow-initialized. Ask `/backlog-manager` to release
-  the claim (unassign, leave status In Progress), report:
-  `Ticket TICKET_ID has no spec/changes/<slug>/state.yaml — not initialized; left in In Progress.`
-  Stop.
-- **Match** → record `SLUG`, `STATE_FILE`, read `flags.worktree`,
-  `repo_root`. Set `ARTIFACT_DIR`: when `flags.worktree: true` →
-  `$WORKTREE_BASE_DIR/$SLUG`, else `$REPO_ROOT/spec/changes/$SLUG`. This is
-  where `design.md` / `tasks.md` live (CLAUDE.md § Paths —
-  artifacts follow the worktree, state does not).
+- No match: append a ticket note that the workflow is not initialized, leave
+  the ticket in `In Progress`, and stop.
+- Match: record `SLUG`, `STATE_FILE`, `ARTIFACT_DIR`, and working directory.
+  Artifacts live at `$WORKTREE_BASE_DIR/$SLUG` when `flags.worktree: true`,
+  otherwise `$REPO_ROOT/spec/changes/$SLUG`.
 
-### 3. Enter the ticket's worktree or branch
+### 3. Run implementation
 
-- `flags.worktree: true` → `cd "$WORKTREE_BASE_DIR/$SLUG"` (defaults to
-  `~/code/feature_worktrees/<slug>`).
-- else → `cd "$REPO_ROOT"` and `git checkout` the change's branch.
+Spawn the `developer` agent with:
 
-### 4. Detect prior review feedback
+- full ticket body
+- `STATE_FILE`, `ARTIFACT_DIR`, and working directory
+- `discovery.md`, `spec.md`, `design.md`, and `tasks.md` paths when present
+- `.review/AGENTS.md` and the review session path when present
 
-If `.review/sessions/<branch>-code.json` exists with open threads, this
-ticket was kicked back. The developer agent must resolve those threads per
-`.review/AGENTS.md` (apply fix → set thread `status: resolved` → add agent
-message) AND clear the unchecked `tasks.md` items the reviewer added. If no
-session or no open threads, it's a fresh implementation pass.
+The developer agent must treat unchecked `tasks.md` items as the work queue.
+That includes reviewer-added code-review comments. There is no separate
+rework mode: code-review rework is complete only when the corresponding
+unchecked `tasks.md` items are implemented, verified, and checked.
 
-### 5. Spawn the developer agent
-
-Spawn the `developer` agent (model inherits from this session — no model
-override). Pass it:
-
-- The full ticket body (fetch it via `/backlog-manager` for the detected
-  backend — e.g. plain-text issue/task contents)
-- `SLUG`, `STATE_FILE`, `ARTIFACT_DIR`, the resolved working directory
-- The design to implement against: `$ARTIFACT_DIR/design.md` (read it
-  before coding — it carries both the design and the Acceptance Criteria;
-  the product-level what/why is on the ticket). If `design.md` is absent,
-  implement against the ticket text and flag the missing design in the
-  result — do not block.
-- If a resolvr session exists: its path + `.review/AGENTS.md`, with the
-  instruction to resolve every open thread via the documented protocol
-  before completing.
-- The standing instruction to drive its work through the orchestrator step
-  loop (see step 6 below) and self-verify with evidence to 9/10.
-
-### 6. Step loop
-
-The developer agent advances the workflow via the orchestrator CLI — never
-edit `state.yaml` directly (see CLAUDE.md § Repo Wiring):
+Advance only through the orchestrator loop:
 
 ```
-orchestrator next "$STATE_FILE"      # get next step
-# ... agent executes the step ...
-orchestrator done "$STATE_FILE"      # JSON payload on stdin
+orchestrator next "$STATE_FILE"
+# execute the returned step
+orchestrator done "$STATE_FILE"
 ```
 
-Repeat until `execute-next-task` reports all `tasks.md` items checked
-(`repeat_until: all_tasks_completed`).
+Repeat until `execute-next-task` reports `all_tasks_completed`.
 
-### 7. Hand back to review
+### 4. Hand off to Code Review
 
-When all tasks (including any reviewer-added rework items) are checked and
-self-verification passes, transition the ticket to Code Review via
-`/backlog-manager` (it maps the move to the detected backend). Report the
-ticket ID and that it is ready for `/reviewer`.
+Before handoff, verify:
+
+- no unchecked `tasks.md` items remain, except explicitly quarantined items
+- reviewer-added rework tasks are resolved
+- relevant tests/checks were run with evidence
+- orchestrator state was updated via `orchestrator done`
+
+Then transition the ticket to `Code Review` via `/backlog-manager`. Do not
+move developer-owned tickets to `QA Review` or `Done`.
