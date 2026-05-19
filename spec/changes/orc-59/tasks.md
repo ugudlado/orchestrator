@@ -49,7 +49,7 @@
       archive, or feature-doc file modified)
     - `git diff -- config/scripts/orchestrator_next/record.py` → empty
 
-- [ ] T-3 Review checkpoint (phase gate) (depends: T-2)
+- [x] T-3 Review checkpoint (phase gate) (depends: T-2)
   - **Verify**: From `config/scripts/orchestrator_next/`,
     `python -m pytest -q` exits 0 (full suite green);
     `grep -rn "linear_ticket_id" config/ skills/ --include='*.py'
