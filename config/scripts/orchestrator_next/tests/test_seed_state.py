@@ -71,6 +71,7 @@ def _run_seed(
     *,
     repo_root: Path,
     state_dir: Path,
+    flag_overrides: list[str] | None = None,
     extra_env: dict | None = None,
 ) -> subprocess.CompletedProcess:
     """Run seed-state.sh with the given slug/schema and isolated env vars.
@@ -91,7 +92,7 @@ def _run_seed(
     if extra_env:
         env.update(extra_env)
     return subprocess.run(
-        ["bash", str(_SEED_SCRIPT), slug, schema],
+        ["bash", str(_SEED_SCRIPT), slug, schema, *(flag_overrides or [])],
         capture_output=True,
         text=True,
         env=env,
@@ -126,7 +127,13 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
     state_dir = tmp_path / "state"
     _write_project_yaml(fake_repo)
 
-    result = _run_seed(slug, schema, repo_root=fake_repo, state_dir=state_dir)
+    result = _run_seed(
+        slug,
+        schema,
+        repo_root=fake_repo,
+        state_dir=state_dir,
+        flag_overrides=["worktree=false"],
+    )
     assert result.returncode == 0, (
         f"seed-state.sh exited {result.returncode}\n"
         f"stdout: {result.stdout}\n"
@@ -157,6 +164,8 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
     assert state_raw["started_at"] == state_raw["created_at"], (
         f"started_at ({state_raw.get('started_at')!r}) != created_at ({state_raw.get('created_at')!r})"
     )
+    assert state_raw.get("project_context_loaded") is True
+    assert "worktree_path" not in state_raw
 
     # Verify orchestrator next accepts the seeded pair (AC-6: not exit 3)
     orchestrator_bin = _REPO_ROOT / "bin" / "orchestrator"
@@ -191,8 +200,8 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
         f"Expected agent or run key in response (ORC-45 two-path), got: {list(action.keys())!r}\n"
         f"Full action: {action}"
     )
-    assert action.get("step_id") == "workflow-init", (
-        f"Expected first step to be workflow-init, got: {action.get('step_id')!r}"
+    assert action.get("step_id") == "diagnose", (
+        f"Expected first dispatch step to be diagnose, got: {action.get('step_id')!r}"
     )
 
 
@@ -218,7 +227,13 @@ def test_seed_state_is_idempotent(tmp_path):
     _write_project_yaml(fake_repo)
 
     # First run — creates state.yaml
-    r1 = _run_seed(slug, schema, repo_root=fake_repo, state_dir=state_dir)
+    r1 = _run_seed(
+        slug,
+        schema,
+        repo_root=fake_repo,
+        state_dir=state_dir,
+        flag_overrides=["worktree=false"],
+    )
     assert r1.returncode == 0, f"First seed failed: {r1.stderr}"
 
     state_yaml_path = state_dir / slug / "state.yaml"
@@ -227,7 +242,13 @@ def test_seed_state_is_idempotent(tmp_path):
     mtime_before = state_yaml_path.stat().st_mtime
 
     # Second run — must not overwrite
-    r2 = _run_seed(slug, schema, repo_root=fake_repo, state_dir=state_dir)
+    r2 = _run_seed(
+        slug,
+        schema,
+        repo_root=fake_repo,
+        state_dir=state_dir,
+        flag_overrides=["worktree=false"],
+    )
     assert r2.returncode == 0, f"Second (idempotent) seed failed: {r2.stderr}"
 
     content_after = state_yaml_path.read_text()
@@ -268,7 +289,13 @@ def test_seed_state_fails_without_project_yaml(tmp_path):
     fake_repo.mkdir(parents=True)
     # Deliberately do NOT write spec/project.yaml
 
-    result = _run_seed(slug, schema, repo_root=fake_repo, state_dir=state_dir)
+    result = _run_seed(
+        slug,
+        schema,
+        repo_root=fake_repo,
+        state_dir=state_dir,
+        flag_overrides=["worktree=false"],
+    )
 
     assert result.returncode != 0, (
         "seed-state.sh should have exited non-zero when spec/project.yaml is missing, "

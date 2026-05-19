@@ -23,10 +23,9 @@ def _read(rel_path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# FR-1 removed: agents/workflow-init.md was deleted. The workflow-init step
-# now runs scripts/inline/workflow-init.sh (no agent spawn), so there is no
-# agent prose to assert on. The workflow_plan `active:` shape is enforced by
-# generate_plan and its own tests.
+# FR-1 removed: workflow init is pre-dispatch script execution, so there is no
+# workflow-init agent or dispatched step contract to validate here. The
+# workflow_plan `active:` shape is enforced by generate_plan and its own tests.
 # ---------------------------------------------------------------------------
 
 

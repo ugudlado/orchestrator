@@ -235,7 +235,7 @@ class TestRecordAgentField:
         GREEN: inline-script step (contract has inline: true, no agent:) with no
         'agent' in payload succeeds, and state.yaml records agent='inline'.
         """
-        _write_contract(contracts_dir, "workflow-init", inline=True)
+        _write_contract(contracts_dir, "inline-setup", inline=True)
         # Inline steps typically have workflow_plan in a different phase;
         # use a step ID that matches the active list.
         state = {
@@ -246,7 +246,7 @@ class TestRecordAgentField:
             "flags": {},
             "workflow_plan": {
                 "main": {
-                    "active": ["workflow-init"],
+                    "active": ["inline-setup"],
                     "filtered": [],
                 }
             },
@@ -257,7 +257,7 @@ class TestRecordAgentField:
             yaml.safe_dump(state, f)
 
         payload = {
-            "step_id": "workflow-init",
+            "step_id": "inline-setup",
             "phase": "main",
             "status": "completed",
             "outputs": {},

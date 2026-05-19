@@ -96,7 +96,6 @@ def test_light_flag_drops_filtered_steps(tmp_path, monkeypatch):
                 "goal": "Produce spec artifacts.",
                 "rules": [],
                 "steps": [
-                    "workflow-init",
                     "explore if discovery",
                     "ux-design if ux_design",
                     "design-and-draft-artifacts",
@@ -113,7 +112,7 @@ def test_light_flag_drops_filtered_steps(tmp_path, monkeypatch):
     # Only active steps (filtered ones already resolved out of workflow_plan)
     workflow_plan = {
         "specify": {
-            "active": ["workflow-init", "design-and-draft-artifacts"],
+            "active": ["design-and-draft-artifacts"],
             "filtered": [
                 {"id": "explore", "reason": "flag discovery=false"},
                 {"id": "ux-design", "reason": "flag ux_design=false"},
@@ -128,11 +127,6 @@ def test_light_flag_drops_filtered_steps(tmp_path, monkeypatch):
     contracts_dir = home / "config" / "steps"
     contracts_dir.mkdir(parents=True)
     _make_schema_yaml(workflows_dir, "feature", schema)
-    _write_step_contract(
-        contracts_dir,
-        "workflow-init",
-        {"id": "workflow-init", "agent": "workflow-init", "inputs": [], "outputs": [], "rules": []},
-    )
     _write_step_contract(
         contracts_dir,
         "design-and-draft-artifacts",
@@ -155,7 +149,7 @@ def test_light_flag_drops_filtered_steps(tmp_path, monkeypatch):
 
     specify_phase = next(p for p in plan["phases"] if p["name"] == "specify")
     step_ids = [s["id"] for s in specify_phase["steps"]]
-    assert step_ids == ["workflow-init", "design-and-draft-artifacts"], (
+    assert step_ids == ["design-and-draft-artifacts"], (
         f"Expected only active steps, got: {step_ids}"
     )
     assert "explore" not in step_ids

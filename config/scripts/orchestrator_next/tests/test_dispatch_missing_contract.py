@@ -1,7 +1,7 @@
 """
 FT-20 regression test for dispatch.py.
 
-When workflow_plan is frozen at workflow-init time and a step contract
+When workflow_plan is frozen at pre-dispatch init time and a step contract
 referenced in the plan is later deleted (e.g. Stage B of cleanup-and-delete
 removed `ingest-feature-metrics.yaml` while the in-flight workflow's plan
 still listed it), the dispatcher must NOT raise FileNotFoundError. It must
@@ -64,7 +64,7 @@ def _write_state(tmp_path: Path, *, deleted_step: str) -> Path:
 
 
 def test_dispatch_falls_back_when_contract_missing(tmp_path):
-    """The orphan step path: contract YAML deleted after workflow-init."""
+    """The orphan step path: contract YAML deleted after pre-dispatch init."""
     state_path = _write_state(tmp_path, deleted_step="step-deleted-from-disk")
     state = load_state(str(state_path))
     action, exit_code = dispatch(state, str(state_path))

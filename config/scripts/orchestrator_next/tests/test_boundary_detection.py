@@ -34,7 +34,7 @@ def _plan_two_phases():
     """workflow_plan with 'specify' and 'implement' phases."""
     return {
         "specify": {
-            "active": ["workflow-init", "specify-step"],
+            "active": ["prepare-step", "specify-step"],
             "filtered": [],
         },
         "implement": {

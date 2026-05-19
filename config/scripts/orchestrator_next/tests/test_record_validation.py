@@ -1,7 +1,4 @@
-"""T-15: RED tests — record.py root-cause validation layer (Checks A, B, C).
-
-All three tests should FAIL before T-16 adds the validation logic.
-"""
+"""T-15: Regression tests for record.py validation."""
 from __future__ import annotations
 
 import os
@@ -29,7 +26,7 @@ def _minimal_state(tmp_path) -> str:
         "phase": "specify",
         "workflow_plan": {
             "specify": {
-                "active": ["workflow-init"],
+                "active": ["explore"],
                 "filtered": [],
             }
         },
@@ -38,96 +35,6 @@ def _minimal_state(tmp_path) -> str:
     path = tmp_path / "state.yaml"
     path.write_text(yaml.safe_dump(state, sort_keys=False))
     return str(path)
-
-
-# ---------------------------------------------------------------------------
-# Check A: workflow-init completion with empty/missing active list
-# ---------------------------------------------------------------------------
-
-class TestCheckA:
-
-    @pytest.fixture(autouse=True)
-    def isolate_contracts(self, tmp_path, monkeypatch):
-        """Isolate from real contract files so only Check A logic runs."""
-        empty = tmp_path / "empty_contracts"
-        empty.mkdir()
-        monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(empty))
-
-    def test_rejects_workflow_init_empty_active(self, tmp_path):
-        """workflow_plan.active is empty list → exit 3, validation_error."""
-        state_path = _minimal_state(tmp_path)
-        payload = {
-            "step_id": "workflow-init",
-            "phase": "specify",
-            "status": "completed",
-            "agent": "workflow-init",
-            "outputs": {
-                "slug": "x",
-                "worktree_path": None,
-                "branch": None,
-                "ticket_id": None,
-                "workflow_plan": {
-                    "specify": {"active": [], "filtered": []},
-                },
-                "resolved_flags": {},
-            },
-            "usage": {"input_tokens": 100},
-        }
-        result, exit_code = record(state_path, payload)
-        assert exit_code == 3, f"Expected exit_code 3, got {exit_code}: {result}"
-        assert result["reason"] == "workflow_plan_active_missing_or_empty"
-        assert "specify" in result["phases"]
-
-    def test_rejects_workflow_init_missing_active_key(self, tmp_path):
-        """workflow_plan phase body is missing 'active' key → exit 3."""
-        state_path = _minimal_state(tmp_path)
-        payload = {
-            "step_id": "workflow-init",
-            "phase": "specify",
-            "status": "completed",
-            "agent": "workflow-init",
-            "outputs": {
-                "slug": "x",
-                "worktree_path": None,
-                "branch": None,
-                "ticket_id": None,
-                "workflow_plan": {
-                    "specify": {"active": ["workflow-init"], "filtered": []},
-                    "implement": {"filtered": []},  # missing 'active' key
-                },
-                "resolved_flags": {},
-            },
-            "usage": {"input_tokens": 100},
-        }
-        result, exit_code = record(state_path, payload)
-        assert exit_code == 3, f"Expected exit_code 3, got {exit_code}: {result}"
-        assert result["reason"] == "workflow_plan_active_missing_or_empty"
-        assert "implement" in result["phases"]
-
-    def test_state_yaml_unchanged_on_check_a_rejection(self, tmp_path):
-        """On Check A rejection, state.yaml must be byte-equal to its pre-call content."""
-        state_path = _minimal_state(tmp_path)
-        pre_bytes = open(state_path, "rb").read()
-        payload = {
-            "step_id": "workflow-init",
-            "phase": "specify",
-            "status": "completed",
-            "agent": "workflow-init",
-            "outputs": {
-                "slug": "x",
-                "worktree_path": None,
-                "branch": None,
-                "ticket_id": None,
-                "workflow_plan": {
-                    "specify": {"active": [], "filtered": []},
-                },
-                "resolved_flags": {},
-            },
-            "usage": {"input_tokens": 100},
-        }
-        record(state_path, payload)
-        post_bytes = open(state_path, "rb").read()
-        assert pre_bytes == post_bytes, "state.yaml was modified despite Check A rejection"
 
 
 # ---------------------------------------------------------------------------

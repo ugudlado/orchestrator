@@ -62,6 +62,7 @@ def _write_project_yaml(repo_root: Path) -> None:
 
 
 def _run_seed(slug: str, schema: str, *, repo_root: Path,
+              flag_overrides: list[str] | None = None,
               extra_env: dict | None = None) -> subprocess.CompletedProcess:
     """Run seed-state.sh with NO explicit WORKFLOW_STATE_DIR so the default fires."""
     env = os.environ.copy()
@@ -78,7 +79,7 @@ def _run_seed(slug: str, schema: str, *, repo_root: Path,
     if extra_env:
         env.update(extra_env)
     return subprocess.run(
-        ["bash", str(_SEED_SCRIPT), slug, schema],
+        ["bash", str(_SEED_SCRIPT), slug, schema, *(flag_overrides or [])],
         capture_output=True,
         text=True,
         env=env,
@@ -315,7 +316,12 @@ def test_seed_state_writes_to_spec_changes(tmp_path):
     _write_project_yaml(fake_repo)
 
     # Run seed-state.sh with no WORKFLOW_STATE_DIR — exercises the default.
-    result = _run_seed(slug, schema, repo_root=fake_repo)
+    result = _run_seed(
+        slug,
+        schema,
+        repo_root=fake_repo,
+        flag_overrides=["worktree=false"],
+    )
     assert result.returncode == 0, (
         f"seed-state.sh exited {result.returncode}\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
