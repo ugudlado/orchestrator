@@ -1,6 +1,6 @@
 ---
 name: linear
-description: This skill should be used when the user asks to "create a Linear issue", "file a ticket", "open a Linear ticket", "update a Linear issue", "check a Linear ticket", "add a label to a ticket", "assign an issue", "close a ticket", or any time a workflow step needs to create/read a Linear ticket. Also use when reading or writing linear_ticket_id in state.yaml.
+description: This skill should be used when the user asks to "create a Linear issue", "file a ticket", "open a Linear ticket", "update a Linear issue", "check a Linear ticket", "add a label to a ticket", "assign an issue", "close a ticket", or any time a workflow step needs to create/read a Linear ticket. Also use when reading or writing ticket_id in state.yaml.
 user-invocable: true
 ---
 
@@ -70,7 +70,7 @@ All Linear operations go through the `plugin:linear` MCP server:
    - `teamId`: `linear.team_id`
    - `projectId`: `linear.project_id`
    - `labelIds`: `linear.product_label_id` + type label + complexity label
-3. Update `$WORKFLOW_STATE_DIR/<feature>/state.yaml` field `linear_ticket_id: HL-XXX`.
+3. Update `$WORKFLOW_STATE_DIR/<feature>/state.yaml` field `ticket_id: HL-XXX`.
 
 ### Required Labels on Every New Ticket
 
@@ -108,7 +108,7 @@ The response includes `title`, `description`, `state`, `labels`, `assignee`, and
 
 | Field | Description |
 |-------|-------------|
-| `linear_ticket_id` | Primary issue ID (e.g. `HL-134`) |
+| `ticket_id` | Primary issue ID (e.g. `HL-134`) |
 
 Never invent ticket IDs. Use only values returned from MCP or provided by the user.
 

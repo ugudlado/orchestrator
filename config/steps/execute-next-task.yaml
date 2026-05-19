@@ -33,17 +33,17 @@ rules:
   - "When a task's AC Verify line contains a grep or pattern-match command against a file the task modifies (e.g., `grep -E 'pattern' some-file.md`), run that exact command on the modified file before committing. A comment spanning multiple lines can satisfy the semantic intent but fail a single-line grep — verify the pattern matches the written text, not just the concept. <!-- learned: 2026-05-10, source: orc-48, cycle: 14, hits: 1, misses: 0, repo: orchestrator -->"
   - "When removing a CLI command, MCP tool, or web route from an application, grep the project's test files for direct invocations of the removed surface and update or remove those references in the same change. Tests that invoke deleted surfaces are technical debt regardless of whether they are currently masked by environment restrictions (sandbox, EPERM, port conflicts) — they will surface as failures when restrictions are lifted. <!-- learned: 2026-05-15, source: back-476, cycle: 1, hits: 1, misses: 0, repo: backlog.md -->"
   - "For any task or ticket management (create, edit, list, claim, close), load the /backlog-manager skill first — it detects the correct backend (Linear or Backlog.md) per repo and delegates to /linear or /backlog accordingly. Never assume the backend. When the backend is Backlog.md, use the globally installed `backlog` binary — never `bun run cli`."
+  - "When flags.tdd_required is true AND the task is a pure mechanical change (rename, move, delete with no behavioral change), there is no meaningful RED step — the suite passes with either the old or new name. Satisfy tdd_required by sequencing a regression-guard test task first (verify existing tests stay green after the rename) rather than fabricating a failing test. Do NOT invent a RED step that doesn't reflect the actual change. <!-- learned: 2026-05-19, source: orc-59, cycle: 1, hits: 0, misses: 0, repo: orchestrator -->"
 
 instruction: |
   0. Re-entry check (per CONVENTIONS.md § Idempotent Re-Entry):
-     Read state.yaml for `task_checkpoint`. If it exists:
-     a. Check whether the checkpointed task (task_checkpoint.task_id) is already
-        marked complete ([x]) in tasks.md.
-     b. If NOT marked complete: mark it [x] in tasks.md now. This reconciles a
-        crash that occurred after the checkpoint write but before the tasks.md
-        update was committed. Commit tasks.md + state.yaml together to close the gap.
-     c. If already marked complete: no action needed; continue to step 1.
-     If task_checkpoint does not exist in state.yaml, skip to step 1.
+     tasks.md [x] markers are the durable checkpoint — `record.py` (orchestrator done)
+     does not persist `task_checkpoint` keys; they are silently dropped. Do NOT rely
+     on `task_checkpoint` in state.yaml as re-entry signal; it will not be present.
+     Instead: read tasks.md and find any task marked [x]. If a task is [x] but the
+     step_history has no corresponding completed entry, that is the crash-recovery case.
+     Resume from the next unchecked task (- [ ]) per the normal flow.
+     Skip to step 1.
 
   1. Read tasks.md to find the next unchecked task (- [ ]) whose
      dependencies (depends: T-N) are all marked complete.
@@ -82,17 +82,11 @@ instruction: |
 
   6. If verification passes:
      - Mark task complete in tasks.md: [ ] → [x]
-     - Write task_checkpoint to state.yaml (per CONVENTIONS.md § State Field Registry):
-       ```yaml
-       task_checkpoint:
-         task_id: "T-<N>"
-         status: "completed"
-         committed_at: "<ISO timestamp>"
-       ```
      - Commit per contracts/auto-commit.md:
-       Stage only the task's changed files + tasks.md + state.yaml (checkpoint),
+       Stage only the task's changed files + tasks.md,
        then commit with message: `<prefix>(<change-id>): T-<N> <task title>`
-       The checkpoint and tasks.md MUST be committed atomically in the same commit.
+       tasks.md [x] IS the durable checkpoint — do NOT attempt to write
+       `task_checkpoint` to state.yaml (record.py drops unknown keys silently).
        Skip commit if git status shows no changes (verification-only task).
      - Update state.yaml step_history per CONVENTIONS.md § State Updates.
   7. If verification fails:

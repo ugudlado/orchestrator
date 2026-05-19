@@ -351,7 +351,7 @@ find data where they expect it.
 | `next_step` | object | phase-signoff, any step advancing flow | See `contracts/resume-token.md` |
 | `step_history` | list | All steps (append-only) | See § State Updates above |
 | `flags` | object | load-project-context | Resolved runtime flags (e.g., `{ tdd_required: true, ff: true }`) |
-| `linear_ticket_id` | string | create-linear-ticket | Linear issue ID (e.g., `HL-123`). Also stored in `.spec.yaml`. |
+| `ticket_id` | string | create-linear-ticket | Linear issue ID (e.g., `HL-123`). Also stored in `.spec.yaml`. |
 | `archive_path` | string | mark-change-completed | Relative to repo root (e.g., `spec/changes/archive/2026-04-04-HL-123/`) |
 | `completed_at` | string | mark-change-completed | ISO 8601 UTC timestamp when the change completed |
 | `metrics` | object | compute-swe-metrics (via archive-completed-change) | Full metrics block or `{ status: script_unavailable, reason: "..." }` |
@@ -361,7 +361,7 @@ find data where they expect it.
 | `refresh_artifacts` | boolean | run-phase-review (on fail) | `true` when artifacts need regeneration |
 | `change_type` | string | design-and-draft-artifacts (after task creation) | `code` or `config_docs` — per `contracts/rule-merge.md` § Change Type Detection |
 | `flag_adaptations` | list | design-and-draft-artifacts (when change_type adapts flags) | `[{ flag, original, effective, reason }]` |
-| `task_checkpoint` | object | execute-next-task | `{ task_id: "T-3", status: "completed", committed_at: "<ISO>" }` |
+| `task_checkpoint` | object | execute-next-task | NOT PERSISTED — `record.py` (`orchestrator done`) drops unknown keys silently; this field will never appear in state.yaml. The durable checkpoint is tasks.md `[x]` markers. This row is retained for historical reference only. <!-- learned: 2026-05-19, source: orc-59, cycle: 1, repo: orchestrator --> |
 | `workflow_plan` | object | load-project-context | `{ <phase>: { active: [...], filtered: [...] } }`. Includes resolved from schema. Dispatch loop MUST walk ALL phases/steps — workflow is not complete until every active step in every phase is dispatched. |
 | `step_history[].review_score` | object | run-phase-review | `{ overall: 9, dimensions: { spec_compliance: 9, correctness: 10, security: 9, simplicity: 9, code_quality: 9 } }` |
 | `step_history[].usage` | object | orchestrate skill (dispatch loop) | `{ input_tokens: N, output_tokens: N, cache_creation_input_tokens: N, cache_read_input_tokens: N, total_tokens: N, tool_uses: N, tool_calls: { ToolName: N, ... }, duration_ms: N }`. Only for steps with agent: field. `tool_calls:` is a per-tool-type breakdown where the sum of all values equals `tool_uses`. Omit `tool_calls:` or write `tool_calls: {}` when no tool calls were made. Compute-swe-metrics reads these fields for cost calculation and tool attribution. |

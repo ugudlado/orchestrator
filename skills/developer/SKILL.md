@@ -47,7 +47,7 @@ Spec/worktree/init are assumed pre-done. Do NOT auto-init.
 
 Scan `$WORKFLOW_STATE_DIR/*/state.yaml` (skip `archive/`, `backlog/`) for the
 state whose `change_id` equals the ticket slug OR whose linear/ticket field
-matches `TICKET_ID` (case-insensitive). `linear_ticket_id` may be `null` —
+matches `TICKET_ID` (case-insensitive). `ticket_id` may be `null` —
 fall back to matching `change_id` against the lowercased `TICKET_ID`.
 
 - **No match** → not workflow-initialized. Ask `/backlog-manager` to release
