@@ -87,14 +87,15 @@ def _run_seed(slug: str, schema: str, *, repo_root: Path,
 
 
 def _run_archive(
-    slug: str, *, repo_root: Path, workflow_state_dir: Path, archive_path: str
+    slug: str, *, repo_root: Path, worktree_root: Path, archive_path: str
 ) -> subprocess.CompletedProcess:
     """Run archive-completed-change.sh with explicit env vars."""
     env = os.environ.copy()
     env["REPO_ROOT"] = str(repo_root)
-    env["WORKFLOW_STATE_DIR"] = str(workflow_state_dir)
+    env["WORKTREE_ROOT"] = str(worktree_root)
     env["CHANGE_ID"] = slug
     env["ARCHIVE_PATH"] = archive_path
+    env.pop("ORCHESTRATOR_WORKFLOW_DIR", None)
     return subprocess.run(
         ["bash", str(_ARCHIVE_SCRIPT)],
         capture_output=True,
@@ -201,24 +202,12 @@ def test_resolve_feature_metrics_no_raise(tmp_path):
 
 def test_archive_contains_artifact_files(tmp_path):
     """
-    POST-FIX: when WORKFLOW_STATE_DIR defaults to spec/changes (the new default),
-      archive-completed-change.sh moves spec/changes/<slug>/ atomically, so the
-      resulting archive contains BOTH state.yaml AND artifact files (tasks.md, spec.md).
-
-    PRE-FIX (HEAD): the script does cp -R from .state/<slug>/ which never contains
-      artifact files — tasks.md and spec.md are absent from archive — FAILS here.
-
-    We reproduce the pre-fix dual-location reality:
-      - state.yaml is in .state/<slug>/ (where seed-state.sh puts it today)
-      - tasks.md + spec.md are in spec/changes/<slug>/ (where agents write them)
-    We then run archive-completed-change.sh with WORKFLOW_STATE_DIR=.state (pre-fix)
-    and assert the archive DOES contain tasks.md — which fails because cp -R only
-    copies .state/<slug>/, not the artifact files.
-
-    diagnose.md failure mode #3 / archive-completed-change.sh lines 21, 30.
+    All workflow files (state.yaml, plan.yaml, artifacts) live under the worktree
+    at WORKTREE_ROOT/spec/changes/<slug>/. archive-completed-change.sh must collect
+    everything from that single source into the archive destination.
     """
-    # Set up a minimal git repo so the script's `git add/commit` can run.
     repo = tmp_path / "repo"
+    worktree = tmp_path / "worktree"
     repo.mkdir()
     subprocess.run(["git", "init", str(repo)], capture_output=True, check=True)
     subprocess.run(
@@ -229,7 +218,6 @@ def test_archive_contains_artifact_files(tmp_path):
         ["git", "-C", str(repo), "config", "user.name", "ORC-36 Test"],
         capture_output=True, check=True,
     )
-    # Git needs at least one commit so `git rev-parse HEAD` doesn't fail.
     (repo / "README.md").write_text("test repo")
     subprocess.run(["git", "-C", str(repo), "add", "README.md"], capture_output=True, check=True)
     subprocess.run(
@@ -239,56 +227,35 @@ def test_archive_contains_artifact_files(tmp_path):
 
     slug = "demo-feature"
 
-    # Pre-fix reality: state.yaml is in .state/<slug>/ (seed-state.sh today).
-    state_dir = repo / ".state" / slug
-    state_dir.mkdir(parents=True)
-    (state_dir / "state.yaml").write_text(
-        "change_id: demo-feature\nschema: bugfix\nstatus: completed\n"
-    )
-
-    # Pre-fix reality: artifact files are in spec/changes/<slug>/ (agents write there).
-    spec_dir = repo / "spec" / "changes" / slug
-    spec_dir.mkdir(parents=True)
-    (spec_dir / "tasks.md").write_text("- [x] T-1: done\n- [x] T-2: done\n")
-    (spec_dir / "spec.md").write_text("# Spec\nThis is the spec.\n")
-
-    # Stage and commit the spec/changes artifacts so git is happy.
-    subprocess.run(
-        ["git", "-C", str(repo), "add", "spec/"],
-        capture_output=True, check=True,
-    )
-    subprocess.run(
-        ["git", "-C", str(repo), "commit", "-m", "add spec artifacts"],
-        capture_output=True, check=True,
-    )
+    # All files live in the worktree under spec/changes/<slug>/
+    src = worktree / "spec" / "changes" / slug
+    src.mkdir(parents=True)
+    (src / "state.yaml").write_text("change_id: demo-feature\nschema: feature\nstatus: completed\n")
+    (src / "plan.yaml").write_text("phase: complete\n")
+    (src / "tasks.md").write_text("- [x] T-1: done\n")
+    (src / "design.md").write_text("# Design\n")
 
     archive_rel = f"spec/changes/archive/2026-05-03-{slug}"
 
-    # Run archive with the PRE-FIX WORKFLOW_STATE_DIR (.state/ — what HEAD uses).
     result = _run_archive(
         slug,
         repo_root=repo,
-        workflow_state_dir=repo / ".state",
+        worktree_root=worktree,
         archive_path=archive_rel,
     )
 
     archive_dir = repo / archive_rel
 
-    # Post-fix expectation: tasks.md and spec.md must be in the archive.
-    # Pre-fix: cp -R from .state/<slug>/ only copies state.yaml; tasks.md absent.
-    tasks_in_archive = (archive_dir / "tasks.md").exists()
-    spec_in_archive = (archive_dir / "spec.md").exists()
-
-    assert tasks_in_archive, (
-        f"[ORC-36 failure mode 3] archive at {archive_dir} is missing tasks.md.\n"
-        f"Archive script output:\n  stdout={result.stdout!r}\n  stderr={result.stderr!r}\n"
-        f"Archive contents: {sorted(p.name for p in archive_dir.iterdir()) if archive_dir.exists() else '(dir missing)'}\n"
-        f"Pre-fix: cp -R .state/<slug>/ only copies state.yaml; artifact files never included."
+    assert (archive_dir / "state.yaml").exists(), (
+        f"archive missing state.yaml\nstdout={result.stdout!r}\nstderr={result.stderr!r}"
     )
-    assert spec_in_archive, (
-        f"[ORC-36 failure mode 3] archive at {archive_dir} is missing spec.md.\n"
-        f"Archive contents: {sorted(p.name for p in archive_dir.iterdir()) if archive_dir.exists() else '(dir missing)'}"
+    assert (archive_dir / "tasks.md").exists(), (
+        f"archive missing tasks.md\nstdout={result.stdout!r}\nstderr={result.stderr!r}"
     )
+    assert (archive_dir / "design.md").exists(), (
+        f"archive missing design.md\nstdout={result.stdout!r}\nstderr={result.stderr!r}"
+    )
+    assert not src.exists(), "worktree source dir should be removed after archive"
 
 
 # ---------------------------------------------------------------------------
