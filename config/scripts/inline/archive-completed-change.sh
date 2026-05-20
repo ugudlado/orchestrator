@@ -17,6 +17,14 @@ CHANGE_ID="${CHANGE_ID:-}"
 ARCHIVE_PATH="${ARCHIVE_PATH:-}"
 WORKTREE_ROOT="${WORKTREE_ROOT:-${ORCHESTRATOR_WORKFLOW_DIR:-}}"
 
+if [[ -n "${STATE_YAML_PATH:-}" && -f "$STATE_YAML_PATH" ]]; then
+  # shellcheck source=./_read_state_env.sh
+  source "$(dirname "$0")/_read_state_env.sh"
+  read_state_env "$STATE_YAML_PATH" CHANGE_ID ARCHIVE_PATH WORKTREE_ROOT REPO_ROOT
+  REPO_ROOT="${REPO_ROOT:-}"
+  WORKTREE_ROOT="${WORKTREE_ROOT:-${ORCHESTRATOR_WORKFLOW_DIR:-}}"
+fi
+
 if [ -z "$CHANGE_ID" ] || [ -z "$ARCHIVE_PATH" ]; then
   printf '%s\n' '{"archive_record": {"skipped": true, "reason": "missing required env vars"}}'
   exit 0

@@ -11,6 +11,14 @@ REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 WORKTREE_PATH="${WORKTREE_PATH:-}"
 BRANCH="${BRANCH:-}"
 
+if [[ -n "${STATE_YAML_PATH:-}" && -f "$STATE_YAML_PATH" ]]; then
+  # shellcheck source=./_read_state_env.sh
+  source "$(dirname "$0")/_read_state_env.sh"
+  read_state_env "$STATE_YAML_PATH" WORKTREE_PATH BRANCH REPO_ROOT
+  WORKTREE_PATH="${WORKTREE_PATH/#\~/$HOME}"
+  REPO_ROOT="${REPO_ROOT:-}"
+fi
+
 if [ -z "$WORKTREE_PATH" ] || [ ! -d "$WORKTREE_PATH" ]; then
   printf '%s\n' "{\"removed\": false, \"reason\": \"worktree path missing: $WORKTREE_PATH\"}"
   exit 0
