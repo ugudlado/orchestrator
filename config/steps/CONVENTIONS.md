@@ -254,18 +254,22 @@ usage:
 - **Token fields are agent-step only.** Never write token fields on inline entries.
 - **Inline steps use `agent: inline`.** Do not use a real agent name for inline steps.
 
-## Artifact Layout: State vs Tracked Artifacts
+## Artifact Layout
 
-After HL-303, workflow artifacts are split across two directories:
+Worktrees are required. All workflow files live under the worktree:
 
 | Variable | Contents | Committed? | Location |
 |----------|----------|------------|----------|
-| `$WORKFLOW_STATE_DIR/$CHANGE_ID/` | `state.yaml`, `plan.yaml` | No (gitignored) | Always `$REPO_ROOT/spec/changes/<slug>/` |
-| `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/` | `design.md`, `tasks.md`, `diagnose.md`, UX files | Yes (committed) | `$WORKTREE_ROOT/spec/changes/<slug>/` when `flags.worktree=true`, else same as state dir |
+| `$WORKTREE_ROOT/spec/changes/$CHANGE_ID/` | `state.yaml`, `plan.yaml`, `design.md`, `tasks.md`, `diagnose.md`, UX files | Artifacts yes; state gitignored | `$WORKTREE_BASE_DIR/<slug>/spec/changes/<slug>/` |
 
-`WORKTREE_ARTIFACT_DIR` defaults to `${WORKTREE_ROOT:-$REPO_ROOT}/spec/changes` so that
-agents that run inside a worktree write tracked artifacts to the worktree branch, while
-agents running without a worktree continue to write both artifacts and state to `$REPO_ROOT`.
+`WORKTREE_ARTIFACT_DIR` resolves to `$WORKTREE_ROOT/spec/changes` — agents always
+write to the worktree. `WORKFLOW_STATE_DIR` ($REPO_ROOT/spec/changes) is the
+fallback for CLI invocations outside a worktree context only.
+
+**Lifecycle invariant**: `archive-completed-change` MUST run before
+`remove-worktree`. The archive step copies everything (including `state.yaml`)
+out of the worktree into `spec/changes/archive/<date>-<slug>/`. Removing the
+worktree before archiving destroys state with no recovery path.
 
 Steps that write tracked artifacts (design.md, tasks.md, diagnose.md, UX files)
 MUST use `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/`, not `$WORKFLOW_STATE_DIR/$CHANGE_ID/`, as
