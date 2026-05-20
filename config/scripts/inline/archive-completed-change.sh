@@ -3,14 +3,10 @@
 #
 # Env inputs:  REPO_ROOT, CHANGE_ID, ARCHIVE_PATH
 #              (ARCHIVE_PATH is relative to REPO_ROOT, e.g. "spec/changes/archive/2026-04-18-hl-287")
-#              WORKTREE_ROOT — root of the feature worktree (optional; falls back to
-#                             ORCHESTRATOR_WORKFLOW_DIR). When set, tracked artifacts
-#                             (spec.md, design.md, tasks.md, diagnose.md) are collected
-#                             from $WORKTREE_ROOT/spec/changes/$CHANGE_ID/. When absent,
-#                             only the repo_root source is archived.
-#              WORKFLOW_STATE_DIR is accepted for interface compatibility but not used to
-#              locate the source — sources are $WORKTREE_ROOT/spec/changes/$CHANGE_ID
-#              (tracked artifacts) and $REPO_ROOT/spec/changes/$CHANGE_ID (state/plan).
+#              WORKTREE_ROOT — root of the feature worktree; falls back to
+#                             ORCHESTRATOR_WORKFLOW_DIR (worktree_path from state.yaml).
+#                             All files (state.yaml, plan.yaml, artifacts) live at
+#                             $WORKTREE_ROOT/spec/changes/$CHANGE_ID/ — worktrees required.
 # Outputs:     {archive_record: {archived_at, archive_path, commit_sha}}
 #   or        {archive_record: {skipped: true, reason}}
 
@@ -19,7 +15,6 @@ set -uo pipefail
 REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 CHANGE_ID="${CHANGE_ID:-}"
 ARCHIVE_PATH="${ARCHIVE_PATH:-}"
-# WORKTREE_ROOT: explicit env > ORCHESTRATOR_WORKFLOW_DIR (worktree_path from state.yaml) > empty.
 WORKTREE_ROOT="${WORKTREE_ROOT:-${ORCHESTRATOR_WORKFLOW_DIR:-}}"
 
 if [ -z "$CHANGE_ID" ] || [ -z "$ARCHIVE_PATH" ]; then
@@ -27,29 +22,21 @@ if [ -z "$CHANGE_ID" ] || [ -z "$ARCHIVE_PATH" ]; then
   exit 0
 fi
 
-# HL-303: after the worktree split, tracked artifacts (spec.md, design.md,
-# tasks.md, diagnose.md) live in the worktree while state/plan stay in repo_root.
-# Merge from both sources into the archive destination.
-WT_SRC="${WORKTREE_ROOT}/spec/changes/${CHANGE_ID}"
-RR_SRC="${REPO_ROOT}/spec/changes/${CHANGE_ID}"
-DST="$REPO_ROOT/$ARCHIVE_PATH"
-
-# At least one source must exist.
-if [ -n "$WORKTREE_ROOT" ] && [ ! -d "$WT_SRC" ] && [ ! -d "$RR_SRC" ]; then
-  printf '%s\n' "{\"archive_record\": {\"skipped\": true, \"reason\": \"source dirs missing: $WT_SRC and $RR_SRC\"}}"
+if [ -z "$WORKTREE_ROOT" ]; then
+  printf '%s\n' '{"archive_record": {"skipped": true, "reason": "WORKTREE_ROOT not set — worktrees required"}}'
   exit 0
 fi
-if [ -z "$WORKTREE_ROOT" ] && [ ! -d "$RR_SRC" ]; then
-  printf '%s\n' "{\"archive_record\": {\"skipped\": true, \"reason\": \"source dir missing: $RR_SRC\"}}"
+
+SRC="${WORKTREE_ROOT}/spec/changes/${CHANGE_ID}"
+DST="$REPO_ROOT/$ARCHIVE_PATH"
+
+if [ ! -d "$SRC" ]; then
+  printf '%s\n' "{\"archive_record\": {\"skipped\": true, \"reason\": \"source dir missing: $SRC\"}}"
   exit 0
 fi
 
 mkdir -p "$DST"
-# Copy worktree artifacts first (tracked: spec.md, design.md, tasks.md, diagnose.md),
-# then overlay repo_root (state.yaml, plan.yaml). The overlay order means repo_root
-# wins on any filename collision — intentional, since state.yaml is authoritative.
-[ -n "$WORKTREE_ROOT" ] && [ -d "$WT_SRC" ] && cp -a "$WT_SRC"/. "$DST"/ && rm -rf "$WT_SRC"
-[ -d "$RR_SRC" ] && cp -a "$RR_SRC"/. "$DST"/ && rm -rf "$RR_SRC"
+cp -a "$SRC"/. "$DST"/ && rm -rf "$SRC"
 
 ARCHIVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 

@@ -17,7 +17,7 @@ behavioral:
   tdd_required: { default: true,  description: "Strict red-green-refactor in execute-next-task" }
   auto:         { default: false, description: "Skip signoff gates" }
   agents:       { default: false, description: "Spawn specialist agents instead of running inline" }
-  light:        { default: false, description: "Lower review threshold to 7, skip review/worktree" }
+  light:        { default: false, description: "Lower review threshold to 7, skip tdd/phase_review" }
 
 # CLI flags. Each `sets:` flips one or more underlying flags.
 cli:
@@ -32,7 +32,6 @@ cli:
       light: true
       tdd_required: false
       phase_review: false
-      worktree: false
     description: Tight-scope path. Reviewer lowers threshold to 7.
 
   --autopilot:
