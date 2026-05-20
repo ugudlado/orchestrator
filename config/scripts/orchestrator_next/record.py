@@ -836,7 +836,11 @@ def run_git_churn(worktree: str, change_id: str) -> dict:
 
 
 def _phase_review_verdict(entry: dict) -> str | None:
-    """Read verdict from step_history evidence.outputs.phase_review_report."""
+    """Read verdict from step_history evidence.outputs.phase_review_report.
+
+    Payload-time validation uses top-level ``outputs`` (_validate_phase_review_output);
+    record nests those under ``evidence.outputs`` when appending step_history.
+    """
     evidence = entry.get("evidence")
     if not isinstance(evidence, dict):
         return None

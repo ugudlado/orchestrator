@@ -35,7 +35,7 @@ instruction: |
         - prototype.selected_option: which option was chosen
         - prototype.critique_status: passed|passed-with-fixes|skipped
         - prototype.critique_rounds: number of /critique iterations run
-  8. Update state.yaml step_history per CONVENTIONS.md § State Updates.
+  8. Return COMPLETION per contracts/done-payload.md (driver calls orchestrator done).
 
 verify:
   - UI Direction section updated in discovery brief
