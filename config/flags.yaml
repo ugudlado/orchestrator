@@ -8,6 +8,10 @@
 
 gates:
   worktree:     { steps: [remove-worktree],                 default: true  }
+  # merge_to_main: gates merge-to-main only; step order is fixed in feature.yaml /
+  # bugfix.yaml (archive → merge-to-main → remove-worktree). See remove-worktree.yaml
+  # and merge-to-main.yaml rules — flags do not enforce ordering at runtime.
+  merge_to_main: { steps: [merge-to-main],                  default: false }
   phase_review: { steps: [run-phase-review],                default: true  }
   portless:     { steps: [setup-portless],                  default: true  }
   metrics:      { steps: [register-with-orchestrator-home], default: true  }
@@ -38,7 +42,8 @@ cli:
     sets:
       auto: true
       agents: true
-    description: Full autonomy. Implicit when the autopilot skill dispatches; do not pause for signoff or flag confirmation.
+      merge_to_main: true
+    description: Full autonomy. Implicit when the autopilot skill dispatches; merges to default branch before worktree removal; do not pause for signoff or flag confirmation.
 
   # --bugfix routes to the bugfix schema via select-workflow rather than
   # flipping flags on feature. select-workflow.yaml owns this routing.

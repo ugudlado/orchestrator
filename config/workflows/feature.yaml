@@ -12,4 +12,5 @@ steps:
   - mark-change-completed
   - compute-swe-metrics
   - archive-completed-change
+  - merge-to-main
   - remove-worktree

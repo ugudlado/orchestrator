@@ -7,3 +7,5 @@ rules:
     phase. archive-completed-change copies state.yaml and all artifacts out of
     the worktree into the repo archive; removing the worktree before that step
     destroys state with no recovery path.
+  - When merge_to_main is enabled (--autopilot), remove-worktree MUST run after
+    merge-to-main so branch deletion succeeds with git branch -d.

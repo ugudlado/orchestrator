@@ -1,0 +1,20 @@
+id: merge-to-main
+version: 1
+run: scripts/inline/merge-to-main.sh
+
+rules:
+  - merge-to-main MUST run after archive-completed-change in the same phase.
+  - merge-to-main MUST run before remove-worktree so the feature branch still exists for the merge.
+  - This step is gated by merge_to_main (enabled by --autopilot). Manual /orchestrate runs skip it unless that flag is set explicitly.
+  - On merge conflict, fail the step (non-zero exit) — do not remove the worktree.
+
+instruction: |
+  Merge the feature branch recorded in state.yaml into the repository default branch
+  on REPO_ROOT, then return a JSON merge_record on stdout.
+
+verify:
+  - merge_record printed to stdout (merged, skipped, or failed with reason)
+  - When merged=true, default branch contains the feature branch tip
+
+outputs:
+  - merge_record
