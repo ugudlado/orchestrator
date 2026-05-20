@@ -1,6 +1,5 @@
 steps:
   - explore
-  - diagnose
   - ux-design
   - design-and-draft-artifacts
   - preview-route
