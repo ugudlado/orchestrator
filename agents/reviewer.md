@@ -166,6 +166,9 @@ After all tasks in a phase are complete, perform a comprehensive review of the f
 
 ### Phase Review Output
 
+Write the full human-readable report to
+`$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/phase-review.md`. Include:
+
 ```
 ## Phase Review: [phase name]
 
@@ -196,6 +199,32 @@ After all tasks in a phase are complete, perform a comprehensive review of the f
 
 If NEEDS WORK: generate fix tasks in tasks.md format (T-N+1, etc.) with code
 references, Problem, Why, Improve, and Verify.
+
+Return COMPLETION with machine-readable fields only (do not rely on the driver
+to parse scores from the report file). Put `verdict` under `outputs`; put
+`review_score` and `state_patch` as **top-level** COMPLETION siblings (not
+under `outputs` — record.py reads them only from the top level):
+
+```
+COMPLETION:
+  status: completed
+  outputs:
+    phase_review_report: {verdict: pass | needs_work | incomplete_phase}
+  artifacts: [phase-review.md]
+  review_score:
+    overall: <N>
+    dimensions:
+      spec_compliance: <N>
+      correctness: <N>
+      security: <N>
+      simplicity: <N>
+      code_quality: <N>
+  state_patch:          # on FAIL only
+    retries: {run-phase-review: <count>}
+```
+
+For `incomplete_phase` (unchecked tasks remain): set `verdict: incomplete_phase`
+and list unchecked task IDs in the report; omit `review_score`.
 
 ---
 
@@ -233,6 +262,8 @@ Full feature-level verification before user approval.
 
 ### Signoff Output
 
+Write the full report to `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/signoff-report.md`:
+
 ```
 ## Feature Verification Report
 
@@ -263,6 +294,16 @@ Full feature-level verification before user approval.
 ### Issues (if any): [fix tasks generated]
 ```
 
+Return COMPLETION:
+
+```
+COMPLETION:
+  status: completed
+  outputs:
+    signoff_report: {verdict: ready | needs_work}
+  artifacts: [signoff-report.md]
+```
+
 ---
 
 ## Key Principles
@@ -272,9 +313,17 @@ Full feature-level verification before user approval.
 3. **Tested code must be runtime code.** If tests exercise module A but UI calls duplicated logic in module B, that's a critical DRY violation.
 4. **Independent perspective.** You exist because a second pair of eyes catches what the first missed. Don't rubber-stamp.
 
+## State Updates
+
+Agents MUST NOT edit `state.yaml` directly. Write report artifacts to
+`$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/` and return a **COMPLETION** block per
+`config/steps/contracts/done-payload.md`. The dispatch driver maps COMPLETION
+to `orchestrator done` — it does not parse report prose for scores or verdicts.
+
 ## What You Don't Do
 
 - Don't fix code — report issues back with actionable feedback
 - Don't make architectural decisions — validate against spec/design
 - Don't skip verification steps — run everything, report everything
 - Don't block on personal style preferences — only reject on objective issues
+- Don't return the full report as chat prose when the step expects a file artifact

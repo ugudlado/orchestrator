@@ -19,68 +19,50 @@ AGENT_HANDLE=${1:-@developer}
 
 ## Execution
 
-This skill is glue; the developer agent writes the code. Keep ticket
-operations in `/backlog-manager`, workflow progression in the orchestrator,
-and implementation work in `agents/developer.md`.
+Glue skill: `/backlog-manager` for tickets, orchestrator for workflow, `agents/developer.md` for implementation. State updates follow `config/steps/contracts/done-payload.md` — driver calls `orchestrator done` after COMPLETION; agents MUST NOT edit `state.yaml`. Driver does not verify `tasks.md` or run verify commands; `/reviewer` does.
 
 ### 1. Claim work via `/backlog-manager`
 
-Load `/backlog-manager` and atomically claim the next ticket for
-`$AGENT_HANDLE`:
+Load `/backlog-manager` and atomically claim the next ticket for `$AGENT_HANDLE`:
 
-1. Claim `In Progress` first. These are active implementation tickets,
-   including code-review rework.
-2. If none exist, claim `Ready`.
-3. Fresh `Ready` claims must be moved to `In Progress` before coding.
+1. `In Progress` first (active work, including code-review rework).
+2. If none, claim `Ready` — move to `In Progress` before coding.
 
-If both queues are empty, stop and report `development queue empty`. Capture
-`TICKET_ID`.
+If both queues are empty, stop and report `development queue empty` (no ticket to implement). Capture `TICKET_ID`.
 
 ### 2. Resolve workflow state
 
-Spec/worktree/init are assumed pre-done. Do not auto-init.
+Spec/worktree/init assumed done — do not auto-init (init is `/orchestrate` or seed-state.sh, not this skill).
 
-Find the matching `$WORKFLOW_STATE_DIR/*/state.yaml` (skip `archive/` and
-`backlog/`) by `change_id`, `ticket_id`, or lowercased ticket slug.
+Find `$WORKFLOW_STATE_DIR/*/state.yaml` (skip `archive/`, `backlog/`) by `change_id`, `ticket_id`, or lowercased ticket slug.
 
-- No match: append a ticket note that the workflow is not initialized, leave
-  the ticket in `In Progress`, and stop.
-- Match: record `SLUG`, `STATE_FILE`, `ARTIFACT_DIR`, and working directory.
-  Artifacts live at `$WORKTREE_BASE_DIR/$SLUG` when `flags.worktree: true`,
-  otherwise `$REPO_ROOT/spec/changes/$SLUG`.
+- No match: note on ticket that workflow is not initialized; leave `In Progress`; stop.
+- Match: record `SLUG`, `STATE_FILE`, `ARTIFACT_DIR`, working directory. Artifacts at `$WORKTREE_BASE_DIR/$SLUG` when `flags.worktree: true`, else `$REPO_ROOT/spec/changes/$SLUG`.
 
-### 3. Run implementation
+### 3. Run implementation (orchestrator loop)
 
-Spawn the `developer` agent with:
-
-- full ticket body
-- `STATE_FILE`, `ARTIFACT_DIR`, and working directory
-- `discovery.md`, `spec.md`, `design.md`, and `tasks.md` paths when present
-- `.review/AGENTS.md` and the review session path when present
-
-The developer agent must treat unchecked `tasks.md` items as the work queue.
-That includes reviewer-added code-review comments. There is no separate
-rework mode: code-review rework is complete only when the corresponding
-unchecked `tasks.md` items are implemented, verified, and checked.
-
-Advance only through the orchestrator loop:
+Developer agent completes **all** unchecked `tasks.md` items in one spawn when possible, then returns COMPLETION. Driver only orchestrates:
 
 ```
 orchestrator next "$STATE_FILE"
-# execute the returned step
-orchestrator done "$STATE_FILE"
+# spawn developer (execute-next-task)
+
+orchestrator done "$STATE_FILE" <<< '<json from COMPLETION + dispatch context>'
+orchestrator next "$STATE_FILE"
 ```
 
-Repeat until `execute-next-task` reports `all_tasks_completed`.
+**Happy path** (all tasks finished in one spawn): one `done`, then `next` advances to `run-phase-review`.
+
+**Partial path** (blocked, retry, or escalation before all tasks `[x]`): agent returns COMPLETION early; driver still calls `done` then `next`. `repeat_until: all_tasks_completed` re-dispatches `execute-next-task` until every task is `[x]` or the workflow is blocked (exit 2).
+
+Do not inspect `tasks.md` or re-run verify commands between `done` and `next`.
+
+Spawn `developer` with: full ticket body; `STATE_FILE`, `ARTIFACT_DIR`, working directory; `discovery.md`, `spec.md`, `design.md`, `tasks.md` when present; `.review/AGENTS.md` and review session path when present.
+
+Unchecked `tasks.md` items are the work queue (including reviewer-added code-review comments). No separate rework mode — rework is done when those items are implemented, verified, and checked.
 
 ### 4. Hand off to Code Review
 
-Before handoff, verify:
+When `orchestrator next` advances past `execute-next-task` (implement phase review step dispatched or workflow complete), move ticket to `Code Review` via `/backlog-manager`.
 
-- no unchecked `tasks.md` items remain, except explicitly quarantined items
-- reviewer-added rework tasks are resolved
-- relevant tests/checks were run with evidence
-- orchestrator state was updated via `orchestrator done`
-
-Then transition the ticket to `Code Review` via `/backlog-manager`. Do not
-move developer-owned tickets to `QA Review` or `Done`.
+Do not move to `QA Review` or `Done`. Task completion and test evidence are verified by `run-phase-review` and `/reviewer`, not this driver loop.

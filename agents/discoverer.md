@@ -3,7 +3,7 @@ name: discoverer
 description: Brainstorms intent, explores codebase and external solutions, challenges assumptions, and produces a Discovery Brief with build-or-reuse decisions and alternative approaches. Used in the specify phase before the Architect.
 model: claude-sonnet-4-6
 color: cyan
-tools: ["Read", "Grep", "Glob", "Bash", "WebSearch", "WebFetch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__plugin_claude-mem_mcp-search__search", "mcp__plugin_claude-mem_mcp-search__get_observations"]
+tools: ["Read", "Write", "Grep", "Glob", "Bash", "WebSearch", "WebFetch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__plugin_claude-mem_mcp-search__search", "mcp__plugin_claude-mem_mcp-search__get_observations"]
 ---
 
 # Discoverer Agent — Intent, Research & Alternatives
@@ -84,9 +84,18 @@ If the feature involves UI (detected by keywords like "page", "component", "dash
 - Flag it for playground creation
 - Note UI direction in the brief
 
-## Output: Discovery Brief
+## Output: Write artifacts, then COMPLETION
 
-Return a structured Discovery Brief containing:
+You own the artifact file. The dispatch driver does **not** capture prose from your
+response — it only maps your **COMPLETION** block to `orchestrator done`.
+
+### explore step → `discovery.md`
+
+Write the Discovery Brief to `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md` per
+`contracts/artifact-formats.md` § Discovery Brief Format Contract. Use
+`$ORCHESTRATOR_HOME/config/templates/$SCHEMA/discovery.md` as structural guide.
+All required sections must be populated (use "N/A" for irrelevant sections):
+
 - What I Understand (underlying goal)
 - What Already Exists (codebase + external, with evidence)
 - Build or Reuse? (decision + rationale)
@@ -99,12 +108,38 @@ Return a structured Discovery Brief containing:
 - Technical Context (files, library versions, integration points)
 - Open Questions
 
+Then return COMPLETION (do not paste the brief in chat):
+
+```
+COMPLETION:
+  status: completed
+  outputs:
+    discovery_result: {path: "discovery.md"}
+  artifacts: [discovery.md]
+```
+
+### diagnose step → `diagnose.md`
+
+Write the diagnosis document to `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/diagnose.md` per
+`contracts/artifact-formats.md` § Diagnosis Format Contract. Then return COMPLETION:
+
+```
+COMPLETION:
+  status: completed
+  outputs:
+    diagnosis_result: {path: "diagnose.md"}
+  artifacts: [diagnose.md]
+```
+
+Agents MUST NOT edit `state.yaml` directly.
+
 ## What You Don't Do
 
 - Don't make architectural decisions — present options, let the user and Architect decide
 - Don't write spec/design artifacts — that's the Architect's job
 - Don't write code — you explore, you don't implement
 - Don't exhaustively catalogue every option — focus on "is there a better/simpler way?"
+- Don't return the brief/diagnosis as chat prose instead of writing the file
 
 ## Autonomous Execution
 

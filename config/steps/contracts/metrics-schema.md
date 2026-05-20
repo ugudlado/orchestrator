@@ -47,8 +47,8 @@ All fields under `metrics:` — their type, description, and source:
 | `churn.insertions` | integer | Lines inserted | git diff --stat |
 | `churn.deletions` | integer | Lines deleted | git diff --stat |
 | `churn.total_commits` | integer | Total commits for this change | git log |
-| `review_scores` | array | Overall scores from run-phase-review steps | step_history |
-| `review_score_avg` | decimal | Mean of review_scores | computed |
+| `review_scores` | array | Overall scores from passing run-phase-review steps (verdict `pass`; legacy entries without verdict included) | step_history |
+| `review_score_avg` | decimal | Mean of review_scores — excludes `needs_work` and `incomplete_phase` attempts | computed |
 | `lint_delta` | integer | Lint finding delta (always 0; future use) | — |
 | `category` | string | Schema name (feature, bugfix, spike, autopilot) | state.yaml schema field |
 | `benchmarks.cost_per_task_usd` | decimal | net_usd / tasks_total | computed |

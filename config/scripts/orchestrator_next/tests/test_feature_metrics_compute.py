@@ -255,6 +255,44 @@ class TestExtractReviewScores:
         assert result["avg"] == 8.5
         assert result["scores_list"] == [8.0, 9.0]
 
+    def test_excludes_needs_work_verdict(self):
+        state = {
+            "step_history": [
+                {
+                    "review_score": {"overall": 6},
+                    "evidence": {
+                        "outputs": {"phase_review_report": {"verdict": "needs_work"}}
+                    },
+                },
+                {
+                    "review_score": {"overall": 9},
+                    "evidence": {
+                        "outputs": {"phase_review_report": {"verdict": "pass"}}
+                    },
+                },
+            ]
+        }
+        result = extract_review_scores(state)
+        assert result["scores_list"] == [9.0]
+        assert result["avg"] == 9.0
+
+    def test_excludes_incomplete_phase_verdict(self):
+        state = {
+            "step_history": [
+                {
+                    "evidence": {
+                        "outputs": {
+                            "phase_review_report": {"verdict": "incomplete_phase"}
+                        }
+                    },
+                },
+                {"review_score": {"overall": 8}},
+            ]
+        }
+        result = extract_review_scores(state)
+        assert result["scores_list"] == [8.0]
+        assert result["avg"] == 8.0
+
     def test_skips_non_numeric(self):
         state = {
             "step_history": [

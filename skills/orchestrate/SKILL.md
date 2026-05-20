@@ -107,7 +107,7 @@ outputs from memory — those already live in `step_context` and `rules`.
 What the driver SHOULD add to a spawn prompt (beyond the passthrough):
 - Feature-specific paths the agent can't get from step_context: state_dir,
   worktree_path, backlog-entry anchor, prior-phase archives (if relevant).
-- For developer spawns: the exact task row from tasks.md + declared Files list.
+- For developer spawns: pass full tasks.md queue; agent completes all unchecked items before COMPLETION.
 - For reviewer spawns: the artifacts + any driver-level findings to verify.
 
 What the driver MUST NOT duplicate in the spawn prompt:
@@ -176,7 +176,12 @@ LOOP:
       # re-derive these from memory — plan.yaml is the single source.
 
       # 1. Collect agent result (wait for background task to complete).
-      # 2. Pass outputs to orchestrator done payload.
+      # 2. Parse COMPLETION block from agent result (contracts/done-payload.md).
+      #    Map fields verbatim — do NOT extract review_score, verdict, or artifact
+      #    content from report prose. Agents write artifact files themselves;
+      #    COMPLETION carries machine-readable fields only.
+      #    Merge step_id, phase, agent, agent_id, usage from dispatch context.
+      # 3. Pipe payload to orchestrator done (driver does not verify tasks/tests):
 
       # 3. MANDATORY: USAGE CAPTURE — after any agent Task completes, extract from
       #    the result <usage> block:
@@ -215,6 +220,7 @@ LOOP:
       #    corruption (all steps appearing as 'inline' in DuckDB reports).
 
       orchestrator done state.yaml <<< {step_id, phase, status, agent, agent_id, outputs, usage, evidence}
+      # Full contract: config/steps/contracts/done-payload.md
 ```
 
 Escalation (agent returns STATUS: escalate_to_architect): record a

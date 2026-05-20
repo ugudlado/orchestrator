@@ -1,10 +1,13 @@
 id: execute-next-task
 version: 4
 
-intent: Execute the next ready task and update progress state.
+intent: Execute all ready tasks in one spawn and update progress state.
 
 agent: developer
 
+# repeat_until is declared here; record.py re-dispatches this step while tasks.md
+# has unchecked items. Early COMPLETION (block/retry/escalation) does not satisfy
+# done_when — orchestrator next returns execute-next-task again until all [x].
 repeat_until: all_tasks_completed
 
 pre_execute:
@@ -47,7 +50,10 @@ instruction: |
 
   1. Read tasks.md to find the next unchecked task (- [ ]) whose
      dependencies (depends: T-N) are all marked complete.
-  2. If no unchecked tasks remain: this step's repeat condition is met — advance.
+  2. If no unchecked tasks remain: run the FINAL-TASK SIMPLIFY PASS (step 10
+     below if applicable), then return one COMPLETION per contracts/done-payload.md
+     with evidence.counts.tasks_marked set to the total tasks completed this spawn.
+     Driver calls orchestrator done — do NOT edit state.yaml directly.
   3. Identify which files are relevant to the task from design.md context.
   4. Implement the changes described in the task.
   5. Run project verification commands (type-check, test, build)
@@ -58,15 +64,14 @@ instruction: |
         using the same patterns as capture-test-baseline step 3.
      b. Compare current passing count to baseline.passing.
      c. If current.passing < baseline.passing (new failures introduced by this task):
-        - Mark this as a regression, not a test failure. Record to state.yaml:
+        - Mark this as a regression, not a test failure. Include in COMPLETION:
           ```yaml
-          step_history[-1]:
-            regression:
-              task_id: "T-<N>"
-              baseline_passing: <N>
-              current_passing: <N>
-              delta: -<N>
-              detected_at: "<ISO timestamp>"
+          regression:
+            task_id: "T-<N>"
+            baseline_passing: <N>
+            current_passing: <N>
+            delta: -<N>
+            detected_at: "<ISO timestamp>"
           ```
         - Treat as verification failure for recovery (continue to step 7).
         - Do NOT mark the task complete. Do NOT commit.
@@ -77,26 +82,26 @@ instruction: |
         baseline.total = current.total. This makes the new tests part of the
         floor for subsequent tasks.
      f. If the test command cannot be run or output cannot be parsed this time,
-        log `step_history[-1].regression_check: skipped` with a reason and proceed
-        to step 6. Do not block on a broken gate.
+        include `regression_check: { skipped: true, reason: "..." }` in COMPLETION
+        and proceed to step 6. Do not block on a broken gate.
 
   6. If verification passes:
      - Mark task complete in tasks.md: [ ] → [x]
      - Commit per contracts/auto-commit.md:
        Stage only the task's changed files + tasks.md,
        then commit with message: `<prefix>(<change-id>): T-<N> <task title>`
-       tasks.md [x] IS the durable checkpoint — do NOT attempt to write
-       `task_checkpoint` to state.yaml (record.py drops unknown keys silently).
+       tasks.md [x] IS the durable checkpoint — do NOT write task_checkpoint
+       (record.py drops unknown keys silently).
        Skip commit if git status shows no changes (verification-only task).
-     - Update state.yaml step_history per CONVENTIONS.md § State Updates.
+     - Go to step 1 for the next unchecked task.
   7. If verification fails:
      a. Leave task unchecked (- [ ]).
      b. Rollback (self-healing): stash the working-tree changes made by this
         attempt so the retry starts from a clean baseline instead of trying to
         patch buggy code in place:
           git stash push -u -m "pre-retry: T-<N> attempt <K>"
-        The stash is named and recoverable. Record the stash ref to state.yaml:
-          step_history[-1].rollback: { stash_ref: "stash@{0}", attempt: <K> }
+        The stash is named and recoverable. Include in COMPLETION:
+          rollback: { stash_ref: "stash@{0}", attempt: <K> }
      c. Diagnose the failure from command output / test results and build a
         RETRY_CONTEXT block the dispatch loop will pass into the re-spawned
         agent (per CONVENTIONS.md § Retry Context Contract):
@@ -105,25 +110,24 @@ instruction: |
             previous_failure: <regression | test_failure | verify_assertion>
             detail: <regression delta, or failing test names + stdout tail (20 lines max)>
             baseline: <baseline.passing value if regression>
-        Write the block to step_history[-1].retry_context so the dispatch loop
-        can find it on re-spawn.
+        Include the same fields as retry_context in COMPLETION for the driver.
      d. Re-run verification from the rolled-back baseline with the augmented
         prompt in place.
      e. Follow Error Recovery Contract (contracts/error-recovery.md):
-        - Increment retries.T-N in state.yaml per attempt.
+        - Include state_patch.retries increment in COMPLETION (e.g. {"T-N": <K>}).
         - On success: drop the stash (`git stash drop <ref>`) and proceed to step 6.
         - If retries.T-N >= max_retries (from phase verify, default 3):
           * Restore the final failed state: `git stash pop <ref>` so the broken
             code is visible in the working tree for debugging.
           * Under `auto: true` (autopilot / lenient mode): mark the task
             `quarantined: true` in tasks.md per § Quarantine Protocol below,
-            record a quarantine_events entry in state.yaml, and advance to the
+            include quarantine_events in COMPLETION state_patch, and advance to the
             next task. Do NOT escalate.
           * Otherwise: execute on_max_retries action per § Escalation Protocol.
         - Do not skip the task unless it is quarantined.
   8. If blocked (external dependency, missing input, ambiguous spec):
      Follow Agent Blocked Protocol (contracts/error-recovery.md).
-     Record blocker in state.yaml: `{ blocked_task: T-N, reason: "..." }`.
+     Return COMPLETION with blocker: { blocked_task: T-N, reason: "..." }.
      Do not advance past the blocked task.
 
   9. If architectural escalation needed (design contradiction, missing design coverage,
@@ -140,11 +144,10 @@ instruction: |
      Do NOT increment retries for this task.
      Wait for architect guidance before resuming implementation.
 
-  FINAL-TASK SIMPLIFY PASS (runs only when no unchecked tasks remain after step 6):
-  If the repeat condition is met (all tasks complete), before this step returns:
+  FINAL-TASK SIMPLIFY PASS (runs in step 2 when no unchecked tasks remain):
 
   If state.yaml flags.simplify is false (read flags from $WORKFLOW_STATE_DIR/$CHANGE_ID/state.yaml),
-  skip steps 10a-d below and return without making a simplify commit.
+  skip steps 10a-d below; step 2 returns COMPLETION.
   Otherwise:
 
   10. Run a developer simplify pass over the files changed in this feature:
@@ -158,22 +161,25 @@ instruction: |
       c. If simplification changes are made: commit them with message:
          `chore(<change-id>): simplify pass after final task`
       d. If no simplification opportunities found: emit a no-op commit or skip.
-      This runs in the same developer agent spawn as the final task — no new spawn.
+      Then return COMPLETION per step 2.
 
-  This step is typically used with `repeat_until: all_tasks_completed`.
-  The agent re-executes this step for each task until all are done.
+  One developer spawn completes all tasks, then returns COMPLETION once.
+  The driver calls orchestrator done a single time for that spawn.
+  Reviewer verifies outcomes at run-phase-review — not the driver.
 
 verify:
   evidence_required: true
   after_each:
-    - The completed task is marked [x] in tasks.md
+    - Each completed task is marked [x] in tasks.md before COMPLETION is returned
     - Task's verification criteria (from Verify field) are met with evidence
     - type-check passes
     - test passes (if tests exist for changed files)
     - No regression: baseline.passing (if captured) equals current passing count
     - Changes committed per § Auto-Commit Convention (or skipped if no changes)
-  repeat_done_when:
-    - No unchecked tasks (- [ ]) remain in tasks.md
+  done_when:
+    - All non-quarantined tasks in tasks.md are marked [x] and COMPLETION returned (one spawn, one orchestrator done on success)
+    # repeat_until (above) — record.py reads tasks.md after orchestrator done; driver calls next again if unchecked items remain
+    - On block, retry, or escalation mid-queue: COMPLETION returned early; repeat_until re-dispatches this step until done_when is met
 
 outputs:
   - task_execution_result

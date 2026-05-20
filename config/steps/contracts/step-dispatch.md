@@ -162,8 +162,9 @@ object with exactly these seven keys:
 | `ORCHESTRATOR_WORKTREE_ARTIFACT_DIR` | absolute path | Base path for tracked workflow artifacts (spec/design/tasks/diagnose); points to `$WORKTREE_ROOT/spec/changes` when `flags.worktree=true`, otherwise `$REPO_ROOT/spec/changes`. |
 
 Callers set these variables in the environment of the adapter or inline agent they
-spawn. Adapters read them to locate `state.yaml`, compute their output paths, and
-write the completed `step_history` entry.
+spawn. Adapters read them to locate artifacts and return a COMPLETION block per
+`contracts/done-payload.md`. The dispatch driver calls `orchestrator done` — agents
+do not write `state.yaml` directly.
 
 ## Attempt Assignment
 
@@ -186,10 +187,10 @@ the original in_progress entry's attempt value.
 When the CLI returns `action: resume_step`:
 
 1. Caller uses the returned `attempt`, `step_id`, `phase`, `env` to re-spawn the agent.
-2. The agent re-executes the step and appends a new `step_history` entry using the
-   SAME `attempt` number (no increment).
-3. Caller calls `orchestrator next` again — CLI upserts the terminal entry and returns
-   the next action.
+2. The agent re-executes the step and returns COMPLETION with the SAME `attempt`
+   number (no increment).
+3. Caller pipes COMPLETION to `orchestrator done`, then calls `orchestrator next`
+   again for the next action.
 
 The `is_resume: true` field signals the caller that this is a crash-recovery dispatch.
 The `started_at` field contains the original wall-clock start time of the interrupted
@@ -204,8 +205,7 @@ When `reason: escalate_to_architect`:
    the escalation context (`type`, `task_id`, `context`, `question`, `attempted`).
 3. Architect returns `DECISION`. Caller appends the decision to the developer's prompt.
 4. Caller re-spawns the developer with the **same attempt number** (no retry charged).
-5. Developer appends a new `step_history` entry (typically `status: completed`) at
-   the same `attempt`.
+5. Developer appends a new completed entry (via `orchestrator done`) at the same `attempt`.
 6. Both the `escalate_to_architect` entry and the subsequent `completed` entry are
    upserted into `step_events`. The composite primary key includes `status`, so both
    rows are preserved as the escalation audit trail.

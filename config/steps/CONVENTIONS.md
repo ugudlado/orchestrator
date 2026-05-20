@@ -18,6 +18,7 @@ Load only the contracts relevant to your step:
 | Auto-Commit | `contracts/auto-commit.md` | execute-next-task |
 | Metrics Schema | `contracts/metrics-schema.md` | compute-swe-metrics, telemetry, learn, workflow-improver |
 | Step Dispatch (CLI interface, JSON schema, exit codes) | `contracts/step-dispatch.md` | orchestrate skill, adapter authors, callers of `orchestrator next` |
+| Done Payload (`orchestrator done` JSON stdin, COMPLETION block) | `contracts/done-payload.md` | orchestrate skill, developer skill, all agent-spawned steps |
 | Run Field Migration (adding `run:` adapter path to a step) | `contracts/migration-run-field.md` | developer adding subprocess adapter to a step contract |
 
 When step contracts reference `CONVENTIONS.md § <Section>`, check whether the
@@ -277,8 +278,13 @@ the artifact destination.
 
 ## State Updates
 
-Every step that modifies `state.yaml` MUST use the standardized `step_history` entry
-format. This ensures resume works regardless of which model or agent executed the step.
+**Agents MUST NOT edit `state.yaml` directly.** All writes go through
+`orchestrator done` with a JSON payload (see `contracts/done-payload.md`).
+The dispatch driver calls `orchestrator done` after each step; step agents
+return a COMPLETION block that the driver maps into the payload.
+
+The section below documents the **resulting** `step_history` entry shape —
+reference only, not an editing instruction.
 
 ### Standard step_history entry
 
@@ -323,11 +329,12 @@ step_history:
 
 ### In step contracts
 
-Instead of writing "Update state.yaml with X completion status", reference:
+Instead of "Update state.yaml with X completion status", reference:
 
 ```yaml
 instruction: |
-  N. Update state.yaml step_history per CONVENTIONS.md § State Updates.
+  N. Return a COMPLETION block per contracts/done-payload.md (driver calls
+     orchestrator done — agents MUST NOT edit state.yaml directly).
 ```
 
 This replaces all variants of "update state.yaml with discovery/design/artifact/task/

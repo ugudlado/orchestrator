@@ -23,6 +23,95 @@ from orchestrator_next.parser import ContractError, load_contract_for_step, load
 from orchestrator_next.upsert import upsert_step_event
 
 
+# Optional fields copied from done payload into step_history[-1].
+_OPTIONAL_STEP_HISTORY_KEYS = (
+    "artifacts",
+    "review_score",
+    "approach",
+    "regression",
+    "rollback",
+    "retry_context",
+    "regression_check",
+    "blocker",
+    "escalation",
+)
+
+
+_STATE_PATCH_KEYS = frozenset({
+    "retries",
+    "quarantine_events",
+    "baseline",
+    "refresh_artifacts",
+    "change_type",
+    "flag_adaptations",
+})
+
+_PHASE_REVIEW_VERDICTS = frozenset({"pass", "needs_work", "incomplete_phase"})
+
+
+def _validate_phase_review_output(
+    step_id: str, outputs: dict[str, Any]
+) -> tuple[dict[str, Any], int] | None:
+    """Reject invalid phase_review_report.verdict at the record boundary."""
+    if step_id != "run-phase-review":
+        return None
+    report = outputs.get("phase_review_report")
+    if not isinstance(report, dict):
+        return (
+            {
+                "reason": "invalid_phase_review_report",
+                "step_id": step_id,
+                "hint": "outputs.phase_review_report must be an object with verdict",
+            },
+            3,
+        )
+    verdict = report.get("verdict")
+    if not isinstance(verdict, str) or verdict not in _PHASE_REVIEW_VERDICTS:
+        return (
+            {
+                "reason": "invalid_phase_review_verdict",
+                "step_id": step_id,
+                "verdict": verdict,
+                "valid_verdicts": sorted(_PHASE_REVIEW_VERDICTS),
+            },
+            3,
+        )
+    return None
+
+
+def _apply_state_patch(state_raw: dict[str, Any], patch: dict[str, Any]) -> None:
+    """Apply state_patch from orchestrator done payload into top-level state."""
+    if not isinstance(patch, dict):
+        return
+    for key in patch:
+        if key not in _STATE_PATCH_KEYS:
+            sys.stderr.write(
+                f"[record] warning: state_patch key {key!r} ignored "
+                f"(allowed: {sorted(_STATE_PATCH_KEYS)})\n"
+            )
+    retries = patch.get("retries")
+    if isinstance(retries, dict):
+        existing = state_raw.get("retries") or {}
+        if not isinstance(existing, dict):
+            existing = {}
+        # Per-key replace: payload sends absolute retry counts, not deltas.
+        existing.update(retries)
+        state_raw["retries"] = existing
+    qe = patch.get("quarantine_events")
+    if qe is not None:
+        events = state_raw.get("quarantine_events") or []
+        if not isinstance(events, list):
+            events = []
+        if isinstance(qe, list):
+            events.extend(qe)
+        else:
+            events.append(qe)
+        state_raw["quarantine_events"] = events
+    for key in ("baseline", "refresh_artifacts", "change_type", "flag_adaptations"):
+        if key in patch:
+            state_raw[key] = patch[key]
+
+
 # ---------------------------------------------------------------------------
 # Boundary detection (FR-4)
 # ---------------------------------------------------------------------------
@@ -746,8 +835,28 @@ def run_git_churn(worktree: str, change_id: str) -> dict:
         return defaults
 
 
+def _phase_review_verdict(entry: dict) -> str | None:
+    """Read verdict from step_history evidence.outputs.phase_review_report."""
+    evidence = entry.get("evidence")
+    if not isinstance(evidence, dict):
+        return None
+    outputs = evidence.get("outputs")
+    if not isinstance(outputs, dict):
+        return None
+    report = outputs.get("phase_review_report")
+    if isinstance(report, dict):
+        verdict = report.get("verdict")
+        return verdict if isinstance(verdict, str) else None
+    return None
+
+
 def extract_review_scores(state: dict) -> dict:
     """Extract review_score.overall from step_history entries.
+
+    Only includes passing reviews (verdict ``pass``) and legacy entries that
+    predate the verdict field. ``needs_work`` and ``incomplete_phase`` attempts
+    are excluded so ``review_score_avg`` reflects achieved quality, not failed
+    review rounds.
 
     Returns:
         scores_list (list of ints/floats), avg (float or None)
@@ -756,6 +865,9 @@ def extract_review_scores(state: dict) -> dict:
     scores: list = []
     for entry in step_history:
         if not isinstance(entry, dict):
+            continue
+        verdict = _phase_review_verdict(entry)
+        if verdict is not None and verdict != "pass":
             continue
         review_score = entry.get("review_score")
         if isinstance(review_score, dict):
@@ -1060,6 +1172,9 @@ def record(
                 },
                 3,
             )
+        verdict_err = _validate_phase_review_output(step_id, outputs)
+        if verdict_err is not None:
+            return verdict_err
 
     # Check B: usage required for agent (non-inline) steps on completion.
     # Root cause of ISSUE-10.1: empty usage means cost report is blank and
@@ -1209,6 +1324,12 @@ def record(
         "usage": usage,
         "evidence": {"outputs": outputs, **(payload.get("evidence") or {})},
     }
+    for key in _OPTIONAL_STEP_HISTORY_KEYS:
+        if key in payload:
+            entry[key] = payload[key]
+    state_patch = payload.get("state_patch")
+    if isinstance(state_patch, dict):
+        _apply_state_patch(state_raw, state_patch)
     # BEFORE appending, strip any in_progress placeholder for this (step_id, phase).
     # The terminal record supersedes the in_progress entry; keeping both would
     # cause duplicate entries and break invariant checks (T-11 / FR-6, AC-3).

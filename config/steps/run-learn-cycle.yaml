@@ -40,7 +40,7 @@ instruction: |
      - Return success. Learning is best-effort.
        Do NOT fail the complete phase over a learning error.
 
-  6. Update state.yaml step_history per CONVENTIONS.md § State Updates.
+  6. Return COMPLETION per contracts/done-payload.md (driver calls orchestrator done).
 
 verify:
   - Step completed (either learn_completed or learn_skipped recorded)

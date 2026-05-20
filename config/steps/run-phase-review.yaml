@@ -28,7 +28,7 @@ rules:
   - Artifact structural compliance with contracts/artifact-formats.md format contracts is a review criterion.
   - "When a finding requires a new requirement, the fix MUST update design.md (AC + design) and tasks.md atomically — partial updates that sync only one artifact leave the feature in an inconsistent state and will fail re-review. <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb, cycle: 11, hits: 8, misses: 6, repo: orchestrator -->"
   - "For tasks that spec describes as a rewrite, projection, or byte-compatible replacement of an existing producer, AC verification MUST include a value/shape parity check against at least one real payload from the prior implementation — key-presence alone is insufficient. Reviewer must run both the old producer and the new one on a real archived fixture and diff the top-level output keys; any key reduction is an important finding. <!-- learned: 2026-04-20, source: single-source-metrics-via-step-events, cycle: 12, hits: 7, misses: 2, repo: orchestrator -->"
-  - "Before scoring the phase, count unchecked items (`- [ ]`) in tasks.md. If any unchecked tasks remain and they are not explicitly quarantined in state.yaml, return verdict: incomplete_phase listing the unchecked task IDs — do NOT proceed to scoring. This guards against dispatcher bugs or manual advances that reach run-phase-review before all tasks are complete. <!-- learned: 2026-05-08, source: hl-303, cycle: 38, hits: 6, misses: 0, repo: orchestrator -->"
+  - "Before scoring the phase, count unchecked items (`- [ ]`) in tasks.md. If any unchecked tasks remain and they are not explicitly quarantined in state.yaml, write phase-review.md with verdict incomplete_phase listing the unchecked task IDs — return COMPLETION with outputs.phase_review_report: {verdict: incomplete_phase} and do NOT include review_score. This guards against dispatcher bugs or manual advances that reach run-phase-review before all tasks are complete. <!-- learned: 2026-05-08, source: hl-303, cycle: 38, hits: 6, misses: 0, repo: orchestrator -->"
 
 instruction: |
   1. Load scoring config from project.yaml quality_bar.scoring. Apply defaults
@@ -95,21 +95,30 @@ instruction: |
           - Do not trust earlier phase counts.
           - Record fresh search result as evidence.
      - If any AC fails: treat as a critical finding in spec_compliance dimension.
+  5a. Write the full human-readable report to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/phase-review.md.
   6. If overall >= phase verify.metrics.review_score.min and no critical findings: PASS.
-     Write structured review_score object to state.yaml step_history entry per CONVENTIONS.md § State Updates:
+     Return COMPLETION per contracts/done-payload.md with:
+       outputs.phase_review_report: {verdict: pass}
        review_score: { overall: <N>, dimensions: { spec_compliance: <N>, correctness: <N>, security: <N>, simplicity: <N>, code_quality: <N> } }
+       artifacts: [phase-review.md]
   7. If FAIL:
      a. Generate fix tasks per Fix Task Protocol (contracts/error-recovery.md):
         one fix task per finding, each with Finding, Scope, and Approach.
         Do NOT suggest refactoring or unrelated improvements.
-     b. Follow Error Recovery Contract (contracts/error-recovery.md):
-        - Increment retries.<step_id> in state.yaml.
+     b. Return COMPLETION per contracts/done-payload.md with:
+        outputs.phase_review_report: {verdict: needs_work}
+        review_score: { overall: <N>, dimensions: {...} }
+        artifacts: [phase-review.md]
+        state_patch.retries increment for this step.
+     c. Follow Error Recovery Contract (contracts/error-recovery.md):
         - If retries >= phase verify.max_retries (default 3):
           execute on_max_retries action per § Escalation Protocol.
         - Otherwise: execute fix tasks, then re-run this review step.
 
 verify:
-  - "Review score recorded in state.yaml under step_history as {step_id: run-phase-review, phase: <current>, status: completed, review_score: { overall: <N>, dimensions: { spec_compliance: <N>, correctness: <N>, security: <N>, simplicity: <N>, code_quality: <N> } }}"
+  - Phase review report written to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/phase-review.md
+  - "When phase_review_report.verdict is pass or needs_work: review_score recorded in step_history as {step_id: run-phase-review, phase: <current>, status: completed, review_score: { overall: <N>, dimensions: { spec_compliance: <N>, correctness: <N>, security: <N>, simplicity: <N>, code_quality: <N> } }}"
+  - "When phase_review_report.verdict is incomplete_phase: review_score is omitted from step_history (nothing to score)"
   - "All critical findings have either a fix task or are resolved"
   - "phase-signoff will BLOCK if this step's entry is missing from step_history — this step is not optional"
 

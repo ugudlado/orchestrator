@@ -19,64 +19,40 @@ AGENT_HANDLE=${1:-@reviewer}
 
 ## Execution
 
-This skill is glue; the reviewer agent does the actual review. Keep ticket
-operations in `/backlog-manager`, workflow context in the orchestrator
-artifacts, and review standards in `agents/reviewer.md`.
+Glue skill: `/backlog-manager` for tickets, orchestrator artifacts for workflow context, `agents/reviewer.md` for review standards.
 
 ### 1. Claim work via `/backlog-manager`
 
-Load `/backlog-manager` and atomically claim the next `Code Review` ticket
-for `$AGENT_HANDLE`.
+Load `/backlog-manager` and atomically claim the next `Code Review` ticket for `$AGENT_HANDLE`.
 
-If the queue is empty, stop and report `review queue empty`. Capture
-`TICKET_ID`.
+If the queue is empty, stop and report `review queue empty` (nothing to review). Capture `TICKET_ID`.
 
 ### 2. Resolve workflow state
 
-Spec/worktree/init are assumed pre-done. Do not auto-init.
+Spec/worktree/init assumed done — do not auto-init (same as `/developer`; init is upstream).
 
-Find the matching `$WORKFLOW_STATE_DIR/*/state.yaml` (skip `archive/` and
-`backlog/`) by `change_id`, `ticket_id`, or lowercased ticket slug.
+Find `$WORKFLOW_STATE_DIR/*/state.yaml` (skip `archive/`, `backlog/`) by `change_id`, `ticket_id`, or lowercased ticket slug.
 
-- No match: append a ticket note that the workflow is not initialized, leave
-  the ticket in `Code Review`, and stop.
-- Match: record `SLUG`, `STATE_FILE`, `ARTIFACT_DIR`, and working directory.
-  Artifacts live at `$WORKTREE_BASE_DIR/$SLUG` when `flags.worktree: true`,
-  otherwise `$REPO_ROOT/spec/changes/$SLUG`.
+- No match: note on ticket that workflow is not initialized; leave `Code Review`; stop.
+- Match: record `SLUG`, `STATE_FILE`, `ARTIFACT_DIR`, working directory. Artifacts at `$WORKTREE_BASE_DIR/$SLUG` when `flags.worktree: true`, else `$REPO_ROOT/spec/changes/$SLUG`.
 
 ### 3. Run review
 
-Run `resolvr init "$PWD"` from the resolved working directory, then spawn the
-`reviewer` agent with:
+Reviewer verifies unchecked `tasks.md` items, `Verify:` lines, project `verify_commands`, and design AC. Driver does not perform these checks.
 
-- full ticket body
-- `STATE_FILE`, `ARTIFACT_DIR`, and working directory
-- `design.md` and `tasks.md` paths when present
-- `.review/AGENTS.md` and the review session path
+Run `resolvr init "$PWD"` from the working directory, then spawn `reviewer` with: full ticket body; `STATE_FILE`, `ARTIFACT_DIR`, working directory; `design.md`, `tasks.md` when present; `.review/AGENTS.md` and review session path.
 
-The reviewer must not edit production code.
+Reviewer must not edit production code.
 
 ### 4. Record blocking findings
 
-For every approval-blocking issue, the reviewer must append an unchecked
-`tasks.md` item with:
-
-- exact code references
-- what is wrong
-- why it matters
-- what should be improved
-- how the developer verifies the fix
-
-Line-anchored findings should also be recorded in resolvr. Non-blocking
-suggestions stay in the review report and do not become `tasks.md` items.
+For every approval-blocking issue, append an unchecked `tasks.md` item with: exact code references, what is wrong, why it matters, what should improve, and how to verify the fix. Line-anchored findings also go in resolvr. Non-blocking suggestions stay in the review report only.
 
 ### 5. Transition the ticket
 
-Drive the transition through `/backlog-manager`:
+Via `/backlog-manager`:
 
-- `VERDICT: APPROVED` -> move to `QA Review`
-- `VERDICT: CHANGES_REQUESTED` -> move to `In Progress`
+- `VERDICT: APPROVED` → `QA Review`
+- `VERDICT: CHANGES_REQUESTED` → `In Progress`
 
-Do not move review-owned tickets to `Done`.
-
-Report the ticket ID, verdict, and transition taken.
+Do not move to `Done`. Report ticket ID, verdict, and transition.

@@ -51,7 +51,7 @@ instruction: |
      e. Document criteria, values, and selection.
 
   4. Record the chosen direction and rationale in discovery.md's "Key Decisions" section
-     per CONVENTIONS.md § Discovery Brief Format Contract.
+     per contracts/artifact-formats.md § Discovery Brief Format Contract.
 
   ## Part 2: Artifact Generation
 
@@ -75,7 +75,7 @@ instruction: |
      - Write using Task Format Contract (contracts/artifact-formats.md § Task Format Contract).
      - When tdd_required: every implementation task has a preceding test task.
 
-  8. Update state.yaml step_history per CONVENTIONS.md § State Updates.
+  8. Return COMPLETION per contracts/done-payload.md (driver calls orchestrator done).
 
   ## Part 3: Artifact Review (interactive mode only)
 

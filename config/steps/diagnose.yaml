@@ -49,7 +49,8 @@ instruction: |
   - Identify existing tests that cover this area (they may need updating)
 
   ### Step 4: Document
-  Write a diagnosis document to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/diagnose.md per CONVENTIONS.md § Diagnosis Format Contract, containing:
+  Write a diagnosis document to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/diagnose.md per
+  contracts/artifact-formats.md § Diagnosis Format Contract, containing:
   - **Symptom**: What the user sees (from the bug report)
   - **Reproduction**: Runnable command/script with expected vs actual output
   - **Root cause**: File, line, and explanation of why it's wrong
@@ -57,7 +58,9 @@ instruction: |
   - **Proposed approach**: One-sentence fix direction (not implementation)
   - **Unresolved questions**: Anything that needs user input
 
-  Update state.yaml step_history per CONVENTIONS.md § State Updates.
+  5. Return COMPLETION per contracts/done-payload.md with
+     outputs.diagnosis_result: {path: "diagnose.md"} and artifacts: [diagnose.md].
+     Do not return the diagnosis as chat prose — the file is the artifact.
 
 verify:
   - Diagnosis document written to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/diagnose.md
