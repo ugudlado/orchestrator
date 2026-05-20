@@ -130,7 +130,7 @@ USE_WORKTREE=$(python3 -c "import json,sys; print(json.loads(sys.stdin.read())['
 # Worktree creation (before any file writes so STATE_DIR resolves correctly)
 # ---------------------------------------------------------------------------
 
-BRANCH="orc/$SLUG"
+BRANCH="$SCHEMA/$SLUG"
 WORKTREE_PATH=""
 
 if [[ "$USE_WORKTREE" == "True" ]]; then
