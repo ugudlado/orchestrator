@@ -140,7 +140,7 @@
     - type-check clean
   depends: T-9, T-12
 
-- [ ] T-14: Review checkpoint — DAG dispatch + prereq enforcement (gate)
+- [x] T-14: Review checkpoint — DAG dispatch + prereq enforcement (gate)
   Why: phase gate — confirm DAG dispatch and the exit-2 block before record changes
   Test scenarios:
     - type-check clean
