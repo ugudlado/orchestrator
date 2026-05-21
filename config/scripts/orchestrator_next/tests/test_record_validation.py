@@ -331,7 +331,9 @@ class TestPhaseReviewVerdictValidation:
     def test_rejects_missing_verdict(self, tmp_path):
         state_path = _phase_review_state(tmp_path)
         payload = self._payload("pass")
-        payload["outputs"] = {"phase_review_report": {}}
+        # A non-empty report dict that lacks the `verdict` key — passes the
+        # ORC-63 output post-check (non-empty) and reaches verdict validation.
+        payload["outputs"] = {"phase_review_report": {"summary": "no verdict here"}}
         result, exit_code = record(state_path, payload)
         assert exit_code == 3
         assert result["reason"] == "invalid_phase_review_verdict"

@@ -162,7 +162,7 @@
     - a payload with all declared outputs present, non-empty, and path-files existing is accepted
     - tests fail for the right reason today
 
-- [ ] T-16: Implement record node.status writer + next_step derivation + output post-check upgrade (GREEN)
+- [x] T-16: Implement record node.status writer + next_step derivation + output post-check upgrade (GREEN)
   Why: AC-10, OQ-3 — enforce outputs at the record boundary; keep next_step derived from node status
   Files: config/scripts/orchestrator_next/record.py
   Change: In `_detect_boundary` (record.py:163-164) and `_compute_next_step` (record.py:1093-1137), read `workflow_plan.nodes` via `parser.phase_nodes`: "last node" = last declaration-order node not in `filtered`; "next step" = `readiness.next_ready_node(state)`. On a `completed` record, call `readiness.mark_node_status(state_raw, phase, step_id, 'completed')` and set `state.next_step` from `next_ready_node`. Upgrade the output check (record.py:1189-1199): a declared output is satisfied only when its key is in `evidence.outputs`, the value is non-null and non-empty, and — if the name contains `/` — the file exists (resolved against the worktree artifact dir / repo root). Failure returns the existing `missing_outputs` shape (exit 3).

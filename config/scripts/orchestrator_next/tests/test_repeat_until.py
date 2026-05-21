@@ -52,13 +52,21 @@ _STUB_CONTRACT_WITHOUT_REPEAT_UNTIL = textwrap.dedent("""\
 
 
 def _write_state(tmp_path, tasks_md_path: str) -> str:
-    """Write a minimal state.yaml with execute-next-task active; return its path."""
+    """Write a minimal state.yaml (ORC-63 nodes shape) with execute-next-task
+    and run-phase-review nodes; return its path."""
     state = {
         "change_id": "repro-16",
         "phase": "implement",
         "workflow_plan": {
             "implement": {
-                "active": ["execute-next-task", "run-phase-review"],
+                "nodes": [
+                    {"id": "execute-next-task", "status": "pending",
+                     "agent": "developer", "goal": "", "inputs": [],
+                     "outputs": ["task_execution_result"], "rules": []},
+                    {"id": "run-phase-review", "status": "pending",
+                     "agent": "reviewer", "goal": "", "inputs": [],
+                     "outputs": [], "rules": []},
+                ],
                 "filtered": [],
             }
         },
