@@ -149,7 +149,7 @@
 
 ## Group D — record: node.status writer + next_step + output post-check
 
-- [ ] T-15: Write tests for record node-aware boundary + next_step derivation + output post-check (RED)
+- [x] T-15: Write tests for record node-aware boundary + next_step derivation + output post-check (RED)
   Why: AC-10 — record must enforce declared outputs and keep node.status / next_step consistent
   Files: config/scripts/orchestrator_next/tests/test_record_validation.py, config/scripts/orchestrator_next/tests/test_boundary_detection.py
   Change: Add cases for the node-aware boundary and the upgraded output post-check. Tests fail today because the boundary indexes `active[-1]` and the output check (record.py:1189-1199) only checks dict-key presence.

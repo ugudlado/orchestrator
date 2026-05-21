@@ -173,3 +173,61 @@ def test_boundary_kind_values():
     assert BoundaryKind.NONE.value == "none"
     assert BoundaryKind.PHASE.value == "phase"
     assert BoundaryKind.FEATURE.value == "feature"
+
+
+# ===========================================================================
+# ORC-63 T-15: _detect_boundary reads the nodes shape (not active[-1])
+# ===========================================================================
+
+
+def _nodes_plan_two_phases():
+    """workflow_plan in the ORC-63 nodes shape with two phases."""
+    return {
+        "specify": {
+            "nodes": [
+                {"id": "prepare-step", "status": "completed"},
+                {"id": "specify-step", "status": "completed"},
+            ],
+            "filtered": [],
+        },
+        "implement": {
+            "nodes": [
+                {"id": "build-step", "status": "pending"},
+                {"id": "test-step", "status": "pending"},
+            ],
+            "filtered": [],
+        },
+    }
+
+
+def test_nodes_shape_last_node_is_phase_boundary():
+    """The last declaration-order node in a non-terminal phase is a PHASE boundary."""
+    plan = _nodes_plan_two_phases()
+    assert _detect_boundary(plan, "specify", "specify-step", "completed") == BoundaryKind.PHASE
+
+
+def test_nodes_shape_last_node_in_last_phase_is_feature_boundary():
+    """The last node of the last phase is a FEATURE boundary."""
+    plan = _nodes_plan_two_phases()
+    assert _detect_boundary(plan, "implement", "test-step", "completed") == BoundaryKind.FEATURE
+
+
+def test_nodes_shape_non_last_node_is_none():
+    """A non-last node in the nodes list yields NONE."""
+    plan = _nodes_plan_two_phases()
+    assert _detect_boundary(plan, "specify", "prepare-step", "completed") == BoundaryKind.NONE
+
+
+def test_nodes_shape_last_node_skips_filtered_tail():
+    """The 'last node' is the last node in `nodes` — a node in `filtered` is not
+    part of `nodes` and does not shift the boundary."""
+    plan = {
+        "main": {
+            "nodes": [
+                {"id": "a", "status": "completed"},
+                {"id": "b", "status": "completed"},
+            ],
+            "filtered": [{"id": "ux-design", "reason": "flag ux_design=false"}],
+        },
+    }
+    assert _detect_boundary(plan, "main", "b", "completed") == BoundaryKind.FEATURE
