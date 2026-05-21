@@ -65,7 +65,7 @@
     - type-check clean
   depends: T-2, T-4, T-5
 
-- [ ] T-7: Review checkpoint — parser + readiness foundation (gate)
+- [x] T-7: Review checkpoint — parser + readiness foundation (gate)
   Why: phase gate — lock the foundation before generate_plan/dispatch build on it
   Test scenarios:
     - type-check clean
