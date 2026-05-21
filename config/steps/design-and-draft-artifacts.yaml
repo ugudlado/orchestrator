@@ -75,6 +75,14 @@ instruction: |
      - When tdd_required: every implementation task has a preceding test task.
 
   8. Return COMPLETION per contracts/done-payload.md (driver calls orchestrator done).
+     The COMPLETION `outputs:` block MUST carry all five declared outputs:
+     - `design.md` and `tasks.md` — path-named artifacts; the value is the
+       relative path the step wrote (e.g. `spec/changes/$CHANGE_ID/design.md`).
+     - `updated_artifact_set` — the list of artifact files generated this pass.
+     - `design_direction` — the name of the selected design approach.
+     - `complexity` — the complexity rating of the selected approach (XS/S/M/L/XL).
+     Omitting any of these makes `orchestrator done` reject the step with
+     `missing_outputs` (exit 3).
 
   ## Part 3: Artifact Review (interactive mode only)
 

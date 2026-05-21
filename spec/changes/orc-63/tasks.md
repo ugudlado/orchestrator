@@ -246,6 +246,24 @@
     - `orchestrator next` / `orchestrator done` driver interface unchanged (skills/orchestrate + skills/developer untouched except the SKILL.md doc note)
   depends: T-17, T-19, T-21, T-22
 
+## Phase review rework (run-phase-review, round 1)
+
+- [x] T-24: Direct the architect to emit design.md + tasks.md as COMPLETION outputs
+  Why: AC-10, AC-6 — T-19 made `design.md`/`tasks.md` declared `outputs:` of `design-and-draft-artifacts`, and T-16's AC-10 check rejects any `completed` payload whose `evidence.outputs` lacks a declared output key. The architect agent is never told to emit those keys, so the NEXT feature workflow's design step is rejected at `orchestrator done` with `missing_outputs` (exit 3).
+  Files: config/steps/design-and-draft-artifacts.yaml, agents/architect.md
+  Problem: `config/steps/design-and-draft-artifacts.yaml` instruction step 8 says only "Return COMPLETION per contracts/done-payload.md" — no directive to put `design.md`/`tasks.md` (and `updated_artifact_set`, `design_direction`, `complexity`) in the COMPLETION `outputs:` block. `agents/architect.md` Mode 1 line 50 says "Do NOT generate tasks.md" — a direct contradiction of the contract's `outputs:` list.
+  Why it matters: confirmed empirically — `record._check_declared_outputs` returns `['design.md','tasks.md']` for an architect payload missing those keys, so `record.py` rejects the step (exit 3). This is a self-inflicted critical regression that breaks every subsequent feature workflow run.
+  Change: In `config/steps/design-and-draft-artifacts.yaml` instruction step 8, add an explicit directive: the COMPLETION `outputs:` block MUST carry `design.md` and `tasks.md` (the path-named artifacts, as the relative paths the step wrote) plus `updated_artifact_set`, `design_direction`, `complexity`. In `agents/architect.md`, correct the now-wrong "Do NOT generate tasks.md" line so it agrees with the contract (the design-and-draft-artifacts step DOES write tasks.md and must declare it as an output). Minimal scope — no design.md change (the spec already mandates these outputs; the gap is producer-side).
+  Verify: `python3 -c "import sys; sys.path.insert(0,'config/scripts'); from orchestrator_next.record import _check_declared_outputs; print(_check_declared_outputs(['design.md','tasks.md','updated_artifact_set','design_direction','complexity'], {'design.md':'spec/changes/x/design.md','tasks.md':'spec/changes/x/tasks.md','updated_artifact_set':['x'],'design_direction':'A','complexity':'L'}, {'repo_root':'.'}))"` reflects the intended satisfied set; and the contract instruction + architect.md both name `design.md`/`tasks.md` as required COMPLETION outputs with no contradictory "do not generate" text.
+
+- [ ] T-25: Delete the 4 dead helpers left in dispatch.py after the linear-scan removal
+  Why: simplicity rubric — T-13 replaced the linear `active` scan with `readiness.next_ready_node`, leaving four unreferenced helpers behind.
+  Files: config/scripts/orchestrator_next/dispatch.py
+  Problem: `_phase_history` (dispatch.py:114), `_step_has_terminal_entry` (dispatch.py:118), `_find_completed_step` (dispatch.py:128), and `_phase_verify_evaluated` (dispatch.py:138) have zero call sites in any non-test module after the DAG-walk replaced the linear scan.
+  Why it matters: dead code misleads readers about the live dispatch path and is a maintenance liability; the simplicity rubric explicitly flags it.
+  Change: Delete the four functions. If any test imports them directly, delete or update those test assertions in the same change (they test removed behavior). Do not refactor surrounding code.
+  Verify: `grep -n "_phase_history\|_step_has_terminal_entry\|_find_completed_step\|_phase_verify_evaluated" config/scripts/orchestrator_next/dispatch.py` returns nothing; `python3 -m pytest config/scripts/orchestrator_next/tests/ -q` stays green.
+
 <!-- Format contract: contracts/artifact-formats.md § Task Format Contract -->
 <!-- Each task carries: Why / Files / Change / Test scenarios / depends. -->
 <!-- Test scenarios is a bulleted list of behaviors the tests should cover; -->
@@ -254,3 +272,6 @@
 <!-- TDD: RED test tasks precede GREEN implementation tasks (carried by depends:). -->
 <!-- T-18 (mechanical contract prune) + T-22 (docs) use a regression-guard -->
 <!-- assertion instead of a fabricated RED, per the learned mechanical-change rule. -->
+<!-- T-24, T-25 appended by run-phase-review round 1 (NEEDS WORK). -->
+<!-- T-24: architect must emit design.md/tasks.md outputs (critical). -->
+<!-- T-25: delete dead dispatch.py helpers (important). -->
