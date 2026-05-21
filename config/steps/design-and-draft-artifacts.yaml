@@ -9,8 +9,7 @@ pre_execute:
   approach_required: true
 
 inputs:
-  - phase_context_bundle (includes discovery_result)
-  - ux-artifacts.yaml (optional, per contracts/ux-artifacts.md)
+  - discovery_result
 
 flags_read:
   - name: tdd_required
@@ -98,6 +97,8 @@ verify:
   - Key Decisions section populated in discovery.md
 
 outputs:
+  - design.md
+  - tasks.md
   - updated_artifact_set
   - design_direction
   - complexity

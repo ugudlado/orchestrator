@@ -191,7 +191,7 @@
     - for the feature schema, every required (non-optional) input name is either an upstream contract `outputs:` entry, a known `state.raw` bootstrap key, or an output of an earlier inline step
     - the case fails today against the current un-pruned contracts
 
-- [ ] T-19: Prune phase_context_bundle + normalize inputs/outputs + add producer outputs (GREEN)
+- [x] T-19: Prune phase_context_bundle + normalize inputs/outputs + add producer outputs (GREEN)
   Why: AC-6, OQ-2 — declared inputs must name real dataflow edges so the AC-4 prereq check matches reliably
   Files: config/steps/design-and-draft-artifacts.yaml, config/steps/explore.yaml, config/steps/diagnose.yaml, config/steps/execute-next-task.yaml, config/steps/ux-design.yaml, config/steps/run-phase-review.yaml, config/steps/generate-project-yaml.yaml, config/steps/install-tooling.yaml, config/steps/run-ux-critique.yaml
   Change: Remove `phase_context_bundle` from every contract `inputs:`. Set `design-and-draft-artifacts` `inputs: [discovery_result]` and extend its `outputs:` to `[design.md, tasks.md, updated_artifact_set, design_direction, complexity]` (so `tasks.md` has a real producer); `execute-next-task` `inputs: [tasks.md]`; `run-phase-review` `inputs: [task_execution_result]`; `ux-design` `inputs: [discovery_result]`; `explore` and `diagnose` `inputs: []`. Rewrite the prose `inputs:`/`outputs:` of `generate-project-yaml`, `install-tooling`, `run-ux-critique` to bare identifier strings.

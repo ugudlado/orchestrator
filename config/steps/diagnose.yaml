@@ -5,8 +5,7 @@ intent: Reproduce the bug with runnable evidence, trace the exact root cause, an
 
 agent: discoverer
 
-inputs:
-  - phase_context_bundle
+inputs: []
 
 rules:
   - Reproduction MUST be runnable — a command or script, not just a description.
