@@ -97,7 +97,7 @@
     - type-check clean
   depends: T-6, T-8
 
-- [ ] T-10: Update seed-state.sh post-generate_plan check (GREEN)
+- [x] T-10: Update seed-state.sh post-generate_plan check (GREEN)
   Why: OQ-4 — seed-state must validate the new `nodes` shape, not a now-nonexistent plan.yaml
   Files: skills/orchestrate/scripts/seed-state.sh
   Change: Replace the `plan.yaml` existence check (seed-state.sh:211-215) with a check that the post-`generate_plan` (seed-state.sh:203) `state.yaml` has a non-empty `workflow_plan.main.nodes` list. Update the header comments referencing plan.yaml (lines 7, 17). Remove every remaining `plan.yaml` reference from the script.

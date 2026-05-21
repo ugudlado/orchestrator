@@ -106,21 +106,17 @@ def _run_seed(
 
 def test_seed_state_produces_dispatch_ready_pair(tmp_path):
     """
-    RED before T-2: asserts seed-state.sh exists at the expected path.
+    seed-state.sh exists, the seeder exits 0, and state.yaml is written with a
+    promoted `workflow_plan.main.nodes` graph (ORC-63: plan.yaml eliminated —
+    generate_plan promotes the seeded workflow_plan in place).
 
-    After T-2 the script is present, the seeder exits 0, state.yaml and
-    plan.yaml are written, and `orchestrator next <state.yaml>` returns a
-    run_step or run_inline action JSON (not exit code 3).
-
-    Failure before T-2: AssertionError naming the missing script path.
+    The end-to-end `orchestrator next` dispatch check moved to test_dispatch.py
+    once DAG-walk dispatch landed (ORC-63 T-13).
     """
-    # ---- This assertion is the RED gate: it fails before T-2 ----
     assert _SEED_SCRIPT.exists(), (
-        f"seed-state.sh not found at {_SEED_SCRIPT}. "
-        "T-2 must create skills/orchestrate/scripts/seed-state.sh before this test passes."
+        f"seed-state.sh not found at {_SEED_SCRIPT}."
     )
 
-    # ---- Everything below runs only after T-2 ships ----
     slug = "orc-27-test"
     schema = "bugfix"
     fake_repo = tmp_path / "repo"
@@ -141,10 +137,11 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
     )
 
     state_yaml_path = state_dir / slug / "state.yaml"
-    plan_yaml_path = state_dir / slug / "plan.yaml"
-
     assert state_yaml_path.exists(), "seed-state.sh did not write state.yaml"
-    assert plan_yaml_path.exists(), "seed-state.sh did not write plan.yaml (generate_plan not called)"
+    # ORC-63: no separate plan file — workflow_plan is promoted inside state.yaml.
+    assert not (state_dir / slug / "plan.yaml").exists(), (
+        "seed-state.sh should not produce a separate plan file (ORC-63)"
+    )
 
     # Verify state.yaml round-trips through parser.load_state
     scripts_parent = str(_HERE.parents[2])  # config/scripts/
@@ -157,6 +154,16 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
     assert state.phase, "state.yaml missing phase"
     assert state.workflow_plan, "state.yaml missing workflow_plan"
 
+    # ORC-63: workflow_plan.main is promoted to a non-empty `nodes` graph,
+    # each node born `pending`. No `active` key remains.
+    main_block = state.workflow_plan["main"]
+    assert "active" not in main_block, "active key should be removed after promotion"
+    nodes = main_block["nodes"]
+    assert isinstance(nodes, list) and nodes, "workflow_plan.main.nodes must be a non-empty list"
+    for node in nodes:
+        assert isinstance(node, dict) and "id" in node, f"malformed node: {node!r}"
+        assert node.get("status") == "pending", f"node {node.get('id')!r} not pending at init"
+
     # ORC-34 regression: both created_at and started_at must be present and equal
     state_raw = yaml.safe_load(state_yaml_path.read_text())
     assert "created_at" in state_raw, "state.yaml missing created_at"
@@ -166,43 +173,6 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
     )
     assert state_raw.get("project_context_loaded") is True
     assert "worktree_path" not in state_raw
-
-    # Verify orchestrator next accepts the seeded pair (AC-6: not exit 3)
-    orchestrator_bin = _REPO_ROOT / "bin" / "orchestrator"
-    next_env = os.environ.copy()
-    next_env["ORCHESTRATOR_HOME"] = _ORCHESTRATOR_HOME
-    next_result = subprocess.run(
-        [str(orchestrator_bin), "next", str(state_yaml_path)],
-        capture_output=True,
-        text=True,
-        env=next_env,
-    )
-    assert next_result.returncode != 3, (
-        f"`orchestrator next` returned exit 3 (state.yaml not found) — "
-        f"the seeder did not produce a file the CLI accepts.\n"
-        f"stderr: {next_result.stderr}"
-    )
-    assert next_result.returncode == 0, (
-        f"`orchestrator next` exited {next_result.returncode}\n"
-        f"stdout: {next_result.stdout}\n"
-        f"stderr: {next_result.stderr}"
-    )
-
-    try:
-        action = json.loads(next_result.stdout)
-    except json.JSONDecodeError as exc:
-        pytest.fail(
-            f"`orchestrator next` stdout is not valid JSON: {exc}\n"
-            f"stdout: {next_result.stdout!r}"
-        )
-
-    assert "agent" in action or "run" in action, (
-        f"Expected agent or run key in response (ORC-45 two-path), got: {list(action.keys())!r}\n"
-        f"Full action: {action}"
-    )
-    assert action.get("step_id") == "diagnose", (
-        f"Expected first dispatch step to be diagnose, got: {action.get('step_id')!r}"
-    )
 
 
 # ---------------------------------------------------------------------------
