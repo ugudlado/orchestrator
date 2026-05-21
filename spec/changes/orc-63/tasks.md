@@ -172,7 +172,7 @@
     - type-check clean
   depends: T-6, T-13, T-15
 
-- [ ] T-17: Review checkpoint — record enforcement + node status writes (gate)
+- [x] T-17: Review checkpoint — record enforcement + node status writes (gate)
   Why: phase gate — confirm output enforcement and node-status writes before contract changes
   Test scenarios:
     - type-check clean
