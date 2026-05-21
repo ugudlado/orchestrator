@@ -76,6 +76,8 @@ def _usage() -> None:
         "Usage:\n"
         "  orchestrator next <state.yaml>\n"
         "  orchestrator done <state.yaml>   # JSON payload on stdin\n"
+        "  orchestrator ready <state.yaml>  # JSON array of ready node ids\n"
+        "  orchestrator graph <state.yaml>  # Mermaid flowchart of the phase DAG\n"
         "  orchestrator doctor",
         file=sys.stderr,
     )
@@ -153,13 +155,46 @@ def _append_in_progress_state_entry_if_absent(
             _f.write(_pre_write_bytes)
 
 
+def _ready_verb(state_yaml_path: str) -> None:
+    """`orchestrator ready` — print a JSON array of all ready node ids, exit 0.
+
+    Read-only: no state.yaml write, no DuckDB.
+    """
+    import json as _json
+    from orchestrator_next.parser import load_state
+    from orchestrator_next import readiness
+    try:
+        state = load_state(state_yaml_path)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(3)
+    print(_json.dumps(readiness.ready_nodes(state), sort_keys=True, indent=2))
+    sys.exit(0)
+
+
+def _graph_verb(state_yaml_path: str) -> None:
+    """`orchestrator graph` — print a Mermaid flowchart of the phase DAG, exit 0.
+
+    Read-only: no state.yaml write, no DuckDB.
+    """
+    from orchestrator_next.parser import load_state
+    from orchestrator_next.graph import render_graph
+    try:
+        state = load_state(state_yaml_path)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(3)
+    print(render_graph(state), end="")
+    sys.exit(0)
+
+
 def main() -> None:
     args = sys.argv[1:]
     # Stage C: ingest-driver and ingest-subagents removed from accepted verbs.
     # 'record' kept for silent backward-compat (one cycle) but absent from the banner.
-    if not args or args[0] not in ("next", "done", "record", "doctor"):
+    if not args or args[0] not in ("next", "done", "record", "ready", "graph", "doctor"):
         _usage()
-    if len(args) < 2 and args[0] in ("next", "record", "done"):
+    if len(args) < 2 and args[0] in ("next", "record", "done", "ready", "graph"):
         _usage()
 
     if args[0] == "doctor":
@@ -169,6 +204,12 @@ def main() -> None:
     if args[0] in ("record", "done"):
         from orchestrator_next.record import main as record_main
         sys.exit(record_main(sys.argv[1:]))
+
+    # ORC-63: read-only DAG-visibility verbs — no state.yaml write, no DuckDB.
+    if args[0] == "ready":
+        _ready_verb(args[1])
+    if args[0] == "graph":
+        _graph_verb(args[1])
 
     state_yaml_path = args[1]
 

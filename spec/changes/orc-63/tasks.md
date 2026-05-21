@@ -213,7 +213,7 @@
     - `orchestrator next` still returns the first ready node
     - tests fail for the right reason today
 
-- [ ] T-21: Implement orchestrator ready + graph verbs (GREEN)
+- [x] T-21: Implement orchestrator ready + graph verbs (GREEN)
   Why: AC-8, AC-9 — operator visibility into readiness and DAG shape, with `next` unchanged
   Files: bin/orchestrator, config/scripts/orchestrator_next/graph.py
   Change: Add `ready` and `graph` to the accepted-verbs tuple in `bin/orchestrator` `main` and route them. `ready`: load state, print `json.dumps(readiness.ready_nodes(state), sort_keys=True, indent=2)`, exit 0. `graph`: load state, call new `graph.py` which renders a Mermaid `flowchart TD` from `workflow_plan.nodes` with per-node status labels, print it, exit 0. Both paths are read-only — no state.yaml write, no DuckDB connection. Add both verbs to the usage banner (`_usage`).
