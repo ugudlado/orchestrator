@@ -169,3 +169,124 @@ def test_fr10_compute_swe_metrics_path():
     assert "scripts/inline/compute-swe-metrics.sh" in content, (
         "config/steps/compute-swe-metrics.yaml run: must reference 'scripts/inline/compute-swe-metrics.sh'."
     )
+
+
+# ===========================================================================
+# ORC-63 T-18: contract inputs/outputs hygiene + producer/consumer integrity
+# (AC-6, OQ-2). Mechanical change — this regression-guard stands in for a RED.
+# ===========================================================================
+
+# The nine contracts ORC-63 prunes/normalizes (design.md Component 7, AC-6).
+_ORC63_PRUNED_CONTRACTS = [
+    "design-and-draft-artifacts",
+    "explore",
+    "diagnose",
+    "execute-next-task",
+    "ux-design",
+    "run-phase-review",
+    "generate-project-yaml",
+    "install-tooling",
+    "run-ux-critique",
+]
+
+# Known top-level state.raw bootstrap keys an input may resolve against.
+_STATE_RAW_BOOTSTRAP_KEYS = {
+    "change_id", "slug", "schema", "repo_root", "worktree_path", "branch",
+    "flags", "phase", "complexity", "user_request", "tasks_path",
+}
+
+# Inline steps emit outputs at runtime via stdout JSON, not a static
+# contract `outputs:` declaration. A required input produced by one of these
+# resolves against runtime evidence.outputs at dispatch (design.md OQ-2).
+_INLINE_RUNTIME_PRODUCERS = {
+    "detect-language": {"languages", "package_manager", "web_project",
+                        "backend_project", "scripts_added"},
+    "install-tooling": {"scripts_added", "tools_installed"},
+}
+
+
+def _load_contract_yaml(step_id: str) -> dict:
+    full = os.path.join(_REPO_ROOT, "config", "steps", f"{step_id}.yaml")
+    with open(full, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def test_orc63_pruned_contracts_have_no_prose_or_mappings():
+    """No inputs:/outputs: item in the nine ORC-63 contracts contains '(' or
+    parses as a YAML mapping; none declares phase_context_bundle."""
+    offenders = []
+    for step_id in _ORC63_PRUNED_CONTRACTS:
+        data = _load_contract_yaml(step_id)
+        for key in ("inputs", "outputs"):
+            for item in (data.get(key) or []):
+                if isinstance(item, dict):
+                    offenders.append(f"{step_id}.{key}: mapping item {item!r}")
+                elif isinstance(item, str):
+                    if "(" in item:
+                        offenders.append(f"{step_id}.{key}: prose item {item!r}")
+                    if item == "phase_context_bundle":
+                        offenders.append(f"{step_id}.{key}: phase_context_bundle")
+    assert not offenders, (
+        "ORC-63 contract hygiene violations:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_no_contract_declares_phase_context_bundle():
+    """phase_context_bundle appears in no contract inputs: across config/steps/."""
+    import glob
+    offenders = []
+    for path in sorted(glob.glob(os.path.join(_REPO_ROOT, "config", "steps", "*.yaml"))):
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        if not isinstance(data, dict):
+            continue
+        for item in (data.get("inputs") or []):
+            if isinstance(item, str) and item == "phase_context_bundle":
+                offenders.append(os.path.basename(path))
+    assert not offenders, (
+        f"phase_context_bundle still declared in: {offenders}"
+    )
+
+
+def test_feature_schema_required_inputs_have_a_producer():
+    """For the feature schema, every required (non-optional) input resolves to
+    an upstream contract outputs: entry, a state.raw bootstrap key, or an
+    earlier inline step's runtime output."""
+    schema = yaml.safe_load(_read("config/workflows/feature.yaml"))
+    step_ids = [
+        (e if isinstance(e, str) else e.get("id"))
+        for e in schema.get("steps", [])
+    ]
+    step_ids = [s.split(" if ")[0].strip() for s in step_ids if s]
+
+    available: set[str] = set(_STATE_RAW_BOOTSTRAP_KEYS)
+    unresolved = []
+    for step_id in step_ids:
+        contract_path = os.path.join(_REPO_ROOT, "config", "steps", f"{step_id}.yaml")
+        if not os.path.isfile(contract_path):
+            continue
+        data = _load_contract_yaml(step_id)
+        # Required inputs = inputs minus optional-annotated items.
+        for item in (data.get("inputs") or []):
+            if isinstance(item, dict):
+                # An optional-annotated {name: optional} item is never required.
+                if len(item) == 1 and str(next(iter(item.values()))).strip().lower() == "optional":
+                    continue
+                unresolved.append(f"{step_id}: non-string input {item!r}")
+                continue
+            if not isinstance(item, str):
+                continue
+            if item not in available:
+                unresolved.append(f"{step_id}: required input {item!r} has no producer")
+        # This step's declared outputs become available to downstream steps.
+        for out in (data.get("outputs") or []):
+            if isinstance(out, str):
+                available.add(out)
+        # Inline runtime producers contribute their well-known outputs.
+        if step_id in _INLINE_RUNTIME_PRODUCERS:
+            available |= _INLINE_RUNTIME_PRODUCERS[step_id]
+
+    assert not unresolved, (
+        "feature schema producer/consumer integrity violations:\n  "
+        + "\n  ".join(unresolved)
+    )

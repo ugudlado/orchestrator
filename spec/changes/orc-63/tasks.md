@@ -181,7 +181,7 @@
 
 ## Group E — contract input pruning + normalization (mechanical)
 
-- [ ] T-18: Write regression-guard test for contract inputs/outputs hygiene + producer/consumer integrity (no RED — mechanical change)
+- [x] T-18: Write regression-guard test for contract inputs/outputs hygiene + producer/consumer integrity (no RED — mechanical change)
   Why: AC-6, OQ-2 — retire phase_context_bundle and guarantee every required input has a real producer
   Files: config/scripts/orchestrator_next/tests/test_prose_contracts.py
   Change: Add a regression-guard case scanning every config/steps/*.yaml. Mechanical change — no behavior delta — so the regression-guard assertion below stands in for a RED test; it fails today against the un-pruned contracts.
