@@ -1,8 +1,24 @@
 # Resume Token Format Contract
 
-The `next_step` object in state.yaml is the critical resume mechanism. Session-start
-hooks (`workflow-state.sh`, `auto-continue.sh`) and the `/orchestrate` driver read
-this to know exactly where to continue after a pause or session boundary.
+The `next_step` object in state.yaml is the resume convenience pointer.
+Session-start hooks (`workflow-state.sh`, `auto-continue.sh`) and the
+`/orchestrate` driver read it to know where to continue after a pause or
+session boundary.
+
+`next_step` is a **derived** field, not the source of truth. The source of
+truth for "what runs next" is per-node `status` in `workflow_plan` (ORC-63).
+`record.py` rewrites `next_step` from the DAG-walk (`next_ready_node`) after
+every completed record; dispatch never reads `next_step` to make a decision.
+
+## Workflow plan shape
+
+`workflow_plan[phase]` is `{nodes, filtered, verify}` — a single file, no
+separate plan file. Each node is
+`{id, depends_on?, status, agent, goal, inputs, outputs, rules,
+repeat_until?}`. `status` ∈ `{pending, in_progress, completed, skipped}`.
+`generate_plan.py` promotes the seeded `active:[ids]` list into `nodes` at
+init; after init only dispatch (→ `in_progress`) and record (→ `completed`)
+mutate node status.
 
 ## Format
 
@@ -25,12 +41,13 @@ next_step:
 
 ## Validity Rules
 
-- `next_step` is written after every step completion (not just phase boundaries)
+- `next_step` is re-derived from `next_ready_node` after every step completion
+  (not just phase boundaries)
 - `next_step` is cleared (removed) when `status` transitions to `completed`
 - `phase` must reference a phase that exists in the schema loaded from state.yaml's `schema:` field
-- `step_id` must reference a step in the phase's active step list (post-filtering)
-- If the current step is the last in the last phase, `next_step` should reference
-  the completion step (`archive-completed-change`) or be omitted
+- `step_id` must reference a node in the phase's `workflow_plan[phase].nodes` list
+- If the current step is the last node of the last phase, `next_step` should
+  reference the completion step (`archive-completed-change`) or be omitted
 
 ## Consumers
 

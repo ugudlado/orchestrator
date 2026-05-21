@@ -225,7 +225,7 @@
 
 ## Group G — external contract docs
 
-- [ ] T-22: Update contract docs for the single-file model (no RED — documentation)
+- [x] T-22: Update contract docs for the single-file model (no RED — documentation)
   Why: OQ-4 — external contracts must describe the single-file `nodes` model and the derived next_step
   Files: config/steps/contracts/resume-token.md, config/steps/contracts/done-payload.md, skills/orchestrate/SKILL.md
   Change: In resume-token.md and done-payload.md, describe `workflow_plan[phase]` as `{nodes, filtered, verify}` with per-node `status`, document `next_step` as a derived convenience pointer (source of truth = `node.status`), and remove every reference to plan.yaml. Correct the "post generate-plan-yaml-at-init" note at skills/orchestrate/SKILL.md:98 to reflect the single-file model. Documentation change — the regression-guard below stands in for a RED test.

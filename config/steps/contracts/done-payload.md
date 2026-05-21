@@ -257,6 +257,24 @@ Example (failed task attempt):
 Updates — the payload fields above are copied into the entry; timestamps and
 `next_step` are computed by the CLI.
 
+## Workflow plan and next_step (ORC-63)
+
+Workflow state lives in one file, `state.yaml` — there is no separate plan
+file. `workflow_plan[phase]` is `{nodes, filtered, verify}`; each node carries
+`{id, depends_on?, status, agent, goal, inputs, outputs, rules,
+repeat_until?}` with `status` ∈ `{pending, in_progress, completed, skipped}`.
+
+On a `completed` record, `record.py` flips the node's `status` to `completed`
+via the shared readiness helper, then re-derives `state.next_step` from the
+DAG-walk. `node.status` is the source of truth for dispatch readiness;
+`next_step` is a derived convenience pointer for the resume mechanism.
+
+`record.py` also enforces declared `outputs:` at this boundary: a declared
+output is satisfied only when its key is present in `evidence.outputs`, the
+value is non-null and non-empty, and — for a path-named output (name contains
+`/`) — the file exists on disk. A missing declared output rejects the payload
+with `missing_outputs` (exit 3).
+
 ## Driver checklist (after every agent spawn)
 
 The driver orchestrates only — it does not verify task or test outcomes.
