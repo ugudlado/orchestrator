@@ -56,7 +56,7 @@
     - `mark_node_status` flips one named node's `status` in `workflow_plan`
     - tests fail today (ModuleNotFoundError)
 
-- [ ] T-6: Implement readiness.py (GREEN)
+- [x] T-6: Implement readiness.py (GREEN)
   Why: AC-2, AC-3, AC-5, OQ-5 — one DAG walker + one status mutator shared by dispatch and record (prevents drift)
   Files: config/scripts/orchestrator_next/readiness.py
   Change: New module with pure functions over the parsed state: `effective_depends_on(nodes, node_id)`, `is_node_ready(state, node_id)`, `ready_nodes(state)`, `next_ready_node(state)`, and the mutator `mark_node_status(state_raw, phase, node_id, status)`. Read nodes via `parser.phase_nodes`. For the `repeat_until` check, reuse `REPEAT_PREDICATES` from record.py (mirrors the existing dispatch.py:319-323 special-case).
