@@ -41,7 +41,7 @@
     - type-check clean
   depends: T-3
 
-- [ ] T-5: Write tests for readiness.py (RED)
+- [x] T-5: Write tests for readiness.py (RED)
   Why: AC-2, AC-3, AC-5, OQ-5 — the shared DAG-walk module is the single source of node readiness
   Files: config/scripts/orchestrator_next/tests/test_readiness.py
   Change: New test file for the not-yet-existing `readiness` module. Tests fail today because the module does not exist.
