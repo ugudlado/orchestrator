@@ -87,7 +87,7 @@
     - a `depends_on` to an unknown id raises
     - tests fail for the right reason today
 
-- [ ] T-9: Implement generate_plan node promotion + _topo_sort (GREEN)
+- [x] T-9: Implement generate_plan node promotion + _topo_sort (GREEN)
   Why: AC-1, AC-2, AC-7, OQ-1, OQ-4 — eliminate plan.yaml; one file carries the graph
   Files: config/scripts/orchestrator_next/generate_plan.py
   Change: Extend `_build_step_block` (generate_plan.py:257-304) to read `depends_on` from the dict-form schema step entry and set `status: 'pending'`. Add `_topo_sort(nodes)` (Kahn's algorithm) over the effective edge set (authored + implicit chain), raising `ValueError` naming the cycle on failure, and dropping edges targeting a `filtered` step with a stderr warning. In the phase loop (generate_plan.py:337-384), call `_topo_sort` before promotion. Change the output target: rewrite `state.yaml` in place with `workflow_plan[phase] = {nodes:[...], filtered, verify}` and delete the `active` key — write no plan.yaml.

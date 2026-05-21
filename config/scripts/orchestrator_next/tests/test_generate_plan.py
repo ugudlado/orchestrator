@@ -142,13 +142,11 @@ def test_light_flag_drops_filtered_steps(tmp_path, monkeypatch):
     # Act
     generate_plan(str(state_path))
 
-    # Assert
-    plan_path = state_path.parent / "plan.yaml"
-    assert plan_path.exists()
-    plan = yaml.safe_load(plan_path.read_text())
-
-    specify_phase = next(p for p in plan["phases"] if p["name"] == "specify")
-    step_ids = [s["id"] for s in specify_phase["steps"]]
+    # Assert — workflow_plan promoted in place; no plan.yaml.
+    assert not (state_path.parent / "plan.yaml").exists()
+    state = yaml.safe_load(state_path.read_text())
+    specify_phase = state["workflow_plan"]["specify"]
+    step_ids = [n["id"] for n in specify_phase["nodes"]]
     assert step_ids == ["design-and-draft-artifacts"], (
         f"Expected only active steps, got: {step_ids}"
     )
@@ -229,8 +227,8 @@ def test_rule_merge_precedence(tmp_path, monkeypatch):
     # Act
     generate_plan(str(state_path))
 
-    plan = yaml.safe_load((state_path.parent / "plan.yaml").read_text())
-    step = plan["phases"][0]["steps"][0]
+    state = yaml.safe_load(state_path.read_text())
+    step = state["workflow_plan"]["work"]["nodes"][0]
     rules = step["rules"]
 
     # Tier 1 (injected) must appear before tier 2 (contract)
@@ -297,12 +295,12 @@ def test_byte_stable_output(tmp_path, monkeypatch):
 
     state_path = _make_state_yaml(tmp_path, "feature", flags, workflow_plan)
 
-    # Run twice
+    # Run twice — the promoted state.yaml must be byte-identical (idempotent).
     generate_plan(str(state_path))
-    first = (state_path.parent / "plan.yaml").read_bytes()
+    first = state_path.read_bytes()
 
     generate_plan(str(state_path))
-    second = (state_path.parent / "plan.yaml").read_bytes()
+    second = state_path.read_bytes()
 
     assert first == second, "Two runs produced different bytes — output is not deterministic"
 
@@ -363,9 +361,9 @@ def test_repeat_until_preserved(tmp_path, monkeypatch):
     state_path = _make_state_yaml(tmp_path, "feature", flags, workflow_plan)
 
     generate_plan(str(state_path))
-    plan = yaml.safe_load((state_path.parent / "plan.yaml").read_text())
+    state = yaml.safe_load(state_path.read_text())
 
-    step = plan["phases"][0]["steps"][0]
+    step = state["workflow_plan"]["implement"]["nodes"][0]
     assert step["id"] == "execute-next-task"
     assert step.get("repeat_until") == "all_tasks_completed", (
         f"repeat_until not preserved on execute-next-task, got: {step.get('repeat_until')!r}"
@@ -377,8 +375,8 @@ def test_repeat_until_preserved(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_phase_verify_attached_to_last_step(tmp_path, monkeypatch):
-    """verify block from schema phase must appear only on the last active step."""
+def test_phase_verify_attached_to_phase_block(tmp_path, monkeypatch):
+    """verify block from schema phase is a sibling of `nodes` (ORC-63), not on a node."""
     schema = {
         "name": "feature",
         "version": 1,
@@ -419,20 +417,17 @@ def test_phase_verify_attached_to_last_step(tmp_path, monkeypatch):
     state_path = _make_state_yaml(tmp_path, "feature", flags, workflow_plan)
 
     generate_plan(str(state_path))
-    plan = yaml.safe_load((state_path.parent / "plan.yaml").read_text())
+    state = yaml.safe_load(state_path.read_text())
 
-    steps = plan["phases"][0]["steps"]
-    assert len(steps) == 2
+    phase_block = state["workflow_plan"]["specify"]
+    nodes = phase_block["nodes"]
+    assert len(nodes) == 2
 
-    # First step must NOT have verify
-    assert "verify" not in steps[0], (
-        f"First step should not have verify block, but got: {steps[0].get('verify')}"
-    )
-    # Last step MUST have verify
-    assert "verify" in steps[-1], (
-        f"Last step should have verify block, but it is absent"
-    )
-    assert steps[-1]["verify"]["assertions"] == ["design.md exists"]
+    # verify is a phase-level sibling of nodes, not attached to any node.
+    for n in nodes:
+        assert "verify" not in n, f"node {n['id']} should not carry verify"
+    assert "verify" in phase_block, "phase block should carry the verify key"
+    assert phase_block["verify"]["assertions"] == ["design.md exists"]
 
 
 # ---------------------------------------------------------------------------
@@ -493,17 +488,18 @@ def test_include_phase_resolved(tmp_path, monkeypatch):
     state_path = _make_state_yaml(tmp_path, "feature", flags, workflow_plan)
 
     generate_plan(str(state_path))
-    plan = yaml.safe_load((state_path.parent / "plan.yaml").read_text())
+    state = yaml.safe_load(state_path.read_text())
 
-    phase_names = [p["name"] for p in plan["phases"]]
+    phase_names = list(state["workflow_plan"].keys())
     assert "complete" in phase_names, (
         f"Expected 'complete' phase from include resolution, got phases: {phase_names}"
     )
 
-    complete_p = next(p for p in plan["phases"] if p["name"] == "complete")
-    assert complete_p["goal"] == "Archive and complete."
-    step_ids = [s["id"] for s in complete_p["steps"]]
+    complete_p = state["workflow_plan"]["complete"]
+    step_ids = [n["id"] for n in complete_p["nodes"]]
     assert step_ids == ["archive-step"]
+    # The included phase's goal is carried on each node.
+    assert complete_p["nodes"][0]["goal"] == "Archive and complete."
 
 
 # ===========================================================================
