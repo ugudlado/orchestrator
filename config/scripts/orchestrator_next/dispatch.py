@@ -32,8 +32,6 @@ from orchestrator_next.parser import (
 from orchestrator_next import resolver
 from orchestrator_next import readiness
 
-# Terminal statuses: these entries do not need retry
-_TERMINAL_STATUSES = frozenset({"completed", "failed", "blocked", "escalate_to_architect", "skipped"})
 # Blocking statuses: caller cannot proceed
 _BLOCKING_STATUSES = frozenset({"escalate_to_architect", "blocked"})
 
@@ -109,42 +107,6 @@ def _resolve_inputs(
             missing.append(name)
 
     return resolved, missing
-
-
-def _phase_history(step_history: list[StepHistoryEntry], phase: str) -> list[StepHistoryEntry]:
-    return [e for e in step_history if e.phase == phase]
-
-
-def _step_has_terminal_entry(
-    step_history: list[StepHistoryEntry], phase: str, step_id: str
-) -> bool:
-    """Return True if any entry for (phase, step_id) has a terminal status."""
-    return any(
-        e.phase == phase and e.step_id == step_id and e.status in _TERMINAL_STATUSES
-        for e in step_history
-    )
-
-
-def _find_completed_step(
-    step_history: list[StepHistoryEntry], phase: str, step_id: str
-) -> bool:
-    """Return True if any completed entry exists for (phase, step_id)."""
-    return any(
-        e.phase == phase and e.step_id == step_id and e.status == "completed"
-        for e in step_history
-    )
-
-
-def _phase_verify_evaluated(step_history: list[StepHistoryEntry], phase: str) -> bool:
-    """
-    Return True if a run-phase-review step with a terminal status exists for this phase.
-
-    The run-phase-review entry signals that the caller ran the verify block.
-    """
-    return any(
-        e.phase == phase and e.step_id == "run-phase-review" and e.status in _TERMINAL_STATUSES
-        for e in step_history
-    )
 
 
 def _resolve_allowed_tools(contract: StepContract) -> list[str]:
