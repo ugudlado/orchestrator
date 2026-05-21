@@ -1,34 +1,61 @@
-# Tasks: {title}
+# Tasks — {title}
 
-- [ ] T-1 Write tests: {component} (RED — tests must fail)
-  - **Why**: {which spec requirement this satisfies}
-  - **Verify**: Tests run and FAIL (red) for the right reason
-- [ ] T-2 Implement: {component} (GREEN — make tests pass) (depends: T-1)
-  - **Why**: {which spec requirement this satisfies}
-  - **Verify**: All T-1 tests pass (green), type-check clean
-- [ ] T-3 Refactor: {component} (REFACTOR — clean up) (depends: T-2)
-  - **Why**: Code quality — simplify without changing behavior
-  - **Verify**: All tests still pass, no new warnings
-- [ ] T-4 Review checkpoint (phase gate)
-  - **Verify**: type-check + test (coverage >= 90%) + build all pass
+- [ ] T-1: Write tests for {component} (RED — tests must fail)
+  Why: {which design.md AC / decision this task serves}
+  Files: {test files this task creates or touches}
+  Change: {what the new tests assert, and why they fail today}
+  Test scenarios:
+    - {behavior the tests should cover}
+    - {behavior the tests should cover}
 
-- [ ] T-5 Write tests: {component} (RED) (depends: T-2)
-  - **Why**: {requirement}
-  - **Verify**: Tests fail (red)
-- [ ] T-6 Implement: {component} (GREEN) (depends: T-5)
-  - **Why**: {requirement}
-  - **Verify**: Tests pass (green), type-check clean
-- [ ] T-7 Review checkpoint (phase gate)
-  - **Verify**: type-check + test (coverage >= 90%) + build all pass
+- [ ] T-2: Implement {component} (GREEN — make tests pass)
+  Why: {which design.md AC / decision this task serves}
+  Files: {exact source files this task touches}
+  Change: {the mechanism in 1-2 sentences — what edit, at which file:line. Not the goal, the actual change.}
+  Test scenarios:
+    - all T-1 tests pass
+    - type-check clean
+  depends: T-1
 
-<!-- Status markers: [ ] pending, [→] in-progress, [x] done, [~] skipped -->
-<!-- (depends: T-xxx) = dependency -->
-<!-- TDD: test tasks (RED) always precede implementation tasks (GREEN) -->
-<!-- Coverage target: >= 90% at each phase gate -->
+- [ ] T-3: Review checkpoint — {group} (phase gate)
+  Why: phase gate — confirm the group's changes integrate cleanly before moving on
+  Test scenarios:
+    - type-check clean
+    - full test suite green
+    - build passes
+  depends: T-2
 
-<!-- VERIFICATION BUGS: If verification reveals new issues, add them as tasks -->
-<!-- before proceeding. Do NOT skip ahead. -->
+<!-- Format contract: contracts/artifact-formats.md § Task Format Contract -->
+<!-- Each task carries indented fields: -->
+<!--   Why            — the design.md AC / decision the change serves (the reason). -->
+<!--   Files          — exact files the task touches (non-gate tasks). -->
+<!--   Change         — the mechanism: what edit, at which file:line. Not the goal. -->
+<!--   Test scenarios — a bulleted list of behaviors the task's tests should -->
+<!--                    cover; the developer may add more (required). -->
+<!--   depends        — `depends: T-N` or `depends: T-N, T-M` (optional). -->
+<!-- Do NOT embed literal code or diffs in Change — mechanism-level prose only. -->
+<!-- The RED→GREEN pairing is carried by `depends:` — a GREEN task depends on -->
+<!-- its RED task; no separate test-sequencing field is needed. -->
+<!-- Status markers: [ ] pending, [x] done. -->
+
+<!-- TDD: when tdd_required, a RED test task precedes each GREEN implementation task. -->
+<!-- A pure mechanical change (rename/move/delete, no behavior change) has no -->
+<!-- meaningful RED step — sequence a regression-guard test task instead, and -->
+<!-- annotate the task `(no RED — mechanical change)`. Its Test scenarios are -->
+<!-- the regression-guard assertions. Do not fabricate a failing test that -->
+<!-- does not reflect the actual change. -->
+
+<!-- Group related tasks under `## Group X — <name>` headings when a feature -->
+<!-- has multiple independent workstreams. Close each group with a review -->
+<!-- checkpoint (phase gate). -->
+
+<!-- VERIFICATION BUGS: if verification reveals new issues, add them as tasks -->
+<!-- before proceeding — do NOT skip ahead. -->
 <!-- Example: -->
-<!-- - [ ] T-6b Fix: {bug found during T-6 verification} (depends: T-6) -->
-<!--   - **Why**: Found during verification — {description} -->
-<!--   - **Verify**: Original test + new regression test pass -->
+<!-- - [ ] T-2b: Fix {bug found during T-2 verification} -->
+<!--   Why: found during verification — {description} -->
+<!--   Files: {file} -->
+<!--   Change: {the fix mechanism} -->
+<!--   Test scenarios: -->
+<!--     - original test + new regression test pass -->
+<!--   depends: T-2 -->

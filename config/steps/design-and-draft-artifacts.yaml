@@ -94,7 +94,7 @@ verify:
   - design.md has Acceptance Criteria section with testable criteria
   - tasks.md follows the Task Format Contract
   - tasks.md covers every acceptance criterion from design.md
-  - Every task has a Verify field with concrete check
+  - Every task has a Test scenarios field listing the behaviors its tests cover
   - Key Decisions section populated in discovery.md
 
 outputs:

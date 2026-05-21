@@ -16,10 +16,19 @@ The `tasks.md` file is a structural contract between `create-or-refresh-artifact
 # Tasks — <Change Title>
 
 - [ ] T-1: <one-line description>
-  Verify: <concrete verification check>
+  Why: <which design.md AC or decision this task serves>
+  Files: <exact files this task touches>
+  Change: <the mechanism — what edit, at which file:line>
+  Test scenarios:
+    - <behavior the tests should cover>
+    - <behavior the tests should cover>
 
 - [ ] T-2: <one-line description>
-  Verify: <concrete verification check>
+  Why: <which design.md AC or decision this task serves>
+  Files: <exact files this task touches>
+  Change: <the mechanism — what edit, at which file:line>
+  Test scenarios:
+    - <behavior the tests should cover>
   depends: T-1
 ```
 
@@ -30,7 +39,10 @@ The `tasks.md` file is a structural contract between `create-or-refresh-artifact
 | Checkbox | Yes | `- [ ]` (pending) or `- [x]` (done) |
 | ID | Yes | `T-<N>:` sequential within the file |
 | Description | Yes | One line, imperative verb |
-| Verify | Yes | Indented 2 spaces, concrete check (command output, file exists, etc.) |
+| Why | Yes | Indented 2 spaces, the design.md AC or decision the change serves |
+| Files | Yes (non-gate tasks) | Indented 2 spaces, exact files the task touches |
+| Change | Yes (non-gate tasks) | Indented 2 spaces, the mechanism — what edit, at which file:line; not the goal |
+| Test scenarios | Yes | Indented 2 spaces, a bulleted list of behaviors/cases the task's tests should cover; the developer may add more |
 | depends | No | Indented 2 spaces, `depends: T-N` or `depends: T-N, T-M` |
 
 ---
