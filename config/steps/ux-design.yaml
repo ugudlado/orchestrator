@@ -6,7 +6,6 @@ intent: Design and validate UI/UX through playground prototyping and critique.
 agent: ideator
 
 inputs:
-  - phase_context_bundle
   - discovery_result
 
 rules:

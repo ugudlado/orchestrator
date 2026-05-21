@@ -14,8 +14,7 @@ pre_execute:
   approach_required: true
 
 inputs:
-  - tasks.md (format: contracts/artifact-formats.md § Task Format Contract)
-  - phase_context_bundle
+  - tasks.md
 
 rules:
   - Pick only ready tasks (dependencies satisfied).

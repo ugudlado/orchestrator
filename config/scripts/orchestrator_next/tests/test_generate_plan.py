@@ -142,13 +142,11 @@ def test_light_flag_drops_filtered_steps(tmp_path, monkeypatch):
     # Act
     generate_plan(str(state_path))
 
-    # Assert
-    plan_path = state_path.parent / "plan.yaml"
-    assert plan_path.exists()
-    plan = yaml.safe_load(plan_path.read_text())
-
-    specify_phase = next(p for p in plan["phases"] if p["name"] == "specify")
-    step_ids = [s["id"] for s in specify_phase["steps"]]
+    # Assert — workflow_plan promoted in place; no plan.yaml.
+    assert not (state_path.parent / "plan.yaml").exists()
+    state = yaml.safe_load(state_path.read_text())
+    specify_phase = state["workflow_plan"]["specify"]
+    step_ids = [n["id"] for n in specify_phase["nodes"]]
     assert step_ids == ["design-and-draft-artifacts"], (
         f"Expected only active steps, got: {step_ids}"
     )
@@ -229,8 +227,8 @@ def test_rule_merge_precedence(tmp_path, monkeypatch):
     # Act
     generate_plan(str(state_path))
 
-    plan = yaml.safe_load((state_path.parent / "plan.yaml").read_text())
-    step = plan["phases"][0]["steps"][0]
+    state = yaml.safe_load(state_path.read_text())
+    step = state["workflow_plan"]["work"]["nodes"][0]
     rules = step["rules"]
 
     # Tier 1 (injected) must appear before tier 2 (contract)
@@ -297,12 +295,12 @@ def test_byte_stable_output(tmp_path, monkeypatch):
 
     state_path = _make_state_yaml(tmp_path, "feature", flags, workflow_plan)
 
-    # Run twice
+    # Run twice — the promoted state.yaml must be byte-identical (idempotent).
     generate_plan(str(state_path))
-    first = (state_path.parent / "plan.yaml").read_bytes()
+    first = state_path.read_bytes()
 
     generate_plan(str(state_path))
-    second = (state_path.parent / "plan.yaml").read_bytes()
+    second = state_path.read_bytes()
 
     assert first == second, "Two runs produced different bytes — output is not deterministic"
 
@@ -363,9 +361,9 @@ def test_repeat_until_preserved(tmp_path, monkeypatch):
     state_path = _make_state_yaml(tmp_path, "feature", flags, workflow_plan)
 
     generate_plan(str(state_path))
-    plan = yaml.safe_load((state_path.parent / "plan.yaml").read_text())
+    state = yaml.safe_load(state_path.read_text())
 
-    step = plan["phases"][0]["steps"][0]
+    step = state["workflow_plan"]["implement"]["nodes"][0]
     assert step["id"] == "execute-next-task"
     assert step.get("repeat_until") == "all_tasks_completed", (
         f"repeat_until not preserved on execute-next-task, got: {step.get('repeat_until')!r}"
@@ -377,8 +375,8 @@ def test_repeat_until_preserved(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_phase_verify_attached_to_last_step(tmp_path, monkeypatch):
-    """verify block from schema phase must appear only on the last active step."""
+def test_phase_verify_attached_to_phase_block(tmp_path, monkeypatch):
+    """verify block from schema phase is a sibling of `nodes` (ORC-63), not on a node."""
     schema = {
         "name": "feature",
         "version": 1,
@@ -419,20 +417,17 @@ def test_phase_verify_attached_to_last_step(tmp_path, monkeypatch):
     state_path = _make_state_yaml(tmp_path, "feature", flags, workflow_plan)
 
     generate_plan(str(state_path))
-    plan = yaml.safe_load((state_path.parent / "plan.yaml").read_text())
+    state = yaml.safe_load(state_path.read_text())
 
-    steps = plan["phases"][0]["steps"]
-    assert len(steps) == 2
+    phase_block = state["workflow_plan"]["specify"]
+    nodes = phase_block["nodes"]
+    assert len(nodes) == 2
 
-    # First step must NOT have verify
-    assert "verify" not in steps[0], (
-        f"First step should not have verify block, but got: {steps[0].get('verify')}"
-    )
-    # Last step MUST have verify
-    assert "verify" in steps[-1], (
-        f"Last step should have verify block, but it is absent"
-    )
-    assert steps[-1]["verify"]["assertions"] == ["design.md exists"]
+    # verify is a phase-level sibling of nodes, not attached to any node.
+    for n in nodes:
+        assert "verify" not in n, f"node {n['id']} should not carry verify"
+    assert "verify" in phase_block, "phase block should carry the verify key"
+    assert phase_block["verify"]["assertions"] == ["design.md exists"]
 
 
 # ---------------------------------------------------------------------------
@@ -493,14 +488,214 @@ def test_include_phase_resolved(tmp_path, monkeypatch):
     state_path = _make_state_yaml(tmp_path, "feature", flags, workflow_plan)
 
     generate_plan(str(state_path))
-    plan = yaml.safe_load((state_path.parent / "plan.yaml").read_text())
+    state = yaml.safe_load(state_path.read_text())
 
-    phase_names = [p["name"] for p in plan["phases"]]
+    phase_names = list(state["workflow_plan"].keys())
     assert "complete" in phase_names, (
         f"Expected 'complete' phase from include resolution, got phases: {phase_names}"
     )
 
-    complete_p = next(p for p in plan["phases"] if p["name"] == "complete")
-    assert complete_p["goal"] == "Archive and complete."
-    step_ids = [s["id"] for s in complete_p["steps"]]
+    complete_p = state["workflow_plan"]["complete"]
+    step_ids = [n["id"] for n in complete_p["nodes"]]
     assert step_ids == ["archive-step"]
+    # The included phase's goal is carried on each node.
+    assert complete_p["nodes"][0]["goal"] == "Archive and complete."
+
+
+# ===========================================================================
+# ORC-63 T-8: generate_plan node promotion + topo-sort cycle detection
+# ===========================================================================
+
+
+def _setup_home(tmp_path, schema_name, schema, contracts):
+    """Write schema + contracts under a temp ORCHESTRATOR_HOME; return dirs."""
+    home = tmp_path / "orchestrator_home"
+    workflows_dir = home / "config" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    contracts_dir = home / "config" / "steps"
+    contracts_dir.mkdir(parents=True)
+    _make_schema_yaml(workflows_dir, schema_name, schema)
+    for sid, cdata in contracts.items():
+        _write_step_contract(contracts_dir, sid, cdata)
+    _make_project_yaml(tmp_path, [])
+    return home, contracts_dir
+
+
+def test_promotes_state_to_nodes_shape_no_plan_yaml(tmp_path, monkeypatch):
+    """After generate_plan, state.yaml workflow_plan.main is {nodes, filtered,
+    verify} and NO plan.yaml exists on disk."""
+    schema = {
+        "name": "feature", "version": 1, "rules": [],
+        "phases": [{
+            "name": "main", "goal": "Do.", "rules": [],
+            "steps": ["step-a", "step-b"],
+        }],
+    }
+    contracts = {
+        sid: {"id": sid, "agent": "inline", "inputs": [], "outputs": [], "rules": []}
+        for sid in ("step-a", "step-b")
+    }
+    home, contracts_dir = _setup_home(tmp_path, "feature", schema, contracts)
+    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
+
+    workflow_plan = {"main": {"active": ["step-a", "step-b"], "filtered": []}}
+    state_path = _make_state_yaml(tmp_path, "feature", {}, workflow_plan)
+
+    generate_plan(str(state_path))
+
+    assert not (state_path.parent / "plan.yaml").exists()
+    state = yaml.safe_load(state_path.read_text())
+    main = state["workflow_plan"]["main"]
+    assert "active" not in main
+    assert "nodes" in main and "filtered" in main
+    nodes = main["nodes"]
+    assert [n["id"] for n in nodes] == ["step-a", "step-b"]
+    for n in nodes:
+        assert n["status"] == "pending"
+        for key in ("agent", "goal", "inputs", "outputs", "rules"):
+            assert key in n
+
+
+def test_linear_schema_synthesizes_implicit_chain_depends_on(tmp_path, monkeypatch):
+    """A linear schema yields one node per step in active order, each with an
+    implicit-chain depends_on on its predecessor."""
+    schema = {
+        "name": "feature", "version": 1, "rules": [],
+        "phases": [{
+            "name": "main", "goal": "Do.", "rules": [],
+            "steps": ["s1", "s2", "s3"],
+        }],
+    }
+    contracts = {
+        sid: {"id": sid, "agent": "inline", "inputs": [], "outputs": [], "rules": []}
+        for sid in ("s1", "s2", "s3")
+    }
+    home, contracts_dir = _setup_home(tmp_path, "feature", schema, contracts)
+    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
+
+    workflow_plan = {"main": {"active": ["s1", "s2", "s3"], "filtered": []}}
+    state_path = _make_state_yaml(tmp_path, "feature", {}, workflow_plan)
+    generate_plan(str(state_path))
+
+    nodes = yaml.safe_load(state_path.read_text())["workflow_plan"]["main"]["nodes"]
+    by_id = {n["id"]: n for n in nodes}
+    # First node: no depends_on (or empty)
+    assert not by_id["s1"].get("depends_on")
+    assert by_id["s2"].get("depends_on") == ["s1"]
+    assert by_id["s3"].get("depends_on") == ["s2"]
+
+
+def test_explicit_depends_on_lands_on_node(tmp_path, monkeypatch):
+    """An explicit depends_on on a dict-form schema step entry lands on its node."""
+    schema = {
+        "name": "feature", "version": 1, "rules": [],
+        "phases": [{
+            "name": "main", "goal": "Do.", "rules": [],
+            "steps": ["explore", {"id": "design", "depends_on": ["explore"]}],
+        }],
+    }
+    contracts = {
+        sid: {"id": sid, "agent": "inline", "inputs": [], "outputs": [], "rules": []}
+        for sid in ("explore", "design")
+    }
+    home, contracts_dir = _setup_home(tmp_path, "feature", schema, contracts)
+    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
+
+    workflow_plan = {"main": {"active": ["explore", "design"], "filtered": []}}
+    state_path = _make_state_yaml(tmp_path, "feature", {}, workflow_plan)
+    generate_plan(str(state_path))
+
+    nodes = yaml.safe_load(state_path.read_text())["workflow_plan"]["main"]["nodes"]
+    by_id = {n["id"]: n for n in nodes}
+    assert by_id["design"]["depends_on"] == ["explore"]
+
+
+def test_cyclic_edges_raise_and_keep_pre_promotion_shape(tmp_path, monkeypatch):
+    """Cyclic depends_on edges raise non-zero with the cycle path; state.yaml
+    keeps its pre-promotion (active) shape."""
+    schema = {
+        "name": "feature", "version": 1, "rules": [],
+        "phases": [{
+            "name": "main", "goal": "Do.", "rules": [],
+            "steps": [
+                {"id": "a", "depends_on": ["b"]},
+                {"id": "b", "depends_on": ["a"]},
+            ],
+        }],
+    }
+    contracts = {
+        sid: {"id": sid, "agent": "inline", "inputs": [], "outputs": [], "rules": []}
+        for sid in ("a", "b")
+    }
+    home, contracts_dir = _setup_home(tmp_path, "feature", schema, contracts)
+    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
+
+    workflow_plan = {"main": {"active": ["a", "b"], "filtered": []}}
+    state_path = _make_state_yaml(tmp_path, "feature", {}, workflow_plan)
+
+    with pytest.raises(ValueError, match="cycle"):
+        generate_plan(str(state_path))
+
+    # state.yaml unchanged — still has the active shape
+    main = yaml.safe_load(state_path.read_text())["workflow_plan"]["main"]
+    assert "active" in main
+    assert "nodes" not in main
+
+
+def test_depends_on_to_filtered_step_dropped_with_warning(tmp_path, monkeypatch, capsys):
+    """A depends_on edge targeting a filtered step is dropped with a stderr warning."""
+    schema = {
+        "name": "feature", "version": 1, "rules": [],
+        "phases": [{
+            "name": "main", "goal": "Do.", "rules": [],
+            "steps": ["ux-design", {"id": "design", "depends_on": ["ux-design"]}],
+        }],
+    }
+    contracts = {
+        "design": {"id": "design", "agent": "inline", "inputs": [], "outputs": [], "rules": []},
+    }
+    home, contracts_dir = _setup_home(tmp_path, "feature", schema, contracts)
+    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
+
+    # ux-design is filtered out of the plan
+    workflow_plan = {"main": {
+        "active": ["design"],
+        "filtered": [{"id": "ux-design", "reason": "flag ux_design=false"}],
+    }}
+    state_path = _make_state_yaml(tmp_path, "feature", {}, workflow_plan)
+    generate_plan(str(state_path))
+
+    captured = capsys.readouterr()
+    assert "ux-design" in captured.err
+    nodes = yaml.safe_load(state_path.read_text())["workflow_plan"]["main"]["nodes"]
+    by_id = {n["id"]: n for n in nodes}
+    # The edge to the filtered step is dropped
+    assert not by_id["design"].get("depends_on")
+
+
+def test_depends_on_unknown_id_raises(tmp_path, monkeypatch):
+    """A depends_on to an unknown (not filtered, not in plan) id raises."""
+    schema = {
+        "name": "feature", "version": 1, "rules": [],
+        "phases": [{
+            "name": "main", "goal": "Do.", "rules": [],
+            "steps": [{"id": "design", "depends_on": ["nonexistent"]}],
+        }],
+    }
+    contracts = {
+        "design": {"id": "design", "agent": "inline", "inputs": [], "outputs": [], "rules": []},
+    }
+    home, contracts_dir = _setup_home(tmp_path, "feature", schema, contracts)
+    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
+
+    workflow_plan = {"main": {"active": ["design"], "filtered": []}}
+    state_path = _make_state_yaml(tmp_path, "feature", {}, workflow_plan)
+
+    with pytest.raises(ValueError):
+        generate_plan(str(state_path))

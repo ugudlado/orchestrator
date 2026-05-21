@@ -52,19 +52,20 @@ def _completed_entry(step_id: str, phase: str):
 
 def _make_multi_phase_state(current_phase: str, phases: list[str], steps_per_phase: list[list[str]]):
     """
-    Build a State with a multi-phase workflow_plan.
+    Build a State with a multi-phase workflow_plan in the ORC-63 nodes shape.
 
-    All steps in `current_phase` have completed history entries so the
-    dispatcher reaches the complete_workflow branch for that phase.
-    Steps in other phases are present in active: but have no history.
+    Every node in `current_phase` carries status='completed' so the DAG-walk
+    finds no ready node and the dispatcher reaches the phase-complete branch.
+    Nodes in other phases are born 'pending'.
     """
     from orchestrator_next.parser import State
 
     plan = {}
     for phase, steps in zip(phases, steps_per_phase):
-        plan[phase] = {"active": steps}
+        status = "completed" if phase == current_phase else "pending"
+        nodes = [{"id": sid, "status": status} for sid in steps]
+        plan[phase] = {"nodes": nodes, "filtered": []}
 
-    # Completed history for every step in the current phase only
     current_idx = phases.index(current_phase)
     history = []
     for step_id in steps_per_phase[current_idx]:

@@ -7,7 +7,6 @@ agent: reviewer
 
 inputs:
   - task_execution_result
-  - phase_context_bundle
 
 flags_read:
   - name: tdd_required

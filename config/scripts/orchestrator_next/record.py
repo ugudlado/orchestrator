@@ -19,7 +19,8 @@ from typing import Any
 
 import yaml
 
-from orchestrator_next.parser import ContractError, load_contract_for_step, load_state
+from orchestrator_next.parser import ContractError, State, load_contract_for_step, load_state
+from orchestrator_next import readiness
 from orchestrator_next.upsert import upsert_step_event
 
 
@@ -143,28 +144,46 @@ class BoundaryKind(str, Enum):
     FEATURE = "feature"
 
 
+def _phase_node_ids(workflow_plan: dict, phase: str) -> list[str]:
+    """Return the ordered step ids for a phase from `workflow_plan`.
+
+    ORC-63: reads the `nodes` list (post-promotion shape). Accepts a legacy
+    `active:[ids]` block as a back-compat read path. Returns [] when neither.
+    """
+    phase_block = workflow_plan.get(phase) or {}
+    if not isinstance(phase_block, dict):
+        return []
+    nodes = phase_block.get("nodes")
+    if nodes is not None:
+        return [str(n.get("id", "")) for n in nodes if isinstance(n, dict)]
+    active = phase_block.get("active") or []
+    return [str(s) for s in active]
+
+
 def _detect_boundary(
     workflow_plan: dict,
     phase: str,
     step_id: str,
     status: str,
 ) -> BoundaryKind:
-    """Return BoundaryKind based on workflow_plan and current step.
+    """Return BoundaryKind based on workflow_plan and current step (ORC-63).
 
     Returns NONE for any status != 'completed'.
-    Returns NONE if step_id is not the last element in workflow_plan[phase].active.
-    Returns PHASE if step_id is last in active AND phase is not the last key in workflow_plan.
-    Returns FEATURE if step_id is last in active AND phase IS the last key in workflow_plan.
+    Returns NONE if step_id is not the last declaration-order node in the phase.
+    Returns PHASE if step_id is the last node AND phase is not the last key.
+    Returns FEATURE if step_id is the last node AND phase IS the last key.
+
+    "Last node" = the last entry of `workflow_plan[phase].nodes` (a legacy
+    `active:[ids]` block is read via the back-compat path).
     """
     if status != "completed":
         return BoundaryKind.NONE
 
-    phase_block = workflow_plan.get(phase) or {}
-    active = phase_block.get("active") or []
-    if not active or step_id != active[-1]:
+    node_ids = _phase_node_ids(workflow_plan, phase)
+    if not node_ids or step_id != node_ids[-1]:
         return BoundaryKind.NONE
 
-    # step_id is the last in active — at minimum a phase boundary
+    # step_id is the last node — at minimum a phase boundary
     phase_keys = list(workflow_plan.keys())
     if phase_keys and phase == phase_keys[-1]:
         return BoundaryKind.FEATURE
@@ -1090,23 +1109,94 @@ REPEAT_PREDICATES = {
 }
 
 
+def _check_declared_outputs(
+    declared: list[str], outputs: dict[str, Any], state_raw: dict[str, Any]
+) -> list[str]:
+    """Return the list of declared outputs that are not verifiably satisfied (AC-10).
+
+    A declared output is *satisfied* only when:
+      - its key is present in `outputs` (the payload's evidence.outputs), AND
+      - its value is non-null and non-empty, AND
+      - if the name is a filesystem path (contains '/'), the file exists on
+        disk (resolved against the worktree artifact dir / repo root).
+    """
+    unsatisfied: list[str] = []
+    base = state_raw.get("worktree_path") or state_raw.get("repo_root") or ""
+    if isinstance(base, str) and base.startswith("~"):
+        base = os.path.expanduser(base)
+    for name in declared:
+        if name not in outputs:
+            unsatisfied.append(name)
+            continue
+        value = outputs[name]
+        # Reject null / empty (empty str, empty list/dict). Zero/False are real.
+        if value is None or (hasattr(value, "__len__") and len(value) == 0):
+            unsatisfied.append(name)
+            continue
+        # Path-named output: the file must exist on disk.
+        if "/" in name:
+            candidate = Path(name)
+            if not candidate.is_absolute() and base:
+                candidate = Path(base) / name
+            if not candidate.is_file():
+                unsatisfied.append(name)
+    return unsatisfied
+
+
+def _state_from_raw(state_raw: dict[str, Any]) -> State:
+    """Build an in-memory State view over a mutated `state_raw` dict (ORC-63).
+
+    `readiness` functions operate on a `State`; this avoids re-reading the
+    on-disk state.yaml (which would be stale relative to in-flight mutations).
+    Only the fields readiness needs are populated accurately.
+    """
+    return State(
+        change_id=state_raw.get("change_id", ""),
+        phase=state_raw.get("phase", ""),
+        repo_root=str(state_raw.get("repo_root") or ""),
+        workflow_dir=str(state_raw.get("worktree_path") or ""),
+        workflow_plan=state_raw.get("workflow_plan", {}) or {},
+        step_history=[],
+        raw=state_raw,
+    )
+
+
+def _repeat_until_pending(
+    step_id: str, state_yaml_path: str, state_raw: dict[str, Any]
+) -> bool:
+    """Return True iff `step_id` declares a repeat_until predicate that is
+    currently False — i.e. the step must be re-run, not advanced past."""
+    try:
+        contract = load_contract_for_step(step_id, state_yaml_path)
+    except (FileNotFoundError, ContractError):
+        return False
+    if not (contract and contract.repeat_until):
+        return False
+    predicate = REPEAT_PREDICATES.get(contract.repeat_until)
+    if predicate is None:
+        return False
+    return not predicate(state_raw)
+
+
 def _compute_next_step(
     state_raw: dict[str, Any],
     just_completed_step_id: str,
     state_yaml_path: str,
 ) -> dict[str, Any] | None:
-    """Return the next_step dict for state.yaml, or None if phase complete."""
+    """Return the next_step dict for state.yaml, or None if the phase is complete.
+
+    ORC-63: the DAG-walk `readiness.next_ready_node` is the single next-step
+    computation. This wrapper preserves the `repeat_until` re-emit semantics:
+    when the just-completed step declares a `repeat_until` predicate that
+    evaluates False, the same step is re-emitted instead of advancing.
+
+    Call this AFTER the just-completed node's status has been flipped to
+    `completed` in `state_raw` so the DAG-walk skips it.
+    """
     phase = state_raw.get("phase", "")
-    plan = state_raw.get("workflow_plan", {}).get(phase, {})
-    active = plan.get("active", []) if isinstance(plan, dict) else []
-    history = state_raw.get("step_history") or []
-    completed = {
-        (e.get("phase"), e.get("step_id"))
-        for e in history
-        if isinstance(e, dict) and e.get("status") == "completed"
-    }
-    # ISSUE-16: before marking step as completed, check repeat_until predicate.
-    # If predicate returns False, re-emit the same step instead of advancing.
+
+    # ISSUE-16: if the just-completed step declares a repeat_until predicate
+    # that is currently False, re-emit it instead of advancing.
     try:
         contract = load_contract_for_step(just_completed_step_id, state_yaml_path)
     except (FileNotFoundError, ContractError):
@@ -1121,20 +1211,13 @@ def _compute_next_step(
             )
         elif not predicate(state_raw):
             return {"phase": phase, "step_id": just_completed_step_id}
-    # Include the step we just completed (may not be in history yet if caller
-    # invoked record before appending).
-    completed.add((phase, just_completed_step_id))
-    for sid in active:
-        # Handle `{id: foo, ...}` entries plus plain strings and `step if flag`.
-        if isinstance(sid, dict):
-            sid = sid.get("id", "")
-        elif isinstance(sid, str):
-            sid = sid.split(" if ")[0].strip()
-        if not sid:
-            continue
-        if (phase, sid) not in completed:
-            return {"phase": phase, "step_id": sid}
-    return None
+
+    # Normal advance: the first ready node in the DAG.
+    state = _state_from_raw(state_raw)
+    nxt = readiness.next_ready_node(state)
+    if nxt is None:
+        return None
+    return {"phase": phase, "step_id": nxt}
 
 
 def record(
@@ -1187,7 +1270,14 @@ def record(
         contract = None
 
     if contract is not None and status == "completed":
-        missing_out = [k for k in contract.outputs if k not in outputs]
+        # ORC-63 AC-10: a declared output is satisfied only when its key is
+        # present, the value is non-null/non-empty, and (for a path-named
+        # output) the file exists on disk.
+        try:
+            _check_state_raw = yaml.safe_load(Path(state_yaml_path).read_text()) or {}
+        except (OSError, yaml.YAMLError):
+            _check_state_raw = {}
+        missing_out = _check_declared_outputs(contract.outputs, outputs, _check_state_raw)
         if missing_out:
             return (
                 {
@@ -1396,7 +1486,18 @@ def record(
     if status == "abandoned":
         state_raw["status"] = "blocked"
 
-    # Advance next_step
+    # ORC-63: flip the node's status in workflow_plan via the shared mutator.
+    # A repeat_until step whose predicate is still False stays `in_progress`
+    # (re-dispatchable) — flipping it to `completed` would make the DAG-walk
+    # skip its re-run. Otherwise a completed/recovered record marks the node
+    # `completed`.
+    if status in ("completed", "recovered"):
+        if _repeat_until_pending(step_id, state_yaml_path, state_raw):
+            readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
+        else:
+            readiness.mark_node_status(state_raw, phase, step_id, "completed")
+
+    # Advance next_step (DAG-walk over the just-mutated node statuses).
     next_step = _compute_next_step(state_raw, step_id, state_yaml_path)
     if next_step:
         state_raw["next_step"] = next_step

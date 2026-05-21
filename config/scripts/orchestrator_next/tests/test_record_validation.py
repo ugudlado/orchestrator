@@ -331,7 +331,9 @@ class TestPhaseReviewVerdictValidation:
     def test_rejects_missing_verdict(self, tmp_path):
         state_path = _phase_review_state(tmp_path)
         payload = self._payload("pass")
-        payload["outputs"] = {"phase_review_report": {}}
+        # A non-empty report dict that lacks the `verdict` key — passes the
+        # ORC-63 output post-check (non-empty) and reaches verdict validation.
+        payload["outputs"] = {"phase_review_report": {"summary": "no verdict here"}}
         result, exit_code = record(state_path, payload)
         assert exit_code == 3
         assert result["reason"] == "invalid_phase_review_verdict"
@@ -357,3 +359,154 @@ class TestPhaseReviewVerdictValidation:
         record(state_path, self._payload("PASS"))
         post_bytes = open(state_path, "rb").read()
         assert pre_bytes == post_bytes
+
+
+# ===========================================================================
+# ORC-63 T-15: upgraded output post-check (AC-10) + node.status / next_step
+# ===========================================================================
+
+
+def _nodes_state(tmp_path, contracts_dir, nodes, phase="main"):
+    """Write a state.yaml in the ORC-63 nodes shape; return its path."""
+    state = {
+        "change_id": "orc63-rec",
+        "phase": phase,
+        "repo_root": str(tmp_path),
+        "workflow_plan": {phase: {"nodes": nodes, "filtered": []}},
+        "step_history": [],
+    }
+    p = tmp_path / "state.yaml"
+    p.write_text(yaml.safe_dump(state, sort_keys=False))
+    return str(p)
+
+
+def _write_outputs_contract(contracts_dir, step_id, outputs):
+    (Path(contracts_dir) / f"{step_id}.yaml").write_text(yaml.safe_dump({
+        "id": step_id, "agent": "inline", "instruction": "x",
+        "inputs": [], "outputs": outputs, "rules": [],
+    }))
+
+
+class TestOutputPostCheckUpgrade:
+    """AC-10: a declared output is satisfied only when its key is present, the
+    value is non-null and non-empty, and (for a path-named output) the file
+    exists on disk."""
+
+    @pytest.fixture()
+    def contracts_dir(self, tmp_path, monkeypatch):
+        d = tmp_path / "steps"
+        d.mkdir()
+        monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(d))
+        return d
+
+    def test_rejects_absent_output_key(self, tmp_path, contracts_dir):
+        """A declared output key absent from evidence.outputs → missing_outputs."""
+        _write_outputs_contract(contracts_dir, "s", ["discovery_result"])
+        sp = _nodes_state(tmp_path, contracts_dir, [
+            {"id": "s", "status": "pending", "outputs": ["discovery_result"]},
+        ])
+        result, code = record(sp, {
+            "step_id": "s", "phase": "main", "status": "completed",
+            "agent": "inline", "outputs": {}, "usage": {},
+        })
+        assert code == 3
+        assert result["reason"] == "missing_outputs"
+
+    def test_rejects_null_output_value(self, tmp_path, contracts_dir):
+        """A declared output whose value is null → missing_outputs."""
+        _write_outputs_contract(contracts_dir, "s", ["discovery_result"])
+        sp = _nodes_state(tmp_path, contracts_dir, [
+            {"id": "s", "status": "pending", "outputs": ["discovery_result"]},
+        ])
+        result, code = record(sp, {
+            "step_id": "s", "phase": "main", "status": "completed",
+            "agent": "inline", "outputs": {"discovery_result": None}, "usage": {},
+        })
+        assert code == 3
+        assert result["reason"] == "missing_outputs"
+
+    def test_rejects_empty_output_value(self, tmp_path, contracts_dir):
+        """A declared output whose value is empty (e.g. '') → missing_outputs."""
+        _write_outputs_contract(contracts_dir, "s", ["discovery_result"])
+        sp = _nodes_state(tmp_path, contracts_dir, [
+            {"id": "s", "status": "pending", "outputs": ["discovery_result"]},
+        ])
+        result, code = record(sp, {
+            "step_id": "s", "phase": "main", "status": "completed",
+            "agent": "inline", "outputs": {"discovery_result": ""}, "usage": {},
+        })
+        assert code == 3
+        assert result["reason"] == "missing_outputs"
+
+    def test_rejects_path_named_output_missing_file(self, tmp_path, contracts_dir):
+        """A path-named output (name contains '/') whose file is absent → reject."""
+        _write_outputs_contract(contracts_dir, "s", ["spec/project.yaml"])
+        sp = _nodes_state(tmp_path, contracts_dir, [
+            {"id": "s", "status": "pending", "outputs": ["spec/project.yaml"]},
+        ])
+        result, code = record(sp, {
+            "step_id": "s", "phase": "main", "status": "completed",
+            "agent": "inline",
+            "outputs": {"spec/project.yaml": "spec/project.yaml"}, "usage": {},
+        })
+        assert code == 3
+        assert result["reason"] == "missing_outputs"
+
+    def test_accepts_all_outputs_present_and_real(self, tmp_path, contracts_dir):
+        """All declared outputs present, non-empty, path-files existing → accepted."""
+        # Create the path-named output file on disk.
+        proj = tmp_path / "spec"
+        proj.mkdir()
+        (proj / "project.yaml").write_text("version: 1\n")
+        _write_outputs_contract(contracts_dir, "s", ["discovery_result", "spec/project.yaml"])
+        sp = _nodes_state(tmp_path, contracts_dir, [
+            {"id": "s", "status": "pending",
+             "outputs": ["discovery_result", "spec/project.yaml"]},
+        ])
+        result, code = record(sp, {
+            "step_id": "s", "phase": "main", "status": "completed",
+            "agent": "inline",
+            "outputs": {"discovery_result": {"findings": ["x"]},
+                        "spec/project.yaml": "spec/project.yaml"},
+            "usage": {},
+        })
+        assert code == 0, result
+
+
+class TestNodeStatusAndNextStep:
+    """AC-3 / OQ-4: a completed record flips the node's status to completed and
+    rewrites state.next_step from next_ready_node."""
+
+    @pytest.fixture()
+    def contracts_dir(self, tmp_path, monkeypatch):
+        d = tmp_path / "steps"
+        d.mkdir()
+        monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(d))
+        return d
+
+    def test_completed_record_flips_node_status(self, tmp_path, contracts_dir):
+        """A completed record sets the node's status to completed in state.yaml."""
+        _write_outputs_contract(contracts_dir, "a", [])
+        _write_outputs_contract(contracts_dir, "b", [])
+        sp = _nodes_state(tmp_path, contracts_dir, [
+            {"id": "a", "status": "pending", "outputs": []},
+            {"id": "b", "status": "pending", "outputs": []},
+        ])
+        record(sp, {"step_id": "a", "phase": "main", "status": "completed",
+                    "agent": "inline", "outputs": {}, "usage": {}})
+        state = yaml.safe_load(open(sp))
+        by_id = {n["id"]: n for n in state["workflow_plan"]["main"]["nodes"]}
+        assert by_id["a"]["status"] == "completed"
+
+    def test_completed_record_rewrites_next_step(self, tmp_path, contracts_dir):
+        """A completed record rewrites state.next_step to the next ready node."""
+        _write_outputs_contract(contracts_dir, "a", [])
+        _write_outputs_contract(contracts_dir, "b", [])
+        sp = _nodes_state(tmp_path, contracts_dir, [
+            {"id": "a", "status": "pending", "outputs": []},
+            {"id": "b", "status": "pending", "outputs": []},
+        ])
+        record(sp, {"step_id": "a", "phase": "main", "status": "completed",
+                    "agent": "inline", "outputs": {}, "usage": {}})
+        state = yaml.safe_load(open(sp))
+        assert state["next_step"] == {"phase": "main", "step_id": "b"}

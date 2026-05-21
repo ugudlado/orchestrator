@@ -6,7 +6,11 @@ intent: Trigger automatic learning from the just-completed change so every compl
 agent: workflow-improver
 
 inputs:
-  - final_signoff_decision
+  # ORC-63: no step produces final_signoff_decision — it names a human
+  # approval gate, not a dataflow edge. Marked optional so the AC-4 prereq
+  # check does not hard-block. A future signoff step that emits this output
+  # can drop the optional annotation.
+  - final_signoff_decision: optional
 
 rules:
   - Learning failure is non-blocking — if /learn fails, log a warning and return success.

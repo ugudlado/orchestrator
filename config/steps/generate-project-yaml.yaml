@@ -5,9 +5,11 @@ agent: developer
 intent: Create spec/project.yaml by selecting a stack template and customizing with user.
 
 inputs:
-  - detect-language outputs (languages, package_manager, web_project, backend_project)
-  - install-tooling outputs (scripts_added)
-  - Templates: $ORCHESTRATOR_HOME/config/templates/bootstrap/project-yaml/
+  - languages
+  - package_manager
+  - web_project
+  - backend_project
+  - scripts_added
 
 rules:
   - If spec/project.yaml already exists, skip entirely — never overwrite.

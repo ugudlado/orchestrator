@@ -5,7 +5,9 @@ agent: developer
 intent: Install and configure all quality gate tools for detected language(s).
 
 inputs:
-  - detect-language outputs (languages, package_manager, web_project)
+  - languages
+  - package_manager
+  - web_project
 
 rules:
   - For each tool: check → install → configure → add script → verify.
@@ -65,5 +67,5 @@ verify:
   - No existing configs overwritten
 
 outputs:
-  - tools_installed: map of tool_name → { name, version }
-  - scripts_added: list of script names
+  - tools_installed
+  - scripts_added

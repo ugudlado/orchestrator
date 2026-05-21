@@ -5,8 +5,7 @@ intent: Survey the problem space — constraints, patterns, and open questions.
 
 agent: discoverer
 
-inputs:
-  - phase_context_bundle
+inputs: []
 
 rules:
   - Focus on problem-space survey, NOT solution design (design-and-draft-artifacts owns that).

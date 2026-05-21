@@ -1,8 +1,11 @@
 """
-Generate plan.yaml from state.yaml + schema + step contracts + project.yaml.
+Promote a seeded state.yaml workflow_plan into the DAG `nodes` shape (ORC-63).
 
 Public API: generate_plan(state_yaml_path: str) -> None
-Writes plan.yaml next to state.yaml, applying 5-tier rule merge per rule-merge.md.
+Reads state.yaml + schema + step contracts + project.yaml, applies the 5-tier
+rule merge (rule-merge.md), topo-sorts the dependency graph, and rewrites
+state.yaml in place with `workflow_plan[phase] = {nodes, filtered, verify}`.
+No separate plan file is produced — workflow state lives in one file.
 
 Entry point: python -m orchestrator_next.generate_plan <state_yaml_path>
 """
@@ -264,10 +267,12 @@ def _build_step_block(
     state_yaml_path: str,
 ) -> dict[str, Any]:
     """
-    Build the per-step block for plan.yaml.
+    Build the per-step node block for state.yaml workflow_plan (ORC-63).
 
-    Emits: id, agent, goal, inputs, outputs, rules, repeat_until (when set).
-    verify is attached by the caller (last step of phase only).
+    Emits: id, status, depends_on (when authored), agent, goal, inputs,
+    outputs, rules, repeat_until (when set). The implicit chain `depends_on`
+    is left absent here and applied by the topo-sort/promotion step in the
+    caller. verify is attached at the phase level, not per node.
     """
     step_entry = _step_entry_for_id(phase_def, step_id) or {}
     contract_raw = _load_step_contract_raw(step_id, state_yaml_path)
@@ -286,22 +291,102 @@ def _build_step_block(
     rules = _merge_rules(step_entry, contract_raw, phase_def, schema, project, flags, repo_name)
     goal = phase_def.get("goal", "")
 
-    # Build block with explicit key order (alphabetical within step)
+    # Build node with explicit key order (id/status first, then alphabetical).
     block: dict[str, Any] = {
+        "id": step_id,
+        "status": "pending",
         "agent": agent,
         "goal": goal,
-        "id": step_id,
         "inputs": inputs,
         "outputs": outputs,
         "rules": rules,
     }
 
-    # repeat_until: from schema step entry OR contract, with step entry taking precedence
+    # Authored depends_on from the dict-form schema step entry (ORC-63).
+    authored = step_entry.get("depends_on")
+    if authored:
+        block["depends_on"] = [str(d) for d in authored]
+
+    # repeat_until: from schema step entry OR contract, step entry takes precedence
     repeat_until = step_entry.get("repeat_until") or (contract_raw.get("repeat_until") if contract_raw else None)
     if repeat_until:
         block["repeat_until"] = repeat_until
 
     return block
+
+
+def _topo_sort(nodes: list[dict[str, Any]], filtered_ids: set[str]) -> None:
+    """Validate the node DAG via Kahn's algorithm (ORC-63).
+
+    Builds the effective edge set: each node's authored `depends_on`, else an
+    implicit chain edge on its declaration-order predecessor. Edges that
+    target a `filtered` step are dropped in place (with a stderr warning).
+    Edges that target an unknown id (not a node, not filtered) raise
+    ValueError. A cycle raises ValueError naming the cycle path.
+
+    Mutates each node's `depends_on` to its effective edge set so the promoted
+    state.yaml carries explicit edges. The first node keeps no implicit edge.
+    """
+    node_ids = [str(n.get("id", "")) for n in nodes]
+    id_set = set(node_ids)
+
+    # Resolve effective depends_on for each node (authored or implicit chain).
+    effective: dict[str, list[str]] = {}
+    for idx, node in enumerate(nodes):
+        nid = str(node.get("id", ""))
+        authored = node.get("depends_on")
+        if authored is not None:
+            deps = [str(d) for d in authored]
+        elif idx > 0:
+            deps = [node_ids[idx - 1]]
+        else:
+            deps = []
+
+        kept: list[str] = []
+        for dep in deps:
+            if dep in filtered_ids:
+                print(
+                    f"WARNING: step {nid!r} depends_on filtered step {dep!r} — "
+                    f"dropping the edge",
+                    file=sys.stderr,
+                )
+                continue
+            if dep not in id_set:
+                raise ValueError(
+                    f"step {nid!r} depends_on unknown step {dep!r} — "
+                    f"not a node in this phase and not filtered"
+                )
+            kept.append(dep)
+        effective[nid] = kept
+        # Write the effective edges back onto the node.
+        if kept:
+            node["depends_on"] = kept
+        elif "depends_on" in node:
+            del node["depends_on"]
+
+    # Kahn's algorithm: detect a cycle.
+    indegree = {nid: 0 for nid in node_ids}
+    adj: dict[str, list[str]] = {nid: [] for nid in node_ids}
+    for nid, deps in effective.items():
+        for dep in deps:
+            adj[dep].append(nid)
+            indegree[nid] += 1
+
+    queue = [nid for nid in node_ids if indegree[nid] == 0]
+    visited = 0
+    while queue:
+        cur = queue.pop(0)
+        visited += 1
+        for nxt in adj[cur]:
+            indegree[nxt] -= 1
+            if indegree[nxt] == 0:
+                queue.append(nxt)
+
+    if visited != len(node_ids):
+        in_cycle = sorted(nid for nid in node_ids if indegree[nid] > 0)
+        raise ValueError(
+            f"dependency cycle detected among steps: {' -> '.join(in_cycle)}"
+        )
 
 
 def _write_yaml_stable(obj: Any, path: Path) -> None:
@@ -317,7 +402,12 @@ def _write_yaml_stable(obj: Any, path: Path) -> None:
 
 def generate_plan(state_yaml_path: str) -> None:
     """
-    Read state.yaml, merge, write plan.yaml next to state.yaml.
+    Read state.yaml, promote each phase's `active:[ids]` list into a
+    `nodes:[{...}]` graph, and rewrite state.yaml in place (ORC-63).
+
+    `workflow_plan[phase]` becomes `{nodes:[...], filtered, verify}`; the
+    `active` key is removed. Topo-sort detects cycles before any write — on a
+    cycle, state.yaml is left untouched. No plan.yaml is produced.
 
     Public API. Returns None. Raises on unrecoverable errors.
     """
@@ -333,20 +423,35 @@ def generate_plan(state_yaml_path: str) -> None:
     # Resolve phases — expand include: _<name> directives inline
     resolved_phases = _resolve_phases(schema)
 
-    phases_out: list[dict[str, Any]] = []
-    for phase_name, phase_plan in state.workflow_plan.items():
+    # Build the promoted workflow_plan in a fresh dict, preserving phase order.
+    # Topo-sort each phase BEFORE mutating anything written back, so a cycle
+    # aborts with state.yaml untouched.
+    promoted: dict[str, Any] = {}
+    for phase_name, phase_plan in state.raw.get("workflow_plan", {}).items():
         if isinstance(phase_plan, dict):
-            active_step_ids = list(phase_plan.get("active", []))
+            # Idempotent: a re-run sees the promoted `nodes` shape — re-derive
+            # the step id order from it. Otherwise read the seed `active` list.
+            if "nodes" in phase_plan:
+                active_step_ids = [
+                    str(n.get("id", ""))
+                    for n in (phase_plan.get("nodes") or [])
+                ]
+            else:
+                active_step_ids = list(phase_plan.get("active", []))
+            filtered = phase_plan.get("filtered", []) or []
         else:
             active_step_ids = []
+            filtered = []
 
         try:
             phase_def = _find_phase_def(resolved_phases, phase_name)
         except ValueError as e:
             print(f"WARNING: {e} — skipping phase", file=sys.stderr)
+            # Keep the phase block unchanged so we don't silently drop it.
+            promoted[phase_name] = phase_plan
             continue
 
-        steps_out: list[dict[str, Any]] = []
+        nodes: list[dict[str, Any]] = []
         for step_id in active_step_ids:
             block = _build_step_block(
                 step_id=step_id,
@@ -357,49 +462,44 @@ def generate_plan(state_yaml_path: str) -> None:
                 repo_name=repo_name,
                 state_yaml_path=state_yaml_path,
             )
-            steps_out.append(block)
+            nodes.append(block)
 
-        # Attach phase verify block to the last active step of the phase
+        filtered_ids = {
+            (f.get("id") if isinstance(f, dict) else str(f))
+            for f in filtered
+        }
+        # Topo-sort: raises ValueError on a cycle or unknown-id edge BEFORE
+        # any state.yaml write. Mutates each node's effective depends_on.
+        _topo_sort(nodes, filtered_ids)
+
+        # Resolve the phase verify block (workflow_plan override, else schema).
         verify_block = phase_plan.get("verify") if isinstance(phase_plan, dict) else None
-        # If not in workflow_plan, get from schema phase definition
         if verify_block is None:
-            # Resolve verify_when flag overrides if present
             base_verify = phase_def.get("verify")
             verify_when = phase_def.get("verify_when", {})
             if base_verify is not None:
-                # Apply verify_when overrides: if any flag matches, merge the override
                 effective_verify = dict(base_verify)
                 for flag_name, override in verify_when.items():
                     if flags.get(flag_name, False):
                         effective_verify.update(override)
                 verify_block = effective_verify
 
-        if verify_block and steps_out:
-            steps_out[-1]["verify"] = verify_block
+        phase_block: dict[str, Any] = {"nodes": nodes, "filtered": filtered}
+        if verify_block:
+            phase_block["verify"] = verify_block
+        promoted[phase_name] = phase_block
 
-        phases_out.append({
-            "goal": phase_def.get("goal", ""),
-            "name": phase_name,
-            "steps": steps_out,
-        })
-
-    plan = {
-        "feature": slug,
-        "phases": phases_out,
-        "resolved_flags": flags,
-        "schema": schema_name,
-    }
-
-    state_dir = Path(state_yaml_path).parent
-    output_path = state_dir / "plan.yaml"
-    _write_yaml_stable(plan, output_path)
-    print(f"plan.yaml written to {output_path}", file=sys.stderr)
+    # All phases topo-sorted clean — now rewrite state.yaml in place.
+    state_raw = dict(state.raw)
+    state_raw["workflow_plan"] = promoted
+    _write_yaml_stable(state_raw, Path(state_yaml_path))
+    print(f"state.yaml workflow_plan promoted to nodes shape: {state_yaml_path}", file=sys.stderr)
 
 
 def main() -> None:
     """Entry point: python -m orchestrator_next.generate_plan <state_yaml_path>."""
     ap = argparse.ArgumentParser(
-        description="Generate plan.yaml from state.yaml",
+        description="Promote state.yaml workflow_plan into the DAG nodes shape",
     )
     ap.add_argument("state_yaml_path", help="Path to state.yaml")
     args = ap.parse_args()

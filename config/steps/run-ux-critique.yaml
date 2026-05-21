@@ -5,9 +5,7 @@ intent: Run UX critique on UI changes and iterate until quality_bar score is met
 
 agent: ux-reviewer
 
-inputs:
-  - Files modified in current phase that touch UI
-  - project context (quality_bar, vision.target_users from project.yaml)
+inputs: []
 
 rules:
   - Only runs when the phase includes UI-facing changes.

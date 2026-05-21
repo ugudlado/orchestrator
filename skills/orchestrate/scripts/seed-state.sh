@@ -4,9 +4,11 @@
 # Usage: seed-state.sh <slug> <schema> [flag=value ...]
 #
 # When flags.worktree=true: creates the git worktree first, then writes
-# state.yaml and plan.yaml under $WORKTREE_PATH/spec/changes/<slug>/.
+# state.yaml under $WORKTREE_PATH/spec/changes/<slug>/.
 # Otherwise writes under $WORKFLOW_STATE_DIR/<slug>/ (repo_root).
 # Idempotent: exits 0 without overwriting an existing state.yaml.
+# generate_plan promotes the seeded workflow_plan into the nodes shape
+# in place inside state.yaml — there is no separate plan file (ORC-63).
 #
 # Required environment:
 #   REPO_ROOT            — root of the target git repo (default: git rev-parse --show-toplevel)
@@ -14,7 +16,7 @@
 #   ORCHESTRATOR_HOME    — path to orchestrator config (default: $HOME/.config/orchestrator)
 #
 # Exit codes:
-#   0 — state.yaml (and plan.yaml) exist in the resolved state dir
+#   0 — state.yaml exists with a promoted workflow_plan in the resolved state dir
 #   1 — pre-condition failure
 #   2 — generate_plan failed
 #
@@ -196,7 +198,8 @@ PYEOF
 [[ $? -eq 0 ]] || { rm -f "$STATE_YAML"; exit 1; }
 
 # ---------------------------------------------------------------------------
-# Generate plan.yaml — lands next to state.yaml in STATE_DIR
+# generate_plan — promotes the seeded workflow_plan into the nodes shape
+# in place inside state.yaml (no separate file is written).
 # ---------------------------------------------------------------------------
 
 PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$REPO_ROOT/config/scripts" \
@@ -208,11 +211,17 @@ if [[ $GENPLAN_EXIT -ne 0 ]]; then
     rm -f "$STATE_YAML"; exit 2
 fi
 
-PLAN_YAML="${STATE_YAML%state.yaml}plan.yaml"
-if [[ ! -f "$PLAN_YAML" ]]; then
-    echo "error: generate_plan exited 0 but plan.yaml not created at $PLAN_YAML" >&2
+# Verify the promotion produced a non-empty workflow_plan.main.nodes list.
+NODES_OK=$(python3 - "$STATE_YAML" <<'PYEOF'
+import sys, yaml
+state = yaml.safe_load(open(sys.argv[1]).read()) or {}
+nodes = (((state.get("workflow_plan") or {}).get("main") or {}).get("nodes"))
+print("yes" if isinstance(nodes, list) and nodes else "no")
+PYEOF
+)
+if [[ "$NODES_OK" != "yes" ]]; then
+    echo "error: generate_plan exited 0 but workflow_plan.main.nodes is empty/absent in $STATE_YAML" >&2
     rm -f "$STATE_YAML"; exit 2
 fi
 
-echo "seeded: $PLAN_YAML" >&2
 echo "init-workflow: $SLUG ($SCHEMA) ready at $STATE_DIR" >&2

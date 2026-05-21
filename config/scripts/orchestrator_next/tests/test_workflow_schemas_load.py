@@ -134,7 +134,8 @@ def _write_state(state_dir: Path, schema_name: str, schema: dict) -> Path:
 
 @pytest.mark.parametrize("schema_name", _USER_FACING_SCHEMAS)
 def test_real_schema_generates_plan(tmp_path, monkeypatch, schema_name):
-    """Each production schema must load and produce a plan covering every active step."""
+    """Each production schema must promote state.yaml to the nodes shape,
+    covering every active step (ORC-63: plan.yaml eliminated)."""
     schema_path = _WORKFLOWS_DIR / f"{schema_name}.yaml"
     assert schema_path.exists(), f"missing real schema at {schema_path}"
     schema = yaml.safe_load(schema_path.read_text())
@@ -148,34 +149,38 @@ def test_real_schema_generates_plan(tmp_path, monkeypatch, schema_name):
 
     generate_plan(str(state_path))
 
-    plan_path = state_path.parent / "plan.yaml"
-    assert plan_path.exists(), f"plan.yaml not written for {schema_name}"
-    plan = yaml.safe_load(plan_path.read_text())
-
-    assert plan["schema"] == schema_name
-    assert plan["phases"], f"plan has no phases for {schema_name}"
+    # ORC-63: workflow_plan is promoted in place; no plan.yaml is produced.
+    assert not (state_path.parent / "plan.yaml").exists(), (
+        f"plan.yaml should not be written for {schema_name}"
+    )
+    state = yaml.safe_load(state_path.read_text())
+    workflow_plan = state["workflow_plan"]
 
     expected_plan = _build_workflow_plan(schema)
     expected_phase_names = list(expected_plan.keys())
-    actual_phase_names = [p["name"] for p in plan["phases"]]
+    actual_phase_names = list(workflow_plan.keys())
     assert actual_phase_names == expected_phase_names, (
         f"{schema_name}: phase order mismatch — expected {expected_phase_names}, got {actual_phase_names}"
     )
 
-    for phase in plan["phases"]:
-        expected_step_ids = expected_plan[phase["name"]]["active"]
-        actual_step_ids = [s["id"] for s in phase["steps"]]
+    for phase_name, phase_block in workflow_plan.items():
+        expected_step_ids = expected_plan[phase_name]["active"]
+        nodes = phase_block["nodes"]
+        actual_step_ids = [n["id"] for n in nodes]
         assert actual_step_ids == expected_step_ids, (
-            f"{schema_name}/{phase['name']}: step list mismatch — "
+            f"{schema_name}/{phase_name}: step list mismatch — "
             f"expected {expected_step_ids}, got {actual_step_ids}"
         )
-        for step in phase["steps"]:
-            step_id = step["id"]
+        for node in nodes:
+            step_id = node["id"]
             contract_path = _REAL_HOME / "steps" / f"{step_id}.yaml"
             assert contract_path.exists(), (
-                f"{schema_name}/{phase['name']}: step '{step_id}' has no contract at {contract_path} "
+                f"{schema_name}/{phase_name}: step '{step_id}' has no contract at {contract_path} "
                 f"(phantom reference — generate_plan silently skips these)"
             )
-            assert "agent" in step, (
-                f"{schema_name}/{phase['name']}/{step_id}: missing agent in resolved step block"
+            assert "agent" in node, (
+                f"{schema_name}/{phase_name}/{step_id}: missing agent in resolved node"
+            )
+            assert node.get("status") == "pending", (
+                f"{schema_name}/{phase_name}/{step_id}: node status must be 'pending' at init"
             )

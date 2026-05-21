@@ -235,3 +235,138 @@ class TestStateComplexityField:
         load_state(p)
         captured = capsys.readouterr()
         assert "my-feature" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# ORC-63 T-1: parser.phase_nodes node-shape read path (AC-1, AC-11)
+# ---------------------------------------------------------------------------
+
+class TestPhaseNodes:
+    """Tests for parser.phase_nodes(state, phase) — single read path over the
+    new `nodes` shape with a back-compat read of a legacy `active:[ids]` block.
+    """
+
+    def _write_state(self, tmp_path, data: dict):
+        p = tmp_path / "state.yaml"
+        p.write_text(yaml.dump(data))
+        return str(p)
+
+    def test_nodes_block_returned_verbatim(self, tmp_path):
+        """A workflow_plan.main.nodes block is returned verbatim."""
+        nodes = [
+            {"id": "explore", "status": "completed", "agent": "discoverer"},
+            {"id": "design", "status": "pending", "agent": "architect"},
+        ]
+        p = self._write_state(tmp_path, {
+            "change_id": "f",
+            "phase": "main",
+            "workflow_plan": {"main": {"nodes": nodes, "filtered": []}},
+            "step_history": [],
+        })
+        from orchestrator_next.parser import load_state, phase_nodes
+        state = load_state(p)
+        assert phase_nodes(state, "main") == nodes
+
+    def test_legacy_active_block_synthesizes_pending_nodes(self, tmp_path):
+        """A legacy active:[ids] block yields synthesized {id, status:'pending'} nodes."""
+        p = self._write_state(tmp_path, {
+            "change_id": "f",
+            "phase": "main",
+            "workflow_plan": {"main": {"active": ["explore", "design", "ship"]}},
+            "step_history": [],
+        })
+        from orchestrator_next.parser import load_state, phase_nodes
+        state = load_state(p)
+        nodes = phase_nodes(state, "main")
+        assert nodes == [
+            {"id": "explore", "status": "pending"},
+            {"id": "design", "status": "pending"},
+            {"id": "ship", "status": "pending"},
+        ]
+
+    def test_nodes_block_returned_unchanged_any_count(self, tmp_path):
+        """A {nodes:[...]} block is returned unchanged regardless of node count."""
+        single = [{"id": "only", "status": "in_progress"}]
+        p = self._write_state(tmp_path, {
+            "change_id": "f",
+            "phase": "main",
+            "workflow_plan": {"main": {"nodes": single}},
+            "step_history": [],
+        })
+        from orchestrator_next.parser import load_state, phase_nodes
+        state = load_state(p)
+        assert phase_nodes(state, "main") == single
+
+    def test_phase_nodes_exists(self, tmp_path):
+        """parser.phase_nodes is importable (fails today — helper absent)."""
+        from orchestrator_next.parser import phase_nodes  # noqa: F401
+
+
+# ---------------------------------------------------------------------------
+# ORC-63 T-3: StepContract.optional_inputs annotation parsing (AC-5)
+# ---------------------------------------------------------------------------
+
+class TestStepContractOptionalInputs:
+    """Tests for the StepContract.optional_inputs field and its parsing from a
+    `{<name>: optional}` mapping item in a contract `inputs:` list.
+    """
+
+    def test_optional_inputs_field_exists(self, steps_dir):
+        """StepContract dataclass exposes optional_inputs (fails today — absent)."""
+        from orchestrator_next.parser import StepContract
+        assert "optional_inputs" in StepContract.__dataclass_fields__
+
+    def test_annotated_item_lands_in_both_lists(self, steps_dir):
+        """An inputs item `{name: optional}` yields name in inputs and optional_inputs."""
+        _write_contract(steps_dir, "opt-input", {
+            "id": "opt-input",
+            "agent": "developer",
+            "instruction": "do thing",
+            "inputs": [{"ux_direction": "optional"}],
+            "outputs": [],
+        })
+        from orchestrator_next.parser import _load_contract
+        contract = _load_contract("opt-input", "")
+        assert "ux_direction" in contract.inputs
+        assert "ux_direction" in contract.optional_inputs
+
+    def test_bare_string_item_required_only(self, steps_dir):
+        """A bare-string inputs item lands in inputs only, not optional_inputs."""
+        _write_contract(steps_dir, "req-input", {
+            "id": "req-input",
+            "agent": "developer",
+            "instruction": "do thing",
+            "inputs": ["discovery_result"],
+            "outputs": [],
+        })
+        from orchestrator_next.parser import _load_contract
+        contract = _load_contract("req-input", "")
+        assert contract.inputs == ["discovery_result"]
+        assert contract.optional_inputs == []
+
+    def test_no_annotations_gives_empty_optional_inputs(self, steps_dir):
+        """A contract with no annotated items yields optional_inputs == []."""
+        _write_contract(steps_dir, "plain-inputs", {
+            "id": "plain-inputs",
+            "agent": "developer",
+            "instruction": "do thing",
+            "inputs": ["a", "b"],
+            "outputs": [],
+        })
+        from orchestrator_next.parser import _load_contract
+        contract = _load_contract("plain-inputs", "")
+        assert contract.optional_inputs == []
+
+    def test_mixed_required_and_optional(self, steps_dir):
+        """A mix of bare and annotated items splits correctly."""
+        _write_contract(steps_dir, "mixed-inputs", {
+            "id": "mixed-inputs",
+            "agent": "developer",
+            "instruction": "do thing",
+            "inputs": ["discovery_result", {"ux_direction": "optional"}],
+            "outputs": [],
+        })
+        from orchestrator_next.parser import _load_contract
+        contract = _load_contract("mixed-inputs", "")
+        assert contract.inputs == ["discovery_result", "ux_direction"]
+        assert contract.optional_inputs == ["ux_direction"]

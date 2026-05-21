@@ -80,11 +80,15 @@ Arguments:
 - `<schema>` is the schema name emitted by the select-workflow step (e.g. `bugfix`, `feature`, `spike`).
 - `[flag=value ...]` are any resolved CLI flag overrides (e.g. `auto=true agents=true tdd_required=false`).
 
-After the script exits 0, assert that both files exist before proceeding:
-- `$WORKFLOW_STATE_DIR/<slug>/state.yaml`
-- `$WORKFLOW_STATE_DIR/<slug>/plan.yaml`
+After the script exits 0, assert that state.yaml exists with a promoted
+workflow plan before proceeding:
+- `$WORKFLOW_STATE_DIR/<slug>/state.yaml` exists, and its
+  `workflow_plan.main.nodes` is a non-empty list.
 
-If either file is absent, the seeder printed an error to stderr — surface it to the user and halt. Do NOT proceed to the dispatch loop with a missing state.yaml (that is the exact bug this step was added to prevent).
+`generate_plan` promotes the seeded workflow plan into the `nodes` shape in
+place inside state.yaml — there is no separate plan file (ORC-63).
+
+If state.yaml is absent or its workflow plan is unpromoted, the seeder printed an error to stderr — surface it to the user and halt. Do NOT proceed to the dispatch loop with a missing state.yaml (that is the exact bug this step was added to prevent).
 
 The script is the executable init contract. Do not duplicate its workflow-plan, worktree, artifact-dir, or state-stamping logic in this prompt or in wrapper skills. It is idempotent: re-running it when state.yaml already exists exits 0 without overwriting.
 
@@ -95,10 +99,11 @@ The dispatch loop is now a thin wrapper around `orchestrator next` and
 status / usage / evidence) is applied uniformly by the CLI — do NOT
 write per-step stamping prose.
 
-**Context-passthrough contract (post generate-plan-yaml-at-init, 2026-04-20).**
+**Context-passthrough contract (single-file workflow state, ORC-63).**
 `orchestrator next` returns an action JSON that already contains the agent's
 full operational contract: `instruction`, `rules` (merged per rule-merge.md),
-`step_context` (the plan.yaml step block with goal/inputs/outputs/verify/agent),
+`step_context` (the `workflow_plan` node block with
+goal/inputs/outputs/agent/status/depends_on),
 `inputs`, `expected_outputs`, `resolved_allowed_tools`, `env`, plus (for
 resume_step) `is_resume` and `started_at`. The driver MUST pass this payload
 verbatim into the agent spawn prompt. It MUST NOT re-derive goal, rules, or
@@ -117,8 +122,8 @@ What the driver MUST NOT duplicate in the spawn prompt:
 - Verify criteria (in step_context.verify when applicable).
 - Step-contract instruction (in `instruction`).
 
-This keeps plan.yaml as the single source of step contract; duplication
-invites drift when step contracts update.
+This keeps the `workflow_plan` nodes in state.yaml as the single source of
+step contract; duplication invites drift when step contracts update.
 
 ```
 LOOP:
@@ -172,8 +177,9 @@ LOOP:
             resolved_allowed_tools=action.resolved_allowed_tools, env=action.env,
             run_in_background: true  # default; omit for ideator/reviewer
       # Pass action.step_context into the prompt verbatim (goal, merged rules,
-      # inputs, outputs, verify, agent, repeat_until when present). Do NOT
-      # re-derive these from memory — plan.yaml is the single source.
+      # inputs, outputs, agent, status, depends_on, repeat_until when present).
+      # Do NOT re-derive these from memory — the workflow_plan node in
+      # state.yaml is the single source.
 
       # 1. Collect agent result (wait for background task to complete).
       # 2. Parse COMPLETION block from agent result (contracts/done-payload.md).
