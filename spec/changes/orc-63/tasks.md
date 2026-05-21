@@ -74,7 +74,7 @@
 
 ## Group B — generate_plan: fold plan.yaml into state.yaml
 
-- [ ] T-8: Write tests for generate_plan node promotion + topo-sort cycle detection (RED)
+- [x] T-8: Write tests for generate_plan node promotion + topo-sort cycle detection (RED)
   Why: AC-1, AC-2, AC-7, OQ-1, OQ-4 — generate_plan must write the `nodes` shape into state.yaml and reject cycles at plan time
   Files: config/scripts/orchestrator_next/tests/test_generate_plan.py
   Change: Add cases for node promotion and topo-sort. Tests fail today because generate_plan still writes plan.yaml.
