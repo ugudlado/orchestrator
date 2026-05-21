@@ -21,7 +21,7 @@
     - existing test_parser.py stays green
     - type-check clean
 
-- [ ] T-3: Write tests for parser optional-input annotation (RED)
+- [x] T-3: Write tests for parser optional-input annotation (RED)
   Why: AC-5 — contracts must distinguish optional inputs from required ones
   Files: config/scripts/orchestrator_next/tests/test_parser.py
   Change: Add cases for the not-yet-existing `StepContract.optional_inputs` field and its parsing. Tests fail today because `StepContract` has no `optional_inputs` field.
