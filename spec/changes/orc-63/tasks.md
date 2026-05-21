@@ -116,7 +116,7 @@
 
 ## Group C — dispatch: DAG walk + prereq hard block
 
-- [ ] T-12: Write tests for dispatch DAG-walk + node in_progress write + prereq hard block (RED)
+- [x] T-12: Write tests for dispatch DAG-walk + node in_progress write + prereq hard block (RED)
   Why: AC-3, AC-4, AC-5 — dispatch must DAG-walk and hard-block on missing required inputs
   Files: config/scripts/orchestrator_next/tests/test_dispatch.py
   Change: Add cases for node-based selection and the prereq block. Tests fail today because dispatch does a linear `active` scan and discards the `_resolve_inputs` missing list.
