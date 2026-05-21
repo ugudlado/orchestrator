@@ -1,0 +1,38 @@
+# Pi subagent overrides applied by scripts/sync_pi_agents.py at install time.
+# Source of truth for prompts remains agents/*.md (Claude/Cursor format).
+
+defaults:
+  systemPromptMode: replace
+  inheritProjectContext: true
+  inheritSkills: false
+
+# Claude tool name -> Pi builtin tool name
+tool_map:
+  Read: read
+  Write: write
+  Edit: edit
+  Grep: grep
+  Glob: find
+  Bash: bash
+  WebSearch: web_search
+  WebFetch: fetch_content
+
+# Claude-only tools dropped during conversion
+skip_tools:
+  - Skill
+  - SendMessage
+
+# Optional: Claude mcp__server__tool -> Pi mcp:server/tool direct tool entries
+mcp_tool_map:
+  mcp__plugin_context7_context7__resolve-library-id: mcp:plugin-context7-context7/resolve-library-id
+  mcp__plugin_context7_context7__query-docs: mcp:plugin-context7-context7/query-docs
+
+agents:
+  reviewer:
+    inheritProjectContext: false
+    defaultContext: fresh
+  ux-reviewer:
+    inheritProjectContext: false
+    defaultContext: fresh
+    extra_tools:
+      - mcp:cursor-ide-browser

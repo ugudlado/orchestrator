@@ -9,6 +9,8 @@ SHELL_PROFILE="${HOME}/.zshrc"
 CLAUDE_DIR="${HOME}/.claude"
 CODEX_DIR="${CODEX_HOME:-${HOME}/.codex}"
 ANTIGRAVITY_DIR="${HOME}/.gemini/antigravity"
+PI_AGENT_DIR="${HOME}/.pi/agent/agents"
+PI_SKILLS_DIR="${HOME}/.pi/agent/skills"
 
 # --- Helpers ---
 
@@ -139,6 +141,38 @@ setup_git_hooks() {
   safe_ln "$hook_src" "$hook_dst"
 }
 
+setup_pi() {
+  echo "Syncing Pi coding agent..."
+
+  local pi_config="${ORCHESTRATOR_DIR}/config/pi-agents.yaml"
+  local project_pi_agents="${ORCHESTRATOR_DIR}/.pi/agents"
+
+  # Agents: generated Pi frontmatter (Claude JSON tools -> Pi comma-separated tools)
+  mkdir -p "$PI_AGENT_DIR"
+  [ -L "$PI_AGENT_DIR" ] && rm "$PI_AGENT_DIR" && mkdir -p "$PI_AGENT_DIR"
+  mkdir -p "$project_pi_agents"
+  PYTHONPATH="$ORCHESTRATOR_DIR/config/scripts" \
+    python3 "$ORCHESTRATOR_DIR/scripts/sync_pi_agents.py" \
+      --source "$ORCHESTRATOR_DIR/agents" \
+      --config "$pi_config" \
+      --out "$PI_AGENT_DIR" \
+      --out "$project_pi_agents"
+
+  # Skills: directory-level symlinks for Pi skill discovery
+  mkdir -p "$PI_SKILLS_DIR"
+  [ -L "$PI_SKILLS_DIR" ] && rm "$PI_SKILLS_DIR" && mkdir -p "$PI_SKILLS_DIR"
+  for d in "$ORCHESTRATOR_DIR/skills"/*/; do
+    [ -d "$d" ] || continue
+    safe_ln "${d%/}" "${PI_SKILLS_DIR}/$(basename "$d")"
+  done
+
+  local agent_count
+  agent_count=$(find "$PI_AGENT_DIR" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
+  local skill_count
+  skill_count=$(find "$PI_SKILLS_DIR" -mindepth 1 -maxdepth 1 -type l 2>/dev/null | wc -l | tr -d ' ')
+  echo "  Pi: ${agent_count} agents, ${skill_count} skills linked"
+}
+
 setup_global_hub() {
   echo "Syncing global hub (~/.agents)..."
   mkdir -p "${HOME}/.agents"
@@ -212,6 +246,7 @@ main() {
   setup_metrics_db || true
   setup_claude
   setup_codex
+  setup_pi
   setup_git_hooks
   setup_global_hub
   # setup_tool_antigravity
