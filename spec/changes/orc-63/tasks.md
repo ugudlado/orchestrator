@@ -2,7 +2,7 @@
 
 ## Group A — node shape + readiness foundation
 
-- [ ] T-1: Write tests for parser node-shape read path (RED)
+- [x] T-1: Write tests for parser node-shape read path (RED)
   Why: AC-1, AC-11 — workflow_plan must expose a `nodes` list and still read a legacy `active:[ids]` block
   Files: config/scripts/orchestrator_next/tests/test_parser.py
   Change: Add cases for a not-yet-existing parser helper `phase_nodes(state, phase)` — a `workflow_plan.main.nodes:[{id,status,...}]` block returns verbatim; a legacy `active:[ids]` block returns synthesized nodes each `{id, status:'pending'}`; a `{nodes:[...]}` block is returned unchanged. Tests fail today because `phase_nodes` does not exist.

@@ -235,3 +235,68 @@ class TestStateComplexityField:
         load_state(p)
         captured = capsys.readouterr()
         assert "my-feature" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# ORC-63 T-1: parser.phase_nodes node-shape read path (AC-1, AC-11)
+# ---------------------------------------------------------------------------
+
+class TestPhaseNodes:
+    """Tests for parser.phase_nodes(state, phase) — single read path over the
+    new `nodes` shape with a back-compat read of a legacy `active:[ids]` block.
+    """
+
+    def _write_state(self, tmp_path, data: dict):
+        p = tmp_path / "state.yaml"
+        p.write_text(yaml.dump(data))
+        return str(p)
+
+    def test_nodes_block_returned_verbatim(self, tmp_path):
+        """A workflow_plan.main.nodes block is returned verbatim."""
+        nodes = [
+            {"id": "explore", "status": "completed", "agent": "discoverer"},
+            {"id": "design", "status": "pending", "agent": "architect"},
+        ]
+        p = self._write_state(tmp_path, {
+            "change_id": "f",
+            "phase": "main",
+            "workflow_plan": {"main": {"nodes": nodes, "filtered": []}},
+            "step_history": [],
+        })
+        from orchestrator_next.parser import load_state, phase_nodes
+        state = load_state(p)
+        assert phase_nodes(state, "main") == nodes
+
+    def test_legacy_active_block_synthesizes_pending_nodes(self, tmp_path):
+        """A legacy active:[ids] block yields synthesized {id, status:'pending'} nodes."""
+        p = self._write_state(tmp_path, {
+            "change_id": "f",
+            "phase": "main",
+            "workflow_plan": {"main": {"active": ["explore", "design", "ship"]}},
+            "step_history": [],
+        })
+        from orchestrator_next.parser import load_state, phase_nodes
+        state = load_state(p)
+        nodes = phase_nodes(state, "main")
+        assert nodes == [
+            {"id": "explore", "status": "pending"},
+            {"id": "design", "status": "pending"},
+            {"id": "ship", "status": "pending"},
+        ]
+
+    def test_nodes_block_returned_unchanged_any_count(self, tmp_path):
+        """A {nodes:[...]} block is returned unchanged regardless of node count."""
+        single = [{"id": "only", "status": "in_progress"}]
+        p = self._write_state(tmp_path, {
+            "change_id": "f",
+            "phase": "main",
+            "workflow_plan": {"main": {"nodes": single}},
+            "step_history": [],
+        })
+        from orchestrator_next.parser import load_state, phase_nodes
+        state = load_state(p)
+        assert phase_nodes(state, "main") == single
+
+    def test_phase_nodes_exists(self, tmp_path):
+        """parser.phase_nodes is importable (fails today — helper absent)."""
+        from orchestrator_next.parser import phase_nodes  # noqa: F401
