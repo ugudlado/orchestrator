@@ -106,7 +106,7 @@
     - grep confirms no `plan.yaml` reference remains in seed-state.sh
   depends: T-9
 
-- [ ] T-11: Review checkpoint — single-file workflow state (gate)
+- [x] T-11: Review checkpoint — single-file workflow state (gate)
   Why: phase gate — confirm plan.yaml is gone before dispatch/record read the new shape
   Test scenarios:
     - type-check clean
