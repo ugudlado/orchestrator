@@ -130,7 +130,7 @@
     - an absent optional input does NOT block
     - tests fail for the right reason today
 
-- [ ] T-13: Implement dispatch DAG-walk + prereq hard block (GREEN)
+- [x] T-13: Implement dispatch DAG-walk + prereq hard block (GREEN)
   Why: AC-3, AC-4, AC-5 — replace the linear scan with DAG readiness and turn the M2 missing-input no-op into a hard block
   Files: config/scripts/orchestrator_next/dispatch.py
   Change: Delete `_phase_step_ids` (dispatch.py:72-77) and the linear selection loop (dispatch.py:308-323); select the next step via `readiness.next_ready_node(state)`. Delete `_load_plan` / `_find_step_in_plan` (dispatch.py:214-248) and build `step_context` from the chosen node dict in `state.workflow_plan`. After `_resolve_inputs` (dispatch.py:94-128), filter the `missing` list against `contract.optional_inputs`; if any required names remain, return `({}, 2)` with a stderr diagnostic naming the input(s) and the node. Delete the M1 no-op comment (dispatch.py:364-368). On a successful agent/inline dispatch, mark the chosen node `in_progress` via `readiness.mark_node_status`.

@@ -27,9 +27,10 @@ from orchestrator_next.parser import (
     StepContract,
     StepHistoryEntry,
     load_contract_for_step,
+    phase_nodes,
 )
 from orchestrator_next import resolver
-from orchestrator_next.record import REPEAT_PREDICATES
+from orchestrator_next import readiness
 
 # Terminal statuses: these entries do not need retry
 _TERMINAL_STATUSES = frozenset({"completed", "failed", "blocked", "escalate_to_architect", "skipped"})
@@ -67,24 +68,6 @@ def _build_env(
         "ORCHESTRATOR_REPO_ROOT": state.repo_root,
         "ORCHESTRATOR_WORKTREE_ARTIFACT_DIR": state.worktree_artifact_dir,
     }
-
-
-def _phase_step_ids(state: State) -> list[str]:
-    """Return the active step IDs for the current phase from workflow_plan."""
-    phase_plan = state.workflow_plan.get(state.phase, {})
-    if isinstance(phase_plan, dict):
-        return list(phase_plan.get("active", []))
-    return []
-
-
-def _phase_verify_block(state: State) -> dict[str, Any] | None:
-    """Return the verify block for the current phase, or None if absent."""
-    phase_plan = state.workflow_plan.get(state.phase, {})
-    if isinstance(phase_plan, dict):
-        verify = phase_plan.get("verify")
-        if verify:
-            return verify
-    return None
 
 
 def _get_last_entry(step_history: list[StepHistoryEntry]) -> StepHistoryEntry | None:
@@ -211,51 +194,77 @@ def _resolve_allowed_tools(contract: StepContract) -> list[str]:
     return sorted(role_tools)
 
 
-def _load_plan(state_yaml_path: str) -> dict[str, Any]:
-    """
-    Load plan.yaml from the directory containing state.yaml.
+def _node_step_context(state: State, step_id: str) -> dict[str, Any]:
+    """Return the plan node dict for (current phase, step_id) as step_context.
 
-    Exits 3 with a clear stderr message if plan.yaml is missing.
+    ORC-63: the per-step data formerly held in plan.yaml now lives on the node
+    in `state.workflow_plan[phase].nodes`. A legacy `active:[ids]` block yields
+    a synthesized bare node (back-compat read path, AC-11).
     """
-    plan_path = Path(state_yaml_path).parent / "plan.yaml"
-    if not plan_path.exists():
+    for node in phase_nodes(state, state.phase):
+        if str(node.get("id", "")) == step_id:
+            return dict(node)
+    return {"id": step_id}
+
+
+def _persist_node_status(state_yaml_path: str, phase: str, step_id: str, status: str) -> None:
+    """Mark a node's status in state.yaml on disk via readiness.mark_node_status.
+
+    A narrow state.yaml writer for the dispatch-time `in_progress` transition.
+    No-op for a legacy `active:[ids]` block (no node dicts to mutate).
+    """
+    path = Path(state_yaml_path)
+    try:
+        with open(path, "rb") as f:
+            pre_bytes = f.read()
+        state_raw = yaml.safe_load(pre_bytes.decode("utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return
+    readiness.mark_node_status(state_raw, phase, step_id, status)
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(state_raw, f, sort_keys=False, default_flow_style=False, allow_unicode=True)
+    # Post-write corruption guard: restore pre-write bytes if unparseable.
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            yaml.safe_load(f)
+    except yaml.YAMLError:
+        with open(path, "wb") as f:
+            f.write(pre_bytes)
+
+
+def _check_required_inputs(
+    state: State, contract: StepContract, step_id: str
+) -> int | None:
+    """Return exit code 2 if a required input is unresolvable, else None.
+
+    AC-4: a required input is *missing* iff it is not the key of any prior
+    `completed` step's `evidence.outputs` and not a top-level `state.raw` key.
+    Inputs named in `contract.optional_inputs` never block.
+    """
+    _resolved, missing = _resolve_inputs(state, contract)
+    optional = set(contract.optional_inputs)
+    required_missing = [m for m in missing if m not in optional]
+    if required_missing:
         print(
-            f"ERROR: plan.yaml not found at {plan_path}. "
-            "Run 'python -m orchestrator_next.generate_plan <state_yaml_path>' to generate it.",
+            f"ERROR: step {step_id!r} blocked — required input(s) "
+            f"{required_missing!r} unresolvable: no prior completed step "
+            f"produced them under evidence.outputs and they are absent from "
+            f"state.raw. The upstream producer has not completed.",
             file=sys.stderr,
         )
-        sys.exit(3)
-    with open(plan_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
-
-
-def _find_step_in_plan(plan: dict[str, Any], phase: str, step_id: str) -> dict[str, Any]:
-    """
-    Return the step block for (phase, step_id) from plan.yaml.
-
-    Exits 3 with a clear stderr message if not found.
-    """
-    for phase_block in plan.get("phases", []):
-        if phase_block.get("name") == phase:
-            for step in phase_block.get("steps", []):
-                if step.get("id") == step_id:
-                    return step
-    print(
-        f"ERROR: step_context missing for {phase}/{step_id} in plan.yaml. "
-        "Re-generate plan.yaml if the workflow_plan changed.",
-        file=sys.stderr,
-    )
-    sys.exit(3)
+        return 2
+    return None
 
 
 def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
     """
-    Pure function: State → (action_dict, exit_code).
+    DAG-walk dispatcher: State → (action_dict, exit_code).
 
-    Does not mutate state. Does not write to state.yaml or DuckDB
-    (DuckDB upsert is wired in by main — T-4 scope, not here).
+    ORC-63: selects the next step via `readiness.next_ready_node(state)` over
+    `workflow_plan[phase].nodes` — no plan.yaml. Required-input prereqs are a
+    hard block (exit 2). On a fresh selection the chosen node is marked
+    `in_progress` in state.yaml.
     """
-    step_ids = _phase_step_ids(state)
     last = _get_last_entry(state.step_history)
 
     # --- Check: last entry is a blocking status → exit 2, no JSON (ORC-45)
@@ -299,30 +308,14 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "expected_outputs": contract.outputs,
             "resolved_allowed_tools": resolved_allowed_tools,
             "env": _build_env(state, step_id, attempt),
+            "step_context": _node_step_context(state, step_id),
         }
-        plan = _load_plan(state_yaml_path)
-        action["step_context"] = _find_step_in_plan(plan, state.phase, step_id)
         return action, 0
 
-    # --- Determine the next pending step in this phase
-    next_step_id: str | None = None
-    for sid in step_ids:
-        if not _find_completed_step(state.step_history, state.phase, sid):
-            next_step_id = sid
-            break
-        # Step is marked completed — but if its contract declares repeat_until,
-        # evaluate the predicate. If False, re-emit this step (don't advance).
-        try:
-            sid_contract = load_contract_for_step(sid, state_yaml_path)
-        except (FileNotFoundError, ContractError):
-            sid_contract = None
-        if sid_contract is not None and sid_contract.repeat_until:
-            predicate = REPEAT_PREDICATES.get(sid_contract.repeat_until)
-            if predicate is not None and not predicate(state.raw):
-                next_step_id = sid
-                break
+    # --- DAG-walk: select the first ready node (declaration-order tiebreak)
+    next_step_id = readiness.next_ready_node(state)
 
-    # --- Check: all phase steps completed → exit 1, no JSON (ORC-45)
+    # --- Check: no ready node → exit 1, no JSON (phase complete) (ORC-45)
     if next_step_id is None:
         # Warn if this phase is not the last in workflow_plan (driver must advance phase)
         plan = (state.workflow_plan or {})
@@ -338,8 +331,6 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
                     f"'orchestrator next' before completing workflow.",
                     file=sys.stderr,
                 )
-
-        # All phases complete — exit 1, no JSON
         return {}, 1
 
     # --- Load contract for the next step
@@ -356,16 +347,18 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             instruction="",
             rules=[],
         )
+
+    # --- Prerequisite hard block (AC-4): a required input that no prior
+    #     completed step produced and that is absent from state.raw → exit 2.
+    block_code = _check_required_inputs(state, contract, next_step_id)
+    if block_code is not None:
+        return {}, block_code
+
     attempt = _compute_attempt(state.step_history, state.phase, next_step_id)
     env = _build_env(state, next_step_id, attempt)
     inputs_resolved, _missing = _resolve_inputs(state, contract)
     resolved_allowed_tools = _resolve_allowed_tools(contract)
-
-    # M1 note: missing inputs are NOT an error yet. Strict validation that
-    # blocks on missing inputs is M2's exit criterion — M1 only threads
-    # values through when available. This keeps M1 backward-compatible
-    # with contracts that declare `inputs:` but whose producers haven't
-    # yet been migrated to emit them under `evidence.outputs.<name>`.
+    step_context = _node_step_context(state, next_step_id)
 
     # ORC-45 two-path dispatch: agent: → spawn; run: → execute inline; else → error.
     if contract.agent:
@@ -380,10 +373,8 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "expected_outputs": contract.outputs,
             "resolved_allowed_tools": resolved_allowed_tools,
             "env": env,
+            "step_context": step_context,
         }
-        plan_data = _load_plan(state_yaml_path)
-        action["step_context"] = _find_step_in_plan(plan_data, state.phase, next_step_id)
-        return action, 0
     elif contract.run:
         # Inline script executed synchronously by CLI — no JSON emitted, exit 0
         action = {
@@ -397,14 +388,17 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "expected_outputs": contract.outputs,
             "resolved_allowed_tools": resolved_allowed_tools,
             "env": env,
+            "step_context": step_context,
         }
-        plan_data = _load_plan(state_yaml_path)
-        action["step_context"] = _find_step_in_plan(plan_data, state.phase, next_step_id)
-        return action, 0
     else:
         raise ContractDispatchError(
             f"step_contract_missing_run: {next_step_id}"
         )
+
+    # ORC-63: mark the chosen node in_progress in state.yaml (the one
+    # status mutator). No-op for a legacy active:[ids] block.
+    _persist_node_status(state_yaml_path, state.phase, next_step_id, "in_progress")
+    return action, 0
 
 
 def emit_json(obj: dict[str, Any]) -> str:

@@ -1,12 +1,12 @@
 """
-Tests for dispatch.py step_context injection.
+Tests for dispatch.py step_context injection (ORC-63: built from the node
+dict in workflow_plan.nodes — plan.yaml eliminated).
 
-Five tests per design.md § Testing Strategy:
   test_run_inline_has_step_context
   test_run_step_has_step_context
   test_verify_phase_omits_step_context
-  test_missing_plan_yaml_exits_3
-  test_step_missing_in_plan_exits_3
+  test_step_context_built_from_node
+  test_legacy_active_block_still_dispatches
 """
 from __future__ import annotations
 
@@ -32,34 +32,22 @@ def _write_contract(contracts_dir: Path, step_id: str, data: dict) -> None:
     (contracts_dir / f"{step_id}.yaml").write_text(yaml.safe_dump(data))
 
 
-def _write_plan_yaml(state_dir: Path, phase: str, step_ids: list[str]) -> None:
-    """Write a plan.yaml with the given steps in the given phase."""
-    plan = {
-        "feature": "test-feature",
-        "schema": "feature",
-        "resolved_flags": {},
-        "phases": [
-            {
-                "name": phase,
-                "goal": "Test phase goal.",
-                "steps": [
-                    {
-                        "id": sid,
-                        "agent": "developer",
-                        "goal": "Test phase goal.",
-                        "inputs": [],
-                        "outputs": ["result"],
-                        "rules": ["Keep it scoped."],
-                    }
-                    for sid in step_ids
-                ],
-            }
-        ],
+def _node(step_id: str, status: str = "pending", **extra) -> dict:
+    node = {
+        "id": step_id,
+        "status": status,
+        "agent": "developer",
+        "goal": "Test phase goal.",
+        "inputs": [],
+        "outputs": ["result"],
+        "rules": ["Keep it scoped."],
     }
-    (state_dir / "plan.yaml").write_text(yaml.safe_dump(plan, sort_keys=False))
+    node.update(extra)
+    return node
 
 
-def _make_state_yaml(state_dir: Path, phase: str, steps: list[str]) -> str:
+def _make_state_yaml(state_dir: Path, phase: str, nodes: list[dict]) -> str:
+    """Write a state.yaml with the ORC-63 nodes-shape workflow_plan."""
     state = {
         "change_id": "test-feature",
         "slug": "test-feature",
@@ -67,7 +55,7 @@ def _make_state_yaml(state_dir: Path, phase: str, steps: list[str]) -> str:
         "status": "active",
         "repo_root": str(state_dir),
         "flags": {},
-        "workflow_plan": {phase: {"active": steps, "filtered": []}},
+        "workflow_plan": {phase: {"nodes": nodes, "filtered": []}},
         "phase": phase,
         "step_history": [],
     }
@@ -76,66 +64,19 @@ def _make_state_yaml(state_dir: Path, phase: str, steps: list[str]) -> str:
     return str(path)
 
 
-def _make_state_obj(phase: str, steps: list[str]):
-    """Build an in-memory State object for the given phase/steps."""
-    from orchestrator_next.parser import State
-    return State(
-        change_id="test-feature",
-        phase=phase,
-        repo_root="/repo",
-        workflow_dir="/workflow",
-        workflow_plan={phase: {"active": steps, "filtered": []}},
-        step_history=[],
-        raw={"change_id": "test-feature"},
-    )
-
-
-def _make_state_with_all_completed(phase: str, steps: list[str]):
-    """Build a State where all steps in the phase are completed (triggers verify/complete_workflow)."""
-    from orchestrator_next.parser import State, StepHistoryEntry
-
-    history = []
-    for sid in steps:
-        entry = StepHistoryEntry(
-            step_id=sid,
-            phase=phase,
-            status="completed",
-            agent="developer",
-            attempt=1,
-            started_at="2026-01-01T00:00:00Z",
-            ended_at="2026-01-01T01:00:00Z",
-            usage={},
-            escalation=None,
-            raw={
-                "step_id": sid, "phase": phase, "status": "completed",
-                "agent": "developer", "attempt": 1,
-            },
-        )
-        history.append(entry)
-
-    return State(
-        change_id="test-feature",
-        phase=phase,
-        repo_root="/repo",
-        workflow_dir="/workflow",
-        workflow_plan={phase: {"active": steps, "filtered": []}},
-        step_history=history,
-        raw={"change_id": "test-feature"},
-    )
-
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 
 
 def test_run_inline_has_step_context(tmp_path, monkeypatch):
-    """run_inline action must carry step_context from plan.yaml."""
+    """An inline run action carries step_context built from the node."""
     contracts_dir = tmp_path / "contracts"
     contracts_dir.mkdir()
     _write_contract(contracts_dir, "my-inline-step", {
         "id": "my-inline-step",
-        "agent": "inline",
+        "agent": "developer",
+        "run": "scripts/run.sh",
         "instruction": "do inline thing",
         "inputs": [],
         "outputs": [],
@@ -145,14 +86,14 @@ def test_run_inline_has_step_context(tmp_path, monkeypatch):
 
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    _write_plan_yaml(state_dir, "implement", ["my-inline-step"])
-    state_yaml_path = _make_state_yaml(state_dir, "implement", ["my-inline-step"])
+    sp = _make_state_yaml(state_dir, "implement", [_node("my-inline-step")])
 
     from orchestrator_next.dispatch import dispatch
-    state = _make_state_obj("implement", ["my-inline-step"])
-    action, code = dispatch(state, state_yaml_path)
+    from orchestrator_next.parser import load_state
+    action, code = dispatch(load_state(sp), sp)
 
-    assert "step_context" in action, "agent/run action must include step_context (ORC-45)"
+    assert code == 0
+    assert "step_context" in action, "action must include step_context (ORC-45)"
     ctx = action["step_context"]
     assert ctx["id"] == "my-inline-step"
     assert "rules" in ctx
@@ -160,7 +101,7 @@ def test_run_inline_has_step_context(tmp_path, monkeypatch):
 
 
 def test_run_step_has_step_context(tmp_path, monkeypatch):
-    """run_step action must carry step_context from plan.yaml."""
+    """An agent run action carries step_context built from the node."""
     contracts_dir = tmp_path / "contracts"
     contracts_dir.mkdir()
     _write_contract(contracts_dir, "my-run-step", {
@@ -176,121 +117,83 @@ def test_run_step_has_step_context(tmp_path, monkeypatch):
 
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    _write_plan_yaml(state_dir, "implement", ["my-run-step"])
-    state_yaml_path = _make_state_yaml(state_dir, "implement", ["my-run-step"])
+    sp = _make_state_yaml(state_dir, "implement", [_node("my-run-step")])
 
     from orchestrator_next.dispatch import dispatch
-    state = _make_state_obj("implement", ["my-run-step"])
-    action, code = dispatch(state, state_yaml_path)
+    from orchestrator_next.parser import load_state
+    action, code = dispatch(load_state(sp), sp)
 
-    assert "step_context" in action, "agent/run action must include step_context (ORC-45)"
+    assert code == 0
+    assert "step_context" in action
     ctx = action["step_context"]
     assert ctx["id"] == "my-run-step"
     assert ctx["rules"] == ["Keep it scoped."]
 
 
 def test_verify_phase_omits_step_context(tmp_path, monkeypatch):
-    """verify_phase action must NOT carry step_context."""
+    """When the phase is complete, dispatch exits 1 with an empty action."""
     contracts_dir = tmp_path / "contracts"
     contracts_dir.mkdir()
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
 
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    # plan.yaml present but verify_phase returns before reading it
-    _write_plan_yaml(state_dir, "specify", ["done-step"])
-    state_yaml_path = _make_state_yaml(state_dir, "specify", ["done-step"])
+    # The only node is already completed → no ready node → exit 1.
+    sp = _make_state_yaml(state_dir, "specify", [_node("done-step", status="completed")])
 
     from orchestrator_next.dispatch import dispatch
-
-    # Build state with done-step completed AND a verify block in workflow_plan
-    from orchestrator_next.parser import State, StepHistoryEntry
-
-    entry = StepHistoryEntry(
-        step_id="done-step",
-        phase="specify",
-        status="completed",
-        agent="developer",
-        attempt=1,
-        started_at="2026-01-01T00:00:00Z",
-        ended_at="2026-01-01T01:00:00Z",
-        usage={},
-        escalation=None,
-        raw={"step_id": "done-step", "phase": "specify", "status": "completed",
-             "agent": "developer", "attempt": 1},
-    )
-    state = State(
-        change_id="test-feature",
-        phase="specify",
-        repo_root="/repo",
-        workflow_dir="/workflow",
-        workflow_plan={
-            "specify": {
-                "active": ["done-step"],
-                "filtered": [],
-                "verify": {"assertions": ["design.md exists"]},
-            }
-        },
-        step_history=[entry],
-        raw={"change_id": "test-feature"},
-    )
-
-    # ORC-45: verify_phase removed; all steps complete → exit 1, empty action dict
-    action, code = dispatch(state, state_yaml_path)
-    assert code == 1, f"Expected exit 1 (complete_workflow), got {code}"
-    assert "step_context" not in action, "complete_workflow (was verify_phase) must NOT include step_context"
+    from orchestrator_next.parser import load_state
+    action, code = dispatch(load_state(sp), sp)
+    assert code == 1, f"Expected exit 1 (phase complete), got {code}"
+    assert "step_context" not in action
 
 
-def test_missing_plan_yaml_exits_3(tmp_path, monkeypatch):
-    """dispatch() must exit with code 3 when plan.yaml is missing."""
+def test_step_context_built_from_node(tmp_path, monkeypatch):
+    """step_context reflects the chosen node's fields verbatim (not plan.yaml)."""
     contracts_dir = tmp_path / "contracts"
     contracts_dir.mkdir()
-    _write_contract(contracts_dir, "some-step", {
-        "id": "some-step",
-        "agent": "inline",
-        "instruction": "do thing",
-        "inputs": [],
-        "outputs": [],
-        "rules": [],
+    _write_contract(contracts_dir, "a", {
+        "id": "a", "agent": "developer", "instruction": "x",
+        "inputs": [], "outputs": [], "rules": [],
     })
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
 
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    # Do NOT write plan.yaml
-    state_yaml_path = _make_state_yaml(state_dir, "implement", ["some-step"])
+    node = _node("a", goal="Special goal.", depends_on=[])
+    sp = _make_state_yaml(state_dir, "implement", [node])
 
     from orchestrator_next.dispatch import dispatch
-    state = _make_state_obj("implement", ["some-step"])
+    from orchestrator_next.parser import load_state
+    action, code = dispatch(load_state(sp), sp)
+    assert code == 0
+    assert action["step_context"]["goal"] == "Special goal."
 
-    with pytest.raises(SystemExit) as exc_info:
-        dispatch(state, state_yaml_path)
-    assert exc_info.value.code == 3
 
-
-def test_step_missing_in_plan_exits_3(tmp_path, monkeypatch):
-    """dispatch() must exit with code 3 when the step_id is not found in plan.yaml."""
+def test_legacy_active_block_still_dispatches(tmp_path, monkeypatch):
+    """AC-11: a legacy active:[ids] block still dispatches without a migration."""
     contracts_dir = tmp_path / "contracts"
     contracts_dir.mkdir()
-    _write_contract(contracts_dir, "unlisted-step", {
-        "id": "unlisted-step",
-        "agent": "inline",
-        "instruction": "do thing",
-        "inputs": [],
-        "outputs": [],
-        "rules": [],
+    _write_contract(contracts_dir, "legacy-step", {
+        "id": "legacy-step", "agent": "developer", "instruction": "x",
+        "inputs": [], "outputs": [], "rules": [],
     })
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
 
     state_dir = tmp_path / "state"
     state_dir.mkdir()
-    # plan.yaml exists but does NOT contain "unlisted-step"
-    _write_plan_yaml(state_dir, "implement", ["other-step"])
-    state_yaml_path = _make_state_yaml(state_dir, "implement", ["unlisted-step"])
+    state = {
+        "change_id": "test-feature",
+        "phase": "implement",
+        "repo_root": str(state_dir),
+        "workflow_plan": {"implement": {"active": ["legacy-step"], "filtered": []}},
+        "step_history": [],
+    }
+    path = state_dir / "state.yaml"
+    path.write_text(yaml.safe_dump(state, sort_keys=False))
 
     from orchestrator_next.dispatch import dispatch
-    state = _make_state_obj("implement", ["unlisted-step"])
-
-    with pytest.raises(SystemExit) as exc_info:
-        dispatch(state, state_yaml_path)
-    assert exc_info.value.code == 3
+    from orchestrator_next.parser import load_state
+    action, code = dispatch(load_state(str(path)), str(path))
+    assert code == 0
+    assert action["step_id"] == "legacy-step"

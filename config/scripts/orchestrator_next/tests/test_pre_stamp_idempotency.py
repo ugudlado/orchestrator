@@ -30,8 +30,8 @@ _BIN_ORCHESTRATOR = _REPO_ROOT / "bin" / "orchestrator"
 
 
 def _write_state_with_completed_step(tmp_path: Path) -> Path:
-    """Build a state.yaml where 'explore' is already completed and the next
-    pending step is 'design-and-draft-artifacts'. The plan.yaml lists both."""
+    """Build a state.yaml (ORC-63 nodes shape) where 'explore' is completed
+    and the next ready step is 'design-and-draft-artifacts'."""
     state = {
         "schema": "feature",
         "change_id": "demo",
@@ -39,9 +39,19 @@ def _write_state_with_completed_step(tmp_path: Path) -> Path:
         "status": "active",
         "repo_root": str(tmp_path),
         "phase": "specify",
-        "next_step": {"phase": "specify", "step_id": "explore"},
+        "next_step": {"phase": "specify", "step_id": "design-and-draft-artifacts"},
         "workflow_plan": {
-            "specify": {"active": ["explore", "design-and-draft-artifacts"], "filtered": []},
+            "specify": {
+                "nodes": [
+                    {"id": "explore", "status": "completed", "agent": "discoverer",
+                     "goal": "explore", "inputs": [], "outputs": ["discovery_result"],
+                     "rules": []},
+                    {"id": "design-and-draft-artifacts", "status": "pending",
+                     "agent": "architect", "goal": "design", "inputs": [],
+                     "outputs": [], "rules": []},
+                ],
+                "filtered": [],
+            },
         },
         "step_history": [
             {
@@ -60,34 +70,37 @@ def _write_state_with_completed_step(tmp_path: Path) -> Path:
     }
     state_path = tmp_path / "state.yaml"
     state_path.write_text(yaml.safe_dump(state))
-    plan = {
-        "phases": [
-            {
-                "name": "specify",
-                "steps": [
-                    {"id": "explore", "agent": "discoverer", "goal": "explore"},
-                    {"id": "design-and-draft-artifacts", "agent": "architect", "goal": "design"},
-                ],
-            }
-        ]
-    }
-    (tmp_path / "plan.yaml").write_text(yaml.safe_dump(plan))
     return state_path
+
+
+def _write_stub_contracts(tmp_path: Path) -> Path:
+    """Write minimal stub step contracts so dispatch does not depend on the
+    real (pre/post-prune) contract content. Returns the contracts dir."""
+    contracts = tmp_path / "stub-steps"
+    contracts.mkdir(exist_ok=True)
+    for sid, agent in (("explore", "discoverer"), ("design-and-draft-artifacts", "architect")):
+        (contracts / f"{sid}.yaml").write_text(yaml.safe_dump({
+            "id": sid, "agent": agent, "instruction": f"do {sid}",
+            "inputs": [], "outputs": [], "rules": [],
+        }))
+    return contracts
 
 
 def test_pre_stamp_does_not_orphan_completed_attempt(tmp_path):
     """If state.yaml already has a completed entry for (step_id, phase, attempt),
     the pre-stamp must not append a new in_progress row that orphans it."""
     state_path = _write_state_with_completed_step(tmp_path)
+    contracts = _write_stub_contracts(tmp_path)
 
     # Run `orchestrator next` against the state. The dispatcher should pick the
-    # next pending step (design-and-draft-artifacts) and pre-stamp it. The
+    # next ready step (design-and-draft-artifacts) and pre-stamp it. The
     # already-completed 'explore' must not be re-stamped.
     env = {
         **os.environ,
         "WORKFLOW_STATE_DIR": str(tmp_path),
         "ORCHESTRATOR_HOME": str(_REPO_ROOT),
         "ORCHESTRATOR_REPO_ROOT": str(tmp_path),
+        "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE": str(contracts),
     }
     result = subprocess.run(
         [sys.executable, str(_BIN_ORCHESTRATOR), "next", str(state_path)],
@@ -129,11 +142,13 @@ def test_pre_stamp_still_writes_for_new_step(tmp_path):
     """The fix must not break the normal pre-stamp path: a fresh pending step
     should still get an in_progress row appended."""
     state_path = _write_state_with_completed_step(tmp_path)
+    contracts = _write_stub_contracts(tmp_path)
     env = {
         **os.environ,
         "WORKFLOW_STATE_DIR": str(tmp_path),
         "ORCHESTRATOR_HOME": str(_REPO_ROOT),
         "ORCHESTRATOR_REPO_ROOT": str(tmp_path),
+        "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE": str(contracts),
     }
     subprocess.run(
         [sys.executable, str(_BIN_ORCHESTRATOR), "next", str(state_path)],
