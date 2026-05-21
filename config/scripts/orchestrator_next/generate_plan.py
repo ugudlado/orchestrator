@@ -1,8 +1,11 @@
 """
-Generate plan.yaml from state.yaml + schema + step contracts + project.yaml.
+Promote a seeded state.yaml workflow_plan into the DAG `nodes` shape (ORC-63).
 
 Public API: generate_plan(state_yaml_path: str) -> None
-Writes plan.yaml next to state.yaml, applying 5-tier rule merge per rule-merge.md.
+Reads state.yaml + schema + step contracts + project.yaml, applies the 5-tier
+rule merge (rule-merge.md), topo-sorts the dependency graph, and rewrites
+state.yaml in place with `workflow_plan[phase] = {nodes, filtered, verify}`.
+No separate plan file is produced — workflow state lives in one file.
 
 Entry point: python -m orchestrator_next.generate_plan <state_yaml_path>
 """
@@ -496,7 +499,7 @@ def generate_plan(state_yaml_path: str) -> None:
 def main() -> None:
     """Entry point: python -m orchestrator_next.generate_plan <state_yaml_path>."""
     ap = argparse.ArgumentParser(
-        description="Generate plan.yaml from state.yaml",
+        description="Promote state.yaml workflow_plan into the DAG nodes shape",
     )
     ap.add_argument("state_yaml_path", help="Path to state.yaml")
     args = ap.parse_args()

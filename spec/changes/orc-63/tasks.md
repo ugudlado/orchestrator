@@ -236,7 +236,7 @@
 
 ## Final gate
 
-- [ ] T-23: Review checkpoint — full feature verification (gate)
+- [x] T-23: Review checkpoint — full feature verification (gate)
   Why: final gate — verify all 11 design.md ACs and that the driver interface is unchanged
   Test scenarios:
     - type-check clean
