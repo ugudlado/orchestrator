@@ -41,6 +41,9 @@ class StepContract:
     rules: list[str]
     inputs: list[str] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
+    # ORC-63 AC-5: names declared optional via a `{name: optional}` inputs
+    # item. An optional input never blocks dispatch. A subset of `inputs`.
+    optional_inputs: list[str] = field(default_factory=list)
     allowed_tools: list[str] = field(default_factory=list)
     inline: bool = False  # HL-287 M3: inline: true + run: <script> path
     repeat_until: str | None = None  # ISSUE-16: predicate name gating advance
@@ -127,13 +130,27 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
                         f"contract {step_id} is missing required `outputs:` field "
                         f"(use `outputs: []` if the step produces none)"
                     )
-            # Coerce to list[str]. M1 note: older contracts may have prose
-            # bullets (with colons, parens) which yaml parses as dicts —
-            # coerce to string for backward compatibility. Normalization to
-            # bare identifier names is deferred to M2.5 follow-up polish.
+            # Coerce to list[str]. ORC-63 AC-5: a single-key mapping item
+            # `{<name>: optional}` declares an optional input — <name> goes to
+            # both `inputs` and `optional_inputs`. Any other non-string item
+            # is coerced to str for backward compatibility with legacy prose.
             raw_inputs = data.get("inputs") or []
             raw_outputs = data.get("outputs") or []
-            inputs = [str(x) if not isinstance(x, str) else x for x in raw_inputs]
+            inputs: list[str] = []
+            optional_inputs: list[str] = []
+            for item in raw_inputs:
+                if isinstance(item, str):
+                    inputs.append(item)
+                elif (
+                    isinstance(item, dict)
+                    and len(item) == 1
+                    and str(next(iter(item.values()))).strip().lower() == "optional"
+                ):
+                    name = str(next(iter(item.keys())))
+                    inputs.append(name)
+                    optional_inputs.append(name)
+                else:
+                    inputs.append(str(item))
             outputs = [str(x) if not isinstance(x, str) else x for x in raw_outputs]
             # allowed_tools: absent or null -> []; explicit list -> list
             raw_allowed = data.get("allowed_tools", []) or []
@@ -146,6 +163,7 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
                 rules=data.get("rules", []),
                 inputs=inputs,
                 outputs=outputs,
+                optional_inputs=optional_inputs,
                 allowed_tools=allowed_tools,
                 inline=bool(data.get("inline", False)),
                 repeat_until=data.get("repeat_until"),

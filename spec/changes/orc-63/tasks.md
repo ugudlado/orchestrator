@@ -31,7 +31,7 @@
     - a contract with no annotated items yields `optional_inputs == []`
     - tests fail for the right reason today (field absent)
 
-- [ ] T-4: Implement parser optional-input parsing (GREEN)
+- [x] T-4: Implement parser optional-input parsing (GREEN)
   Why: AC-5 — an optional input must never block dispatch
   Files: config/scripts/orchestrator_next/parser.py
   Change: Add `optional_inputs: list[str] = field(default_factory=list)` to the `StepContract` dataclass (parser.py:31-47). In `_load_contract` (parser.py:101-155), at the input coercion step (parser.py:134-137), detect a single-key mapping item `{name: 'optional'}`: append `name` to both `inputs` and `optional_inputs`; bare strings append to `inputs` only.
