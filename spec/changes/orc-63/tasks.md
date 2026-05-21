@@ -202,7 +202,7 @@
 
 ## Group F — CLI surface: ready + graph
 
-- [ ] T-20: Write tests for orchestrator ready + graph subcommands (RED)
+- [x] T-20: Write tests for orchestrator ready + graph subcommands (RED)
   Why: AC-8, AC-9 — new read-only verbs expose ready nodes and the DAG
   Files: config/scripts/orchestrator_next/tests/test_cli_ready_graph.py
   Change: New test file for the `ready` and `graph` verbs. Tests fail today because bin/orchestrator rejects `ready`/`graph` and graph.py does not exist.
