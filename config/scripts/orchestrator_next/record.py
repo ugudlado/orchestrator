@@ -48,6 +48,27 @@ _STATE_PATCH_KEYS = frozenset({
 
 _PHASE_REVIEW_VERDICTS = frozenset({"pass", "needs_work", "incomplete_phase"})
 
+# Task tool result text embeds the subagent JSONL stem on its own line.
+_AGENT_ID_FROM_TASK_RESULT_RE = re.compile(r"agentId:\s*([a-f0-9]{17})")
+
+
+def _extract_agent_id_from_task_result(text: str | None) -> str | None:
+    """Parse agentId from raw Task tool result text (transient done payload field)."""
+    if not text:
+        return None
+    match = _AGENT_ID_FROM_TASK_RESULT_RE.search(text)
+    return match.group(1) if match else None
+
+
+def _resolve_agent_id(payload: dict[str, Any]) -> str | None:
+    """agent_id from explicit payload fields or agent_task_result text."""
+    usage = payload.get("usage") or {}
+    return (
+        payload.get("agent_id")
+        or usage.get("agent_id")
+        or _extract_agent_id_from_task_result(payload.get("agent_task_result"))
+    )
+
 
 def _validate_phase_review_output(
     step_id: str, outputs: dict[str, Any]
@@ -1183,9 +1204,10 @@ def record(
     # Check B: usage required for agent (non-inline) steps on completion.
     # Root cause of ISSUE-10.1: empty usage means cost report is blank and
     # telemetry has no data for the step.
-    # ORC-45: removed the agent_id-only escape hatch. agent_id enrichment
-    # happens downstream; it does not excuse zero-token payloads at record time.
-    # Completed non-inline steps MUST have input_tokens > 0 OR output_tokens > 0.
+    # Completed non-inline steps MUST have input_tokens > 0 OR output_tokens > 0,
+    # unless agent_task_result is present with a parseable agentId — record.py
+    # then pulls billing-truth tokens from the subagent JSONL (driver does not
+    # parse usage blocks). Explicit agent_id alone does not bypass this check.
     #
     # ORC-48: if the contract declares an agent but the payload omits 'agent',
     # reject early so the driver knows it must include the field. Without this
@@ -1201,7 +1223,7 @@ def record(
                     "hint": (
                         "step contract declares agent: %s but payload omitted "
                         "the 'agent' field. The driver must include agent and "
-                        "agent_id (extracted from the Task result text) in the "
+                        "agent_task_result (raw Task tool result text) in the "
                         "done payload. See skills/orchestrate/SKILL.md."
                     ) % contract_agent,
                 },
@@ -1210,21 +1232,43 @@ def record(
 
     agent = payload.get("agent", "inline")
     payload_usage = payload.get("usage") or {}
+    agent_task_result = payload.get("agent_task_result")
+    resolved_agent_id = _resolve_agent_id(payload)
     if status == "completed" and agent != "inline":
         has_tokens = (
             (isinstance(payload_usage.get("input_tokens"), (int, float)) and payload_usage["input_tokens"] > 0)
             or (isinstance(payload_usage.get("output_tokens"), (int, float)) and payload_usage["output_tokens"] > 0)
         )
         if not has_tokens:
-            return (
-                {
-                    "reason": "agent_step_missing_usage",
-                    "step_id": step_id,
-                    "agent": agent,
-                    "hint": "agent steps must record usage.input_tokens or usage.output_tokens > 0",
-                },
-                3,
-            )
+            if agent_task_result and resolved_agent_id:
+                pass  # JSONL enrichment below supplies billing-truth usage
+            elif agent_task_result:
+                return (
+                    {
+                        "reason": "agent_step_missing_usage",
+                        "step_id": step_id,
+                        "agent": agent,
+                        "hint": (
+                            "agent_task_result present but no agentId: <17hex> line found; "
+                            "cannot load subagent JSONL for usage"
+                        ),
+                    },
+                    3,
+                )
+            else:
+                return (
+                    {
+                        "reason": "agent_step_missing_usage",
+                        "step_id": step_id,
+                        "agent": agent,
+                        "hint": (
+                            "agent steps must record usage.input_tokens or "
+                            "usage.output_tokens > 0, or pass agent_task_result "
+                            "with an agentId line for JSONL enrichment"
+                        ),
+                    },
+                    3,
+                )
 
     path = Path(state_yaml_path)
 
@@ -1271,11 +1315,11 @@ def record(
     # Work on a local copy so we never mutate the caller's dict.
     usage: dict[str, Any] = dict(payload.get("usage") or {})
 
-    # JSONL enrichment (telemetry-unify): when the caller passes an agent_id
-    # (from the Agent tool's result), pull billing-truth usage from the
-    # sub-agent JSONL. JSONL wins for input/output/cache_* and model; we keep
-    # caller-provided tool_calls and duration_ms only if JSONL lacks them.
-    agent_id = payload.get("agent_id") or usage.get("agent_id")
+    # JSONL enrichment (telemetry-unify): when agent_id is known (explicit or
+    # parsed from agent_task_result), pull billing-truth usage from the subagent
+    # JSONL. JSONL wins for input/output/cache_* and model; we keep caller-
+    # provided tool_calls and duration_ms only if JSONL lacks them.
+    agent_id = resolved_agent_id
     if agent_id:
         try:
             from orchestrator_next.jsonl_usage import (

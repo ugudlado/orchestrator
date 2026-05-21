@@ -133,39 +133,28 @@ def test_fr6_agents_forbid_state_edits():
 
 
 # ---------------------------------------------------------------------------
-# FR-9: SKILL.md has MANDATORY USAGE CAPTURE section with input_tokens assertion
+# FR-9: SKILL.md passes raw Task result as agent_task_result (not driver parsing)
 # ---------------------------------------------------------------------------
 
-def test_fr9_skill_usage_capture_mandatory():
-    """skills/orchestrate/SKILL.md must contain MANDATORY and USAGE CAPTURE in the
-    same section, plus a reference to usage.input_tokens as a post-record assertion.
+def test_fr9_skill_passes_agent_task_result():
+    """skills/orchestrate/SKILL.md must instruct the driver to pass agent_task_result
+    and must not require driver-side USAGE CAPTURE or agentId extraction.
     """
     content = _read("skills/orchestrate/SKILL.md")
 
-    # Both tokens must appear in the file
-    assert "MANDATORY" in content, (
-        "skills/orchestrate/SKILL.md does not contain 'MANDATORY'. "
-        "Add '3. MANDATORY: USAGE CAPTURE' numbered step in §4 run_step."
+    assert "agent_task_result" in content, (
+        "skills/orchestrate/SKILL.md does not contain 'agent_task_result'. "
+        "Driver must pass raw Task tool result text; record.py extracts agentId."
     )
 
-    assert "USAGE CAPTURE" in content, (
-        "skills/orchestrate/SKILL.md does not contain 'USAGE CAPTURE'. "
-        "Add '3. MANDATORY: USAGE CAPTURE' numbered step in §4 run_step."
+    assert "USAGE CAPTURE" not in content, (
+        "skills/orchestrate/SKILL.md still contains 'USAGE CAPTURE'. "
+        "Remove driver-side usage parsing; record.py loads usage from JSONL."
     )
 
-    # Both must appear within the same section (within 500 chars of each other)
-    idx_mandatory = content.find("MANDATORY")
-    idx_capture = content.find("USAGE CAPTURE")
-    assert abs(idx_mandatory - idx_capture) < 500, (
-        f"'MANDATORY' (pos {idx_mandatory}) and 'USAGE CAPTURE' (pos {idx_capture}) "
-        f"are too far apart ({abs(idx_mandatory - idx_capture)} chars). "
-        "They must appear in the same section."
-    )
-
-    # Must reference usage.input_tokens as a post-record assertion
-    assert "usage.input_tokens" in content, (
-        "skills/orchestrate/SKILL.md does not reference 'usage.input_tokens'. "
-        "Add post-record assertion: 'assert step_history[-1].usage.input_tokens is non-null'."
+    assert "MANDATORY: AGENT IDENTITY" not in content, (
+        "skills/orchestrate/SKILL.md still contains driver agentId extraction. "
+        "record.py extracts agentId from agent_task_result."
     )
 
 

@@ -1,14 +1,11 @@
 """
-T-4 / T-5: Tests for record.py Check B tightening (ORC-45).
-
-T-4: RED — test_zero_tokens_with_agent_id_rejected FAILS before T-5 fix.
-T-5: GREEN — after removing the agent_id-only escape hatch, test passes.
+T-4 / T-5: Tests for record.py Check B (ORC-45 + agent_task_result path).
 
 Check B rule: completed non-inline steps must have input_tokens > 0 OR
-output_tokens > 0, regardless of whether agent_id is present.
+output_tokens > 0, unless agent_task_result contains a parseable agentId line
+(record.py loads billing-truth usage from subagent JSONL).
 
-The old bypass: if has_agent_id is True, skip the zero-tokens check even
-when tokens are both 0. This escape hatch is removed in T-5.
+Explicit agent_id alone does not bypass zero-token rejection (ORC-45).
 """
 from __future__ import annotations
 
@@ -137,3 +134,39 @@ class TestCheckBTightening:
         assert exit_code == 0, (
             f"Expected exit_code 0 for inline step, got {exit_code}: {result}"
         )
+
+    def test_agent_task_result_bypasses_check_b_without_usage(self, tmp_path):
+        """agent_task_result with parseable agentId skips driver usage; JSONL enriches later."""
+        state_path = _minimal_state(tmp_path)
+        payload = {
+            "step_id": "explore",
+            "phase": "specify",
+            "status": "completed",
+            "agent": "discoverer",
+            "outputs": {},
+            "agent_task_result": (
+                "Async agent launched successfully.\n"
+                "agentId: a6e7ca188209d1f47 (internal ID - do not mention to user)"
+            ),
+        }
+        result, exit_code = record(state_path, payload)
+        assert exit_code == 0, (
+            f"Expected exit_code 0 with agent_task_result, got {exit_code}: {result}"
+        )
+
+    def test_agent_task_result_without_agent_id_rejected(self, tmp_path):
+        """agent_task_result without agentId line still requires usage tokens."""
+        state_path = _minimal_state(tmp_path)
+        payload = {
+            "step_id": "explore",
+            "phase": "specify",
+            "status": "completed",
+            "agent": "discoverer",
+            "outputs": {},
+            "agent_task_result": "Async agent launched successfully.",
+        }
+        result, exit_code = record(state_path, payload)
+        assert exit_code == 3, (
+            f"Expected exit_code 3, got {exit_code}: {result}"
+        )
+        assert result.get("reason") == "agent_step_missing_usage"

@@ -41,7 +41,10 @@ _SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-from orchestrator_next.record import record  # noqa: E402
+from orchestrator_next.record import (  # noqa: E402
+    _extract_agent_id_from_task_result,
+    record,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +91,19 @@ def _write_contract(contracts_dir, step_id: str, *, agent: str | None = None, in
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+class TestExtractAgentIdFromTaskResult:
+    """Unit tests for agentId regex on raw Task tool result text."""
+
+    def test_extracts_17hex_agent_id(self):
+        text = "Async agent launched successfully.\nagentId: a6e7ca188209d1f47 (internal)"
+        assert _extract_agent_id_from_task_result(text) == "a6e7ca188209d1f47"
+
+    def test_returns_none_when_missing(self):
+        assert _extract_agent_id_from_task_result("no id here") is None
+        assert _extract_agent_id_from_task_result(None) is None
+        assert _extract_agent_id_from_task_result("") is None
+
 
 class TestRecordAgentField:
     """ORC-48 regression cases for agent/agent_id in done payload."""
@@ -225,6 +241,42 @@ class TestRecordAgentField:
         assert usage.get("model") == "claude-sonnet-4-6", (
             f"Expected model='claude-sonnet-4-6' from JSONL enrichment, got: {usage.get('model')!r}"
         )
+
+    def test_jsonl_enrichment_from_agent_task_result(self, tmp_path, contracts_dir):
+        """agent_task_result replaces explicit agent_id for JSONL enrichment."""
+        import glob
+
+        pattern = os.path.expanduser(
+            "~/.claude/projects/-Users-spidey-code-orchestrator/*/subagents/agent-a6e7ca188209d1f47.jsonl"
+        )
+        matches = glob.glob(pattern)
+        if not matches:
+            pytest.skip("JSONL fixture not present on disk")
+
+        _write_contract(contracts_dir, "diagnose", agent="discoverer")
+        state_path = _write_state(tmp_path, repo_root="/Users/spidey/code/orchestrator")
+
+        payload = {
+            "step_id": "diagnose",
+            "phase": "main",
+            "status": "completed",
+            "agent": "discoverer",
+            "outputs": {"diagnosis_result": "diagnose.md"},
+            "agent_task_result": (
+                "Async agent launched successfully.\n"
+                "agentId: a6e7ca188209d1f47 (internal ID)"
+            ),
+        }
+        result, exit_code = record(state_path, payload, db=None)
+
+        assert exit_code == 0, f"Expected exit_code=0, got {exit_code}: {result}"
+
+        with open(state_path) as f:
+            state_after = yaml.safe_load(f)
+
+        usage = state_after["step_history"][-1].get("usage", {})
+        assert usage.get("output_tokens", 0) > 0
+        assert usage.get("agent_id") == "a6e7ca188209d1f47"
 
     # ------------------------------------------------------------------
     # Test 4 (PASSES at HEAD)

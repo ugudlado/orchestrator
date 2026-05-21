@@ -42,10 +42,11 @@ corruption detected after write (file restored), `5` boundary DB write failed.
 |-------|------|---------|-------------|
 | `status` | string | `completed` | One of: `completed`, `recovered`, `abandoned` |
 | `agent` | string | `inline` | Agent role from `action.agent` — **required** for agent steps |
-| `agent_id` | string | — | 17-char hex from Task tool result (`agentId:` line) |
+| `agent_task_result` | string | — | Raw Task tool result text; `record.py` extracts `agentId:` and loads usage from subagent JSONL. **Preferred** for Claude Code drivers. Transient — not persisted in `step_history`. |
+| `agent_id` | string | — | 17-char hex subagent id (deprecated for drivers — use `agent_task_result`; still accepted when passed explicitly) |
 | `attempt` | int | CLI-computed | Preserve on resume; do not increment manually |
 | `started_at` | string | now | ISO 8601 from `action.started_at` on resume |
-| `usage` | object | — | Token/tool stats — **required** for completed agent steps |
+| `usage` | object | — | Token/tool stats; required when `agent_task_result` is absent. When `agent_task_result` is present, `record.py` fills usage from JSONL. |
 | `evidence` | object | — | Machine-visible proof (see § Evidence) |
 | `artifacts` | list | — | Filenames created or modified this step |
 | `review_score` | object | — | For `run-phase-review` only |
@@ -94,9 +95,10 @@ driver's.
 
 Agents write human-readable artifacts to `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/`
 themselves, then return this block verbatim. The driver maps it into the
-`orchestrator done` payload (adds `step_id`, `phase`, `agent`, `usage` from
-dispatch context). The driver MUST NOT parse report prose for scores, verdicts,
-or artifact content.
+`orchestrator done` payload (adds `step_id`, `phase`, `agent`, `agent_task_result`
+from the Task tool result text, and COMPLETION fields). The driver MUST NOT
+parse report prose for scores, verdicts, or artifact content, and MUST NOT
+extract `<usage>` blocks or `agentId:` lines — `record.py` owns that.
 
 ```
 COMPLETION:
@@ -154,12 +156,13 @@ phase advances (all tasks `[x]`, `orchestrator done` recorded).
   "phase": "specify",
   "status": "completed",
   "agent": "discoverer",
-  "agent_id": "a6e7ca188209d1f47",
+  "agent_task_result": "Async agent launched successfully.\nagentId: a6e7ca188209d1f47 (internal ID - do not mention to user)",
   "outputs": {"discovery_result": {"path": "discovery.md"}},
-  "artifacts": ["discovery.md"],
-  "usage": {"input_tokens": 12000, "output_tokens": 3500, "duration_ms": 42000}
+  "artifacts": ["discovery.md"]
 }
 ```
+
+(`record.py` extracts `agent_id` from `agent_task_result` and populates `usage` from the subagent JSONL.)
 
 ### execute-next-task (all tasks done in one spawn)
 
@@ -259,7 +262,7 @@ Updates — the payload fields above are copied into the entry; timestamps and
 The driver orchestrates only — it does not verify task or test outcomes.
 
 1. Parse agent COMPLETION block (or treat failure as `status: failed`).
-2. Merge dispatch context: `step_id`, `phase`, `agent`, `attempt`, `started_at`, `usage`.
+2. Merge dispatch context: `step_id`, `phase`, `agent`, `attempt`, `started_at`, and the raw Task tool result as `agent_task_result`.
 3. Pipe JSON to `orchestrator done <state.yaml>`.
 4. On exit 0: call `orchestrator next` for the following step.
 5. On exit 3: read stderr reason, fix payload, retry — do not advance.

@@ -180,46 +180,12 @@ LOOP:
       #    Map fields verbatim — do NOT extract review_score, verdict, or artifact
       #    content from report prose. Agents write artifact files themselves;
       #    COMPLETION carries machine-readable fields only.
-      #    Merge step_id, phase, agent, agent_id, usage from dispatch context.
+      #    Merge step_id, phase, agent from dispatch context; pass the raw Task tool
+      #    result text as agent_task_result (record.py extracts agentId and loads
+      #    billing-truth usage from subagent JSONL — do not parse usage or agentId).
       # 3. Pipe payload to orchestrator done (driver does not verify tasks/tests):
 
-      # 3. MANDATORY: USAGE CAPTURE — after any agent Task completes, extract from
-      #    the result <usage> block:
-      #      input_tokens             — from <usage> input_tokens
-      #      output_tokens            — from <usage> output_tokens
-      #      cache_read_input_tokens  — from <usage> cache_read_input_tokens (if present)
-      #      cost_usd                 — from <usage> cost_usd or total_cost_usd (if present)
-      #      duration_ms              — from <usage> duration_ms (if present)
-      #      tool_calls               — a dict of {tool_name: count} tallied from the
-      #                                 agent's tool use blocks in the result (if visible)
-      #    Include these under the `usage` key in the `orchestrator done` payload.
-      #    If a field is absent from the result, omit it — do not pass 0 or null.
-      #    Example record payload usage block:
-      #      "usage": {"input_tokens": 45230, "output_tokens": 3210, "duration_ms": 87400,
-      #                "tool_calls": {"Read": 12, "Edit": 5, "Bash": 8}}
-      #    After recording, assert step_history[-1].usage.input_tokens is non-null/non-zero
-      #    for any agent (non-inline) step — record.py enforces this (FR-11).
-
-      # 4. MANDATORY: AGENT IDENTITY CAPTURE — when spawning an agent via the Task
-      #    tool, extract agentId from the Task tool result text (it contains a line
-      #    `agentId: <17hex>`). Use that hex value (the JSONL filename stem) as `agent_id` in the
-      #    done payload, alongside the agent role from `action.agent` (returned by
-      #    `orchestrator next`) which goes in the `agent` field.
-      #
-      #    Example payload:
-      #      {"step_id": "...", "phase": "...", "status": "completed",
-      #       "agent": "developer",            # from action.agent
-      #       "agent_id": "a6e7ca188209d1f47", # from Task result text (agentId: <17hex>)
-      #       "outputs": {...}, "usage": {...}, "evidence": {...}}
-      #
-      #    For inline-script steps (action has `run:` instead of `agent:`), omit
-      #    both fields — record.py defaults to agent="inline".
-      #
-      #    record.py will reject (exit 3) any completed agent-step payload that
-      #    omits the `agent` field — this is enforced to prevent silent metric
-      #    corruption (all steps appearing as 'inline' in DuckDB reports).
-
-      orchestrator done state.yaml <<< {step_id, phase, status, agent, agent_id, outputs, usage, evidence}
+      orchestrator done state.yaml <<< {step_id, phase, status, agent, agent_task_result, outputs, evidence}
       # Full contract: config/steps/contracts/done-payload.md
 ```
 
