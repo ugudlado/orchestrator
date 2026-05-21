@@ -243,3 +243,27 @@ def load_state(state_yaml_path: str) -> State:
 def load_contract_for_step(step_id: str, state_yaml_path: str) -> StepContract:
     """Public convenience wrapper around _load_contract."""
     return _load_contract(step_id, state_yaml_path)
+
+
+def phase_nodes(state: State, phase: str) -> list[dict]:
+    """Return the plan node list for a phase (ORC-63 single read path).
+
+    `workflow_plan[phase]` is read in this order:
+      1. A `nodes:` list — returned verbatim (the post-promotion shape).
+      2. A legacy `active:[ids]` list — each id is synthesized into a bare
+         `{id, status: 'pending'}` node so an in-flight workflow that predates
+         node promotion still dispatches (AC-11, design.md OQ-6).
+      3. Neither present — returns `[]`.
+
+    Pure read — no state mutation.
+    """
+    phase_plan = state.workflow_plan.get(phase, {})
+    if not isinstance(phase_plan, dict):
+        return []
+    nodes = phase_plan.get("nodes")
+    if nodes is not None:
+        return list(nodes)
+    active = phase_plan.get("active")
+    if active is not None:
+        return [{"id": sid, "status": "pending"} for sid in active]
+    return []

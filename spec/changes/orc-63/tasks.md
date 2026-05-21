@@ -12,7 +12,7 @@
     - a `{nodes:[...]}` block is returned unchanged regardless of node count
     - tests fail for the right reason today (AttributeError/ImportError — `phase_nodes` absent, not a typo)
 
-- [ ] T-2: Implement parser node-shape read path (GREEN)
+- [x] T-2: Implement parser node-shape read path (GREEN)
   Why: AC-1, AC-11 — single read path over the new `nodes` shape with back-compat for in-flight workflows (design.md OQ-6)
   Files: config/scripts/orchestrator_next/parser.py
   Change: Add `phase_nodes(state, phase) -> list[dict]` reading `state.workflow_plan[phase].nodes`; when that key is absent but `active:[ids]` is present, synthesize `[{id: x, status: 'pending'} for x in active]`. Pure read — no state mutation.
