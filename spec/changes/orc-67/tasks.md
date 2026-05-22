@@ -28,7 +28,7 @@
     - type-check / lint clean
   depends: T-2
 
-- [ ] T-4: Write tests for node-status rework re-open and escalation (RED — tests must fail)
+- [x] T-4: Write tests for node-status rework re-open and escalation (RED — tests must fail)
   Why: AC-1, AC-2, AC-3, AC-4, AC-6 — record() does not yet re-open nodes on needs_work nor escalate on ceiling.
   Files: config/scripts/orchestrator_next/tests/test_rework_loop.py
   Change: Extend the test module with end-to-end `record()` cases over a nodes-shape state.yaml fixture (and a separate legacy `active:[ids]` fixture); tests fail because record() currently advances linearly past needs_work.
