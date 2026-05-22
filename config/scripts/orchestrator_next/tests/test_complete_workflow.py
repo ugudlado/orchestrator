@@ -149,10 +149,15 @@ def _parse_completion(stdout):
 
 def test_body_state_reads_precede_archive_and_cd_precedes_remove():
     """All state-read statements precede the archive invocation, and a
-    `cd "$REPO_ROOT"` precedes any remove-worktree.sh invocation."""
+    `cd "$REPO_ROOT"` precedes any remove-worktree.sh invocation.
+
+    Comment lines are stripped before scanning so header prose naming the
+    former step ids does not register as an invocation.
+    """
     with open(_SCRIPT) as f:
-        body = f.read()
-    lines = body.splitlines()
+        raw_lines = f.read().splitlines()
+    # Strip whole-line comments — only executable statements count for ordering.
+    lines = ["" if ln.lstrip().startswith("#") else ln for ln in raw_lines]
 
     def first_line(pat):
         rx = re.compile(pat)
@@ -161,7 +166,8 @@ def test_body_state_reads_precede_archive_and_cd_precedes_remove():
                 return i
         return None
 
-    archive_line = first_line(r"archive-completed-change\.sh")
+    # Match the actual `bash ... archive-completed-change.sh` invocation.
+    archive_line = first_line(r"bash\b.*archive-completed-change\.sh")
     assert archive_line is not None, "no archive-completed-change.sh invocation"
 
     # Every read_state_env call must come before the archive invocation.
@@ -174,7 +180,7 @@ def test_body_state_reads_precede_archive_and_cd_precedes_remove():
         f"(reads at {read_lines}, archive at {archive_line})"
     )
 
-    remove_line = first_line(r"remove-worktree\.sh")
+    remove_line = first_line(r"bash\b.*remove-worktree\.sh")
     assert remove_line is not None, "no remove-worktree.sh invocation"
     cd_line = first_line(r'cd\s+"\$REPO_ROOT"')
     assert cd_line is not None, 'no `cd "$REPO_ROOT"` statement'

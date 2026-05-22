@@ -14,7 +14,7 @@
     - merge conflict → wrapper exits non-zero, archive + cleanup do not run
     - unmerged branch → worktree removed, branch preserved, warning logged, exit 0
 
-- [ ] T-2: Implement `complete-workflow.sh` (GREEN — make tests pass)
+- [x] T-2: Implement `complete-workflow.sh` (GREEN — make tests pass)
   Why: Approach 3, AC-3, AC-7 — the orchestration script sequencing merge → archive → cd → cleanup
   Files: config/scripts/inline/complete-workflow.sh (new), ~/.config/orchestrator/config/scripts/inline/complete-workflow.sh (new — dual tree)
   Change: new bash script with `set -uo pipefail`; step 0 sources `_read_state_env.sh` and reads CHANGE_ID, ARCHIVE_PATH, WORKTREE_ROOT, WORKTREE_PATH, REPO_ROOT, BRANCH, MERGE_TO_MAIN, WORKTREE into bash vars; step 1 runs `bash "$(dirname "$0")/merge-to-main.sh"` when MERGE_TO_MAIN true (capture merge_record, exit non-zero on helper failure); step 2 runs `bash "$(dirname "$0")/archive-completed-change.sh"` unconditionally (capture archive_record); step 3 `cd "$REPO_ROOT"` then runs `bash "$(dirname "$0")/remove-worktree.sh"` when WORKTREE true (capture worktree_record); emit `{"completion_record": {merge_record, archive_record, worktree_record}}` on stdout. Write identical file to both config trees.
