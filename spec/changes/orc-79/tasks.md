@@ -154,7 +154,7 @@
     - the three `.sh` helper scripts still exist
   depends: T-12
 
-- [ ] T-14: Write flags.yaml reshape test (RED — tests must fail)
+- [x] T-14: Write flags.yaml reshape test (RED — tests must fail)
   Why: AC-5 — `merge_to_main`/`worktree` must move to `behavioral:` with no step binding
   Files: config/scripts/orchestrator_next/tests/test_flags_reshape.py (new)
   Change: new pytest module asserting in both `flags.yaml` trees that `merge_to_main` and `worktree` are under `behavioral:`, absent from `gates:`, carry no `steps:` key; and that loading flags via the seed-state merge still yields `merge_to_main`/`worktree` keys with their defaults, and `--autopilot` `sets` still resolves `merge_to_main: true`
