@@ -1,7 +1,7 @@
 # Step Contract Conventions
 
 Rules for designing, evaluating, and modifying step contracts.
-Read by workflow-improver (when auditing and when editing).
+Read by workflow-learner (when auditing and when editing).
 
 ## Contract Files
 
@@ -16,7 +16,7 @@ Load only the contracts relevant to your step:
 | Resume Token | `contracts/resume-token.md` | orchestrate skill, workflow-state.sh, auto-continue.sh |
 | UX Artifacts | `contracts/ux-artifacts.md` | ux-design, design-and-draft-artifacts, execute-next-task |
 | Auto-Commit | `contracts/auto-commit.md` | execute-next-task |
-| Metrics Schema | `contracts/metrics-schema.md` | compute-swe-metrics, telemetry, learn, workflow-improver |
+| Metrics Schema | `contracts/metrics-schema.md` | compute-swe-metrics, telemetry, learn |
 | Step Dispatch (CLI interface, JSON schema, exit codes) | `contracts/step-dispatch.md` | orchestrate skill, adapter authors, callers of `orchestrator next` |
 | Done Payload (`orchestrator done` JSON stdin, COMPLETION block) | `contracts/done-payload.md` | orchestrate skill, developer skill, all agent-spawned steps |
 | Run Field Migration (adding `run:` adapter path to a step) | `contracts/migration-run-field.md` | developer adding subprocess adapter to a step contract |
@@ -456,7 +456,7 @@ Don't split when:
 
 ## Rule Lifecycle Convention
 
-Rules in step contracts have two classes: **permanent** (hand-written, original to the step) and **learned** (added by `/learn` via workflow-improver). Only learned rules are subject to decay evaluation.
+Rules in step contracts have two classes: **permanent** (hand-written, original to the step) and **learned** (added by `/learn`). Only learned rules are subject to decay evaluation.
 
 ### Metadata Comment Format
 
@@ -515,7 +515,7 @@ A learned rule is flagged for resolution when:
 
 ### Evaluation Trigger
 
-Decay evaluation runs every 5th `/learn` invocation (see `/learn` skill § Rule Decay Evaluation). Flagged rules are routed to workflow-improver for pruning — never removed inline. Rules without metadata are never touched.
+Decay evaluation runs every 5th `/learn` invocation (see `/learn` skill § Rule Decay Evaluation). Flagged rules are pruned by `/learn` directly — never removed inline mid-workflow. Rules without metadata are never touched.
 
 ## Metrics Schema
 

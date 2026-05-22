@@ -3,7 +3,7 @@
 Canonical definition of the `metrics:` block written by `compute-swe-metrics.sh`
 into `spec/changes/archive/<slug>/state.yaml`. All workflow schemas that run
 `compute-swe-metrics` produce this block. Consumers (telemetry, learn,
-workflow-improver) read it from archived state files.
+workflow-learner) read it from archived state files.
 
 ## Field Registry
 
@@ -188,7 +188,7 @@ The `*_delta_pct` fields are signed decimals in the range (−1.0, +∞):
 
 Use these deltas as the learning signal for future estimates. No action is
 taken automatically — telemetry surfaces the trend so humans (or a future
-workflow-improver rule) can tune `config/pricing.yaml` or the estimator.
+/learn rule) can tune `config/pricing.yaml` or the estimator.
 
 ## Per-Step Aggregation
 

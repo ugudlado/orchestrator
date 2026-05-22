@@ -5,7 +5,6 @@ agents:
   reviewer:          native_sonnet
   developer:         native_sonnet
   discoverer:        native_sonnet
-  workflow-improver: native_sonnet
   sonnet-agent:      native_sonnet
   haiku-agent:       native_sonnet
 
