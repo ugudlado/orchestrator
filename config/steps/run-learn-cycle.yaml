@@ -3,7 +3,7 @@ version: 1
 
 intent: Trigger automatic learning from the just-completed change so every completion improves the next execution.
 
-agent: skill-runner
+agent: workflow-improver
 
 inputs:
   # ORC-63: no step produces final_signoff_decision — it names a human

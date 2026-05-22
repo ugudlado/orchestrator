@@ -1396,7 +1396,7 @@ def record(
     # reject early so the driver knows it must include the field. Without this
     # guard, record.py silently defaults to 'inline', corrupting DuckDB metrics.
     contract_agent = contract.agent if contract is not None else None
-    if status == "completed" and contract_agent and contract_agent not in ("inline", "skill-runner"):
+    if status == "completed" and contract_agent and contract_agent != "inline":
         if "agent" not in payload:
             return (
                 {
@@ -1417,7 +1417,7 @@ def record(
     payload_usage = payload.get("usage") or {}
     agent_task_result = payload.get("agent_task_result")
     resolved_agent_id = _resolve_agent_id(payload)
-    if status == "completed" and agent not in ("inline", "skill-runner"):
+    if status == "completed" and agent != "inline":
         has_tokens = (
             (isinstance(payload_usage.get("input_tokens"), (int, float)) and payload_usage["input_tokens"] > 0)
             or (isinstance(payload_usage.get("output_tokens"), (int, float)) and payload_usage["output_tokens"] > 0)

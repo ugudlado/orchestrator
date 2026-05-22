@@ -168,22 +168,6 @@ LOOP:
           # Resume: always log to stderr — even under flags.auto == true — so operators see resume events.
           print(f"RESUMING step {action.step_id} (attempt {action.attempt})", file=sys.stderr)
 
-      IF action.agent == "skill-runner":
-          # Skill-runner: driver-invoked skill — NOT a spawned sub-agent.
-          # The step runs in the driver's own conversation context so it can
-          # itself spawn sub-agents (e.g. /learn spawns workflow-evaluator).
-          # Do NOT call Task() here.
-          #
-          # 1. Execute action.instruction in this driver context
-          #    (e.g. Skill({ skill: "learn", args: "<CHANGE_ID>" })).
-          # 2. Capture the outcome (learn_completed / learn_skipped / etc).
-          # 3. Record via orchestrator done — no agent_task_result, no usage tokens:
-
-          orchestrator done state.yaml <<< {step_id, phase, status: "completed", agent: "skill-runner", outputs}
-          # Full contract: config/steps/contracts/done-payload.md
-          # Note: skill-runner is exempt from the usage guard in record.py (ORC-75).
-          continue
-
       # Agent spawn. Load agent .md from $ORCHESTRATOR_HOME/agents/<action.agent>.md.
       # Spawn with run_in_background: true as the default.
       # Exceptions: ideator and reviewer spawns are short-running and may be foreground.

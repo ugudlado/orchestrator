@@ -120,7 +120,7 @@ def check_agent_files(orch_home: Path) -> CheckResult:
             with open(path) as f:
                 data = yaml.safe_load(f)
             name = data.get("agent")
-            if not name or name in ("inline", "skill-runner"):
+            if not name or name == "inline":
                 continue
             local = orch_home / "agents" / f"{name}.md"
             global_ = Path.home() / ".claude" / "agents" / f"{name}.md"
