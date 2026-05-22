@@ -101,6 +101,100 @@ def _validate_phase_review_output(
     return None
 
 
+# ---------------------------------------------------------------------------
+# orc-67: run-phase-review needs_work rework loop
+# ---------------------------------------------------------------------------
+
+# Verdicts that send the engine back through execute-next-task (drain fix tasks)
+# and then re-run run-phase-review. `pass` is excluded — it advances linearly.
+_REWORK_VERDICTS = frozenset({"needs_work", "incomplete_phase"})
+
+# Fallback when project.yaml omits quality_bar.max_retry_rounds. Matches the
+# historical verify_block.max_retries default; the repo's own project.yaml
+# sets 8, so this only fires on a misconfigured repo / test fixture.
+_DEFAULT_MAX_RETRY_ROUNDS = 3
+
+
+def _payload_phase_review_verdict(payload: dict[str, Any]) -> str | None:
+    """Extract the phase-review verdict from a `done` payload (orc-67).
+
+    Reads `payload.outputs.phase_review_report.verdict` directly (payload-time
+    shape — record nests these under `evidence.outputs` only after appending).
+    Returns None for any non-`run-phase-review` step or absent/malformed report.
+
+    Distinct from `_phase_review_verdict(entry)`, which reads a step_history
+    entry for `extract_review_scores`.
+    """
+    if payload.get("step_id") != "run-phase-review":
+        return None
+    outputs = payload.get("outputs")
+    if not isinstance(outputs, dict):
+        return None
+    report = outputs.get("phase_review_report")
+    if not isinstance(report, dict):
+        return None
+    verdict = report.get("verdict")
+    return verdict if isinstance(verdict, str) else None
+
+
+def _rework_loop_active(
+    verdict: str | None, retries: Any, max_retries: int
+) -> str | None:
+    """Decide the rework-loop action for a run-phase-review verdict (orc-67).
+
+    Returns:
+      - "retry"    — verdict needs rework and retry count < max_retries.
+      - "escalate" — verdict needs rework and retry count >= max_retries.
+      - None       — `pass` / non-rework verdict (advance linearly).
+
+    `retries` is the `state_raw["retries"]` mapping (or anything). A missing
+    key, None, or non-dict is treated as count 0 — never raises.
+    """
+    if verdict not in _REWORK_VERDICTS:
+        return None
+    count = retries.get("run-phase-review", 0) if isinstance(retries, dict) else 0
+    if not isinstance(count, int):
+        count = 0
+    return "retry" if count < max_retries else "escalate"
+
+
+def _max_retry_rounds(state_raw: dict[str, Any]) -> int:
+    """Read `quality_bar.max_retry_rounds` from the repo's project.yaml (orc-67).
+
+    The reviewer reads the same key; the engine MUST read the same one or retry
+    accounting splits. project.yaml lives at `<root>/spec/project.yaml` —
+    `worktree_path` is preferred when its directory exists, else `repo_root`.
+    Returns `_DEFAULT_MAX_RETRY_ROUNDS` (with a `[record]` stderr warning) when
+    the file or the key is absent.
+    """
+    candidate: Path | None = None
+    worktree = state_raw.get("worktree_path")
+    if isinstance(worktree, str) and worktree:
+        wt = Path(os.path.expanduser(worktree))
+        if wt.is_dir():
+            candidate = wt / "spec" / "project.yaml"
+    if candidate is None:
+        repo_root = state_raw.get("repo_root")
+        if isinstance(repo_root, str) and repo_root:
+            candidate = Path(os.path.expanduser(repo_root)) / "spec" / "project.yaml"
+
+    if candidate is not None and candidate.is_file():
+        try:
+            data = yaml.safe_load(candidate.read_text()) or {}
+            quality_bar = data.get("quality_bar") if isinstance(data, dict) else None
+            value = quality_bar.get("max_retry_rounds") if isinstance(quality_bar, dict) else None
+            if isinstance(value, int) and not isinstance(value, bool):
+                return value
+        except (yaml.YAMLError, OSError) as exc:
+            sys.stderr.write(f"[record] warning: could not read {candidate}: {exc}\n")
+
+    sys.stderr.write(
+        f"[record] warning: quality_bar.max_retry_rounds not found in project.yaml; "
+        f"defaulting to {_DEFAULT_MAX_RETRY_ROUNDS}\n"
+    )
+    return _DEFAULT_MAX_RETRY_ROUNDS
+
+
 def _apply_state_patch(state_raw: dict[str, Any], patch: dict[str, Any]) -> None:
     """Apply state_patch from orchestrator done payload into top-level state."""
     if not isinstance(patch, dict):

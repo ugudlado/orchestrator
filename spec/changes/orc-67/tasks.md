@@ -19,7 +19,7 @@
     - `_max_retry_rounds` reads quality_bar.max_retry_rounds from project.yaml, returns 3 (with stderr warning) when the key is absent
     - retries absent or not a dict is treated as count 0 without raising
 
-- [ ] T-3: Implement verdict extraction + rework-decision helpers (GREEN — make tests pass)
+- [x] T-3: Implement verdict extraction + rework-decision helpers (GREEN — make tests pass)
   Why: AC-1, AC-2, AC-5, AC-7, Decisions OQ-2/OQ-6 — pure decision layer the node-status branch depends on.
   Files: config/scripts/orchestrator_next/record.py
   Change: Add `_phase_review_verdict(payload)`, `_rework_loop_active(verdict, retries, max_retries)`, and `_max_retry_rounds(state_raw)` near `_validate_phase_review_output` (record.py:74); "rework verdict" set = {needs_work, incomplete_phase}; `_max_retry_rounds` reads project.yaml `quality_bar.max_retry_rounds`, default 3 with a `[record]` stderr warning.
