@@ -65,19 +65,21 @@ instruction: |
      c. Generate using available context (discovery brief, design direction, change description).
      d. Write to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/<file>.
 
-  7. Generate tasks.md:
+  7. Generate tasks.md and tasks.yaml:
      - Read design.md for approach, component breakdown, and acceptance criteria.
        (Product-level motivation/impact lives on the ticket — read it from
        state.yaml's linear-ticket/change description if more context is needed.)
      - If ux-artifacts.yaml exists: reference ux-prototype.html in UI task descriptions.
      - Generate the fewest tasks that cover all acceptance criteria.
-     - Write using Task Format Contract (contracts/artifact-formats.md § Task Format Contract).
+     - Write tasks.md using Task Format Contract (contracts/artifact-formats.md § Task Format Contract).
+     - Write tasks.yaml using Tasks YAML Format Contract (contracts/artifact-formats.md § Tasks YAML Format Contract).
+       Both files represent the same task plan — tasks.yaml is the machine-readable form.
      - When tdd_required: every implementation task has a preceding test task.
 
   8. Return COMPLETION per contracts/done-payload.md (driver calls orchestrator done).
-     The COMPLETION `outputs:` block MUST carry all five declared outputs:
-     - `design.md` and `tasks.md` — path-named artifacts; the value is the
-       relative path the step wrote (e.g. `spec/changes/$CHANGE_ID/design.md`).
+     The COMPLETION `outputs:` block MUST carry all six declared outputs:
+     - `design.md`, `tasks.md`, and `tasks.yaml` — path-named artifacts; the value is the
+       relative path the step wrote (e.g. `spec/changes/$CHANGE_ID/tasks.yaml`).
      - `updated_artifact_set` — the list of artifact files generated this pass.
      - `design_direction` — the name of the selected design approach.
      - `complexity` — the complexity rating of the selected approach (XS/S/M/L/XL).
@@ -98,8 +100,10 @@ instruction: |
 verify:
   - design.md exists in $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/
   - tasks.md exists with at least one task
+  - tasks.yaml exists and passes validate-tasks-yaml.sh
   - design.md has Acceptance Criteria section with testable criteria
   - tasks.md follows the Task Format Contract
+  - tasks.yaml follows the Tasks YAML Format Contract
   - tasks.md covers every acceptance criterion from design.md
   - Every task has a Test scenarios field listing the behaviors its tests cover
   - Key Decisions section populated in discovery.md
@@ -107,6 +111,7 @@ verify:
 outputs:
   - design.md
   - tasks.md
+  - tasks.yaml
   - updated_artifact_set
   - design_direction
   - complexity
