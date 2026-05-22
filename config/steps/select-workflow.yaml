@@ -22,7 +22,7 @@ rules:
   - Match by trigger keywords first (literal prompt substring match against guidelines.yaml triggers); use semantic match only when no trigger fires.
   - When the user passes a CLI flag that is bound to a specific schema (e.g. --bugfix on a schema that defines it), prefer that schema.
   - Resume case takes precedence — if an active state.yaml exists for this repo, do not re-select; reuse the persisted schema.
-  - When two schemas tie, prefer the more specific one (bugfix > feature for a "fix" prompt; spike > feature for "explore").
+  - When two schemas tie, prefer the more specific one (bugfix > feature for a "fix" prompt).
   - Record reason as a short sentence. The selection must be inspectable.
   - When no schema matches with reasonable confidence, halt and ask the user — never default silently.
 

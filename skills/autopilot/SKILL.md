@@ -39,7 +39,7 @@ ELSE:
 
 # Parse the ITEM line from ideator's --next output:
 #   ITEM: <ID or title>
-#   SCHEMA: <feature|bugfix|chore|spike>
+#   SCHEMA: <feature|bugfix|chore>
 #   REASON: ...
 #   PERSISTED: no
 SLUG = first line matching `^ITEM:\s*(\S+)` from `pick`

@@ -34,8 +34,8 @@ _REPO_ROOT = _REAL_HOME.parent
 _WORKFLOWS_DIR = _REAL_HOME / "workflows"
 
 # Schemas exercised by orchestrate / autopilot. Excludes:
-#   autopilot, bootstrap — inline-script-driven, not run via generate_plan
-_USER_FACING_SCHEMAS = ["feature", "bugfix", "spike", "bootstrap"]
+#   autopilot — inline-script-driven, not run via generate_plan
+_USER_FACING_SCHEMAS = ["feature", "bugfix"]
 
 _STEP_REF_RE = re.compile(r"^([a-zA-Z0-9_-]+)(?:\s+if\s+(?:not\s+)?[a-zA-Z0-9_]+)?$")
 
@@ -176,13 +176,9 @@ def test_real_schema_generates_plan(tmp_path, monkeypatch, schema_name):
 
 # ---------------------------------------------------------------------------
 # orc-79: the three teardown steps collapse into one terminal `complete-workflow`
-# in feature/bugfix only. spike keeps `archive-completed-change` (architect
-# ruling, 2026-05-23); bootstrap never had any of the three.
+# in feature/bugfix.
 # ---------------------------------------------------------------------------
 
-# Steps that leave the feature.yaml / bugfix.yaml tail under ORC-79. Note:
-# `archive-completed-change` the step CONTRACT is retained for spike — only its
-# appearance in the feature/bugfix tail is removed.
 _FEATURE_BUGFIX_REMOVED_STEPS = {
     "archive-completed-change",
     "merge-to-main",
@@ -221,30 +217,3 @@ def test_schema_drops_the_three_removed_steps(schema_name):
     )
 
 
-def test_spike_schema_unchanged():
-    """spike.yaml is left untouched by ORC-79 (architect ruling): it keeps
-    `archive-completed-change` as its terminal step and never gains
-    `complete-workflow`."""
-    steps = _schema_step_ids("spike")
-    assert steps and steps[-1] == "archive-completed-change", (
-        f"spike.yaml must still end with 'archive-completed-change', "
-        f"got tail {steps[-3:]}"
-    )
-    assert "complete-workflow" not in steps, (
-        "spike.yaml must NOT gain complete-workflow — it is out of ORC-79 scope"
-    )
-    assert "merge-to-main" not in steps and "remove-worktree" not in steps, (
-        "spike.yaml unexpectedly contains merge-to-main / remove-worktree"
-    )
-
-
-def test_bootstrap_schema_unchanged():
-    """bootstrap.yaml never contained any teardown step and must not gain
-    `complete-workflow`."""
-    steps = set(_schema_step_ids("bootstrap"))
-    assert not (steps & _FEATURE_BUGFIX_REMOVED_STEPS), (
-        "bootstrap.yaml unexpectedly contains a teardown step"
-    )
-    assert "complete-workflow" not in steps, (
-        "bootstrap.yaml unexpectedly gained complete-workflow"
-    )

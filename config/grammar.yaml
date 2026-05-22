@@ -24,9 +24,6 @@ schema:
     defaults: map<string, any>        # Per-workflow overrides of flags.yaml gate/behavioral defaults
     rules: list<rule>                 # Workflow-level rules (rare — prefer step-contract rules)
 
-  legacy_optional:                    # Only present in schemas that genuinely need them (spike).
-    phases: list<phase>               # Legacy multi-phase shape
-
 # ─── STEP ENTRY GRAMMAR ────────────────────────────────────────────
 # Steps in a workflow's `steps:` list are usually plain strings.
 # Use the dict form only when overriding `repeat_until` from the contract.
@@ -46,9 +43,9 @@ step_entry:
           <flag>: list<string>
           not <flag>: list<string>
 
-# ─── PHASE GRAMMAR (legacy) ────────────────────────────────────────
-# Only used by spike. Engine synthesizes a single "main" phase for any
-# schema with top-level `steps:`.
+# ─── PHASE GRAMMAR ─────────────────────────────────────────────────
+# The engine synthesizes a single "main" phase for any schema with
+# top-level `steps:`.
 
 phase:
   required:
@@ -156,7 +153,7 @@ state:
   required:
     schema: string                    # Filename of the active workflow (e.g. "feature")
     status: enum[active, completed, paused]
-    phase: string                     # "main" for flat schemas; phase name for spike
+    phase: string                     # "main" for flat schemas
     flags: map<string, any>           # Resolved flag values (after CLI + workflow defaults + flags.yaml)
     workflow_plan: map                # { phase: { active: [...], filtered: [...] } }
     started_at: datetime

@@ -184,7 +184,7 @@ flags_read:
 ### Example
 
 ```yaml
-id: design-and-draft-artifacts (feature) or create-or-refresh-artifacts (bugfix/spike)
+id: design-and-draft-artifacts (feature) or create-or-refresh-artifacts (bugfix)
 flags_read:
   - name: tdd_required
     effect: "Every implementation task must have a preceding test task"
@@ -273,8 +273,7 @@ terminal step `complete-workflow` performs teardown in one process — merge
 `worktree`). Sequencing it inside one script keeps any state-moving operation
 and a later state-reading one behind the same dispatch boundary, so archive can
 move `state.yaml` out of the worktree without a subsequent step re-reading the
-moved path. The `spike` workflow still ends with the standalone
-`archive-completed-change` step.
+moved path.
 
 Steps that write tracked artifacts (design.md, tasks.md, discovery.md, UX files)
 MUST use `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/`, not `$WORKFLOW_STATE_DIR/$CHANGE_ID/`, as
@@ -361,7 +360,7 @@ find data where they expect it.
 
 | Field Path | Type | Written By | Values / Format |
 |------------|------|-----------|-----------------|
-| `status` | string | check-bootstrap-state, mark-change-completed, final-signoff | `active`, `paused`, `completed` |
+| `status` | string | mark-change-completed, final-signoff | `active`, `paused`, `completed` |
 | `phase` | string | load-project-context, phase-signoff | Current phase name (lowercase, e.g., `specify`, `implement`, `complete`) |
 | `next_step` | object | phase-signoff, any step advancing flow | See `contracts/resume-token.md` |
 | `step_history` | list | All steps (append-only) | See § State Updates above |
@@ -529,7 +528,7 @@ When writing or evaluating a step that reads or writes `metrics:` fields, load
 `contracts/metrics-schema.md` for the authoritative field list and the explicit-null
 vs omit contract. Key rules summarized:
 
-- `resolution.*` fields are explicit YAML null (`~`) for spike; real values for feature/bugfix/chore.
-- `review_scores` is omitted entirely (no key) for spike.
+- `resolution.*` fields are explicit YAML null (`~`) for autopilot; real values for feature/bugfix.
+- `review_scores` is omitted entirely (no key) for autopilot.
 - `tokens`, `cost`, `churn`, `per_agent_*` are always present for all schemas.
 - `category` identifies the schema so consumers can group across schema types.

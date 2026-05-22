@@ -33,7 +33,7 @@ count=$(find scripts/inline/ -maxdepth 1 -name '*.sh' -o -name '*.py' | wc -l | 
 
 echo "Gate 4b: workflow-init is pre-dispatch only"
 [ ! -f "config/steps/workflow-init.yaml" ] || { echo "  fail: config/steps/workflow-init.yaml should not exist"; exit 1; }
-for schema in config/workflows/feature.yaml config/workflows/bugfix.yaml config/workflows/spike.yaml; do
+for schema in config/workflows/feature.yaml config/workflows/bugfix.yaml; do
   if grep -q "workflow-init" "$schema"; then
     echo "  fail: $schema still references workflow-init"
     exit 1

@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: "Workflow router — detects intent and loads the right schema. This skill should be used when the user says 'orchestrate', 'start a feature', 'fix a bug', 'run a spike', 'bootstrap this repo', or describes development work that maps to a workflow type (feature, bugfix, spike, bootstrap, autopilot)."
+description: "Workflow router — detects intent and loads the right schema. This skill should be used when the user says 'orchestrate', 'start a feature', 'fix a bug', or describes development work that maps to a workflow type (feature, bugfix, autopilot)."
 user-invocable: true
 args:
   - name: request
@@ -77,7 +77,7 @@ bash skills/orchestrate/scripts/seed-state.sh <slug> <schema> [flag=value ...]
 
 Arguments:
 - `<slug>` is the change_id / feature slug for this workflow (derived from the request or Linear ticket).
-- `<schema>` is the schema name emitted by the select-workflow step (e.g. `bugfix`, `feature`, `spike`).
+- `<schema>` is the schema name emitted by the select-workflow step (e.g. `bugfix`, `feature`).
 - `[flag=value ...]` are any resolved CLI flag overrides (e.g. `auto=true agents=true tdd_required=false`).
 
 After the script exits 0, assert that state.yaml exists with a promoted
@@ -203,14 +203,7 @@ defines how to spawn the architect and re-dispatch.
 
 ### 4. Phase transitions
 
-Flat schemas (feature, bugfix, bootstrap, autopilot) have a single `main` phase — no advancement needed; `complete_workflow` fires when the last step completes.
-
-Multi-phase schemas (spike) need driver-side phase advancement. After all steps in a phase complete:
-- Verify phase-level `verify:` block if present (commands, assertions, metrics).
-- Advance the `phase` field in state.yaml to the next phase.
-- Continue the dispatch loop with that phase's steps.
-
-If `orchestrator next` exits 1 AND stderr shows `WARNING: phase 'X' is complete but workflow_plan has other phases (...)` — do NOT treat as terminal. Update state.yaml `phase:` and re-dispatch. The CLI emits the hint but does not auto-advance.
+All schemas (feature, bugfix, autopilot) have a single `main` phase — no advancement needed; `complete_workflow` fires when the last step completes.
 
 ### Key rules
 

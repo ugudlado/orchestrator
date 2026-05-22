@@ -17,14 +17,3 @@ bugfix: >
   test.
   Triggers: "fix", "broken", "regression", "crash", "error when".
 
-spike: >
-  Use for time-boxed exploration before committing to a solution.
-  Produces a working prototype and findings, archived as throwaway.
-  No worktree by default.
-  Triggers: "prototype", "explore", "POC", "try", "spike".
-
-bootstrap: >
-  Initialize a new project repo with standard tooling (Makefile,
-  CLAUDE.md, project.yaml, .gitignore). Runs in-place, no worktree,
-  no Linear.
-  Triggers: "bootstrap", "setup tooling", "initialize project".

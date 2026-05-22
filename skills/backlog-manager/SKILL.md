@@ -29,7 +29,7 @@ grep "^ticketing:" spec/project.yaml | awk '{print $2}'
 | `backlog` | Backlog.md global binary | `/backlog` |
 | `linear` | Linear MCP server | `/linear` |
 
-If `spec/project.yaml` is missing or `ticketing:` is not set, default to `backlog` and warn the user to run `/bootstrap`.
+If `spec/project.yaml` is missing or `ticketing:` is not set, default to `backlog` and warn the user to configure it.
 
 Load the detected backend skill before executing any commands. Never mix backends in one operation.
 
@@ -54,7 +54,7 @@ Pass these directly to `/linear` MCP tool calls — no additional config lookup 
 Create a task when:
 - Work spans more than one session or needs tracking across time
 - Multiple steps are involved and progress needs to be resumable
-- The work is a discrete deliverable (feature, bugfix, spike)
+- The work is a discrete deliverable (feature, bugfix)
 - An agent needs to pick it up autonomously
 
 Skip task creation for:

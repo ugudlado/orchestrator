@@ -50,7 +50,7 @@ All fields under `metrics:` — their type, description, and source:
 | `review_scores` | array | Overall scores from passing run-phase-review steps (verdict `pass`; legacy entries without verdict included) | step_history |
 | `review_score_avg` | decimal | Mean of review_scores — excludes `needs_work` and `incomplete_phase` attempts | computed |
 | `lint_delta` | integer | Lint finding delta (always 0; future use) | — |
-| `category` | string | Schema name (feature, bugfix, spike, autopilot) | state.yaml schema field |
+| `category` | string | Schema name (feature, bugfix, autopilot) | state.yaml schema field |
 | `benchmarks.cost_per_task_usd` | decimal | net_usd / tasks_total | computed |
 | `benchmarks.cost_per_resolution_usd` | decimal | net_usd / tasks_completed | computed |
 | `benchmarks.tokens_per_task` | integer | tokens.total / tasks_total | computed |
@@ -75,30 +75,30 @@ All fields under `metrics:` — their type, description, and source:
 Which fields are **required** (R), **null** (~, explicit YAML null), or **omitted** (—)
 for each workflow schema:
 
-| Field | feature | bugfix | spike | autopilot |
-|-------|---------|--------|-------|-----------|
-| `tokens.*` | R | R | R | R |
-| `cost.*` | R | R | R | R |
-| `turns` | R | R | R | R |
-| `tool_calls` | R | R | R | R |
-| `wall_clock_minutes` | R | R | R | R |
-| `resolution.tasks_total` | R | R | ~ | ~ |
-| `resolution.resolve_rate` | R | R | ~ | ~ |
-| `resolution.pass_at_1` | R | R | ~ | ~ |
-| `resolution.pass_at_2` | R | R | ~ | ~ |
-| `resolution.regression_rate` | R | R | ~ | ~ |
-| `resolution.iterations_completed` | — | — | — | R |
-| `resolution.iterations_failed` | — | — | — | R |
-| `resolution.iterations_empty` | — | — | — | R |
-| `churn.*` | R | R | R | R |
-| `review_scores` | R | R | — | — |
-| `review_score_avg` | R | R | — | — |
-| `category` | R | R | R | R |
-| `benchmarks.*` | R | R | R | R |
-| `per_agent_tokens` | R | R | R | R |
-| `per_agent_tools` | R | R | R | R |
-| `per_step.*` | R | R | R | R |
-| `estimate_vs_actual.*` | O | O | O | O |
+| Field | feature | bugfix | autopilot |
+|-------|---------|--------|-----------|
+| `tokens.*` | R | R | R |
+| `cost.*` | R | R | R |
+| `turns` | R | R | R |
+| `tool_calls` | R | R | R |
+| `wall_clock_minutes` | R | R | R |
+| `resolution.tasks_total` | R | R | ~ |
+| `resolution.resolve_rate` | R | R | ~ |
+| `resolution.pass_at_1` | R | R | ~ |
+| `resolution.pass_at_2` | R | R | ~ |
+| `resolution.regression_rate` | R | R | ~ |
+| `resolution.iterations_completed` | — | — | R |
+| `resolution.iterations_failed` | — | — | R |
+| `resolution.iterations_empty` | — | — | R |
+| `churn.*` | R | R | R |
+| `review_scores` | R | R | — |
+| `review_score_avg` | R | R | — |
+| `category` | R | R | R |
+| `benchmarks.*` | R | R | R |
+| `per_agent_tokens` | R | R | R |
+| `per_agent_tools` | R | R | R |
+| `per_step.*` | R | R | R |
+| `estimate_vs_actual.*` | O | O | O |
 
 When `feature` runs with `--light`, all required fields remain required —
 review scores and task counts are still emitted, just against a lower
@@ -125,7 +125,7 @@ When a field is marked **~** (explicit YAML null) in the table above:
 - This is already documented in `skills/telemetry/SKILL.md:143`:
   "Use null values gracefully — skip metrics where the data field is null."
 
-Example spike resolution block:
+Example autopilot resolution block:
 
 ```yaml
 resolution:
@@ -143,9 +143,9 @@ When a field is marked **—** (omitted) in the table above:
 - The key is NOT present in the YAML block.
 - Consumers that iterate metrics fields MUST NOT assume `review_scores` is
   present. Check for key existence before accessing it.
-- This applies to: `review_scores`, `review_score_avg` for spike and autopilot.
+- This applies to: `review_scores`, `review_score_avg` for autopilot.
 
-Example: spike output does not contain a `review_scores:` line at all.
+Example: autopilot output does not contain a `review_scores:` line at all.
 
 ### Category Field
 
@@ -156,8 +156,8 @@ cross-schema statistics. Resolution fields are only meaningful for
 
 ### Stable Block Shape
 
-The `resolution:` key is always present for all schemas (including spike and
-autopilot), with null values for inapplicable fields. This keeps the block shape
+The `resolution:` key is always present for all schemas (including autopilot),
+with null values for inapplicable fields. This keeps the block shape
 stable so consumers can navigate to `metrics.resolution` without a key-existence
 guard, then null-check individual fields as needed.
 
@@ -357,6 +357,6 @@ When adding a new workflow schema, choose the appropriate contract:
 - If the schema executes discrete tasks with pass/fail outcomes → use the
   feature/bugfix path (full resolution block, real values).
 - If the schema is exploratory or composite with no discrete task outcomes →
-  use the spike/autopilot path (null resolution, omit review_scores).
+  use the autopilot path (null resolution, omit review_scores).
 
 Document the choice in this file's Per-Schema Variants table.

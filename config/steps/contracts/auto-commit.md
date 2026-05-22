@@ -17,7 +17,6 @@ session interruptions — each completed task is durably saved.
 | `feature` | `feat` |
 | `feature --light` | `chore` |
 | `bugfix` | `fix` |
-| `spike` | `spike` |
 
 When running `feature --light`, use `chore:` as the commit prefix — it matches
 the conventional-commits category (housekeeping, config, renames, small
