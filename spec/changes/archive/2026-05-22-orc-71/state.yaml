@@ -402,7 +402,7 @@ workflow_plan:
       depends_on:
       - compute-swe-metrics
     - id: remove-worktree
-      status: pending
+      status: completed
       agent: inline
       goal: ''
       inputs: []
@@ -1864,6 +1864,25 @@ step_history:
   evidence:
     outputs: {}
     summary: recorded pre-script (state-mutating inline step)
+- step_id: remove-worktree
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-22T22:08:52Z'
+  ended_at: '2026-05-22T22:08:52Z'
+  usage: {}
+  evidence:
+    outputs:
+      removed: true
+      worktree_path: /Users/spidey/code/feature_worktrees/orc-71
+      branch: feature/orc-71
+      branch_deleted: true
+      branch_warning: ''
+    merge_sha: 0932c0b
+    note: remove-worktree.yaml contract was deleted by ORC-79's schema migration;
+      in-flight ORC-71 plan still referenced it. Script ran manually via STATE_YAML_PATH;
+      merge to main completed first so branch deletion succeeded cleanly.
 created_at: '2026-05-22T09:42:46Z'
 started_at: '2026-05-22T09:42:46Z'
 project_context_loaded: true
