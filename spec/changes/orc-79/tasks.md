@@ -114,7 +114,7 @@
 
 ## Group 2 — Schema, contract, flags, and docs cleanup
 
-- [ ] T-10: Write/update schema-load test for the new step list (RED — tests must fail)
+- [x] T-10: Write/update schema-load test for the new step list (RED — tests must fail)
   Why: AC-1, AC-8 — `feature.yaml`/`bugfix.yaml` must end with `complete-workflow`; `spike.yaml` and `bootstrap.yaml` must be unchanged
   Files: config/scripts/orchestrator_next/tests/test_workflow_schemas_load.py
   Change: update assertions so `feature.yaml` and `bugfix.yaml` `steps:` lists end with `complete-workflow` and contain none of `archive-completed-change`, `merge-to-main`, `remove-worktree`; assert `spike.yaml` is UNCHANGED (still ends with `archive-completed-change`, per `spike.yaml:7`) and `bootstrap.yaml` is unchanged. Tests fail until T-11 lands.
