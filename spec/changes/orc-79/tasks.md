@@ -50,22 +50,43 @@
     - `_STATE_MUTATING_INLINE_STEPS` contains `complete-workflow`
     - `_STATE_MUTATING_INLINE_STEPS` does NOT contain `archive-completed-change`
 
-- [x] T-6: Replace `_STATE_MUTATING_INLINE_STEPS` contents with `complete-workflow` (GREEN — make tests pass)
-  Why: AC-4, Constraints — `complete-workflow` becomes the sole state-mutating inline step; pre-record it before its script runs (ORC-66 crash-avoidance contract). `archive-completed-change` is removed from the set because its step id no longer dispatches in any schema (T-13 deletes its contract).
+- [x] T-6: Add `complete-workflow` to `_STATE_MUTATING_INLINE_STEPS` (GREEN — make tests pass)
+  Why: AC-4, Constraints — `complete-workflow` must be pre-recorded before its script runs (ORC-66 crash-avoidance contract).
   Files: bin/orchestrator
-  Change: at bin/orchestrator:372, change `_STATE_MUTATING_INLINE_STEPS = {"archive-completed-change"}` to `{"complete-workflow"}` (replace, not add)
+  Change: at bin/orchestrator:372, `_STATE_MUTATING_INLINE_STEPS` must contain both `archive-completed-change` and `complete-workflow`.
   Test scenarios:
-    - all T-5 tests pass
+    - `_STATE_MUTATING_INLINE_STEPS` contains `complete-workflow`
   depends: T-5
+  NOTE (consultation amendment, 2026-05-23): T-6 was committed with the *replace*
+  variant (`{"complete-workflow"}` only), per a since-reversed revision-3 instruction.
+  The escalation at T-11 found `spike.yaml:7` still dispatches `archive-completed-change`,
+  so the set MUST keep both ids. T-6c (below) is the corrective follow-up; it also
+  fixes the T-5 test, which was committed asserting the wrong "does NOT contain" clause.
+
+- [x] T-6c: Restore `archive-completed-change` to `_STATE_MUTATING_INLINE_STEPS` (additive corrective fix)
+  Why: AC-4, consultation amendment — `spike.yaml:7` still dispatches `archive-completed-change` as its terminal step; removing it from the set (as the committed T-6 did) would crash `record.py` on a spike run's post-archive path — the exact ORC-66 hazard. The set must hold BOTH ids.
+  Files: bin/orchestrator, config/scripts/orchestrator_next/tests/test_complete_workflow_classification.py
+  Change: in `bin/orchestrator:372`, change `_STATE_MUTATING_INLINE_STEPS = {"complete-workflow"}` to `{"archive-completed-change", "complete-workflow"}`; in `test_complete_workflow_classification.py`, change the committed assertion "does NOT contain `archive-completed-change`" to assert the set contains BOTH `archive-completed-change` and `complete-workflow`.
+  Test scenarios:
+    - `_STATE_MUTATING_INLINE_STEPS` contains `archive-completed-change`
+    - `_STATE_MUTATING_INLINE_STEPS` contains `complete-workflow`
+  depends: T-6
 
 - [x] T-6b: Retarget `test_archive_step_record_crash.py` to `complete-workflow` (no RED — test retarget; keeps the ORC-66 crash guard alive)
-  Why: AC-4 — the existing crash-regression test keys its fixture on the literal step id `archive-completed-change`; once that id leaves `_STATE_MUTATING_INLINE_STEPS` (T-6) the test would RED for a stale reason. The crash class (record-after-state-deletion) is now embodied by `complete-workflow` — retarget the guard, do not delete it.
+  Why: AC-4 — the existing crash-regression test keyed its fixture on the literal step id `archive-completed-change`; the retarget points the subprocess-level crash guard at `complete-workflow`, the primary new state-mutating step. The crash class (record-after-state-deletion) is exercised against `complete-workflow`.
   Files: config/scripts/orchestrator_next/tests/test_archive_step_record_crash.py
-  Change: in `_write_archive_step_state` and `test_state_deleting_inline_step_is_recorded_before_the_move`, replace the fixture step id `archive-completed-change` with `complete-workflow` (contract filename, `id:`, `workflow_plan.main.nodes[].id`, and the `step_ids` assertion); update the module docstring to name `complete-workflow` as the sole state-mutating inline step.
+  Change: in `_write_archive_step_state` and `test_state_deleting_inline_step_is_recorded_before_the_move`, replace the fixture step id `archive-completed-change` with `complete-workflow` (contract filename, `id:`, `workflow_plan.main.nodes[].id`, and the `step_ids` assertion); update the module docstring.
   Test scenarios:
     - `next` on a state-deleting `complete-workflow` inline step does not crash (exit 0, no FileNotFoundError/Traceback)
     - the `complete-workflow` step_history entry is recorded into state.yaml before the script deletes the dir
   depends: T-6
+  NOTE (consultation amendment, 2026-05-23): T-6b is kept as-is — `complete-workflow`
+  is the path most needing the subprocess-level crash guard. The `archive-completed-change`
+  crash path (still live for spike) stays covered at the classification level: T-6c's
+  edit to `test_complete_workflow_classification.py` asserts `archive-completed-change`
+  remains in `_STATE_MUTATING_INLINE_STEPS`, which is the load-bearing fact (its
+  presence is what makes the CLI pre-record it before the script runs). No duplicate
+  subprocess test is added — that would be gold-plating.
 
 - [x] T-7: Write test for `complete-workflow.yaml` step contract (RED — tests must fail)
   Why: AC-2 — the new step needs a dispatchable contract in both trees
@@ -94,39 +115,43 @@
 ## Group 2 — Schema, contract, flags, and docs cleanup
 
 - [ ] T-10: Write/update schema-load test for the new step list (RED — tests must fail)
-  Why: AC-1, AC-8 — schemas must end with `complete-workflow` and drop the three old steps
+  Why: AC-1, AC-8 — `feature.yaml`/`bugfix.yaml` must end with `complete-workflow`; `spike.yaml` and `bootstrap.yaml` must be unchanged
   Files: config/scripts/orchestrator_next/tests/test_workflow_schemas_load.py
-  Change: update assertions so `feature.yaml` and `bugfix.yaml` (both trees) `steps:` lists end with `complete-workflow` and contain none of `archive-completed-change`, `merge-to-main`, `remove-worktree`; assert spike/bootstrap unchanged. Tests fail until T-11 lands.
+  Change: update assertions so `feature.yaml` and `bugfix.yaml` `steps:` lists end with `complete-workflow` and contain none of `archive-completed-change`, `merge-to-main`, `remove-worktree`; assert `spike.yaml` is UNCHANGED (still ends with `archive-completed-change`, per `spike.yaml:7`) and `bootstrap.yaml` is unchanged. Tests fail until T-11 lands.
   Test scenarios:
     - feature.yaml / bugfix.yaml steps end with `complete-workflow`
     - the three removed step ids absent from feature.yaml / bugfix.yaml
-    - spike.yaml / bootstrap.yaml step lists unchanged
+    - spike.yaml steps unchanged — still ends with `archive-completed-change`
+    - bootstrap.yaml steps unchanged
   depends: T-9
 
-- [ ] T-11: Replace the three tail steps with `complete-workflow` in schemas (GREEN — make tests pass)
-  Why: AC-1 — the workflow must dispatch the single terminal step (no RED — mechanical change; T-10 is the regression guard)
-  Files: config/workflows/feature.yaml, config/workflows/bugfix.yaml, ~/.config/orchestrator/config/workflows/feature.yaml, ~/.config/orchestrator/config/workflows/bugfix.yaml (dual tree)
-  Change: in each file, replace the trailing `- archive-completed-change` / `- merge-to-main` / `- remove-worktree` lines with a single `- complete-workflow`. Apply to all four files.
+- [ ] T-11: Replace the three tail steps with `complete-workflow` in feature/bugfix schemas (GREEN — make tests pass)
+  Why: AC-1 — feature and bugfix workflows must dispatch the single terminal step (no RED — mechanical change; T-10 is the regression guard)
+  Files: config/workflows/feature.yaml, config/workflows/bugfix.yaml
+  Change: in each file, replace the trailing `- archive-completed-change` / `- merge-to-main` / `- remove-worktree` lines with a single `- complete-workflow`. `spike.yaml` is NOT touched (it keeps `archive-completed-change`). `~/.config/orchestrator/config` is a symlink to the repo `config/` — the two trees are one physical directory, so one edit per file suffices.
   Test scenarios:
     - all T-10 tests pass
+    - spike.yaml unchanged after this task
   depends: T-10
 
 - [ ] T-12: Update step-contract presence test for removals (RED — tests must fail)
-  Why: AC-2 — merge/removal contracts deleted, archive contract deleted (step id gone)
+  Why: AC-2 — `merge-to-main.yaml`/`remove-worktree.yaml` deleted; `archive-completed-change.yaml` RETAINED (spike still uses it); `complete-workflow.yaml` present
   Files: config/scripts/orchestrator_next/tests/test_complete_workflow_contract.py
-  Change: extend the T-7 test module to also assert `merge-to-main.yaml`, `remove-worktree.yaml`, and `archive-completed-change.yaml` are absent in both `config/steps/` trees. Fails until T-13 lands.
+  Change: extend the T-7 test module to assert `merge-to-main.yaml` and `remove-worktree.yaml` are absent from `config/steps/`, and that `archive-completed-change.yaml` and `complete-workflow.yaml` are both PRESENT. Fails until T-13 lands.
   Test scenarios:
-    - merge-to-main.yaml / remove-worktree.yaml / archive-completed-change.yaml absent in both trees
-    - complete-workflow.yaml still present (from T-8)
+    - merge-to-main.yaml / remove-worktree.yaml absent from config/steps/
+    - archive-completed-change.yaml present (retained — spike still dispatches it)
+    - complete-workflow.yaml present (from T-8)
   depends: T-11
 
-- [ ] T-13: Delete the three obsolete step contracts (GREEN — make tests pass)
-  Why: AC-2 — those step ids no longer exist in any schema (no RED — mechanical change; T-12 is the regression guard)
-  Files: config/steps/merge-to-main.yaml, config/steps/remove-worktree.yaml, config/steps/archive-completed-change.yaml, and the three `~/.config/orchestrator/config/steps/` copies (dual tree)
-  Change: `git rm` (repo tree) / delete (HOME tree) all six files. The `.sh` helper scripts (`merge-to-main.sh`, `remove-worktree.sh`, `archive-completed-change.sh`) are NOT deleted — they remain, invoked by `complete-workflow.sh`.
+- [ ] T-13: Delete the two obsolete step contracts (GREEN — make tests pass)
+  Why: AC-2 — `merge-to-main` and `remove-worktree` step ids no longer dispatch in any schema (no RED — mechanical change; T-12 is the regression guard)
+  Files: config/steps/merge-to-main.yaml, config/steps/remove-worktree.yaml
+  Change: `git rm` `merge-to-main.yaml` and `remove-worktree.yaml`. `archive-completed-change.yaml` is NOT deleted — `spike.yaml` still dispatches `archive-completed-change`. The `.sh` helper scripts (`merge-to-main.sh`, `remove-worktree.sh`, `archive-completed-change.sh`) are NOT deleted — they remain, invoked by `complete-workflow.sh`. `~/.config/orchestrator/config` is a symlink to repo `config/`, so the `git rm` covers both trees.
   Test scenarios:
     - all T-12 tests pass
-    - the three `.sh` helper scripts still exist in both trees
+    - archive-completed-change.yaml still present
+    - the three `.sh` helper scripts still exist
   depends: T-12
 
 - [ ] T-14: Write flags.yaml reshape test (RED — tests must fail)
@@ -181,8 +206,9 @@
   Why: phase gate — confirm schema/contract/flags/docs cleanup integrates cleanly and the full suite is green
   Test scenarios:
     - full test suite green (`pytest config/scripts/orchestrator_next/tests/ -q`)
-    - `grep -rn` for the three removed step ids finds no schema/contract references
-    - both config trees consistent (repo and `$ORCHESTRATOR_HOME`)
-  depends: T-18
+    - `grep -rn` for `merge-to-main` / `remove-worktree` finds no schema/contract references
+    - `archive-completed-change` still present only in `spike.yaml` and its retained contract/script (not in feature.yaml/bugfix.yaml)
+    - `_STATE_MUTATING_INLINE_STEPS` holds both `archive-completed-change` and `complete-workflow` (T-6c applied)
+  depends: T-18, T-6c
 
 <!-- Format contract: contracts/artifact-formats.md § Task Format Contract -->

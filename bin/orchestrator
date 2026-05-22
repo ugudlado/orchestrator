@@ -363,10 +363,13 @@ def main() -> None:
             # state.yaml at its current location; the script then moves the
             # already-final file.
             #
-            # complete-workflow subsumes the former archive-completed-change
-            # step: archive is now one phase inside it, so archive's own
-            # pre-record protection moves to complete-workflow. complete-workflow
-            # is therefore the sole state-mutating inline step.
+            # Two ids are state-mutating:
+            #   - complete-workflow: the terminal step for feature/bugfix; its
+            #     archive phase rm -rf's the state dir.
+            #   - archive-completed-change: still the terminal step for the
+            #     spike schema (spike.yaml), which ORC-79 left untouched. Its
+            #     script rm -rf's the state dir the same way, so it keeps its
+            #     pre-record protection.
             #
             # Tradeoff: a state-mutating step records `completed` before its
             # script's exit code is known. The archive phase's hardened
@@ -375,7 +378,10 @@ def main() -> None:
             # intact and the driver halts on exit 3 — recoverable, not
             # catastrophic. The script's own outputs (commit_sha etc.) are not
             # threaded into step_history; that is the accepted cost.
-            _STATE_MUTATING_INLINE_STEPS = {"complete-workflow"}
+            _STATE_MUTATING_INLINE_STEPS = {
+                "archive-completed-change",
+                "complete-workflow",
+            }
             _state_mutating = _step_id in _STATE_MUTATING_INLINE_STEPS
 
             if _state_mutating:
