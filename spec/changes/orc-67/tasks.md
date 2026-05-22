@@ -49,7 +49,7 @@
     - `test_repeat_until.py`, `test_readiness.py`, `test_dispatch_resume.py`, `test_record_validation.py` stay green (no regression)
   depends: T-3, T-4
 
-- [ ] T-6: Review checkpoint — rework loop (phase gate)
+- [x] T-6: Review checkpoint — rework loop (phase gate)
   Why: phase gate — confirm the contract edit and engine change integrate cleanly and the full suite is green before phase review.
   Test scenarios:
     - type-check / lint clean
