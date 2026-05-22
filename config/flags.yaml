@@ -40,7 +40,7 @@ cli:
       auto: true
       agents: true
       merge_to_main: true
-    description: Full autonomy. Implicit when the autopilot skill dispatches; merges to default branch before worktree removal; do not pause for signoff or flag confirmation.
+    description: Full autonomy. Implicit when the autopilot skill dispatches; the terminal complete-workflow step merges to the default branch and removes the worktree; do not pause for signoff or flag confirmation.
 
   # --bugfix routes to the bugfix schema via select-workflow rather than
   # flipping flags on feature. select-workflow.yaml owns this routing.

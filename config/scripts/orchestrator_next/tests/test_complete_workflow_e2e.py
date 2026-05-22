@@ -165,15 +165,21 @@ def test_e2e_complete_workflow_full_teardown(tmp_path):
         f"stderr: {r2.stderr}"
     )
 
-    # no already-completed step id is re-dispatched: complete-workflow appears
-    # exactly once in step_history, as completed.
+    # no already-completed step id is re-dispatched: every step id appears
+    # exactly once in step_history (the ORC-66 re-dispatch hazard would show
+    # execute-next-task recorded twice).
     final_state = yaml.safe_load(open(archived_state).read())
     history = final_state.get("step_history") or []
-    cw_entries = [h for h in history if h.get("step_id") == "complete-workflow"]
-    assert len(cw_entries) == 1, (
-        f"complete-workflow recorded {len(cw_entries)} times — expected exactly "
-        f"one (no re-dispatch). history: {[h.get('step_id') for h in history]}"
+    ent_counts = {
+        sid: sum(1 for h in history if h.get("step_id") == sid)
+        for sid in ("execute-next-task", "compute-swe-metrics",
+                    "complete-workflow")
+    }
+    assert all(c == 1 for c in ent_counts.values()), (
+        f"a step id was re-dispatched — expected each exactly once, "
+        f"got {ent_counts}. history: {[h.get('step_id') for h in history]}"
     )
+    cw_entries = [h for h in history if h.get("step_id") == "complete-workflow"]
     assert cw_entries[0].get("status") == "completed", (
         f"complete-workflow entry not 'completed': {cw_entries[0]}"
     )

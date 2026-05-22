@@ -3,8 +3,9 @@
 #
 # Regression guard: scripts/inline/remove-worktree.sh previously used
 # `git branch -D` which force-deletes branches regardless of merge status,
-# silently destroying unmerged commits. The step contract
-# config/steps/remove-worktree.yaml:13 explicitly requires `-d` (safe delete).
+# silently destroying unmerged commits. `-d` (safe delete) is required.
+# remove-worktree.sh is retained as a helper invoked by complete-workflow.sh
+# (its standalone step contract was removed in ORC-79).
 #
 # This test sets up a repo with an UNMERGED branch, invokes remove-worktree.sh,
 # and asserts the branch survives with a warning emitted to stderr.
