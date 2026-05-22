@@ -23,7 +23,7 @@
 
 **depends:** T-1
 
-### [ ] T-3: Review checkpoint — pricing module extraction (phase gate)
+### [x] T-3: Review checkpoint — pricing module extraction (phase gate)
 **Why:** phase gate — confirm extraction integrates cleanly before adding the CLI.  
 **Test scenarios:**
 - type-check clean
@@ -34,7 +34,7 @@
 
 ## Group 2 — Pricing CLI entry point
 
-### [ ] T-4: Write tests for the pricing CLI bulk entry point (RED — tests must fail)
+### [x] T-4: Write tests for the pricing CLI bulk entry point (RED — tests must fail)
 **Why:** AC-6, AC-7 — the CLI is new behavior; tests must pin the JSON-array contract and date/dated-suffix parity before implementation.  
 **Files:** config/scripts/orchestrator_next/tests/test_pricing_cli.py (new)  
 **Change:** Add subprocess-driven tests that invoke `python3 -m orchestrator_next.pricing --agents …` with `PYTHONPATH` set to config/scripts and a seeded tmp DuckDB (reuse the `ensure_schema` seeding pattern from test_estimate_cost_sh.py). Tests fail today because pricing.py has no `main`/`__main__`.  
