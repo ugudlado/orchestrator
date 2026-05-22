@@ -275,7 +275,9 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         return action, 0
 
     # --- DAG-walk: select the first ready node (declaration-order tiebreak)
-    next_step_id = readiness.next_ready_node(state)
+    next_step_id = readiness.repeat_until_redispatch(state, state_yaml_path)
+    if next_step_id is None:
+        next_step_id = readiness.next_ready_node(state)
 
     # --- Check: no ready node → exit 1, no JSON (phase complete) (ORC-45)
     if next_step_id is None:

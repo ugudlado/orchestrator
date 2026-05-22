@@ -2,7 +2,7 @@
 ORC-36 regression tests: path-split failure modes (T-1 — RED on HEAD).
 
 Four sub-tests that assert the post-fix expectation for each failure mode
-described in diagnose.md. All four FAIL on HEAD before T-2/T-3/T-4 land.
+described in the orc-36 diagnosis artifact. All four FAIL on HEAD before T-2/T-3/T-4 land.
 They PASS once the corresponding fix task ships.
 
 Failure mode map:
@@ -116,7 +116,7 @@ def test_resolve_tasks_path_uses_spec_changes(tmp_path):
 
     PRE-FIX (HEAD): returns <repo_root>/.state/<slug>/tasks.md — FAILS here.
 
-    diagnose.md failure mode #1 / record.py line 798.
+    orc-36 failure mode #1 / record.py line 798.
     """
     from orchestrator_next.record import _resolve_feature_metrics_tasks_path
 
@@ -154,7 +154,7 @@ def test_resolve_feature_metrics_no_raise(tmp_path):
     PRE-FIX (HEAD): raises FileNotFoundError because the resolver looks in
       .state/<slug>/tasks.md and finds nothing — FAILS here.
 
-    diagnose.md failure mode #2 / record.py lines 822-826.
+    orc-36 failure mode #2 / record.py lines 822-826.
     """
     from orchestrator_next.record import _resolve_feature_metrics
 
@@ -209,21 +209,7 @@ def test_archive_contains_artifact_files(tmp_path):
     repo = tmp_path / "repo"
     worktree = tmp_path / "worktree"
     repo.mkdir()
-    subprocess.run(["git", "init", str(repo)], capture_output=True, check=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "config", "user.email", "test@orc36.test"],
-        capture_output=True, check=True,
-    )
-    subprocess.run(
-        ["git", "-C", str(repo), "config", "user.name", "ORC-36 Test"],
-        capture_output=True, check=True,
-    )
     (repo / "README.md").write_text("test repo")
-    subprocess.run(["git", "-C", str(repo), "add", "README.md"], capture_output=True, check=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "commit", "-m", "init"],
-        capture_output=True, check=True,
-    )
 
     slug = "demo-feature"
 
@@ -270,7 +256,7 @@ def test_seed_state_writes_to_spec_changes(tmp_path):
 
     PRE-FIX (HEAD): writes to .state/<slug>/state.yaml — FAILS here.
 
-    diagnose.md failure mode #4 / seed-state.sh line 49.
+    orc-36 failure mode #4 / seed-state.sh line 49.
     """
     assert _SEED_SCRIPT.exists(), (
         f"seed-state.sh not found at {_SEED_SCRIPT}. "

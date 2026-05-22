@@ -63,6 +63,33 @@ def _repeat_predicate_satisfied(state: State, node: dict[str, Any]) -> bool:
     return bool(predicate(state.raw))
 
 
+def _uses_legacy_active_plan(state: State) -> bool:
+    """True when the current phase uses pre-ORC-63 `active:[ids]` without `nodes:`."""
+    phase_plan = state.workflow_plan.get(state.phase, {})
+    if not isinstance(phase_plan, dict):
+        return False
+    return phase_plan.get("nodes") is None and phase_plan.get("active") is not None
+
+
+def _step_completed_in_history(state: State, node_id: str) -> bool:
+    """Return True when step_history has a terminal completed entry for the node."""
+    for entry in reversed(state.step_history):
+        if entry.phase != state.phase or entry.step_id != node_id:
+            continue
+        return entry.status == "completed"
+    return False
+
+
+def _effective_node_status(state: State, node: dict[str, Any]) -> str:
+    """Node status with legacy-plan completion inferred from step_history."""
+    status = node.get("status")
+    if status == "completed":
+        return "completed"
+    if _uses_legacy_active_plan(state) and _step_completed_in_history(state, _node_id(node)):
+        return "completed"
+    return str(status or "pending")
+
+
 def is_node_ready(state: State, node_id: str) -> bool:
     """Return True iff `node_id` is not completed and every effective
     dependency is completed (a repeat_until dep also needs its predicate True).
@@ -72,17 +99,47 @@ def is_node_ready(state: State, node_id: str) -> bool:
     node = by_id.get(node_id)
     if node is None:
         return False
-    if node.get("status") == "completed":
+    if _effective_node_status(state, node) == "completed":
         return False
     for dep_id in effective_depends_on(nodes, node_id):
         dep = by_id.get(dep_id)
         if dep is None:
             return False
-        if dep.get("status") != "completed":
+        if _effective_node_status(state, dep) != "completed":
             return False
         if not _repeat_predicate_satisfied(state, dep):
             return False
     return True
+
+
+def repeat_until_redispatch(state: State, state_yaml_path: str) -> str | None:
+    """Return a step_id to re-run when it is completed but its repeat_until predicate is False.
+
+    Covers both promoted `nodes:` plans (repeat_until on the node) and legacy
+    `active:[ids]` plans (repeat_until on the step contract only).
+    """
+    from orchestrator_next.parser import load_contract_for_step, ContractError
+    from orchestrator_next.record import REPEAT_PREDICATES
+
+    for node in phase_nodes(state, state.phase):
+        node_id = _node_id(node)
+        if _effective_node_status(state, node) != "completed":
+            continue
+        repeat_until = node.get("repeat_until")
+        if not repeat_until:
+            try:
+                contract = load_contract_for_step(node_id, state_yaml_path)
+                repeat_until = contract.repeat_until
+            except (FileNotFoundError, ContractError):
+                repeat_until = None
+        if not repeat_until:
+            continue
+        predicate = REPEAT_PREDICATES.get(repeat_until)
+        if predicate is None:
+            continue
+        if not predicate(state.raw):
+            return node_id
+    return None
 
 
 def ready_nodes(state: State) -> list[str]:
