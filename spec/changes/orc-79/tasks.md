@@ -75,7 +75,7 @@
     - complete-workflow.yaml present in both trees
     - contract has `run:` pointing at complete-workflow.sh and `outputs: [completion_record]`
 
-- [ ] T-8: Create `complete-workflow.yaml` step contract (GREEN — make tests pass)
+- [x] T-8: Create `complete-workflow.yaml` step contract (GREEN — make tests pass)
   Why: AC-2, Components — dispatch must resolve the new step
   Files: config/steps/complete-workflow.yaml (new), ~/.config/orchestrator/config/steps/complete-workflow.yaml (new — dual tree)
   Change: new contract `id: complete-workflow`, `version: 1`, `run: scripts/inline/complete-workflow.sh`, `outputs: [completion_record]`, plus rules describing the merge→archive→cd→cleanup ordering and flag gating; no LLM-tool references. Write to both trees.

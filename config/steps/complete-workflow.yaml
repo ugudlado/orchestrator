@@ -1,0 +1,25 @@
+id: complete-workflow
+version: 1
+run: scripts/inline/complete-workflow.sh
+
+rules:
+  - complete-workflow is the terminal workflow step. It replaces the former archive-completed-change, merge-to-main, and remove-worktree step trio.
+  - The script sequences, in one process so no dispatch boundary sits between a state-moving and a state-reading operation, merge then archive then cd "$REPO_ROOT" then worktree removal.
+  - All state.yaml-derived values are read into bash vars at script start, before the archive phase moves state.yaml out of the worktree.
+  - The merge phase is gated by flags.merge_to_main; the cleanup phase is gated by flags.worktree. The archive phase is unconditional.
+  - On merge conflict the merge phase exits non-zero and the wrapper halts before archive and cleanup — the worktree is preserved.
+  - complete-workflow is classified state-mutating in bin/orchestrator and is pre-recorded before its script runs (the ORC-66 record-after-state-deletion crash-avoidance contract).
+
+instruction: |
+  Run the terminal teardown for the workflow: merge the feature branch into the
+  default branch (if flags.merge_to_main), archive the change directory into the
+  repo archive, then remove the worktree (if flags.worktree). Return a JSON
+  completion_record on stdout.
+
+verify:
+  - completion_record printed to stdout with merge_record, archive_record, and worktree_record sub-records
+  - the change directory is moved to spec/changes/archive/<date>-<slug>/
+  - when flags.worktree is true the worktree directory is removed
+
+outputs:
+  - completion_record
