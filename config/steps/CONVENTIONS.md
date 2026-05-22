@@ -261,7 +261,7 @@ Worktrees are required. All workflow files live under the worktree:
 
 | Variable | Contents | Committed? | Location |
 |----------|----------|------------|----------|
-| `$WORKTREE_ROOT/spec/changes/$CHANGE_ID/` | `state.yaml`, `plan.yaml`, `design.md`, `tasks.md`, `diagnose.md`, UX files | Artifacts yes; state gitignored | `$WORKTREE_BASE_DIR/<slug>/spec/changes/<slug>/` |
+| `$WORKTREE_ROOT/spec/changes/$CHANGE_ID/` | `state.yaml`, `plan.yaml`, `design.md`, `tasks.md`, `discovery.md`, UX files | Artifacts yes; state gitignored | `$WORKTREE_BASE_DIR/<slug>/spec/changes/<slug>/` |
 
 `WORKTREE_ARTIFACT_DIR` resolves to `$WORKTREE_ROOT/spec/changes` — agents always
 write to the worktree. `WORKFLOW_STATE_DIR` ($REPO_ROOT/spec/changes) is the
@@ -272,7 +272,7 @@ fallback for CLI invocations outside a worktree context only.
 out of the worktree into `spec/changes/archive/<date>-<slug>/`. Removing the
 worktree before archiving destroys state with no recovery path.
 
-Steps that write tracked artifacts (design.md, tasks.md, diagnose.md, UX files)
+Steps that write tracked artifacts (design.md, tasks.md, discovery.md, UX files)
 MUST use `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/`, not `$WORKFLOW_STATE_DIR/$CHANGE_ID/`, as
 the artifact destination.
 

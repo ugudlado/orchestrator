@@ -266,9 +266,10 @@ linear-ticket: HL-XXX
 
 ## Diagnosis Format Contract
 
-The `diagnosis.md` file is a structural contract between `diagnose` (producer) and
-`create-or-refresh-artifacts` / `run-phase-review` (consumers). Only produced in the
-bugfix schema.
+The bugfix phase-opening brief lives in `discovery.md` (same filename as feature/spike
+`explore` output). Internal structure follows this contract; `diagnose` is the producer
+and `design-and-draft-artifacts` / `run-phase-review` are consumers. Only produced in
+the bugfix schema.
 
 ### Format
 
@@ -360,7 +361,7 @@ the bugfix schema.
 ## Fix Strategy
 
 {What will be changed and why.}
-Root cause reference: {from diagnosis.md Root Cause section}
+Root cause reference: {from discovery.md Root Cause section}
 
 ## Affected Files
 
@@ -393,7 +394,7 @@ Root cause reference: {from diagnosis.md Root Cause section}
 
 | Field | Required | Format |
 |-------|----------|--------|
-| Fix Strategy | Yes | Prose referencing diagnosis.md Root Cause |
+| Fix Strategy | Yes | Prose referencing discovery.md Root Cause |
 | Affected Files | Yes | Bulleted list, format: `` `file_path:line_number` — description `` |
 | Regression Test | Yes | Structured block with Test file, Test name, Asserts, fail-before/pass-after |
 | Could This Break Other Things? | Yes | Prose analysis or "No — isolated change" |
@@ -402,4 +403,4 @@ Root cause reference: {from diagnosis.md Root Cause section}
 
 ### Consumers
 
-- `run-phase-review` — verifies structural compliance and diagnosis.md reference
+- `run-phase-review` — verifies structural compliance and discovery.md reference

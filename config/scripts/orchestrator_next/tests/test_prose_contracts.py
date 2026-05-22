@@ -290,3 +290,41 @@ def test_feature_schema_required_inputs_have_a_producer():
         "feature schema producer/consumer integrity violations:\n  "
         + "\n  ".join(unresolved)
     )
+
+
+def test_bugfix_schema_required_inputs_have_a_producer():
+    """For the bugfix schema, every required input resolves to an upstream producer."""
+    schema = yaml.safe_load(_read("config/workflows/bugfix.yaml"))
+    step_ids = [
+        (e if isinstance(e, str) else e.get("id"))
+        for e in schema.get("steps", [])
+    ]
+    step_ids = [s.split(" if ")[0].strip() for s in step_ids if s]
+
+    available: set[str] = set(_STATE_RAW_BOOTSTRAP_KEYS)
+    unresolved = []
+    for step_id in step_ids:
+        contract_path = os.path.join(_REPO_ROOT, "config", "steps", f"{step_id}.yaml")
+        if not os.path.isfile(contract_path):
+            continue
+        data = _load_contract_yaml(step_id)
+        for item in (data.get("inputs") or []):
+            if isinstance(item, dict):
+                if len(item) == 1 and str(next(iter(item.values()))).strip().lower() == "optional":
+                    continue
+                unresolved.append(f"{step_id}: non-string input {item!r}")
+                continue
+            if not isinstance(item, str):
+                continue
+            if item not in available:
+                unresolved.append(f"{step_id}: required input {item!r} has no producer")
+        for out in (data.get("outputs") or []):
+            if isinstance(out, str):
+                available.add(out)
+        if step_id in _INLINE_RUNTIME_PRODUCERS:
+            available |= _INLINE_RUNTIME_PRODUCERS[step_id]
+
+    assert not unresolved, (
+        "bugfix schema producer/consumer integrity violations:\n  "
+        + "\n  ".join(unresolved)
+    )

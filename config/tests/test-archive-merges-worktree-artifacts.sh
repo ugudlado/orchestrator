@@ -22,7 +22,7 @@ DST="$FAKE_REPO/spec/changes/archive/2099-01-01-demo"
 mkdir -p "$SRC"
 echo "design content"  > "$SRC/design.md"
 echo "tasks content"   > "$SRC/tasks.md"
-echo "diagnose content" > "$SRC/diagnose.md"
+echo "discovery content" > "$SRC/discovery.md"
 printf 'status: completed\n' > "$SRC/state.yaml"
 printf 'phase: complete\n'   > "$SRC/plan.yaml"
 
@@ -41,7 +41,7 @@ check() {
 
 check "design.md in archive"   "$([ -f "$DST/design.md"   ] && echo 0 || echo 1)"
 check "tasks.md in archive"    "$([ -f "$DST/tasks.md"    ] && echo 0 || echo 1)"
-check "diagnose.md in archive" "$([ -f "$DST/diagnose.md" ] && echo 0 || echo 1)"
+check "discovery.md in archive" "$([ -f "$DST/discovery.md" ] && echo 0 || echo 1)"
 check "state.yaml in archive"  "$([ -f "$DST/state.yaml"  ] && echo 0 || echo 1)"
 check "plan.yaml in archive"   "$([ -f "$DST/plan.yaml"   ] && echo 0 || echo 1)"
 check "worktree source removed" "$([ ! -d "$SRC" ] && echo 0 || echo 1)"

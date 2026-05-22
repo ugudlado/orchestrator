@@ -118,17 +118,17 @@ COMPLETION:
   artifacts: [discovery.md]
 ```
 
-### diagnose step → `diagnose.md`
+### diagnose step → `discovery.md`
 
-Write the diagnosis document to `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/diagnose.md` per
+Write the diagnosis document to `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md` per
 `contracts/artifact-formats.md` § Diagnosis Format Contract. Then return COMPLETION:
 
 ```
 COMPLETION:
   status: completed
   outputs:
-    diagnosis_result: {path: "diagnose.md"}
-  artifacts: [diagnose.md]
+    discovery_result: {path: "discovery.md"}
+  artifacts: [discovery.md]
 ```
 
 Agents MUST NOT edit `state.yaml` directly.

@@ -48,7 +48,7 @@ instruction: |
   - Identify existing tests that cover this area (they may need updating)
 
   ### Step 4: Document
-  Write a diagnosis document to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/diagnose.md per
+  Write a diagnosis document to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md per
   contracts/artifact-formats.md § Diagnosis Format Contract, containing:
   - **Symptom**: What the user sees (from the bug report)
   - **Reproduction**: Runnable command/script with expected vs actual output
@@ -58,15 +58,15 @@ instruction: |
   - **Unresolved questions**: Anything that needs user input
 
   5. Return COMPLETION per contracts/done-payload.md with
-     outputs.diagnosis_result: {path: "diagnose.md"} and artifacts: [diagnose.md].
+     outputs.discovery_result: {path: "discovery.md"} and artifacts: [discovery.md].
      Do not return the diagnosis as chat prose — the file is the artifact.
 
 verify:
-  - Diagnosis document written to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/diagnose.md
+  - Diagnosis document written to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md
   - Root cause confirmed with evidence (file path + line number + explanation)
   - Reproduction is a runnable command or script, not just prose
   - Unresolved questions explicitly listed (not hidden)
   - If pattern-based bug: catalog count matches `find + grep` count across entire source tree
 
 outputs:
-  - diagnosis_result
+  - discovery_result

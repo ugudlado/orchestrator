@@ -66,7 +66,7 @@ All Linear operations go through the `plugin:linear` MCP server:
 1. Read `spec/project.yaml`. If there is no `linear:` block → skip silently.
 2. Call `mcp__plugin_linear_linear__save_issue` with:
    - `title`: concise description of the change
-   - `description`: summary from design.md, diagnose.md, or user input (markdown supported)
+   - `description`: summary from design.md, discovery.md, or user input (markdown supported)
    - `teamId`: `linear.team_id`
    - `projectId`: `linear.project_id`
    - `labelIds`: `linear.product_label_id` + type label + complexity label

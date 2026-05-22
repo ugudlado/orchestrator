@@ -133,7 +133,7 @@ class TestRecordAgentField:
             "step_id": "diagnose",
             "phase": "main",
             "status": "completed",
-            "outputs": {"diagnosis_result": "diagnose.md"},
+            "outputs": {"discovery_result": "discovery.md"},
             "usage": {"input_tokens": 74514, "output_tokens": 3210},
             # 'agent' key ABSENT — bug: driver follows SKILL.md template which omits it
         }
@@ -169,7 +169,7 @@ class TestRecordAgentField:
             "phase": "main",
             "status": "completed",
             "agent": "developer",
-            "outputs": {"diagnosis_result": "diagnose.md"},
+            "outputs": {"discovery_result": "discovery.md"},
             "usage": {"input_tokens": 5000, "output_tokens": 1000},
         }
         result, exit_code = record(state_path, payload, db=None)
@@ -222,7 +222,7 @@ class TestRecordAgentField:
             "status": "completed",
             "agent": "discoverer",
             "agent_id": "a6e7ca188209d1f47",
-            "outputs": {"diagnosis_result": "diagnose.md"},
+            "outputs": {"discovery_result": "discovery.md"},
             # Pass non-zero input_tokens so Check B (tokens check) doesn't reject
             "usage": {"input_tokens": 74514, "output_tokens": 0},
         }
@@ -261,7 +261,7 @@ class TestRecordAgentField:
             "phase": "main",
             "status": "completed",
             "agent": "discoverer",
-            "outputs": {"diagnosis_result": "diagnose.md"},
+            "outputs": {"discovery_result": "discovery.md"},
             "agent_task_result": (
                 "Async agent launched successfully.\n"
                 "agentId: a6e7ca188209d1f47 (internal ID)"

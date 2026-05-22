@@ -9,7 +9,7 @@ pre_execute:
   approach_required: true
 
 inputs:
-  - diagnosis_result
+  - discovery_result
 
 flags_read:
   - name: tdd_required
