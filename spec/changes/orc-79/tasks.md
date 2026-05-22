@@ -58,7 +58,7 @@
     - all T-5 tests pass
   depends: T-5
 
-- [ ] T-6b: Retarget `test_archive_step_record_crash.py` to `complete-workflow` (no RED — test retarget; keeps the ORC-66 crash guard alive)
+- [x] T-6b: Retarget `test_archive_step_record_crash.py` to `complete-workflow` (no RED — test retarget; keeps the ORC-66 crash guard alive)
   Why: AC-4 — the existing crash-regression test keys its fixture on the literal step id `archive-completed-change`; once that id leaves `_STATE_MUTATING_INLINE_STEPS` (T-6) the test would RED for a stale reason. The crash class (record-after-state-deletion) is now embodied by `complete-workflow` — retarget the guard, do not delete it.
   Files: config/scripts/orchestrator_next/tests/test_archive_step_record_crash.py
   Change: in `_write_archive_step_state` and `test_state_deleting_inline_step_is_recorded_before_the_move`, replace the fixture step id `archive-completed-change` with `complete-workflow` (contract filename, `id:`, `workflow_plan.main.nodes[].id`, and the `step_ids` assertion); update the module docstring to name `complete-workflow` as the sole state-mutating inline step.

@@ -1,14 +1,16 @@
 """Regression test: an inline step whose script moves/deletes state.yaml.
 
-Bug (observed on orc-78 complete phase, 2026-05-22): the `archive-completed-change`
-inline script does `rm -rf` of the state directory, then the CLI calls
-`record.py` which unconditionally re-opens `state_yaml_path` to read pre-write
-bytes — `FileNotFoundError`, traceback, exit 1.
+Bug (observed on orc-78 complete phase, 2026-05-22): a state-deleting inline
+script does `rm -rf` of the state directory, then the CLI calls `record.py`
+which unconditionally re-opens `state_yaml_path` to read pre-write bytes —
+`FileNotFoundError`, traceback, exit 1.
 
 The fix: the CLI records the step completion BEFORE running the script for
-state-mutating inline steps (currently just `archive-completed-change`), so the
-recorder writes into state.yaml while it still exists; the script then moves the
-already-final file.
+state-mutating inline steps. Since orc-79, `complete-workflow` is the sole
+state-mutating inline step — it sequences merge → archive (the `rm -rf`) →
+worktree-removal, with archive's pre-record protection subsumed into it. So
+this test keys its fixture on `complete-workflow`, the step id that now
+embodies the record-after-state-deletion crash class.
 
 These tests subprocess the real `bin/orchestrator` binary — the bug lives in the
 CLI wrapper's run-script-then-record ordering, not in `dispatch()` itself, so a
@@ -39,7 +41,7 @@ def _run(args, env=None):
 
 def _write_archive_step_state(tmp_path):
     """Build a state.yaml parked at an inline step whose script deletes the
-    state directory — the `archive-completed-change` shape.
+    state directory — the `complete-workflow` shape.
 
     Returns (state_yaml_path, contracts_dir).
     """
@@ -47,20 +49,21 @@ def _write_archive_step_state(tmp_path):
     contracts.mkdir(exist_ok=True)
 
     # An inline step contract: `run:` points at a script that rm -rf's the
-    # directory containing state.yaml — exactly what archive-completed-change does.
+    # directory containing state.yaml — exactly what complete-workflow's archive
+    # phase does.
     killer = tmp_path / "kill_state_dir.sh"
     killer.write_text(
         "#!/usr/bin/env bash\n"
         "set -uo pipefail\n"
-        '# Mimic archive-completed-change: remove the state directory.\n'
+        '# Mimic complete-workflow archive phase: remove the state directory.\n'
         'rm -rf "$(dirname "$STATE_YAML_PATH")"\n'
         '# The real script still prints valid JSON and exits 0.\n'
-        'printf \'%s\\n\' \'{"archive_record": {"archived": true}}\'\n'
+        'printf \'%s\\n\' \'{"completion_record": {"archived": true}}\'\n'
     )
     killer.chmod(0o755)
 
-    (contracts / "archive-completed-change.yaml").write_text(yaml.safe_dump({
-        "id": "archive-completed-change",
+    (contracts / "complete-workflow.yaml").write_text(yaml.safe_dump({
+        "id": "complete-workflow",
         "run": str(killer),
         "inputs": [],
         "outputs": [],
@@ -74,7 +77,7 @@ def _write_archive_step_state(tmp_path):
         "workflow_plan": {
             "main": {
                 "nodes": [
-                    {"id": "archive-completed-change", "status": "pending"},
+                    {"id": "complete-workflow", "status": "pending"},
                 ],
                 "filtered": [],
             }
@@ -126,7 +129,7 @@ def test_state_deleting_inline_step_is_recorded_before_the_move(tmp_path):
     The killer script copies state.yaml to a sibling `recorded.yaml` snapshot
     just before deleting, letting the test inspect what was persisted at
     delete-time. The fix records first, so the snapshot must show the
-    `archive-completed-change` step_history entry.
+    `complete-workflow` step_history entry.
     """
     contracts = tmp_path / "steps"
     contracts.mkdir(exist_ok=True)
@@ -138,12 +141,12 @@ def test_state_deleting_inline_step_is_recorded_before_the_move(tmp_path):
         "set -uo pipefail\n"
         f'cp "$STATE_YAML_PATH" "{snapshot}"\n'
         'rm -rf "$(dirname "$STATE_YAML_PATH")"\n'
-        'printf \'%s\\n\' \'{"archive_record": {"archived": true}}\'\n'
+        'printf \'%s\\n\' \'{"completion_record": {"archived": true}}\'\n'
     )
     killer.chmod(0o755)
 
-    (contracts / "archive-completed-change.yaml").write_text(yaml.safe_dump({
-        "id": "archive-completed-change",
+    (contracts / "complete-workflow.yaml").write_text(yaml.safe_dump({
+        "id": "complete-workflow",
         "run": str(killer),
         "inputs": [], "outputs": [], "rules": [],
     }))
@@ -154,7 +157,7 @@ def test_state_deleting_inline_step_is_recorded_before_the_move(tmp_path):
         "repo_root": str(tmp_path),
         "workflow_plan": {
             "main": {
-                "nodes": [{"id": "archive-completed-change", "status": "pending"}],
+                "nodes": [{"id": "complete-workflow", "status": "pending"}],
                 "filtered": [],
             }
         },
@@ -172,7 +175,7 @@ def test_state_deleting_inline_step_is_recorded_before_the_move(tmp_path):
     recorded = yaml.safe_load(snapshot.read_text()) or {}
     history = recorded.get("step_history") or []
     step_ids = [h.get("step_id") for h in history]
-    assert "archive-completed-change" in step_ids, (
-        "archive-completed-change was not recorded into state.yaml before the "
+    assert "complete-workflow" in step_ids, (
+        "complete-workflow was not recorded into state.yaml before the "
         f"script moved it; step_history at delete-time: {step_ids}"
     )
