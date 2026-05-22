@@ -1,0 +1,971 @@
+change_id: orc-78
+slug: orc-78
+schema: bugfix
+status: completed
+repo_root: /Users/spidey/code/orchestrator
+flags:
+  worktree: true
+  merge_to_main: false
+  phase_review: true
+  portless: true
+  metrics: true
+  ux_design: false
+  tdd_required: true
+  auto: false
+  agents: false
+  light: false
+workflow_plan:
+  main:
+    nodes:
+    - id: diagnose
+      status: completed
+      agent: discoverer
+      goal: ''
+      inputs: []
+      outputs:
+      - diagnosis_result
+      rules:
+      - Reproduction MUST be runnable — a command or script, not just a description.
+      - Root cause must identify the EXACT line(s) where behavior diverges from expected.
+      - Do not propose a fix during diagnosis. Diagnosis and fix are separate concerns.
+      - For codebase-wide pattern bugs: search the ENTIRE source tree (including gitignored
+          source dirs), cross-check catalog count against `find + grep + wc -l`.
+      - Catalog count mismatch protocol: if fresh grep count differs from earlier
+          count by >0, update the impact assessment to use the fresh count. If counts
+          differ by >20%, investigate the discrepancy (new files? false positives?)
+          before proceeding.
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+    - id: design-and-draft-artifacts
+      status: completed
+      agent: architect
+      goal: ''
+      inputs:
+      - diagnosis_result
+      outputs:
+      - design.md
+      - tasks.md
+      - updated_artifact_set
+      - design_direction
+      - complexity
+      rules:
+      - Design selection and artifact writing happen in one spawn — no round-trip
+        between them.
+      - Keep artifact content traceable to accepted requirements.
+      - Avoid implementation details in design.md — those belong in tasks.
+      - Keep scope explicit — design.md must declare both goals and non-goals.
+      - Make acceptance criteria testable — each AC must be verifiable by a concrete
+        command or assertion.
+      - Resolve major design decisions before implementation begins — do not defer
+        to the implementation phase.
+      - Tasks must be small, verifiable, and ordered.
+      - Attach verification criteria per task.
+      - Output MUST follow the Task Format Contract in contracts/artifact-formats.md.
+      - 'When flags.bugfix is true: first task MUST be the regression test, second
+        task MUST be the fix. Order matters.'
+      - 'When spec or design introduces a new archive/state path for any producer
+        (autopilot, spike, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`)
+        and confirm the new path is matched before committing the artifact. Otherwise
+        downstream consumers (telemetry, learn, workflow-improver) silently skip the
+        new producer. <!-- learned: 2026-04-16, source: HL-278, cycle: 10, hits: 16,
+        misses: 1, repo: orchestrator -->'
+      - 'SQL sketches in design.md that reference specific field names must be validated
+        against a live row from the target DB (or schema file) before finalizing.
+        Add an explicit note in the task or run a one-query T-0 validation — field
+        name drift between sketch and schema is a common first-review failure. <!--
+        learned: 2026-04-17, source: learn-and-telemetry-on-duckdb, cycle: 12, hits:
+        14, misses: 1, repo: orchestrator -->'
+      - 'Design claims about caller-site capabilities (e.g., ''X already holds an
+        open connection'', ''Y already imports Z'', ''the caller has access to W'')
+        must be verified by grep against HEAD before finalizing the artifact — not
+        inferred from pattern-matching similar code paths. Unverified caller-site
+        claims that prove false become critical findings at phase review and force
+        a full re-spin of all three artifacts. <!-- learned: 2026-04-20, source: pricing-table-in-duckdb,
+        cycle: 16, hits: 11, misses: 1, repo: orchestrator -->'
+      - 'Performance budgets in design.md must cite absolute production targets (e.g.,
+        ''p99 < 10ms per call under production load'') rather than synthetic microbenchmark
+        targets (e.g., ''1000 calls in 50ms in a tight loop''). Microbenchmark budgets
+        are easy to set but mislead developers into pivoting away from correct designs
+        when the benchmark fails under artificial conditions that do not match the
+        real workload. <!-- learned: 2026-04-20, source: pricing-table-in-duckdb,
+        cycle: 16, hits: 11, misses: 1, repo: orchestrator -->'
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - diagnose
+    - id: capture-test-baseline
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - design-and-draft-artifacts
+    - id: execute-next-task
+      status: completed
+      agent: developer
+      goal: ''
+      inputs:
+      - tasks.md
+      outputs:
+      - task_execution_result
+      rules:
+      - Pick only ready tasks (dependencies satisfied).
+      - Keep code changes scoped to the selected task.
+      - Mark task progress immediately after execution.
+      - Global retry cap: if total retries across all tasks in this phase exceeds
+          10, follow Escalation Protocol (CONVENTIONS.md § Error Recovery Contract).
+          Prevents infinite retry loops across many tasks.
+      - ? When keeping an intentionally broad pattern (e.g., `except Exception`),
+          annotate it inline with a justification comment (e.g., `# Intentionally
+          broad
+        : <reason>`). Silent exceptions must never be ambiguous.
+      - When replacing a tool or artifact (e.g., poetry→uv, webpack→vite), delete
+        the old tool's generated files from disk — even if gitignored. Stale artifacts
+        cause confusion.
+      - When the task references ux-prototype.html, read it as a visual reference
+        for the approved design direction. Match layout, styling, and interaction
+        patterns from the prototype. If ux-prototype.html does not exist, proceed
+        from spec text alone.
+      - 'When flags.tdd_required is true, follow strict red-green-refactor: write
+        the failing test first, run it and confirm it fails for the expected reason
+        (feature missing, not typo), then write the minimal code to pass, then refactor
+        with tests green. No production code without a failing test first. Use real
+        code over mocks unless unavoidable; if mock setup is longer than test logic,
+        the test is wrong. Cover edge cases and error paths.'
+      - 'When flags.light is true: keep changes minimal and focused. No scope creep.
+        One concern per change.'
+      - 'When flags.bugfix is true: write the regression test BEFORE the fix — the
+        test must fail until the fix lands. Make the smallest change that fixes the
+        root cause; prefer changing 1 line over 5. Use existing patterns in the codebase
+        over introducing new ones. Do NOT refactor surrounding code, add unnecessary
+        error handling, or add comments to unchanged code.'
+      - 'When flags.bugfix is true: after implementing the fix, re-run the reproduction
+        script from diagnosis.md to confirm it works. Then check whether the change
+        could break other callers of the modified code.'
+      - 'When removing or renaming a step/artifact from a workflow schema, grep the
+        entire config directory for ALL references to it (step contracts, conventions,
+        other schemas, agent definitions) — not just the files listed in the spec.
+        Stale references cause behavioral bugs in auto-approval and validation paths.
+        <!-- learned: 2026-04-11, source: HL-272, cycle: 14, hits: 17, misses: 1,
+        repo: orchestrator -->'
+      - 'When removing a block from a prose file (SKILL.md, CONVENTIONS.md, agent
+        definition), grep the entire file for forward references pointing to that
+        block (''below'', ''above'', ''see §'', ''YAML glob below'') and update or
+        remove them atomically in the same commit. Dangling forward references pass
+        tests but break the reader''s mental model and fail phase review. <!-- learned:
+        2026-04-17, source: learn-and-telemetry-on-duckdb, cycle: 12, hits: 14, misses:
+        1, repo: orchestrator -->'
+      - 'Do not modify files outside the task''s declared Files: list, even for observations
+        that feel like improvements (new backlog entries, follow-up tickets, documentation
+        drift, unrelated test fixes). Mid-task observations belong in the commit footer
+        or the step evidence block — not in files that are not task-scoped. Out-of-scope
+        edits will be reverted by the driver and add noise to the diff. <!-- learned:
+        2026-04-20, source: pricing-table-in-duckdb, cycle: 16, hits: 10, misses:
+        1, repo: orchestrator -->'
+      - 'When design.md''s AC Verify line names a specific test file and method (e.g.,
+        `test_dispatch_resume.py::test_resume_emits_stderr_log`), the developer MUST
+        produce an executable test — even if the contract under test is a prompt,
+        skill file, or prose artifact. A fixture or subprocess test can stand in for
+        a non-executable target. Do not silently substitute a prose-only contract.
+        If an executable test is genuinely infeasible (e.g., the target is a multi-process
+        system with no injectable seam), escalate to the architect per contracts/architect-escalation.md
+        with explicit justification before the task is marked complete. <!-- learned:
+        2026-04-21, source: durable-intent-and-resume, cycle: 17, hits: 10, misses:
+        1, repo: orchestrator -->'
+      - 'When a task''s AC Verify line contains a grep or pattern-match command against
+        a file the task modifies (e.g., `grep -E ''pattern'' some-file.md`), run that
+        exact command on the modified file before committing. A comment spanning multiple
+        lines can satisfy the semantic intent but fail a single-line grep — verify
+        the pattern matches the written text, not just the concept. <!-- learned:
+        2026-05-10, source: orc-48, cycle: 14, hits: 3, misses: 0, repo: orchestrator
+        -->'
+      - For any task or ticket management (create, edit, list, claim, close), load
+        the /backlog-manager skill first — it detects the correct backend (Linear
+        or Backlog.md) per repo and delegates to /linear or /backlog accordingly.
+        Never assume the backend. When the backend is Backlog.md, use the globally
+        installed `backlog` binary — never `bun run cli`.
+      - 'When flags.tdd_required is true AND the task is a pure mechanical change
+        (rename, move, delete with no behavioral change), there is no meaningful RED
+        step — the suite passes with either the old or new name. Satisfy tdd_required
+        by sequencing a regression-guard test task first (verify existing tests stay
+        green after the rename) rather than fabricating a failing test. Do NOT invent
+        a RED step that doesn''t reflect the actual change. <!-- learned: 2026-05-19,
+        source: orc-59, cycle: 1, hits: 2, misses: 0, repo: orchestrator -->'
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      repeat_until: all_tasks_completed
+      depends_on:
+      - capture-test-baseline
+    - id: run-phase-review
+      status: completed
+      agent: reviewer
+      goal: ''
+      inputs:
+      - task_execution_result
+      outputs:
+      - phase_review_report
+      rules:
+      - Target score is quality_bar.min_phase_review_score from project.yaml — retry
+        until met.
+      - Maximum retries from quality_bar.max_retry_rounds — escalate to user if exhausted.
+      - 'When flags.light is true: lower target review_score to 7 and max_retries
+        to 4 — light mode trades quality bar for speed on tight-scope changes.'
+      - Run type-check + test + build commands at every phase boundary before scoring.
+      - Capture concrete findings with fix direction — every finding must be actionable.
+      - Issues found during verification become new tasks in the current phase. Never
+        skip ahead with unresolved findings.
+      - Do not advance with unresolved critical findings — these block phase completion
+        regardless of overall score.
+      - 'When flags.bugfix is true: zero regressions tolerated. No existing tests
+        may break.'
+      - Fix tasks must be minimal and scoped to the specific failure — no refactoring,
+        no improvements.
+      - Score of 10 is a first-pass bonus — only achievable when no retries were used
+        this round.
+      - Operate at staff-level review quality — catch architectural issues, not just
+        surface bugs.
+      - Artifact structural compliance with contracts/artifact-formats.md format contracts
+        is a review criterion.
+      - 'When a finding requires a new requirement, the fix MUST update design.md
+        (AC + design) and tasks.md atomically — partial updates that sync only one
+        artifact leave the feature in an inconsistent state and will fail re-review.
+        <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb, cycle: 11, hits:
+        10, misses: 6, repo: orchestrator -->'
+      - 'For tasks that spec describes as a rewrite, projection, or byte-compatible
+        replacement of an existing producer, AC verification MUST include a value/shape
+        parity check against at least one real payload from the prior implementation
+        — key-presence alone is insufficient. Reviewer must run both the old producer
+        and the new one on a real archived fixture and diff the top-level output keys;
+        any key reduction is an important finding. <!-- learned: 2026-04-20, source:
+        single-source-metrics-via-step-events, cycle: 12, hits: 9, misses: 2, repo:
+        orchestrator -->'
+      - 'Before scoring the phase, count unchecked items (`- [ ]`) in tasks.md. If
+        any unchecked tasks remain and they are not explicitly quarantined in state.yaml,
+        write phase-review.md with verdict incomplete_phase listing the unchecked
+        task IDs — return COMPLETION with outputs.phase_review_report: {verdict: incomplete_phase}
+        and do NOT include review_score. This guards against dispatcher bugs or manual
+        advances that reach run-phase-review before all tasks are complete. <!-- learned:
+        2026-05-08, source: hl-303, cycle: 38, hits: 8, misses: 0, repo: orchestrator
+        -->'
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - execute-next-task
+    - id: compute-prediction-accuracy
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - run-phase-review
+    - id: run-learn-cycle
+      status: completed
+      agent: workflow-learner
+      goal: ''
+      inputs:
+      - '{''final_signoff_decision'': ''optional''}'
+      outputs:
+      - learn_result
+      rules:
+      - Learning failure is non-blocking — if /learn fails, log a warning and return
+        success.
+      - Read state.yaml from the active change directory (this step runs before archive).
+      - In --auto mode, rule changes apply without user confirmation.
+      - 'Never skip compute-prediction-accuracy or run-learn-cycle steps during autopilot
+        — these feed the self-improving loop and must run even when --auto is set.
+        A `skipped: true` outcome is only valid when an enumerated gating flag is
+        set (e.g. ux_design=false for ux steps, learn=false for run-learn-cycle).
+        Session token budget, time pressure, ''capture via retro'', or any cost-based
+        justification is NEVER a valid skip reason for feedback-loop steps. Budget
+        pressure is a signal to stop earlier, not to skip learning. <!-- learned:
+        2026-04-05, source: HL-203, cycle: 6, hits: 12, misses: 1, repo: orchestrator
+        -->'
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - compute-prediction-accuracy
+    - id: mark-change-completed
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - run-learn-cycle
+    - id: compute-swe-metrics
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - mark-change-completed
+    - id: archive-completed-change
+      status: in_progress
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - compute-swe-metrics
+    - id: remove-worktree
+      status: pending
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - archive-completed-change
+    filtered:
+    - id: merge-to-main
+      reason: flag merge_to_main=false
+phase: main
+next_step:
+  phase: main
+  step_id: archive-completed-change
+step_history:
+- step_id: diagnose
+  phase: main
+  status: completed
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-05-22T07:59:18Z'
+  ended_at: '2026-05-22T07:59:18Z'
+  usage:
+    input_tokens: 60
+    output_tokens: 5120
+    cache_read_input_tokens: 2265182
+    cache_creation_input_tokens: 153817
+    model: claude-sonnet-4-6
+    turns: 54
+    duration_ms: 173220
+    tool_calls:
+      Bash: 24
+      Read: 13
+      Write: 1
+    tool_calls_detail:
+    - tool_name: Bash
+      tool_use_id: toolu_011wmSFQNqS12szfH8jVT1gR
+      is_mcp: false
+      started_at: '2026-05-22T07:56:07.589Z'
+      duration_ms: 248
+    - tool_name: Bash
+      tool_use_id: toolu_01RQVxC1VfHG5G3SLW6vfJ6L
+      is_mcp: false
+      started_at: '2026-05-22T07:56:08.100Z'
+      duration_ms: 258
+    - tool_name: Read
+      tool_use_id: toolu_01F8XE73KCdpXwmxdKiqPfsE
+      is_mcp: false
+      started_at: '2026-05-22T07:56:10.657Z'
+      duration_ms: 329
+    - tool_name: Read
+      tool_use_id: toolu_011g2bPkP1bfdHvC7FByfWVA
+      is_mcp: false
+      started_at: '2026-05-22T07:56:10.661Z'
+      duration_ms: 325
+    - tool_name: Read
+      tool_use_id: toolu_01LSE4p9YDw3AY4yvzGF7RX5
+      is_mcp: false
+      started_at: '2026-05-22T07:56:11.136Z'
+      duration_ms: 243
+    - tool_name: Bash
+      tool_use_id: toolu_01BQiqoVZMkRmrToYKGrjqmf
+      is_mcp: false
+      started_at: '2026-05-22T07:56:15.899Z'
+      duration_ms: 279
+    - tool_name: Bash
+      tool_use_id: toolu_01NpdzeiY8g8FERdJ2MyXsm3
+      is_mcp: false
+      started_at: '2026-05-22T07:56:16.422Z'
+      duration_ms: 240
+    - tool_name: Read
+      tool_use_id: toolu_01KTQgmqhESrkXrpLFovgzQM
+      is_mcp: false
+      started_at: '2026-05-22T07:56:19.308Z'
+      duration_ms: 252
+    - tool_name: Bash
+      tool_use_id: toolu_01JzP11kxnWnAoohW497jJpx
+      is_mcp: false
+      started_at: '2026-05-22T07:56:20.081Z'
+      duration_ms: 253
+    - tool_name: Read
+      tool_use_id: toolu_01VgYMZUFo8HkXGzV1CLQ8kA
+      is_mcp: false
+      started_at: '2026-05-22T07:56:23.380Z'
+      duration_ms: 257
+    - tool_name: Read
+      tool_use_id: toolu_01Jo9VUfbqTx4HrQYGwfXmdu
+      is_mcp: false
+      started_at: '2026-05-22T07:56:24.055Z'
+      duration_ms: 275
+    - tool_name: Read
+      tool_use_id: toolu_016oTQ38fd3SihDh84f6vTGL
+      is_mcp: false
+      started_at: '2026-05-22T07:56:28.335Z'
+      duration_ms: 252
+    - tool_name: Read
+      tool_use_id: toolu_01XoFR1m69TyLqbaj8bpf496
+      is_mcp: false
+      started_at: '2026-05-22T07:56:31.462Z'
+      duration_ms: 249
+    - tool_name: Bash
+      tool_use_id: toolu_01Pdb454Xg2xJmD1hUSMDrtH
+      is_mcp: false
+      started_at: '2026-05-22T07:56:32.873Z'
+      duration_ms: 260
+    - tool_name: Read
+      tool_use_id: toolu_01XRzfGbgE6GXCv1A62nhtpv
+      is_mcp: false
+      started_at: '2026-05-22T07:56:36.772Z'
+      duration_ms: 256
+    - tool_name: Bash
+      tool_use_id: toolu_01KrJgFGkpRTt9uWXRxunfz5
+      is_mcp: false
+      started_at: '2026-05-22T07:56:37.553Z'
+      duration_ms: 259
+    - tool_name: Bash
+      tool_use_id: toolu_016ujjzDoMLfC4tM1AbCARDv
+      is_mcp: false
+      started_at: '2026-05-22T07:56:41.120Z'
+      duration_ms: 260
+    - tool_name: Bash
+      tool_use_id: toolu_016NYaiWoMqfFgWJCtT7b6gJ
+      is_mcp: false
+      started_at: '2026-05-22T07:56:42.227Z'
+      duration_ms: 270
+    - tool_name: Bash
+      tool_use_id: toolu_01W2vv5tt4SNS35NGg5Tp1zF
+      is_mcp: false
+      started_at: '2026-05-22T07:56:45.952Z'
+      duration_ms: 265
+    - tool_name: Bash
+      tool_use_id: toolu_013FhHXn5YzmgTNLvd7FRJWn
+      is_mcp: false
+      started_at: '2026-05-22T07:56:49.314Z'
+      duration_ms: 265
+    - tool_name: Read
+      tool_use_id: toolu_01G7XMB6iAJGk5zrAHZo8XGn
+      is_mcp: false
+      started_at: '2026-05-22T07:56:50.070Z'
+      duration_ms: 241
+    - tool_name: Bash
+      tool_use_id: toolu_01WAD5BEBZ6HzN16wpe2jXho
+      is_mcp: false
+      started_at: '2026-05-22T07:57:01.738Z'
+      duration_ms: 113
+    - tool_name: Bash
+      tool_use_id: toolu_01DpqmV7ByJ1JejBRkwz7wwv
+      is_mcp: false
+      started_at: '2026-05-22T07:57:10.009Z'
+      duration_ms: 311
+    - tool_name: Read
+      tool_use_id: toolu_01Lr1E6WLByxkuqBhzVhC4pL
+      is_mcp: false
+      started_at: '2026-05-22T07:57:13.999Z'
+      duration_ms: 241
+    - tool_name: Bash
+      tool_use_id: toolu_015q7UGae9C1N1PoCX2sNwoW
+      is_mcp: false
+      started_at: '2026-05-22T07:57:15.051Z'
+      duration_ms: 260
+    - tool_name: Bash
+      tool_use_id: toolu_01ELUBvVjVMZLXcFD3xdc2YX
+      is_mcp: false
+      started_at: '2026-05-22T07:57:19.598Z'
+      duration_ms: 286
+    - tool_name: Bash
+      tool_use_id: toolu_01S9RJKegWcLPBPtKhh6iCPK
+      is_mcp: false
+      started_at: '2026-05-22T07:57:23.244Z'
+      duration_ms: 273
+    - tool_name: Bash
+      tool_use_id: toolu_01JuU9m7hSJxWS8vbHTCdLSn
+      is_mcp: false
+      started_at: '2026-05-22T07:57:26.907Z'
+      duration_ms: 252
+    - tool_name: Bash
+      tool_use_id: toolu_01SnpKqAfUnjFhA7p5rVpPgN
+      is_mcp: false
+      started_at: '2026-05-22T07:57:31.146Z'
+      duration_ms: 262
+    - tool_name: Bash
+      tool_use_id: toolu_01WrihviKXW3BWEqn7zPZWeg
+      is_mcp: false
+      started_at: '2026-05-22T07:57:32.247Z'
+      duration_ms: 264
+    - tool_name: Read
+      tool_use_id: toolu_01Ay3oU6Bz78nFkAowSHZFeZ
+      is_mcp: false
+      started_at: '2026-05-22T07:57:37.472Z'
+      duration_ms: 252
+    - tool_name: Read
+      tool_use_id: toolu_01HVWKhELLPCKhC4FJhEoPss
+      is_mcp: false
+      started_at: '2026-05-22T07:57:42.413Z'
+      duration_ms: 250
+    - tool_name: Bash
+      tool_use_id: toolu_01Q8yjiiBRjJQvZvEWWH842L
+      is_mcp: false
+      started_at: '2026-05-22T07:57:47.190Z'
+      duration_ms: 263
+    - tool_name: Bash
+      tool_use_id: toolu_01PcsTh5X9HsFceDGq64vsa4
+      is_mcp: false
+      started_at: '2026-05-22T07:57:47.705Z'
+      duration_ms: 244
+    - tool_name: Bash
+      tool_use_id: toolu_018hdQ67raaH54UZqg8ZWshv
+      is_mcp: false
+      started_at: '2026-05-22T07:57:51.118Z'
+      duration_ms: 263
+    - tool_name: Bash
+      tool_use_id: toolu_011sPV9xHZxX3Z8xLcJwg7Rx
+      is_mcp: false
+      started_at: '2026-05-22T07:57:54.957Z'
+      duration_ms: 262
+    - tool_name: Write
+      tool_use_id: toolu_01NvBgNaeFtL28tZWkAWB6ua
+      is_mcp: false
+      started_at: '2026-05-22T07:58:53.877Z'
+      duration_ms: 310
+    - tool_name: Bash
+      tool_use_id: toolu_01VwmEMdR4Q7PiZixk3LQJMg
+      is_mcp: false
+      started_at: '2026-05-22T07:58:56.758Z'
+      duration_ms: 264
+    agent_id: ad14ec81d75ada278
+    cost_usd: 1.33334835
+  evidence:
+    outputs:
+      diagnosis_result:
+        path: diagnose.md
+    artifacts:
+    - diagnose.md
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: architect
+  attempt: 1
+  started_at: '2026-05-22T08:07:56Z'
+  ended_at: '2026-05-22T08:07:56Z'
+  usage:
+    input_tokens: 56
+    output_tokens: 12313
+    cache_read_input_tokens: 1294136
+    cache_creation_input_tokens: 122862
+    model: claude-opus-4-7
+    turns: 27
+    duration_ms: 202151
+    tool_calls:
+      Read: 1
+      Bash: 11
+      Write: 2
+      Edit: 1
+    tool_calls_detail:
+    - tool_name: Read
+      tool_use_id: toolu_01H9HJpjxzqjBob3AA6buYqv
+      is_mcp: false
+      started_at: '2026-05-22T08:04:15.422Z'
+      duration_ms: 267
+    - tool_name: Bash
+      tool_use_id: toolu_0152QmicZHpUG8sGvhBhuJz8
+      is_mcp: false
+      started_at: '2026-05-22T08:04:15.422Z'
+      duration_ms: 329
+    - tool_name: Bash
+      tool_use_id: toolu_01LxeHp1Dp2NuGGYGuzHYd28
+      is_mcp: false
+      started_at: '2026-05-22T08:04:21.687Z'
+      duration_ms: 294
+    - tool_name: Bash
+      tool_use_id: toolu_01DEM3BSVLJhA5V5VpnPmJRE
+      is_mcp: false
+      started_at: '2026-05-22T08:04:22.294Z'
+      duration_ms: 268
+    - tool_name: Bash
+      tool_use_id: toolu_01FtT8keukL11XNXkdicybhy
+      is_mcp: false
+      started_at: '2026-05-22T08:04:27.274Z'
+      duration_ms: 307
+    - tool_name: Bash
+      tool_use_id: toolu_01J9Evy4ehT4LfwUN83jA1Tc
+      is_mcp: false
+      started_at: '2026-05-22T08:04:28.294Z'
+      duration_ms: 272
+    - tool_name: Bash
+      tool_use_id: toolu_013iyHg7eZff6qZDbrVFQGfM
+      is_mcp: false
+      started_at: '2026-05-22T08:04:35.493Z'
+      duration_ms: 325
+    - tool_name: Bash
+      tool_use_id: toolu_01EbZDvAeFDwnKgXsH2UXUCN
+      is_mcp: false
+      started_at: '2026-05-22T08:04:36.564Z'
+      duration_ms: 308
+    - tool_name: Bash
+      tool_use_id: toolu_01AzwtCNeAK9Ax14hwGVnkuW
+      is_mcp: false
+      started_at: '2026-05-22T08:04:42.736Z'
+      duration_ms: 277
+    - tool_name: Bash
+      tool_use_id: toolu_01CQrgKkRAm9CdAz4nS3vFxy
+      is_mcp: false
+      started_at: '2026-05-22T08:04:44.155Z'
+      duration_ms: 279
+    - tool_name: Bash
+      tool_use_id: toolu_01AVWsBsazyHuawmoP2JyoAD
+      is_mcp: false
+      started_at: '2026-05-22T08:06:06.944Z'
+      duration_ms: 302
+    - tool_name: Write
+      tool_use_id: toolu_01KfL2i7vn2bnwkinCKGCPVk
+      is_mcp: false
+      started_at: '2026-05-22T08:06:45.601Z'
+      duration_ms: 328
+    - tool_name: Write
+      tool_use_id: toolu_011comcmjnggBxa1WKtKbGTz
+      is_mcp: false
+      started_at: '2026-05-22T08:07:04.164Z'
+      duration_ms: 302
+    - tool_name: Edit
+      tool_use_id: toolu_01JqpZqQPRhxn9796pgiopik
+      is_mcp: false
+      started_at: '2026-05-22T08:07:11.307Z'
+      duration_ms: 282
+    - tool_name: Bash
+      tool_use_id: toolu_01XwxtQYETkjb624vqrSeMFQ
+      is_mcp: false
+      started_at: '2026-05-22T08:07:16.247Z'
+      duration_ms: 275
+    agent_id: a3fbf305e5c90690c
+    cost_usd: 5.1691815000000005
+  evidence:
+    outputs:
+      design.md: spec/changes/orc-78/design.md
+      tasks.md: spec/changes/orc-78/tasks.md
+      updated_artifact_set:
+      - spec/changes/orc-78/design.md
+      - spec/changes/orc-78/tasks.md
+      - spec/changes/orc-78/diagnose.md
+      design_direction: Atomic single-pass rename to discovery_result / discovery.md
+      complexity: S
+    artifacts:
+    - design.md
+    - tasks.md
+    - diagnose.md
+- step_id: capture-test-baseline
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-22T10:33:20Z'
+  ended_at: '2026-05-22T10:33:20Z'
+  usage: {}
+  evidence:
+    outputs:
+      baseline:
+        captured_at: '2026-05-22T10:33:12Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 485
+        failing: 3
+        skipped: 0
+        total: 488
+        exit_code: 1
+    summary: inline script completed
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-22T10:48:02Z'
+  ended_at: '2026-05-22T10:48:02Z'
+  usage:
+    input_tokens: 95000
+    output_tokens: 9000
+    model: claude-sonnet-4-6
+    cost_usd: 0.42
+  evidence:
+    outputs:
+      task_execution_result:
+        status: all_tasks_completed
+        tasks: 5
+    commands:
+    - cmd: python3 -m pytest config/scripts/orchestrator_next/tests/ -q
+      exit_code: 0
+      stdout_tail: 488 passed, 28 warnings in 8.31s
+    - cmd: grep -rn 'diagnosis_result|diagnose.md|diagnosis.md' config/ skills/ agents/
+      exit_code: 1
+      stdout_tail: (no matches — zero functional stale references)
+    - cmd: bash config/tests/test-archive-merges-worktree-artifacts.sh
+      exit_code: 0
+      stdout_tail: 'OK: archive collects all files from worktree source'
+    counts:
+      tasks_marked: 5
+      tests_passing: 488
+  artifacts:
+  - spec/changes/orc-78/tasks.md
+  - config/steps/diagnose.yaml
+  - config/steps/design-and-draft-artifacts.yaml
+  - config/templates/bugfix/discovery.md
+  - config/steps/execute-next-task.yaml
+  - config/templates/bugfix/fix-plan.md
+  - config/templates/bugfix/tasks.md
+  - skills/systematic-debugging/SKILL.md
+  - agents/discoverer.md
+  - config/steps/contracts/artifact-formats.md
+  - config/steps/CONVENTIONS.md
+  - skills/linear/SKILL.md
+  - config/scripts/orchestrator_next/tests/test_prose_contracts.py
+  - config/scripts/orchestrator_next/tests/test_record_agent_field.py
+  - config/tests/test-archive-merges-worktree-artifacts.sh
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: '2026-05-22T10:52:05Z'
+  ended_at: '2026-05-22T10:52:05Z'
+  usage:
+    agent_id: ab11ef3210f82ce26
+    model: claude-sonnet-4-6
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      phase_review_report:
+        verdict: needs_work
+  artifacts:
+  - phase-review.md
+  review_score:
+    overall: 7
+    dimensions:
+      spec_compliance: 7
+      correctness: 9
+      security: 9
+      simplicity: 9
+      code_quality: 9
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 2
+  started_at: '2026-05-22T11:02:36Z'
+  ended_at: '2026-05-22T11:02:36Z'
+  usage:
+    input_tokens: 28000
+    output_tokens: 3000
+    model: claude-sonnet-4-6
+    cost_usd: 0.129
+  evidence:
+    outputs:
+      task_execution_result:
+        status: all_tasks_completed
+        tasks: 1
+    commands:
+    - cmd: git revert c494287 (out-of-scope engine change)
+      exit_code: 0
+      stdout_tail: squashed into commit 18ed778; 4 files, 21 insertions, 111 deletions
+    - cmd: python3 -m pytest config/scripts/orchestrator_next/tests/ -q
+      exit_code: 0
+      stdout_tail: 486 passed, 28 warnings in 7.80s
+    counts:
+      tasks_marked: 1
+      tests_passing: 486
+  artifacts:
+  - spec/changes/orc-78/tasks.md
+  - config/scripts/orchestrator_next/dispatch.py
+  - config/scripts/orchestrator_next/readiness.py
+  - config/scripts/orchestrator_next/tests/test_readiness.py
+  - config/scripts/orchestrator_next/tests/test_orc36_path_consolidation.py
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: reviewer
+  attempt: 2
+  started_at: '2026-05-22T11:05:21Z'
+  ended_at: '2026-05-22T11:05:21Z'
+  usage:
+    agent_id: a68c16fc1cac2308d
+    model: claude-sonnet-4-6
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      phase_review_report:
+        verdict: pass
+  artifacts:
+  - phase-review.md
+  review_score:
+    overall: 9
+    dimensions:
+      spec_compliance: 9
+      correctness: 9
+      security: 9
+      simplicity: 9
+      code_quality: 9
+- step_id: compute-prediction-accuracy
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-22T11:05:25Z'
+  ended_at: '2026-05-22T11:05:25Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy:
+        computed_at: '2026-05-22T11:05:25Z'
+        predicted_tasks: 6
+        actual_tasks: 6
+        fix_task_count: 0
+        rework_rate: 0.0
+        task_delta: 0
+        task_accuracy_pct: 100.0
+        predicted_file_count: 29
+        actual_file_count: 0
+        file_delta: -29
+        file_overlap_pct: 0.0
+    summary: inline script completed
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: workflow-learner
+  attempt: 1
+  started_at: '2026-05-22T11:12:50Z'
+  ended_at: '2026-05-22T11:12:50Z'
+  usage:
+    agent_id: a972e057be4d50ddd
+  evidence:
+    outputs:
+      learn_result:
+        completed: true
+        verdict: PASS
+        cycle: 52
+        rules_updated: 13
+        new_learnings: 1
+        quality_bar: stable
+        commit: 3b25caf
+  artifacts:
+  - config/steps/design-and-draft-artifacts.yaml
+  - config/steps/execute-next-task.yaml
+  - config/steps/run-phase-review.yaml
+  - spec/project.yaml
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-22T11:12:57Z'
+  ended_at: '2026-05-22T11:12:57Z'
+  usage: {}
+  evidence:
+    outputs:
+      status: completed
+      completed_at: '2026-05-22T11:12:56Z'
+      archive_path: spec/changes/archive/2026-05-22-orc-78/
+    summary: inline script completed
+- step_id: compute-swe-metrics
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-22T11:13:00Z'
+  ended_at: '2026-05-22T11:13:00Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+created_at: '2026-05-22T07:55:13Z'
+started_at: '2026-05-22T07:55:13Z'
+project_context_loaded: true
+worktree_path: /Users/spidey/code/feature_worktrees/orc-78
+branch: bugfix/orc-78
+retries:
+  run-phase-review: 1
+completed_at: '2026-05-22T11:12:56Z'
+archive_path: spec/changes/archive/2026-05-22-orc-78/
