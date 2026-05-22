@@ -151,7 +151,11 @@ def main(argv=None):
 
     # Determine effective_from value (raw string used in output).
     if args.effective_from is None:
-        args.effective_from = dt.datetime.utcnow().isoformat(timespec="seconds")
+        # tz-naive UTC — .replace(tzinfo=None) keeps the serialized string free of
+        # a +00:00 offset, matching the prior utcnow() output format.
+        args.effective_from = (
+            dt.datetime.now(dt.UTC).replace(tzinfo=None).isoformat(timespec="seconds")
+        )
 
     # Validation — must happen BEFORE any DB interaction.
     errors = _validate(args)
