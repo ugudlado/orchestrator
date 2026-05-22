@@ -83,7 +83,7 @@
     - all T-7 tests pass
   depends: T-7
 
-- [ ] T-9: Review checkpoint — Group 1 (phase gate)
+- [x] T-9: Review checkpoint — Group 1 (phase gate)
   Why: phase gate — confirm the new step, script, resolvers, and CLI classification integrate before schema cleanup
   Test scenarios:
     - type-check / shellcheck clean on new scripts
