@@ -866,17 +866,17 @@ def compute_task_counts(
     fix_count = sum(1 for nid in task_node_ids if "fix-" in nid)
     planned = total - fix_count
 
+    # Count completed task-nodes by taking the most-recent entry per step_id.
+    # A task can fail once and then complete (retry); in that case we count it as
+    # completed, not failed. tasks_failed = tasks not yet completed (per metrics-schema.md).
     _terminal_completed = {"completed", "recovered"}
-    completed = sum(
-        1 for e in (step_history or [])
-        if e.get("step_id", "").startswith("task-")
-        and e.get("status") in _terminal_completed
-    )
-    failed = sum(
-        1 for e in (step_history or [])
-        if e.get("step_id", "").startswith("task-")
-        and e.get("status") == "failed"
-    )
+    latest_by_step: dict[str, str] = {}
+    for e in (step_history or []):
+        sid = e.get("step_id", "")
+        if sid.startswith("task-") and sid in task_node_ids and e.get("status") != "in_progress":
+            latest_by_step[sid] = e.get("status", "")
+    completed = sum(1 for st in latest_by_step.values() if st in _terminal_completed)
+    failed = total - completed
     resolve_rate = completed / total if total > 0 else 0.0
 
     return {

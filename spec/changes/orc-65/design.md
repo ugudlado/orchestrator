@@ -192,6 +192,8 @@ constraint is the wrong shape and Approach 3 is the simplest design.
 | Per-task DuckDB telemetry (Stage 4) | `step_events` rows keyed by `task-T-N` node id | `step_history` | metrics rows |
 | `tasks.md` deletion (Stage 5) | Remove the markdown artifact and all references | — | cleanup |
 
+**Per-task DuckDB telemetry (T-12 confirmation):** `upsert.py` writes `step_events` rows using `entry["step_id"]` directly (upsert.py line ~501 — the `step_events` primary key includes `step_id`). Since each task-node's id is `task-T-N` and `record.py` persists that id as `step_id` in every `step_history` entry, per-task rows materialize in `step_events` as `task-T-1`, `task-T-2`, etc. without any code change to `upsert.py`. Querying `SELECT step_id FROM step_events WHERE step_id LIKE 'task-%'` after a 3-task feature run returns 3 rows, one per task-node completion. No schema migration or insertion-path change is needed.
+
 ### Data Flow
 
 1. **Architect pass** — `design-and-draft-artifacts` writes `design.md`,
