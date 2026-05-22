@@ -14,7 +14,7 @@ behavior regardless of which model executes the step.
 | Step blocked (2nd) | Agent blocked after re-spawn | `step_history[]: {status: failed}`, increment `retries.<step_id>` | Treat as step failure → retry or escalate |
 | Step escalated to architect | Agent returns `STATUS: escalate_to_architect` | `step_history[]: {status: escalate_to_architect, escalation: {...}}` | `orchestrator next` returns `action: blocked, reason: escalate_to_architect`; caller spawns architect per `contracts/architect-escalation.md`; developer re-spawned with DECISION appended at **same attempt** (no retry charged) |
 | Step blocked (dispatcher-level) | Dispatcher sees terminal `status: blocked` in last history entry for current phase | `step_history[]: {status: blocked}` already written | `orchestrator next` returns `action: blocked, reason: blocked, exit 2`; caller applies Agent Blocked Protocol |
-| Phase verification failed | Any verify.command exits non-0, assertion false, or metric below threshold | `step_history[]: {step_id: run-phase-review, status: failed}`, increment `retries.phase_verify` | Generate fix tasks per § Fix Task Protocol, re-run phase review |
+| Phase verification failed | Any verify.command exits non-0, assertion false, or metric below threshold | `step_history[]: {step_id: run-phase-review, status: completed, verdict: needs_work}`, increment `retries.run-phase-review` | Generate fix tasks per § Fix Task Protocol, re-run phase review |
 | Retry exhausted | `retries.<key> >= max_retries` | No additional update | Execute `on_max_retries` action per § Escalation Protocol |
 | Agent spawn failed | Agent tool returns error | `step_history[]: {status: failed, error: "spawn failed"}` | Retry spawn once. If still fails, treat as retry exhausted. |
 
@@ -171,7 +171,7 @@ step_history:
 # Retry counter
 retries:
   execute-next-task: 2
-  phase_verify: 1
+  run-phase-review: 1
 ```
 
 ## Structured Error Events

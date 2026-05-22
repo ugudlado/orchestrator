@@ -101,6 +101,100 @@ def _validate_phase_review_output(
     return None
 
 
+# ---------------------------------------------------------------------------
+# orc-67: run-phase-review needs_work rework loop
+# ---------------------------------------------------------------------------
+
+# Verdicts that send the engine back through execute-next-task (drain fix tasks)
+# and then re-run run-phase-review. `pass` is excluded — it advances linearly.
+_REWORK_VERDICTS = frozenset({"needs_work", "incomplete_phase"})
+
+# Fallback when project.yaml omits quality_bar.max_retry_rounds. Matches the
+# historical verify_block.max_retries default; the repo's own project.yaml
+# sets 8, so this only fires on a misconfigured repo / test fixture.
+_DEFAULT_MAX_RETRY_ROUNDS = 3
+
+
+def _payload_phase_review_verdict(payload: dict[str, Any]) -> str | None:
+    """Extract the phase-review verdict from a `done` payload (orc-67).
+
+    Reads `payload.outputs.phase_review_report.verdict` directly (payload-time
+    shape — record nests these under `evidence.outputs` only after appending).
+    Returns None for any non-`run-phase-review` step or absent/malformed report.
+
+    Distinct from `_phase_review_verdict(entry)`, which reads a step_history
+    entry for `extract_review_scores`.
+    """
+    if payload.get("step_id") != "run-phase-review":
+        return None
+    outputs = payload.get("outputs")
+    if not isinstance(outputs, dict):
+        return None
+    report = outputs.get("phase_review_report")
+    if not isinstance(report, dict):
+        return None
+    verdict = report.get("verdict")
+    return verdict if isinstance(verdict, str) else None
+
+
+def _rework_loop_active(
+    verdict: str | None, retries: Any, max_retries: int
+) -> str | None:
+    """Decide the rework-loop action for a run-phase-review verdict (orc-67).
+
+    Returns:
+      - "retry"    — verdict needs rework and retry count < max_retries.
+      - "escalate" — verdict needs rework and retry count >= max_retries.
+      - None       — `pass` / non-rework verdict (advance linearly).
+
+    `retries` is the `state_raw["retries"]` mapping (or anything). A missing
+    key, None, or non-dict is treated as count 0 — never raises.
+    """
+    if verdict not in _REWORK_VERDICTS:
+        return None
+    count = retries.get("run-phase-review", 0) if isinstance(retries, dict) else 0
+    if not isinstance(count, int):
+        count = 0
+    return "retry" if count < max_retries else "escalate"
+
+
+def _max_retry_rounds(state_raw: dict[str, Any]) -> int:
+    """Read `quality_bar.max_retry_rounds` from the repo's project.yaml (orc-67).
+
+    The reviewer reads the same key; the engine MUST read the same one or retry
+    accounting splits. project.yaml lives at `<root>/spec/project.yaml` —
+    `worktree_path` is preferred when its directory exists, else `repo_root`.
+    Returns `_DEFAULT_MAX_RETRY_ROUNDS` (with a `[record]` stderr warning) when
+    the file or the key is absent.
+    """
+    candidate: Path | None = None
+    worktree = state_raw.get("worktree_path")
+    if isinstance(worktree, str) and worktree:
+        wt = Path(os.path.expanduser(worktree))
+        if wt.is_dir():
+            candidate = wt / "spec" / "project.yaml"
+    if candidate is None:
+        repo_root = state_raw.get("repo_root")
+        if isinstance(repo_root, str) and repo_root:
+            candidate = Path(os.path.expanduser(repo_root)) / "spec" / "project.yaml"
+
+    if candidate is not None and candidate.is_file():
+        try:
+            data = yaml.safe_load(candidate.read_text()) or {}
+            quality_bar = data.get("quality_bar") if isinstance(data, dict) else None
+            value = quality_bar.get("max_retry_rounds") if isinstance(quality_bar, dict) else None
+            if isinstance(value, int) and not isinstance(value, bool):
+                return value
+        except (yaml.YAMLError, OSError) as exc:
+            sys.stderr.write(f"[record] warning: could not read {candidate}: {exc}\n")
+
+    sys.stderr.write(
+        f"[record] warning: quality_bar.max_retry_rounds not found in project.yaml; "
+        f"defaulting to {_DEFAULT_MAX_RETRY_ROUNDS}\n"
+    )
+    return _DEFAULT_MAX_RETRY_ROUNDS
+
+
 def _apply_state_patch(state_raw: dict[str, Any], patch: dict[str, Any]) -> None:
     """Apply state_patch from orchestrator done payload into top-level state."""
     if not isinstance(patch, dict):
@@ -1490,8 +1584,34 @@ def record(
     # (re-dispatchable) — flipping it to `completed` would make the DAG-walk
     # skip its re-run. Otherwise a completed/recovered record marks the node
     # `completed`.
+    #
+    # orc-67: a run-phase-review completion with a needs_work/incomplete_phase
+    # verdict opens a rework loop. `_rework_loop_active` decides:
+    #   "retry"    — leave run-phase-review in_progress (mirroring repeat_until)
+    #                and reset the execute-next-task node to in_progress so the
+    #                DAG-walk re-emits execute-next-task → run-phase-review.
+    #                Intermediate nodes (e.g. run-ux-critique) are untouched.
+    #   "escalate" — retries exhausted: mark the node completed, downgrade this
+    #                step_history entry to `blocked` (so the next `orchestrator
+    #                next` exits 2 and the driver halts) and pause the workflow.
     if status in ("completed", "recovered"):
-        if _repeat_until_pending(step_id, state_yaml_path, state_raw):
+        rework: str | None = None
+        if step_id == "run-phase-review":
+            rework = _rework_loop_active(
+                _payload_phase_review_verdict(payload),
+                state_raw.get("retries"),
+                _max_retry_rounds(state_raw),
+            )
+        if rework == "retry":
+            readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
+            readiness.mark_node_status(
+                state_raw, phase, "execute-next-task", "in_progress"
+            )
+        elif rework == "escalate":
+            readiness.mark_node_status(state_raw, phase, step_id, "completed")
+            entry["status"] = "blocked"
+            state_raw["status"] = "paused"
+        elif _repeat_until_pending(step_id, state_yaml_path, state_raw):
             readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
         else:
             readiness.mark_node_status(state_raw, phase, step_id, "completed")
