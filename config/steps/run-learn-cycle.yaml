@@ -3,7 +3,7 @@ version: 1
 
 intent: Trigger automatic learning from the just-completed change so every completion improves the next execution.
 
-agent: workflow-improver
+agent: workflow-learner
 
 inputs:
   # ORC-63: no step produces final_signoff_decision — it names a human
@@ -19,32 +19,19 @@ rules:
   - "Never skip compute-prediction-accuracy or run-learn-cycle steps during autopilot — these feed the self-improving loop and must run even when --auto is set. A `skipped: true` outcome is only valid when an enumerated gating flag is set (e.g. ux_design=false for ux steps, learn=false for run-learn-cycle). Session token budget, time pressure, 'capture via retro', or any cost-based justification is NEVER a valid skip reason for feedback-loop steps. Budget pressure is a signal to stop earlier, not to skip learning. <!-- learned: 2026-04-05, source: HL-203, cycle: 6, hits: 11, misses: 1, repo: orchestrator -->"
 
 instruction: |
-  1. Read state.yaml from $WORKFLOW_STATE_DIR/$CHANGE_ID/ to confirm the change
-     is approved (final_signoff_decision exists with approval).
+  Run the workflow learning pipeline for this completed change.
 
-  2. Extract the change ID from state.yaml (feature_id field or directory name).
+  1. Read state.yaml from $WORKFLOW_STATE_DIR/$CHANGE_ID/ to get the change ID
+     and confirm the workflow reached the complete phase.
 
-  3. Invoke /learn with the change ID:
-     Skill({ skill: "learn", args: "<CHANGE_ID>" })
+  2. Run the full evaluation, finding classification, rule routing, hit/miss
+     update, decay evaluation, and quality bar adjustment per the workflow-learner
+     agent pipeline.
 
-     /learn will:
-     - Spawn the workflow-evaluator agent (opus) to assess compliance
-     - Route findings to step contracts via workflow-improver
-     - Create Linear tickets for code issues
-     - Write cycle metrics
+  3. If learning fails for any reason: log learn_skipped: true and return success.
+     Learning is best-effort and must not fail the complete phase.
 
-  4. If /learn succeeds: log `learn_completed: true` to step result.
-
-  5. If /learn fails (any error):
-     - Log to step result:
-       ```yaml
-       learn_skipped: true
-       learn_error: "<error message>"
-       ```
-     - Return success. Learning is best-effort.
-       Do NOT fail the complete phase over a learning error.
-
-  6. Return COMPLETION per contracts/done-payload.md (driver calls orchestrator done).
+  4. Return COMPLETION per contracts/done-payload.md.
 
 verify:
   - Step completed (either learn_completed or learn_skipped recorded)
