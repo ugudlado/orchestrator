@@ -108,6 +108,32 @@ def test_compute_task_counts_tasks_added_from_fix_nodes():
     assert result["tasks_completed"] == 3
 
 
+def test_compute_task_counts_retry_failed_then_completed():
+    """A task that fails then completes (retry) counts as completed, not both.
+
+    Regression test for the retry case: step_history has two entries for the same
+    step_id (failed then completed). tasks_completed must equal 1, tasks_failed == 0.
+    Without this test, a raw-count approach yields completed=1, failed=1, total=1
+    (sum > total), which violates the metrics-schema.md contract.
+    """
+    from orchestrator_next.record import compute_task_counts
+    step_history = [
+        {"step_id": "task-T-1", "status": "failed"},
+        {"step_id": "task-T-1", "status": "completed"},
+    ]
+    workflow_plan = {
+        "implement": {
+            "nodes": [
+                {"id": "task-T-1"},
+            ]
+        }
+    }
+    result = compute_task_counts(step_history=step_history, workflow_plan=workflow_plan)
+    assert result["tasks_completed"] == 1
+    assert result["tasks_failed"] == 0
+    assert result["tasks_total"] == 1
+
+
 def test_compute_task_counts_no_task_nodes_returns_none():
     """When workflow_plan has no task-nodes, returns None values (spike path)."""
     from orchestrator_next.record import compute_task_counts

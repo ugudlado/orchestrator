@@ -869,6 +869,8 @@ def compute_task_counts(
     # Count completed task-nodes by taking the most-recent entry per step_id.
     # A task can fail once and then complete (retry); in that case we count it as
     # completed, not failed. tasks_failed = tasks not yet completed (per metrics-schema.md).
+    # Relies on Python 3.7+ dict insertion order: each key assignment overwrites
+    # the previous value, so the last history entry for a given step_id wins.
     _terminal_completed = {"completed", "recovered"}
     latest_by_step: dict[str, str] = {}
     for e in (step_history or []):
