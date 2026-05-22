@@ -1,13 +1,12 @@
 """
 Tests for orchestrator_next.generate_plan.
 
-Six tests per design.md § Testing Strategy:
+Tests per design.md § Testing Strategy:
   test_light_flag_drops_filtered_steps
   test_rule_merge_precedence
   test_byte_stable_output
   test_repeat_until_preserved
   test_phase_verify_attached_to_last_step
-  test_include_phase_resolved
 """
 from __future__ import annotations
 
@@ -428,78 +427,6 @@ def test_phase_verify_attached_to_phase_block(tmp_path, monkeypatch):
         assert "verify" not in n, f"node {n['id']} should not carry verify"
     assert "verify" in phase_block, "phase block should carry the verify key"
     assert phase_block["verify"]["assertions"] == ["design.md exists"]
-
-
-# ---------------------------------------------------------------------------
-# test_include_phase_resolved
-# ---------------------------------------------------------------------------
-
-
-def test_include_phase_resolved(tmp_path, monkeypatch):
-    """include: _complete-phase must be expanded inline in the plan."""
-    # Schema with an include directive
-    schema = {
-        "name": "feature",
-        "version": 1,
-        "rules": [],
-        "phases": [
-            {
-                "name": "specify",
-                "goal": "Specify.",
-                "rules": [],
-                "steps": ["step-a"],
-            },
-            {"include": "_complete-phase"},
-        ],
-    }
-    complete_phase = {
-        "name": "complete",
-        "goal": "Archive and complete.",
-        "rules": ["Archive only from canonical active state."],
-        "verify": {"assertions": ["All criteria verified"]},
-        "steps": ["archive-step"],
-    }
-    flags = {}
-    workflow_plan = {
-        "specify": {"active": ["step-a"], "filtered": []},
-        "complete": {"active": ["archive-step"], "filtered": []},
-    }
-
-    home = tmp_path / "orchestrator_home"
-    workflows_dir = home / "config" / "workflows"
-    workflows_dir.mkdir(parents=True)
-    contracts_dir = home / "config" / "steps"
-    contracts_dir.mkdir(parents=True)
-    _make_schema_yaml(workflows_dir, "feature", schema)
-    # Write the include file
-    (workflows_dir / "_complete-phase.yaml").write_text(
-        yaml.safe_dump(complete_phase, sort_keys=False)
-    )
-    for sid in ("step-a", "archive-step"):
-        _write_step_contract(
-            contracts_dir, sid,
-            {"id": sid, "agent": "inline", "inputs": [], "outputs": [], "rules": []},
-        )
-    _make_project_yaml(tmp_path, [])
-
-    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
-    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
-
-    state_path = _make_state_yaml(tmp_path, "feature", flags, workflow_plan)
-
-    generate_plan(str(state_path))
-    state = yaml.safe_load(state_path.read_text())
-
-    phase_names = list(state["workflow_plan"].keys())
-    assert "complete" in phase_names, (
-        f"Expected 'complete' phase from include resolution, got phases: {phase_names}"
-    )
-
-    complete_p = state["workflow_plan"]["complete"]
-    step_ids = [n["id"] for n in complete_p["nodes"]]
-    assert step_ids == ["archive-step"]
-    # The included phase's goal is carried on each node.
-    assert complete_p["nodes"][0]["goal"] == "Archive and complete."
 
 
 # ===========================================================================

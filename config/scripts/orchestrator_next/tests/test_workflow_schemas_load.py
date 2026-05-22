@@ -1,8 +1,7 @@
 """
 Workflow schema load test — exercises the real schemas in config/workflows/
 through generate_plan to catch syntax breaks, missing step contracts,
-malformed flag definitions, and include-resolution failures before
-they hit autopilot.
+and malformed flag definitions before they hit autopilot.
 
 Closes the T-0 gap from .tmp/develop-schema-spec.md: previously no test
 loaded the production workflow YAMLs, so freehand schema edits had no
@@ -35,8 +34,7 @@ _REPO_ROOT = _REAL_HOME.parent
 _WORKFLOWS_DIR = _REAL_HOME / "workflows"
 
 # Schemas exercised by orchestrate / autopilot. Excludes:
-#   _complete-phase, _complete-phase-spike — include-only fragments
-#   autopilot, bootstrap                   — inline-script-driven, not run via generate_plan
+#   autopilot, bootstrap — inline-script-driven, not run via generate_plan
 _USER_FACING_SCHEMAS = ["feature", "bugfix", "spike", "bootstrap"]
 
 _STEP_REF_RE = re.compile(r"^([a-zA-Z0-9_-]+)(?:\s+if\s+(?:not\s+)?[a-zA-Z0-9_]+)?$")
@@ -53,21 +51,11 @@ def _step_id_of(entry):
 
 
 def _resolve_phases_for_test(schema):
-    """Mirror generate_plan._resolve_phases minimally, expanding `include:` entries."""
+    """Mirror generate_plan._resolve_phases minimally for legacy multi-phase schemas."""
     raw_phases = schema.get("phases", [])
     out = []
     for phase in raw_phases:
-        if "include" in phase:
-            include_path = _WORKFLOWS_DIR / f"{phase['include']}.yaml"
-            included = yaml.safe_load(include_path.read_text())
-            merged = dict(included)
-            for k, v in phase.items():
-                if k == "include":
-                    continue
-                merged[k] = v
-            out.append(merged)
-        else:
-            out.append(phase)
+        out.append(phase)
     return out
 
 
