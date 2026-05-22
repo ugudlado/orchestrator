@@ -1,0 +1,1566 @@
+change_id: orc-67
+slug: orc-67
+schema: feature
+status: completed
+repo_root: /Users/spidey/code/orchestrator
+flags:
+  worktree: true
+  merge_to_main: false
+  phase_review: true
+  portless: true
+  metrics: true
+  ux_design: false
+  tdd_required: true
+  auto: false
+  agents: false
+  light: false
+workflow_plan:
+  main:
+    nodes:
+    - id: explore
+      status: completed
+      agent: discoverer
+      goal: ''
+      inputs: []
+      outputs:
+      - discovery_result
+      rules:
+      - Focus on problem-space survey, NOT solution design (design-and-draft-artifacts
+        owns that).
+      - Capture unresolved questions explicitly.
+      - Scope research to the codebase unless description references external technology.
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+    - id: design-and-draft-artifacts
+      status: completed
+      agent: architect
+      goal: ''
+      inputs:
+      - discovery_result
+      outputs:
+      - design.md
+      - tasks.md
+      - updated_artifact_set
+      - design_direction
+      - complexity
+      rules:
+      - "Design selection and artifact writing happen in one spawn \u2014 no round-trip\
+        \ between them."
+      - Keep artifact content traceable to accepted requirements.
+      - "Avoid implementation details in design.md \u2014 those belong in tasks."
+      - "Keep scope explicit \u2014 design.md must declare both goals and non-goals."
+      - "Make acceptance criteria testable \u2014 each AC must be verifiable by a\
+        \ concrete command or assertion."
+      - "Resolve major design decisions before implementation begins \u2014 do not\
+        \ defer to the implementation phase."
+      - Tasks must be small, verifiable, and ordered.
+      - Attach verification criteria per task.
+      - Output MUST follow the Task Format Contract in contracts/artifact-formats.md.
+      - 'When flags.bugfix is true: first task MUST be the regression test, second
+        task MUST be the fix. Order matters.'
+      - 'When spec or design introduces a new archive/state path for any producer
+        (autopilot, spike, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`)
+        and confirm the new path is matched before committing the artifact. Otherwise
+        downstream consumers (telemetry, learn, workflow-improver) silently skip the
+        new producer. <!-- learned: 2026-04-16, source: HL-278, cycle: 10, hits: 14,
+        misses: 1, repo: orchestrator -->'
+      - "SQL sketches in design.md that reference specific field names must be validated\
+        \ against a live row from the target DB (or schema file) before finalizing.\
+        \ Add an explicit note in the task or run a one-query T-0 validation \u2014\
+        \ field name drift between sketch and schema is a common first-review failure.\
+        \ <!-- learned: 2026-04-17, source: learn-and-telemetry-on-duckdb, cycle:\
+        \ 12, hits: 12, misses: 1, repo: orchestrator -->"
+      - "Design claims about caller-site capabilities (e.g., 'X already holds an open\
+        \ connection', 'Y already imports Z', 'the caller has access to W') must be\
+        \ verified by grep against HEAD before finalizing the artifact \u2014 not\
+        \ inferred from pattern-matching similar code paths. Unverified caller-site\
+        \ claims that prove false become critical findings at phase review and force\
+        \ a full re-spin of all three artifacts. <!-- learned: 2026-04-20, source:\
+        \ pricing-table-in-duckdb, cycle: 16, hits: 9, misses: 1, repo: orchestrator\
+        \ -->"
+      - 'Performance budgets in design.md must cite absolute production targets (e.g.,
+        ''p99 < 10ms per call under production load'') rather than synthetic microbenchmark
+        targets (e.g., ''1000 calls in 50ms in a tight loop''). Microbenchmark budgets
+        are easy to set but mislead developers into pivoting away from correct designs
+        when the benchmark fails under artificial conditions that do not match the
+        real workload. <!-- learned: 2026-04-20, source: pricing-table-in-duckdb,
+        cycle: 16, hits: 9, misses: 1, repo: orchestrator -->'
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - explore
+    - id: preview-route
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - design-and-draft-artifacts
+    - id: capture-test-baseline
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - preview-route
+    - id: execute-next-task
+      status: completed
+      agent: developer
+      goal: ''
+      inputs:
+      - tasks.md
+      outputs:
+      - task_execution_result
+      rules:
+      - Pick only ready tasks (dependencies satisfied).
+      - Keep code changes scoped to the selected task.
+      - Mark task progress immediately after execution.
+      - Global retry cap: "if total retries across all tasks in this phase exceeds\
+          \ 10, follow Escalation Protocol (CONVENTIONS.md \xA7 Error Recovery Contract).\
+          \ Prevents infinite retry loops across many tasks."
+      - ? When keeping an intentionally broad pattern (e.g., `except Exception`),
+          annotate it inline with a justification comment (e.g., `# Intentionally
+          broad
+        : <reason>`). Silent exceptions must never be ambiguous.
+      - "When replacing a tool or artifact (e.g., poetry\u2192uv, webpack\u2192vite),\
+        \ delete the old tool's generated files from disk \u2014 even if gitignored.\
+        \ Stale artifacts cause confusion."
+      - When the task references ux-prototype.html, read it as a visual reference
+        for the approved design direction. Match layout, styling, and interaction
+        patterns from the prototype. If ux-prototype.html does not exist, proceed
+        from spec text alone.
+      - 'When flags.tdd_required is true, follow strict red-green-refactor: write
+        the failing test first, run it and confirm it fails for the expected reason
+        (feature missing, not typo), then write the minimal code to pass, then refactor
+        with tests green. No production code without a failing test first. Use real
+        code over mocks unless unavoidable; if mock setup is longer than test logic,
+        the test is wrong. Cover edge cases and error paths.'
+      - 'When flags.light is true: keep changes minimal and focused. No scope creep.
+        One concern per change.'
+      - "When flags.bugfix is true: write the regression test BEFORE the fix \u2014\
+        \ the test must fail until the fix lands. Make the smallest change that fixes\
+        \ the root cause; prefer changing 1 line over 5. Use existing patterns in\
+        \ the codebase over introducing new ones. Do NOT refactor surrounding code,\
+        \ add unnecessary error handling, or add comments to unchanged code."
+      - 'When flags.bugfix is true: after implementing the fix, re-run the reproduction
+        script from diagnosis.md to confirm it works. Then check whether the change
+        could break other callers of the modified code.'
+      - "When removing or renaming a step/artifact from a workflow schema, grep the\
+        \ entire config directory for ALL references to it (step contracts, conventions,\
+        \ other schemas, agent definitions) \u2014 not just the files listed in the\
+        \ spec. Stale references cause behavioral bugs in auto-approval and validation\
+        \ paths. <!-- learned: 2026-04-11, source: HL-272, cycle: 14, hits: 15, misses:\
+        \ 1, repo: orchestrator -->"
+      - "When removing a block from a prose file (SKILL.md, CONVENTIONS.md, agent\
+        \ definition), grep the entire file for forward references pointing to that\
+        \ block ('below', 'above', 'see \xA7', 'YAML glob below') and update or remove\
+        \ them atomically in the same commit. Dangling forward references pass tests\
+        \ but break the reader's mental model and fail phase review. <!-- learned:\
+        \ 2026-04-17, source: learn-and-telemetry-on-duckdb, cycle: 12, hits: 12,\
+        \ misses: 1, repo: orchestrator -->"
+      - "Do not modify files outside the task's declared Files: list, even for observations\
+        \ that feel like improvements (new backlog entries, follow-up tickets, documentation\
+        \ drift, unrelated test fixes). Mid-task observations belong in the commit\
+        \ footer or the step evidence block \u2014 not in files that are not task-scoped.\
+        \ Out-of-scope edits will be reverted by the driver and add noise to the diff.\
+        \ <!-- learned: 2026-04-20, source: pricing-table-in-duckdb, cycle: 16, hits:\
+        \ 8, misses: 1, repo: orchestrator -->"
+      - "When design.md's AC Verify line names a specific test file and method (e.g.,\
+        \ `test_dispatch_resume.py::test_resume_emits_stderr_log`), the developer\
+        \ MUST produce an executable test \u2014 even if the contract under test is\
+        \ a prompt, skill file, or prose artifact. A fixture or subprocess test can\
+        \ stand in for a non-executable target. Do not silently substitute a prose-only\
+        \ contract. If an executable test is genuinely infeasible (e.g., the target\
+        \ is a multi-process system with no injectable seam), escalate to the architect\
+        \ per contracts/architect-escalation.md with explicit justification before\
+        \ the task is marked complete. <!-- learned: 2026-04-21, source: durable-intent-and-resume,\
+        \ cycle: 17, hits: 8, misses: 1, repo: orchestrator -->"
+      - "When a task's AC Verify line contains a grep or pattern-match command against\
+        \ a file the task modifies (e.g., `grep -E 'pattern' some-file.md`), run that\
+        \ exact command on the modified file before committing. A comment spanning\
+        \ multiple lines can satisfy the semantic intent but fail a single-line grep\
+        \ \u2014 verify the pattern matches the written text, not just the concept.\
+        \ <!-- learned: 2026-05-10, source: orc-48, cycle: 14, hits: 1, misses: 0,\
+        \ repo: orchestrator -->"
+      - "For any task or ticket management (create, edit, list, claim, close), load\
+        \ the /backlog-manager skill first \u2014 it detects the correct backend (Linear\
+        \ or Backlog.md) per repo and delegates to /linear or /backlog accordingly.\
+        \ Never assume the backend. When the backend is Backlog.md, use the globally\
+        \ installed `backlog` binary \u2014 never `bun run cli`."
+      - "When flags.tdd_required is true AND the task is a pure mechanical change\
+        \ (rename, move, delete with no behavioral change), there is no meaningful\
+        \ RED step \u2014 the suite passes with either the old or new name. Satisfy\
+        \ tdd_required by sequencing a regression-guard test task first (verify existing\
+        \ tests stay green after the rename) rather than fabricating a failing test.\
+        \ Do NOT invent a RED step that doesn't reflect the actual change. <!-- learned:\
+        \ 2026-05-19, source: orc-59, cycle: 1, hits: 0, misses: 0, repo: orchestrator\
+        \ -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      repeat_until: all_tasks_completed
+      depends_on:
+      - capture-test-baseline
+    - id: run-phase-review
+      status: completed
+      agent: reviewer
+      goal: ''
+      inputs:
+      - task_execution_result
+      outputs:
+      - phase_review_report
+      rules:
+      - "Target score is quality_bar.min_phase_review_score from project.yaml \u2014\
+        \ retry until met."
+      - "Maximum retries from quality_bar.max_retry_rounds \u2014 escalate to user\
+        \ if exhausted."
+      - "When flags.light is true: lower target review_score to 7 and max_retries\
+        \ to 4 \u2014 light mode trades quality bar for speed on tight-scope changes."
+      - Run type-check + test + build commands at every phase boundary before scoring.
+      - "Capture concrete findings with fix direction \u2014 every finding must be\
+        \ actionable."
+      - Issues found during verification become new tasks in the current phase. Never
+        skip ahead with unresolved findings.
+      - "Do not advance with unresolved critical findings \u2014 these block phase\
+        \ completion regardless of overall score."
+      - 'When flags.bugfix is true: zero regressions tolerated. No existing tests
+        may break.'
+      - "Fix tasks must be minimal and scoped to the specific failure \u2014 no refactoring,\
+        \ no improvements."
+      - "Score of 10 is a first-pass bonus \u2014 only achievable when no retries\
+        \ were used this round."
+      - "Operate at staff-level review quality \u2014 catch architectural issues,\
+        \ not just surface bugs."
+      - Artifact structural compliance with contracts/artifact-formats.md format contracts
+        is a review criterion.
+      - "When a finding requires a new requirement, the fix MUST update design.md\
+        \ (AC + design) and tasks.md atomically \u2014 partial updates that sync only\
+        \ one artifact leave the feature in an inconsistent state and will fail re-review.\
+        \ <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb, cycle: 11,\
+        \ hits: 8, misses: 6, repo: orchestrator -->"
+      - "For tasks that spec describes as a rewrite, projection, or byte-compatible\
+        \ replacement of an existing producer, AC verification MUST include a value/shape\
+        \ parity check against at least one real payload from the prior implementation\
+        \ \u2014 key-presence alone is insufficient. Reviewer must run both the old\
+        \ producer and the new one on a real archived fixture and diff the top-level\
+        \ output keys; any key reduction is an important finding. <!-- learned: 2026-04-20,\
+        \ source: single-source-metrics-via-step-events, cycle: 12, hits: 7, misses:\
+        \ 2, repo: orchestrator -->"
+      - "Before scoring the phase, count unchecked items (`- [ ]`) in tasks.md. If\
+        \ any unchecked tasks remain and they are not explicitly quarantined in state.yaml,\
+        \ write phase-review.md with verdict incomplete_phase listing the unchecked\
+        \ task IDs \u2014 return COMPLETION with outputs.phase_review_report: {verdict:\
+        \ incomplete_phase} and do NOT include review_score. This guards against dispatcher\
+        \ bugs or manual advances that reach run-phase-review before all tasks are\
+        \ complete. <!-- learned: 2026-05-08, source: hl-303, cycle: 38, hits: 6,\
+        \ misses: 0, repo: orchestrator -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - execute-next-task
+    - id: compute-prediction-accuracy
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - run-phase-review
+    - id: run-learn-cycle
+      status: in_progress
+      agent: workflow-improver
+      goal: ''
+      inputs:
+      - '{''final_signoff_decision'': ''optional''}'
+      outputs:
+      - learn_result
+      rules:
+      - "Learning failure is non-blocking \u2014 if /learn fails, log a warning and\
+        \ return success."
+      - Read state.yaml from the active change directory (this step runs before archive).
+      - In --auto mode, rule changes apply without user confirmation.
+      - "Never skip compute-prediction-accuracy or run-learn-cycle steps during autopilot\
+        \ \u2014 these feed the self-improving loop and must run even when --auto\
+        \ is set. A `skipped: true` outcome is only valid when an enumerated gating\
+        \ flag is set (e.g. ux_design=false for ux steps, learn=false for run-learn-cycle).\
+        \ Session token budget, time pressure, 'capture via retro', or any cost-based\
+        \ justification is NEVER a valid skip reason for feedback-loop steps. Budget\
+        \ pressure is a signal to stop earlier, not to skip learning. <!-- learned:\
+        \ 2026-04-05, source: HL-203, cycle: 6, hits: 11, misses: 1, repo: orchestrator\
+        \ -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - compute-prediction-accuracy
+    - id: mark-change-completed
+      status: pending
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - run-learn-cycle
+    - id: compute-swe-metrics
+      status: pending
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - mark-change-completed
+    - id: archive-completed-change
+      status: pending
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - compute-swe-metrics
+    - id: remove-worktree
+      status: pending
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - remove-worktree MUST be preceded by archive-completed-change in the same phase.
+        archive-completed-change copies state.yaml and all artifacts out of the worktree
+        into the repo archive; removing the worktree before that step destroys state
+        with no recovery path.
+      - When merge_to_main is enabled (--autopilot), remove-worktree MUST run after
+        merge-to-main so branch deletion succeeds with git branch -d.
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      depends_on:
+      - archive-completed-change
+    filtered:
+    - id: ux-design
+      reason: flag ux_design=false
+    - id: run-ux-critique
+      reason: flag ux_design=false
+    - id: merge-to-main
+      reason: flag merge_to_main=false
+phase: main
+next_step:
+  phase: main
+  step_id: run-learn-cycle
+step_history:
+- step_id: explore
+  phase: main
+  status: completed
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-05-21T21:24:46Z'
+  ended_at: '2026-05-21T21:24:46Z'
+  usage:
+    input_tokens: 63
+    output_tokens: 10320
+    cache_read_input_tokens: 2978321
+    cache_creation_input_tokens: 207258
+    model: claude-sonnet-4-6
+    turns: 57
+    duration_ms: 320981
+    tool_calls:
+      Bash: 19
+      Read: 25
+      Write: 1
+    tool_calls_detail:
+    - tool_name: Bash
+      tool_use_id: toolu_01G7T59RRbyXmp8Dy5FtQTjp
+      is_mcp: false
+      started_at: '2026-05-21T21:19:11.967Z'
+      duration_ms: 221
+    - tool_name: Bash
+      tool_use_id: toolu_01XgBR4qHjNV9ZYTwX5CMqcD
+      is_mcp: false
+      started_at: '2026-05-21T21:19:12.103Z'
+      duration_ms: 195
+    - tool_name: Bash
+      tool_use_id: toolu_01S5R76T2g5HXQYs8KG5QT54
+      is_mcp: false
+      started_at: '2026-05-21T21:19:12.322Z'
+      duration_ms: 197
+    - tool_name: Read
+      tool_use_id: toolu_0166VUmrvCgZXdYog8YfUwLd
+      is_mcp: false
+      started_at: '2026-05-21T21:19:15.983Z'
+      duration_ms: 251
+    - tool_name: Read
+      tool_use_id: toolu_01DshWZjUo44tn4ML7a2DEte
+      is_mcp: false
+      started_at: '2026-05-21T21:19:16.847Z'
+      duration_ms: 251
+    - tool_name: Read
+      tool_use_id: toolu_01YUShjhMYCNJtXhzMvqqfmT
+      is_mcp: false
+      started_at: '2026-05-21T21:19:17.362Z'
+      duration_ms: 240
+    - tool_name: Bash
+      tool_use_id: toolu_01JRpuFv5a3LPjAvrx5Lmnr8
+      is_mcp: false
+      started_at: '2026-05-21T21:19:21.827Z'
+      duration_ms: 268
+    - tool_name: Read
+      tool_use_id: toolu_017VUnHFVVCPjW34xtkY3Q24
+      is_mcp: false
+      started_at: '2026-05-21T21:19:22.121Z'
+      duration_ms: 199
+    - tool_name: Read
+      tool_use_id: toolu_01FJdTwqNKczwr7TLnSrjuFN
+      is_mcp: false
+      started_at: '2026-05-21T21:19:26.141Z'
+      duration_ms: 246
+    - tool_name: Read
+      tool_use_id: toolu_01EVa3SR48y9EbnKaHHHUntP
+      is_mcp: false
+      started_at: '2026-05-21T21:19:26.607Z'
+      duration_ms: 234
+    - tool_name: Read
+      tool_use_id: toolu_019L9i4YWzvtGDucYmeVhP4p
+      is_mcp: false
+      started_at: '2026-05-21T21:19:30.429Z'
+      duration_ms: 252
+    - tool_name: Read
+      tool_use_id: toolu_016U1ZkfJjHQ4CQVFpMXFwis
+      is_mcp: false
+      started_at: '2026-05-21T21:19:30.895Z'
+      duration_ms: 237
+    - tool_name: Bash
+      tool_use_id: toolu_01UjWuSFKF6jYsLXyNFuymGj
+      is_mcp: false
+      started_at: '2026-05-21T21:19:34.722Z'
+      duration_ms: 264
+    - tool_name: Bash
+      tool_use_id: toolu_018hUHLmojwDKMPCrDvXRCkM
+      is_mcp: false
+      started_at: '2026-05-21T21:19:36.002Z'
+      duration_ms: 271
+    - tool_name: Bash
+      tool_use_id: toolu_01LWmkh7UQACoD8AnyUS1UU8
+      is_mcp: false
+      started_at: '2026-05-21T21:19:39.423Z'
+      duration_ms: 276
+    - tool_name: Read
+      tool_use_id: toolu_01FCZubRes9jP3BbCRxrwwKy
+      is_mcp: false
+      started_at: '2026-05-21T21:19:39.979Z'
+      duration_ms: 250
+    - tool_name: Read
+      tool_use_id: toolu_01PpJ3s2Cnik1sPmGiVu9W7q
+      is_mcp: false
+      started_at: '2026-05-21T21:19:44.121Z'
+      duration_ms: 256
+    - tool_name: Read
+      tool_use_id: toolu_01MogsdWeWMEbGgQPqkyTgMc
+      is_mcp: false
+      started_at: '2026-05-21T21:19:44.575Z'
+      duration_ms: 248
+    - tool_name: Read
+      tool_use_id: toolu_01L6Hp5i2iPuScyghQe88oqj
+      is_mcp: false
+      started_at: '2026-05-21T21:19:47.943Z'
+      duration_ms: 253
+    - tool_name: Read
+      tool_use_id: toolu_01R3BLov8EWWvntofHjmHYX7
+      is_mcp: false
+      started_at: '2026-05-21T21:19:48.620Z'
+      duration_ms: 250
+    - tool_name: Read
+      tool_use_id: toolu_01Qu9ETeKMaLhV1gbv2LwTeh
+      is_mcp: false
+      started_at: '2026-05-21T21:19:51.852Z'
+      duration_ms: 258
+    - tool_name: Bash
+      tool_use_id: toolu_01Tad3DRgFwEmx2ui9gJ2KNv
+      is_mcp: false
+      started_at: '2026-05-21T21:19:53.287Z'
+      duration_ms: 257
+    - tool_name: Read
+      tool_use_id: toolu_01A1u7kL71oKyj7YwtvFSypu
+      is_mcp: false
+      started_at: '2026-05-21T21:19:56.961Z'
+      duration_ms: 252
+    - tool_name: Bash
+      tool_use_id: toolu_01BkHZpFunEkxh8Ct4JjpmFu
+      is_mcp: false
+      started_at: '2026-05-21T21:19:58.271Z'
+      duration_ms: 268
+    - tool_name: Read
+      tool_use_id: toolu_012w8AvUAsnvRG81iUgQwS5F
+      is_mcp: false
+      started_at: '2026-05-21T21:20:03.082Z'
+      duration_ms: 262
+    - tool_name: Read
+      tool_use_id: toolu_016S5BYt3zztPnfYDK8cYQFC
+      is_mcp: false
+      started_at: '2026-05-21T21:20:03.840Z'
+      duration_ms: 257
+    - tool_name: Read
+      tool_use_id: toolu_015rHMRAeDddsxMJrmf8b7Eo
+      is_mcp: false
+      started_at: '2026-05-21T21:20:07.800Z'
+      duration_ms: 251
+    - tool_name: Read
+      tool_use_id: toolu_01HtGYJtkvfwztiD9eWPyaR8
+      is_mcp: false
+      started_at: '2026-05-21T21:20:11.031Z'
+      duration_ms: 254
+    - tool_name: Bash
+      tool_use_id: toolu_01TBYVizkNCzh1jrdrBfm5nM
+      is_mcp: false
+      started_at: '2026-05-21T21:20:12.762Z'
+      duration_ms: 275
+    - tool_name: Bash
+      tool_use_id: toolu_01NLBTv6gYheyEDgY1Lv2WXR
+      is_mcp: false
+      started_at: '2026-05-21T21:20:16.022Z'
+      duration_ms: 267
+    - tool_name: Read
+      tool_use_id: toolu_01BD1rqYjD9nr6Ra9SVnrcgs
+      is_mcp: false
+      started_at: '2026-05-21T21:20:16.443Z'
+      duration_ms: 230
+    - tool_name: Bash
+      tool_use_id: toolu_01HPHWK5aAf6s1hDQdFhV6BC
+      is_mcp: false
+      started_at: '2026-05-21T21:20:19.986Z'
+      duration_ms: 271
+    - tool_name: Bash
+      tool_use_id: toolu_01Y7xojNjC2nL2MxLFzgBsk8
+      is_mcp: false
+      started_at: '2026-05-21T21:20:21.466Z'
+      duration_ms: 274
+    - tool_name: Bash
+      tool_use_id: toolu_012bbgveWAoaxuUd7e3u4gGU
+      is_mcp: false
+      started_at: '2026-05-21T21:20:24.820Z'
+      duration_ms: 266
+    - tool_name: Read
+      tool_use_id: toolu_01EpEpKxXfEAwScUKwZwZkrD
+      is_mcp: false
+      started_at: '2026-05-21T21:20:25.721Z'
+      duration_ms: 251
+    - tool_name: Bash
+      tool_use_id: toolu_015uew9f6ZR6GqFwKoneeMh8
+      is_mcp: false
+      started_at: '2026-05-21T21:21:28.652Z'
+      duration_ms: 275
+    - tool_name: Bash
+      tool_use_id: toolu_017EnWQjJ5TvyvWBMYrFDJSU
+      is_mcp: false
+      started_at: '2026-05-21T21:21:30.341Z'
+      duration_ms: 261
+    - tool_name: Read
+      tool_use_id: toolu_01YA3aYXAVNHfcL2R33t2o57
+      is_mcp: false
+      started_at: '2026-05-21T21:21:33.470Z'
+      duration_ms: 251
+    - tool_name: Read
+      tool_use_id: toolu_01GrL43b6x1wxrNTWbq8V5MV
+      is_mcp: false
+      started_at: '2026-05-21T21:21:33.920Z'
+      duration_ms: 249
+    - tool_name: Write
+      tool_use_id: toolu_017bqGA2KhWFVD16yHrgQRCY
+      is_mcp: false
+      started_at: '2026-05-21T21:23:32.355Z'
+      duration_ms: 311
+    - tool_name: Read
+      tool_use_id: toolu_013HtXuWnv3CqMDZMujExRFm
+      is_mcp: false
+      started_at: '2026-05-21T21:24:12.729Z'
+      duration_ms: 262
+    - tool_name: Bash
+      tool_use_id: toolu_019P9LTd3soRyTAWF1nLmNX1
+      is_mcp: false
+      started_at: '2026-05-21T21:24:16.998Z'
+      duration_ms: 264
+    - tool_name: Read
+      tool_use_id: toolu_01N27tdzUVathdGseBCCdTsZ
+      is_mcp: false
+      started_at: '2026-05-21T21:24:19.665Z'
+      duration_ms: 257
+    - tool_name: Bash
+      tool_use_id: toolu_01XzziQ8AM3fpEr5HFGtiWQ5
+      is_mcp: false
+      started_at: '2026-05-21T21:24:24.205Z'
+      duration_ms: 296
+    - tool_name: Bash
+      tool_use_id: toolu_015xhcz8jZx963yCQN4JJgnf
+      is_mcp: false
+      started_at: '2026-05-21T21:24:26.748Z'
+      duration_ms: 261
+    agent_id: ab97abb08fa082bad
+    cost_usd: 1.8257027999999997
+  evidence:
+    outputs:
+      discovery_result:
+        path: discovery.md
+    summary: 'Discovery brief for ORC-67 written. 3 approaches (record.py verdict
+      branch / driver-side check / DAG back-edge) characterized with tradeoffs; 7
+      open questions for design including a contract disagreement on needs_work terminal
+      status. Recommendation: defer locus choice to design step.'
+    counts:
+      approaches_considered: 3
+      open_questions: 7
+  artifacts:
+  - discovery.md
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: architect
+  attempt: 1
+  started_at: '2026-05-21T21:33:00Z'
+  ended_at: '2026-05-21T21:33:00Z'
+  usage:
+    input_tokens: 129
+    output_tokens: 23227
+    cache_read_input_tokens: 4980963
+    cache_creation_input_tokens: 287258
+    model: claude-opus-4-7
+    turns: 65
+    duration_ms: 418930
+    tool_calls:
+      Read: 15
+      Bash: 14
+      Write: 2
+      Edit: 6
+    tool_calls_detail:
+    - tool_name: Read
+      tool_use_id: toolu_019yh1voGDqQAf78mfJcJNGR
+      is_mcp: false
+      started_at: '2026-05-21T21:25:27.974Z'
+      duration_ms: 238
+    - tool_name: Read
+      tool_use_id: toolu_01QnuTQTYbPUtscafF7qb6Cp
+      is_mcp: false
+      started_at: '2026-05-21T21:25:28.112Z'
+      duration_ms: 185
+    - tool_name: Read
+      tool_use_id: toolu_01MLXyaK2eNoQrcLPeAQMiaD
+      is_mcp: false
+      started_at: '2026-05-21T21:25:31.168Z'
+      duration_ms: 251
+    - tool_name: Read
+      tool_use_id: toolu_016tKq3HYrUtdkAMS1zoUHuS
+      is_mcp: false
+      started_at: '2026-05-21T21:25:31.404Z'
+      duration_ms: 184
+    - tool_name: Read
+      tool_use_id: toolu_01DRjoEjdU51Boo8xzACv4gL
+      is_mcp: false
+      started_at: '2026-05-21T21:25:34.018Z'
+      duration_ms: 256
+    - tool_name: Read
+      tool_use_id: toolu_014CbtangFWH6aU853ub1W2F
+      is_mcp: false
+      started_at: '2026-05-21T21:25:34.338Z'
+      duration_ms: 236
+    - tool_name: Read
+      tool_use_id: toolu_01UoiM71FXaYT8pJmMpmQ2q7
+      is_mcp: false
+      started_at: '2026-05-21T21:25:38.191Z'
+      duration_ms: 256
+    - tool_name: Bash
+      tool_use_id: toolu_019XUYWfHjXPBRjz8duihkjy
+      is_mcp: false
+      started_at: '2026-05-21T21:25:39.057Z'
+      duration_ms: 277
+    - tool_name: Read
+      tool_use_id: toolu_01Dt8ejKx3ZrUVhHfq682Yf7
+      is_mcp: false
+      started_at: '2026-05-21T21:25:42.245Z'
+      duration_ms: 260
+    - tool_name: Read
+      tool_use_id: toolu_01QJPiCo3bFHH5KTrHejgoi5
+      is_mcp: false
+      started_at: '2026-05-21T21:25:42.415Z'
+      duration_ms: 193
+    - tool_name: Bash
+      tool_use_id: toolu_01LBZb9H5JnzrEHo7MqpszPX
+      is_mcp: false
+      started_at: '2026-05-21T21:25:46.407Z'
+      duration_ms: 283
+    - tool_name: Bash
+      tool_use_id: toolu_01USHPcu1ez2h9xgqME2pobN
+      is_mcp: false
+      started_at: '2026-05-21T21:25:46.894Z'
+      duration_ms: 245
+    - tool_name: Read
+      tool_use_id: toolu_011N26bqcaCaZEjMRSEamqvH
+      is_mcp: false
+      started_at: '2026-05-21T21:25:50.247Z'
+      duration_ms: 248
+    - tool_name: Bash
+      tool_use_id: toolu_01FnBBgJaNZ1cCyajpx8um54
+      is_mcp: false
+      started_at: '2026-05-21T21:25:50.989Z'
+      duration_ms: 265
+    - tool_name: Bash
+      tool_use_id: toolu_013bk5Wimxsb2a4vsq5w6Aaf
+      is_mcp: false
+      started_at: '2026-05-21T21:25:54.060Z'
+      duration_ms: 271
+    - tool_name: Bash
+      tool_use_id: toolu_015U8BeJYzWy7uuAm78joNmc
+      is_mcp: false
+      started_at: '2026-05-21T21:25:58.753Z'
+      duration_ms: 272
+    - tool_name: Read
+      tool_use_id: toolu_01RhpaQAzU5Sa6Bzv4zZbBex
+      is_mcp: false
+      started_at: '2026-05-21T21:25:59.095Z'
+      duration_ms: 230
+    - tool_name: Read
+      tool_use_id: toolu_014CdrazVkuMCmRG7fQfYosj
+      is_mcp: false
+      started_at: '2026-05-21T21:26:03.411Z'
+      duration_ms: 261
+    - tool_name: Bash
+      tool_use_id: toolu_01KA9467RZkX4XvMTGt9DfXM
+      is_mcp: false
+      started_at: '2026-05-21T21:26:07.555Z'
+      duration_ms: 271
+    - tool_name: Read
+      tool_use_id: toolu_01NAD983ZzWCyntjk1MChEKu
+      is_mcp: false
+      started_at: '2026-05-21T21:26:10.136Z'
+      duration_ms: 251
+    - tool_name: Bash
+      tool_use_id: toolu_01DzL6aoy82ypqmyHBeAgrJq
+      is_mcp: false
+      started_at: '2026-05-21T21:26:11.383Z'
+      duration_ms: 40
+    - tool_name: Bash
+      tool_use_id: toolu_01DKo5iZZnnSmefN6kEKL9aQ
+      is_mcp: false
+      started_at: '2026-05-21T21:26:14.772Z'
+      duration_ms: 275
+    - tool_name: Bash
+      tool_use_id: toolu_01NrK4K6DzpzVNbs5tryjKY7
+      is_mcp: false
+      started_at: '2026-05-21T21:27:58.456Z'
+      duration_ms: 307
+    - tool_name: Bash
+      tool_use_id: toolu_01P3VRJWzyixid4qqr2zKtVY
+      is_mcp: false
+      started_at: '2026-05-21T21:28:03.148Z'
+      duration_ms: 271
+    - tool_name: Bash
+      tool_use_id: toolu_011QiqUGUfa2cQ6iMNSEreXV
+      is_mcp: false
+      started_at: '2026-05-21T21:28:09.306Z'
+      duration_ms: 261
+    - tool_name: Bash
+      tool_use_id: toolu_0119xPhP1nGuwhQMEVJUWXcv
+      is_mcp: false
+      started_at: '2026-05-21T21:28:11.559Z'
+      duration_ms: 269
+    - tool_name: Bash
+      tool_use_id: toolu_01PFBpmV9pJ8HrA1awaKkpXA
+      is_mcp: false
+      started_at: '2026-05-21T21:28:13.823Z'
+      duration_ms: 263
+    - tool_name: Read
+      tool_use_id: toolu_01CS2wquUZGhBivKCnHT1KfX
+      is_mcp: false
+      started_at: '2026-05-21T21:28:18.635Z'
+      duration_ms: 252
+    - tool_name: Read
+      tool_use_id: toolu_01RUFtDaTA4XB4F4eWis7tt3
+      is_mcp: false
+      started_at: '2026-05-21T21:28:18.702Z'
+      duration_ms: 268
+    - tool_name: Write
+      tool_use_id: toolu_01RNrARhH1zHeZVoLvYdhZ8P
+      is_mcp: false
+      started_at: '2026-05-21T21:29:14.443Z'
+      duration_ms: 306
+    - tool_name: Write
+      tool_use_id: toolu_01Lwqp3hYg9ArhJCTM1yQnBJ
+      is_mcp: false
+      started_at: '2026-05-21T21:29:31.436Z'
+      duration_ms: 275
+    - tool_name: Edit
+      tool_use_id: toolu_01S5syaFis3RBDpvvB166AZF
+      is_mcp: false
+      started_at: '2026-05-21T21:29:43.452Z'
+      duration_ms: 270
+    - tool_name: Edit
+      tool_use_id: toolu_01RLaMzSuhZpB8GXQR9YXJQ7
+      is_mcp: false
+      started_at: '2026-05-21T21:31:45.555Z'
+      duration_ms: 305
+    - tool_name: Edit
+      tool_use_id: toolu_01YRV1qqm79pPce91qgz2Su8
+      is_mcp: false
+      started_at: '2026-05-21T21:31:48.853Z'
+      duration_ms: 276
+    - tool_name: Edit
+      tool_use_id: toolu_0114x2KHR7sRdRpAeCmLrxPi
+      is_mcp: false
+      started_at: '2026-05-21T21:31:52.424Z'
+      duration_ms: 262
+    - tool_name: Edit
+      tool_use_id: toolu_01LQdsR4qi9UdqnzkSLtKeGn
+      is_mcp: false
+      started_at: '2026-05-21T21:31:59.318Z'
+      duration_ms: 267
+    - tool_name: Edit
+      tool_use_id: toolu_019xB4Kfh3o2gUyXfG9HzLLJ
+      is_mcp: false
+      started_at: '2026-05-21T21:32:06.322Z'
+      duration_ms: 276
+    agent_id: a786e244d39980bd9
+    cost_usd: 14.601492
+  evidence:
+    outputs:
+      design.md: spec/changes/orc-67/design.md
+      tasks.md: spec/changes/orc-67/tasks.md
+      updated_artifact_set:
+      - spec/changes/orc-67/design.md
+      - spec/changes/orc-67/tasks.md
+      - spec/changes/orc-67/discovery.md
+      design_direction: "Approach 1 \u2014 Verdict-aware branch in record.py (mirror\
+        \ repeat_until)"
+      complexity: M
+    summary: ORC-67 design.md + tasks.md generated and user-approved. Approach 1 (record.py
+      verdict branch), complexity M. 8 ACs traced to 7 use cases; 7 open questions
+      resolved. 6 TDD-ordered tasks (T-1 contract reconcile, T-2/3 + T-4/5 RED-GREEN
+      pairs, T-6 phase gate).
+    counts:
+      acceptance_criteria: 8
+      tasks: 6
+      open_questions_resolved: 7
+  artifacts:
+  - design.md
+  - tasks.md
+- step_id: preview-route
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-21T21:33:06Z'
+  ended_at: '2026-05-21T21:33:06Z'
+  usage: {}
+  evidence:
+    outputs:
+      route_preview:
+        status: estimate_unavailable
+        reason: 'ERROR: state.yaml not found at /Users/spidey/code/feature_worktrees/orc-67/state.yaml '
+        exit_code: 1
+    summary: inline script completed
+- step_id: capture-test-baseline
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-21T21:33:15Z'
+  ended_at: '2026-05-21T21:33:15Z'
+  usage: {}
+  evidence:
+    outputs:
+      baseline:
+        captured_at: '2026-05-21T21:33:06Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 450
+        failing: 7
+        skipped: 0
+        total: 457
+        exit_code: 1
+    summary: inline script completed
+- step_id: execute-next-task
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-22T02:20:10Z'
+  ended_at: '2026-05-22T02:20:10Z'
+  usage:
+    input_tokens: 226
+    output_tokens: 29668
+    cache_read_input_tokens: 10630734
+    cache_creation_input_tokens: 336393
+    model: claude-opus-4-7
+    turns: 113
+    duration_ms: 657967
+    tool_calls:
+      Read: 15
+      Bash: 35
+      Edit: 13
+      Write: 1
+    tool_calls_detail:
+    - tool_name: Read
+      tool_use_id: toolu_01Uc8ts2ycsFhsjhyDdrnjgv
+      is_mcp: false
+      started_at: '2026-05-22T02:08:36.187Z'
+      duration_ms: 220
+    - tool_name: Read
+      tool_use_id: toolu_01C4Ed5z3PRPDLFPLm72vjt2
+      is_mcp: false
+      started_at: '2026-05-22T02:08:36.430Z'
+      duration_ms: 203
+    - tool_name: Read
+      tool_use_id: toolu_01Kox6cfNCs4cjvKVaUj3QuX
+      is_mcp: false
+      started_at: '2026-05-22T02:08:36.640Z'
+      duration_ms: 180
+    - tool_name: Bash
+      tool_use_id: toolu_01T7ego9CiKZTDdLdtZzfW8B
+      is_mcp: false
+      started_at: '2026-05-22T02:08:40.097Z'
+      duration_ms: 8323
+    - tool_name: Read
+      tool_use_id: toolu_015NFydHnYzmreC8gwxna2em
+      is_mcp: false
+      started_at: '2026-05-22T02:08:40.373Z'
+      duration_ms: 8245
+    - tool_name: Read
+      tool_use_id: toolu_015dixsjRQ4ayUsDMZaYNDkD
+      is_mcp: false
+      started_at: '2026-05-22T02:08:52.793Z'
+      duration_ms: 255
+    - tool_name: Bash
+      tool_use_id: toolu_01ABFnfwPmkqXYbA2tkxeWBE
+      is_mcp: false
+      started_at: '2026-05-22T02:08:54.006Z'
+      duration_ms: 245
+    - tool_name: Read
+      tool_use_id: toolu_01P5HvzTq27SNzmPEHAGytYS
+      is_mcp: false
+      started_at: '2026-05-22T02:08:57.724Z'
+      duration_ms: 256
+    - tool_name: Read
+      tool_use_id: toolu_016EnsitSyBFBxWhXqbNfASN
+      is_mcp: false
+      started_at: '2026-05-22T02:08:58.304Z'
+      duration_ms: 262
+    - tool_name: Bash
+      tool_use_id: toolu_01RnwhKcrH177zJLK8C7CnFP
+      is_mcp: false
+      started_at: '2026-05-22T02:09:02.136Z'
+      duration_ms: 276
+    - tool_name: Read
+      tool_use_id: toolu_01LspxsBVv6UPjvoATG886s5
+      is_mcp: false
+      started_at: '2026-05-22T02:09:07.046Z'
+      duration_ms: 243
+    - tool_name: Read
+      tool_use_id: toolu_019UTVSqFUfAKLmhk6FAvHBH
+      is_mcp: false
+      started_at: '2026-05-22T02:09:07.320Z'
+      duration_ms: 213
+    - tool_name: Bash
+      tool_use_id: toolu_01PaPRLTzbw48e5WZgyXqTpt
+      is_mcp: false
+      started_at: '2026-05-22T02:09:11.549Z'
+      duration_ms: 286
+    - tool_name: Bash
+      tool_use_id: toolu_01AJqKVMtR8zsZbu3YEjtchK
+      is_mcp: false
+      started_at: '2026-05-22T02:09:15.116Z'
+      duration_ms: 264
+    - tool_name: Read
+      tool_use_id: toolu_013U248ERhHMtTdfnq8dkAPS
+      is_mcp: false
+      started_at: '2026-05-22T02:09:19.709Z'
+      duration_ms: 256
+    - tool_name: Read
+      tool_use_id: toolu_01V8kM2BeaWFQx6PG75qn8nU
+      is_mcp: false
+      started_at: '2026-05-22T02:09:23.599Z'
+      duration_ms: 259
+    - tool_name: Read
+      tool_use_id: toolu_01QgCS8UkaDxQcn5qe1eLwXt
+      is_mcp: false
+      started_at: '2026-05-22T02:09:23.778Z'
+      duration_ms: 189
+    - tool_name: Bash
+      tool_use_id: toolu_011ZeWVEMae6yxGGDtCtXTGJ
+      is_mcp: false
+      started_at: '2026-05-22T02:09:27.186Z'
+      duration_ms: 274
+    - tool_name: Bash
+      tool_use_id: toolu_01KEnnrmqyW9SPpdy4F1yzmn
+      is_mcp: false
+      started_at: '2026-05-22T02:09:35.259Z'
+      duration_ms: 281
+    - tool_name: Bash
+      tool_use_id: toolu_019mmHEPJVJYbo6BcLHTMusw
+      is_mcp: false
+      started_at: '2026-05-22T02:11:26.810Z'
+      duration_ms: 306
+    - tool_name: Edit
+      tool_use_id: toolu_01VUB9C4GfAUL1yVJs2cmhvB
+      is_mcp: false
+      started_at: '2026-05-22T02:11:41.907Z'
+      duration_ms: 293
+    - tool_name: Edit
+      tool_use_id: toolu_016wB3FNQc6Y9KXPY8jwaoBx
+      is_mcp: false
+      started_at: '2026-05-22T02:11:42.463Z'
+      duration_ms: 273
+    - tool_name: Bash
+      tool_use_id: toolu_01MhZXgTCuVgk6PFKrcRvxft
+      is_mcp: false
+      started_at: '2026-05-22T02:11:47.310Z'
+      duration_ms: 312
+    - tool_name: Edit
+      tool_use_id: toolu_01XSi84WdXyNAWYoEX7wCzVR
+      is_mcp: false
+      started_at: '2026-05-22T02:11:53.043Z'
+      duration_ms: 276
+    - tool_name: Bash
+      tool_use_id: toolu_014Bd2foZ3yGGhM462P88FvY
+      is_mcp: false
+      started_at: '2026-05-22T02:11:57.289Z'
+      duration_ms: 340
+    - tool_name: Write
+      tool_use_id: toolu_018PKZVCrS9rqXZ62Nb1gc71
+      is_mcp: false
+      started_at: '2026-05-22T02:12:23.673Z'
+      duration_ms: 322
+    - tool_name: Bash
+      tool_use_id: toolu_01FmWd9XbTeLAW9My8HrTgrj
+      is_mcp: false
+      started_at: '2026-05-22T02:12:44.571Z'
+      duration_ms: 634
+    - tool_name: Bash
+      tool_use_id: toolu_015tMWQidAEUEqckdNW5MYes
+      is_mcp: false
+      started_at: '2026-05-22T02:12:56.119Z'
+      duration_ms: 663
+    - tool_name: Bash
+      tool_use_id: toolu_01ESvG7PpMUhp4qUccG8zhUJ
+      is_mcp: false
+      started_at: '2026-05-22T02:13:02.136Z'
+      duration_ms: 541
+    - tool_name: Bash
+      tool_use_id: toolu_01YPmKvPmXppu1DfWSYg4CcT
+      is_mcp: false
+      started_at: '2026-05-22T02:13:10.768Z'
+      duration_ms: 408
+    - tool_name: Bash
+      tool_use_id: toolu_01DegPRq2to8Uo8yPuMMDAWF
+      is_mcp: false
+      started_at: '2026-05-22T02:13:19.291Z'
+      duration_ms: 268
+    - tool_name: Read
+      tool_use_id: toolu_01NnyoFj5Y7jGnimm9iRgqn5
+      is_mcp: false
+      started_at: '2026-05-22T02:13:30.109Z'
+      duration_ms: 260
+    - tool_name: Bash
+      tool_use_id: toolu_01XQJYKv6WyNZQPr8YFunssg
+      is_mcp: false
+      started_at: '2026-05-22T02:14:23.944Z'
+      duration_ms: 276
+    - tool_name: Edit
+      tool_use_id: toolu_01QscFz8QcWBewEe4686wbp7
+      is_mcp: false
+      started_at: '2026-05-22T02:14:29.660Z'
+      duration_ms: 280
+    - tool_name: Bash
+      tool_use_id: toolu_012LVJMke6DwmM8TYwm2pcR6
+      is_mcp: false
+      started_at: '2026-05-22T02:14:33.069Z'
+      duration_ms: 272
+    - tool_name: Bash
+      tool_use_id: toolu_019Q6VSXtohmRdKcqAkU62kT
+      is_mcp: false
+      started_at: '2026-05-22T02:14:40.361Z'
+      duration_ms: 475
+    - tool_name: Edit
+      tool_use_id: toolu_01C2rUZ2qvyrPJdzt3LLTRYe
+      is_mcp: false
+      started_at: '2026-05-22T02:14:48.871Z'
+      duration_ms: 279
+    - tool_name: Bash
+      tool_use_id: toolu_01RCjnJyRiFL1SDgf9qnWr1M
+      is_mcp: false
+      started_at: '2026-05-22T02:14:51.970Z'
+      duration_ms: 393
+    - tool_name: Edit
+      tool_use_id: toolu_01UmpJZfqYo5HRRtfZkAUwGb
+      is_mcp: false
+      started_at: '2026-05-22T02:15:05.450Z'
+      duration_ms: 312
+    - tool_name: Bash
+      tool_use_id: toolu_01BS9iGHpg1nt9vTaYhVi6gm
+      is_mcp: false
+      started_at: '2026-05-22T02:15:08.847Z'
+      duration_ms: 473
+    - tool_name: Bash
+      tool_use_id: toolu_01HVYQ4CDWrtHN5fYfZpf1aY
+      is_mcp: false
+      started_at: '2026-05-22T02:15:13.236Z'
+      duration_ms: 778
+    - tool_name: Edit
+      tool_use_id: toolu_01L3n8f4T999KdR1h5wtKBwx
+      is_mcp: false
+      started_at: '2026-05-22T02:15:18.416Z'
+      duration_ms: 299
+    - tool_name: Bash
+      tool_use_id: toolu_01UbMyWfKpf4kVF9gUkyzbvM
+      is_mcp: false
+      started_at: '2026-05-22T02:15:23.394Z'
+      duration_ms: 328
+    - tool_name: Bash
+      tool_use_id: toolu_01VkiGLxm3HpNVUeEMsHes9w
+      is_mcp: false
+      started_at: '2026-05-22T02:15:30.252Z'
+      duration_ms: 215
+    - tool_name: Read
+      tool_use_id: toolu_011PvjfsC6xWQHVvZq4JGSbh
+      is_mcp: false
+      started_at: '2026-05-22T02:15:38.096Z'
+      duration_ms: 251
+    - tool_name: Edit
+      tool_use_id: toolu_01A6u8oFoZVdB82wBjiG2e4D
+      is_mcp: false
+      started_at: '2026-05-22T02:16:03.128Z'
+      duration_ms: 301
+    - tool_name: Bash
+      tool_use_id: toolu_01JNy7krmZpU5ueHkLD5AcKn
+      is_mcp: false
+      started_at: '2026-05-22T02:16:17.158Z'
+      duration_ms: 523
+    - tool_name: Bash
+      tool_use_id: toolu_01ScsZjLukV4oQ454cqAkezM
+      is_mcp: false
+      started_at: '2026-05-22T02:16:21.387Z'
+      duration_ms: 465
+    - tool_name: Bash
+      tool_use_id: toolu_01WTVKRLBPiVQr9QfhVp7NYX
+      is_mcp: false
+      started_at: '2026-05-22T02:16:30.551Z'
+      duration_ms: 302
+    - tool_name: Edit
+      tool_use_id: toolu_01Bo1jzLfmSz3LtEJBXe63nB
+      is_mcp: false
+      started_at: '2026-05-22T02:16:38.241Z'
+      duration_ms: 228
+    - tool_name: Bash
+      tool_use_id: toolu_01S3bjTDre8YAAbYK2HNa4Wt
+      is_mcp: false
+      started_at: '2026-05-22T02:16:41.944Z'
+      duration_ms: 477
+    - tool_name: Edit
+      tool_use_id: toolu_01Crr212Bv3vjFi4v5MTdE8Q
+      is_mcp: false
+      started_at: '2026-05-22T02:16:47.059Z'
+      duration_ms: 270
+    - tool_name: Bash
+      tool_use_id: toolu_01FmgsuPiyuj7NXrxaWrDGwk
+      is_mcp: false
+      started_at: '2026-05-22T02:16:49.784Z'
+      duration_ms: 387
+    - tool_name: Bash
+      tool_use_id: toolu_01VqtBRKgnSj2db8qsKo97UZ
+      is_mcp: false
+      started_at: '2026-05-22T02:16:55.163Z'
+      duration_ms: 212
+    - tool_name: Read
+      tool_use_id: toolu_01JY8q9ZQBjA1rY9WYbP3oPE
+      is_mcp: false
+      started_at: '2026-05-22T02:16:58.314Z'
+      duration_ms: 248
+    - tool_name: Edit
+      tool_use_id: toolu_01RBEnQd3h8ANUTSZjLrhGvz
+      is_mcp: false
+      started_at: '2026-05-22T02:17:06.654Z'
+      duration_ms: 348
+    - tool_name: Bash
+      tool_use_id: toolu_01NyvGWXf8VrqNvCharNcm3m
+      is_mcp: false
+      started_at: '2026-05-22T02:17:12.758Z'
+      duration_ms: 612
+    - tool_name: Bash
+      tool_use_id: toolu_017ugSJg9WtH1gqL4LZ1Z6jQ
+      is_mcp: false
+      started_at: '2026-05-22T02:17:16.697Z'
+      duration_ms: 1312
+    - tool_name: Bash
+      tool_use_id: toolu_018hspSjM14Qe4hJ4gx36h73
+      is_mcp: false
+      started_at: '2026-05-22T02:17:22.701Z'
+      duration_ms: 8222
+    - tool_name: Edit
+      tool_use_id: toolu_01CaVi7xz6VPqqEQBxRj2gtw
+      is_mcp: false
+      started_at: '2026-05-22T02:17:34.729Z'
+      duration_ms: 259
+    - tool_name: Bash
+      tool_use_id: toolu_01GcZVukJvNK4ky82XSexHUH
+      is_mcp: false
+      started_at: '2026-05-22T02:17:38.627Z'
+      duration_ms: 341
+    - tool_name: Bash
+      tool_use_id: toolu_01DRTZS8xZR34tCgSFxRkhg1
+      is_mcp: false
+      started_at: '2026-05-22T02:17:52.180Z'
+      duration_ms: 8603
+    - tool_name: Edit
+      tool_use_id: toolu_01UWkhkPahHkifmRXozZ2dUn
+      is_mcp: false
+      started_at: '2026-05-22T02:18:04.791Z'
+      duration_ms: 259
+    - tool_name: Bash
+      tool_use_id: toolu_01WDupW1msvEsWvYQBYYm25s
+      is_mcp: false
+      started_at: '2026-05-22T02:18:07.883Z'
+      duration_ms: 308
+    agent_id: ad7de0204ce5440a0
+    cost_usd: 24.48195975
+  evidence:
+    outputs:
+      task_execution_result: All 6 tasks complete and committed on feature/orc-67.
+        478 passed / 5 failed (5 = ORC-69 exempt). tasks.md all [x].
+    summary: ORC-67 rework loop implemented via Approach 1 (record.py verdict branch).
+      6 tasks TDD red-green, 6 commits. error-recovery.md row 17 reconciled; 3 new
+      helpers; node-status flip branch for needs_work re-open + ceiling escalation
+      (entry status:blocked + state.status:paused). Suite 478 passed / 5 failed (5
+      = ORC-69 exempt, no new failures). +26 tests.
+    counts:
+      tasks_marked: 6
+      tests_passing: 478
+      tests_failing: 5
+      tests_added: 26
+      commits: 6
+    known_concerns:
+    - "Helper named _payload_phase_review_verdict instead of design.md's _phase_review_verdict\
+      \ \u2014 collision with an existing load-bearing helper at record.py:878; non-colliding\
+      \ name honors design intent. Reviewer to judge deviation."
+    - "Escalate branch: run-phase-review node marked completed (per design.md:203)\
+      \ but local status var still 'completed' to _detect_boundary \u2014 a phase-boundary\
+      \ metrics write could fire for a paused phase. Design-conformant; runtime-only\
+      \ (unit tests db=None)."
+    - test_dispatch_resume.py single failure is the pre-existing ORC-69 exempt subprocess
+      test, not a regression.
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: '2026-05-22T02:24:57Z'
+  ended_at: '2026-05-22T02:24:57Z'
+  usage:
+    input_tokens: 88
+    output_tokens: 9822
+    cache_read_input_tokens: 2616055
+    cache_creation_input_tokens: 250163
+    model: claude-opus-4-7
+    turns: 44
+    duration_ms: 233025
+    tool_calls:
+      Bash: 17
+      Read: 6
+      Write: 1
+    tool_calls_detail:
+    - tool_name: Bash
+      tool_use_id: toolu_01FEBbFbYQhHaMYx13TxuoF5
+      is_mcp: false
+      started_at: '2026-05-22T02:20:55.802Z'
+      duration_ms: 306
+    - tool_name: Read
+      tool_use_id: toolu_01ME4emrP6MApVFAr5uk9Cwj
+      is_mcp: false
+      started_at: '2026-05-22T02:20:56.047Z'
+      duration_ms: 262
+    - tool_name: Read
+      tool_use_id: toolu_01SCgeusHdTAWHcbxu22NGFL
+      is_mcp: false
+      started_at: '2026-05-22T02:20:56.192Z'
+      duration_ms: 203
+    - tool_name: Bash
+      tool_use_id: toolu_01SMuExNcSN7q6qYFwRs8AUp
+      is_mcp: false
+      started_at: '2026-05-22T02:20:59.861Z'
+      duration_ms: 8201
+    - tool_name: Bash
+      tool_use_id: toolu_01R2snECQ9s1rnScYUZYwafx
+      is_mcp: false
+      started_at: '2026-05-22T02:21:00.194Z'
+      duration_ms: 8090
+    - tool_name: Bash
+      tool_use_id: toolu_01A21mZiFbJc27qZKRPFfash
+      is_mcp: false
+      started_at: '2026-05-22T02:21:11.070Z'
+      duration_ms: 7953
+    - tool_name: Bash
+      tool_use_id: toolu_01YBe4nvQp3ELMvsqMZanokV
+      is_mcp: false
+      started_at: '2026-05-22T02:21:11.923Z'
+      duration_ms: 8239
+    - tool_name: Bash
+      tool_use_id: toolu_01ELaT6Gh1SMWAHEWmGkqWjd
+      is_mcp: false
+      started_at: '2026-05-22T02:21:12.337Z'
+      duration_ms: 8035
+    - tool_name: Read
+      tool_use_id: toolu_01DCBPyX2KWu1VPnMEkkhYtx
+      is_mcp: false
+      started_at: '2026-05-22T02:21:27.467Z'
+      duration_ms: 260
+    - tool_name: Bash
+      tool_use_id: toolu_01R35M4ogSM8NBgkzMKjQadK
+      is_mcp: false
+      started_at: '2026-05-22T02:21:28.338Z'
+      duration_ms: 835
+    - tool_name: Bash
+      tool_use_id: toolu_01GTnJ4Rpk3xYzfk3ooLykp3
+      is_mcp: false
+      started_at: '2026-05-22T02:21:34.657Z'
+      duration_ms: 274
+    - tool_name: Bash
+      tool_use_id: toolu_01DyrLivtv2BAmFiu4cmMHq5
+      is_mcp: false
+      started_at: '2026-05-22T02:21:35.228Z'
+      duration_ms: 256
+    - tool_name: Read
+      tool_use_id: toolu_01CuzcMKzojuXa7i6miap7fc
+      is_mcp: false
+      started_at: '2026-05-22T02:21:40.165Z'
+      duration_ms: 261
+    - tool_name: Read
+      tool_use_id: toolu_01Gv7iwSZ4SqXeCvSM8sMeQW
+      is_mcp: false
+      started_at: '2026-05-22T02:21:44.538Z'
+      duration_ms: 252
+    - tool_name: Bash
+      tool_use_id: toolu_01WZqDX171NnWRd6jn2tQZmW
+      is_mcp: false
+      started_at: '2026-05-22T02:21:50.108Z'
+      duration_ms: 270
+    - tool_name: Read
+      tool_use_id: toolu_01QBVxq3xWTL3uf62DL4U73e
+      is_mcp: false
+      started_at: '2026-05-22T02:21:52.696Z'
+      duration_ms: 258
+    - tool_name: Bash
+      tool_use_id: toolu_019oyF2jfQ3SXWrEsbEqiKC8
+      is_mcp: false
+      started_at: '2026-05-22T02:21:58.117Z'
+      duration_ms: 310
+    - tool_name: Bash
+      tool_use_id: toolu_01JsVw66NFoiEuFZwchf5dUd
+      is_mcp: false
+      started_at: '2026-05-22T02:22:04.712Z'
+      duration_ms: 894
+    - tool_name: Bash
+      tool_use_id: toolu_01XfvSt94pATJpfpE2XUa97M
+      is_mcp: false
+      started_at: '2026-05-22T02:22:09.894Z'
+      duration_ms: 63
+    - tool_name: Bash
+      tool_use_id: toolu_01PnMF87EjUrx2qEBsCZTz3H
+      is_mcp: false
+      started_at: '2026-05-22T02:22:14.614Z'
+      duration_ms: 273
+    - tool_name: Bash
+      tool_use_id: toolu_014uPxM57uy6APyXmKptgLvS
+      is_mcp: false
+      started_at: '2026-05-22T02:22:19.124Z'
+      duration_ms: 279
+    - tool_name: Bash
+      tool_use_id: toolu_01QiW6fpgfFRZo7MRmMy5JdG
+      is_mcp: false
+      started_at: '2026-05-22T02:22:24.447Z'
+      duration_ms: 696
+    - tool_name: Bash
+      tool_use_id: toolu_01FetNnUsS5iXNKsJdukEkYP
+      is_mcp: false
+      started_at: '2026-05-22T02:23:26.156Z'
+      duration_ms: 331
+    - tool_name: Write
+      tool_use_id: toolu_01SwUAqr1kvJ7GjnFrcTEcrB
+      is_mcp: false
+      started_at: '2026-05-22T02:24:11.552Z'
+      duration_ms: 294
+    agent_id: ab5e27b541f8ab785
+    cost_usd: 9.35260875
+  evidence:
+    outputs:
+      phase_review_report:
+        verdict: pass
+    summary: Phase review pass, overall 9/10. All 8 ACs verified with evidence. 478
+      passed / 5 failed (5 = ORC-69 exempt). No critical/important findings. 3 developer
+      concerns all judged non-findings.
+    counts:
+      review_score: 9
+      critical_findings: 0
+      important_findings: 0
+      fix_tasks_added: 0
+      acs_verified: 8
+  artifacts:
+  - phase-review.md
+  review_score:
+    overall: 9
+    dimensions:
+      spec_compliance: 9
+      correctness: 9
+      security: 9
+      simplicity: 9
+      code_quality: 9
+- step_id: compute-prediction-accuracy
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-22T02:25:07Z'
+  ended_at: '2026-05-22T02:25:07Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy:
+        computed_at: '2026-05-22T02:25:07Z'
+        predicted_tasks: 6
+        actual_tasks: 6
+        fix_task_count: 0
+        rework_rate: 0.0
+        task_delta: 0
+        task_accuracy_pct: 100.0
+        predicted_file_count: 22
+        actual_file_count: 0
+        file_delta: -22
+        file_overlap_pct: 0.0
+    summary: inline script completed
+- step_id: run-learn-cycle
+  phase: main
+  status: abandoned
+  agent: workflow-improver
+  attempt: 1
+  started_at: '2026-05-22T02:29:17Z'
+  ended_at: '2026-05-22T02:29:17Z'
+  usage:
+    model: claude-sonnet-4-6
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      learn_result:
+        status: blocked
+        learn_completed: false
+        verdict: clean
+        reason: "step-contract inconsistency \u2014 agent step cannot record an inline\
+          \ skill invocation"
+        rules_effectiveness_updated: 15
+    summary: "run-learn-cycle blocked on a step-contract inconsistency. The contract\
+      \ declares agent: workflow-improver, so record.py requires subagent JSONL (agentId)\
+      \ or non-zero usage tokens for a completed agent step. But the contract's own\
+      \ instruction says 'invoke the /learn skill' \u2014 /learn runs inline in the\
+      \ driver conversation, producing no subagent and no agentId. The step cannot\
+      \ be recorded completed honestly: agent:inline would contradict the contract;\
+      \ fabricating usage would misrepresent billing. The /learn evaluation itself\
+      \ DID run and is durable \u2014 \xA75b incremented hits on 15 learned rules\
+      \ across 4 step contracts (already written to disk). Verdict was CLEAN (orc-67\
+      \ ran 0 retries / 0 skips / 9-10 first-pass \u2014 no findings to route). Only\
+      \ the step RECORD is blocked, not the learning work."
+    blocker:
+      blocked_step: run-learn-cycle
+      reason: "step-contract inconsistency: agent: workflow-improver declared, but\
+        \ instruction says to invoke the /learn skill (runs inline, no subagent billing).\
+        \ record.py's agent-step usage guard cannot accept an inline skill invocation.\
+        \ Same bug class as ORC-69 \u2014 a step contract mismatched with how it is\
+        \ actually exercised."
+      follow_up: Either change run-learn-cycle.yaml to a run:-style skill-invocation
+        step (no subagent billing required), or rewrite its instruction to actually
+        spawn workflow-improver as a subagent that invokes /learn from within its
+        own context.
+created_at: '2026-05-21T21:18:29Z'
+started_at: '2026-05-21T21:18:29Z'
+project_context_loaded: true
+worktree_path: /Users/spidey/code/feature_worktrees/orc-67
+branch: feature/orc-67
+completed_at: '2026-05-22T02:32:04Z'
+archive_path: spec/changes/archive/2026-05-22-orc-67/
