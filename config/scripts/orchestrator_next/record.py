@@ -1594,9 +1594,9 @@ def record(
     #   "escalate" — retries exhausted: mark the node completed, downgrade this
     #                step_history entry to `blocked` (so the next `orchestrator
     #                next` exits 2 and the driver halts) and pause the workflow.
-    if status in ("completed", "recovered"):
+    if status in ("completed", "recovered", "abandoned"):
         rework: str | None = None
-        if step_id == "run-phase-review":
+        if status in ("completed", "recovered") and step_id == "run-phase-review":
             rework = _rework_loop_active(
                 _payload_phase_review_verdict(payload),
                 state_raw.get("retries"),
@@ -1611,7 +1611,7 @@ def record(
             readiness.mark_node_status(state_raw, phase, step_id, "completed")
             entry["status"] = "blocked"
             state_raw["status"] = "paused"
-        elif _repeat_until_pending(step_id, state_yaml_path, state_raw):
+        elif status in ("completed", "recovered") and _repeat_until_pending(step_id, state_yaml_path, state_raw):
             readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
         else:
             readiness.mark_node_status(state_raw, phase, step_id, "completed")
