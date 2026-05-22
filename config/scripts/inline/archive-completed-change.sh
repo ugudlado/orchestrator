@@ -3,10 +3,12 @@
 #
 # Env inputs:  REPO_ROOT, CHANGE_ID, ARCHIVE_PATH
 #              (ARCHIVE_PATH is relative to REPO_ROOT, e.g. "spec/changes/archive/2026-04-18-hl-287")
-#              WORKTREE_ROOT — root of the feature worktree; falls back to
-#                             ORCHESTRATOR_WORKFLOW_DIR (worktree_path from state.yaml).
-#                             All files (state.yaml, plan.yaml, artifacts) live at
-#                             $WORKTREE_ROOT/spec/changes/$CHANGE_ID/ — worktrees required.
+#              WORKTREE_ROOT — root of the feature worktree (worktree=true runs);
+#                             falls back to ORCHESTRATOR_WORKFLOW_DIR (worktree_path
+#                             from state.yaml). When empty (worktree=false run),
+#                             the source dir is archived in-place from REPO_ROOT.
+#                             Source is <root>/spec/changes/$CHANGE_ID/, where
+#                             <root> is WORKTREE_ROOT or, if unset, REPO_ROOT.
 # Outputs:     {archive_record: {archived_at, archive_path, commit_sha}}
 #   or        {archive_record: {skipped: true, reason}}
 
@@ -30,12 +32,13 @@ if [ -z "$CHANGE_ID" ] || [ -z "$ARCHIVE_PATH" ]; then
   exit 0
 fi
 
-if [ -z "$WORKTREE_ROOT" ]; then
-  printf '%s\n' '{"archive_record": {"skipped": true, "reason": "WORKTREE_ROOT not set — worktrees required"}}'
-  exit 0
+# The state dir lives under the worktree on a worktree=true run, or in-place
+# under the repo on a worktree=false run. WORKTREE_ROOT is empty in the latter.
+if [ -n "$WORKTREE_ROOT" ]; then
+  SRC="${WORKTREE_ROOT}/spec/changes/${CHANGE_ID}"
+else
+  SRC="${REPO_ROOT}/spec/changes/${CHANGE_ID}"
 fi
-
-SRC="${WORKTREE_ROOT}/spec/changes/${CHANGE_ID}"
 DST="$REPO_ROOT/$ARCHIVE_PATH"
 
 if [ ! -d "$SRC" ]; then
@@ -63,7 +66,10 @@ if [ -f "$COST_REPORT_SCRIPT" ] && [ -n "${ORCHESTRATOR_HOME:-}" ]; then
 fi
 
 cd "$REPO_ROOT"
-git add "$ARCHIVE_PATH"
+# Stage the new archive path and the source removal. On a worktree=false run
+# SRC is inside this repo, so its `rm -rf` is an unstaged deletion that must be
+# committed too; on a worktree run SRC is in another tree and `git add` no-ops.
+git add "$ARCHIVE_PATH" "$SRC" 2>/dev/null
 git commit -m "archive: $CHANGE_ID — complete phase artifacts" 2>/dev/null
 SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
 

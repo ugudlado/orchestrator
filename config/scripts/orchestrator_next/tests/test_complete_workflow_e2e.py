@@ -118,6 +118,140 @@ def _build(tmp_path, *, merge_to_main, branch_unmerged=False):
             branch, metrics_db)
 
 
+def _build_no_worktree(tmp_path):
+    """Build a temp git repo with the state dir IN-PLACE at
+    `$REPO_ROOT/spec/changes/$CHANGE_ID` — a `worktree=false` run. No worktree
+    is created and `state.yaml` carries no `worktree_path`.
+
+    Returns (state_yaml_path, repo, archive_path, metrics_db).
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "t@t.t")
+    _git(repo, "config", "user.name", "t")
+    (repo / "README.md").write_text("seed\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "seed")
+
+    change_id = "e2e-no-wt"
+    change_dir = repo / "spec" / "changes" / change_id
+    change_dir.mkdir(parents=True)
+    archive_path = f"spec/changes/archive/2026-05-23-{change_id}"
+
+    state = {
+        "change_id": change_id,
+        "slug": change_id,
+        "schema": "feature",
+        "status": "active",
+        "repo_root": str(repo),
+        "archive_path": archive_path,
+        "flags": {"merge_to_main": False, "worktree": False},
+        "workflow_plan": {
+            "main": {
+                "nodes": [
+                    {"id": "execute-next-task", "status": "completed",
+                     "agent": "developer"},
+                    {"id": "compute-swe-metrics", "status": "completed",
+                     "agent": "inline"},
+                    {"id": "complete-workflow", "status": "pending",
+                     "agent": "inline"},
+                ],
+                "filtered": [],
+            }
+        },
+        "phase": "main",
+        "next_step": {"phase": "main", "step_id": "complete-workflow"},
+        "step_history": [
+            {"step_id": "execute-next-task", "phase": "main",
+             "status": "completed", "agent": "developer", "attempt": 1},
+            {"step_id": "compute-swe-metrics", "phase": "main",
+             "status": "completed", "agent": "inline", "attempt": 1},
+        ],
+    }
+    state_path = change_dir / "state.yaml"
+    state_path.write_text(yaml.safe_dump(state, sort_keys=False))
+    (change_dir / "tasks.md").write_text("- [x] T-1 done\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "seed change dir")
+
+    metrics_db = str(tmp_path / "metrics.duckdb")
+    return str(state_path), str(repo), archive_path, metrics_db
+
+
+def test_e2e_complete_workflow_worktree_false(tmp_path):
+    """ORC-80: a `worktree=false` run archives in-place. The state dir lives at
+    `$REPO_ROOT/spec/changes/$CHANGE_ID`; complete-workflow must move it to the
+    archive (not skip with "WORKTREE_ROOT not set"), the cleanup phase skips on
+    the worktree flag, and a second `next` exits 1 with no re-dispatch."""
+    state_path, repo, archive_path, metrics_db = _build_no_worktree(tmp_path)
+    source_dir = os.path.dirname(state_path)
+
+    # --- first next: dispatches + runs complete-workflow.sh ---
+    r1 = _run_next(state_path, metrics_db)
+    assert "FileNotFoundError" not in r1.stderr, (
+        "first next raised FileNotFoundError:\n" + r1.stderr
+    )
+    assert "Traceback" not in r1.stderr, (
+        "first next raised an unhandled exception:\n" + r1.stderr
+    )
+    assert r1.returncode == 0, (
+        f"first next should exit 0 (inline step ran), got {r1.returncode}\n"
+        f"stderr: {r1.stderr}"
+    )
+
+    # archive dir created with the moved state.yaml + tasks.md
+    archive_dir = os.path.join(repo, archive_path)
+    assert os.path.isdir(archive_dir), (
+        f"archive dir missing: {archive_dir} — worktree=false run was not "
+        f"archived (the ORC-80 bug: archive-completed-change.sh skipped)"
+    )
+    assert os.path.isfile(os.path.join(archive_dir, "state.yaml")), (
+        "state.yaml not moved to archive"
+    )
+    assert os.path.isfile(os.path.join(archive_dir, "tasks.md")), (
+        "tasks.md not moved to archive"
+    )
+
+    # the in-place source dir is gone (relocated, not copied)
+    assert not os.path.isdir(source_dir), (
+        f"in-place source dir still present after archive: {source_dir}"
+    )
+
+    # the source deletion is committed — no dangling unstaged removal
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=repo, capture_output=True, text=True,
+    ).stdout
+    assert "spec/changes/e2e-no-wt" not in status, (
+        f"in-place source deletion left uncommitted:\n{status}"
+    )
+
+    # --- second next: on the archived state.yaml — must exit 1, not 3 ---
+    archived_state = os.path.join(archive_dir, "state.yaml")
+    r2 = _run_next(archived_state, metrics_db)
+    assert "FileNotFoundError" not in r2.stderr, (
+        "second next raised FileNotFoundError:\n" + r2.stderr
+    )
+    assert r2.returncode == 1, (
+        f"second next should exit 1 (workflow complete), got {r2.returncode}\n"
+        f"stderr: {r2.stderr}"
+    )
+
+    # no already-completed step id is re-dispatched
+    final_state = yaml.safe_load(open(archived_state).read())
+    history = final_state.get("step_history") or []
+    ent_counts = {
+        sid: sum(1 for h in history if h.get("step_id") == sid)
+        for sid in ("execute-next-task", "compute-swe-metrics",
+                    "complete-workflow")
+    }
+    assert all(c == 1 for c in ent_counts.values()), (
+        f"a step id was re-dispatched — expected each exactly once, "
+        f"got {ent_counts}"
+    )
+
+
 def test_e2e_complete_workflow_full_teardown(tmp_path):
     """First `next` runs complete-workflow; archive created, worktree gone;
     second `next` exits 1 (complete), no FileNotFoundError, no re-dispatch."""
