@@ -218,7 +218,9 @@ def _compute_cost_usd(
             return None, None
 
     # Step 3: look up price from DuckDB (with __default__ fallback inside _lookup_price)
-    effective_at = now if now is not None else _dt.datetime.utcnow()
+    # Naive UTC instant — kept tz-naive to match the DuckDB pricing table's
+    # effective_from column (DuckDB TIMESTAMP rows come back tz-naive).
+    effective_at = now if now is not None else _dt.datetime.now(_dt.UTC).replace(tzinfo=None)
     price = _lookup_price(db, model_id, effective_at)
     if price is None:
         return model_id, None
