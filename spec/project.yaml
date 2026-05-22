@@ -151,6 +151,44 @@ learnings:
       undetected until a smoke test. Grep the Python runtime (record.py, upsert.py,
       or the canonical entry point) for the env var name before wiring it in the
       shell script.
+  - id: step-contract-input-key-schema-mismatch
+    learned: 2026-05-22
+    source: orc-66
+    rule: >
+      Step contracts that declare inputs: must use the key name that matches the
+      producing step's declared outputs: for the target schema. When a step
+      (e.g. design-and-draft-artifacts) is used by multiple schemas (feature,
+      bugfix), and those schemas have different upstream producers with different
+      output key names (discovery_result vs diagnosis_result), the contract may
+      declare the wrong key and the mismatch is silent at plan time — the
+      state.yaml node is promoted with the wrong input key and requires a
+      manual one-field edit mid-run. After adding or modifying a schema,
+      grep all step contracts for inputs: and verify each key exists as an
+      output: in the upstream step for that schema.
+  - id: specify-phase-scope-churn-cost
+    learned: 2026-05-22
+    source: orc-66
+    rule: >
+      When the user clarifies or changes scope during the artifact review loop
+      of design-and-draft-artifacts (auto=false), each revision cycle adds
+      significant architect-model cost — ORC-66 had 4 review rounds, spending
+      ~$74 on specify vs ~$66 on 18 implement tasks. In interactive mode,
+      cost-conscious users should front-load scope constraints in the initial
+      description rather than refining through the artifact review loop.
+      Discovery.md should explicitly surface ambiguous scope dimensions as
+      "open questions" so the user can resolve them before the architect spawns.
+  - id: worktree-state-dir-path
+    learned: 2026-05-22
+    source: orc-66
+    rule: >
+      When flags.worktree=true, the state directory lives at
+      spec/changes/<change_id>/ inside the worktree, NOT at the worktree root.
+      ORCHESTRATOR_WORKFLOW_DIR must be set to the state subdirectory
+      (e.g. $WORKTREE_PATH/spec/changes/$CHANGE_ID), not the worktree root.
+      Passing the worktree root causes inline scripts like preview-route.sh
+      and estimate-cost.sh to fail with "state.yaml not found" — the estimator
+      falls back to estimate_unavailable and the cost preview is silently lost.
+      This affects any inline step that locates state.yaml via ORCHESTRATOR_WORKFLOW_DIR.
   - id: worktree-branch-sync
     learned: 2026-05-22
     source: orc-78
