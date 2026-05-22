@@ -1585,8 +1585,34 @@ def record(
     # (re-dispatchable) — flipping it to `completed` would make the DAG-walk
     # skip its re-run. Otherwise a completed/recovered record marks the node
     # `completed`.
+    #
+    # orc-67: a run-phase-review completion with a needs_work/incomplete_phase
+    # verdict opens a rework loop. `_rework_loop_active` decides:
+    #   "retry"    — leave run-phase-review in_progress (mirroring repeat_until)
+    #                and reset the execute-next-task node to in_progress so the
+    #                DAG-walk re-emits execute-next-task → run-phase-review.
+    #                Intermediate nodes (e.g. run-ux-critique) are untouched.
+    #   "escalate" — retries exhausted: mark the node completed, downgrade this
+    #                step_history entry to `blocked` (so the next `orchestrator
+    #                next` exits 2 and the driver halts) and pause the workflow.
     if status in ("completed", "recovered"):
-        if _repeat_until_pending(step_id, state_yaml_path, state_raw):
+        rework: str | None = None
+        if step_id == "run-phase-review":
+            rework = _rework_loop_active(
+                _payload_phase_review_verdict(payload),
+                state_raw.get("retries"),
+                _max_retry_rounds(state_raw),
+            )
+        if rework == "retry":
+            readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
+            readiness.mark_node_status(
+                state_raw, phase, "execute-next-task", "in_progress"
+            )
+        elif rework == "escalate":
+            readiness.mark_node_status(state_raw, phase, step_id, "completed")
+            entry["status"] = "blocked"
+            state_raw["status"] = "paused"
+        elif _repeat_until_pending(step_id, state_yaml_path, state_raw):
             readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
         else:
             readiness.mark_node_status(state_raw, phase, step_id, "completed")

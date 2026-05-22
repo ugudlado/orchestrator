@@ -40,7 +40,7 @@
     - needs_work with no fix tasks appended: loop re-runs run-phase-review and is bounded by max_retry_rounds
     - legacy `active:[ids]` plan fixture: needs_work record degrades to linear advance, no exception (mark_node_status is a no-op on a node-less plan)
 
-- [ ] T-5: Implement rework-loop node re-open and ceiling escalation in record() (GREEN — make tests pass)
+- [x] T-5: Implement rework-loop node re-open and ceiling escalation in record() (GREEN — make tests pass)
   Why: AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, Decisions OQ-3/OQ-4/OQ-5 — the verdict-aware branch in the node-status flip block.
   Files: config/scripts/orchestrator_next/record.py
   Change: In the node-status flip block (record.py:1494-1498), when step is run-phase-review and `_rework_loop_active` returns "retry", leave run-phase-review `in_progress` and reset only the `execute-next-task` node to `in_progress` via `readiness.mark_node_status` (intermediate nodes untouched); when it returns "escalate", set the recorded entry `status` to `blocked` before append and set `state_raw["status"] = "paused"`; "pass"/None keeps existing behavior.
