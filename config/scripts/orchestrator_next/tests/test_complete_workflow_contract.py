@@ -47,8 +47,15 @@ def test_complete_workflow_contract_shape():
         f"contract run must point at complete-workflow.sh, "
         f"got {contract.get('run')!r}"
     )
-    assert contract.get("outputs") == ["completion_record"], (
-        f"contract outputs must be [completion_record], "
+    # complete-workflow declares NO `outputs:`. It is a state-mutating inline
+    # step pre-recorded as `completed` BEFORE its script runs (ORC-66
+    # crash-avoidance), so its stdout completion_record is never threaded into
+    # step_history's evidence.outputs — a declared output would be
+    # unverifiable and would fail the optimistic empty pre-record's
+    # _check_declared_outputs. This matches the archive-completed-change.yaml
+    # pre-record precedent, which also declares no `outputs:`.
+    assert contract.get("outputs") in (None, []), (
+        f"complete-workflow.yaml must declare no outputs (pre-record contract), "
         f"got {contract.get('outputs')!r}"
     )
 

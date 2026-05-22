@@ -1,0 +1,209 @@
+"""T-17: end-to-end completion regression test for `complete-workflow`.
+
+Proves the full ORC-79 path through the real `bin/orchestrator`:
+  - `orchestrator next` at a terminal `complete-workflow` node dispatches and
+    runs `complete-workflow.sh` (merge → archive → cd → cleanup)
+  - the archive directory is created with the moved state.yaml / tasks.md
+  - the worktree directory is removed
+  - a SECOND `orchestrator next` does NOT raise FileNotFoundError and does NOT
+    exit 3 — the ORC-66 failure mode is structurally dissolved
+  - no already-`completed` step id is re-dispatched
+
+Second case: merge_to_main=false + an unmerged feature branch — the worktree
+is removed but the branch is preserved (AC-10).
+"""
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+
+import yaml
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
+_BIN = os.path.join(_REPO_ROOT, "bin", "orchestrator")
+
+
+def _git(cwd, *args):
+    return subprocess.run(
+        ["git", *args], cwd=cwd, capture_output=True, text=True, check=True
+    )
+
+
+def _run_next(state_path, metrics_db):
+    env = {
+        **os.environ,
+        "ORCHESTRATOR_HOME": _REPO_ROOT,
+        "METRICS_DB": metrics_db,
+    }
+    return subprocess.run(
+        [sys.executable, _BIN, "next", state_path],
+        capture_output=True, text=True, env=env,
+    )
+
+
+def _build(tmp_path, *, merge_to_main, branch_unmerged=False):
+    """Build a temp git repo + worktree + a state.yaml whose only pending node
+    is the terminal `complete-workflow` (all prior nodes `completed`).
+
+    Returns (state_yaml_path, repo, worktree_path, archive_path, branch,
+             metrics_db).
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "t@t.t")
+    _git(repo, "config", "user.name", "t")
+    (repo / "README.md").write_text("seed\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "seed")
+
+    change_id = "e2e-test"
+    branch = f"feature/{change_id}"
+    worktree_path = tmp_path / "wt"
+    _git(repo, "worktree", "add", "-q", "-b", branch, str(worktree_path))
+    (worktree_path / "feature.txt").write_text("feature change\n")
+    _git(worktree_path, "add", "-A")
+    _git(worktree_path, "commit", "-q", "-m", "feature work")
+
+    if branch_unmerged:
+        (repo / "diverge.txt").write_text("diverge\n")
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "diverge on main")
+
+    change_dir = worktree_path / "spec" / "changes" / change_id
+    change_dir.mkdir(parents=True)
+    archive_path = f"spec/changes/archive/2026-05-23-{change_id}"
+
+    # All prior nodes completed; only complete-workflow pending.
+    state = {
+        "change_id": change_id,
+        "slug": change_id,
+        "schema": "feature",
+        "status": "active",
+        "repo_root": str(repo),
+        "worktree_path": str(worktree_path),
+        "branch": branch,
+        "archive_path": archive_path,
+        "flags": {"merge_to_main": merge_to_main, "worktree": True},
+        "workflow_plan": {
+            "main": {
+                "nodes": [
+                    {"id": "execute-next-task", "status": "completed",
+                     "agent": "developer"},
+                    {"id": "compute-swe-metrics", "status": "completed",
+                     "agent": "inline"},
+                    {"id": "complete-workflow", "status": "pending",
+                     "agent": "inline"},
+                ],
+                "filtered": [],
+            }
+        },
+        "phase": "main",
+        "next_step": {"phase": "main", "step_id": "complete-workflow"},
+        "step_history": [
+            {"step_id": "execute-next-task", "phase": "main",
+             "status": "completed", "agent": "developer", "attempt": 1},
+            {"step_id": "compute-swe-metrics", "phase": "main",
+             "status": "completed", "agent": "inline", "attempt": 1},
+        ],
+    }
+    state_path = change_dir / "state.yaml"
+    state_path.write_text(yaml.safe_dump(state, sort_keys=False))
+    (change_dir / "tasks.md").write_text("- [x] T-1 done\n")
+
+    metrics_db = str(tmp_path / "metrics.duckdb")
+    return (str(state_path), str(repo), str(worktree_path), archive_path,
+            branch, metrics_db)
+
+
+def test_e2e_complete_workflow_full_teardown(tmp_path):
+    """First `next` runs complete-workflow; archive created, worktree gone;
+    second `next` exits 1 (complete), no FileNotFoundError, no re-dispatch."""
+    (state_path, repo, worktree_path, archive_path, branch,
+     metrics_db) = _build(tmp_path, merge_to_main=True)
+
+    # --- first next: dispatches + runs complete-workflow.sh ---
+    r1 = _run_next(state_path, metrics_db)
+    assert "FileNotFoundError" not in r1.stderr, (
+        "first next raised FileNotFoundError:\n" + r1.stderr
+    )
+    assert "Traceback" not in r1.stderr, (
+        "first next raised an unhandled exception:\n" + r1.stderr
+    )
+    assert r1.returncode == 0, (
+        f"first next should exit 0 (inline step ran), got {r1.returncode}\n"
+        f"stderr: {r1.stderr}"
+    )
+
+    # archive dir exists with the moved state.yaml + tasks.md
+    archive_dir = os.path.join(repo, archive_path)
+    assert os.path.isdir(archive_dir), f"archive dir missing: {archive_dir}"
+    archived_state = os.path.join(archive_dir, "state.yaml")
+    assert os.path.isfile(archived_state), "state.yaml not moved to archive"
+    assert os.path.isfile(os.path.join(archive_dir, "tasks.md")), (
+        "tasks.md not moved to archive"
+    )
+
+    # worktree dir gone
+    assert not os.path.isdir(worktree_path), (
+        "worktree dir still present after teardown"
+    )
+
+    # --- second next: on the archived state.yaml — must NOT exit 3 ---
+    r2 = _run_next(archived_state, metrics_db)
+    assert "FileNotFoundError" not in r2.stderr, (
+        "second next raised FileNotFoundError — the ORC-66 bug:\n" + r2.stderr
+    )
+    assert "Traceback" not in r2.stderr, (
+        "second next raised an unhandled exception:\n" + r2.stderr
+    )
+    assert r2.returncode == 1, (
+        f"second next should exit 1 (workflow complete), got {r2.returncode} "
+        f"— exit 3 would be the ORC-66 re-dispatch/FileNotFoundError failure\n"
+        f"stderr: {r2.stderr}"
+    )
+
+    # no already-completed step id is re-dispatched: complete-workflow appears
+    # exactly once in step_history, as completed.
+    final_state = yaml.safe_load(open(archived_state).read())
+    history = final_state.get("step_history") or []
+    cw_entries = [h for h in history if h.get("step_id") == "complete-workflow"]
+    assert len(cw_entries) == 1, (
+        f"complete-workflow recorded {len(cw_entries)} times — expected exactly "
+        f"one (no re-dispatch). history: {[h.get('step_id') for h in history]}"
+    )
+    assert cw_entries[0].get("status") == "completed", (
+        f"complete-workflow entry not 'completed': {cw_entries[0]}"
+    )
+
+
+def test_e2e_merge_false_unmerged_branch_preserved(tmp_path):
+    """merge_to_main=false + an unmerged feature branch → worktree removed,
+    branch preserved, exit 0."""
+    (state_path, repo, worktree_path, archive_path, branch,
+     metrics_db) = _build(tmp_path, merge_to_main=False, branch_unmerged=True)
+
+    r1 = _run_next(state_path, metrics_db)
+    assert "FileNotFoundError" not in r1.stderr, r1.stderr
+    assert r1.returncode == 0, (
+        f"next should exit 0, got {r1.returncode}\nstderr: {r1.stderr}"
+    )
+
+    # worktree removed
+    assert not os.path.isdir(worktree_path), "worktree not removed"
+
+    # feature branch still exists (unmerged → not deleted)
+    branches = subprocess.run(
+        ["git", "branch", "--list", branch],
+        cwd=repo, capture_output=True, text=True,
+    ).stdout
+    assert branch in branches, (
+        f"unmerged branch {branch} was deleted; it must be preserved"
+    )
+
+    # archive dir created
+    assert os.path.isdir(os.path.join(repo, archive_path)), (
+        "archive dir missing"
+    )

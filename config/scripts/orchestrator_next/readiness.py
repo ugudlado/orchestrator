@@ -117,9 +117,19 @@ def repeat_until_redispatch(state: State, state_yaml_path: str) -> str | None:
 
     Covers both promoted `nodes:` plans (repeat_until on the node) and legacy
     `active:[ids]` plans (repeat_until on the step contract only).
+
+    Repeat semantics only fire while the workflow still has forward work: when
+    no node is ready (the phase is otherwise complete), return None rather than
+    resurrecting a completed step. Without this guard, after the terminal
+    `complete-workflow` step archives `tasks.md`, `_check_all_tasks_completed`
+    fails-closed on the moved file and re-picks the long-completed
+    `execute-next-task` — the OQ-5 ORC-66 re-dispatch hazard.
     """
     from orchestrator_next.parser import load_contract_for_step, ContractError
     from orchestrator_next.record import REPEAT_PREDICATES
+
+    if next_ready_node(state) is None:
+        return None
 
     for node in phase_nodes(state, state.phase):
         node_id = _node_id(node)

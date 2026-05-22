@@ -21,5 +21,13 @@ verify:
   - the change directory is moved to spec/changes/archive/<date>-<slug>/
   - when flags.worktree is true the worktree directory is removed
 
-outputs:
-  - completion_record
+# No `outputs:` block. complete-workflow is a state-mutating inline step:
+# bin/orchestrator pre-records it as `completed` BEFORE its script runs (the
+# ORC-66 crash-avoidance contract), so the script's stdout completion_record
+# is never threaded into step_history's evidence.outputs, and the archive
+# phase moves state.yaml out of the worktree before any post-script record
+# could fire. A declared `outputs:` key would therefore be unverifiable and
+# would make the optimistic empty pre-record fail _check_declared_outputs.
+# archive-completed-change.yaml — the surviving pre-record precedent —
+# declares no `outputs:` for exactly this reason. The completion_record shape
+# is documented in `verify:` above as descriptive prose.

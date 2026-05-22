@@ -181,7 +181,7 @@
     - CONVENTIONS.md lifecycle text names `complete-workflow`
   depends: T-13, T-15
 
-- [ ] T-17: Write the end-to-end completion regression test (RED — tests must fail)
+- [x] T-17: Write the end-to-end completion regression test (RED — tests must fail)
   Why: AC-6, AC-10 — proves the full path: no re-dispatch, no FileNotFoundError/exit-3 (per OQ-5 the real failure mode), and unmerged-branch preservation
   Files: config/scripts/orchestrator_next/tests/test_complete_workflow_e2e.py (new)
   Change: new pytest module; build a temp git repo + worktree + a state.yaml whose `workflow_plan.main.nodes` has all nodes `completed` except a final `complete-workflow` node, with `flags.worktree=true, flags.merge_to_main=true`; run `orchestrator next` (dispatches + runs `complete-workflow.sh`), then run `orchestrator next` again; assert (i) archive dir exists with moved state.yaml/tasks.md, (ii) worktree dir gone, (iii) no FileNotFoundError raised and second `next` exits 1 (not 3), (iv) no already-completed step id appears re-dispatched in step_history. Add a second case with `flags.merge_to_main=false` and an unmerged feature branch: worktree removed, branch still present after teardown, exit 0.
