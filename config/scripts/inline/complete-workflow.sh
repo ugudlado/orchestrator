@@ -47,9 +47,28 @@ fi
 REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 WORKTREE_PATH="${WORKTREE_PATH/#\~/$HOME}"
 
-# JSON-escape a string for embedding inside a record value.
-_json_escape() {
-  printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
+# Extract a record object from a helper's stdout. Helpers print git/commit
+# noise on stdout before their final JSON line; scan for the LAST line that
+# parses as a JSON object, then return obj[key] (or the whole object if key
+# is empty). Always prints a valid JSON object — {} on no match.
+_extract_record() {
+  local _key="$1"
+  python3 -c '
+import json, sys
+key = sys.argv[1]
+found = {}
+for line in sys.stdin:
+    line = line.strip()
+    if not (line.startswith("{") and line.endswith("}")):
+        continue
+    try:
+        obj = json.loads(line)
+    except Exception:
+        continue
+    if isinstance(obj, dict):
+        found = obj
+print(json.dumps(found.get(key, {}) if key else found))
+' "$_key"
 }
 
 # --- Step 1: merge (gated on flags.merge_to_main) ---------------------------
@@ -65,12 +84,7 @@ if [[ "$MERGE_TO_MAIN" == "true" || "$MERGE_TO_MAIN" == "True" ]]; then
     exit "$_merge_rc"
   fi
   # merge-to-main.sh emits {"merge_record": {...}}; keep the inner object.
-  MERGE_RECORD="$(printf '%s' "$_merge_out" | python3 -c 'import json,sys
-try:
-    obj = json.loads(sys.stdin.read() or "{}")
-except Exception:
-    obj = {}
-print(json.dumps(obj.get("merge_record", {})))')"
+  MERGE_RECORD="$(printf '%s\n' "$_merge_out" | _extract_record merge_record)"
 else
   MERGE_RECORD='{"skipped": true, "reason": "merge_to_main flag false"}'
 fi
@@ -81,12 +95,17 @@ fi
 # bash var from step 0.
 _archive_out="$(bash "$_DIR/archive-completed-change.sh")"
 _archive_rc=$?
-ARCHIVE_RECORD="$(printf '%s' "$_archive_out" | python3 -c 'import json,sys
-try:
-    obj = json.loads(sys.stdin.read() or "{}")
-except Exception:
-    obj = {}
-print(json.dumps(obj.get("archive_record", {})))')"
+
+# --- Step 3: cd out of the worktree -----------------------------------------
+# `cd "$REPO_ROOT"` is critical and must run BEFORE any further command:
+#   1. `git worktree remove` fails if CWD is inside the target worktree;
+#   2. archive may have just `rm -rf`'d the original CWD (the worktree's
+#      spec/changes/<id> dir) — any later subprocess (python3 in
+#      _extract_record, git in remove-worktree.sh) would fail to resolve its
+#      own CWD with a fatal "error evaluating path".
+cd "$REPO_ROOT" || exit 1
+
+ARCHIVE_RECORD="$(printf '%s\n' "$_archive_out" | _extract_record archive_record)"
 if [[ $_archive_rc -ne 0 ]]; then
   # Archive cp failed before its rm -rf; source dir intact. Halt cleanup.
   printf '%s\n' "$_archive_out" >&2
@@ -94,10 +113,7 @@ if [[ $_archive_rc -ne 0 ]]; then
   exit "$_archive_rc"
 fi
 
-# --- Step 3: cd out, then cleanup (gated on flags.worktree) -----------------
-# `cd "$REPO_ROOT"` is critical: `git worktree remove` fails if CWD is inside
-# the target worktree, and CWD started inside it.
-cd "$REPO_ROOT" || exit 1
+# --- Step 3 (cont.): cleanup (gated on flags.worktree) ----------------------
 
 WORKTREE_RECORD=""
 if [[ "$WORKTREE" == "true" || "$WORKTREE" == "True" ]]; then
@@ -106,12 +122,8 @@ if [[ "$WORKTREE" == "true" || "$WORKTREE" == "True" ]]; then
   _wt_out="$(STATE_YAML_PATH="" REPO_ROOT="$REPO_ROOT" \
             WORKTREE_PATH="$WORKTREE_PATH" BRANCH="$BRANCH" \
             bash "$_DIR/remove-worktree.sh")"
-  WORKTREE_RECORD="$(printf '%s' "$_wt_out" | python3 -c 'import json,sys
-try:
-    obj = json.loads(sys.stdin.read() or "{}")
-except Exception:
-    obj = {}
-print(json.dumps(obj))')"
+  # remove-worktree.sh emits a bare object (no wrapper key); keep it whole.
+  WORKTREE_RECORD="$(printf '%s\n' "$_wt_out" | _extract_record "")"
 else
   WORKTREE_RECORD='{"skipped": true, "reason": "worktree flag false"}'
 fi

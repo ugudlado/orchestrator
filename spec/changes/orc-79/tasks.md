@@ -33,7 +33,7 @@
     - absent flags map → resolvers yield empty string, no crash
     - unknown var name still exits non-zero (allowlist intact)
 
-- [ ] T-4: Add `MERGE_TO_MAIN` / `WORKTREE` resolvers to `_read_state_env.sh` (GREEN — make tests pass)
+- [x] T-4: Add `MERGE_TO_MAIN` / `WORKTREE` resolvers to `_read_state_env.sh` (GREEN — make tests pass)
   Why: AC-5, Decisions — keep all state.yaml reads in the one audited allowlist
   Files: config/scripts/inline/_read_state_env.sh, ~/.config/orchestrator/config/scripts/inline/_read_state_env.sh (dual tree)
   Change: in the embedded Python `RESOLVERS` map (lines 26-33), add `"MERGE_TO_MAIN": lambda r: r.get("flags", {}).get("merge_to_main", "")` and `"WORKTREE": lambda r: r.get("flags", {}).get("worktree", "")`. Apply to both config trees.

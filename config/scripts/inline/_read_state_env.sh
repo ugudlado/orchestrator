@@ -30,6 +30,8 @@ RESOLVERS = {
     "WORKTREE_PATH": lambda r: r.get("worktree_path") or "",
     "REPO_ROOT": lambda r: r.get("repo_root") or "",
     "BRANCH": lambda r: r.get("branch") or "",
+    "MERGE_TO_MAIN": lambda r: r.get("flags", {}).get("merge_to_main", ""),
+    "WORKTREE": lambda r: r.get("flags", {}).get("worktree", ""),
 }
 
 for var in want:
