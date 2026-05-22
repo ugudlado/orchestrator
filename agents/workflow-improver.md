@@ -57,7 +57,7 @@ You analyze how the workflow performed during a feature and improve it for next 
 
 | When to enforce | Step contract |
 |---|---|
-| During implementation | `execute-next-task.yaml` |
+| During implementation | `execute-one-task.yaml` |
 | During review | `run-phase-review.yaml` |
 | During implement review | `run-implement-review.yaml` |
 | During artifact/task creation | `create-or-refresh-artifacts.yaml` |

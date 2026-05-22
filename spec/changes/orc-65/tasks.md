@@ -175,3 +175,20 @@
     - grep tasks.md config/ skills/ shows only references inside archived feature folders
     - grep all_tasks_completed across the whole repo returns zero non-archive matches
   depends: T-14, T-15, T-16
+
+## Fix tasks (from phase-review)
+
+- [x] T-18: Remove stale execute-next-task.yaml references from agent definition files
+  Files: `agents/developer.md`, `agents/workflow-improver.md`, `agents/workflow-learner.md`
+  Problem: T-9 deleted `execute-next-task.yaml` but did not update agent files. `agents/workflow-learner.md:149,233,273`, `agents/workflow-improver.md:60`, `agents/developer.md:111` still reference the deleted contract. The learn-cycle agent follows file paths as instructions — broken reference causes learn-cycle confusion.
+  Why: AC-10 requires removing all execute-next-task references from active (non-archive) files. Agent definitions are part of the operator surface; stale references here mislead the learn-cycle agent at runtime.
+  Improve: Replace each reference to `execute-next-task.yaml` with `execute-one-task.yaml` where the surrounding text describes the per-task contract. Delete sentences that only describe the all-tasks-in-one-spawn behavior (the loop is gone).
+  Verify: `grep -rn execute-next-task agents/` returns zero matches.
+
+- [ ] T-19: Delete or update config/tests/test-execute-next-task-simplify-pass.sh
+  Files: `config/tests/test-execute-next-task-simplify-pass.sh`
+  Problem: This test checks for the existence of `execute-next-task.yaml` which T-9 deleted. It now produces 1 failure when the test suite runs, causing test noise and confusing future reviewers.
+  Why: A failing test added by this feature is a correctness gap. The test was checking behavior for a contract that is intentionally gone; leaving it fails the "all tests pass" gate.
+  Improve: Delete the file. If a replacement test is needed that covers equivalent `execute-one-task.yaml` behavior, create it with the correct contract path and assertions.
+  Verify: `bash config/tests/test-execute-next-task-simplify-pass.sh` either does not exist (preferred) or exits 0.
+  depends: T-17

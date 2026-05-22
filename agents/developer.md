@@ -108,7 +108,7 @@ When the reviewer rejects:
 
 - **feature (not tdd_required)**: Implementation first. Tests optional but type-check + build required.
 - **bugfix**: Write regression test first (proves the bug exists), then fix (test turns green).
-- **feature (tdd_required)**: Strict red-green-refactor — see the TDD rule in `execute-next-task.yaml`.
+- **feature (tdd_required)**: Strict red-green-refactor — write the failing test first, then make it pass.
 
 ## On Failure
 
