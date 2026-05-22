@@ -27,3 +27,4 @@ models:
 backends:
   native_opus:   claude-opus-4-7
   native_sonnet: claude-sonnet-4-6
+  native_haiku:  claude-haiku-4-5
