@@ -42,7 +42,7 @@
     - existing resolver tests still pass (CHANGE_ID, BRANCH, etc.)
   depends: T-3
 
-- [ ] T-5: Write test for `complete-workflow` state-mutating classification (RED — tests must fail)
+- [x] T-5: Write test for `complete-workflow` state-mutating classification (RED — tests must fail)
   Why: AC-4 — without classification `record.py` crashes on the post-archive path
   Files: config/scripts/orchestrator_next/tests/test_complete_workflow_classification.py (new)
   Change: new pytest module asserting `bin/orchestrator`'s `_STATE_MUTATING_INLINE_STEPS` set contains `complete-workflow` and does NOT contain `archive-completed-change`
