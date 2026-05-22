@@ -125,7 +125,7 @@
     - bootstrap.yaml steps unchanged
   depends: T-9
 
-- [ ] T-11: Replace the three tail steps with `complete-workflow` in feature/bugfix schemas (GREEN — make tests pass)
+- [x] T-11: Replace the three tail steps with `complete-workflow` in feature/bugfix schemas (GREEN — make tests pass)
   Why: AC-1 — feature and bugfix workflows must dispatch the single terminal step (no RED — mechanical change; T-10 is the regression guard)
   Files: config/workflows/feature.yaml, config/workflows/bugfix.yaml
   Change: in each file, replace the trailing `- archive-completed-change` / `- merge-to-main` / `- remove-worktree` lines with a single `- complete-workflow`. `spike.yaml` is NOT touched (it keeps `archive-completed-change`). `~/.config/orchestrator/config` is a symlink to the repo `config/` — the two trees are one physical directory, so one edit per file suffices.
