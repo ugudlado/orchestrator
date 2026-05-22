@@ -5,6 +5,76 @@ structural contract that ensures consistent handoff between workflow steps.
 
 ---
 
+## Tasks YAML Format Contract
+
+The `tasks.yaml` file is a machine-readable structural contract between
+`design-and-draft-artifacts` (producer) and `expand-plan` (consumer). Both
+steps MUST use this exact format.
+
+### Format
+
+```yaml
+version: 1
+tasks:
+  - id: T-1
+    title: "Wire X to Y"
+    agent: developer
+    depends_on: []
+    files:
+      - path/to/file.py
+    verify:
+      - pytest tests/test_x.py::test_wire
+    test_scenarios:
+      - "Y observes X's emission"
+    # optional fields:
+    why: "AC-3"
+    change: "edit file.py:42 to call y_emit() instead of y_set()"
+  - id: T-2
+    title: "Add regression test"
+    depends_on: [T-1]
+    files:
+      - tests/test_x.py
+    verify:
+      - pytest tests/test_x.py
+```
+
+### Field rules
+
+| Field | Required | Format |
+|-------|----------|--------|
+| version | Yes | Integer `1` |
+| tasks | Yes | List of task objects |
+| id | Yes | `T-<N>` or `fix-<N>`, unique within the file |
+| title | Yes | One line, imperative verb |
+| agent | No | `developer` (default when absent) |
+| depends_on | No | List of other task ids; empty list or absent means no deps |
+| files | Yes | List of file paths the task is allowed to touch |
+| verify | Yes | List of commands the developer runs before COMPLETION |
+| test_scenarios | No | List of human-readable test cases |
+| why | No | Which design.md AC this task serves |
+| change | No | The mechanism — what edit, at which file:line |
+
+### Validation rules
+
+- `id` values must be unique within the file (no duplicates).
+- `depends_on` references must resolve to another task `id` in the same file.
+- No dependency cycles (validated via `expand-plan`'s topo-sort).
+- Missing required fields (`id`, `title`, `files`, `verify`) are rejected by
+  `validate-tasks-yaml.sh`.
+
+### Validator
+
+`config/scripts/inline/validate-tasks-yaml.sh <path-to-tasks.yaml>` — exits 0
+on a well-formed file, exits non-zero with a diagnostic message otherwise.
+
+### Consumers
+
+- `expand-plan` — reads this file to build task-nodes in `workflow_plan[implement].nodes`
+- `run-phase-review` (needs_work branch) — appends fix tasks to this file before
+  invoking `expand-plan`
+
+---
+
 ## Task Format Contract
 
 The `tasks.md` file is a structural contract between `create-or-refresh-artifacts`
