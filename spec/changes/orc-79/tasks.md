@@ -23,7 +23,7 @@
     - script is executable bash, no LLM-tool references
   depends: T-1
 
-- [ ] T-3: Write test for `_read_state_env.sh` flag resolvers (RED — tests must fail)
+- [x] T-3: Write test for `_read_state_env.sh` flag resolvers (RED — tests must fail)
   Why: AC-5 — `complete-workflow.sh` must read `flags.merge_to_main`/`flags.worktree` from state.yaml
   Files: config/scripts/orchestrator_next/tests/test_read_state_env_flags.py (new)
   Change: new pytest module; write a state.yaml fixture with a `flags:` map; source `_read_state_env.sh` and call `read_state_env` for `MERGE_TO_MAIN` and `WORKTREE`; assert the bash vars resolve to the flag values, and an unknown var still exits non-zero
