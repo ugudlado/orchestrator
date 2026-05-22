@@ -105,8 +105,8 @@ def _validate_phase_review_output(
 # orc-67: run-phase-review needs_work rework loop
 # ---------------------------------------------------------------------------
 
-# Verdicts that send the engine back through execute-next-task (drain fix tasks)
-# and then re-run run-phase-review. `pass` is excluded — it advances linearly.
+# Verdicts that trigger the rework loop — inject fix task-nodes via expand-plan
+# and re-run run-phase-review. `pass` is excluded — it advances linearly.
 _REWORK_VERDICTS = frozenset({"needs_work", "incomplete_phase"})
 
 # Fallback when project.yaml omits quality_bar.max_retry_rounds. Matches the
@@ -853,7 +853,7 @@ def compute_resolution(
     """Derive pass_at_1, pass_at_2, regressions, regression_rate.
 
     Approximation note: state.yaml retries are keyed by step_id (e.g.
-    "execute-next-task"), not by task_id — so per-task attempt granularity
+    "run-phase-review"), not by task_id — so per-task attempt granularity
     is unavailable. We use:
       pass_at_1 = max(0, tasks_total - retries_total) / tasks_total
       pass_at_2 = tasks_completed / tasks_total
@@ -1587,9 +1587,11 @@ def record(
     #
     # orc-67: a run-phase-review completion with a needs_work/incomplete_phase
     # verdict opens a rework loop. `_rework_loop_active` decides:
-    #   "retry"    — leave run-phase-review in_progress (mirroring repeat_until)
-    #                and reset the execute-next-task node to in_progress so the
-    #                DAG-walk re-emits execute-next-task → run-phase-review.
+    #   "retry"    — leave run-phase-review in_progress (pending) so the
+    #                DAG-walk re-emits it after fix task-nodes complete.
+    #                ORC-65: fix tasks are injected by the agent calling
+    #                `orchestrator expand-plan` before COMPLETION — no
+    #                per-step node reset needed here.
     #                Intermediate nodes (e.g. run-ux-critique) are untouched.
     #   "escalate" — retries exhausted: mark the node completed, downgrade this
     #                step_history entry to `blocked` (so the next `orchestrator
@@ -1604,9 +1606,6 @@ def record(
             )
         if rework == "retry":
             readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
-            readiness.mark_node_status(
-                state_raw, phase, "execute-next-task", "in_progress"
-            )
         elif rework == "escalate":
             readiness.mark_node_status(state_raw, phase, step_id, "completed")
             entry["status"] = "blocked"
