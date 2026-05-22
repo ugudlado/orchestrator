@@ -193,7 +193,7 @@
     - merge_to_main=false + unmerged branch → worktree removed, branch preserved, exit 0
   depends: T-11
 
-- [ ] T-18: Verify the e2e regression test passes after the implementation (GREEN)
+- [x] T-18: Verify the e2e regression test passes after the implementation (GREEN)
   Why: AC-6, AC-8 — the e2e test must pass once schema, script, and CLI changes are all in
   Files: (no source change — verification task; fix any gap surfaced by T-17)
   Change: run T-17's test against the completed implementation; if it fails, add a fix task before proceeding (do not skip ahead)
