@@ -50,7 +50,7 @@
     - `_STATE_MUTATING_INLINE_STEPS` contains `complete-workflow`
     - `_STATE_MUTATING_INLINE_STEPS` does NOT contain `archive-completed-change`
 
-- [ ] T-6: Replace `_STATE_MUTATING_INLINE_STEPS` contents with `complete-workflow` (GREEN — make tests pass)
+- [x] T-6: Replace `_STATE_MUTATING_INLINE_STEPS` contents with `complete-workflow` (GREEN — make tests pass)
   Why: AC-4, Constraints — `complete-workflow` becomes the sole state-mutating inline step; pre-record it before its script runs (ORC-66 crash-avoidance contract). `archive-completed-change` is removed from the set because its step id no longer dispatches in any schema (T-13 deletes its contract).
   Files: bin/orchestrator
   Change: at bin/orchestrator:372, change `_STATE_MUTATING_INLINE_STEPS = {"archive-completed-change"}` to `{"complete-workflow"}` (replace, not add)
