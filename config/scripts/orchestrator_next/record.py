@@ -1721,9 +1721,8 @@ def record(
 
         if _phase5_handled:
             # Phase 5 path handled the step write — skip the Phase 4 boundary path.
-            # mark-change-completed is NOT phase-last in _complete-phase.yaml so
-            # _detect_boundary would have returned NONE anyway; the trigger upgrades
-            # it to a fatal transactional write for that one step.
+            # mark-change-completed triggers a fatal transactional write for that one
+            # step; _detect_boundary would have returned NONE for it anyway.
             pass
         else:
             boundary = _detect_boundary(workflow_plan, phase, step_id, status)

@@ -46,16 +46,6 @@ def _load_schema(schema_name: str) -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
-def _load_include_phase(include_name: str) -> dict[str, Any]:
-    """Load a _<name>.yaml include phase file from $ORCHESTRATOR_HOME/config/workflows/."""
-    home = _orchestrator_home()
-    path = home / "config" / "workflows" / f"{include_name}.yaml"
-    if not path.is_file():
-        raise FileNotFoundError(f"Include phase file not found: {path}")
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
 def _load_project(repo_root: str) -> dict[str, Any]:
     """Load spec/project.yaml from repo_root."""
     path = Path(repo_root) / "spec" / "project.yaml"
@@ -86,9 +76,9 @@ def _resolve_phases(schema: dict[str, Any]) -> list[dict[str, Any]]:
     """
     Return a flat list of fully-resolved phase dicts from a schema.
 
-    Inline-expands `include: _<name>` entries. Phase-less schemas (top-level
-    `steps:` with no `phases:`) synthesize a single phase named "main"; the
-    rest of the engine treats them identically to legacy multi-phase schemas.
+    Phase-less schemas (top-level `steps:` with no `phases:`) synthesize a
+    single phase named "main"; the rest of the engine treats them identically
+    to legacy multi-phase schemas.
     """
     raw_phases = schema.get("phases")
     if not raw_phases:
@@ -107,12 +97,7 @@ def _resolve_phases(schema: dict[str, Any]) -> list[dict[str, Any]]:
 
     resolved: list[dict[str, Any]] = []
     for phase_entry in raw_phases:
-        if "include" in phase_entry:
-            include_name = phase_entry["include"]  # e.g. "_complete-phase"
-            included = _load_include_phase(include_name)
-            resolved.append(included)
-        else:
-            resolved.append(phase_entry)
+        resolved.append(phase_entry)
     return resolved
 
 
@@ -420,7 +405,7 @@ def generate_plan(state_yaml_path: str) -> None:
     project = _load_project(state.repo_root)
     repo_name = (project.get("project") or {}).get("name", "") or slug
 
-    # Resolve phases — expand include: _<name> directives inline
+    # Resolve schema phases
     resolved_phases = _resolve_phases(schema)
 
     # Build the promoted workflow_plan in a fresh dict, preserving phase order.

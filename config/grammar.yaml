@@ -60,7 +60,6 @@ phase:
     goal: string
     rules: list<string>
     verify: verify_block
-    include: string                   # _<name> fragment (e.g. _complete-phase-spike)
 
 # ─── STEP CONTRACT GRAMMAR ─────────────────────────────────────────
 
