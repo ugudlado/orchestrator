@@ -95,7 +95,7 @@
 
 **depends:** T-7
 
-### [ ] T-9: Review checkpoint — full unification (phase gate)
+### [x] T-9: Review checkpoint — full unification (phase gate)
 **Why:** phase gate — confirm both paths share one implementation and all tests pass before completion.  
 **Test scenarios:**
 - type-check clean
