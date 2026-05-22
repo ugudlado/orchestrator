@@ -164,7 +164,7 @@
     - flag-default merge still produces both keys; `--autopilot` resolves merge_to_main=true
   depends: T-9
 
-- [ ] T-15: Move `worktree`/`merge_to_main` to `behavioral:` in flags.yaml (GREEN — make tests pass)
+- [x] T-15: Move `worktree`/`merge_to_main` to `behavioral:` in flags.yaml (GREEN — make tests pass)
   Why: AC-5 — with no `steps:` binding they are behavioral flags, not step-filtering gates (no RED — mechanical change; T-14 is the regression guard)
   Files: config/flags.yaml, ~/.config/orchestrator/config/flags.yaml (dual tree)
   Change: remove the `worktree:` and `merge_to_main:` entries (and the stale comment at lines 11-13 referencing `remove-worktree`) from the `gates:` section; add `worktree: { default: true, description: "Run in a git worktree; gates complete-workflow cleanup phase" }` and `merge_to_main: { default: false, description: "Merge feature branch to default in complete-workflow" }` under `behavioral:`. Apply to both trees.
