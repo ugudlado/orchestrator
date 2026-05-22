@@ -9,7 +9,7 @@
     - regression guard: `grep -c "phase_verify" config/steps/contracts/error-recovery.md` returns 0
     - run-phase-review.yaml step 7b and error-recovery.md row 17 agree on terminal status (completed) and retry key (run-phase-review)
 
-- [ ] T-2: Write tests for verdict extraction + rework-decision helpers (RED — tests must fail)
+- [x] T-2: Write tests for verdict extraction + rework-decision helpers (RED — tests must fail)
   Why: AC-1, AC-2, AC-5, AC-7 — the helpers `_phase_review_verdict`, `_rework_loop_active`, and `_max_retry_rounds` do not exist yet.
   Files: config/scripts/orchestrator_next/tests/test_rework_loop.py
   Change: New test module asserting the three pure helpers; tests fail today because the symbols are unimported/undefined.
