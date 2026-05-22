@@ -151,6 +151,17 @@ learnings:
       undetected until a smoke test. Grep the Python runtime (record.py, upsert.py,
       or the canonical entry point) for the env var name before wiring it in the
       shell script.
+  - id: worktree-branch-sync
+    learned: 2026-05-22
+    source: orc-78
+    rule: >
+      When running worktree-based workflows (flags.worktree=true), the worktree branch
+      can fall behind main if the user commits directly to the main repo between workflow
+      init and the complete phase. At complete phase, check that the worktree branch is
+      up-to-date with origin/main before proceeding — a fast-forward divergence at this
+      point requires reconciliation before merge and can introduce unreviewable commits
+      onto the feature branch. Run `git log worktree-branch..main --oneline` as a
+      pre-check; if non-empty, pause and surface the divergence to the user.
   - id: external-benchmark-references
     learned: 2026-04-20
     kind: informational
