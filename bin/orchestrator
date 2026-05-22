@@ -349,6 +349,43 @@ def main() -> None:
                 _run_path = os.path.join(_orchestrator_home, "config", _run_path)
 
             _script_env = _inline_script_env(state, state_yaml_path, action.get("env", {}))
+
+            _step_id = action["step_id"]
+            _phase = action["phase"]
+            _attempt = action["attempt"]
+
+            # State-mutating inline steps move/delete state.yaml as their side
+            # effect (archive-completed-change rm -rf's the state directory).
+            # record() re-opens state_yaml_path to read pre-write bytes — if the
+            # script has already moved the file, that raises FileNotFoundError.
+            # Fix: record these steps as completed BEFORE running the script, so
+            # the step_history entry is durable in state.yaml at its current
+            # location; the script then moves the already-final file.
+            #
+            # Tradeoff: a state-mutating step records `completed` before its
+            # script's exit code is known. The archive script's hardened
+            # `cp ... || exit 1` ensures a failed copy exits non-zero BEFORE the
+            # `rm -rf`, so the source dir (with the optimistic entry) stays
+            # intact and the driver halts on exit 3 — recoverable, not
+            # catastrophic. The script's own outputs (commit_sha etc.) are not
+            # threaded into step_history; that is the accepted cost.
+            _STATE_MUTATING_INLINE_STEPS = {"archive-completed-change"}
+            _state_mutating = _step_id in _STATE_MUTATING_INLINE_STEPS
+
+            if _state_mutating:
+                _record(
+                    state_yaml_path,
+                    {
+                        "step_id": _step_id,
+                        "phase": _phase,
+                        "attempt": _attempt,
+                        "status": "completed",
+                        "outputs": {},
+                        "evidence": {"summary": "recorded pre-script (state-mutating inline step)"},
+                    },
+                    db=_db,
+                )
+
             _proc = _sp.run(
                 ["bash", _run_path],
                 capture_output=True,
@@ -359,47 +396,49 @@ def main() -> None:
                 sys.stderr.buffer.write(_proc.stderr)
                 sys.stderr.buffer.flush()
 
-            _step_id = action["step_id"]
-            _phase = action["phase"]
-            _attempt = action["attempt"]
-
             if _proc.returncode != 0:
-                _record(
-                    state_yaml_path,
-                    {
-                        "step_id": _step_id,
-                        "phase": _phase,
-                        "attempt": _attempt,
-                        "status": "failed",
-                        "outputs": {},
-                        "evidence": {"summary": f"script exited {_proc.returncode}"},
-                    },
-                    db=_db,
-                )
+                # State-mutating steps already recorded above; do not re-record
+                # (record.py appends, it does not replace — a second entry would
+                # leave completed+failed in history and race the node flip).
+                if not _state_mutating:
+                    _record(
+                        state_yaml_path,
+                        {
+                            "step_id": _step_id,
+                            "phase": _phase,
+                            "attempt": _attempt,
+                            "status": "failed",
+                            "outputs": {},
+                            "evidence": {"summary": f"script exited {_proc.returncode}"},
+                        },
+                        db=_db,
+                    )
                 # Surface script failure via stderr; exit 3 signals script error
                 print(f"error: inline script failed (exit {_proc.returncode}): {_run_path}", file=sys.stderr)
                 sys.exit(3)  # finally block will close _db
             else:
-                _stdout_lines = _proc.stdout.decode(errors="replace").strip().splitlines()
-                _outputs = {}
-                if _stdout_lines:
-                    try:
-                        import json as _json
-                        _outputs = _json.loads(_stdout_lines[-1])
-                    except (_json.JSONDecodeError, ValueError):
-                        pass
-                _record(
-                    state_yaml_path,
-                    {
-                        "step_id": _step_id,
-                        "phase": _phase,
-                        "attempt": _attempt,
-                        "status": "completed",
-                        "outputs": _outputs,
-                        "evidence": {"outputs": _outputs, "summary": "inline script completed"},
-                    },
-                    db=_db,
-                )
+                # State-mutating steps already recorded pre-script.
+                if not _state_mutating:
+                    _stdout_lines = _proc.stdout.decode(errors="replace").strip().splitlines()
+                    _outputs = {}
+                    if _stdout_lines:
+                        try:
+                            import json as _json
+                            _outputs = _json.loads(_stdout_lines[-1])
+                        except (_json.JSONDecodeError, ValueError):
+                            pass
+                    _record(
+                        state_yaml_path,
+                        {
+                            "step_id": _step_id,
+                            "phase": _phase,
+                            "attempt": _attempt,
+                            "status": "completed",
+                            "outputs": _outputs,
+                            "evidence": {"outputs": _outputs, "summary": "inline script completed"},
+                        },
+                        db=_db,
+                    )
                 # No JSON on stdout — driver loops by calling orchestrator next again
                 sys.exit(0)  # finally block will close _db
 

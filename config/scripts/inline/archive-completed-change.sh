@@ -44,12 +44,20 @@ if [ ! -d "$SRC" ]; then
 fi
 
 mkdir -p "$DST"
-cp -a "$SRC"/. "$DST"/ && rm -rf "$SRC"
+# Harden the copy: a failed cp must exit non-zero BEFORE the rm, so the source
+# dir is never deleted on a partial archive. set -e is not enabled, so an
+# explicit guard is required.
+if ! cp -a "$SRC"/. "$DST"/; then
+  printf '%s\n' "{\"archive_record\": {\"skipped\": true, \"reason\": \"cp failed: $SRC -> $DST\"}}"
+  exit 1
+fi
+rm -rf "$SRC"
 
 ARCHIVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Write cost-summary.md into the archive dir before committing.
-COST_REPORT_SCRIPT="$(dirname "$0")/../cost-report.sh"
+# cost-report.sh lives at repo-root scripts/, not config/scripts/.
+COST_REPORT_SCRIPT="$REPO_ROOT/scripts/cost-report.sh"
 if [ -f "$COST_REPORT_SCRIPT" ] && [ -n "${ORCHESTRATOR_HOME:-}" ]; then
   bash "$COST_REPORT_SCRIPT" --change-id "$CHANGE_ID" > "$DST/cost-summary.md" 2>/dev/null || true
 fi
