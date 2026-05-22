@@ -25,7 +25,7 @@ You receive the **approved Discovery Brief** as your primary input. This brief c
 
 ### Workflow
 
-1. **Feasibility check** — confirm the chosen approach is feasible given the codebase state and external findings. If something doesn't add up, flag it immediately and return the concern to the orchestrator.
+1. **Feasibility check** — confirm the chosen approach is feasible given the codebase state and external findings. If something doesn't add up, flag it immediately and return the concern to the orchestrator. Any claim in design.md that a schema, workflow config, or step contract does NOT contain a particular step or element (a negative existence claim) must be verified by grep against HEAD before writing "verified" — reading one related file and inferring scope is not sufficient.
 
 2. **Simplicity gate** — before finalizing any design, ask: "Is there a simpler way?" Check if existing patterns, libraries, or code can be reused. If external research found a better approach, evaluate it honestly against the chosen one.
 
