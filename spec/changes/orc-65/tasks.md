@@ -185,7 +185,7 @@
   Improve: Replace each reference to `execute-next-task.yaml` with `execute-one-task.yaml` where the surrounding text describes the per-task contract. Delete sentences that only describe the all-tasks-in-one-spawn behavior (the loop is gone).
   Verify: `grep -rn execute-next-task agents/` returns zero matches.
 
-- [ ] T-19: Delete or update config/tests/test-execute-next-task-simplify-pass.sh
+- [x] T-19: Delete or update config/tests/test-execute-next-task-simplify-pass.sh
   Files: `config/tests/test-execute-next-task-simplify-pass.sh`
   Problem: This test checks for the existence of `execute-next-task.yaml` which T-9 deleted. It now produces 1 failure when the test suite runs, causing test noise and confusing future reviewers.
   Why: A failing test added by this feature is a correctness gap. The test was checking behavior for a contract that is intentionally gone; leaving it fails the "all tests pass" gate.
