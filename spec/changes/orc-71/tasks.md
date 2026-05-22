@@ -51,7 +51,7 @@
 
 **depends:** T-3
 
-### [ ] T-5: Implement the pricing CLI bulk entry point in pricing.py (GREEN — make tests pass)
+### [x] T-5: Implement the pricing CLI bulk entry point in pricing.py (GREEN — make tests pass)
 **Why:** AC-6, AC-7, Decisions D-2, D-5, D-6 — one bulk CLI call replaces the Bash pricing logic.  
 **Files:** config/scripts/orchestrator_next/pricing.py  
 **Change:** Add `main(argv)` and a `__main__` guard to pricing.py. Parse `--agents <name>…` — the flag is required and must carry a non-empty list; a missing flag or empty list exits non-zero with a usage error on stderr and no stdout (D-6 — the CLI is a pure pricer and does NOT discover agents). Resolve metrics DB via `$METRICS_DB` else `$ORCHESTRATOR_HOME/metrics.duckdb` (same convention as record.py:1844-1847). For each supplied agent, resolve agent→backend→model via the routes chain and call `_lookup_price`; an agent absent from routes.yaml resolves the same way `_compute_cost_usd` handles an unrouted agent (`__default__` pricing). Emit a JSON array with all four pricing columns (D-5). If the DB file is absent, write a stderr diagnostic and exit non-zero with no stdout (D-2).  

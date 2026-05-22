@@ -235,3 +235,124 @@ def _compute_cost_usd(
         + cache_creation_tokens * price["cache_creation"] / 1_000_000
     )
     return model_id, cost
+
+
+# ---------------------------------------------------------------------------
+# Bulk pricing CLI (ORC-71, Decisions D-2/D-5/D-6)
+# ---------------------------------------------------------------------------
+# `python3 -m orchestrator_next.pricing --agents a b c …` prices the
+# caller-supplied agents in one process and prints a JSON array. It is a pure
+# pricer — it does NOT discover or enumerate agents; agent-list assembly is the
+# caller's responsibility (estimate-cost.sh owns the routes ∪ archive union).
+
+
+def _resolve_agent_model(agent: str) -> "tuple[str | None, str | None]":
+    """Resolve agent → (backend, model_id) via routes.yaml.
+
+    Uses the same agent→backend→model chain as `_compute_cost_usd` Steps 1-2:
+      - routes.agents[agent] → backend
+      - routes.backends[backend] → model_id   (native_* keys)
+      - routes.models[backend].model → model_id  (proxy path)
+    Returns (None, None) for an agent absent from routes.yaml or a backend that
+    resolves to no model_id — the caller then prices it via the __default__ row.
+    """
+    routes = _load_routes()
+    backend = (routes.get("agents") or {}).get(agent)
+    if not backend:
+        return None, None
+    backends_map = routes.get("backends") or {}
+    if backend in backends_map:
+        return backend, backends_map[backend]
+    model_entry = (routes.get("models") or {}).get(backend)
+    if isinstance(model_entry, dict) and model_entry.get("model"):
+        return backend, model_entry["model"]
+    return backend, None
+
+
+def main(argv: "list[str] | None" = None) -> int:
+    """CLI entry point: price a caller-supplied list of agents.
+
+    Parses `--agents <name> …` (required, non-empty). Resolves the metrics DB
+    via $METRICS_DB else $ORCHESTRATOR_HOME/metrics.duckdb. Prints a JSON array
+    of one object per agent to stdout, with keys: agent, backend, model,
+    input_usd, output_usd, cache_read_usd, cache_creation_usd.
+
+    Exit codes:
+      0  — priced successfully, JSON array on stdout.
+      2  — usage error (missing/empty --agents): nothing on stdout.
+      1  — metrics DB absent (D-2): stderr diagnostic, nothing on stdout.
+    """
+    import argparse
+    import json
+
+    parser = argparse.ArgumentParser(
+        prog="python3 -m orchestrator_next.pricing",
+        description="Bulk-price caller-supplied agents against the DuckDB pricing table.",
+    )
+    parser.add_argument(
+        "--agents",
+        nargs="+",
+        required=True,
+        metavar="AGENT",
+        help="one or more agent names to price (required, non-empty)",
+    )
+    # argparse exits 2 with a usage error on stderr for a missing/empty --agents.
+    args = parser.parse_args(argv)
+
+    # Resolve the metrics DB path — same convention as record.py main().
+    db_path_str = os.environ.get("METRICS_DB")
+    if not db_path_str:
+        db_path_str = str(_orchestrator_home() / "metrics.duckdb")
+    db_path = Path(db_path_str)
+
+    # D-2: DB absent → fail loud. No fabricated rates, no stdout.
+    if not db_path.exists():
+        sys.stderr.write(
+            f"[pricing] metrics DB not found at {db_path}; cannot price agents\n"
+        )
+        return 1
+
+    import duckdb
+
+    db = duckdb.connect(str(db_path), read_only=True)
+    try:
+        now = _dt.datetime.utcnow()
+        results = []
+        for agent in args.agents:
+            backend, model_id = _resolve_agent_model(agent)
+            # Unrouted agent → price via the __default__ pricing row; report
+            # backend/model as null (consistent with _compute_cost_usd handling
+            # of an unrouted agent).
+            lookup_model = model_id if model_id else "__default__"
+            price = _lookup_price(db, lookup_model, now)
+            if price is None:
+                # No row for the model and no __default__ row — emit nulls
+                # rather than guessing (D-2 fail-loud spirit).
+                results.append({
+                    "agent": agent,
+                    "backend": backend,
+                    "model": model_id,
+                    "input_usd": None,
+                    "output_usd": None,
+                    "cache_read_usd": None,
+                    "cache_creation_usd": None,
+                })
+                continue
+            results.append({
+                "agent": agent,
+                "backend": backend,
+                "model": model_id,
+                "input_usd": price["input"],
+                "output_usd": price["output"],
+                "cache_read_usd": price["cache_read"],
+                "cache_creation_usd": price["cache_creation"],
+            })
+    finally:
+        db.close()
+
+    print(json.dumps(results))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
