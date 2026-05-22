@@ -5,7 +5,7 @@
 #
 # Reads:
 #   - <state_dir>/state.yaml           (current schema, tasks_planned hint)
-#   - <state_dir>/tasks.md             (tasks_planned count)
+#   - <state_dir>/tasks.yaml            (tasks_planned count)
 #   - $REPO_ROOT/scripts/routes.yaml   (agent → backend → model)
 #   - $METRICS_DB, else $ORCHESTRATOR_HOME/metrics.duckdb (DuckDB file — model → $/1M tokens)
 #     Path convention matches record.py's `main()` — see config/scripts/orchestrator_next/record.py.
@@ -31,7 +31,7 @@ else
   STATE_DIR="$ARG"
   STATE_FILE="$STATE_DIR/state.yaml"
 fi
-TASKS_FILE="$STATE_DIR/tasks.md"
+TASKS_FILE="$STATE_DIR/tasks.yaml"
 
 if [ ! -f "$STATE_FILE" ]; then
   echo "ERROR: state.yaml not found at $STATE_FILE" >&2
@@ -47,11 +47,19 @@ SCHEMA=$(awk '/^schema:/ {print $2; exit}' "$STATE_FILE" | tr -d '"')
 [ -z "$SCHEMA" ] && SCHEMA="feature"
 
 # ── Tasks planned ────────────────────────────────────────────────────────
-# Count checkbox lines in tasks.md. Fall back to 1 to keep the estimator
+# Count task entries in tasks.yaml. Fall back to 1 to keep the estimator
 # scalar — "unknown fan-out" is not the estimator's job, it's a prior.
 TASKS_PLANNED=0
 if [ -f "$TASKS_FILE" ]; then
-  TASKS_PLANNED=$(grep -cE '^\s*-\s*\[' "$TASKS_FILE" 2>/dev/null || echo 0)
+  TASKS_PLANNED=$(python3 -c "
+import yaml, sys
+try:
+    with open('$TASKS_FILE') as f:
+        d = yaml.safe_load(f) or {}
+    print(len(d.get('tasks') or []))
+except Exception:
+    print(0)
+" 2>/dev/null || echo 0)
   TASKS_PLANNED=${TASKS_PLANNED//[$'\n\r ']/}
 fi
 [ "$TASKS_PLANNED" -eq 0 ] && TASKS_PLANNED=1

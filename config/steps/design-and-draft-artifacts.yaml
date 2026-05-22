@@ -1,7 +1,7 @@
 id: design-and-draft-artifacts
 version: 1
 
-intent: Generate design approaches, select one, then write all phase artifacts (design.md, tasks.md) in a single architect pass. Show artifacts to user for review when not in auto mode.
+intent: Generate design approaches, select one, then write all phase artifacts (design.md, tasks.yaml) in a single architect pass. Show artifacts to user for review when not in auto mode.
 
 agent: architect
 
@@ -26,7 +26,7 @@ rules:
   - Resolve major design decisions before implementation begins — do not defer to the implementation phase.
   - Tasks must be small, verifiable, and ordered.
   - Attach verification criteria per task.
-  - Output MUST follow the Task Format Contract in contracts/artifact-formats.md.
+  - Output MUST follow the Tasks YAML Format Contract in contracts/artifact-formats.md.
   - "When flags.bugfix is true: first task MUST be the regression test, second task MUST be the fix. Order matters."
   - "When spec or design introduces a new archive/state path for any producer (autopilot, spike, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`) and confirm the new path is matched before committing the artifact. Otherwise downstream consumers (telemetry, learn, workflow-improver) silently skip the new producer. <!-- learned: 2026-04-16, source: HL-278, cycle: 10, hits: 15, misses: 1, repo: orchestrator -->"
   - "SQL sketches in design.md that reference specific field names must be validated against a live row from the target DB (or schema file) before finalizing. Add an explicit note in the task or run a one-query T-0 validation — field name drift between sketch and schema is a common first-review failure. <!-- learned: 2026-04-17, source: learn-and-telemetry-on-duckdb, cycle: 12, hits: 13, misses: 1, repo: orchestrator -->"
@@ -54,7 +54,7 @@ instruction: |
 
   ## Part 2: Artifact Generation
 
-  5. For each output file (design.md, tasks.md) — in dependency order:
+  5. For each output file (design.md, tasks.yaml) — in dependency order:
      - **Missing**: does not exist → generate.
      - **Stale**: state.yaml records a review rejection or `refresh_artifacts: true` → regenerate.
      - **Current**: exists and no refresh signal → skip.
@@ -65,20 +65,18 @@ instruction: |
      c. Generate using available context (discovery brief, design direction, change description).
      d. Write to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/<file>.
 
-  7. Generate tasks.md and tasks.yaml:
+  7. Generate tasks.yaml:
      - Read design.md for approach, component breakdown, and acceptance criteria.
        (Product-level motivation/impact lives on the ticket — read it from
        state.yaml's linear-ticket/change description if more context is needed.)
      - If ux-artifacts.yaml exists: reference ux-prototype.html in UI task descriptions.
      - Generate the fewest tasks that cover all acceptance criteria.
-     - Write tasks.md using Task Format Contract (contracts/artifact-formats.md § Task Format Contract).
      - Write tasks.yaml using Tasks YAML Format Contract (contracts/artifact-formats.md § Tasks YAML Format Contract).
-       Both files represent the same task plan — tasks.yaml is the machine-readable form.
      - When tdd_required: every implementation task has a preceding test task.
 
   8. Return COMPLETION per contracts/done-payload.md (driver calls orchestrator done).
-     The COMPLETION `outputs:` block MUST carry all six declared outputs:
-     - `design.md`, `tasks.md`, and `tasks.yaml` — path-named artifacts; the value is the
+     The COMPLETION `outputs:` block MUST carry all five declared outputs:
+     - `design.md` and `tasks.yaml` — path-named artifacts; the value is the
        relative path the step wrote (e.g. `spec/changes/$CHANGE_ID/tasks.yaml`).
      - `updated_artifact_set` — the list of artifact files generated this pass.
      - `design_direction` — the name of the selected design approach.
@@ -90,8 +88,8 @@ instruction: |
 
   9. If auto=false:
      - Print a summary of each artifact written: file name, section count, task count.
-     - Print the full contents of tasks.md so the user can review scope.
-     - Pause and prompt: "Review design.md, tasks.md in
+     - Print the full contents of tasks.yaml so the user can review scope.
+     - Pause and prompt: "Review design.md, tasks.yaml in
        $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/. Reply 'ok' to continue, or describe changes needed."
      - If the user requests changes: apply them to the relevant artifacts and re-present.
      - Once confirmed: proceed to next step.
@@ -99,18 +97,15 @@ instruction: |
 
 verify:
   - design.md exists in $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/
-  - tasks.md exists with at least one task
   - tasks.yaml exists and passes validate-tasks-yaml.sh
   - design.md has Acceptance Criteria section with testable criteria
-  - tasks.md follows the Task Format Contract
   - tasks.yaml follows the Tasks YAML Format Contract
-  - tasks.md covers every acceptance criterion from design.md
-  - Every task has a Test scenarios field listing the behaviors its tests cover
+  - tasks.yaml covers every acceptance criterion from design.md
+  - Every task has a verify field listing the behaviors its tests cover
   - Key Decisions section populated in discovery.md
 
 outputs:
   - design.md
-  - tasks.md
   - tasks.yaml
   - updated_artifact_set
   - design_direction

@@ -75,48 +75,6 @@ on a well-formed file, exits non-zero with a diagnostic message otherwise.
 
 ---
 
-## Task Format Contract
-
-The `tasks.md` file is a structural contract between `create-or-refresh-artifacts`
-(producer) and `execute-next-task` (consumer). Both steps MUST use this exact format.
-
-### Format
-
-```markdown
-# Tasks — <Change Title>
-
-- [ ] T-1: <one-line description>
-  Why: <which design.md AC or decision this task serves>
-  Files: <exact files this task touches>
-  Change: <the mechanism — what edit, at which file:line>
-  Test scenarios:
-    - <behavior the tests should cover>
-    - <behavior the tests should cover>
-
-- [ ] T-2: <one-line description>
-  Why: <which design.md AC or decision this task serves>
-  Files: <exact files this task touches>
-  Change: <the mechanism — what edit, at which file:line>
-  Test scenarios:
-    - <behavior the tests should cover>
-  depends: T-1
-```
-
-### Field rules
-
-| Field | Required | Format |
-|-------|----------|--------|
-| Checkbox | Yes | `- [ ]` (pending) or `- [x]` (done) |
-| ID | Yes | `T-<N>:` sequential within the file |
-| Description | Yes | One line, imperative verb |
-| Why | Yes | Indented 2 spaces, the design.md AC or decision the change serves |
-| Files | Yes (non-gate tasks) | Indented 2 spaces, exact files the task touches |
-| Change | Yes (non-gate tasks) | Indented 2 spaces, the mechanism — what edit, at which file:line; not the goal |
-| Test scenarios | Yes | Indented 2 spaces, a bulleted list of behaviors/cases the task's tests should cover; the developer may add more |
-| depends | No | Indented 2 spaces, `depends: T-N` or `depends: T-N, T-M` |
-
----
-
 ## Discovery Brief Format Contract
 
 The `discovery.md` file is a structural contract between `explore` (producer) and

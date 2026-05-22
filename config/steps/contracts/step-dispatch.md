@@ -80,7 +80,7 @@ this action until they migrate to the `run_step` path.
 ```jsonc
 {
   "action": "resume_step",
-  "step_id": "execute-next-task",
+  "step_id": "task-T-3",
   "phase": "implement",
   "attempt": 1,
   "is_resume": true,
@@ -130,7 +130,7 @@ Exit code 1. Caller writes final `status: completed` to state.yaml and archives.
   "action": "blocked",
   "reason": "escalate_to_architect",
   "phase": "implement",
-  "step_id": "execute-next-task",
+  "step_id": "task-T-7",
   "escalation": {
     "type": "contradiction",
     "task_id": "T-7",

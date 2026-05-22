@@ -181,7 +181,7 @@ _ORC63_PRUNED_CONTRACTS = [
     "design-and-draft-artifacts",
     "explore",
     "diagnose",
-    "execute-next-task",
+    # execute-next-task removed in ORC-65 T-9; no longer a step contract.
     "ux-design",
     "run-phase-review",
     "generate-project-yaml",

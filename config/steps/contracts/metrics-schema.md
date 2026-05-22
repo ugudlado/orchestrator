@@ -26,10 +26,10 @@ All fields under `metrics:` — their type, description, and source:
 | `tool_calls` | integer | Total tool invocations | step_history |
 | `api_calls` | integer | Same as turns (API round-trips) | session JSONL |
 | `wall_clock_minutes` | decimal | Elapsed wall-clock time | state.yaml timestamps |
-| `resolution.tasks_total` | integer | Total tasks in tasks.md | tasks.md |
-| `resolution.tasks_planned` | integer | Planned task count (same as total) | tasks.md |
-| `resolution.tasks_added` | integer | Tasks added after initial plan | tasks.md |
-| `resolution.tasks_completed` | integer | Tasks marked `[x]` | tasks.md |
+| `resolution.tasks_total` | integer | Total task-nodes in workflow_plan[implement] | workflow_plan + step_history |
+| `resolution.tasks_planned` | integer | Planned task count (total minus fix-N nodes) | workflow_plan |
+| `resolution.tasks_added` | integer | Fix tasks added after initial plan (task-fix-* nodes) | workflow_plan |
+| `resolution.tasks_completed` | integer | Tasks with status completed/recovered in step_history | step_history |
 | `resolution.tasks_failed` | integer | tasks_total − tasks_completed | computed |
 | `resolution.resolve_rate` | decimal | tasks_completed / tasks_total | computed |
 | `resolution.pass_at_1` | decimal | Fraction passing on first attempt | state.yaml retries |

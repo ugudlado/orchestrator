@@ -87,28 +87,25 @@ def test_is_node_ready_false_for_completed_node(tmp_path):
     assert is_node_ready(state, "a") is False
 
 
-def test_repeat_until_dependency_blocks_until_predicate_true(tmp_path):
-    """A repeat_until dep counts as completed only when status==completed AND
-    its predicate is True (OQ-5)."""
+def test_repeat_until_unknown_predicate_does_not_block(tmp_path):
+    """ORC-65 T-9: all_tasks_completed removed from REPEAT_PREDICATES.
+    An unknown predicate is treated as satisfied (returns True), so a
+    completed node with an unknown repeat_until does NOT block dependents.
+    """
     from orchestrator_next.readiness import is_node_ready
-    # tasks.md with an unchecked item -> predicate False
-    tasks = tmp_path / "spec" / "changes" / "f"
-    tasks.mkdir(parents=True)
-    (tasks / "tasks.md").write_text("- [ ] open task\n")
     state = _make_state(tmp_path, [
         {"id": "exec", "status": "completed", "repeat_until": "all_tasks_completed"},
         {"id": "review", "status": "pending"},
     ], extra={"repo_root": str(tmp_path)})
-    # exec is 'completed' but predicate False -> review NOT ready
-    assert is_node_ready(state, "review") is False
+    # all_tasks_completed not in REPEAT_PREDICATES -> unknown -> treated as True
+    # -> review IS ready (dep satisfied)
+    assert is_node_ready(state, "review") is True
 
 
-def test_repeat_until_dependency_ready_when_predicate_true(tmp_path):
-    """When the repeat_until predicate is True the dependent becomes ready."""
+def test_repeat_until_dependency_ready_when_no_predicate(tmp_path):
+    """A node with repeat_until and status=completed (no blocking predicate)
+    allows its dependent to become ready."""
     from orchestrator_next.readiness import is_node_ready
-    tasks = tmp_path / "spec" / "changes" / "f"
-    tasks.mkdir(parents=True)
-    (tasks / "tasks.md").write_text("- [x] done task\n")
     state = _make_state(tmp_path, [
         {"id": "exec", "status": "completed", "repeat_until": "all_tasks_completed"},
         {"id": "review", "status": "pending"},

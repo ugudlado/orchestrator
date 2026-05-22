@@ -65,8 +65,18 @@ schema: feature
 status: completed
 started_at: "2026-01-15T10:00:00Z"
 completed_at: "2026-01-15T11:00:00Z"
+workflow_plan:
+  implement:
+    nodes:
+      - id: task-T-1
+        status: completed
+        agent: developer
+      - id: run-phase-review
+        status: completed
+        agent: reviewer
+    filtered: []
 step_history:
-  - step_id: execute-next-task
+  - step_id: task-T-1
     phase: implement
     status: completed
     agent: developer
@@ -102,9 +112,7 @@ step_history:
       duration_ms: 5000
 STATEYAML
 
-cat > "$STATE_DIR/tasks.md" <<'TASKSMD'
-- [x] T-1: Task one
-TASKSMD
+# ORC-65 T-16: task counts come from step_history + workflow_plan; no tasks.md needed
 
 OUTPUT=$(bash "$SCRIPT" "$STATE_DIR" 2>/dev/null)
 EXIT_CODE=$?

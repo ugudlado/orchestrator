@@ -61,8 +61,8 @@ question: |
   Should T-7 use CacheManager.set() (design.md path) or write to cache.ts directly
   (task description path)?
 attempted: |
-  Re-read design.md § Data Flow and tasks.md T-7. The discrepancy is in design.md line 42
-  vs tasks.md T-7 Files section. Both are explicit. This is not a misreading.
+  Re-read design.md § Data Flow and tasks.yaml T-7. The discrepancy is in design.md line 42
+  vs tasks.yaml T-7 files section. Both are explicit. This is not a misreading.
 ```
 
 ## Orchestrator Handling
@@ -74,14 +74,14 @@ When the developer returns `STATUS: escalate_to_architect`, the orchestrator:
 3. **SPAWN** architect agent with the following context bundle:
    - `design.md` — full design (includes Acceptance Criteria)
    - The escalation block (type, task_id, context, question, attempted)
-   - `tasks.md` with current completion status (which tasks are done, which are pending)
+   - `tasks.yaml` with current task list (use step_history for completion status)
 4. **WAIT** for architect response
 5. **IF** architect provides `DESIGN_AMENDMENT`: write updated design.md to disk
-6. **IF** architect provides `TASK_CHANGES`: update tasks.md accordingly
+6. **IF** architect provides `TASK_CHANGES`: update tasks.yaml accordingly
 7. **RECORD** escalation event in state.yaml `escalation_events` (see § State Recording)
 8. **RE-SPAWN** developer agent with the original task prompt plus architect decision
    appended as "Architect Decision (escalation resolved):"
-9. **CONTINUE** the same execute-next-task step — do NOT advance, do NOT increment retries
+9. **CONTINUE** the same execute-one-task step — do NOT advance, do NOT increment retries
 
 ## Architect Response Format
 
@@ -96,7 +96,7 @@ DESIGN_AMENDMENT: |
   — OR —
   none
 TASK_CHANGES: |
-  <any changes to tasks.md: amended task descriptions, new tasks, removed tasks>
+  <any changes to tasks.yaml: amended task descriptions, new tasks, removed tasks>
   — OR —
   none
 ```
@@ -131,7 +131,7 @@ escalation_events:
 | `question` | string | Yes | The concrete question that was escalated |
 | `decision` | string | Yes | The architect's decision (DECISION field verbatim) |
 | `design_amended` | boolean | Yes | Whether design.md was updated |
-| `tasks_changed` | boolean | Yes | Whether tasks.md was updated |
+| `tasks_changed` | boolean | Yes | Whether tasks.yaml was updated |
 | `timestamp` | string | Yes | ISO 8601 timestamp when escalation was resolved |
 
 ## Retry Interaction

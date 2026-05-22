@@ -26,8 +26,8 @@ mutate node status.
 next_step:
   skill: orchestrate      # which skill to invoke for resume
   phase: implement        # current or next phase name
-  step_id: execute-next-task  # next step to execute
-  instruction: "Execute next task from tasks.md"  # human-readable from step's intent field
+  step_id: task-T-3  # next step to execute (e.g., a task-node or run-phase-review)
+  instruction: "Execute task T-3: Add retry logic"  # human-readable from step's intent field
 ```
 
 ## Field Rules
@@ -36,7 +36,7 @@ next_step:
 |-------|----------|--------|
 | `skill` | Yes | Skill name to invoke (e.g., `orchestrate`, `implement`, `complete-feature`). Hooks use this to construct the resume command (`/{skill}`). |
 | `phase` | Yes | Phase name (lowercase, e.g., `specify`, `implement`, `complete`). Must match a phase in the current schema. |
-| `step_id` | Yes | Step contract ID (e.g., `execute-next-task`, `run-phase-review`). Must be a valid step in the named phase. |
+| `step_id` | Yes | Step node ID (e.g., `task-T-3`, `run-phase-review`). Must be a valid node id in the named phase's workflow_plan. |
 | `instruction` | Yes | Human-readable description from the step's `intent:` field. Displayed in hook messages. |
 
 ## Validity Rules

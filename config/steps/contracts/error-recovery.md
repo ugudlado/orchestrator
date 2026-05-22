@@ -26,7 +26,7 @@ it writes a `step_history` entry with `status: escalate_to_architect` and an
 
 ```yaml
 step_history:
-  - step_id: execute-next-task
+  - step_id: task-T-7
     phase: implement
     status: escalate_to_architect
     agent: developer
@@ -58,7 +58,7 @@ When phase verification fails and retries remain:
    - **Finding**: the specific failure (command output or assertion text)
    - **Scope**: only files directly related to the failure
    - **Approach**: minimal change to make the assertion/command pass
-2. Append fix tasks to tasks.md under the current phase, using Task Format Contract
+2. Append fix tasks to tasks.yaml under the current phase, using Tasks YAML Format Contract
 3. Mark the failing step as needing re-execution
 4. Do NOT generate refactoring or improvement tasks — only fix the specific failure
 
@@ -124,10 +124,10 @@ step_history entry at failure time, alongside the existing `regression:` or
 When a task hits `max_retries` under `auto: true` (autopilot / lenient mode),
 the feature is not paused. Instead:
 
-1. Mark the task quarantined in tasks.md by changing `- [ ]` to `- [!]` and
-   appending `<!-- quarantined: attempt <K>, reason: <category> -->` to the
-   task line. Subsequent `all_tasks_completed` checks treat `[!]` as terminal
-   (task is no longer blocking), but not as complete.
+1. Record the task as quarantined in state.yaml `quarantine_events` (step 2 below).
+   The task-node in workflow_plan is marked `status: quarantined`. Subsequent DAG
+   walks treat quarantined nodes as terminal (no longer blocking downstream nodes),
+   but not as completed — run-phase-review surfaces them as critical findings.
 2. Append to state.yaml `quarantine_events`:
    ```yaml
    quarantine_events:
@@ -161,7 +161,7 @@ output, unstructured text, or error messages without the structured result forma
 ```yaml
 # Step failure example
 step_history:
-  - step_id: execute-next-task
+  - step_id: task-T-3
     phase: implement
     status: failed
     agent: developer
@@ -170,7 +170,7 @@ step_history:
 
 # Retry counter
 retries:
-  execute-next-task: 2
+  task-T-3: 2
   run-phase-review: 1
 ```
 
@@ -183,14 +183,14 @@ failed) and cross-session resume (hooks reading failure context on session start
 ```yaml
 # Top-level field in state.yaml — backward compatible (optional)
 error_events:
-  - step_id: execute-next-task
+  - step_id: task-T-3
     phase: implement
     agent: developer
     attempt: 1
     stop_reason: error
     detail: "Agent internal error — no output returned"
     timestamp: "2026-04-05T04:12:00Z"
-  - step_id: execute-next-task
+  - step_id: task-T-3
     phase: implement
     agent: developer
     attempt: 2

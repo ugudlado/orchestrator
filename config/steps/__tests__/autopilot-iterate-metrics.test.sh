@@ -69,7 +69,7 @@ status: completed
 started_at: "2026-04-10T10:00:00Z"
 completed_at: "2026-04-10T11:00:00Z"
 step_history:
-  - step_id: execute-next-task
+  - step_id: task-T-1
     phase: implement
     status: completed
     agent: developer
@@ -79,7 +79,7 @@ step_history:
       total_tokens: 5000
       tool_uses: 10
       duration_ms: 30000
-  - step_id: execute-next-task
+  - step_id: task-T-2
     phase: implement
     status: completed
     agent: developer
