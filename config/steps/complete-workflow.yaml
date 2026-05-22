@@ -3,7 +3,7 @@ version: 1
 run: scripts/inline/complete-workflow.sh
 
 rules:
-  - complete-workflow is the terminal workflow step. It replaces the former archive-completed-change, merge-to-main, and remove-worktree step trio.
+  - complete-workflow is the terminal step for the feature and bugfix workflows. It performs merge, archive, and worktree teardown as one atomic step.
   - The script sequences, in one process so no dispatch boundary sits between a state-moving and a state-reading operation, merge then archive then cd "$REPO_ROOT" then worktree removal.
   - All state.yaml-derived values are read into bash vars at script start, before the archive phase moves state.yaml out of the worktree.
   - The merge phase is gated by flags.merge_to_main; the cleanup phase is gated by flags.worktree. The archive phase is unconditional.

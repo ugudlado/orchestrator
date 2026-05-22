@@ -202,7 +202,7 @@
     - test_archive_step_record_crash.py (retargeted in T-6b), test_repeat_until.py, test_workflow_schemas_load.py all pass
   depends: T-16, T-17
 
-- [ ] T-19: Review checkpoint — Group 2 (phase gate)
+- [x] T-19: Review checkpoint — Group 2 (phase gate)
   Why: phase gate — confirm schema/contract/flags/docs cleanup integrates cleanly and the full suite is green
   Test scenarios:
     - full test suite green (`pytest config/scripts/orchestrator_next/tests/ -q`)
