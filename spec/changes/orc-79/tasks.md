@@ -67,7 +67,7 @@
     - the `complete-workflow` step_history entry is recorded into state.yaml before the script deletes the dir
   depends: T-6
 
-- [ ] T-7: Write test for `complete-workflow.yaml` step contract (RED — tests must fail)
+- [x] T-7: Write test for `complete-workflow.yaml` step contract (RED — tests must fail)
   Why: AC-2 — the new step needs a dispatchable contract in both trees
   Files: config/scripts/orchestrator_next/tests/test_complete_workflow_contract.py (new)
   Change: new pytest module asserting `complete-workflow.yaml` exists in both `config/steps/` and `$ORCHESTRATOR_HOME/config/steps/`, declares `run: scripts/inline/complete-workflow.sh`, and `outputs: [completion_record]`
