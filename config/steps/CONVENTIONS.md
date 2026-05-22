@@ -267,10 +267,14 @@ Worktrees are required. All workflow files live under the worktree:
 write to the worktree. `WORKFLOW_STATE_DIR` ($REPO_ROOT/spec/changes) is the
 fallback for CLI invocations outside a worktree context only.
 
-**Lifecycle invariant**: `archive-completed-change` MUST run before
-`remove-worktree`. The archive step copies everything (including `state.yaml`)
-out of the worktree into `spec/changes/archive/<date>-<slug>/`. Removing the
-worktree before archiving destroys state with no recovery path.
+**Lifecycle invariant**: for `feature` and `bugfix` workflows the single
+terminal step `complete-workflow` performs teardown in one process — merge
+(if `merge_to_main`) → archive → `cd "$REPO_ROOT"` → worktree removal (if
+`worktree`). Sequencing it inside one script keeps any state-moving operation
+and a later state-reading one behind the same dispatch boundary, so archive can
+move `state.yaml` out of the worktree without a subsequent step re-reading the
+moved path. The `spike` workflow still ends with the standalone
+`archive-completed-change` step.
 
 Steps that write tracked artifacts (design.md, tasks.md, discovery.md, UX files)
 MUST use `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/`, not `$WORKFLOW_STATE_DIR/$CHANGE_ID/`, as

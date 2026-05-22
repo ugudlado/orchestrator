@@ -172,7 +172,7 @@
     - all T-14 tests pass
   depends: T-14
 
-- [ ] T-16: Update docs referencing the removed steps (no RED — mechanical change)
+- [x] T-16: Update docs referencing the removed steps (no RED — mechanical change)
   Why: AC-9 — CONVENTIONS.md, merge-to-main.sh, and autopilot SKILL.md must reflect the new step
   Files: config/steps/CONVENTIONS.md, config/scripts/inline/merge-to-main.sh, skills/autopilot/SKILL.md, and the `~/.config/orchestrator/config/` copies of CONVENTIONS.md and merge-to-main.sh (dual tree)
   Change: in CONVENTIONS.md lines 270-273 rewrite the lifecycle invariant to describe the single `complete-workflow` step (merge→archive→cd→cleanup ordering is internal); in `merge-to-main.sh` remove the "must run before remove-worktree" comment line; in `skills/autopilot/SKILL.md:57` replace the "runs `merge-to-main` then `remove-worktree`" sentence with a description of the `complete-workflow` terminal step.
