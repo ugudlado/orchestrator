@@ -284,3 +284,13 @@ rules:
     rule: User approval required at phase boundaries per signoff_policy.
   - id: agent-agnostic
     rule: Schemas and step contracts must not reference any specific LLM tool. All tool-specific wiring belongs in install.sh or per-tool config.
+  - id: post-review-cleanup-commits
+    learned: 2026-05-23
+    source: orc-71
+    rule: >
+      Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,
+      follow-up sweeps) have no defined step in the feature workflow. When acted on,
+      commit them as separate chore(<change_id>) commits after run-phase-review passes
+      and outside the task loop — never fold them into a task's diff or treat them as
+      silent ground-truth changes. The phase review verdict still reflects pre-cleanup
+      state.
