@@ -275,8 +275,7 @@ def _resolve_driver_session(state: dict, change_id: str, db=None) -> dict:
     if not session_id:
         from pathlib import Path as _Path
 
-        def _repo_slug(rr: str) -> str:
-            return rr.replace("/", "-")
+        from orchestrator_next.jsonl_usage import _repo_slug
 
         slug_dir = _Path.home() / ".claude" / "projects" / _repo_slug(repo_root)
         if slug_dir.exists():
