@@ -172,3 +172,58 @@ def test_real_schema_generates_plan(tmp_path, monkeypatch, schema_name):
             assert node.get("status") == "pending", (
                 f"{schema_name}/{phase_name}/{step_id}: node status must be 'pending' at init"
             )
+
+
+# ---------------------------------------------------------------------------
+# orc-79: the three teardown steps collapse into one terminal `complete-workflow`
+# ---------------------------------------------------------------------------
+
+_REMOVED_STEPS = {
+    "archive-completed-change",
+    "merge-to-main",
+    "remove-worktree",
+}
+
+
+def _schema_step_ids(schema_name):
+    schema = yaml.safe_load((_WORKFLOWS_DIR / f"{schema_name}.yaml").read_text())
+    return [
+        _step_id_of(e)
+        for e in (schema.get("steps") or [])
+        if _step_id_of(e)
+    ]
+
+
+@pytest.mark.parametrize("schema_name", ["feature", "bugfix"])
+def test_schema_ends_with_complete_workflow(schema_name):
+    """feature.yaml / bugfix.yaml steps must end with the single terminal
+    `complete-workflow` step (orc-79)."""
+    steps = _schema_step_ids(schema_name)
+    assert steps and steps[-1] == "complete-workflow", (
+        f"{schema_name}.yaml steps must end with 'complete-workflow', "
+        f"got tail {steps[-3:]}"
+    )
+
+
+@pytest.mark.parametrize("schema_name", ["feature", "bugfix"])
+def test_schema_drops_the_three_removed_steps(schema_name):
+    """The three collapsed teardown steps must not appear in feature/bugfix."""
+    steps = set(_schema_step_ids(schema_name))
+    leftover = steps & _REMOVED_STEPS
+    assert not leftover, (
+        f"{schema_name}.yaml still lists removed step(s) {leftover} — "
+        f"these collapse into complete-workflow"
+    )
+
+
+@pytest.mark.parametrize("schema_name", ["spike", "bootstrap"])
+def test_spike_bootstrap_unaffected(schema_name):
+    """spike / bootstrap never contained the three teardown steps and must
+    not gain `complete-workflow`."""
+    steps = set(_schema_step_ids(schema_name))
+    assert not (steps & _REMOVED_STEPS), (
+        f"{schema_name}.yaml unexpectedly contains a teardown step"
+    )
+    assert "complete-workflow" not in steps, (
+        f"{schema_name}.yaml unexpectedly gained complete-workflow"
+    )
