@@ -1,13 +1,14 @@
-"""T-7: `complete-workflow.yaml` step contract presence (RED before T-8).
+"""T-7 / T-12: step contract presence after the ORC-79 teardown collapse.
 
 The new terminal `complete-workflow` step needs a dispatchable contract.
+`merge-to-main` and `remove-worktree` no longer dispatch in any schema — their
+contracts are deleted. `archive-completed-change.yaml` is RETAINED: spike.yaml
+still dispatches `archive-completed-change` as its terminal step.
 
 Dual-tree note: `~/.config/orchestrator/config` is an install.sh symlink to the
 repo `config/`, so `config/steps/` is one physical directory serving both
 trees. The tests assert on the repo path and verify the HOME path resolves to
 the same realpath, which is the dual-tree guarantee.
-
-T-12 extends this module with `test_obsolete_step_contracts_absent`.
 """
 from __future__ import annotations
 
@@ -49,4 +50,25 @@ def test_complete_workflow_contract_shape():
     assert contract.get("outputs") == ["completion_record"], (
         f"contract outputs must be [completion_record], "
         f"got {contract.get('outputs')!r}"
+    )
+
+
+# --- T-12: merge/removal contracts deleted; archive contract retained ------
+
+def test_obsolete_step_contracts_absent():
+    """`merge-to-main.yaml` and `remove-worktree.yaml` no longer dispatch in
+    any schema — their contracts must be deleted."""
+    for name in ("merge-to-main.yaml", "remove-worktree.yaml"):
+        path = os.path.join(_REPO_STEPS, name)
+        assert not os.path.isfile(path), (
+            f"obsolete step contract should be deleted: {path}"
+        )
+
+
+def test_archive_completed_change_contract_retained():
+    """`archive-completed-change.yaml` is RETAINED — spike.yaml still
+    dispatches `archive-completed-change` as its terminal step."""
+    path = os.path.join(_REPO_STEPS, "archive-completed-change.yaml")
+    assert os.path.isfile(path), (
+        f"archive-completed-change.yaml must be retained for spike: {path}"
     )

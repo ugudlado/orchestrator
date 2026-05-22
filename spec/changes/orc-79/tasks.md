@@ -134,7 +134,7 @@
     - spike.yaml unchanged after this task
   depends: T-10
 
-- [ ] T-12: Update step-contract presence test for removals (RED — tests must fail)
+- [x] T-12: Update step-contract presence test for removals (RED — tests must fail)
   Why: AC-2 — `merge-to-main.yaml`/`remove-worktree.yaml` deleted; `archive-completed-change.yaml` RETAINED (spike still uses it); `complete-workflow.yaml` present
   Files: config/scripts/orchestrator_next/tests/test_complete_workflow_contract.py
   Change: extend the T-7 test module to assert `merge-to-main.yaml` and `remove-worktree.yaml` are absent from `config/steps/`, and that `archive-completed-change.yaml` and `complete-workflow.yaml` are both PRESENT. Fails until T-13 lands.
