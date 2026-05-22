@@ -1,3 +1,0 @@
-id: write-bootstrap-state
-version: 2
-run: scripts/inline/write-bootstrap-state.sh

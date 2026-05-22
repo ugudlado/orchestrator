@@ -1,3 +1,0 @@
-id: setup-claude-settings
-version: 3
-run: scripts/inline/setup-claude-settings.sh

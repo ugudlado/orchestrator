@@ -1,3 +1,0 @@
-id: check-bootstrap-state
-version: 2
-run: scripts/inline/check-bootstrap-state.sh

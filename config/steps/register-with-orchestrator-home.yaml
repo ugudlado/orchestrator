@@ -1,3 +1,0 @@
-id: register-with-orchestrator-home
-version: 2
-run: scripts/inline/register-with-orchestrator-home.sh

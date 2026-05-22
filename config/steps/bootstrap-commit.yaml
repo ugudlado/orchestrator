@@ -1,3 +1,0 @@
-id: bootstrap-commit
-version: 2
-run: scripts/inline/bootstrap-commit.sh

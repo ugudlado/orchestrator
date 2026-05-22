@@ -1,3 +1,0 @@
-id: detect-language
-version: 3
-run: scripts/inline/detect-language.sh

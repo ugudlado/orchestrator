@@ -1,3 +1,0 @@
-id: verify-report
-version: 2
-run: scripts/inline/verify-report.sh

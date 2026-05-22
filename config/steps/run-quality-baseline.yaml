@@ -1,3 +1,0 @@
-id: run-quality-baseline
-version: 2
-run: scripts/inline/run-quality-baseline.sh

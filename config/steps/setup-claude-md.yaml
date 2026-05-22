@@ -1,3 +1,0 @@
-id: setup-claude-md
-version: 8
-run: scripts/inline/setup-claude-md.sh

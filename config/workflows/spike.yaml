@@ -1,7 +1,0 @@
-steps:
-  - explore
-  - design-and-draft-artifacts
-  - execute-next-task
-  - run-phase-review
-  - compute-swe-metrics
-  - archive-completed-change

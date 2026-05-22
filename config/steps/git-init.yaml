@@ -1,3 +1,0 @@
-id: git-init
-version: 2
-run: scripts/inline/git-init.sh

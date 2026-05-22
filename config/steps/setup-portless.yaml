@@ -1,3 +1,0 @@
-id: setup-portless
-version: 2
-run: scripts/inline/setup-portless.sh
