@@ -1,0 +1,3 @@
+id: expand-plan
+version: 1
+run: scripts/inline/expand-plan.sh

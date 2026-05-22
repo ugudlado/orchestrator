@@ -202,6 +202,9 @@ _INLINE_RUNTIME_PRODUCERS = {
     "detect-language": {"languages", "package_manager", "web_project",
                         "backend_project", "scripts_added"},
     "install-tooling": {"scripts_added", "tools_installed"},
+    # ORC-65: expand-plan is an inline step that injects task-nodes into the plan.
+    # Task-nodes collectively produce task_execution_result at runtime.
+    "expand-plan": {"task_execution_result"},
 }
 
 
