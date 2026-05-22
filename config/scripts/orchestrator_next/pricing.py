@@ -316,7 +316,9 @@ def main(argv: "list[str] | None" = None) -> int:
 
     db = duckdb.connect(str(db_path), read_only=True)
     try:
-        now = _dt.datetime.utcnow()
+        # Naive UTC instant — kept tz-naive to match the DuckDB pricing table's
+        # effective_from column (DuckDB TIMESTAMP rows come back tz-naive).
+        now = _dt.datetime.now(_dt.UTC).replace(tzinfo=None)
         results = []
         for agent in args.agents:
             backend, model_id = _resolve_agent_model(agent)

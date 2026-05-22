@@ -84,7 +84,7 @@
 
 ### [x] T-8: Rewire estimate-cost.sh to call the pricing CLI; add native_haiku to routes.yaml (GREEN)
 **Why:** AC-3, AC-4, AC-5, AC-8, Decisions D-1, D-2, D-6 — replace the Bash reimplementation with one CLI call; preserve routes ∪ archive-observed agent-list union; routes.yaml becomes the native-backend source of truth.  
-**Files:** scripts/estimate-cost.sh, scripts/routes.yaml  
+**Files:** config/scripts/estimate-cost.sh, scripts/routes.yaml  
 **Change:** In estimate-cost.sh, delete the pricing-resolution Bash — `get_backend`, `get_model`, `resolve_native`, `lookup_pricing` and the `AGENT_BACKEND_MAP`/`BACKEND_MODEL_MAP` awk parsers (lines 59-170). Keep the agent-list assembly at lines 262-281 unchanged in semantics: estimate-cost.sh still builds `ALL_AGENTS_LIST` as the deduplicated union of routes.yaml agents and archive-observed agents (`PER_AGENT_SHARE`) — a small awk pass over the routes `agents:` block still supplies the routes side of the union. Call `PYTHONPATH="$ORCHESTRATOR_HOME/config/scripts" python3 -m orchestrator_next.pricing --agents $ALL_AGENTS_LIST` once with the full explicit list; parse the JSON array with the python3 the script already uses; read `input_usd`/`output_usd`/`cache_read_usd` into the existing `in_price`/`out_price`/`cache_price` vars. Propagate a non-zero CLI exit. Keep the script Bash 3.2-compatible — no `declare -A`/`mapfile`/`readarray`. In routes.yaml `backends:`, add `native_haiku: claude-haiku-4-5`.  
 **Test scenarios:**
 - all T-7 tests pass (scenarios a, b, c, d)
