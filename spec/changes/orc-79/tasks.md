@@ -144,7 +144,7 @@
     - complete-workflow.yaml present (from T-8)
   depends: T-11
 
-- [ ] T-13: Delete the two obsolete step contracts (GREEN — make tests pass)
+- [x] T-13: Delete the two obsolete step contracts (GREEN — make tests pass)
   Why: AC-2 — `merge-to-main` and `remove-worktree` step ids no longer dispatch in any schema (no RED — mechanical change; T-12 is the regression guard)
   Files: config/steps/merge-to-main.yaml, config/steps/remove-worktree.yaml
   Change: `git rm` `merge-to-main.yaml` and `remove-worktree.yaml`. `archive-completed-change.yaml` is NOT deleted — `spike.yaml` still dispatches `archive-completed-change`. The `.sh` helper scripts (`merge-to-main.sh`, `remove-worktree.sh`, `archive-completed-change.sh`) are NOT deleted — they remain, invoked by `complete-workflow.sh`. `~/.config/orchestrator/config` is a symlink to repo `config/`, so the `git rm` covers both trees.
