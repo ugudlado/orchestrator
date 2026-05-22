@@ -11,9 +11,12 @@ Four scenarios:
       minimal state_dir produces output whose YAML structure matches the
       baseline fixture — same agents, same cold-start estimate block.
 
-  (c) DB-absent fallback: setting METRICS_DB=/nonexistent/path the script
-      still exits 0 and produces a route_preview YAML block with agents priced
-      at the default rates (15.00 / 75.00 / 1.50 for opus-tier).
+  (c) DB-absent fail-loud (ORC-71, Decision D-2): setting
+      METRICS_DB=/nonexistent/path the pricing CLI fails loud — no fabricated
+      '15.00 75.00 1.50' rates appear anywhere. estimate-cost.sh propagates the
+      failure: it exits non-zero, or its route_preview surfaces an unavailable
+      state with no per-agent pricing block. The old hardcoded fallback is the
+      bug being removed.
 
   (d) Bash 3.2 regression guard (KEY TEST for F-4 from review-specify.md):
       invoking the script via /bin/bash (macOS default bash 3.2) must exit 0
@@ -286,15 +289,22 @@ def test_rewrite_output_matches_baseline_shape(state_dir: Path, seeded_db: Path)
 
 
 # ---------------------------------------------------------------------------
-# Scenario (c): DB-absent fallback
+# Scenario (c): DB-absent fail-loud (ORC-71, Decision D-2)
 # ---------------------------------------------------------------------------
 
-def test_db_absent_uses_default_rates_and_exits_zero(state_dir: Path):
-    """(c) METRICS_DB=/nonexistent/path → exit 0, default rates applied.
+def test_db_absent_fails_loud_no_fabricated_rates(state_dir: Path):
+    """(c) METRICS_DB=/nonexistent/path → fail loud, no fabricated rates.
 
-    The rewritten lookup_pricing() falls back to '15.00 75.00 1.50' when the
-    DB file is absent. The script must still produce a well-formed route_preview
-    YAML block with non-zero pricing for every agent.
+    ORC-71 Decision D-2 removed the hardcoded '15.00 75.00 1.50' fallback. When
+    the metrics DB is absent the pricing CLI fails loud (non-zero exit, stderr
+    diagnostic, no stdout) and estimate-cost.sh propagates the failure. This
+    test asserts the fail-loud behavior:
+      - no fabricated '15.00 75.00 1.50' rates appear anywhere in the output, AND
+      - the estimator surfaces the failure: it either exits non-zero, or its
+        route_preview carries no per-agent pricing block.
+
+    RED phase: this FAILS on the current script (it still substitutes default
+    rates and exits 0). GREEN after T-8 rewires the script to the CLI.
     """
     bash = _find_modern_bash()
     env = _base_env(state_dir, db_path="/nonexistent/path/orchestrator.duckdb")
@@ -305,27 +315,26 @@ def test_db_absent_uses_default_rates_and_exits_zero(state_dir: Path):
         text=True,
         env=env,
     )
-    assert result.returncode == 0, (
-        f"Script must exit 0 even when DB is absent.\n"
-        f"Exit: {result.returncode}\nstderr: {result.stderr[:300]}"
+
+    # The removed hardcoded fallback was exactly "15.00 75.00 1.50" — that
+    # literal must not appear in stdout or stderr after D-2.
+    combined = result.stdout + result.stderr
+    assert "15.00 75.00 1.50" not in combined, (
+        "Fabricated DB-absent fallback rates '15.00 75.00 1.50' still emitted — "
+        "D-2 removal not applied."
     )
 
-    stdout_norm = _normalise(result.stdout)
-    doc = yaml.safe_load(stdout_norm)
-    assert doc is not None and "route_preview" in doc, (
-        f"Missing route_preview in output. stdout: {result.stdout[:300]}"
-    )
-
-    agents = doc["route_preview"].get("agents", [])
-    assert len(agents) > 0, "Expected at least one agent entry when DB is absent"
-
-    for agent_entry in agents:
-        pricing = agent_entry.get("pricing", {})
-        assert pricing.get("input") is not None, (
-            f"Agent {agent_entry.get('agent')} missing pricing.input"
-        )
-        assert float(pricing["input"]) > 0, (
-            f"Agent {agent_entry.get('agent')} has zero input price — default not applied"
+    # The estimator must surface the failure rather than guess. Either a
+    # non-zero exit, or a route_preview with no per-agent pricing block.
+    if result.returncode == 0:
+        stdout_norm = _normalise(result.stdout)
+        doc = yaml.safe_load(stdout_norm) if stdout_norm else None
+        agents = (doc or {}).get("route_preview", {}).get("agents", []) or []
+        priced = [a for a in agents if a.get("pricing") not in (None, {})]
+        assert not priced, (
+            "Script exited 0 with per-agent pricing blocks despite an absent DB — "
+            "the estimator must fail loud, not fabricate rates.\n"
+            f"stdout: {result.stdout[:300]}"
         )
 
 

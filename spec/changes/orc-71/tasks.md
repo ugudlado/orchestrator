@@ -61,7 +61,7 @@
 
 **depends:** T-4
 
-### [ ] T-6: Review checkpoint — pricing CLI (phase gate)
+### [x] T-6: Review checkpoint — pricing CLI (phase gate)
 **Why:** phase gate — confirm the CLI contract is stable before estimate-cost.sh depends on it.  
 **Test scenarios:**
 - type-check clean
@@ -72,7 +72,7 @@
 
 ## Group 3 — Rewire estimate-cost.sh and reconcile divergences
 
-### [ ] T-7: Update estimate-cost.sh tests for fail-loud DB-absent and CLI delegation (RED — scenario (c) rewritten)
+### [x] T-7: Update estimate-cost.sh tests for fail-loud DB-absent and CLI delegation (RED — scenario (c) rewritten)
 **Why:** AC-3, AC-4, Decision D-2 — the locked decision removes the hardcoded fallback; scenario (c) must assert fail-loud, and parity scenarios must still hold against the CLI-backed script.  
 **Files:** config/scripts/orchestrator_next/tests/test_estimate_cost_sh.py  
 **Change:** Rewrite `test_db_absent_uses_default_rates_and_exits_zero` (scenario c) — rename to `test_db_absent_fails_loud_no_fabricated_rates` and assert that with `METRICS_DB=/nonexistent` the estimator does NOT emit fabricated `15.00 75.00 1.50` pricing: either estimate-cost.sh exits non-zero, or its `route_preview` carries no per-agent pricing block / surfaces an unavailable state. Update the module docstring's scenario (c) description. Scenarios (a), (b), (d) are unchanged. This test fails today (script still returns default rates and exits 0).  
