@@ -153,8 +153,8 @@ execution for non-code changes without violating flag contracts.
 ### Detection Algorithm
 
 ```
-DETECT_CHANGE_TYPE(tasks_md):
-  1. Parse all `Files:` fields from tasks.md
+DETECT_CHANGE_TYPE(tasks_yaml):
+  1. Parse all `files:` fields from tasks.yaml tasks
   2. Extract file extensions from each path
   3. Classify each extension per table above
   4. If ALL extensions are config/docs → change_type = "config_docs"

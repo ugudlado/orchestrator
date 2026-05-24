@@ -181,7 +181,7 @@ _ORC63_PRUNED_CONTRACTS = [
     "design-and-draft-artifacts",
     "explore",
     "diagnose",
-    "execute-next-task",
+    # execute-next-task removed in ORC-65 T-9; no longer a step contract.
     "ux-design",
     "run-phase-review",
     "generate-project-yaml",
@@ -202,6 +202,9 @@ _INLINE_RUNTIME_PRODUCERS = {
     "detect-language": {"languages", "package_manager", "web_project",
                         "backend_project", "scripts_added"},
     "install-tooling": {"scripts_added", "tools_installed"},
+    # ORC-65: expand-plan is an inline step that injects task-nodes into the plan.
+    # Task-nodes collectively produce task_execution_result at runtime.
+    "expand-plan": {"task_execution_result"},
 }
 
 

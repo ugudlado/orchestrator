@@ -146,7 +146,7 @@ as a new workflow rule, which silently duplicates existing contract text.
 
 1. **Does an existing step contract already cover this concern?**
    Read the relevant step contract (`run-implement-review.yaml`,
-   `run-phase-review.yaml`, `execute-next-task.yaml`, etc.) before
+   `run-phase-review.yaml`, `execute-one-task.yaml`, etc.) before
    classifying. If the rule is already there and the agent's output
    shows it was skipped or handled incorrectly → **`agent_improvement`**.
    Do NOT add a duplicate rule to the contract. Fix the agent prompt.
@@ -228,7 +228,7 @@ After classification:
   | When to enforce | Target step contract | Where in the file |
   |---|---|---|
   | During diagnosis/investigation | `diagnose.yaml` | `instruction:` section |
-  | During implementation | `execute-next-task.yaml` | `rules:` list |
+  | During implementation | `execute-one-task.yaml` | `rules:` list |
   | During review | `run-phase-review.yaml` | `rules:` or `instruction:` |
   | During implement review | `run-implement-review.yaml` | `instruction:` section |
   | At phase boundaries | `phase-signoff.yaml` | `instruction:` pre-conditions |
@@ -268,7 +268,7 @@ learned rules based on the just-completed feature's step retry data.
 3. List all `$ORCHESTRATOR_HOME/config/steps/*.yaml` files.
 4. For each file, grep for lines matching `<!-- learned:`. For each learned rule:
    - Parse the metadata fields: `learned`, `source`, `cycle`, `hits` (default 0), `misses` (default 0).
-   - Determine the step_id from the filename (e.g., `execute-next-task.yaml` → `execute-next-task`).
+   - Determine the step_id from the filename (e.g., `execute-one-task.yaml` → `execute-one-task`).
    - If `step_retries[step_id] == 0`: increment `hits` by 1.
    - If `step_retries[step_id] > 0`: increment `misses` by 1.
    - If `step_id` was not executed in this feature (not in step_history): skip — do not update counters.

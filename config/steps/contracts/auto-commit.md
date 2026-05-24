@@ -1,6 +1,6 @@
 # Auto-Commit Convention
 
-After each task passes verification in the `execute-next-task` step, the agent
+After each task passes verification in the `execute-one-task` step, the agent
 commits the changes immediately. This ensures long implementation phases survive
 session interruptions — each completed task is durably saved.
 
@@ -24,9 +24,9 @@ cleanup) and preserves the signal that this change is scope-light.
 
 ## Rules
 
-- **Commit only on success**: Only commit after the task's verification passes and
-  it is marked `[x]` in tasks.md. Never commit failing state.
-- **Scope**: Stage only files changed by the task plus `tasks.md`.
+- **Commit only on success**: Only commit after the task's verification passes.
+  Never commit failing state.
+- **Scope**: Stage only files changed by the task.
   Do not `git add -A` — this prevents accidentally committing unrelated changes.
 - **Squash-friendly**: These per-task commits may be squashed during
   `archive-completed-change` or at merge time. The granularity is for resilience,
@@ -45,6 +45,6 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ## Consumers
 
-- `execute-next-task` — produces commits per this convention
+- `execute-one-task` — produces commits per this convention
 - `archive-completed-change` — may squash per-task commits at completion
 - `run-phase-review` — can verify commits exist for completed tasks

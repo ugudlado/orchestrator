@@ -78,6 +78,7 @@ def _usage() -> None:
         "  orchestrator done <state.yaml>   # JSON payload on stdin\n"
         "  orchestrator ready <state.yaml>  # JSON array of ready node ids\n"
         "  orchestrator graph <state.yaml>  # Mermaid flowchart of the phase DAG\n"
+        "  orchestrator expand-plan <state.yaml>  # append task-nodes from tasks.yaml\n"
         "  orchestrator doctor",
         file=sys.stderr,
     )
@@ -192,9 +193,9 @@ def main() -> None:
     args = sys.argv[1:]
     # Stage C: ingest-driver and ingest-subagents removed from accepted verbs.
     # 'record' kept for silent backward-compat (one cycle) but absent from the banner.
-    if not args or args[0] not in ("next", "done", "record", "ready", "graph", "doctor"):
+    if not args or args[0] not in ("next", "done", "record", "ready", "graph", "doctor", "expand-plan"):
         _usage()
-    if len(args) < 2 and args[0] in ("next", "record", "done", "ready", "graph"):
+    if len(args) < 2 and args[0] in ("next", "record", "done", "ready", "graph", "expand-plan"):
         _usage()
 
     if args[0] == "doctor":
@@ -210,6 +211,19 @@ def main() -> None:
         _ready_verb(args[1])
     if args[0] == "graph":
         _graph_verb(args[1])
+
+    # ORC-65: expand-plan verb — read tasks.yaml, append task-nodes to plan.
+    if args[0] == "expand-plan":
+        from orchestrator_next.expand_plan import expand_plan as _expand_plan
+        try:
+            _expand_plan(args[1])
+        except FileNotFoundError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        except (ValueError, Exception) as exc:  # noqa: BLE001
+            print(f"error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
 
     state_yaml_path = args[1]
 

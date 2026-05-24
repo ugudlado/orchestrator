@@ -262,33 +262,31 @@ def _node_status(state_path: str, node_id: str) -> str:
 
 class TestReworkRecordNodeReopen:
 
-    def test_needs_work_below_ceiling_reopens_both_nodes(self, tmp_path, monkeypatch):
-        """needs_work + retries < max: run-phase-review and execute-next-task
-        nodes left in_progress; run-ux-critique stays completed;
-        readiness.next_ready_node → execute-next-task."""
+    def test_needs_work_below_ceiling_reopens_review_node_only(self, tmp_path, monkeypatch):
+        """needs_work + retries < max: ORC-65: record.py only resets run-phase-review
+        to in_progress. execute-next-task stays completed. Fix task-nodes are injected
+        by the agent calling `orchestrator expand-plan` before returning COMPLETION
+        — record.py has no execute-next-task special-case reset."""
         state_path = _setup(tmp_path, monkeypatch, _nodes_state(tmp_path))
         record.record(state_path, _review_payload("needs_work", retries_count=1))
 
         assert _node_status(state_path, "run-phase-review") == "in_progress"
-        assert _node_status(state_path, "execute-next-task") == "in_progress"
+        # ORC-65: execute-next-task is NOT reset — the agent injected fix-task nodes
+        # via expand-plan before returning COMPLETION.
+        assert _node_status(state_path, "execute-next-task") == "completed"
         assert _node_status(state_path, "run-ux-critique") == "completed", (
             "intermediate node must not be re-dispatched"
         )
-        state = load_state(state_path)
-        from orchestrator_next import readiness
-        assert readiness.next_ready_node(state) == "execute-next-task"
 
     def test_incomplete_phase_behaves_like_needs_work(self, tmp_path, monkeypatch):
-        """incomplete_phase + retries remaining re-dispatches execute-next-task
-        identically to needs_work."""
+        """incomplete_phase + retries remaining: same as needs_work — only
+        run-phase-review is reset to in_progress."""
         state_path = _setup(tmp_path, monkeypatch, _nodes_state(tmp_path))
         record.record(state_path, _review_payload("incomplete_phase", retries_count=2))
 
         assert _node_status(state_path, "run-phase-review") == "in_progress"
-        assert _node_status(state_path, "execute-next-task") == "in_progress"
-        state = load_state(state_path)
-        from orchestrator_next import readiness
-        assert readiness.next_ready_node(state) == "execute-next-task"
+        # ORC-65: execute-next-task stays completed.
+        assert _node_status(state_path, "execute-next-task") == "completed"
 
     def test_pass_verdict_advances_normally(self, tmp_path, monkeypatch):
         """pass verdict: run-phase-review node marked completed, no regression."""
@@ -301,13 +299,13 @@ class TestReworkRecordNodeReopen:
         next_step = (result.get("next_step") or {}).get("step_id")
         assert next_step != "execute-next-task"
 
-    def test_needs_work_no_fix_tasks_still_bounded(self, tmp_path, monkeypatch):
-        """needs_work with tasks.md fully checked (no appended fix tasks):
-        the loop still re-opens execute-next-task; bounded by the retry ceiling."""
+    def test_needs_work_review_reset_bounded(self, tmp_path, monkeypatch):
+        """needs_work: record.py resets only run-phase-review to in_progress.
+        ORC-65: execute-next-task is NOT reset; bounded by ceiling as before."""
         state_path = _setup(tmp_path, monkeypatch, _nodes_state(tmp_path))
         record.record(state_path, _review_payload("needs_work", retries_count=0))
-        # execute-next-task re-opened even though tasks.md has no unchecked items
-        assert _node_status(state_path, "execute-next-task") == "in_progress"
+        # ORC-65: only run-phase-review is reset; execute-next-task stays completed.
+        assert _node_status(state_path, "execute-next-task") == "completed"
         assert _node_status(state_path, "run-phase-review") == "in_progress"
 
     def test_legacy_active_plan_degrades_without_error(self, tmp_path, monkeypatch):

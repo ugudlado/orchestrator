@@ -76,7 +76,7 @@ step:
     rules: list<string>               # Step rules (always applied)
     flags_read: list<flag_ref>        # Documents which flags this step honors
     verify: verify_block | list<string>
-    repeat_until: string              # If the step loops internally (e.g. all_tasks_completed)
+    repeat_until: string              # If the step loops internally (ORC-65: all_tasks_completed removed)
 
 # ─── FLAG REGISTRY GRAMMAR ─────────────────────────────────────────
 # Single source of truth: config/flags.yaml.

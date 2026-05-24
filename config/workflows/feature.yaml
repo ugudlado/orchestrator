@@ -2,9 +2,9 @@ steps:
   - explore
   - ux-design
   - design-and-draft-artifacts
+  - expand-plan
   - preview-route
   - capture-test-baseline
-  - execute-next-task
   - run-ux-critique
   - run-phase-review
   - compute-prediction-accuracy

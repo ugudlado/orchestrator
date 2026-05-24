@@ -84,8 +84,18 @@ schema: feature
 status: completed
 started_at: "2026-01-15T10:00:00Z"
 completed_at: "2026-01-15T11:00:00Z"
+workflow_plan:
+  implement:
+    nodes:
+      - id: task-T-1
+        status: completed
+        agent: developer
+      - id: run-phase-review
+        status: completed
+        agent: reviewer
+    filtered: []
 step_history:
-  - step_id: execute-next-task
+  - step_id: task-T-1
     phase: implement
     status: completed
     agent: developer
@@ -132,12 +142,7 @@ step_history:
       tool_uses: 2
       duration_ms: 5000
 STATEYAML
-
-# tasks.md for resolution metrics (avoid division by zero)
-cat > "$STATE_DIR/tasks.md" <<'TASKSMD'
-- [x] T-1: Task one
-- [x] T-2: Task two
-TASKSMD
+# ORC-65 T-16: task counts come from step_history + workflow_plan; no tasks.md needed
 
 OUTPUT=$(bash "$SCRIPT" "$STATE_DIR" 2>/dev/null)
 EXIT_CODE=$?
@@ -153,7 +158,7 @@ echo ""
 check_contains "output contains per_step: key" "$OUTPUT" "per_step:"
 
 # Check each step_id appears as a key in per_step
-check_contains "per_step has execute-next-task entry" "$OUTPUT" "execute-next-task:"
+check_contains "per_step has task-T-1 entry" "$OUTPUT" "task-t-1:"
 check_contains "per_step has run-phase-review entry" "$OUTPUT" "run-phase-review:"
 check_contains "per_step has mark-change-completed entry" "$OUTPUT" "mark-change-completed:"
 
@@ -165,7 +170,7 @@ check_contains "per_step entries have executions field" "$OUTPUT" "executions:"
 
 # ── T-13: Token sum assertion (within ±1% of metrics.tokens.total) ────────
 # metrics.tokens.total from step_history = 2000 + 1500 + 1800 + 0 = 5300
-# per_step totals: execute=2000 + run-phase-review=3300 + inline=0 = 5300
+# per_step totals: task-T-1=2000 + run-phase-review=3300 + inline=0 = 5300
 
 TOTAL_TOKENS=$(echo "$OUTPUT" | awk '/^  tokens:/{in_t=1} in_t && /^    total:/{gsub(/.*: */,""); print; exit}')
 TOTAL_TOKENS=${TOTAL_TOKENS:-0}

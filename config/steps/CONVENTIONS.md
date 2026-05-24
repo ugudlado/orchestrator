@@ -1,7 +1,7 @@
 # Step Contract Conventions
 
 Rules for designing, evaluating, and modifying step contracts.
-Read by workflow-learner (when auditing and when editing).
+Read by workflow-improver (when auditing and when editing).
 
 ## Contract Files
 
@@ -11,12 +11,12 @@ Load only the contracts relevant to your step:
 | Contract | File | Used By |
 |----------|------|---------|
 | Artifact formats (Task, Discovery, Spec, Design, Diagnosis, Fix Plan) | `contracts/artifact-formats.md` | design-and-draft-artifacts, explore, run-phase-review |
-| Error Recovery (state transitions, blocked protocol, escalation) | `contracts/error-recovery.md` | orchestrate skill, execute-next-task, run-phase-review, phase-signoff |
+| Error Recovery (state transitions, blocked protocol, escalation) | `contracts/error-recovery.md` | orchestrate skill, execute-one-task, run-phase-review, phase-signoff |
 | Rule Merge (evaluation, merge algorithm, change type detection) | `contracts/rule-merge.md` | orchestrate skill, /learn |
 | Resume Token | `contracts/resume-token.md` | orchestrate skill, workflow-state.sh, auto-continue.sh |
-| UX Artifacts | `contracts/ux-artifacts.md` | ux-design, design-and-draft-artifacts, execute-next-task |
-| Auto-Commit | `contracts/auto-commit.md` | execute-next-task |
-| Metrics Schema | `contracts/metrics-schema.md` | compute-swe-metrics, telemetry, learn |
+| UX Artifacts | `contracts/ux-artifacts.md` | ux-design, design-and-draft-artifacts, execute-one-task |
+| Auto-Commit | `contracts/auto-commit.md` | execute-one-task |
+| Metrics Schema | `contracts/metrics-schema.md` | compute-swe-metrics, telemetry, learn, workflow-improver |
 | Step Dispatch (CLI interface, JSON schema, exit codes) | `contracts/step-dispatch.md` | orchestrate skill, adapter authors, callers of `orchestrator next` |
 | Done Payload (`orchestrator done` JSON stdin, COMPLETION block) | `contracts/done-payload.md` | orchestrate skill, developer skill, all agent-spawned steps |
 | Run Field Migration (adding `run:` adapter path to a step) | `contracts/migration-run-field.md` | developer adding subprocess adapter to a step contract |
@@ -184,7 +184,7 @@ flags_read:
 ### Example
 
 ```yaml
-id: design-and-draft-artifacts (feature) or create-or-refresh-artifacts (bugfix)
+id: design-and-draft-artifacts (feature) or create-or-refresh-artifacts (bugfix/spike)
 flags_read:
   - name: tdd_required
     effect: "Every implementation task must have a preceding test task"
@@ -261,21 +261,18 @@ Worktrees are required. All workflow files live under the worktree:
 
 | Variable | Contents | Committed? | Location |
 |----------|----------|------------|----------|
-| `$WORKTREE_ROOT/spec/changes/$CHANGE_ID/` | `state.yaml`, `plan.yaml`, `design.md`, `tasks.md`, `discovery.md`, UX files | Artifacts yes; state gitignored | `$WORKTREE_BASE_DIR/<slug>/spec/changes/<slug>/` |
+| `$WORKTREE_ROOT/spec/changes/$CHANGE_ID/` | `state.yaml`, `plan.yaml`, `design.md`, `tasks.yaml`, `diagnose.md`, UX files | Artifacts yes; state gitignored | `$WORKTREE_BASE_DIR/<slug>/spec/changes/<slug>/` |
 
 `WORKTREE_ARTIFACT_DIR` resolves to `$WORKTREE_ROOT/spec/changes` — agents always
 write to the worktree. `WORKFLOW_STATE_DIR` ($REPO_ROOT/spec/changes) is the
 fallback for CLI invocations outside a worktree context only.
 
-**Lifecycle invariant**: for `feature` and `bugfix` workflows the single
-terminal step `complete-workflow` performs teardown in one process — merge
-(if `merge_to_main`) → archive → `cd "$REPO_ROOT"` → worktree removal (if
-`worktree`). Sequencing it inside one script keeps any state-moving operation
-and a later state-reading one behind the same dispatch boundary, so archive can
-move `state.yaml` out of the worktree without a subsequent step re-reading the
-moved path.
+**Lifecycle invariant**: `archive-completed-change` MUST run before
+`remove-worktree`. The archive step copies everything (including `state.yaml`)
+out of the worktree into `spec/changes/archive/<date>-<slug>/`. Removing the
+worktree before archiving destroys state with no recovery path.
 
-Steps that write tracked artifacts (design.md, tasks.md, discovery.md, UX files)
+Steps that write tracked artifacts (design.md, tasks.yaml, diagnose.md, UX files)
 MUST use `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/`, not `$WORKFLOW_STATE_DIR/$CHANGE_ID/`, as
 the artifact destination.
 
@@ -350,7 +347,7 @@ definition so all agents evaluate it identically.
 
 | Condition | Definition |
 |-----------|------------|
-| `all_tasks_completed` | No task in tasks.md has an unchecked checkbox (`- [ ]`) remaining. A task marked `- [x]` is complete. A task marked `- [skip]` does not block completion. A task marked `- [!]` is quarantined (per contracts/error-recovery.md § Quarantine Protocol) — terminal for loop advancement, but surfaced as critical in run-phase-review. Evaluate by reading tasks.md and checking: zero lines match `^- \[ \]`. |
+| `all_tasks_completed` | ORC-65: removed. Task completion is now tracked via per-task step_history entries (one per task-node with status=completed). Use `compute_task_counts()` in `record.py` to derive task counts from `step_history` and `workflow_plan`. |
 
 ## State Field Registry
 
@@ -360,7 +357,7 @@ find data where they expect it.
 
 | Field Path | Type | Written By | Values / Format |
 |------------|------|-----------|-----------------|
-| `status` | string | mark-change-completed, final-signoff | `active`, `paused`, `completed` |
+| `status` | string | check-bootstrap-state, mark-change-completed, final-signoff | `active`, `paused`, `completed` |
 | `phase` | string | load-project-context, phase-signoff | Current phase name (lowercase, e.g., `specify`, `implement`, `complete`) |
 | `next_step` | object | phase-signoff, any step advancing flow | See `contracts/resume-token.md` |
 | `step_history` | list | All steps (append-only) | See § State Updates above |
@@ -371,11 +368,11 @@ find data where they expect it.
 | `metrics` | object | compute-swe-metrics (via archive-completed-change) | Full metrics block or `{ status: script_unavailable, reason: "..." }` |
 | `approval` | object | phase-signoff, final-signoff | `{ type: user|auto, phase: <name>, timestamp: <ISO> }` |
 | `rejection` | object | phase-signoff, final-signoff | `{ phase: <name>, feedback: "...", fix_tasks_created: [T-N, ...] }` |
-| `retries` | object | run-phase-review, execute-next-task | `{ <step_id_or_task_id>: <count> }` — per-step/task retry counter |
+| `retries` | object | run-phase-review, execute-one-task | `{ <step_id_or_task_id>: <count> }` — per-step/task retry counter |
 | `refresh_artifacts` | boolean | run-phase-review (on fail) | `true` when artifacts need regeneration |
 | `change_type` | string | design-and-draft-artifacts (after task creation) | `code` or `config_docs` — per `contracts/rule-merge.md` § Change Type Detection |
 | `flag_adaptations` | list | design-and-draft-artifacts (when change_type adapts flags) | `[{ flag, original, effective, reason }]` |
-| `task_checkpoint` | object | execute-next-task | NOT PERSISTED — `record.py` (`orchestrator done`) drops unknown keys silently; this field will never appear in state.yaml. The durable checkpoint is tasks.md `[x]` markers. This row is retained for historical reference only. <!-- learned: 2026-05-19, source: orc-59, cycle: 1, repo: orchestrator --> |
+| `task_checkpoint` | object | execute-one-task | NOT PERSISTED — `record.py` (`orchestrator done`) drops unknown keys silently; this field will never appear in state.yaml. Per-task completion is now tracked via step_history entries (one per task-node). This row is retained for historical reference only. <!-- learned: 2026-05-19, source: orc-59, cycle: 1, repo: orchestrator --> |
 | `workflow_plan` | object | load-project-context | `{ <phase>: { active: [...], filtered: [...] } }`. Includes resolved from schema. Dispatch loop MUST walk ALL phases/steps — workflow is not complete until every active step in every phase is dispatched. |
 | `step_history[].review_score` | object | run-phase-review | `{ overall: 9, dimensions: { spec_compliance: 9, correctness: 10, security: 9, simplicity: 9, code_quality: 9 } }` |
 | `step_history[].usage` | object | orchestrate skill (dispatch loop) | `{ input_tokens: N, output_tokens: N, cache_creation_input_tokens: N, cache_read_input_tokens: N, total_tokens: N, tool_uses: N, tool_calls: { ToolName: N, ... }, duration_ms: N }`. Only for steps with agent: field. `tool_calls:` is a per-tool-type breakdown where the sum of all values equals `tool_uses`. Omit `tool_calls:` or write `tool_calls: {}` when no tool calls were made. Compute-swe-metrics reads these fields for cost calculation and tool attribution. |
@@ -403,7 +400,7 @@ producing duplicate or inconsistent effects.
   commit, update state), check each individually before re-executing. Only re-execute
   the sub-operations that did not complete.
 - **Handle stale/incomplete state**: If a prior run left partial output (e.g., file
-  written but not committed, checkpoint recorded but tasks.md not updated), detect
+  written but not committed, checkpoint recorded but step_history not updated), detect
   the inconsistency and resolve it before proceeding with new work.
 - **Never duplicate step_history entries**: Before appending to `step_history`, check
   whether an entry with the same `step_id` and `phase` for the current execution already
@@ -456,7 +453,7 @@ Don't split when:
 
 ## Rule Lifecycle Convention
 
-Rules in step contracts have two classes: **permanent** (hand-written, original to the step) and **learned** (added by `/learn`). Only learned rules are subject to decay evaluation.
+Rules in step contracts have two classes: **permanent** (hand-written, original to the step) and **learned** (added by `/learn` via workflow-improver). Only learned rules are subject to decay evaluation.
 
 ### Metadata Comment Format
 
@@ -515,7 +512,7 @@ A learned rule is flagged for resolution when:
 
 ### Evaluation Trigger
 
-Decay evaluation runs every 5th `/learn` invocation (see `/learn` skill § Rule Decay Evaluation). Flagged rules are pruned by `/learn` directly — never removed inline mid-workflow. Rules without metadata are never touched.
+Decay evaluation runs every 5th `/learn` invocation (see `/learn` skill § Rule Decay Evaluation). Flagged rules are routed to workflow-improver for pruning — never removed inline. Rules without metadata are never touched.
 
 ## Metrics Schema
 
@@ -528,7 +525,7 @@ When writing or evaluating a step that reads or writes `metrics:` fields, load
 `contracts/metrics-schema.md` for the authoritative field list and the explicit-null
 vs omit contract. Key rules summarized:
 
-- `resolution.*` fields are explicit YAML null (`~`) for autopilot; real values for feature/bugfix.
-- `review_scores` is omitted entirely (no key) for autopilot.
+- `resolution.*` fields are explicit YAML null (`~`) for spike; real values for feature/bugfix/chore.
+- `review_scores` is omitted entirely (no key) for spike.
 - `tokens`, `cost`, `churn`, `per_agent_*` are always present for all schemas.
 - `category` identifies the schema so consumers can group across schema types.

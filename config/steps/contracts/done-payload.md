@@ -11,9 +11,9 @@ Pair with `contracts/step-dispatch.md` (read path via `orchestrator next`).
 
 | Role | Owns |
 |------|------|
-| **Step agent** (developer, discoverer, reviewer, …) | Task work, artifact files under `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/`, `tasks.md` checkpoints, self-verification evidence, a **COMPLETION** block when the step's work is finished |
+| **Step agent** (developer, discoverer, reviewer, …) | Task work, artifact files under `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/`, self-verification evidence, a **COMPLETION** block when the step's work is finished |
 | **Dispatch driver** (`/orchestrate`, `/developer` loop) | Calls `orchestrator next`, spawns agents, maps COMPLETION → JSON, pipes to `orchestrator done` — **no** artifact or verify checks |
-| **Reviewer** (`run-phase-review`, `/reviewer`) | Independent verification: `tasks.md` completeness, verify commands, AC, code quality |
+| **Reviewer** (`run-phase-review`, `/reviewer`) | Independent verification: task-node completeness (via step_history), verify commands, AC, code quality |
 | **`record.py`** | Validates payload, appends `step_history`, advances `next_step`, writes DuckDB metrics |
 
 **Agents MUST NOT** call `Write`/`Edit` on `state.yaml`. **Agents MUST NOT** call
@@ -79,15 +79,15 @@ include at least one non-empty subsection:
       {"cmd": "pytest config/tests/ -q", "exit_code": 0, "stdout_tail": "…last 20 lines…"}
     ],
     "file_checks": [
-      {"path": "spec/changes/foo/tasks.md", "exists": true, "sha256": "…", "lines": 42}
+      {"path": "spec/changes/foo/tasks.yaml", "exists": true, "sha256": "…", "lines": 42}
     ],
     "counts": {"tasks_marked": 1, "tests_passing": 47}
   }
 }
 ```
 
-For `execute-next-task`, include `evidence.counts.tasks_marked` with the number
-of tasks marked `[x]` in this spawn (full batch when all tasks complete).
+For `execute-one-task`, include `evidence.counts.tasks_marked` with the number
+of tasks marked complete this spawn (typically 1 per execute-one-task invocation).
 Verification checks are the reviewer's job at `run-phase-review` — not the
 driver's.
 
@@ -108,9 +108,9 @@ COMPLETION:
   artifacts: [<filenames>]
   evidence:
     commands: [...]
-    counts: {tasks_marked: <N>}   # execute-next-task: total [x] added this spawn
+    counts: {tasks_marked: <N>}   # execute-one-task: tasks marked complete this spawn
   review_score: {overall: N, dimensions: {...}}   # run-phase-review only
-  regression: {...}                               # execute-next-task only
+  regression: {...}                               # execute-one-task only
   rollback: {stash_ref: "stash@{0}", attempt: K}
   retry_context: {attempt: K, previous_failure: "...", detail: "..."}
   blocker: {blocked_task: "T-N", reason: "..."}
@@ -118,22 +118,18 @@ COMPLETION:
     retries: {"T-3": 2}
 ```
 
-## execute-next-task — complete all tasks, then COMPLETION
+## execute-one-task — implement one task, then COMPLETION
 
-The developer agent works through **all** unchecked tasks in one spawn:
+The developer agent implements exactly **one** task per spawn (identified by
+`step_context.task`):
 
-1. Loop: pick next ready task → implement → self-verify → mark `[x]` in
-   `tasks.md` → commit per `contracts/auto-commit.md`.
-2. Repeat until no `- [ ]` items remain (or quarantine/block/escalate).
-3. Optional simplify pass (when `flags.simplify`).
-4. Return **one** COMPLETION block with total `evidence.counts.tasks_marked`.
+1. Read task from `step_context.task` (id, title, files, verify, test_scenarios).
+2. Implement the task, run verify commands, commit per `contracts/auto-commit.md`.
+3. Return **one** COMPLETION block with `evidence.counts.tasks_marked: 1`.
 
 The driver maps COMPLETION → `orchestrator done` and calls `orchestrator next`.
-The driver does **not** inspect `tasks.md` or re-run verify commands — that is
-the reviewer's job (`run-phase-review`, then `/reviewer` at Code Review).
-
-Move the backlog ticket to Code Review only after the orchestrator implement
-phase advances (all tasks `[x]`, `orchestrator done` recorded).
+Each task-node is a separate DAG node injected by `expand-plan`. The dispatcher
+walks them in dependency order — no loop inside the agent.
 
 ## Example payloads
 
@@ -164,21 +160,21 @@ phase advances (all tasks `[x]`, `orchestrator done` recorded).
 
 (`record.py` extracts `agent_id` from `agent_task_result` and populates `usage` from the subagent JSONL.)
 
-### execute-next-task (all tasks done in one spawn)
+### execute-one-task (single task node)
 
 ```json
 {
-  "step_id": "execute-next-task",
+  "step_id": "task-T-2",
   "phase": "implement",
   "status": "completed",
   "agent": "developer",
   "agent_id": "b7f8ab299310e2g58",
-  "outputs": {"task_execution_result": {"status": "all_tasks_completed"}},
-  "artifacts": ["tasks.md", "src/module.py"],
-  "usage": {"input_tokens": 120000, "output_tokens": 25000},
+  "outputs": {"task_execution_result": {"task_id": "T-2", "status": "completed"}},
+  "artifacts": ["src/module.py"],
+  "usage": {"input_tokens": 25000, "output_tokens": 5000},
   "evidence": {
     "commands": [{"cmd": "pytest -q", "exit_code": 0, "stdout_tail": "…"}],
-    "counts": {"tasks_marked": 5}
+    "counts": {"tasks_marked": 1}
   }
 }
 ```
@@ -239,7 +235,7 @@ Example (failed task attempt):
 
 ```json
 {
-  "step_id": "execute-next-task",
+  "step_id": "task-T-3",
   "phase": "implement",
   "status": "completed",
   "agent": "developer",
@@ -285,7 +281,7 @@ The driver orchestrates only — it does not verify task or test outcomes.
 4. On exit 0: call `orchestrator next` for the following step.
 5. On exit 3: read stderr reason, fix payload, retry — do not advance.
 
-Verification (`tasks.md`, verify commands, AC) is enforced by `run-phase-review`
+Verification (task completeness, verify commands, AC) is enforced by `run-phase-review`
 and the `/reviewer` agent — not by the dispatch driver.
 
 ## Consumers

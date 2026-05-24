@@ -97,12 +97,10 @@ def _payload() -> dict:
 
 class TestRepeatUntil:
 
-    def test_repeats_when_unchecked_tasks_present(self, tmp_path, monkeypatch):
-        """ISSUE-16 RED: next_step must stay at execute-next-task when tasks.md
-        has unchecked items and the contract declares repeat_until.
-
-        On main (before fix), _compute_next_step always advances, so this test
-        FAILS — proving the bug exists.
+    def test_unknown_predicate_does_not_repeat(self, tmp_path, monkeypatch):
+        """ORC-65 T-9: all_tasks_completed removed from REPEAT_PREDICATES.
+        When a stub contract declares repeat_until: all_tasks_completed, the
+        predicate is unknown → treated as satisfied → step advances (no repeat).
         """
         # Write stub contract with repeat_until: all_tasks_completed
         contracts_dir = tmp_path / "contracts"
@@ -114,7 +112,7 @@ class TestRepeatUntil:
             "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir)
         )
 
-        # tasks.md with two unchecked items
+        # tasks.md with two unchecked items — but predicate is unknown, so no repeat
         tasks_md = tmp_path / "tasks.md"
         tasks_md.write_text("- [ ] T-1: Fix the bug\n- [ ] T-2: Write tests\n")
 
@@ -122,10 +120,9 @@ class TestRepeatUntil:
         result, _exit_code = record(state_path, _payload())
 
         next_step = (result.get("next_step") or {}).get("step_id")
-        assert next_step == "execute-next-task", (
-            f"Expected next_step='execute-next-task' (repeat), "
-            f"got {next_step!r}. Bug: _compute_next_step advanced past the step "
-            f"despite {tasks_md} containing unchecked items."
+        assert next_step == "run-phase-review", (
+            f"Expected next_step='run-phase-review' (unknown predicate = satisfied, no repeat), "
+            f"got {next_step!r}."
         )
 
     def test_advances_when_all_tasks_checked(self, tmp_path, monkeypatch):

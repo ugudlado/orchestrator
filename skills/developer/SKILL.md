@@ -19,7 +19,7 @@ AGENT_HANDLE=${1:-@developer}
 
 ## Execution
 
-Glue skill: `/backlog-manager` for tickets, orchestrator for workflow, `agents/developer.md` for implementation. State updates follow `config/steps/contracts/done-payload.md` — driver calls `orchestrator done` after COMPLETION; agents MUST NOT edit `state.yaml`. Driver does not verify `tasks.md` or run verify commands; `/reviewer` does.
+Glue skill: `/backlog-manager` for tickets, orchestrator for workflow, `agents/developer.md` for implementation. State updates follow `config/steps/contracts/done-payload.md` — driver calls `orchestrator done` after COMPLETION; agents MUST NOT edit `state.yaml`. Driver does not verify `tasks.yaml` or run verify commands; `/reviewer` does.
 
 ### 1. Claim work via `/backlog-manager`
 
@@ -41,28 +41,29 @@ Find `$WORKFLOW_STATE_DIR/*/state.yaml` (skip `archive/`, `backlog/`) by `change
 
 ### 3. Run implementation (orchestrator loop)
 
-Developer agent completes **all** unchecked `tasks.md` items in one spawn when possible, then returns COMPLETION. Driver only orchestrates:
+ORC-65: tasks are first-class DAG nodes (`task-T-N`) in `workflow_plan[implement].nodes`. Each task-node is a separate `execute-one-task` developer spawn. The driver loop is unchanged — `orchestrator next` / `done` / `next` repeats until `run-phase-review` is dispatched.
 
 ```
 orchestrator next "$STATE_FILE"
-# spawn developer (execute-next-task)
+# spawn developer (execute-one-task for task-T-N)
 
 orchestrator done "$STATE_FILE" <<< '<json from COMPLETION + dispatch context>'
 orchestrator next "$STATE_FILE"
+# returns next ready task-node, or run-phase-review when all tasks complete
 ```
 
-**Happy path** (all tasks finished in one spawn): one `done`, then `next` advances to `run-phase-review`.
+**One task per spawn**: each `execute-one-task` spawn implements exactly one task and returns COMPLETION. The dispatcher advances to the next ready task-node automatically.
 
-**Partial path** (blocked, retry, or escalation before all tasks `[x]`): agent returns COMPLETION early; driver still calls `done` then `next`. `repeat_until: all_tasks_completed` re-dispatches `execute-next-task` until every task is `[x]` or the workflow is blocked (exit 2).
+**Rework**: when `run-phase-review` returns `needs_work`, the agent appends fix entries to `tasks.yaml` and calls `orchestrator expand-plan` before COMPLETION. The driver loop continues — `orchestrator next` returns the first fix task-node.
 
-Do not inspect `tasks.md` or re-run verify commands between `done` and `next`.
+Do not inspect `tasks.yaml` or re-run verify commands between `done` and `next`.
 
-Spawn `developer` with: full ticket body; `STATE_FILE`, `ARTIFACT_DIR`, working directory; `discovery.md`, `spec.md`, `design.md`, `tasks.md` when present; `.review/AGENTS.md` and review session path when present.
+Spawn `developer` with: full ticket body; `STATE_FILE`, `ARTIFACT_DIR`, working directory; `discovery.md`, `design.md`, `tasks.yaml` when present; `.review/AGENTS.md` and review session path when present.
 
-Unchecked `tasks.md` items are the work queue (including reviewer-added code-review comments). No separate rework mode — rework is done when those items are implemented, verified, and checked.
+Each `step_context.task` carries the full task payload (id, title, files, verify, test_scenarios). The agent implements that one task and returns COMPLETION — no task scanning, no loop.
 
 ### 4. Hand off to Code Review
 
-When `orchestrator next` advances past `execute-next-task` (implement phase review step dispatched or workflow complete), move ticket to `Code Review` via `/backlog-manager`.
+When `orchestrator next` advances past `run-phase-review` (implement phase review step dispatched or workflow complete), move ticket to `Code Review` via `/backlog-manager`.
 
 Do not move to `QA Review` or `Done`. Task completion and test evidence are verified by `run-phase-review` and `/reviewer`, not this driver loop.

@@ -1,8 +1,8 @@
 steps:
   - diagnose
   - design-and-draft-artifacts
+  - expand-plan
   - capture-test-baseline
-  - execute-next-task
   - run-phase-review
   - compute-prediction-accuracy
   - run-learn-cycle

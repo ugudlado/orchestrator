@@ -25,9 +25,9 @@ rules:
   - Score of 10 is a first-pass bonus — only achievable when no retries were used this round.
   - Operate at staff-level review quality — catch architectural issues, not just surface bugs.
   - Artifact structural compliance with contracts/artifact-formats.md format contracts is a review criterion.
-  - "When a finding requires a new requirement, the fix MUST update design.md (AC + design) and tasks.md atomically — partial updates that sync only one artifact leave the feature in an inconsistent state and will fail re-review. <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb, cycle: 11, hits: 13, misses: 8, repo: orchestrator -->"
-  - "For tasks that spec describes as a rewrite, projection, or byte-compatible replacement of an existing producer, AC verification MUST include a value/shape parity check against at least one real payload from the prior implementation — key-presence alone is insufficient. Reviewer must run both the old producer and the new one on a real archived fixture and diff the top-level output keys; any key reduction is an important finding. <!-- learned: 2026-04-20, source: single-source-metrics-via-step-events, cycle: 12, hits: 12, misses: 4, repo: orchestrator -->"
-  - "Before scoring the phase, count unchecked items (`- [ ]`) in tasks.md. If any unchecked tasks remain and they are not explicitly quarantined in state.yaml, write phase-review.md with verdict incomplete_phase listing the unchecked task IDs — return COMPLETION with outputs.phase_review_report: {verdict: incomplete_phase} and do NOT include review_score. This guards against dispatcher bugs or manual advances that reach run-phase-review before all tasks are complete. <!-- learned: 2026-05-08, source: hl-303, cycle: 38, hits: 11, misses: 2, repo: orchestrator -->"
+  - "When a finding requires a new requirement, the fix MUST update design.md (AC + design) and tasks.yaml atomically — partial updates that sync only one artifact leave the feature in an inconsistent state and will fail re-review. <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb, cycle: 11, hits: 9, misses: 6, repo: orchestrator -->"
+  - "For tasks that spec describes as a rewrite, projection, or byte-compatible replacement of an existing producer, AC verification MUST include a value/shape parity check against at least one real payload from the prior implementation — key-presence alone is insufficient. Reviewer must run both the old producer and the new one on a real archived fixture and diff the top-level output keys; any key reduction is an important finding. <!-- learned: 2026-04-20, source: single-source-metrics-via-step-events, cycle: 12, hits: 8, misses: 2, repo: orchestrator -->"
+  - "Before scoring the phase, check if any task-nodes (step_id starting with 'task-') in the workflow_plan are still pending. If any task-nodes are pending and not explicitly quarantined in state.yaml, write phase-review.md with verdict incomplete_phase listing the pending task IDs — return COMPLETION with outputs.phase_review_report: {verdict: incomplete_phase} and do NOT include review_score. This guards against dispatcher bugs or manual advances that reach run-phase-review before all tasks are complete. <!-- learned: 2026-05-08, source: hl-303, cycle: 38, hits: 7, misses: 0, repo: orchestrator --> <!-- updated: 2026-05-23, source: orc-65, cycle: 1, repo: orchestrator -->"
 
 instruction: |
   1. Load scoring config from project.yaml quality_bar.scoring. Apply defaults
@@ -70,7 +70,7 @@ instruction: |
        `T-<N> (reason: <category>, attempts: <K>): <last_detail>`
      - Caps correctness dimension score at scoring.critical_cap until each
        quarantined task either:
-         a. Has a fix task appended to tasks.md, OR
+         a. Has a fix task appended to tasks.yaml (and injected via expand-plan), OR
          b. Is explicitly accepted by the user (state.yaml contains
             `quarantine_accepted: ["T-<N>", ...]` — an interactive signoff).
 
@@ -104,15 +104,27 @@ instruction: |
      a. Generate fix tasks per Fix Task Protocol (contracts/error-recovery.md):
         one fix task per finding, each with Finding, Scope, and Approach.
         Do NOT suggest refactoring or unrelated improvements.
-     b. Return COMPLETION per contracts/done-payload.md with:
+     b. Append fix tasks to tasks.yaml:
+        - Read $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/tasks.yaml.
+        - Find the current last task id (e.g., T-3 or fix-2) for depends_on.
+        - Append new entries with ids like fix-1, fix-2, ... (sequential,
+          based on existing fix-N entries) with depends_on pointing to the
+          current last task-node id (NOT prefixed with task-).
+        - Write tasks.yaml back to disk.
+     c. Invoke expand-plan to inject the fix task-nodes into the workflow plan:
+        Run: `orchestrator expand-plan $STATE_YAML_PATH`
+        This appends task-fix-N nodes to workflow_plan and rewires
+        run-phase-review.depends_on to the last fix task-node.
+     d. Return COMPLETION per contracts/done-payload.md with:
         outputs.phase_review_report: {verdict: needs_work}
         review_score: { overall: <N>, dimensions: {...} }
         artifacts: [phase-review.md]
         state_patch.retries increment for this step.
-     c. Follow Error Recovery Contract (contracts/error-recovery.md):
+     e. Follow Error Recovery Contract (contracts/error-recovery.md):
         - If retries >= phase verify.max_retries (default 3):
           execute on_max_retries action per § Escalation Protocol.
-        - Otherwise: execute fix tasks, then re-run this review step.
+        - Otherwise: fix task-nodes are now in the DAG; the dispatcher
+          schedules them before re-running this review step.
 
 verify:
   - Phase review report written to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/phase-review.md

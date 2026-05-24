@@ -23,8 +23,32 @@ from pathlib import Path
 import yaml
 
 
+def count_tasks_from_yaml(tasks_yaml: Path) -> tuple[int, int]:
+    """Return (predicted, actual) from tasks.yaml.
+
+    ORC-65: tasks.yaml is the authoritative source. Fix tasks have ids like
+    'fix-1', 'fix-2'; initial tasks are 'T-1', 'T-2', etc.
+    predicted = initial task count; actual = all tasks.
+    """
+    if not tasks_yaml.is_file():
+        return 0, 0
+    try:
+        data = yaml.safe_load(tasks_yaml.read_text()) or {}
+    except Exception:
+        return 0, 0
+    tasks = data.get("tasks") or []
+    actual = len(tasks)
+    fix_count = sum(1 for t in tasks if str(t.get("id", "")).startswith("fix-"))
+    predicted = actual - fix_count
+    return max(predicted, 0) or actual, actual
+
+
 def count_tasks(tasks_md: Path) -> tuple[int, int]:
-    """Return (predicted, actual). Fix tasks = not matching T-1..T-N pure sequence."""
+    """Return (predicted, actual) from tasks.md (legacy fallback).
+
+    Deprecated: ORC-65 replaced with count_tasks_from_yaml. Kept for backward
+    compatibility with archived runs that have no tasks.yaml.
+    """
     if not tasks_md.is_file():
         return 0, 0
     lines = tasks_md.read_text().splitlines()
@@ -77,13 +101,18 @@ def main() -> int:
         print(json.dumps({"error": "STATE_YAML_PATH missing or not a file"}))
         return 3
 
-    # Sibling lookup: tasks.md and design.md live alongside state.yaml in
+    # Sibling lookup: tasks.yaml and design.md live alongside state.yaml in
     # spec/changes/<slug>/ (the canonical artifact dir, ORC-36). Do NOT diverge.
     state_dir = Path(state_path).parent
-    tasks_md = state_dir / "tasks.md"
+    tasks_yaml = state_dir / "tasks.yaml"
+    tasks_md = state_dir / "tasks.md"  # legacy fallback
     design_md = state_dir / "design.md"
 
-    predicted_tasks, actual_tasks = count_tasks(tasks_md)
+    # ORC-65: prefer tasks.yaml; fall back to tasks.md for archived runs.
+    if tasks_yaml.is_file():
+        predicted_tasks, actual_tasks = count_tasks_from_yaml(tasks_yaml)
+    else:
+        predicted_tasks, actual_tasks = count_tasks(tasks_md)
     fix_task_count = max(actual_tasks - predicted_tasks, 0)
     rework_rate = (fix_task_count / actual_tasks) if actual_tasks > 0 else 0.0
     task_delta = actual_tasks - predicted_tasks

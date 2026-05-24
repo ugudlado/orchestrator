@@ -104,8 +104,8 @@ def _validate_phase_review_output(
 # orc-67: run-phase-review needs_work rework loop
 # ---------------------------------------------------------------------------
 
-# Verdicts that send the engine back through execute-next-task (drain fix tasks)
-# and then re-run run-phase-review. `pass` is excluded — it advances linearly.
+# Verdicts that trigger the rework loop — inject fix task-nodes via expand-plan
+# and re-run run-phase-review. `pass` is excluded — it advances linearly.
 _REWORK_VERDICTS = frozenset({"needs_work", "incomplete_phase"})
 
 # Fallback when project.yaml omits quality_bar.max_retry_rounds. Matches the
@@ -606,6 +606,10 @@ def _utcnow_iso() -> str:
 def parse_tasks(tasks_md: Path) -> dict:
     """Count [x], [ ], and [~] task markers.
 
+    Deprecated: ORC-65 T-13 replaced this with compute_task_counts() which reads
+    from step_history and workflow_plan instead of tasks.md checkboxes.
+    Kept as a shim for any external caller; not used by _resolve_feature_metrics.
+
     Returns:
         tasks_total, tasks_completed, tasks_failed, resolve_rate
     """
@@ -621,6 +625,71 @@ def parse_tasks(tasks_md: Path) -> dict:
         "tasks_added": 0,
         "tasks_completed": completed,
         "tasks_failed": max(failed, 0),
+        "resolve_rate": round(resolve_rate, 6),
+    }
+
+
+def compute_task_counts(
+    step_history: list,
+    workflow_plan: dict,
+    implement_phase: str = "implement",
+) -> dict:
+    """Derive task counts from step_history and workflow_plan.
+
+    ORC-65 T-13: replaces parse_tasks() as the source of truth for task metrics.
+    Task-nodes are identified by step_id starting with 'task-'. Fix nodes (added
+    by expand-plan on needs_work) are identified by 'task-fix-' prefix.
+
+    Returns a dict with:
+        tasks_total     — number of task-* nodes in workflow_plan[implement].nodes
+        tasks_planned   — initial plan count (total minus fix nodes)
+        tasks_added     — number of fix nodes (task-fix-*)
+        tasks_completed — step_history entries with step_id task-* and status in
+                          (completed, recovered)
+        tasks_failed    — step_history entries with step_id task-* and status failed
+        resolve_rate    — tasks_completed / tasks_total (0.0 when total is 0)
+
+    Returns None values when no task-nodes exist in the plan (spike path).
+    """
+    impl = (workflow_plan or {}).get(implement_phase, {})
+    nodes = impl.get("nodes") or []
+    task_node_ids = {n["id"] for n in nodes if n.get("id", "").startswith("task-")}
+
+    if not task_node_ids:
+        return {
+            "tasks_total": None,
+            "tasks_planned": None,
+            "tasks_added": None,
+            "tasks_completed": None,
+            "tasks_failed": None,
+            "resolve_rate": None,
+        }
+
+    total = len(task_node_ids)
+    fix_count = sum(1 for nid in task_node_ids if "fix-" in nid)
+    planned = total - fix_count
+
+    # Count completed task-nodes by taking the most-recent entry per step_id.
+    # A task can fail once and then complete (retry); in that case we count it as
+    # completed, not failed. tasks_failed = tasks not yet completed (per metrics-schema.md).
+    # Relies on Python 3.7+ dict insertion order: each key assignment overwrites
+    # the previous value, so the last history entry for a given step_id wins.
+    _terminal_completed = {"completed", "recovered"}
+    latest_by_step: dict[str, str] = {}
+    for e in (step_history or []):
+        sid = e.get("step_id", "")
+        if sid.startswith("task-") and sid in task_node_ids and e.get("status") != "in_progress":
+            latest_by_step[sid] = e.get("status", "")
+    completed = sum(1 for st in latest_by_step.values() if st in _terminal_completed)
+    failed = total - completed
+    resolve_rate = completed / total if total > 0 else 0.0
+
+    return {
+        "tasks_total": total,
+        "tasks_planned": planned,
+        "tasks_added": fix_count,
+        "tasks_completed": completed,
+        "tasks_failed": failed,
         "resolve_rate": round(resolve_rate, 6),
     }
 
@@ -656,7 +725,7 @@ def compute_resolution(
     """Derive pass_at_1, pass_at_2, regressions, regression_rate.
 
     Approximation note: state.yaml retries are keyed by step_id (e.g.
-    "execute-next-task"), not by task_id — so per-task attempt granularity
+    "run-phase-review"), not by task_id — so per-task attempt granularity
     is unavailable. We use:
       pass_at_1 = max(0, tasks_total - retries_total) / tasks_total
       pass_at_2 = tasks_completed / tasks_total
@@ -917,9 +986,12 @@ def _resolve_feature_metrics_tasks_path(state: dict) -> Path:
 def _resolve_feature_metrics(state: dict, change_id: str) -> dict:
     """Pure compute. Returns kwargs dict for upsert_feature_metrics.
 
+    ORC-65 T-13: task counts are now derived from step_history + workflow_plan
+    (compute_task_counts). Falls back to parse_tasks(tasks.md) for legacy runs
+    that have no task-nodes in workflow_plan.
+
     Raises:
-        FileNotFoundError: tasks.md missing for feature/bugfix schemas.
-        RuntimeError:      started_at or completed_at missing on feature/bugfix.
+        RuntimeError: started_at or completed_at missing on feature/bugfix.
     """
     schema = str(state.get("schema") or "feature")
     worktree = str(state.get("worktree_path") or state.get("repo_root") or "")
@@ -931,20 +1003,27 @@ def _resolve_feature_metrics(state: dict, change_id: str) -> dict:
                 f"for schema={schema}"
             )
 
-    tasks_md = _resolve_feature_metrics_tasks_path(state)
-    if schema in ("feature", "bugfix") and not tasks_md.is_file():
-        raise FileNotFoundError(
-            f"_resolve_feature_metrics: tasks.md not found at {tasks_md} "
-            f"(required for schema={schema})"
-        )
-
-    if tasks_md.is_file():
-        task_counts = parse_tasks(tasks_md)
-    else:
-        task_counts = {
-            "tasks_total": None, "tasks_planned": None, "tasks_added": None,
-            "tasks_completed": None, "tasks_failed": None, "resolve_rate": None,
-        }
+    # Prefer step_history-based counts (ORC-65 flat task-nodes).
+    # Fall back to tasks.md checkbox counting for legacy runs.
+    task_counts = compute_task_counts(
+        step_history=state.get("step_history") or [],
+        workflow_plan=state.get("workflow_plan") or {},
+    )
+    if task_counts.get("tasks_total") is None:
+        # Legacy path: no task-nodes in plan — try tasks.md.
+        tasks_md = _resolve_feature_metrics_tasks_path(state)
+        if schema in ("feature", "bugfix") and not tasks_md.is_file():
+            raise FileNotFoundError(
+                f"_resolve_feature_metrics: no task-nodes in workflow_plan and "
+                f"tasks.md not found at {tasks_md} (required for schema={schema})"
+            )
+        if tasks_md.is_file():
+            task_counts = parse_tasks(tasks_md)
+        else:
+            task_counts = {
+                "tasks_total": None, "tasks_planned": None, "tasks_added": None,
+                "tasks_completed": None, "tasks_failed": None, "resolve_rate": None,
+            }
 
     retries = compute_retries(state)
     resolution = compute_resolution(
@@ -982,26 +1061,10 @@ def _resolve_tasks_md(state_raw: dict[str, Any]) -> Path | None:
     return _resolve_workflow_artifact_path(state_raw, "tasks.md")
 
 
-def _check_all_tasks_completed(state_raw: dict[str, Any]) -> bool:
-    """Return True iff no unchecked `- [ ]` items remain in tasks.md.
-
-    Returns True (fail-open) only when path is None — i.e., state has no fields
-    from which a candidate path can even be constructed.  When a candidate path
-    is constructible but the file is missing or unreadable, returns False
-    (fail-closed) so the workflow does not silently skip unfinished tasks.
-    """
-    path = _resolve_tasks_md(state_raw)
-    if path is None:
-        return True
-    try:
-        text = path.read_text()
-    except (FileNotFoundError, OSError):
-        return False  # fail-closed: expected file missing → tasks not yet complete
-    return re.search(r"^\s*-\s*\[\s*\]", text, re.MULTILINE) is None
-
-
-REPEAT_PREDICATES = {
-    "all_tasks_completed": _check_all_tasks_completed,
+REPEAT_PREDICATES: dict[str, Any] = {
+    # ORC-65: checkbox-counting predicate removed; task completion is now tracked
+    # via per-task step_history entries (task-T-N nodes in workflow_plan).
+    # Other steps may still declare repeat_until predicates — register them here.
 }
 
 
@@ -1390,9 +1453,11 @@ def record(
     #
     # orc-67: a run-phase-review completion with a needs_work/incomplete_phase
     # verdict opens a rework loop. `_rework_loop_active` decides:
-    #   "retry"    — leave run-phase-review in_progress (mirroring repeat_until)
-    #                and reset the execute-next-task node to in_progress so the
-    #                DAG-walk re-emits execute-next-task → run-phase-review.
+    #   "retry"    — leave run-phase-review in_progress (pending) so the
+    #                DAG-walk re-emits it after fix task-nodes complete.
+    #                ORC-65: fix tasks are injected by the agent calling
+    #                `orchestrator expand-plan` before COMPLETION — no
+    #                per-step node reset needed here.
     #                Intermediate nodes (e.g. run-ux-critique) are untouched.
     #   "escalate" — retries exhausted: mark the node completed, downgrade this
     #                step_history entry to `blocked` (so the next `orchestrator
@@ -1407,9 +1472,6 @@ def record(
             )
         if rework == "retry":
             readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
-            readiness.mark_node_status(
-                state_raw, phase, "execute-next-task", "in_progress"
-            )
         elif rework == "escalate":
             readiness.mark_node_status(state_raw, phase, step_id, "completed")
             entry["status"] = "blocked"

@@ -5,8 +5,8 @@
 #
 # Reads:
 #   - <state_dir>/state.yaml           (current schema, tasks_planned hint)
-#   - <state_dir>/tasks.md             (tasks_planned count)
-#   - $REPO_ROOT/scripts/routes.yaml   (agent names for the routes side of the union)
+#   - <state_dir>/tasks.yaml            (tasks_planned count)
+#   - $REPO_ROOT/scripts/routes.yaml   (agent → backend → model)
 #   - $METRICS_DB, else $ORCHESTRATOR_HOME/metrics.duckdb (DuckDB file — model → $/1M tokens)
 #     Path convention matches record.py's `main()` — see config/scripts/orchestrator_next/record.py.
 #   - $REPO_ROOT/spec/changes/archive/*/state.yaml  (history, same-schema only)
@@ -16,15 +16,8 @@
 #   - stderr: rendered preview table
 #
 # Estimator is descriptive, not predictive: median(tokens_per_task) × tasks_planned,
-# split by per_agent_tokens share from archive, priced via the DuckDB pricing table.
+# split by per_agent_tokens share from archive, priced via DuckDB pricing table.
 # No caps, no gates. Cold-start emits `estimate: null` with reason.
-#
-# Pricing logic is delegated (ORC-71) to the shared Python module:
-#   python3 -m orchestrator_next.pricing --agents <agents…>
-# This script owns agent-list assembly (routes ∪ archive-observed union); the
-# pricing CLI is a pure pricer. When the metrics DB is absent the CLI fails loud
-# (Decision D-2) and this script propagates the non-zero exit — no fabricated
-# fallback rates.
 #
 # Bash 3.2 compatible — no declare -A, no mapfile, no readarray, no ${var^^}.
 
@@ -38,7 +31,7 @@ else
   STATE_DIR="$ARG"
   STATE_FILE="$STATE_DIR/state.yaml"
 fi
-TASKS_FILE="$STATE_DIR/tasks.md"
+TASKS_FILE="$STATE_DIR/tasks.yaml"
 
 if [ ! -f "$STATE_FILE" ]; then
   echo "ERROR: state.yaml not found at $STATE_FILE" >&2
@@ -54,36 +47,135 @@ SCHEMA=$(awk '/^schema:/ {print $2; exit}' "$STATE_FILE" | tr -d '"')
 [ -z "$SCHEMA" ] && SCHEMA="feature"
 
 # ── Tasks planned ────────────────────────────────────────────────────────
-# Count checkbox lines in tasks.md. Fall back to 1 to keep the estimator
+# Count task entries in tasks.yaml. Fall back to 1 to keep the estimator
 # scalar — "unknown fan-out" is not the estimator's job, it's a prior.
 TASKS_PLANNED=0
 if [ -f "$TASKS_FILE" ]; then
-  TASKS_PLANNED=$(grep -cE '^\s*-\s*\[' "$TASKS_FILE" 2>/dev/null || echo 0)
+  TASKS_PLANNED=$(python3 -c "
+import yaml, sys
+try:
+    with open('$TASKS_FILE') as f:
+        d = yaml.safe_load(f) or {}
+    print(len(d.get('tasks') or []))
+except Exception:
+    print(0)
+" 2>/dev/null || echo 0)
   TASKS_PLANNED=${TASKS_PLANNED//[$'\n\r ']/}
 fi
 [ "$TASKS_PLANNED" -eq 0 ] && TASKS_PLANNED=1
 
-# ── Routes agents (routes side of the agent-list union) ──────────────────
-# A small awk pass over routes.yaml's `agents:` block, emitting one agent name
-# per line. This is the routes side of the routes ∪ archive-observed union; the
-# pricing resolution itself is delegated to the Python CLI (ORC-71).
-ROUTES_AGENTS=""
+# ── Parse routes.yaml: agent → backend and backend → model ───────────────
+# Stored as newline-delimited "key|value" strings — bash 3.2 compatible
+# (no declare -A associative arrays).
+#
+# AGENT_BACKEND_MAP:  each line is "agent|backend"
+# BACKEND_MODEL_MAP:  each line is "backend|model"
+#
+# Lookup helpers below read these with awk.
+
+AGENT_BACKEND_MAP=""
+BACKEND_MODEL_MAP=""
+
 if [ -f "$ROUTES_FILE" ]; then
-  ROUTES_AGENTS=$(awk '
+  # Parse "agent: backend" lines from the agents block
+  AGENT_BACKEND_MAP=$(awk '
     /^agents:/ { in_block=1; next }
     /^[a-z]/   { in_block=0 }
     in_block && /^  [a-z_-]+:/ {
       line = $0
       gsub(/^  /, "", line)
       n = split(line, parts, /:[[:space:]]*/)
-      if (n >= 1) {
-        agent = parts[1]
+      if (n >= 2) {
+        agent  = parts[1]
+        backend = parts[2]
         gsub(/[[:space:]]/, "", agent)
-        print agent
+        gsub(/[[:space:]]/, "", backend)
+        print agent "|" backend
       }
     }
   ' "$ROUTES_FILE")
+
+  # Pass 2: models block — capture each backend's `model:` line
+  BACKEND_MODEL_MAP=$(awk '
+    /^models:/ { in_block=1; next }
+    /^[a-z]/   { in_block=0 }
+    in_block && /^  [a-z_-]+:/ {
+      gsub(/:/, ""); gsub(/^  /, ""); gsub(/[[:space:]]/, "")
+      current = $0
+      next
+    }
+    in_block && /^    model:/ {
+      gsub(/^    model:[[:space:]]*/, "")
+      gsub(/^"|"$/, "")
+      gsub(/[[:space:]]/, "")
+      print current "|" $0
+    }
+  ' "$ROUTES_FILE")
 fi
+
+# get_backend <agent> → prints the backend string, or "unrouted"
+get_backend() {
+  local agent="$1"
+  local result
+  result=$(echo "$AGENT_BACKEND_MAP" | awk -F'|' -v k="$agent" '$1 == k { print $2; exit }')
+  [ -z "$result" ] && result="unrouted"
+  echo "$result"
+}
+
+# get_model <backend> → prints the model string, or "unknown"
+get_model() {
+  local backend="$1"
+  local result
+  result=$(echo "$BACKEND_MODEL_MAP" | awk -F'|' -v k="$backend" '$1 == k { print $2; exit }')
+  [ -z "$result" ] && result="unknown"
+  echo "$result"
+}
+
+# Resolve `native_<tier>` → current Claude Code release (opus-4-7 etc.)
+# Source of truth: model-id strings seen in Claude Code session JSONL.
+resolve_native() {
+  local backend="$1"
+  case "$backend" in
+    native_opus)   echo "claude-opus-4-7" ;;
+    native_sonnet) echo "claude-sonnet-4-6" ;;
+    native_haiku)  echo "claude-haiku-4-5" ;;
+    *)             echo "$backend" ;;
+  esac
+}
+
+# ── Lookup pricing from DuckDB (T-10 rewrite) ────────────────────────────
+# Returns three space-separated values: input_usd output_usd cache_read_usd
+# Falls back to conservative opus-tier defaults when:
+#   - DB file does not exist
+#   - duckdb binary not available
+#   - Model not found in table (DuckDB itself returns __default__ or empty)
+#
+# The model string is single-quote–stripped before embedding in the SQL
+# literal to guard against names with embedded quotes.
+lookup_pricing() {
+  local model="$1"
+  local db_path="${METRICS_DB:-${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}/metrics.duckdb}"
+
+  if [ ! -f "$db_path" ]; then
+    echo "15.00 75.00 1.50"   # conservative default (opus-tier)
+    return 0
+  fi
+
+  local json
+  # shellcheck disable=SC2016  # single-quotes in the SQL literal are intentional
+  json=$(duckdb -readonly -json "$db_path" \
+    "SELECT input_usd, output_usd, cache_read_usd FROM pricing \
+     WHERE model_id = '${model//\'/}' ORDER BY effective_from DESC LIMIT 1" 2>/dev/null)
+
+  if [ -z "$json" ] || [ "$json" = "[]" ]; then
+    echo "15.00 75.00 1.50"
+    return 0
+  fi
+
+  # parse with python3 (project dep, available everywhere)
+  echo "$json" | python3 -c \
+    'import json,sys; d=json.load(sys.stdin)[0]; print(d["input_usd"], d["output_usd"], d["cache_read_usd"])'
+}
 
 # ── Scan archive for same-schema history ─────────────────────────────────
 # Collect per-feature: tokens_per_task, tasks_total, per_agent_tokens JSON.
@@ -180,7 +272,12 @@ PER_AGENT_SHARE=$(printf '%s\n' "$PER_AGENT_JSON_LIST" | tr ';' '\n' | awk '
 # Stored as a newline-delimited list of unique agent names — bash 3.2 compatible
 # (no declare -A).
 
-ALL_AGENTS_LIST="$ROUTES_AGENTS"
+ALL_AGENTS_LIST=""
+
+# Add agents from AGENT_BACKEND_MAP
+if [ -n "$AGENT_BACKEND_MAP" ]; then
+  ALL_AGENTS_LIST=$(echo "$AGENT_BACKEND_MAP" | awk -F'|' '{print $1}')
+fi
 
 # Add agents from PER_AGENT_SHARE (may include agents not in routes.yaml)
 if [ -n "$PER_AGENT_SHARE" ]; then
@@ -195,36 +292,6 @@ get_share() {
   echo "$PER_AGENT_SHARE" | awk -v a="$1" '$1 == a { print $2; exit }'
 }
 
-# ── Price all agents in one CLI call (ORC-71) ────────────────────────────
-# Delegate routes resolution + DuckDB pricing to the shared Python module.
-# One subprocess spawn per preview (Decision D-6). The CLI is a pure pricer:
-# it prices exactly the agents we pass. If the metrics DB is absent the CLI
-# fails loud (Decision D-2) and we propagate the non-zero exit — no fabricated
-# fallback rates.
-#
-# PRICING_ROWS is newline-delimited "agent|backend|model|input|output|cache_read".
-PRICING_ROWS=""
-if [ -n "$ALL_AGENTS_LIST" ]; then
-  AGENTS_ARGS=$(echo "$ALL_AGENTS_LIST" | tr '\n' ' ')
-  # shellcheck disable=SC2086  # word-splitting $AGENTS_ARGS into separate --agents values is intended
-  PRICING_JSON=$(PYTHONPATH="$ORCHESTRATOR_HOME/config/scripts" \
-    python3 -m orchestrator_next.pricing --agents $AGENTS_ARGS)
-  CLI_RC=$?
-  if [ "$CLI_RC" -ne 0 ]; then
-    echo "ERROR: pricing CLI failed (exit $CLI_RC); cannot produce cost estimate" >&2
-    exit "$CLI_RC"
-  fi
-  PRICING_ROWS=$(echo "$PRICING_JSON" | python3 -c '
-import json, sys
-for o in json.load(sys.stdin):
-    b = o["backend"] if o["backend"] is not None else "unrouted"
-    m = o["model"] if o["model"] is not None else "unknown"
-    print("%s|%s|%s|%s|%s|%s" % (
-        o["agent"], b, m,
-        o["input_usd"], o["output_usd"], o["cache_read_usd"]))
-')
-fi
-
 # ── Compose YAML + human table ────────────────────────────────────────────
 AGENTS_YAML=""
 AGENTS_TABLE=""
@@ -234,17 +301,14 @@ TOTAL_COST_EST=0
 while IFS= read -r agent; do
   [ -z "$agent" ] && continue
 
-  # Look up this agent's priced row from the CLI output.
-  row=$(echo "$PRICING_ROWS" | awk -F'|' -v a="$agent" '$1 == a { print; exit }')
-  IFS='|' read -r _ backend model in_price out_price cache_price <<EOF
-$row
-EOF
-  [ -z "$backend" ]    && backend="unrouted"
-  [ -z "$model" ]      && model="unknown"
-  [ -z "$in_price" ]   && in_price=0
-  [ -z "$out_price" ]  && out_price=0
-  [ -z "$cache_price" ] && cache_price=0
+  backend=$(get_backend "$agent")
+  if [ "${backend#native_}" != "$backend" ]; then
+    model=$(resolve_native "$backend")
+  else
+    model=$(get_model "$backend")
+  fi
 
+  read -r in_price out_price cache_price < <(lookup_pricing "$model")
   share=$(get_share "$agent")
   [ -z "$share" ] && share=0
 
