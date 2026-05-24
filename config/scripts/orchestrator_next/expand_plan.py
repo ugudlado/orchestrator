@@ -145,7 +145,10 @@ def expand_plan(state_yaml_path: str) -> None:
     workflow_plan = state_raw.setdefault("workflow_plan", {})
     phase_plan = workflow_plan.setdefault(phase, {})
     nodes: list[dict] = phase_plan.setdefault("nodes", [])
-    filtered_ids: set[str] = set(phase_plan.get("filtered") or [])
+    filtered_ids: set[str] = {
+        (f.get("id") if isinstance(f, dict) else str(f))
+        for f in (phase_plan.get("filtered") or [])
+    }
 
     existing_ids = {str(n.get("id", "")) for n in nodes}
 
