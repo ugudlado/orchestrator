@@ -132,6 +132,25 @@ COMPLETION:
 
 
 class TestEmbeddedCompletion:
+    def test_fenced_yaml_after_completion_header(self):
+        """COMPLETION: followed by ```yaml fence is parsed (agents often fence stdout)."""
+        input_text = """\
+Some agent output.
+
+COMPLETION:
+```yaml
+status: abandoned
+reason: "No bug report"
+outputs: {}
+artifacts: []
+```
+"""
+        result = run_parse(input_text)
+        assert result.returncode == 0, f"stderr: {result.stderr}"
+        data = json.loads(result.stdout)
+        assert data["status"] == "abandoned"
+        assert data["outputs"] == {}
+
     def test_completion_block_mid_stdout_extracted(self):
         """COMPLETION block embedded mid-stdout (with trailing text) is still extracted."""
         input_text = """\

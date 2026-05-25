@@ -20,11 +20,23 @@ import yaml
 VALID_STATUSES = frozenset({"completed", "recovered", "abandoned"})
 
 
+def _indent_under_completion(header: str, body_lines: list[str]) -> str:
+    """Build a YAML block with body fields nested under COMPLETION."""
+    out = [header]
+    for line in body_lines:
+        if not line.strip():
+            out.append("")
+            continue
+        out.append(line if line.startswith((" ", "\t")) else f"  {line}")
+    return "\n".join(out)
+
+
 def find_completion_block(text: str) -> str | None:
     """Find the COMPLETION: block in text and return the raw YAML string.
 
-    Searches for 'COMPLETION:' at the start of a line, then captures all
-    subsequent indented content until a non-indented line or EOF.
+    Searches for 'COMPLETION:' at the start of a line, then captures either:
+    - a fenced ```yaml ... ``` block (common in agent stdout), or
+    - subsequent indented content until a non-indented line or EOF.
     """
     lines = text.splitlines()
     start_idx = None
@@ -36,15 +48,27 @@ def find_completion_block(text: str) -> str | None:
     if start_idx is None:
         return None
 
-    # Collect the COMPLETION line plus all continuation lines (indented or blank)
-    block_lines = [lines[start_idx]]
+    header = lines[start_idx]
+    j = start_idx + 1
+    while j < len(lines) and not lines[j].strip():
+        j += 1
+
+    # Fenced form: COMPLETION:\n```yaml\n  status: ...\n```
+    if j < len(lines) and lines[j].strip().startswith("```"):
+        inner: list[str] = []
+        for k in range(j + 1, len(lines)):
+            if lines[k].strip().startswith("```"):
+                break
+            inner.append(lines[k])
+        return _indent_under_completion(header, inner)
+
+    # Indented YAML form (done-payload contract)
+    block_lines = [header]
     for line in lines[start_idx + 1 :]:
-        # Stop at a non-blank, non-indented line that isn't part of the block
         if line and not line.startswith(" ") and not line.startswith("\t"):
             break
         block_lines.append(line)
 
-    # Strip trailing blank lines
     while block_lines and not block_lines[-1].strip():
         block_lines.pop()
 

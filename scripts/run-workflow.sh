@@ -196,12 +196,33 @@ resolve_tool() {
   echo "$binary"
 }
 
-# Build prompt string from instruction + step_context
+# Fetch ticket body for agent steps (backlog plain view or future linear API).
+fetch_ticket_context() {
+  local ticket_id="$1"
+  local backend
+  backend=$(ticket_read_backend "$REPO_ROOT")
+  case "$backend" in
+    backlog)
+      if command -v backlog >/dev/null 2>&1; then
+        (cd "$REPO_ROOT" && backlog task view "$ticket_id" --plain 2>/dev/null) || true
+      fi
+      ;;
+  esac
+}
+
+# Build prompt string from instruction + step_context (+ optional ticket body)
 build_prompt() {
   local instruction="$1"
   local step_context="$2"
-  printf '%s\n\nStep context:\n%s\n\nYou MUST end stdout with a valid COMPLETION: YAML block (see config/steps/contracts/done-payload.md).\n' \
-    "$instruction" "$step_context"
+  local ticket_context="${3:-}"
+  local workflow_meta="${4:-}"
+  if [ -n "$ticket_context" ]; then
+    printf '%s\n\n%s\n\nTicket / bug report (%s):\n%s\n\nStep context:\n%s\n\nYou MUST end stdout with a valid COMPLETION: YAML block (see config/steps/contracts/done-payload.md). Use indented YAML under COMPLETION: — do not wrap the block in markdown code fences.\n' \
+      "$instruction" "$workflow_meta" "$TICKET_ID" "$ticket_context" "$step_context"
+  else
+    printf '%s\n\n%s\n\nStep context:\n%s\n\nYou MUST end stdout with a valid COMPLETION: YAML block (see config/steps/contracts/done-payload.md). Use indented YAML under COMPLETION: — do not wrap the block in markdown code fences.\n' \
+      "$instruction" "$workflow_meta" "$step_context"
+  fi
 }
 
 # Run tool binary using config/tools.yaml args_template ({prompt}, {prompt_file})
@@ -297,10 +318,20 @@ print(d.get('change_id',''))
     esac
   }
 
+  # Inline script steps run inside bin/orchestrator (exit 0, no JSON on stdout).
+  if [ -z "$(printf '%s' "$ACTION_JSON" | tr -d '[:space:]')" ]; then
+    continue
+  fi
+
   # Extract fields from action JSON
   STEP_ID=$(echo "$ACTION_JSON" | jq -r '.step_id // empty')
   PHASE=$(echo "$ACTION_JSON" | jq -r '.phase // "main"')
-  KIND=$(echo "$ACTION_JSON" | jq -r '.kind // "run_inline"')
+  KIND=$(echo "$ACTION_JSON" | jq -r '
+    if (.run | type) == "string" and (.run | length) > 0 then "run_step"
+    elif (.kind | type) == "string" and (.kind | length) > 0 then .kind
+    else "run_inline"
+    end
+  ')
   AGENT=$(echo "$ACTION_JSON" | jq -r '.agent // "developer"')
   ATTEMPT=$(echo "$ACTION_JSON" | jq -r '.attempt // 1')
   STARTED_AT=$(echo "$ACTION_JSON" | jq -r '.started_at // empty')
@@ -387,8 +418,29 @@ print(json.dumps(payload))
         exit 4
       fi
 
-      # Build the prompt
-      PROMPT=$(build_prompt "$INSTRUCTION" "$STEP_CONTEXT")
+      # Build the prompt (ticket body + change_id so diagnose/implement agents have a target)
+      TICKET_CONTEXT=""
+      if [ -n "$TICKET_ID" ]; then
+        TICKET_CONTEXT=$(fetch_ticket_context "$TICKET_ID")
+      fi
+      WORKFLOW_META=$(python3 - "$STATE_YAML" <<'PY' 2>/dev/null || true
+import sys, yaml
+from pathlib import Path
+p = Path(sys.argv[1])
+s = yaml.safe_load(p.read_text()) or {}
+cid = s.get("change_id") or s.get("slug") or p.parent.name
+wt = s.get("worktree_path") or ""
+schema = s.get("schema") or ""
+repo = s.get("repo_root") or ""
+print(f"Workflow: change_id={cid} schema={schema} repo_root={repo}")
+if wt:
+    print(f"worktree_path={wt}")
+    print(f"artifact_dir={wt}/spec/changes/{cid}")
+else:
+    print(f"artifact_dir={repo}/spec/changes/{cid}")
+PY
+)
+      PROMPT=$(build_prompt "$INSTRUCTION" "$STEP_CONTEXT" "$TICKET_CONTEXT" "$WORKFLOW_META")
       PROMPT_FILE="$TMP_DIR/prompt_${STEP_ID}.txt"
       echo "$PROMPT" > "$PROMPT_FILE"
 
@@ -432,19 +484,23 @@ print(json.dumps(payload))
       fi
 
       # Build done payload from COMPLETION JSON + dispatch context
-      DONE_PAYLOAD=$(echo "$COMPLETION_JSON" | python3 -c "
-import sys, json
-completion = json.load(sys.stdin)
+      DONE_PAYLOAD=$(TOOL_STDOUT="$TOOL_STDOUT" python3 -c "
+import json, os, sys
+completion = json.loads(sys.stdin.read())
 payload = dict(completion)
 payload['step_id'] = '$STEP_ID'
 payload['phase'] = '$PHASE'
 payload['agent'] = '$AGENT'
+stdout_path = os.environ.get('TOOL_STDOUT', '')
+if stdout_path and os.path.isfile(stdout_path):
+    with open(stdout_path, encoding='utf-8', errors='replace') as f:
+        payload['agent_task_result'] = f.read()
 if not payload.get('usage'):
     payload['usage'] = {'input_tokens': 0, 'output_tokens': 0, 'model': 'none'}
 if '$STARTED_AT':
     payload['started_at'] = '$STARTED_AT'
 print(json.dumps(payload))
-")
+" <<<"$COMPLETION_JSON")
 
       if echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML"; then
         DONE_STATUS=$(echo "$DONE_PAYLOAD" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','completed'))" 2>/dev/null || echo "completed")

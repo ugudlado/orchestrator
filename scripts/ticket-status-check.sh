@@ -69,17 +69,20 @@ fi
 
 if [ "$ACTION" = "resume" ]; then
   STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}"
+  WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-$HOME/code/feature_worktrees}"
   FOUND_STATE=""
 
-  if [ -d "$STATE_DIR" ]; then
+  for search_root in "$STATE_DIR" "$WORKTREE_BASE_DIR/$TICKET_SLUG/spec/changes"; do
+    [ -d "$search_root" ] || continue
     while IFS= read -r -d '' state_file; do
       dir_name=$(basename "$(dirname "$state_file")")
       if echo "$dir_name" | grep -qi "$TICKET_SLUG"; then
         FOUND_STATE="$state_file"
         break
       fi
-    done < <(find "$STATE_DIR" -name "state.yaml" -print0 2>/dev/null)
-  fi
+    done < <(find "$search_root" -name "state.yaml" -print0 2>/dev/null)
+    [ -n "$FOUND_STATE" ] && break
+  done
 
   if [ -n "$FOUND_STATE" ]; then
     printf '{"action":"resume","phase":"%s","state_yaml":"%s","ticket_id":"%s","ticketing":"%s","ticket_status":"%s"}' \

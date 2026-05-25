@@ -100,8 +100,24 @@ if [ -d "$_WORKTREE_ROOT/config" ]; then
 fi
 
 WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}"
+WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-$HOME/code/feature_worktrees}"
 TICKET_SLUG="$(echo "$TICKET_ID" | tr '[:upper:]' '[:lower:]')"
 DEFAULT_STATE="$WORKFLOW_STATE_DIR/$TICKET_SLUG/state.yaml"
+
+# state.yaml may live in repo_root (worktree=false) or under the feature worktree.
+resolve_state_yaml() {
+  local slug="$1"
+  if [ -f "$WORKFLOW_STATE_DIR/$slug/state.yaml" ]; then
+    echo "$WORKFLOW_STATE_DIR/$slug/state.yaml"
+    return 0
+  fi
+  local wt_state="$WORKTREE_BASE_DIR/$slug/spec/changes/$slug/state.yaml"
+  if [ -f "$wt_state" ]; then
+    echo "$wt_state"
+    return 0
+  fi
+  return 1
+}
 
 TICKET_CHECK="$SCRIPT_DIR/ticket-status-check.sh"
 if [ ! -f "$TICKET_CHECK" ]; then
@@ -132,9 +148,7 @@ if [ "$TICKET_ACTION" = "resume" ]; then
 fi
 
 if [ -z "$STATE_YAML" ] || [ ! -f "$STATE_YAML" ]; then
-  if [ -f "$DEFAULT_STATE" ]; then
-    STATE_YAML="$DEFAULT_STATE"
-  fi
+  STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG" 2>/dev/null || true)"
 fi
 
 if [ ! -f "${STATE_YAML:-}" ]; then
@@ -145,7 +159,7 @@ if [ ! -f "${STATE_YAML:-}" ]; then
   echo "Seeding workflow: slug=$TICKET_SLUG schema=$SCHEMA" >&2
   # shellcheck disable=SC2086
   bash "$SEED_STATE" "$TICKET_SLUG" "$SCHEMA" "${FLAG_OVERRIDES[@]}" || exit 7
-  STATE_YAML="$DEFAULT_STATE"
+  STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG")" || STATE_YAML=""
 fi
 
 if [ ! -f "$STATE_YAML" ]; then
