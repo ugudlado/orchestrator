@@ -36,17 +36,29 @@ instruction: |
   2. Build candidate set from $ORCHESTRATOR_HOME/config/workflows/*.yaml,
      excluding files starting with `_` (include fragments).
 
-  3. Trigger match pass: read $ORCHESTRATOR_HOME/config/guidelines.yaml.
+  3b. (step 3b — Ticket ID check) If the user_request looks like a ticket ID (matches
+      pattern `^[A-Z]+-\d+$`, e.g. ORC-99, HL-287), call
+      scripts/ticket-status-check.sh <ticket-id> $REPO_ROOT and act on the
+      result (reads config/ticket-status-map.yaml for the status→action mapping):
+        - action=halt   → print reason and checklist (if any), HALT with error.
+        - action=init   → proceed to step 4 with phase hint = result.phase.
+        - action=resume → locate the matching state.yaml from result.state_yaml
+                          and resume as in step 1 (EMIT schema + reason + STOP).
+        - action=skip   → continue to step 4 (API unavailable or key missing).
+      When LOCAL state.yaml matches the ticket but ticket status disagrees on
+      phase, log a WARN and proceed with local state (local state wins; see D-5).
+
+  4. Trigger match pass: read $ORCHESTRATOR_HOME/config/guidelines.yaml.
      For each schema entry, scan its description for "Triggers:" and check
      whether any trigger keyword appears literally in the user request.
      Collect candidates that fire.
 
-  4. CLI flag pass: read $ORCHESTRATOR_HOME/config/flags.yaml `cli:` block.
+  5. CLI flag pass: read $ORCHESTRATOR_HOME/config/flags.yaml `cli:` block.
      If user passed a flag defined there with a `sets.bugfix: true` or similar
      schema-binding effect, prefer the matching schema (e.g. --bugfix → bugfix
      schema even if "fix" trigger didn't fire on the prompt).
 
-  5. Resolve:
+  6. Resolve:
      - If exactly one candidate → select it.
      - If multiple → apply tie-breaker rules; select the most specific.
      - If zero → fall back to semantic match against schema descriptions
@@ -54,7 +66,7 @@ instruction: |
        above a confidence threshold; if no candidate is plausible, HALT
        and ask the user which schema to use.
 
-  6. EMIT outputs:
+  7. EMIT outputs:
        schema:           <chosen schema name, e.g. "feature">
        reason:           <one-sentence explanation citing trigger or flag>
        confidence:       trigger | flag | semantic | resume
