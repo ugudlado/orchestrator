@@ -1,4 +1,4 @@
-.PHONY: setup install doctor stale help test lint-contracts
+.PHONY: setup install doctor stale help test lint-contracts dashboard dashboard-stop
 
 # Default target
 .DEFAULT_GOAL := help
@@ -71,3 +71,25 @@ lint-contracts: ## HL-287 M2: every step contract must declare inputs: and outpu
 
 m8-gates: ## HL-287 M8: run all rework-integrity gates
 	@bash scripts/m8-gates.sh
+
+dashboard: ## Launch live agent-progress dashboard on http://localhost:8765
+	@if [ ! -x scripts/dashboard/.venv/bin/uvicorn ]; then \
+		echo "Creating dashboard venv..."; \
+		python3 -m venv scripts/dashboard/.venv; \
+		scripts/dashboard/.venv/bin/pip install --quiet fastapi 'uvicorn[standard]' duckdb pyyaml; \
+	fi
+	@if lsof -ti tcp:8765 >/dev/null 2>&1; then \
+		echo "Dashboard already running on :8765 (use 'make dashboard-stop' to stop)"; \
+	else \
+		echo "Starting dashboard on http://localhost:8765 ..."; \
+		nohup scripts/dashboard/run.sh > /tmp/orchestrator-dashboard.log 2>&1 & \
+		sleep 1; \
+		echo "  log: /tmp/orchestrator-dashboard.log"; \
+	fi
+
+dashboard-stop: ## Stop the live dashboard server
+	@if lsof -ti tcp:8765 >/dev/null 2>&1; then \
+		lsof -ti tcp:8765 | xargs kill 2>/dev/null && echo "Stopped."; \
+	else \
+		echo "Dashboard not running."; \
+	fi

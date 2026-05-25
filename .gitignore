@@ -34,3 +34,6 @@ spec/changes/*/plan.yaml
 .pi/
 
 *.lock
+
+# Python virtualenvs (e.g. scripts/dashboard/.venv)
+.venv/
