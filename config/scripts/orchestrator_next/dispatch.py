@@ -56,9 +56,10 @@ def _build_env(
     state: State,
     step_id: str,
     attempt: int,
+    state_yaml_path: str = "",
 ) -> dict[str, str]:
     """Build the ORCHESTRATOR_* env block for the action response."""
-    return {
+    env = {
         "ORCHESTRATOR_CHANGE_ID": state.change_id,
         "ORCHESTRATOR_PHASE": state.phase,
         "ORCHESTRATOR_STEP_ID": step_id,
@@ -67,6 +68,9 @@ def _build_env(
         "ORCHESTRATOR_REPO_ROOT": state.repo_root,
         "ORCHESTRATOR_WORKTREE_ARTIFACT_DIR": state.worktree_artifact_dir,
     }
+    if state_yaml_path:
+        env["ORCHESTRATOR_STATE_YAML_PATH"] = state_yaml_path
+    return env
 
 
 def _get_last_entry(step_history: list[StepHistoryEntry]) -> StepHistoryEntry | None:
@@ -341,7 +345,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "inputs": inputs_resolved,
             "expected_outputs": contract.legacy_output_names,
             "resolved_allowed_tools": resolved_allowed_tools,
-            "env": _build_env(state, step_id, attempt),
+            "env": _build_env(state, step_id, attempt, state_yaml_path),
             "step_context": _node_step_context(state, step_id),
         }
         return action, 0
@@ -391,7 +395,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         return {}, block_code
 
     attempt = _compute_attempt(state.step_history, state.phase, next_step_id)
-    env = _build_env(state, next_step_id, attempt)
+    env = _build_env(state, next_step_id, attempt, state_yaml_path)
     inputs_resolved, _missing = _resolve_inputs(state, contract)
     resolved_allowed_tools = _resolve_allowed_tools(contract)
     step_context = _node_step_context(state, next_step_id)
