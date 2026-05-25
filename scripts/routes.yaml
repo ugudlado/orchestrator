@@ -1,15 +1,24 @@
-# Agent routing — native_<model> = host sub-agent, else = proxy
+# Agent routing
+# model:      in-process sub-agent model tier (used by Claude Code host)
+# subprocess: tool binary for shell loop (run-workflow.sh)
 agents:
-  architect:         native_opus
-  ideator:           native_opus
-  reviewer:          native_sonnet
-  developer:         native_sonnet
-  discoverer:        native_sonnet
-  sonnet-agent:      native_sonnet
-  haiku-agent:       native_sonnet
+  architect:    { model: opus,   subprocess: claude }
+  ideator:      { model: opus,   subprocess: claude }
+  reviewer:     { model: sonnet, subprocess: claude }
+  developer:    { model: sonnet, subprocess: claude }
+  discoverer:   { model: sonnet, subprocess: claude }
+  sonnet-agent: { model: sonnet, subprocess: claude }
+  haiku-agent:  { model: haiku,  subprocess: claude }
 
-# Model backends
+# Model backends — map model tier to concrete model-id
+# Keys match agents.<agent>.model values above
 models:
+  opus:   claude-opus-4-7
+  sonnet: claude-sonnet-4-6
+  haiku:  claude-haiku-4-5
+
+# Proxy backends (non-Claude tools routable via subprocess)
+proxy:
   qwen:
     url: https://openrouter.ai/api/v1
     model: qwen/qwen3-coder-30b-a3b-instruct
@@ -19,11 +28,3 @@ models:
     url: http://localhost:3456/v1
     model: coder
     api_key: $LLM_MANAGER_KEY
-
-# Backend → model-id mapping for cost computation in record.py.
-# Keys match `agents.<agent>` values for native (non-proxy) backends.
-# Values match model_id in the DuckDB pricing table.
-backends:
-  native_opus:   claude-opus-4-7
-  native_sonnet: claude-sonnet-4-6
-  native_haiku:  claude-haiku-4-5
