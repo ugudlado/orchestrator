@@ -1,0 +1,223 @@
+version: 1
+tasks:
+  - id: T-1
+    title: "Add failing regression tests for workflow_plan-aware reconcile (FR-4, FR-5)"
+    agent: developer
+    depends_on: []
+    files:
+      - config/scripts/orchestrator_next/tests/test_reconcile_workflow_plan_membership.py
+    verify:
+      - cd config && python -m pytest scripts/orchestrator_next/tests/test_reconcile_workflow_plan_membership.py -x
+    test_scenarios:
+      - "FR-4 strip: state has an in_progress entry for step_id 'ghost-step' (NOT in workflow_plan), DB also has the matching row. Today FR-4 keeps it (DB-present). New rule: drop it because step_id ∉ phase_nodes."
+      - "FR-5 materialise skip: DB has an in_progress row for step_id 'ghost-step' (NOT in workflow_plan), state.step_history is empty. Today FR-5 appends it. New rule: skip materialisation; state.step_history stays empty."
+      - "In-plan in_progress survives: state has an in_progress entry for step_id 'preview-route' (IS in workflow_plan), DB also has it. Entry survives reconcile unchanged."
+      - "Legacy active:[ids] shape: state.workflow_plan = {phase: {active: ['preview-route']}}. An in_progress entry for 'preview-route' must survive (membership goes through phase_nodes, not raw nodes:). An in_progress entry for 'ghost-step' must be stripped."
+      - "All tests fail today because the membership guard does not exist yet."
+    why: "AC-1, AC-2, AC-5, AC-6 — bugfix rule: regression test must precede the fix."
+
+  - id: T-2
+    title: "Implement workflow_plan membership guard in reconcile.py (FR-4 + FR-5)"
+    agent: developer
+    depends_on: [T-1]
+    files:
+      - config/scripts/orchestrator_next/reconcile.py
+    verify:
+      - cd config && python -m pytest scripts/orchestrator_next/tests/test_reconcile_workflow_plan_membership.py -x
+      - cd config && python -m pytest scripts/orchestrator_next/tests/test_reconcile_in_progress.py scripts/orchestrator_next/tests/test_reconcile_terminal_skip.py -x
+    test_scenarios:
+      - "After this task, T-1's four assertions all pass."
+      - "Existing reconcile tests still pass (their fixtures may need workflow_plan populated — see T-3)."
+    why: "AC-1, AC-2, AC-5"
+    change: |
+      In config/scripts/orchestrator_next/reconcile.py:
+      1. Add helper at module scope (after _SLUG_RE, before _SELECT_IN_PROGRESS):
+           def _step_in_plan(state: State, phase: str, step_id: str) -> bool:
+               from orchestrator_next.parser import phase_nodes
+               return any(str(n.get("id", "")) == step_id for n in phase_nodes(state, phase))
+         Move the existing `from orchestrator_next.parser import State, StepHistoryEntry`
+         import to also include `phase_nodes` (avoid the lazy import inside the helper if module-load
+         order allows it; today parser.py has no dependency on reconcile.py, so a top-level import is fine).
+      2. Extend FR-4 strip predicate (reconcile.py:78-83). Current loop:
+             for e in state.step_history:
+                 if e.status == "in_progress" and (e.phase, e.step_id, e.attempt) not in db_keys:
+                     continue
+                 kept.append(e)
+         New body:
+             for e in state.step_history:
+                 if e.status == "in_progress":
+                     in_db = (e.phase, e.step_id, e.attempt) in db_keys
+                     in_plan = _step_in_plan(state, e.phase, e.step_id)
+                     if not in_db or not in_plan:
+                         continue  # orphan — drop (DB-absent OR plan-absent)
+                 kept.append(e)
+      3. Extend FR-5 materialise loop (reconcile.py:90-111). Add guard at top of for-body:
+             for phase, step_id, attempt, agent_name, started_at in db_rows:
+                 if not _step_in_plan(state, phase, step_id):
+                     continue  # ghost from prior schema — do not materialise
+                 if (phase, step_id, attempt) in yaml_keys:
+                     continue
+                 state.step_history.append(StepHistoryEntry(...))
+      4. Update module docstring (reconcile.py:7-13) to note:
+         "- A YAML in_progress entry whose step_id is absent from state.workflow_plan[phase].nodes
+            (resolved via parser.phase_nodes) is stripped, regardless of DB presence — protects
+            against ghost rows from prior workflow schemas."
+         "- A DuckDB in_progress row whose step_id is absent from state.workflow_plan[phase].nodes
+            is skipped (not materialised) for the same reason."
+
+  - id: T-3
+    title: "Update existing reconcile test fixtures to populate workflow_plan"
+    agent: developer
+    depends_on: [T-2]
+    files:
+      - config/scripts/orchestrator_next/tests/test_reconcile_in_progress.py
+      - config/scripts/orchestrator_next/tests/test_reconcile_terminal_skip.py
+    verify:
+      - cd config && python -m pytest scripts/orchestrator_next/tests/test_reconcile_in_progress.py scripts/orchestrator_next/tests/test_reconcile_terminal_skip.py -x
+    test_scenarios:
+      - "Every existing test that constructs a State with workflow_plan={} is updated so the step_ids it exercises (T-1, T-2, T-3, etc. in the test bodies) are present in workflow_plan[<phase>].nodes."
+      - "All existing tests pass after the update."
+    why: "AC-6"
+    change: |
+      In test_reconcile_in_progress.py:43 and any analogous fixture in
+      test_reconcile_terminal_skip.py, replace `workflow_plan={}` with a populated
+      plan that contains the step_ids used in each test, e.g.:
+        workflow_plan={"implement": {"nodes": [
+            {"id": "T-1"}, {"id": "T-2"}, {"id": "T-3"}, {"id": "T-4"},
+        ]}}
+      For tests that use non-"implement" phases, mirror the phase name. Inspect each
+      test individually — the populated set must include every step_id used in
+      that test (both YAML entries and DB upserts), otherwise the new membership
+      guard will strip entries the test expects to survive.
+
+  - id: T-4
+    title: "Add failing regression test for dispatch resume membership guard"
+    agent: developer
+    depends_on: [T-3]
+    files:
+      - config/scripts/orchestrator_next/tests/test_dispatch_resume_plan_membership.py
+    verify:
+      - cd config && python -m pytest scripts/orchestrator_next/tests/test_dispatch_resume_plan_membership.py -x
+    test_scenarios:
+      - "State has last step_history entry status='in_progress' for step_id='ghost-step' with phase='implement'. workflow_plan['implement']['nodes'] = [{id: 'preview-route'}]. Call dispatch(state, state_yaml_path). Expect (action, exit_code) such that exit_code == 3 and an ERROR line on stderr naming 'ghost-step' and 'implement'."
+      - "Control: same state with last.step_id='preview-route' (in plan) returns exit_code == 0 with action['is_resume'] == True (existing resume behaviour preserved)."
+      - "Test fails today (no membership check in dispatch resume branch)."
+    why: "AC-4 — bugfix rule: regression test before fix."
+
+  - id: T-5
+    title: "Implement dispatch resume membership guard"
+    agent: developer
+    depends_on: [T-4]
+    files:
+      - config/scripts/orchestrator_next/dispatch.py
+    verify:
+      - cd config && python -m pytest scripts/orchestrator_next/tests/test_dispatch_resume_plan_membership.py -x
+      - cd config && python -m pytest scripts/orchestrator_next/tests/ -x
+    test_scenarios:
+      - "T-4's two assertions pass."
+      - "All existing dispatch tests still pass."
+    why: "AC-4, AC-5"
+    change: |
+      In config/scripts/orchestrator_next/dispatch.py:
+      1. Add import near the other orchestrator_next imports at top of file:
+           from orchestrator_next.reconcile import _step_in_plan
+      2. In the resume branch (dispatch.py:287-326), insert the membership check
+         immediately after the `if (last is not None and ... last.status == "in_progress" and last.ended_at is None):`
+         guard opens, before `step_id = last.step_id` (line 294):
+             if not _step_in_plan(state, state.phase, last.step_id):
+                 print(
+                     f"ERROR: refusing to resume step {last.step_id!r} — "
+                     f"not in workflow_plan[{state.phase!r}].nodes "
+                     f"(likely ghost from prior schema; "
+                     f"check metrics.duckdb step_events for stale rows).",
+                     file=sys.stderr,
+                 )
+                 return {}, 3
+         This converts a silent contaminated-resume into a hard exit 3 that
+         bin/orchestrator already treats as a fatal dispatch error
+         (bin/orchestrator:294-303 maps exit 3 to a hard error).
+
+  - id: T-6
+    title: "Add failing regression test for caller-side state.yaml persistence after reconcile"
+    agent: developer
+    depends_on: [T-5]
+    files:
+      - config/scripts/orchestrator_next/tests/test_bin_orchestrator_persist_reconcile.py
+    verify:
+      - cd config && python -m pytest scripts/orchestrator_next/tests/test_bin_orchestrator_persist_reconcile.py -x
+    test_scenarios:
+      - "Setup: tmp_path with state.yaml containing an in_progress step_history entry for 'ghost-step' (phase='implement'). workflow_plan['implement']['nodes'] = [{id: 'preview-route'}]. DuckDB has the matching ghost row. Run the bin/orchestrator 'next' code path (or a thin subprocess invocation) once."
+      - "Assertion: after the call exits (expected exit 1 phase-complete or exit 2 — driver's choice), re-read state.yaml from disk and assert the 'ghost-step' in_progress entry is GONE from step_history (reconcile's strip was persisted, not lost to the early-exit path)."
+      - "Control: a second `next` call against the same state.yaml does not re-resurrect the ghost (the row in DuckDB is still there, but the guard keeps it inert)."
+      - "Test fails today because bin/orchestrator never writes state.yaml after reconcile mutates step_history."
+    why: "AC-3 — bugfix rule: regression test before fix."
+
+  - id: T-7
+    title: "Persist state.yaml in bin/orchestrator after reconcile mutates step_history"
+    agent: developer
+    depends_on: [T-6]
+    files:
+      - bin/orchestrator
+    verify:
+      - cd config && python -m pytest scripts/orchestrator_next/tests/test_bin_orchestrator_persist_reconcile.py -x
+      - cd config && python -m pytest scripts/orchestrator_next/tests/ -x
+    test_scenarios:
+      - "T-6's three assertions pass."
+      - "All existing orchestrator_next tests still pass."
+    why: "AC-3"
+    change: |
+      In bin/orchestrator, around the reconcile call (bin/orchestrator:281-285):
+      1. Before line 283 (`reconcile_in_progress(state, _db, _context)`), snapshot:
+           _pre_sig = tuple(
+               (e.phase, e.step_id, e.attempt, e.status)
+               for e in state.step_history
+           )
+      2. After line 283 (still inside the try-block), compute the post-signature
+         and write state.yaml if changed:
+           _post_sig = tuple(
+               (e.phase, e.step_id, e.attempt, e.status)
+               for e in state.step_history
+           )
+           if _post_sig != _pre_sig:
+               try:
+                   import yaml as _yaml
+                   from pathlib import Path as _Path
+                   _path = _Path(state_yaml_path)
+                   with open(_path, "rb") as _f:
+                       _pre_bytes = _f.read()
+                   _state_raw = _yaml.safe_load(_pre_bytes.decode("utf-8")) or {}
+                   # Replace step_history with the reconciled list (raw dicts, preserving order).
+                   _state_raw["step_history"] = [e.raw for e in state.step_history]
+                   with open(_path, "w", encoding="utf-8") as _f:
+                       _yaml.safe_dump(_state_raw, _f, sort_keys=False,
+                                       default_flow_style=False, allow_unicode=True)
+                   # Corruption guard (mirror dispatch._persist_node_status:216-222):
+                   try:
+                       with open(_path, "r", encoding="utf-8") as _f:
+                           _yaml.safe_load(_f)
+                   except _yaml.YAMLError:
+                       with open(_path, "wb") as _f:
+                           _f.write(_pre_bytes)
+               except Exception as _pe:  # noqa: BLE001 — persistence must not block dispatch
+                   print(f"warning: reconcile persistence failed — {_pe}",
+                         file=sys.stderr)
+      3. Verify that `state.step_history[*].raw` already carries the full
+         per-entry dict written by parser.py (it does — see parser StepHistoryEntry
+         construction; reconcile.py:103-110 already populates `raw=` on materialised
+         entries). If parser flips this contract later, the write needs adjusting.
+
+  - id: T-8
+    title: "End-to-end smoke: reproduce ORC-81 scenario and verify fix end-to-end"
+    agent: developer
+    depends_on: [T-7]
+    files:
+      - config/scripts/orchestrator_next/tests/test_orc81_end_to_end.py
+    verify:
+      - cd config && python -m pytest scripts/orchestrator_next/tests/test_orc81_end_to_end.py -x
+    test_scenarios:
+      - "Build the ORC-81 repro from discovery.md (in-memory DuckDB, State with workflow_plan that does not include 'implement-pricing-module', upsert pending row for 'implement-pricing-module')."
+      - "Call reconcile_in_progress(state, db, context). Assert: state.step_history has no in_progress entry for 'implement-pricing-module' (FR-4 + FR-5 guard worked)."
+      - "Construct a state where the ghost somehow appears in step_history (simulate the pre-fix path). Call dispatch(state, ...). Assert: exit_code == 3, stderr ERROR names the rogue step (dispatch defense-in-depth worked)."
+      - "Locks in the user-visible bug from ORC-71/ORC-81 end-to-end."
+    why: "All ACs — end-to-end verification."
+    change: "New test file; assemble from existing test helpers in tests/test_reconcile_in_progress.py and discovery.md's repro snippet."

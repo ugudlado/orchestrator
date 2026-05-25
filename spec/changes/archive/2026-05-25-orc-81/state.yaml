@@ -1,0 +1,1228 @@
+change_id: orc-81
+slug: orc-81
+schema: bugfix
+status: completed
+repo_root: /Users/spidey/code/orchestrator
+flags:
+  phase_review: true
+  portless: true
+  metrics: true
+  ux_design: false
+  tdd_required: true
+  auto: true
+  agents: true
+  light: false
+  worktree: true
+  merge_to_main: true
+workflow_plan:
+  main:
+    nodes:
+    - id: diagnose
+      status: completed
+      agent: discoverer
+      goal: ''
+      inputs: []
+      outputs:
+      - discovery_result
+      - '{''name'': ''discovery'', ''path'': ''spec/changes/<slug>/discovery.md''}'
+      rules:
+      - "Reproduction MUST be runnable \u2014 a command or script, not just a description."
+      - Root cause must identify the EXACT line(s) where behavior diverges from expected.
+      - Do not propose a fix during diagnosis. Diagnosis and fix are separate concerns.
+      - For codebase-wide pattern bugs: search the ENTIRE source tree (including gitignored
+          source dirs), cross-check catalog count against `find + grep + wc -l`.
+      - Catalog count mismatch protocol: if fresh grep count differs from earlier
+          count by >0, update the impact assessment to use the fresh count. If counts
+          differ by >20%, investigate the discrepancy (new files? false positives?)
+          before proceeding.
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+    - id: design-and-draft-artifacts
+      status: completed
+      agent: architect
+      goal: ''
+      inputs:
+      - discovery_result
+      - '{''name'': ''discovery'', ''path'': ''spec/changes/<slug>/discovery.md''}'
+      outputs:
+      - updated_artifact_set
+      - design_direction
+      - complexity
+      - '{''name'': ''design'', ''path'': ''spec/changes/<slug>/design.md''}'
+      - '{''name'': ''tasks'', ''path'': ''spec/changes/<slug>/tasks.yaml''}'
+      rules:
+      - "Design selection and artifact writing happen in one spawn \u2014 no round-trip\
+        \ between them."
+      - Keep artifact content traceable to accepted requirements.
+      - "Avoid implementation details in design.md \u2014 those belong in tasks."
+      - "Keep scope explicit \u2014 design.md must declare both goals and non-goals."
+      - "Make acceptance criteria testable \u2014 each AC must be verifiable by a\
+        \ concrete command or assertion."
+      - "Resolve major design decisions before implementation begins \u2014 do not\
+        \ defer to the implementation phase."
+      - Tasks must be small, verifiable, and ordered.
+      - Attach verification criteria per task.
+      - Output MUST follow the Tasks YAML Format Contract in config/steps/design-and-draft-artifacts/prompt.md.
+      - 'When flags.bugfix is true: first task MUST be the regression test, second
+        task MUST be the fix. Order matters.'
+      - 'When spec or design introduces a new archive/state path for any producer
+        (autopilot, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`)
+        and confirm the new path is matched before committing the artifact. Otherwise
+        downstream consumers (telemetry, /learn) silently skip the new producer. <!--
+        learned: 2026-04-16, source: HL-278, cycle: 10, hits: 21, misses: 1, repo:
+        orchestrator -->'
+      - "SQL sketches in design.md that reference specific field names must be validated\
+        \ against a live row from the target DB (or schema file) before finalizing.\
+        \ Add an explicit note in the task or run a one-query T-0 validation \u2014\
+        \ field name drift between sketch and schema is a common first-review failure.\
+        \ <!-- learned: 2026-04-17, source: learn-and-telemetry-on-duckdb, cycle:\
+        \ 12, hits: 19, misses: 1, repo: orchestrator -->"
+      - "Design claims about caller-site capabilities (e.g., 'X already holds an open\
+        \ connection', 'Y already imports Z', 'the caller has access to W') must be\
+        \ verified by grep against HEAD before finalizing the artifact \u2014 not\
+        \ inferred from pattern-matching similar code paths. Unverified caller-site\
+        \ claims that prove false become critical findings at phase review and force\
+        \ a full re-spin of all three artifacts. <!-- learned: 2026-04-20, source:\
+        \ pricing-table-in-duckdb, cycle: 16, hits: 16, misses: 1, repo: orchestrator\
+        \ -->"
+      - 'Performance budgets in design.md must cite absolute production targets (e.g.,
+        ''p99 < 10ms per call under production load'') rather than synthetic microbenchmark
+        targets (e.g., ''1000 calls in 50ms in a tight loop''). Microbenchmark budgets
+        are easy to set but mislead developers into pivoting away from correct designs
+        when the benchmark fails under artificial conditions that do not match the
+        real workload. <!-- learned: 2026-04-20, source: pricing-table-in-duckdb,
+        cycle: 16, hits: 16, misses: 1, repo: orchestrator -->'
+      - "For every implementation task in a TDD pair (the task that follows the failing-test\
+        \ task), populate the `change:` field with the specific mechanism: which function\
+        \ to edit, what the edit is, and which file:line region it targets. ORC-76\
+        \ achieved 0 retries across 25 tasks with full `change:` coverage \u2014 omitting\
+        \ it forces the developer agent to infer scope from test_scenarios alone,\
+        \ which increases retry risk. <!-- learned: 2026-05-25, source: orc-76, cycle:\
+        \ 1, hits: 1, misses: 0, repo: orchestrator -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - diagnose
+    - id: expand-plan
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - design-and-draft-artifacts
+    - id: capture-test-baseline
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - expand-plan
+    - id: task-T-1
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Add failing regression tests for workflow_plan-aware reconcile (FR-4,
+        FR-5)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on: []
+      task:
+        id: T-1
+        title: Add failing regression tests for workflow_plan-aware reconcile (FR-4,
+          FR-5)
+        agent: developer
+        depends_on: []
+        files:
+        - config/scripts/orchestrator_next/tests/test_reconcile_workflow_plan_membership.py
+        verify:
+        - cd config && python -m pytest scripts/orchestrator_next/tests/test_reconcile_workflow_plan_membership.py
+          -x
+        test_scenarios:
+        - "FR-4 strip: state has an in_progress entry for step_id 'ghost-step' (NOT\
+          \ in workflow_plan), DB also has the matching row. Today FR-4 keeps it (DB-present).\
+          \ New rule: drop it because step_id \u2209 phase_nodes."
+        - 'FR-5 materialise skip: DB has an in_progress row for step_id ''ghost-step''
+          (NOT in workflow_plan), state.step_history is empty. Today FR-5 appends
+          it. New rule: skip materialisation; state.step_history stays empty.'
+        - 'In-plan in_progress survives: state has an in_progress entry for step_id
+          ''preview-route'' (IS in workflow_plan), DB also has it. Entry survives
+          reconcile unchanged.'
+        - 'Legacy active:[ids] shape: state.workflow_plan = {phase: {active: [''preview-route'']}}.
+          An in_progress entry for ''preview-route'' must survive (membership goes
+          through phase_nodes, not raw nodes:). An in_progress entry for ''ghost-step''
+          must be stripped.'
+        - All tests fail today because the membership guard does not exist yet.
+        why: "AC-1, AC-2, AC-5, AC-6 \u2014 bugfix rule: regression test must precede\
+          \ the fix."
+    - id: task-T-2
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Implement workflow_plan membership guard in reconcile.py (FR-4 + FR-5)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-1
+      task:
+        id: T-2
+        title: Implement workflow_plan membership guard in reconcile.py (FR-4 + FR-5)
+        agent: developer
+        depends_on:
+        - T-1
+        files:
+        - config/scripts/orchestrator_next/reconcile.py
+        verify:
+        - cd config && python -m pytest scripts/orchestrator_next/tests/test_reconcile_workflow_plan_membership.py
+          -x
+        - cd config && python -m pytest scripts/orchestrator_next/tests/test_reconcile_in_progress.py
+          scripts/orchestrator_next/tests/test_reconcile_terminal_skip.py -x
+        test_scenarios:
+        - After this task, T-1's four assertions all pass.
+        - "Existing reconcile tests still pass (their fixtures may need workflow_plan\
+          \ populated \u2014 see T-3)."
+        why: AC-1, AC-2, AC-5
+        change: "In config/scripts/orchestrator_next/reconcile.py:\n1. Add helper\
+          \ at module scope (after _SLUG_RE, before _SELECT_IN_PROGRESS):\n     def\
+          \ _step_in_plan(state: State, phase: str, step_id: str) -> bool:\n     \
+          \    from orchestrator_next.parser import phase_nodes\n         return any(str(n.get(\"\
+          id\", \"\")) == step_id for n in phase_nodes(state, phase))\n   Move the\
+          \ existing `from orchestrator_next.parser import State, StepHistoryEntry`\n\
+          \   import to also include `phase_nodes` (avoid the lazy import inside the\
+          \ helper if module-load\n   order allows it; today parser.py has no dependency\
+          \ on reconcile.py, so a top-level import is fine).\n2. Extend FR-4 strip\
+          \ predicate (reconcile.py:78-83). Current loop:\n       for e in state.step_history:\n\
+          \           if e.status == \"in_progress\" and (e.phase, e.step_id, e.attempt)\
+          \ not in db_keys:\n               continue\n           kept.append(e)\n\
+          \   New body:\n       for e in state.step_history:\n           if e.status\
+          \ == \"in_progress\":\n               in_db = (e.phase, e.step_id, e.attempt)\
+          \ in db_keys\n               in_plan = _step_in_plan(state, e.phase, e.step_id)\n\
+          \               if not in_db or not in_plan:\n                   continue\
+          \  # orphan \u2014 drop (DB-absent OR plan-absent)\n           kept.append(e)\n\
+          3. Extend FR-5 materialise loop (reconcile.py:90-111). Add guard at top\
+          \ of for-body:\n       for phase, step_id, attempt, agent_name, started_at\
+          \ in db_rows:\n           if not _step_in_plan(state, phase, step_id):\n\
+          \               continue  # ghost from prior schema \u2014 do not materialise\n\
+          \           if (phase, step_id, attempt) in yaml_keys:\n               continue\n\
+          \           state.step_history.append(StepHistoryEntry(...))\n4. Update\
+          \ module docstring (reconcile.py:7-13) to note:\n   \"- A YAML in_progress\
+          \ entry whose step_id is absent from state.workflow_plan[phase].nodes\n\
+          \      (resolved via parser.phase_nodes) is stripped, regardless of DB presence\
+          \ \u2014 protects\n      against ghost rows from prior workflow schemas.\"\
+          \n   \"- A DuckDB in_progress row whose step_id is absent from state.workflow_plan[phase].nodes\n\
+          \      is skipped (not materialised) for the same reason.\"\n"
+    - id: task-T-3
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Update existing reconcile test fixtures to populate workflow_plan
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-2
+      task:
+        id: T-3
+        title: Update existing reconcile test fixtures to populate workflow_plan
+        agent: developer
+        depends_on:
+        - T-2
+        files:
+        - config/scripts/orchestrator_next/tests/test_reconcile_in_progress.py
+        - config/scripts/orchestrator_next/tests/test_reconcile_terminal_skip.py
+        verify:
+        - cd config && python -m pytest scripts/orchestrator_next/tests/test_reconcile_in_progress.py
+          scripts/orchestrator_next/tests/test_reconcile_terminal_skip.py -x
+        test_scenarios:
+        - Every existing test that constructs a State with workflow_plan={} is updated
+          so the step_ids it exercises (T-1, T-2, T-3, etc. in the test bodies) are
+          present in workflow_plan[<phase>].nodes.
+        - All existing tests pass after the update.
+        why: AC-6
+        change: "In test_reconcile_in_progress.py:43 and any analogous fixture in\n\
+          test_reconcile_terminal_skip.py, replace `workflow_plan={}` with a populated\n\
+          plan that contains the step_ids used in each test, e.g.:\n  workflow_plan={\"\
+          implement\": {\"nodes\": [\n      {\"id\": \"T-1\"}, {\"id\": \"T-2\"},\
+          \ {\"id\": \"T-3\"}, {\"id\": \"T-4\"},\n  ]}}\nFor tests that use non-\"\
+          implement\" phases, mirror the phase name. Inspect each\ntest individually\
+          \ \u2014 the populated set must include every step_id used in\nthat test\
+          \ (both YAML entries and DB upserts), otherwise the new membership\nguard\
+          \ will strip entries the test expects to survive.\n"
+    - id: task-T-4
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Add failing regression test for dispatch resume membership guard
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-3
+      task:
+        id: T-4
+        title: Add failing regression test for dispatch resume membership guard
+        agent: developer
+        depends_on:
+        - T-3
+        files:
+        - config/scripts/orchestrator_next/tests/test_dispatch_resume_plan_membership.py
+        verify:
+        - cd config && python -m pytest scripts/orchestrator_next/tests/test_dispatch_resume_plan_membership.py
+          -x
+        test_scenarios:
+        - 'State has last step_history entry status=''in_progress'' for step_id=''ghost-step''
+          with phase=''implement''. workflow_plan[''implement''][''nodes''] = [{id:
+          ''preview-route''}]. Call dispatch(state, state_yaml_path). Expect (action,
+          exit_code) such that exit_code == 3 and an ERROR line on stderr naming ''ghost-step''
+          and ''implement''.'
+        - 'Control: same state with last.step_id=''preview-route'' (in plan) returns
+          exit_code == 0 with action[''is_resume''] == True (existing resume behaviour
+          preserved).'
+        - Test fails today (no membership check in dispatch resume branch).
+        why: "AC-4 \u2014 bugfix rule: regression test before fix."
+    - id: task-T-5
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Implement dispatch resume membership guard
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-4
+      task:
+        id: T-5
+        title: Implement dispatch resume membership guard
+        agent: developer
+        depends_on:
+        - T-4
+        files:
+        - config/scripts/orchestrator_next/dispatch.py
+        verify:
+        - cd config && python -m pytest scripts/orchestrator_next/tests/test_dispatch_resume_plan_membership.py
+          -x
+        - cd config && python -m pytest scripts/orchestrator_next/tests/ -x
+        test_scenarios:
+        - T-4's two assertions pass.
+        - All existing dispatch tests still pass.
+        why: AC-4, AC-5
+        change: "In config/scripts/orchestrator_next/dispatch.py:\n1. Add import near\
+          \ the other orchestrator_next imports at top of file:\n     from orchestrator_next.reconcile\
+          \ import _step_in_plan\n2. In the resume branch (dispatch.py:287-326), insert\
+          \ the membership check\n   immediately after the `if (last is not None and\
+          \ ... last.status == \"in_progress\" and last.ended_at is None):`\n   guard\
+          \ opens, before `step_id = last.step_id` (line 294):\n       if not _step_in_plan(state,\
+          \ state.phase, last.step_id):\n           print(\n               f\"ERROR:\
+          \ refusing to resume step {last.step_id!r} \u2014 \"\n               f\"\
+          not in workflow_plan[{state.phase!r}].nodes \"\n               f\"(likely\
+          \ ghost from prior schema; \"\n               f\"check metrics.duckdb step_events\
+          \ for stale rows).\",\n               file=sys.stderr,\n           )\n \
+          \          return {}, 3\n   This converts a silent contaminated-resume into\
+          \ a hard exit 3 that\n   bin/orchestrator already treats as a fatal dispatch\
+          \ error\n   (bin/orchestrator:294-303 maps exit 3 to a hard error).\n"
+    - id: task-T-6
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Add failing regression test for caller-side state.yaml persistence after
+        reconcile
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-5
+      task:
+        id: T-6
+        title: Add failing regression test for caller-side state.yaml persistence
+          after reconcile
+        agent: developer
+        depends_on:
+        - T-5
+        files:
+        - config/scripts/orchestrator_next/tests/test_bin_orchestrator_persist_reconcile.py
+        verify:
+        - cd config && python -m pytest scripts/orchestrator_next/tests/test_bin_orchestrator_persist_reconcile.py
+          -x
+        test_scenarios:
+        - 'Setup: tmp_path with state.yaml containing an in_progress step_history
+          entry for ''ghost-step'' (phase=''implement''). workflow_plan[''implement''][''nodes'']
+          = [{id: ''preview-route''}]. DuckDB has the matching ghost row. Run the
+          bin/orchestrator ''next'' code path (or a thin subprocess invocation) once.'
+        - "Assertion: after the call exits (expected exit 1 phase-complete or exit\
+          \ 2 \u2014 driver's choice), re-read state.yaml from disk and assert the\
+          \ 'ghost-step' in_progress entry is GONE from step_history (reconcile's\
+          \ strip was persisted, not lost to the early-exit path)."
+        - 'Control: a second `next` call against the same state.yaml does not re-resurrect
+          the ghost (the row in DuckDB is still there, but the guard keeps it inert).'
+        - Test fails today because bin/orchestrator never writes state.yaml after
+          reconcile mutates step_history.
+        why: "AC-3 \u2014 bugfix rule: regression test before fix."
+    - id: task-T-7
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Persist state.yaml in bin/orchestrator after reconcile mutates step_history
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-6
+      task:
+        id: T-7
+        title: Persist state.yaml in bin/orchestrator after reconcile mutates step_history
+        agent: developer
+        depends_on:
+        - T-6
+        files:
+        - bin/orchestrator
+        verify:
+        - cd config && python -m pytest scripts/orchestrator_next/tests/test_bin_orchestrator_persist_reconcile.py
+          -x
+        - cd config && python -m pytest scripts/orchestrator_next/tests/ -x
+        test_scenarios:
+        - T-6's three assertions pass.
+        - All existing orchestrator_next tests still pass.
+        why: AC-3
+        change: "In bin/orchestrator, around the reconcile call (bin/orchestrator:281-285):\n\
+          1. Before line 283 (`reconcile_in_progress(state, _db, _context)`), snapshot:\n\
+          \     _pre_sig = tuple(\n         (e.phase, e.step_id, e.attempt, e.status)\n\
+          \         for e in state.step_history\n     )\n2. After line 283 (still\
+          \ inside the try-block), compute the post-signature\n   and write state.yaml\
+          \ if changed:\n     _post_sig = tuple(\n         (e.phase, e.step_id, e.attempt,\
+          \ e.status)\n         for e in state.step_history\n     )\n     if _post_sig\
+          \ != _pre_sig:\n         try:\n             import yaml as _yaml\n     \
+          \        from pathlib import Path as _Path\n             _path = _Path(state_yaml_path)\n\
+          \             with open(_path, \"rb\") as _f:\n                 _pre_bytes\
+          \ = _f.read()\n             _state_raw = _yaml.safe_load(_pre_bytes.decode(\"\
+          utf-8\")) or {}\n             # Replace step_history with the reconciled\
+          \ list (raw dicts, preserving order).\n             _state_raw[\"step_history\"\
+          ] = [e.raw for e in state.step_history]\n             with open(_path, \"\
+          w\", encoding=\"utf-8\") as _f:\n                 _yaml.safe_dump(_state_raw,\
+          \ _f, sort_keys=False,\n                                 default_flow_style=False,\
+          \ allow_unicode=True)\n             # Corruption guard (mirror dispatch._persist_node_status:216-222):\n\
+          \             try:\n                 with open(_path, \"r\", encoding=\"\
+          utf-8\") as _f:\n                     _yaml.safe_load(_f)\n            \
+          \ except _yaml.YAMLError:\n                 with open(_path, \"wb\") as\
+          \ _f:\n                     _f.write(_pre_bytes)\n         except Exception\
+          \ as _pe:  # noqa: BLE001 \u2014 persistence must not block dispatch\n \
+          \            print(f\"warning: reconcile persistence failed \u2014 {_pe}\"\
+          ,\n                   file=sys.stderr)\n3. Verify that `state.step_history[*].raw`\
+          \ already carries the full\n   per-entry dict written by parser.py (it does\
+          \ \u2014 see parser StepHistoryEntry\n   construction; reconcile.py:103-110\
+          \ already populates `raw=` on materialised\n   entries). If parser flips\
+          \ this contract later, the write needs adjusting.\n"
+    - id: task-T-8
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: 'End-to-end smoke: reproduce ORC-81 scenario and verify fix end-to-end'
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-7
+      task:
+        id: T-8
+        title: 'End-to-end smoke: reproduce ORC-81 scenario and verify fix end-to-end'
+        agent: developer
+        depends_on:
+        - T-7
+        files:
+        - config/scripts/orchestrator_next/tests/test_orc81_end_to_end.py
+        verify:
+        - cd config && python -m pytest scripts/orchestrator_next/tests/test_orc81_end_to_end.py
+          -x
+        test_scenarios:
+        - Build the ORC-81 repro from discovery.md (in-memory DuckDB, State with workflow_plan
+          that does not include 'implement-pricing-module', upsert pending row for
+          'implement-pricing-module').
+        - 'Call reconcile_in_progress(state, db, context). Assert: state.step_history
+          has no in_progress entry for ''implement-pricing-module'' (FR-4 + FR-5 guard
+          worked).'
+        - 'Construct a state where the ghost somehow appears in step_history (simulate
+          the pre-fix path). Call dispatch(state, ...). Assert: exit_code == 3, stderr
+          ERROR names the rogue step (dispatch defense-in-depth worked).'
+        - Locks in the user-visible bug from ORC-71/ORC-81 end-to-end.
+        why: "All ACs \u2014 end-to-end verification."
+        change: New test file; assemble from existing test helpers in tests/test_reconcile_in_progress.py
+          and discovery.md's repro snippet.
+    - id: run-phase-review
+      status: completed
+      agent: reviewer
+      goal: ''
+      inputs:
+      - task_execution_result
+      - '{''name'': ''design'', ''path'': ''spec/changes/<slug>/design.md'', ''optional'':
+        True}'
+      - '{''name'': ''tasks'', ''path'': ''spec/changes/<slug>/tasks.yaml'', ''optional'':
+        True}'
+      outputs:
+      - phase_review_report
+      - '{''name'': ''phase_review'', ''path'': ''spec/changes/<slug>/phase-review.md''}'
+      rules:
+      - "Target score is quality_bar.min_phase_review_score from project.yaml \u2014\
+        \ retry until met."
+      - "Maximum retries from quality_bar.max_retry_rounds \u2014 escalate to user\
+        \ if exhausted."
+      - "When flags.light is true: lower target review_score to 7 and max_retries\
+        \ to 4 \u2014 light mode trades quality bar for speed on tight-scope changes."
+      - Run type-check + test + build commands at every phase boundary before scoring.
+      - "Capture concrete findings with fix direction \u2014 every finding must be\
+        \ actionable."
+      - Issues found during verification become new tasks in the current phase. Never
+        skip ahead with unresolved findings.
+      - "Do not advance with unresolved critical findings \u2014 these block phase\
+        \ completion regardless of overall score."
+      - 'When flags.bugfix is true: zero regressions tolerated. No existing tests
+        may break.'
+      - "Fix tasks must be minimal and scoped to the specific failure \u2014 no refactoring,\
+        \ no improvements."
+      - "Score of 10 is a first-pass bonus \u2014 only achievable when no retries\
+        \ were used this round."
+      - "Operate at staff-level review quality \u2014 catch architectural issues,\
+        \ not just surface bugs."
+      - Artifact structural compliance with format contracts (see Format contract
+        reference in prompt.md) is a review criterion.
+      - "When a finding requires a new requirement, the fix MUST update design.md\
+        \ (AC + design) and tasks.yaml atomically \u2014 partial updates that sync\
+        \ only one artifact leave the feature in an inconsistent state and will fail\
+        \ re-review. <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb,\
+        \ cycle: 11, hits: 9, misses: 6, repo: orchestrator -->"
+      - "For tasks that spec describes as a rewrite, projection, or byte-compatible\
+        \ replacement of an existing producer, AC verification MUST include a value/shape\
+        \ parity check against at least one real payload from the prior implementation\
+        \ \u2014 key-presence alone is insufficient. Reviewer must run both the old\
+        \ producer and the new one on a real archived fixture and diff the top-level\
+        \ output keys; any key reduction is an important finding. <!-- learned: 2026-04-20,\
+        \ source: single-source-metrics-via-step-events, cycle: 12, hits: 8, misses:\
+        \ 2, repo: orchestrator -->"
+      - "Before scoring the phase, check if any task-nodes (step_id starting with\
+        \ 'task-') in the workflow_plan are still pending. If any task-nodes are pending\
+        \ and not explicitly quarantined in state.yaml, write phase-review.md with\
+        \ verdict incomplete_phase listing the pending task IDs \u2014 return COMPLETION\
+        \ with outputs.phase_review_report: {verdict: incomplete_phase} and do NOT\
+        \ include review_score. This guards against dispatcher bugs or manual advances\
+        \ that reach run-phase-review before all tasks are complete. <!-- learned:\
+        \ 2026-05-08, source: hl-303, cycle: 38, hits: 8, misses: 0, repo: orchestrator\
+        \ --> <!-- updated: 2026-05-25, source: orc-76, cycle: 1, repo: orchestrator\
+        \ -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - task-T-8
+    - id: compute-prediction-accuracy
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - run-phase-review
+    - id: run-learn-cycle
+      status: completed
+      agent: workflow-learner
+      goal: ''
+      inputs:
+      - '{''final_signoff_decision'': ''optional''}'
+      outputs:
+      - learn_result
+      rules:
+      - "Learning failure is non-blocking \u2014 if /learn fails, log a warning and\
+        \ return success."
+      - Read state.yaml from the active change directory (this step runs before archive).
+      - In --auto mode, rule changes apply without user confirmation.
+      - "Never skip compute-prediction-accuracy or run-learn-cycle steps during autopilot\
+        \ \u2014 these feed the self-improving loop and must run even when --auto\
+        \ is set. A `skipped: true` outcome is only valid when an enumerated gating\
+        \ flag is set (e.g. ux_design=false for ux steps, learn=false for run-learn-cycle).\
+        \ Session token budget, time pressure, 'capture via retro', or any cost-based\
+        \ justification is NEVER a valid skip reason for feedback-loop steps. Budget\
+        \ pressure is a signal to stop earlier, not to skip learning. <!-- learned:\
+        \ 2026-04-05, source: HL-203, cycle: 6, hits: 13, misses: 1, repo: orchestrator\
+        \ -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - compute-prediction-accuracy
+    - id: mark-change-completed
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - run-learn-cycle
+    - id: compute-swe-metrics
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - mark-change-completed
+    - id: complete-workflow
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - complete-workflow is the terminal step for the feature and bugfix workflows.
+        It performs merge, archive, and worktree teardown as one atomic step.
+      - The script sequences, in one process so no dispatch boundary sits between
+        a state-moving and a state-reading operation, merge then archive then cd "$REPO_ROOT"
+        then worktree removal.
+      - All state.yaml-derived values are read into bash vars at script start, before
+        the archive phase moves state.yaml out of the worktree.
+      - The merge phase is gated by flags.merge_to_main; the cleanup phase is gated
+        by flags.worktree. The archive phase is unconditional.
+      - "On merge conflict the merge phase exits non-zero and the wrapper halts before\
+        \ archive and cleanup \u2014 the worktree is preserved."
+      - complete-workflow is classified state-mutating in bin/orchestrator and is
+        pre-recorded before its script runs (the ORC-66 record-after-state-deletion
+        crash-avoidance contract).
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - compute-swe-metrics
+    filtered: []
+phase: main
+next_step:
+  phase: main
+  step_id: complete-workflow
+step_history:
+- step_id: diagnose
+  phase: main
+  status: completed
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-05-25T09:51:48.212304+00:00'
+  ended_at: '2026-05-25T15:31:48Z'
+  usage:
+    input_tokens: 38
+    output_tokens: 10015
+    model: claude-opus-4-7
+    cache_read_input_tokens: 1112382
+    cache_creation_input_tokens: 188877
+    turns: 18
+    duration_ms: 87666
+    tool_calls:
+      Bash: 5
+      Read: 5
+      Edit: 1
+    cost_usd: 5.96171175
+  evidence:
+    outputs:
+      discovery_result:
+        name: discovery
+        path: spec/changes/orc-81/discovery.md
+    files_inspected:
+    - config/scripts/orchestrator_next/reconcile.py
+    - config/scripts/orchestrator_next/dispatch.py
+    - config/scripts/orchestrator_next/parser.py
+    - config/scripts/orchestrator_next/upsert.py
+    root_cause_refs:
+    - config/scripts/orchestrator_next/reconcile.py:77-83
+    - config/scripts/orchestrator_next/reconcile.py:85-111
+    - config/scripts/orchestrator_next/dispatch.py:287-326
+    reproduction:
+      command: PYTHONPATH=config/scripts python3 /tmp/repro_orc81.py
+      result: "AssertionError: FR-4 leak \u2014 materialised in_progress entries:\
+        \ [('implement-pricing-module', False)]"
+  artifacts:
+  - spec/changes/orc-81/discovery.md
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: architect
+  attempt: 1
+  started_at: '2026-05-25T15:38:14Z'
+  ended_at: '2026-05-25T15:38:14Z'
+  usage:
+    input_tokens: 51
+    output_tokens: 31991
+    model: claude-opus-4-7
+    cache_read_input_tokens: 3304625
+    cache_creation_input_tokens: 148245
+    turns: 36
+    duration_ms: 310593
+    tool_calls:
+      Bash: 9
+      Read: 8
+      Write: 2
+      Edit: 1
+    cost_usd: 10.136621250000001
+  evidence:
+    outputs:
+      updated_artifact_set:
+      - spec/changes/orc-81/design.md
+      - spec/changes/orc-81/tasks.yaml
+      design_direction: "Approach 2 \u2014 reconcile guard (FR-4 + FR-5) + caller-side\
+        \ persistence + dispatch resume defense-in-depth"
+      complexity: S
+      design:
+        name: design
+        path: spec/changes/orc-81/design.md
+      tasks:
+        name: tasks
+        path: spec/changes/orc-81/tasks.yaml
+  artifacts:
+  - spec/changes/orc-81/design.md
+  - spec/changes/orc-81/tasks.yaml
+  - spec/changes/orc-81/discovery.md
+- step_id: expand-plan
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-25T15:38:15Z'
+  ended_at: '2026-05-25T15:38:15Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+- step_id: capture-test-baseline
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-25T15:39:53Z'
+  ended_at: '2026-05-25T15:39:53Z'
+  usage: {}
+  evidence:
+    outputs:
+      baseline:
+        captured_at: '2026-05-25T15:39:40Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 628
+        failing: 14
+        skipped: 0
+        total: 642
+        exit_code: 1
+    summary: inline script completed
+- step_id: task-T-1
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-25T15:39:58.849308+00:00'
+  ended_at: '2026-05-25T15:50:21Z'
+  usage:
+    input_tokens: 51
+    output_tokens: 31991
+    model: claude-opus-4-7
+    cache_read_input_tokens: 3304625
+    cache_creation_input_tokens: 148245
+    turns: 36
+    duration_ms: 310593
+    tool_calls:
+      Bash: 9
+      Read: 8
+      Write: 2
+      Edit: 1
+    cost_usd: 10.136621250000001
+  evidence:
+    outputs:
+      task_execution_result: completed
+    commands:
+    - cmd: python -m pytest scripts/orchestrator_next/tests/test_reconcile_workflow_plan_membership.py
+        -x -q
+      exit_code: 0
+      stdout_tail: '....                                                                     [100%]
+
+        4 passed in 0.20s
+
+        '
+- step_id: task-T-2
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-25T15:50:22Z'
+  ended_at: '2026-05-25T15:50:22Z'
+  usage:
+    input_tokens: 51
+    output_tokens: 31991
+    model: claude-opus-4-7
+    cache_read_input_tokens: 3304625
+    cache_creation_input_tokens: 148245
+    turns: 36
+    duration_ms: 310593
+    tool_calls:
+      Bash: 9
+      Read: 8
+      Write: 2
+      Edit: 1
+    cost_usd: 10.136621250000001
+  evidence:
+    outputs:
+      task_execution_result: completed
+    commands:
+    - cmd: python -m pytest scripts/orchestrator_next/tests/test_reconcile_workflow_plan_membership.py
+        scripts/orchestrator_next/tests/test_reconcile_in_progress.py scripts/orchestrator_next/tests/test_reconcile_terminal_skip.py
+        -x -q
+      exit_code: 0
+      stdout_tail: '............                                                             [100%]
+
+        12 passed in 0.25s
+
+        '
+- step_id: task-T-3
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-25T15:50:22Z'
+  ended_at: '2026-05-25T15:50:22Z'
+  usage:
+    input_tokens: 51
+    output_tokens: 31991
+    model: claude-opus-4-7
+    cache_read_input_tokens: 3304625
+    cache_creation_input_tokens: 148245
+    turns: 36
+    duration_ms: 310593
+    tool_calls:
+      Bash: 9
+      Read: 8
+      Write: 2
+      Edit: 1
+    cost_usd: 10.136621250000001
+  evidence:
+    outputs:
+      task_execution_result: completed
+    commands:
+    - cmd: python -m pytest scripts/orchestrator_next/tests/test_reconcile_in_progress.py
+        scripts/orchestrator_next/tests/test_reconcile_terminal_skip.py -x -q
+      exit_code: 0
+      stdout_tail: '........                                                                 [100%]
+
+        8 passed in 0.22s
+
+        '
+- step_id: task-T-4
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-25T15:50:23Z'
+  ended_at: '2026-05-25T15:50:23Z'
+  usage:
+    input_tokens: 51
+    output_tokens: 31991
+    model: claude-opus-4-7
+    cache_read_input_tokens: 3304625
+    cache_creation_input_tokens: 148245
+    turns: 36
+    duration_ms: 310593
+    tool_calls:
+      Bash: 9
+      Read: 8
+      Write: 2
+      Edit: 1
+    cost_usd: 10.136621250000001
+  evidence:
+    outputs:
+      task_execution_result: completed
+    commands:
+    - cmd: python -m pytest scripts/orchestrator_next/tests/test_dispatch_resume_plan_membership.py
+        -x -q
+      exit_code: 0
+      stdout_tail: '..                                                                       [100%]
+
+        2 passed in 0.02s
+
+        '
+- step_id: task-T-5
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-25T15:50:43.348184+00:00'
+  ended_at: '2026-05-25T15:51:40Z'
+  usage:
+    input_tokens: 51
+    output_tokens: 31991
+    model: claude-opus-4-7
+    cache_read_input_tokens: 3304625
+    cache_creation_input_tokens: 148245
+    turns: 36
+    duration_ms: 310593
+    tool_calls:
+      Bash: 9
+      Read: 8
+      Write: 2
+      Edit: 1
+    cost_usd: 10.136621250000001
+  evidence:
+    outputs:
+      task_execution_result: completed
+    commands:
+    - cmd: python -m pytest scripts/orchestrator_next/tests/test_dispatch_resume_plan_membership.py
+        scripts/orchestrator_next/tests/test_dispatch_resume.py scripts/orchestrator_next/tests/test_reconcile_workflow_plan_membership.py
+        scripts/orchestrator_next/tests/test_dispatch_pending_row.py -x -q
+      exit_code: 0
+- step_id: task-T-6
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-25T15:51:41Z'
+  ended_at: '2026-05-25T15:51:41Z'
+  usage:
+    input_tokens: 51
+    output_tokens: 31991
+    model: claude-opus-4-7
+    cache_read_input_tokens: 3304625
+    cache_creation_input_tokens: 148245
+    turns: 36
+    duration_ms: 310593
+    tool_calls:
+      Bash: 9
+      Read: 8
+      Write: 2
+      Edit: 1
+    cost_usd: 10.136621250000001
+  evidence:
+    outputs:
+      task_execution_result: completed
+    commands:
+    - cmd: python -m pytest scripts/orchestrator_next/tests/test_bin_orchestrator_persist_reconcile.py
+        -x -q
+      exit_code: 0
+- step_id: task-T-7
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-25T15:51:41Z'
+  ended_at: '2026-05-25T15:51:41Z'
+  usage:
+    input_tokens: 51
+    output_tokens: 31991
+    model: claude-opus-4-7
+    cache_read_input_tokens: 3304625
+    cache_creation_input_tokens: 148245
+    turns: 36
+    duration_ms: 310593
+    tool_calls:
+      Bash: 9
+      Read: 8
+      Write: 2
+      Edit: 1
+    cost_usd: 10.136621250000001
+  evidence:
+    outputs:
+      task_execution_result: completed
+    commands:
+    - cmd: python -m pytest scripts/orchestrator_next/tests/test_bin_orchestrator_persist_reconcile.py
+        scripts/orchestrator_next/tests/test_reconcile_workflow_plan_membership.py
+        scripts/orchestrator_next/tests/test_dispatch_resume_plan_membership.py scripts/orchestrator_next/tests/test_orc81_end_to_end.py
+        -x -q
+      exit_code: 0
+- step_id: task-T-8
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-25T15:51:42Z'
+  ended_at: '2026-05-25T15:51:42Z'
+  usage:
+    input_tokens: 51
+    output_tokens: 31991
+    model: claude-opus-4-7
+    cache_read_input_tokens: 3304625
+    cache_creation_input_tokens: 148245
+    turns: 36
+    duration_ms: 310593
+    tool_calls:
+      Bash: 9
+      Read: 8
+      Write: 2
+      Edit: 1
+    cost_usd: 10.136621250000001
+  evidence:
+    outputs:
+      task_execution_result: completed
+    commands:
+    - cmd: python -m pytest scripts/orchestrator_next/tests/test_orc81_end_to_end.py
+        -x -q
+      exit_code: 0
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: '2026-05-25T15:51:43.082463+00:00'
+  ended_at: '2026-05-25T15:53:06Z'
+  usage:
+    input_tokens: 51
+    output_tokens: 31991
+    model: claude-opus-4-7
+    cache_read_input_tokens: 3304625
+    cache_creation_input_tokens: 148245
+    turns: 36
+    duration_ms: 310593
+    tool_calls:
+      Bash: 9
+      Read: 8
+      Write: 2
+      Edit: 1
+    cost_usd: 10.136621250000001
+  evidence:
+    outputs:
+      phase_review_report:
+        verdict: pass
+  artifacts:
+  - phase-review.md
+  review_score:
+    overall: 9
+    dimensions:
+      spec_compliance: 9
+      correctness: 9
+      security: 9
+      simplicity: 9
+      code_quality: 9
+- step_id: compute-prediction-accuracy
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-25T15:55:17Z'
+  ended_at: '2026-05-25T15:55:17Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy:
+        computed_at: '2026-05-25T15:55:17Z'
+        predicted_tasks: 8
+        actual_tasks: 8
+        fix_task_count: 0
+        rework_rate: 0.0
+        task_delta: 0
+        task_accuracy_pct: 100.0
+        predicted_file_count: 12
+        actual_file_count: 0
+        file_delta: -12
+        file_overlap_pct: 0.0
+    summary: inline script completed
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: workflow-learner
+  attempt: 1
+  started_at: '2026-05-25T15:55:22.810535+00:00'
+  ended_at: '2026-05-25T16:15:56Z'
+  usage:
+    input_tokens: 51
+    output_tokens: 31991
+    model: claude-opus-4-7
+    cache_read_input_tokens: 3304625
+    cache_creation_input_tokens: 148245
+    turns: 36
+    duration_ms: 310593
+    tool_calls:
+      Bash: 9
+      Read: 8
+      Write: 2
+      Edit: 1
+    cost_usd: 10.136621250000001
+  evidence:
+    outputs:
+      learn_result:
+        skipped: false
+        summary: ORC-81 learn deferred to retro
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-25T16:15:57Z'
+  ended_at: '2026-05-25T16:15:57Z'
+  usage: {}
+  evidence:
+    outputs:
+      status: completed
+      completed_at: '2026-05-25T16:15:57Z'
+      archive_path: spec/changes/archive/2026-05-25-orc-81/
+    summary: inline script completed
+- step_id: compute-swe-metrics
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-25T16:15:58Z'
+  ended_at: '2026-05-25T16:15:58Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+- step_id: complete-workflow
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-25T16:15:59Z'
+  ended_at: '2026-05-25T16:15:59Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: recorded pre-script (state-mutating inline step)
+created_at: '2026-05-25T09:51:41Z'
+started_at: '2026-05-25T09:51:41Z'
+project_context_loaded: true
+worktree_path: /Users/spidey/code/feature_worktrees/orc-81
+branch: bugfix/orc-81
+ticket_id: ORC-81
+ticketing: backlog
+ticket_status: "\u25D2 In Progress"
+ticket_status_checked_at: '2026-05-25T15:55:16Z'
+ticket_rework: false
+completed_at: '2026-05-25T16:15:57Z'
+archive_path: spec/changes/archive/2026-05-25-orc-81/
