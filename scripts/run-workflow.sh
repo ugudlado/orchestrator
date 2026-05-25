@@ -31,8 +31,22 @@ fi
 
 STATE_YAML=$(cd "$(dirname "$STATE_YAML")" && pwd)/$(basename "$STATE_YAML")
 
-# Resolve REPO_ROOT: use env var or detect from state.yaml location
-REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "$STATE_YAML")/../.." && pwd)}"
+# Resolve REPO_ROOT: walk up from state.yaml until spec/project.yaml is found.
+_find_repo_root() {
+  local dir
+  dir="$(cd "$(dirname "$1")" && pwd)"
+  while [ "$dir" != "/" ]; do
+    if [ -f "$dir/spec/project.yaml" ]; then
+      echo "$dir"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+  done
+  return 1
+}
+if [ -z "${REPO_ROOT:-}" ] || [ ! -f "$REPO_ROOT/spec/project.yaml" ]; then
+  REPO_ROOT="$(_find_repo_root "$STATE_YAML")" || REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "$STATE_YAML")/../.." && pwd)}"
+fi
 
 # Resolve ORCHESTRATOR_HOME
 ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
@@ -171,7 +185,7 @@ resolve_tool() {
   local binary=""
 
   if [ -n "$TOOLS_YAML" ] && [ -f "$TOOLS_YAML" ]; then
-    binary=$(yq ".tools.${tool_name}.binary // \"\"" "$TOOLS_YAML" 2>/dev/null | tr -d '"')
+    binary=$(yq -r ".tools.${tool_name}.binary // \"\"" "$TOOLS_YAML" 2>/dev/null)
   fi
 
   if [ -z "$binary" ]; then
@@ -186,7 +200,52 @@ resolve_tool() {
 build_prompt() {
   local instruction="$1"
   local step_context="$2"
-  printf '%s\n\nStep context:\n%s\n' "$instruction" "$step_context"
+  printf '%s\n\nStep context:\n%s\n\nYou MUST end stdout with a valid COMPLETION: YAML block (see config/steps/contracts/done-payload.md).\n' \
+    "$instruction" "$step_context"
+}
+
+# Run tool binary using config/tools.yaml args_template ({prompt}, {prompt_file})
+invoke_tool() {
+  local tool_name="$1"
+  local tool_binary="$2"
+  local prompt="$3"
+  local prompt_file="$4"
+  local stdout_path="$5"
+  local stderr_path="$6"
+
+  python3 - "$tool_name" "$tool_binary" "$prompt" "$prompt_file" "$stdout_path" "$stderr_path" "$TOOLS_YAML" <<'PY'
+import json, subprocess, sys
+from pathlib import Path
+import yaml
+
+tool_name, binary, prompt, prompt_file, stdout_path, stderr_path, tools_path = sys.argv[1:8]
+template = []
+if tools_path and Path(tools_path).is_file():
+    with open(tools_path) as f:
+        cfg = yaml.safe_load(f) or {}
+    template = (cfg.get("tools") or {}).get(tool_name, {}).get("args_template") or []
+
+argv = [binary]
+for arg in template:
+    if arg == "{prompt}":
+        argv.append(prompt)
+    elif arg == "{prompt_file}":
+        argv.append(prompt_file)
+    else:
+        argv.append(str(arg))
+
+if len(argv) == 1:
+    if tool_name == "claude":
+        argv.extend(["-p", prompt])
+    elif tool_name == "pi":
+        argv.extend(["run", "--prompt-file", prompt_file])
+    else:
+        argv.append(prompt)
+
+with open(stdout_path, "w") as out, open(stderr_path, "w") as err:
+    proc = subprocess.run(argv, stdout=out, stderr=err)
+sys.exit(proc.returncode)
+PY
 }
 
 # -----------------------------------------------------------------------
@@ -317,8 +376,13 @@ print(json.dumps(payload))
 
       TOOL_BINARY=$(resolve_tool "$TOOL_NAME")
 
-      # Check if tool binary is available
-      if ! command -v "$TOOL_BINARY" >/dev/null 2>&1; then
+      # Check if tool binary is available (PATH name or absolute path from tools.yaml)
+      if [[ "$TOOL_BINARY" == */* ]]; then
+        if [ ! -x "$TOOL_BINARY" ]; then
+          echo "ERROR: tool binary not executable: $TOOL_BINARY (agent='$AGENT', tool='$TOOL_NAME')" >&2
+          exit 4
+        fi
+      elif ! command -v "$TOOL_BINARY" >/dev/null 2>&1; then
         echo "ERROR: tool binary '$TOOL_BINARY' not found in PATH (agent='$AGENT', tool='$TOOL_NAME')" >&2
         exit 4
       fi
@@ -328,26 +392,10 @@ print(json.dumps(payload))
       PROMPT_FILE="$TMP_DIR/prompt_${STEP_ID}.txt"
       echo "$PROMPT" > "$PROMPT_FILE"
 
-      # Determine args template and invoke tool
-      ARGS_TEMPLATE=""
-      if [ -n "$TOOLS_YAML" ] && [ -f "$TOOLS_YAML" ]; then
-        ARGS_TEMPLATE=$(yq ".tools.${TOOL_NAME}.args_template // []" "$TOOLS_YAML" 2>/dev/null)
-      fi
-
       TOOL_EXIT=0
       TOOL_STDOUT="$TMP_DIR/tool_stdout_${STEP_ID}.txt"
-
-      # Build invocation based on args template
-      if echo "$ARGS_TEMPLATE" | grep -q 'prompt_file'; then
-        # Tool takes a prompt file
-        "$TOOL_BINARY" run --prompt-file "$PROMPT_FILE" >"$TOOL_STDOUT" 2>"$TMP_DIR/tool_stderr" || TOOL_EXIT=$?
-      elif echo "$ARGS_TEMPLATE" | grep -q 'prompt' || [ "$TOOL_NAME" = "claude" ]; then
-        # Tool takes inline prompt via -p flag (claude default)
-        "$TOOL_BINARY" -p "$PROMPT" >"$TOOL_STDOUT" 2>"$TMP_DIR/tool_stderr" || TOOL_EXIT=$?
-      else
-        # Fallback: pass prompt as argument
-        "$TOOL_BINARY" "$PROMPT" >"$TOOL_STDOUT" 2>"$TMP_DIR/tool_stderr" || TOOL_EXIT=$?
-      fi
+      invoke_tool "$TOOL_NAME" "$TOOL_BINARY" "$PROMPT" "$PROMPT_FILE" \
+        "$TOOL_STDOUT" "$TMP_DIR/tool_stderr_${STEP_ID}.txt" || TOOL_EXIT=$?
 
       if [ "$TOOL_EXIT" -ne 0 ]; then
         echo "WARN: tool '$TOOL_BINARY' exited $TOOL_EXIT" >&2

@@ -166,10 +166,30 @@ scripts/run-workflow.sh <state.yaml> TICKET-ID
 | `scripts/routes.yaml` | Agent role → model tier (`agents.<role>.model`) and shell-loop subprocess tool (`agents.<role>.subprocess`, e.g. `claude`, `pi`) |
 | `config/ticket-status-map.yaml` | Linear status → workflow action/phase mapping |
 
-To route `developer` through `pi` instead of `claude`, set `agents.developer.subprocess: pi` in
-`scripts/routes.yaml` (or `.orchestrator/config/scripts/routes.yaml`). The design doc's
-`config/agents/routing.yaml` was unified into `scripts/routes.yaml` so one file covers both
-in-process model tiers and shell subprocess tools.
+To route `developer` through another tool, set `agents.<role>.subprocess` in
+`scripts/routes.yaml` (or repo copy under `.orchestrator/config/scripts/routes.yaml`).
+Supported tools are defined in `config/tools.yaml` (`claude`, `pi`, `codex`, `cursor`).
+
+**Cursor Agent CLI (default for `developer` on main):**
+
+```yaml
+# scripts/routes.yaml
+agents:
+  developer: { model: sonnet, subprocess: cursor }
+```
+
+```yaml
+# config/tools.yaml (already ships cursor entry)
+cursor:
+  binary: cursor
+  args_template: ["agent", "--print", "--force", "--output-format", "text", "{prompt}"]
+```
+
+Requirements: `cursor` on PATH (`cursor agent --help` works), authenticated session
+(`cursor agent login` or `CURSOR_API_KEY`). The subprocess must print a `COMPLETION:` YAML
+block on stdout; `run-workflow.sh` appends that requirement to every agent prompt.
+
+To use Claude Code instead: `agents.developer.subprocess: claude`.
 
 ### Override semantics
 

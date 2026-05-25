@@ -20,3 +20,11 @@ tools:
     args_template: ["exec", "--prompt", "{prompt}"]
     stdin: none
     capture: stdout
+
+  cursor:
+    binary: cursor
+    # Cursor Agent CLI (non-interactive). Requires `cursor agent` on PATH.
+    # Agent must emit a COMPLETION: YAML block on stdout for parse-completion.py.
+    args_template: ["agent", "--print", "--force", "--output-format", "text", "{prompt}"]
+    stdin: none
+    capture: stdout

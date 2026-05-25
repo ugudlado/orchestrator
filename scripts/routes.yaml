@@ -5,7 +5,7 @@ agents:
   architect:    { model: opus,   subprocess: claude }
   ideator:      { model: opus,   subprocess: claude }
   reviewer:     { model: sonnet, subprocess: claude }
-  developer:    { model: sonnet, subprocess: claude }
+  developer:    { model: sonnet, subprocess: cursor }
   discoverer:   { model: sonnet, subprocess: claude }
   sonnet-agent: { model: sonnet, subprocess: claude }
   haiku-agent:  { model: haiku,  subprocess: claude }

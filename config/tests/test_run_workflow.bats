@@ -9,14 +9,15 @@ SCRIPT_UNDER_TEST="$BATS_TEST_DIRNAME/../../scripts/run-workflow.sh"
 PARSE_COMPLETION="$BATS_TEST_DIRNAME/../../scripts/parse-completion.py"
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 STUB_DIR="$BATS_TMPDIR/stubs"
-TMP_STATE="$BATS_TMPDIR/state.yaml"
+TMP_STATE_DIR="$REPO_ROOT/spec/changes/.bats-run-workflow"
+TMP_STATE="$TMP_STATE_DIR/state.yaml"
 
 setup() {
-  mkdir -p "$STUB_DIR"
+  mkdir -p "$STUB_DIR" "$TMP_STATE_DIR"
   export PATH="$STUB_DIR:$PATH"
   export REPO_ROOT
 
-  # Minimal state.yaml
+  # Minimal state.yaml (under repo so REPO_ROOT + .orchestrator overrides resolve)
   cat > "$TMP_STATE" <<'YAML'
 schema: feature
 flags: {}
@@ -26,7 +27,13 @@ YAML
 }
 
 teardown() {
-  rm -rf "$STUB_DIR"
+  rm -rf "$STUB_DIR" "$TMP_STATE_DIR" "$REPO_ROOT/.orchestrator"
+}
+
+# Run run-workflow.sh with the same Python as mise (PyYAML required by invoke_tool).
+run_workflow() {
+  # Keep stub binaries on PATH; mise exec supplies Python with PyYAML.
+  run env PATH="$STUB_DIR:$PATH" mise exec -- bash "$SCRIPT_UNDER_TEST" "$TMP_STATE"
 }
 
 # Helper: write an orchestrator stub that returns a sequence of JSON responses
@@ -94,6 +101,25 @@ COMPLETION:
 COMPLETION
 STUB
   chmod +x "$STUB_DIR/claude"
+}
+
+# Helper: stub cursor agent CLI (use distinct binary name to avoid Cursor.app on PATH)
+write_cursor_stub() {
+  cat > "$STUB_DIR/cursor-agent-stub" <<STUB
+#!/bin/sh
+touch "$BATS_TMPDIR/cursor_stub_invoked"
+cat <<'COMPLETION'
+Agent output here.
+
+COMPLETION:
+  status: completed
+  outputs:
+    task_execution_result:
+      task_id: T-1
+      status: completed
+COMPLETION
+STUB
+  chmod +x "$STUB_DIR/cursor-agent-stub"
 }
 
 # Helper: write a stub tool that exits non-zero
@@ -175,15 +201,22 @@ esac
 STUB
   chmod +x "$STUB_DIR/orchestrator"
 
-  run bash "$SCRIPT_UNDER_TEST" "$TMP_STATE"
+  run_workflow
   # exit 1 means complete_workflow
   [ "$status" -eq 1 ]
 }
 
-# --- Test: Agent step resolves developer->claude via routing.yaml ---
+# --- Test: Agent step resolves developer->cursor via routing.yaml ---
 
-@test "Agent run_inline step: routing resolves developer->claude, COMPLETION parsed, done called" {
-  write_claude_stub
+@test "Agent run_inline step: routing resolves developer->cursor, COMPLETION parsed, done called" {
+  write_cursor_stub
+  # Repo overrides: distinct tool name so PATH cannot resolve to Cursor.app.
+  mkdir -p "$REPO_ROOT/.orchestrator/config/scripts"
+  cp "$REPO_ROOT/config/tools.yaml" "$REPO_ROOT/.orchestrator/config/tools.yaml"
+  cp "$REPO_ROOT/scripts/routes.yaml" "$REPO_ROOT/.orchestrator/config/scripts/routes.yaml"
+  yq -i ".tools.\"cursor-stub\".binary = \"$STUB_DIR/cursor-agent-stub\"" "$REPO_ROOT/.orchestrator/config/tools.yaml"
+  yq -i '.tools."cursor-stub".args_template = ["{prompt}"]' "$REPO_ROOT/.orchestrator/config/tools.yaml"
+  yq -i '.agents.developer.subprocess = "cursor-stub"' "$REPO_ROOT/.orchestrator/config/scripts/routes.yaml"
 
   local call_count_file="$BATS_TMPDIR/call_count"
   echo 0 > "$call_count_file"
@@ -213,9 +246,10 @@ esac
 STUB
   chmod +x "$STUB_DIR/orchestrator"
 
-  run bash "$SCRIPT_UNDER_TEST" "$TMP_STATE"
+  run_workflow
   # Should complete (exit 1)
   [ "$status" -eq 1 ]
+  [ -f "$BATS_TMPDIR/cursor_stub_invoked" ]
 
   # done payload should have been called with the parsed COMPLETION
   [ -f "$done_payload_file" ]
@@ -240,18 +274,12 @@ COMPLETION
 STUB
   chmod +x "$STUB_DIR/pi"
 
-  # Write a .orchestrator override routing.yaml pointing developer to pi
-  local override_dir="$BATS_TMPDIR/repo_root/.orchestrator/config"
-  mkdir -p "$override_dir"
-  cat > "$override_dir/tools.yaml" <<'YAML'
-version: 1
-tools:
-  pi:
-    binary: pi
-    args_template: ["run", "--prompt-file", "{prompt_file}"]
-    stdin: none
-    capture: stdout
-YAML
+  local fake_repo="$BATS_TMPDIR/repo_root"
+  mkdir -p "$fake_repo/spec" "$fake_repo/.orchestrator/config/scripts"
+  printf 'version: 1\n' > "$fake_repo/spec/project.yaml"
+  cp "$REPO_ROOT/config/tools.yaml" "$fake_repo/.orchestrator/config/tools.yaml"
+  # Absolute binary path — mise exec prepends real tool bins before PATH stubs.
+  yq -i ".tools.pi.binary = \"$STUB_DIR/pi\"" "$fake_repo/.orchestrator/config/tools.yaml"
 
   local call_count_file="$BATS_TMPDIR/call_count"
   echo 0 > "$call_count_file"
@@ -279,18 +307,11 @@ esac
 STUB
   chmod +x "$STUB_DIR/orchestrator"
 
-  # Override routing to use pi
-  local override_routes="$BATS_TMPDIR/repo_root/.orchestrator/config"
-  mkdir -p "$override_routes"
-  cat > "$override_routes/agents_routing.yaml" <<'YAML'
-version: 1
-routes:
-  developer: pi
-default: pi
+  cat > "$fake_repo/.orchestrator/config/scripts/routes.yaml" <<'YAML'
+agents:
+  developer: { model: sonnet, subprocess: pi }
 YAML
 
-  # The test verifies pi is invoked (if run-workflow reads .orchestrator routing)
-  # We check via a pi invocation log
   cat > "$STUB_DIR/pi" <<'STUB'
 #!/bin/sh
 touch "$BATS_TMPDIR/pi_was_invoked"
@@ -319,13 +340,11 @@ COMPLETION
 STUB
   chmod +x "$STUB_DIR/claude"
 
-  export REPO_ROOT="$BATS_TMPDIR/repo_root"
-  mkdir -p "$REPO_ROOT"
+  export REPO_ROOT="$fake_repo"
 
-  run bash "$SCRIPT_UNDER_TEST" "$TMP_STATE"
-  # Test passes if run-workflow supports routing override (or basic claude fallback)
-  # accept: 1=complete, 4=unknown-agent; not 5=malformed or 7=unexpected
-  [ "$status" -le 1 ] || [ "$status" -eq 4 ]
+  run_workflow
+  [ -f "$BATS_TMPDIR/pi_was_invoked" ]
+  [ "$status" -eq 1 ]
 }
 
 # --- Test: Unknown agent role exits 4 ---
@@ -346,14 +365,25 @@ esac
 STUB
   chmod +x "$STUB_DIR/orchestrator"
 
-  run bash "$SCRIPT_UNDER_TEST" "$TMP_STATE"
+  run_workflow
   [ "$status" -eq 4 ]
 }
 
 # --- Test: Tool subprocess non-zero exit records status:failed ---
 
 @test "Tool subprocess non-zero exit records status:failed" {
-  write_claude_stub_fail
+  cat > "$STUB_DIR/cursor-agent-stub" <<'STUB'
+#!/bin/sh
+echo "Tool failed"
+exit 2
+STUB
+  chmod +x "$STUB_DIR/cursor-agent-stub"
+  mkdir -p "$REPO_ROOT/.orchestrator/config/scripts"
+  cp "$REPO_ROOT/config/tools.yaml" "$REPO_ROOT/.orchestrator/config/tools.yaml"
+  cp "$REPO_ROOT/scripts/routes.yaml" "$REPO_ROOT/.orchestrator/config/scripts/routes.yaml"
+  yq -i ".tools.\"cursor-stub\".binary = \"$STUB_DIR/cursor-agent-stub\"" "$REPO_ROOT/.orchestrator/config/tools.yaml"
+  yq -i '.tools."cursor-stub".args_template = ["{prompt}"]' "$REPO_ROOT/.orchestrator/config/tools.yaml"
+  yq -i '.agents.developer.subprocess = "cursor-stub"' "$REPO_ROOT/.orchestrator/config/scripts/routes.yaml"
 
   local done_payload_file="$BATS_TMPDIR/done_payload"
   local call_count_file="$BATS_TMPDIR/call_count"
@@ -383,9 +413,8 @@ esac
 STUB
   chmod +x "$STUB_DIR/orchestrator"
 
-  run bash "$SCRIPT_UNDER_TEST" "$TMP_STATE"
-  # Should eventually complete (exit 1 or exit 6)
-  [ "$status" -le 7 ]
+  run_workflow
+  [ "$status" -eq 1 ]
   # done payload should record status:failed
   if [ -f "$done_payload_file" ]; then
     python3 -c "import json; d=json.load(open('$done_payload_file')); assert d.get('status') in ('failed','completed'), d"
@@ -395,7 +424,17 @@ STUB
 # --- Test: Malformed COMPLETION exits 5 ---
 
 @test "Malformed COMPLETION exits 5 and prints last 50 lines of stdout" {
-  write_claude_stub_no_completion
+  cat > "$STUB_DIR/cursor-agent-stub" <<'STUB'
+#!/bin/sh
+echo "no completion block here"
+STUB
+  chmod +x "$STUB_DIR/cursor-agent-stub"
+  mkdir -p "$REPO_ROOT/.orchestrator/config/scripts"
+  cp "$REPO_ROOT/config/tools.yaml" "$REPO_ROOT/.orchestrator/config/tools.yaml"
+  cp "$REPO_ROOT/scripts/routes.yaml" "$REPO_ROOT/.orchestrator/config/scripts/routes.yaml"
+  yq -i ".tools.\"cursor-stub\".binary = \"$STUB_DIR/cursor-agent-stub\"" "$REPO_ROOT/.orchestrator/config/tools.yaml"
+  yq -i '.tools."cursor-stub".args_template = ["{prompt}"]' "$REPO_ROOT/.orchestrator/config/tools.yaml"
+  yq -i '.agents.developer.subprocess = "cursor-stub"' "$REPO_ROOT/.orchestrator/config/scripts/routes.yaml"
 
   cat > "$STUB_DIR/orchestrator" <<'STUB'
 #!/bin/sh
@@ -412,7 +451,7 @@ esac
 STUB
   chmod +x "$STUB_DIR/orchestrator"
 
-  run bash "$SCRIPT_UNDER_TEST" "$TMP_STATE"
+  run_workflow
   [ "$status" -eq 5 ]
 }
 
@@ -433,7 +472,7 @@ esac
 STUB
   chmod +x "$STUB_DIR/orchestrator"
 
-  run bash "$SCRIPT_UNDER_TEST" "$TMP_STATE"
+  run_workflow
   [ "$status" -eq 2 ]
 }
 
@@ -454,7 +493,7 @@ esac
 STUB
   chmod +x "$STUB_DIR/orchestrator"
 
-  run bash "$SCRIPT_UNDER_TEST" "$TMP_STATE"
+  run_workflow
   [ "$status" -eq 3 ]
 }
 
@@ -483,7 +522,7 @@ echo "COST REPORT: total=$0.00"
 STUB
   chmod +x "$STUB_DIR/cost-report.sh"
 
-  run bash "$SCRIPT_UNDER_TEST" "$TMP_STATE"
+  run_workflow
   [ "$status" -eq 1 ]
   # Output should contain something indicating completion
   [[ "$output" =~ "complete" ]] || [[ "$output" =~ "COST" ]] || [[ "$output" =~ "workflow" ]]
