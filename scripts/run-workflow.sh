@@ -341,7 +341,16 @@ print(d.get('change_id',''))
   ATTEMPT=$(echo "$ACTION_JSON" | jq -r '.attempt // 1')
   STARTED_AT=$(echo "$ACTION_JSON" | jq -r '.started_at // empty')
 
-  echo "[$(_log_ts)] → $STEP_ID  phase=$PHASE  kind=$KIND  agent=$AGENT  attempt=$ATTEMPT" >&2
+  if [ "$KIND" = "run_step" ]; then
+    KIND_LABEL="shell script"
+  else
+    KIND_LABEL="agent"
+  fi
+  AGENT_SUFFIX=""
+  if [ "$AGENT" != "inline" ]; then
+    AGENT_SUFFIX="  agent=$AGENT"
+  fi
+  echo "[$(_log_ts)] → $STEP_ID  phase=$PHASE  kind=$KIND_LABEL${AGENT_SUFFIX}  attempt=$ATTEMPT" >&2
 
   # -----------------------------------------------------------------------
   # Dispatch on kind
