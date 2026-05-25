@@ -8,5 +8,6 @@
 # flags still win over this file.
 
 agents:
-  developer: { model: sonnet, subprocess: pi }
+  developer: { model: auto, subprocess: cursor }
+  # developer: { model: sonnet, subprocess: pi }
   reviewer:  { model: sonnet, subprocess: claude }

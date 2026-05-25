@@ -5,8 +5,9 @@ agents:
   architect:         { model: opus,   subprocess: claude }
   ideator:           { model: opus,   subprocess: claude }
   reviewer:          { model: sonnet, subprocess: claude }
-  # subprocess pi uses its own --provider/--model; sonnet tier is fallback billing only.
-  developer:         { model: sonnet, subprocess: pi }
+  # subprocess: cursor agent CLI; model=auto → cursor agent --model auto
+  # Override per run: orchestrator run <id> agent.developer.subprocess=pi
+  developer:         { model: auto, subprocess: cursor }
   discoverer:        { model: sonnet, subprocess: claude }
   workflow-learner:  { model: sonnet, subprocess: claude }
   ux-reviewer:       { model: sonnet, subprocess: claude }
@@ -19,6 +20,7 @@ models:
   opus:   claude-opus-4-7
   sonnet: claude-sonnet-4-6
   haiku:  claude-haiku-4-5
+  auto:   auto   # Cursor CLI model id (Cursor picks best fit)
 
 # Proxy backends (non-Claude tools routable via subprocess)
 proxy:

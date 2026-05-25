@@ -24,7 +24,8 @@ tools:
   cursor:
     binary: cursor
     # Cursor Agent CLI (non-interactive). Requires `cursor agent` on PATH.
+    # {model_tier} comes from routes.yaml agents.<role>.model (e.g. auto).
     # Agent must emit a COMPLETION: YAML block on stdout for parse-completion.py.
-    args_template: ["agent", "--print", "--force", "--output-format", "text", "{prompt}"]
+    args_template: ["agent", "--print", "--force", "--output-format", "text", "--model", "{model_tier}", "{prompt}"]
     stdin: none
     capture: stdout
