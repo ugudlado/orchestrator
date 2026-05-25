@@ -34,6 +34,13 @@ Discovery is a **focused investigation**, not brainstorming (the ideator already
 
 ### 2. Explore What Already Exists
 
+**Prior completion (rerun guard):** Before surveying the codebase, check
+`$REPO_ROOT/spec/changes/archive/*/state.yaml` for this `change_id` or ticket with
+`status: completed`. If found, write `discovery.md` stating the feature is already
+done (cite `archive_path` and `completed_at`), and return COMPLETION with
+`discovery_result.already_completed: true`. The driver may also short-circuit before
+spawn; either path must avoid redoing discovery work.
+
 **Codebase** (Grep, Glob, Read):
 - Does something similar already exist?
 - Can an existing feature be extended instead of building from scratch?

@@ -47,7 +47,32 @@ When you receive a Discovery Brief:
 ### Artifact Standards
 - **spec.md**: Motivation, requirements (functional + non-functional), acceptance criteria (traced to use cases), alternatives considered
 - **design.md**: Selected approach with rationale, component breakdown, data flow, error handling. Should be the simplest design that meets the spec.
-- **tasks.md**: The `design-and-draft-artifacts` step writes tasks.md in the same pass as design.md — generate it per the Task Format Contract and declare both `design.md` and `tasks.md` in the COMPLETION `outputs:` block.
+- **tasks.yaml**: The `design-and-draft-artifacts` step writes `tasks.yaml` in the same pass as `design.md` per `config/steps/design-and-draft-artifacts/prompt.md`.
+
+### Rerun guard (design-and-draft-artifacts)
+
+If explore did not already flag it, check `$REPO_ROOT/spec/changes/archive/*/state.yaml`
+for a completed archive matching this change. When the feature is already done, do
+**not** rewrite design/tasks; return COMPLETION with `design_direction: already_completed`,
+existing artifact paths, and `updated_artifact_set: [design.md, tasks.yaml]`.
+
+### COMPLETION (design-and-draft-artifacts step only)
+
+After writing artifacts, return **only** a COMPLETION block (not chat prose). All five declared outputs are required — omitting any key makes `orchestrator done` exit 3 (`missing_outputs`):
+
+```yaml
+COMPLETION:
+  status: completed
+  outputs:
+    design.md: spec/changes/<change_id>/design.md
+    tasks.yaml: spec/changes/<change_id>/tasks.yaml
+    updated_artifact_set: [design.md, tasks.yaml]
+    design_direction: "<selected approach name>"
+    complexity: S
+  artifacts: [design.md, tasks.yaml]
+```
+
+Typed contract keys `design` and `tasks` are satisfied by the files on disk; the legacy keys above must appear in `outputs` exactly as shown.
 
 ### Additional Research
 

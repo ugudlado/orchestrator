@@ -11,7 +11,12 @@ tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "WebSearch", "mcp__plug
 REPO_ROOT=${REPO_ROOT:-$(git rev-parse --show-toplevel)}
 REPO_NAME=${REPO_NAME:-$(basename "$REPO_ROOT")}
 ORCHESTRATOR_HOME=${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}
-WORKFLOW_STATE_DIR=${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}
+# Active state dir: worktree when flags.worktree=true, else repo spec/changes.
+if [ -n "${WORKTREE_ROOT:-}" ]; then
+  WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$WORKTREE_ROOT/spec/changes}"
+else
+  WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}"
+fi
 WORKTREE_ARTIFACT_DIR="${WORKTREE_ARTIFACT_DIR:-${WORKTREE_ROOT:-$REPO_ROOT}/spec/changes}"
 
 ## Learn from Last Feature
@@ -39,14 +44,20 @@ A narrow scope still produces the §5 report; it just weights which findings are
 
 ### 1. Find Context
 
-Locate the most recent completed feature:
-- Scan `$WORKFLOW_STATE_DIR/*/state.yaml` for the most recent file with `status: completed` or `phase: complete`
-- Also check `$WORKFLOW_STATE_DIR/*/state.yaml` (state files are no longer in worktree-relative paths)
-- Read the state.yaml for feature_id, schema, quality scores, phases
-- Find the project root from the state.yaml path or cwd
-- Read git log for the feature's commits and diff
+Locate the feature under evaluation (this step runs **before** `complete-workflow`
+merge/archive/worktree teardown):
 
-If `$ARGUMENTS` contains a feature ID, use that instead of auto-detecting.
+1. If the dispatch prompt includes `state_yaml_path=...`, read that file first.
+2. Else if `worktree_path=...` is in the prompt, read
+   `<worktree_path>/spec/changes/<change_id>/state.yaml`.
+3. Else read `$REPO_ROOT/spec/changes/<change_id>/state.yaml` when present.
+4. Only for cross-feature fleet analysis (§2b, §4 decay, quality trend), scan
+   `spec/changes/archive/*/state.yaml` — not for the just-finished change's primary
+   inputs while it is still active.
+
+If `$ARGUMENTS` contains a feature ID, resolve that change_id in the paths above.
+Do not require `status: completed` on the active file — this step runs while
+`status` may still be `active`; `mark-change-completed` stamps completed later.
 
 ### 2. Gather Inputs
 
