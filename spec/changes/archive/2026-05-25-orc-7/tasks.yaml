@@ -1,0 +1,59 @@
+version: 1
+tasks:
+  - id: T-1
+    title: "Remove deleted phase-signoff from CONVENTIONS.md error-recovery consumers"
+    agent: developer
+    depends_on: []
+    files:
+      - config/steps/CONVENTIONS.md
+    verify:
+      - grep -n 'Error Recovery' config/steps/CONVENTIONS.md
+      - "! grep -n 'phase-signoff' config/steps/CONVENTIONS.md | grep -i 'error recovery'"
+    test_scenarios:
+      - "Line 67 (the Error Recovery row in the contract index table) no longer lists phase-signoff in the consumers column."
+      - "Other references to phase-signoff in CONVENTIONS.md (the state field tables at lines 414, 415, 427, 428) are NOT touched — they are historical state-field documentation, out of scope for this sweep."
+    why: "AC-1"
+    change: "Edit config/steps/CONVENTIONS.md line 67: in the row whose first column reads 'Error Recovery (state transitions, blocked protocol, escalation)', change the consumers column from 'orchestrate skill, execute-one-task, run-phase-review, phase-signoff' to 'orchestrate skill, execute-one-task, run-phase-review'. Touch no other lines."
+  - id: T-2
+    title: "Replace inline max_retry_rounds escalation prose in developer.md with contract reference"
+    agent: developer
+    depends_on: []
+    files:
+      - agents/developer.md
+    verify:
+      - "! grep -q 'After max_retry_rounds attempts' agents/developer.md"
+      - grep -q 'error-recovery.md' agents/developer.md
+    test_scenarios:
+      - "The 'On Failure' bullet that previously read 'After max_retry_rounds attempts: Escalate to orchestrator with what you tried and why it didn't work' now reads as a single reference to contracts/error-recovery.md § Escalation Protocol."
+      - "The other bullets in the 'On Failure' section (Tests fail, Build fails, Design conflict) are unchanged."
+    why: "AC-2"
+    change: "Edit agents/developer.md line 118: replace the bullet '- **After max_retry_rounds attempts**: Escalate to orchestrator with what you tried and why it didn't work' with '- **Retry / escalation on verification failure**: Follow `config/steps/contracts/error-recovery.md § Escalation Protocol` — do not restate the protocol inline.' Leave lines 115, 116, 117 (Tests fail / Build fails / Design conflict) untouched."
+  - id: T-3
+    title: "Update reviewer.md fix-task instructions to reference Fix Task Protocol and tasks.yaml"
+    agent: developer
+    depends_on: []
+    files:
+      - agents/reviewer.md
+    verify:
+      - "! grep -q 'tasks.md format' agents/reviewer.md"
+      - grep -q 'error-recovery.md' agents/reviewer.md
+      - grep -q 'tasks.yaml' agents/reviewer.md
+    test_scenarios:
+      - "The line near reviewer.md:200 reading 'If NEEDS WORK: generate fix tasks in tasks.md format (T-N+1, etc.) with code references, Problem, Why, Improve, and Verify.' is rewritten to point at contracts/error-recovery.md § Fix Task Protocol and to name tasks.yaml as the artifact."
+      - "Surrounding lines (Minor Issues heading, Verdict heading, the COMPLETION block guidance) are unchanged."
+    why: "AC-3"
+    change: "Edit agents/reviewer.md line 200: replace 'If NEEDS WORK: generate fix tasks in tasks.md format (T-N+1, etc.) with code references, Problem, Why, Improve, and Verify.' with 'If NEEDS WORK: generate fix tasks per `config/steps/contracts/error-recovery.md § Fix Task Protocol` (appended to `tasks.yaml` as `fix-N` entries with Problem, Why, Improve, and Verify content under the `change:` and `test_scenarios:` fields).' Touch no other lines."
+  - id: T-4
+    title: "Verify diff scope: only the three files above are modified"
+    agent: developer
+    depends_on: [T-1, T-2, T-3]
+    files:
+      - config/steps/CONVENTIONS.md
+      - agents/developer.md
+      - agents/reviewer.md
+    verify:
+      - "test \"$(git diff --name-only HEAD | sort)\" = \"$(printf 'agents/developer.md\\nagents/reviewer.md\\nconfig/steps/CONVENTIONS.md')\""
+    test_scenarios:
+      - "git diff --name-only HEAD lists exactly the three files: agents/developer.md, agents/reviewer.md, config/steps/CONVENTIONS.md (no more, no less)."
+    why: "AC-4"
+    change: "No file edit — this task runs the diff-scope check as a final gate before run-phase-review. If extra files appear in the diff, the agent must revert the unrelated changes before declaring completion."
