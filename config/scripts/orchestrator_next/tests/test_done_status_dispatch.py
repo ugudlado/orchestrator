@@ -238,6 +238,41 @@ def test_abandoned_no_boundary_check_on_last_step(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# (c2) status: failed → step_events row; shell-loop error recovery
+# ---------------------------------------------------------------------------
+
+def test_failed_writes_step_with_failed_status(tmp_path, monkeypatch):
+    """status: failed → step_history and step_events retain failed (driver retry)."""
+    _isolate_contracts(tmp_path, monkeypatch)
+    db = _fresh_db()
+    state_path = _write_state(tmp_path)
+
+    payload = {
+        "step_id": "step-a",
+        "phase": "implement",
+        "status": "failed",
+        "agent": "developer",
+        "outputs": {"task_execution_result": {"status": "failed", "exit_code": 1}},
+        "usage": {"input_tokens": 0, "output_tokens": 0, "model": "none"},
+    }
+
+    result, code = record(state_path, payload, db=db)
+    assert code == 0, f"Expected exit 0 for failed, got {code}: {result}"
+
+    step_row = db.execute(
+        "SELECT status FROM step_events WHERE change_id='test-feature' AND step_id='step-a'",
+    ).fetchone()
+    assert step_row is not None
+    assert step_row[0] == "failed", f"Expected status=failed, got {step_row[0]!r}"
+
+    raw = yaml.safe_load(Path(state_path).read_text()) or {}
+    last = raw["step_history"][-1]
+    assert last["status"] == "failed"
+
+    db.close()
+
+
+# ---------------------------------------------------------------------------
 # (d) missing status → defaults to 'completed' behavior
 # ---------------------------------------------------------------------------
 
@@ -274,7 +309,7 @@ def test_missing_status_defaults_to_completed(tmp_path, monkeypatch):
 # (e) invalid status → exit 3
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("bad_status", ["in_progress", "blocked", "COMPLETED", "done", ""])
+@pytest.mark.parametrize("bad_status", ["in_progress", "COMPLETED", "done", ""])
 def test_invalid_status_returns_exit_3(tmp_path, monkeypatch, bad_status):
     """Unrecognized status value → exit 3 with clear error."""
     _isolate_contracts(tmp_path, monkeypatch)

@@ -1415,7 +1415,14 @@ def record(
     # status is optional; default 'completed' for backward compat (FR-2).
     status = payload.get("status", "completed")
 
-    _VALID_STATUSES = {"completed", "recovered", "abandoned"}
+    _VALID_STATUSES = {
+        "completed",
+        "recovered",
+        "abandoned",
+        "failed",
+        "blocked",
+        "escalate_to_architect",
+    }
     if status not in _VALID_STATUSES:
         return (
             {
@@ -1662,8 +1669,8 @@ def record(
     history.append(entry)
     state_raw["step_history"] = history
 
-    # FR-2: abandoned status → set state.yaml.status = blocked
-    if status == "abandoned":
+    # FR-2: terminal halt statuses → set state.yaml.status = blocked
+    if status in ("abandoned", "blocked", "escalate_to_architect"):
         state_raw["status"] = "blocked"
 
     # ORC-63: flip the node's status in workflow_plan via the shared mutator.
