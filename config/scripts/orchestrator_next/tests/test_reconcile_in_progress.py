@@ -40,7 +40,18 @@ def _make_state(step_history: list[StepHistoryEntry]) -> State:
         phase="implement",
         repo_root="/repo/root",
         workflow_dir="/repo/root",
-        workflow_plan={},
+        workflow_plan={
+            "implement": {
+                "nodes": [
+                    {"id": "T-1"},
+                    {"id": "T-2"},
+                    {"id": "T-3"},
+                    {"id": "T-4"},
+                    {"id": "ghost-step"},
+                    {"id": "preview-route"},
+                ]
+            }
+        },
         step_history=step_history,
         raw={},
     )
@@ -184,3 +195,36 @@ class TestReconcileInProgress:
         assert statuses == {"completed", "failed"}
         step_ids = {e.step_id for e in state.step_history}
         assert step_ids == {"T-1", "T-2"}
+
+    def test_db_ghost_not_in_workflow_plan_is_not_materialised(self, in_memory_db):
+        """DB in_progress row whose step_id is absent from workflow_plan is dropped."""
+        db = in_memory_db
+        upsert_pending_step_event(
+            db,
+            repo_root="/repo/root",
+            change_id="my-feature",
+            phase="implement",
+            step_id="ghost-step",
+            attempt=1,
+            agent_name="developer",
+            started_at="2024-01-01T00:00:00Z",
+        )
+        state = State(
+            change_id="my-feature",
+            phase="implement",
+            repo_root="/repo/root",
+            workflow_dir="/repo/root",
+            workflow_plan={
+                "implement": {
+                    "nodes": [
+                        {"id": "preview-route"},
+                        {"id": "execute-next-task"},
+                    ]
+                }
+            },
+            step_history=[],
+            raw={},
+        )
+        reconcile_in_progress(state, db, _make_context())
+
+        assert state.step_history == []

@@ -31,6 +31,7 @@ from orchestrator_next.parser import (
 )
 from orchestrator_next import resolver
 from orchestrator_next import readiness
+from orchestrator_next.reconcile import _step_in_plan
 
 # Blocking statuses: caller cannot proceed
 _BLOCKING_STATUSES = frozenset({"escalate_to_architect", "blocked"})
@@ -72,6 +73,22 @@ def _get_last_entry(step_history: list[StepHistoryEntry]) -> StepHistoryEntry | 
     return step_history[-1] if step_history else None
 
 
+def _typed_input_base_dir(state: State) -> str:
+    """Repo or worktree root for path templates like spec/changes/<slug>/file.md.
+
+    Typed I/O paths are relative to this root. When flags.worktree=true, seed-state
+    sets worktree_path but not worktree_artifact_dir in state.yaml; parser derives
+    worktree_artifact_dir as <root>/spec/changes for legacy evidence only.
+    """
+    worktree_path = str(state.raw.get("worktree_path") or "").strip()
+    if worktree_path:
+        return os.path.expanduser(worktree_path) if worktree_path.startswith("~") else worktree_path
+    explicit = str(state.raw.get("worktree_artifact_dir") or "").strip()
+    if explicit:
+        return os.path.expanduser(explicit) if explicit.startswith("~") else explicit
+    return state.repo_root or ""
+
+
 def _resolve_inputs(
     state: State, contract: StepContract
 ) -> tuple[dict[str, Any], list[str]]:
@@ -92,13 +109,8 @@ def _resolve_inputs(
     resolved: dict[str, Any] = {}
     missing: list[str] = []
 
-    # ORC-76 T-16: handle typed inputs (path is not None) via file-existence check.
-    # Use the raw worktree_artifact_dir from state.yaml (repo/worktree root) so that
-    # path templates like "spec/changes/<slug>/..." resolve correctly.
-    # state.worktree_artifact_dir is the HL-303 computed value (repo_root/spec/changes)
-    # which is a different concern (legacy evidence.outputs base); typed I/O paths
-    # are always relative to the raw worktree root field from state.yaml.
-    raw_artifact_dir = str(state.raw.get("worktree_artifact_dir") or "") or state.repo_root
+    # ORC-76 T-16: typed paths join against repo/worktree root (see _typed_input_base_dir).
+    raw_artifact_dir = _typed_input_base_dir(state)
     typed_names: set[str] = set()
     for spec in contract.inputs:
         path = spec.get("path")
@@ -239,7 +251,7 @@ def _check_required_inputs(
     required_missing = [m for m in missing if m not in optional]
     if required_missing:
         # Build diagnostic: for typed inputs include the resolved abs path.
-        raw_artifact_dir = str(state.raw.get("worktree_artifact_dir") or "") or state.repo_root
+        raw_artifact_dir = _typed_input_base_dir(state)
         typed_paths: dict[str, str] = {}
         for spec in contract.inputs:
             path = spec.get("path")
@@ -291,6 +303,15 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         and last.status == "in_progress"
         and last.ended_at is None
     ):
+        if not _step_in_plan(state, state.phase, last.step_id):
+            print(
+                f"ERROR: refusing to resume step {last.step_id!r} — "
+                f"not in workflow_plan[{state.phase!r}].nodes "
+                f"(likely ghost from prior schema; "
+                f"check metrics.duckdb step_events for stale rows).",
+                file=sys.stderr,
+            )
+            return {}, 3
         step_id = last.step_id
         # Resume: keep the ORIGINAL attempt. DO NOT call _compute_attempt here —
         # it returns max+1 (retry semantics). Resume semantics require attempt unchanged.

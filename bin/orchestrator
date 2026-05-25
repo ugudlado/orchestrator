@@ -300,7 +300,44 @@ def main() -> None:
 
             # Reconcile state.step_history against DB in_progress truth (DB wins).
             try:
+                _pre_sig = tuple(
+                    (e.phase, e.step_id, e.attempt, e.status)
+                    for e in state.step_history
+                )
                 reconcile_in_progress(state, _db, _context)
+                _post_sig = tuple(
+                    (e.phase, e.step_id, e.attempt, e.status)
+                    for e in state.step_history
+                )
+                if _post_sig != _pre_sig:
+                    try:
+                        import yaml as _yaml
+                        from pathlib import Path as _Path
+
+                        _path = _Path(state_yaml_path)
+                        with open(_path, "rb") as _f:
+                            _pre_bytes = _f.read()
+                        _state_raw = _yaml.safe_load(_pre_bytes.decode("utf-8")) or {}
+                        _state_raw["step_history"] = [e.raw for e in state.step_history]
+                        with open(_path, "w", encoding="utf-8") as _f:
+                            _yaml.safe_dump(
+                                _state_raw,
+                                _f,
+                                sort_keys=False,
+                                default_flow_style=False,
+                                allow_unicode=True,
+                            )
+                        try:
+                            with open(_path, "r", encoding="utf-8") as _f:
+                                _yaml.safe_load(_f)
+                        except _yaml.YAMLError:
+                            with open(_path, "wb") as _f:
+                                _f.write(_pre_bytes)
+                    except Exception as _pe:  # noqa: BLE001
+                        print(
+                            f"warning: reconcile persistence failed — {_pe}",
+                            file=sys.stderr,
+                        )
             except Exception as _rce:  # noqa: BLE001 — reconcile must not block dispatch
                 print(f"warning: reconcile failed — {_rce}", file=sys.stderr)
     except Exception as exc:  # noqa: BLE001 — DB errors must not block dispatch

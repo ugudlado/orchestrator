@@ -7,16 +7,19 @@ Public API:
 
 Design:
   - DB wins. YAML-only in_progress entries are stripped (FR-4).
+  - A YAML in_progress entry whose step_id is absent from workflow_plan[phase]
+    (via parser.phase_nodes) is stripped even when present in DB (ghost schema).
   - DB-only in_progress rows are materialised into state.step_history (FR-5).
+  - DuckDB in_progress rows whose step_id is absent from workflow_plan are skipped.
   - Non-in_progress entries (completed, failed, etc.) are never touched.
-  - No disk writes — caller is responsible for persisting state.yaml if needed.
+  - No disk writes — caller (bin/orchestrator) persists state.yaml when needed.
   - Parameterised SQL only (no string interpolation).
 """
 from __future__ import annotations
 
 import re
 
-from orchestrator_next.parser import State, StepHistoryEntry
+from orchestrator_next.parser import State, StepHistoryEntry, phase_nodes
 
 # Slug guard — match upsert.py pattern.
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -28,6 +31,11 @@ WHERE repo_root = ?
   AND change_id = ?
   AND status = 'in_progress'
 """
+
+
+def _step_in_plan(state: State, phase: str, step_id: str) -> bool:
+    """True when step_id is a node in workflow_plan for this phase."""
+    return any(str(n.get("id", "")) == step_id for n in phase_nodes(state, phase))
 
 
 def reconcile_in_progress(state: State, db, context: dict) -> None:
@@ -74,20 +82,25 @@ def reconcile_in_progress(state: State, db, context: dict) -> None:
     # Build key set from DB rows: (phase, step_id, attempt)
     db_keys = {(r[0], r[1], r[2]) for r in db_rows}
 
-    # FR-4: strip YAML-only in_progress entries whose key is absent in DB.
+    # FR-4: strip in_progress entries absent from DB and/or absent from workflow_plan.
     kept = []
     for e in state.step_history:
-        if e.status == "in_progress" and (e.phase, e.step_id, e.attempt) not in db_keys:
-            continue  # orphan — drop
+        if e.status == "in_progress":
+            in_db = (e.phase, e.step_id, e.attempt) in db_keys
+            in_plan = _step_in_plan(state, e.phase, e.step_id)
+            if not in_db or not in_plan:
+                continue  # orphan — drop (DB-absent OR plan-absent)
         kept.append(e)
     state.step_history = kept
 
-    # FR-5: materialise DB rows that are missing from YAML.
+    # FR-5: materialise DB rows that are missing from YAML (skip plan-absent ghosts).
     yaml_keys = {
         (e.phase, e.step_id, e.attempt)
         for e in state.step_history
     }
     for phase, step_id, attempt, agent_name, started_at in db_rows:
+        if not _step_in_plan(state, phase, step_id):
+            continue  # ghost from prior schema — do not materialise
         if (phase, step_id, attempt) in yaml_keys:
             continue  # already present — leave alone
         state.step_history.append(StepHistoryEntry(

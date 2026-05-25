@@ -43,7 +43,9 @@ def _make_state(step_history: list[StepHistoryEntry]) -> State:
         phase="main",
         repo_root="/repo/root",
         workflow_dir="/repo/root",
-        workflow_plan={},
+        workflow_plan={
+            "main": {"nodes": [{"id": "execute-next-task"}]},
+        },
         step_history=step_history,
         raw={},
     )
