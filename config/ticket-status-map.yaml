@@ -1,0 +1,8 @@
+version: 1
+mapping:
+  Todo:        { action: init,   phase: explore }
+  Backlog:     { action: init,   phase: explore }
+  "In Progress": { action: resume, phase: implement }
+  "In Review": { action: resume, phase: run-phase-review }
+  Done:        { action: halt,   reason: "Ticket already Done" }
+  Cancelled:   { action: halt,   reason: "Ticket cancelled" }
