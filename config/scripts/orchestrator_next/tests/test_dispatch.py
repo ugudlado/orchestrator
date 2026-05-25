@@ -360,3 +360,106 @@ def test_dispatch_optional_input_does_not_block(tmp_path, monkeypatch):
     action, code = dispatch(state, sp)
     assert code == 0, f"optional input must not block; got exit {code}"
     assert action["step_id"] == "b"
+
+
+def _write_execute_one_task_contract(contracts_dir) -> None:
+    """Directory-form execute-one-task contract (task-node step_contract target)."""
+    step_dir = contracts_dir / "execute-one-task"
+    step_dir.mkdir(parents=True)
+    (step_dir / "contract.yaml").write_text(textwrap.dedent("""\
+        id: execute-one-task
+        version: 1
+        kind: agent
+        agent: developer
+        inputs: []
+        outputs:
+          - task_execution_result
+        rules: []
+    """))
+    (step_dir / "prompt.md").write_text(
+        "Implement one task from step_context.task.\n"
+    )
+
+
+def test_dispatch_task_node_resolves_step_contract(tmp_path, monkeypatch):
+    """task-T-1 loads execute-one-task via step_contract; must not fall back to inline."""
+    from orchestrator_next.parser import load_state
+
+    contracts_dir = tmp_path / "contracts"
+    _write_execute_one_task_contract(contracts_dir)
+    monkeypatch.setenv(
+        "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir)
+    )
+
+    state_dir = tmp_path / "st"
+    state_dir.mkdir()
+    nodes = [
+        {
+            "id": "task-T-1",
+            "status": "pending",
+            "agent": "developer",
+            "step_contract": "execute-one-task",
+            "goal": "Wire X to Y",
+            "inputs": [],
+            "outputs": ["task_execution_result"],
+            "rules": [],
+            "depends_on": [],
+            "task": {
+                "id": "T-1",
+                "title": "Wire X to Y",
+                "files": ["a.py"],
+                "verify": ["true"],
+                "depends_on": [],
+            },
+        },
+    ]
+    sp = _write_nodes_state(state_dir, nodes)
+    state = load_state(sp)
+    action, code = dispatch(state, sp)
+    assert code == 0, f"expected dispatch success, got exit {code}"
+    assert action["step_id"] == "task-T-1"
+    assert action["agent"] == "developer"
+    assert action["step_context"]["task"]["id"] == "T-1"
+
+
+def test_dispatch_resumes_task_node_with_step_contract(tmp_path, monkeypatch):
+    """Resume path also resolves step_contract (not last.agent inline placeholder)."""
+    from orchestrator_next.parser import load_state
+
+    contracts_dir = tmp_path / "contracts"
+    _write_execute_one_task_contract(contracts_dir)
+    monkeypatch.setenv(
+        "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir)
+    )
+
+    state_dir = tmp_path / "st"
+    state_dir.mkdir()
+    nodes = [
+        {
+            "id": "task-T-1",
+            "status": "in_progress",
+            "agent": "developer",
+            "step_contract": "execute-one-task",
+            "goal": "Wire X to Y",
+            "inputs": [],
+            "outputs": ["task_execution_result"],
+            "rules": [],
+            "task": {"id": "T-1", "title": "Wire X to Y", "files": ["a.py"], "verify": ["true"]},
+        },
+    ]
+    history = [
+        {
+            "step_id": "task-T-1",
+            "phase": "main",
+            "status": "in_progress",
+            "agent": "inline",
+            "attempt": 1,
+            "started_at": "2026-05-25T16:50:36Z",
+        },
+    ]
+    sp = _write_nodes_state(state_dir, nodes, history=history)
+    state = load_state(sp)
+    action, code = dispatch(state, sp)
+    assert code == 0
+    assert action.get("is_resume") is True
+    assert action["agent"] == "developer"

@@ -254,6 +254,39 @@ def _parse_contract_fields(
     )
 
 
+def _contract_lookup_id(step_id: str, state_yaml_path: str) -> str:
+    """Return the contract file id to load for a workflow plan step.
+
+    Task nodes use ids like ``task-T-1`` but declare ``step_contract:
+    execute-one-task`` on the node. Without this indirection, dispatch would
+    miss the contract and fall back to agent ``inline``.
+    """
+    try:
+        with open(state_yaml_path, "r") as f:
+            raw = yaml.safe_load(f) or {}
+    except OSError:
+        return step_id
+
+    plan = raw.get("workflow_plan") or {}
+    if not isinstance(plan, dict):
+        return step_id
+
+    for phase_plan in plan.values():
+        if not isinstance(phase_plan, dict):
+            continue
+        nodes = phase_plan.get("nodes")
+        if not nodes:
+            continue
+        for node in nodes:
+            if not isinstance(node, dict) or str(node.get("id", "")) != step_id:
+                continue
+            step_contract = node.get("step_contract")
+            if isinstance(step_contract, str) and step_contract.strip():
+                return step_contract.strip()
+            return step_id
+    return step_id
+
+
 def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
     """Load and parse a step contract YAML, searching in priority order.
 
@@ -261,12 +294,13 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
     checked BEFORE the flat-file form (<id>.yaml). This preserves override
     precedence while preferring the new layout when both exist.
     """
+    lookup_id = _contract_lookup_id(step_id, state_yaml_path)
     search_dirs = _contract_search_dirs(state_yaml_path)
     for d in search_dirs:
-        # ── Directory form: <d>/<step_id>/contract.yaml ──────────────────────
-        dir_contract = os.path.join(d, step_id, "contract.yaml")
+        # ── Directory form: <d>/<lookup_id>/contract.yaml ──────────────────────
+        dir_contract = os.path.join(d, lookup_id, "contract.yaml")
         if os.path.isfile(dir_contract):
-            contract_dir = os.path.join(d, step_id)
+            contract_dir = os.path.join(d, lookup_id)
             with open(dir_contract, "r") as f:
                 data = yaml.safe_load(f)
 
@@ -305,8 +339,8 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
 
             return _parse_contract_fields(step_id, data, kind, run, instruction)
 
-        # ── Flat-file form (legacy): <d>/<step_id>.yaml ──────────────────────
-        flat_candidate = os.path.join(d, f"{step_id}.yaml")
+        # ── Flat-file form (legacy): <d>/<lookup_id>.yaml ──────────────────────
+        flat_candidate = os.path.join(d, f"{lookup_id}.yaml")
         if os.path.isfile(flat_candidate):
             with open(flat_candidate, "r") as f:
                 data = yaml.safe_load(f)
@@ -317,7 +351,9 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
             return _parse_contract_fields(step_id, data, kind, run, instruction)
 
     raise FileNotFoundError(
-        f"Step contract not found for '{step_id}'. Searched: {search_dirs}"
+        f"Step contract not found for '{step_id}'"
+        + (f" (lookup '{lookup_id}')" if lookup_id != step_id else "")
+        + f". Searched: {search_dirs}"
     )
 
 
