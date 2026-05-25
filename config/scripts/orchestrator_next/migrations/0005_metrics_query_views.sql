@@ -7,12 +7,14 @@
 -- Drop the empty legacy tables and recreate as views.
 -- Use CREATE OR REPLACE VIEW so re-running is safe.
 
-DROP VIEW IF EXISTS per_agent_metrics;
-DROP VIEW IF EXISTS per_step_metrics;
-DROP VIEW IF EXISTS features;
+-- Drop legacy TABLES before VIEWs: pre-0005 DBs have BASE TABLE objects; DROP VIEW
+-- on a table name fails in DuckDB ("trying to drop type View").
 DROP TABLE IF EXISTS per_agent_metrics;
 DROP TABLE IF EXISTS per_step_metrics;
 DROP TABLE IF EXISTS features;
+DROP VIEW IF EXISTS per_agent_metrics;
+DROP VIEW IF EXISTS per_step_metrics;
+DROP VIEW IF EXISTS features;
 
 -- features — one row per (repo_root, change_id), mirrors feature_report shape
 -- payload_json is a JSON object of the full feature_report row for legacy consumers.
