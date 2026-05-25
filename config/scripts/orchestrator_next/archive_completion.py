@@ -124,6 +124,11 @@ def _step_completed(state_raw: dict[str, Any], step_id: str, phase: str = "main"
     return False
 
 
+_DISCOVERY_TEMPLATE_PATH = (
+    Path(__file__).resolve().parents[2] / "templates" / "already-completed-discovery.md"
+)
+
+
 def _write_already_completed_discovery(
     artifact_dir: Path,
     archive_info: dict[str, Any],
@@ -131,62 +136,14 @@ def _write_already_completed_discovery(
     flagged_by: str,
 ) -> None:
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    change_id = archive_info.get("change_id") or artifact_dir.name
-    ticket = archive_info.get("ticket_id") or "N/A"
-    archive_path = archive_info.get("archive_path") or ""
-    completed_at = archive_info.get("completed_at") or "unknown"
-    body = f"""---
-feature-id: {change_id}
-linear-ticket: {ticket}
----
-
-# Discovery Brief: Feature already completed (rerun short-circuit)
-
-## Feature Summary
-
-This change was already completed and archived. The workflow driver detected a
-rerun (`orchestrator run`) and stopped before redoing explore/design work.
-Flagged by: **{flagged_by}**.
-
-Prior completion: `{archive_path}` (completed_at: {completed_at}).
-
-## Personas & Actors
-
-N/A — no new work performed on this rerun.
-
-## Use Cases
-
-### Happy Path
-
-UC-1: Operator reruns a completed ticket — system reports prior archive and exits
-without re-implementing.
-
-### Error & Edge Cases
-
-N/A
-
-## Scope
-
-### In Scope
-
-- Detect archived completion and close the workflow loop.
-
-### Out of Scope
-
-- Re-implementation or artifact refresh on this rerun.
-
-## UI Direction
-
-N/A — no UI components.
-
-## Key Decisions
-
-- Reuse archived state as source of truth for completion metadata.
-
-## Open Questions
-
-- None
-"""
+    template = _DISCOVERY_TEMPLATE_PATH.read_text(encoding="utf-8")
+    body = template.format(
+        change_id=archive_info.get("change_id") or artifact_dir.name,
+        ticket=archive_info.get("ticket_id") or "N/A",
+        archive_path=archive_info.get("archive_path") or "",
+        completed_at=archive_info.get("completed_at") or "unknown",
+        flagged_by=flagged_by,
+    )
     (artifact_dir / "discovery.md").write_text(body, encoding="utf-8")
 
 
