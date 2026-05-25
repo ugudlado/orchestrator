@@ -5,6 +5,7 @@ agents:
   architect:         { model: opus,   subprocess: claude }
   ideator:           { model: opus,   subprocess: claude }
   reviewer:          { model: sonnet, subprocess: claude }
+  # subprocess pi uses its own --provider/--model; sonnet tier is fallback billing only.
   developer:         { model: sonnet, subprocess: pi }
   discoverer:        { model: sonnet, subprocess: claude }
   workflow-learner:  { model: sonnet, subprocess: claude }

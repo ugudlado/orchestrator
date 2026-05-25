@@ -48,6 +48,20 @@ if [ -z "${REPO_ROOT:-}" ] || [ ! -f "$REPO_ROOT/spec/project.yaml" ]; then
   REPO_ROOT="$(_find_repo_root "$STATE_YAML")" || REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "$STATE_YAML")/../.." && pwd)}"
 fi
 
+# Config files (tools.yaml, routes) come from the orchestrator repo in state.yaml,
+# not the worktree checkout where state.yaml may live (worktree often has a stale
+# config/ copy).
+CONFIG_REPO_ROOT=$(python3 -c "
+import yaml
+from pathlib import Path
+p = Path('$STATE_YAML')
+s = yaml.safe_load(p.read_text(encoding='utf-8')) or {}
+print(s.get('repo_root', '') or '')
+" 2>/dev/null || echo "")
+if [ -z "$CONFIG_REPO_ROOT" ] || [ ! -f "$CONFIG_REPO_ROOT/spec/project.yaml" ]; then
+  CONFIG_REPO_ROOT="$REPO_ROOT"
+fi
+
 # Resolve ORCHESTRATOR_HOME
 ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
 
@@ -63,8 +77,8 @@ source "$SCRIPT_DIR/lib/agent-routes.sh"
 # -----------------------------------------------------------------------
 resolve_config() {
   local name="$1"
-  local repo_override="$REPO_ROOT/.orchestrator/config/$name"
-  local repo_config="$REPO_ROOT/config/$name"
+  local repo_override="$CONFIG_REPO_ROOT/.orchestrator/config/$name"
+  local repo_config="$CONFIG_REPO_ROOT/config/$name"
   local global_config="$ORCHESTRATOR_HOME/config/$name"
 
   if [ -f "$repo_override" ]; then
@@ -79,6 +93,9 @@ resolve_config() {
 }
 
 TOOLS_YAML=$(resolve_config "tools.yaml")
+if [ -z "$TOOLS_YAML" ] && [ -f "$SCRIPT_DIR/../config/tools.yaml" ]; then
+  TOOLS_YAML="$(cd "$SCRIPT_DIR/../config" && pwd)/tools.yaml"
+fi
 ROUTES_YAML=$(resolve_config "scripts/routes.yaml")
 # Fall back to worktree scripts/routes.yaml
 if [ -z "$ROUTES_YAML" ] && [ -f "$SCRIPT_DIR/routes.yaml" ]; then
@@ -242,38 +259,75 @@ invoke_tool() {
   local prompt_file="$4"
   local stdout_path="$5"
   local stderr_path="$6"
+  local work_dir="${7:-}"
 
-  python3 - "$tool_name" "$tool_binary" "$prompt" "$prompt_file" "$stdout_path" "$stderr_path" "$TOOLS_YAML" <<'PY'
-import json, subprocess, sys
+  python3 - "$tool_name" "$tool_binary" "$prompt" "$prompt_file" "$stdout_path" "$stderr_path" "$TOOLS_YAML" "$work_dir" <<'PY'
+import json, os, subprocess, sys
 from pathlib import Path
 import yaml
 
-tool_name, binary, prompt, prompt_file, stdout_path, stderr_path, tools_path = sys.argv[1:8]
+tool_name, binary, prompt, prompt_file, stdout_path, stderr_path, tools_path, work_dir = sys.argv[1:9]
 template = []
 if tools_path and Path(tools_path).is_file():
     with open(tools_path) as f:
         cfg = yaml.safe_load(f) or {}
     template = (cfg.get("tools") or {}).get(tool_name, {}).get("args_template") or []
 
+
+def _expand_arg(arg: str) -> str:
+    if "{prompt_file}" in arg:
+        return arg.replace("{prompt_file}", prompt_file)
+    if arg == "{prompt}":
+        return prompt
+    return str(arg)
+
+
+def _pi_settings_flags() -> list[str]:
+    """Honor interactive pi defaults (defaultProvider/defaultModel in settings.json)."""
+    settings_path = Path.home() / ".pi" / "agent" / "settings.json"
+    if not settings_path.is_file():
+        return []
+    try:
+        settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    flags: list[str] = []
+    provider = settings.get("defaultProvider")
+    model = settings.get("defaultModel")
+    thinking = settings.get("defaultThinkingLevel")
+    if provider:
+        flags.extend(["--provider", str(provider)])
+    if model:
+        flags.extend(["--model", str(model)])
+    if thinking:
+        flags.extend(["--thinking", str(thinking)])
+    return flags
+
+
 argv = [binary]
 for arg in template:
-    if arg == "{prompt}":
-        argv.append(prompt)
-    elif arg == "{prompt_file}":
-        argv.append(prompt_file)
-    else:
-        argv.append(str(arg))
+    argv.append(_expand_arg(arg))
 
 if len(argv) == 1:
     if tool_name == "claude":
         argv.extend(["-p", prompt])
     elif tool_name == "pi":
-        argv.extend(["run", "--prompt-file", prompt_file])
+        argv.extend(_pi_settings_flags())
+        argv.extend([f"@{prompt_file}", "-p", "."])
     else:
         argv.append(prompt)
 
+if tool_name == "pi":
+    flags = _pi_settings_flags()
+    if flags and "--provider" not in argv:
+        argv = [argv[0]] + flags + argv[1:]
+
+cwd = work_dir if work_dir and Path(work_dir).is_dir() else None
+env = os.environ.copy()
+env.setdefault("PI_CODING_AGENT_DIR", str(Path.home() / ".pi" / "agent"))
+
 with open(stdout_path, "w") as out, open(stderr_path, "w") as err:
-    proc = subprocess.run(argv, stdout=out, stderr=err)
+    proc = subprocess.run(argv, stdout=out, stderr=err, cwd=cwd, env=env)
 sys.exit(proc.returncode)
 PY
 }
@@ -574,8 +628,20 @@ print(json.dumps(payload))
       if [ -n "$ROUTES_YAML" ] && [ -f "$ROUTES_YAML" ]; then
         MODEL_TIER=$(agent_routes_resolve_model "$AGENT" "$ROUTES_YAML")
       fi
-      if [ -n "$MODEL_TIER" ]; then
-        echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)  model=$MODEL_TIER" >&2
+      # routes.yaml "model" is the Claude billing tier (opus/sonnet/haiku), not the
+      # subprocess LLM — only show it when the tool is claude.
+      if [ -n "$MODEL_TIER" ] && [ "$TOOL_NAME" = "claude" ]; then
+        echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)  tier=$MODEL_TIER" >&2
+      elif [ "$TOOL_NAME" = "pi" ]; then
+        PI_PROV=$(python3 -c "import json; from pathlib import Path; p=Path.home()/'.pi/agent/settings.json';
+print((json.loads(p.read_text()) if p.is_file() else {}).get('defaultProvider','') or '')" 2>/dev/null || echo "")
+        PI_MOD=$(python3 -c "import json; from pathlib import Path; p=Path.home()/'.pi/agent/settings.json';
+print((json.loads(p.read_text()) if p.is_file() else {}).get('defaultModel','') or '')" 2>/dev/null || echo "")
+        if [ -n "$PI_PROV" ] && [ -n "$PI_MOD" ]; then
+          echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)  provider=$PI_PROV  model=$PI_MOD" >&2
+        else
+          echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)" >&2
+        fi
       else
         echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)" >&2
       fi
@@ -619,13 +685,23 @@ PY
       PROMPT_FILE="$TMP_DIR/prompt_${STEP_ID}.txt"
       echo "$PROMPT" > "$PROMPT_FILE"
 
+      AGENT_WORK_DIR="$REPO_ROOT"
+      WORKTREE_PATH=$(echo "$WORKFLOW_META" | sed -n 's/^worktree_path=//p' | head -1)
+      if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
+        AGENT_WORK_DIR="$WORKTREE_PATH"
+      fi
+
       TOOL_EXIT=0
       TOOL_STDOUT="$TMP_DIR/tool_stdout_${STEP_ID}.txt"
       invoke_tool "$TOOL_NAME" "$TOOL_BINARY" "$PROMPT" "$PROMPT_FILE" \
-        "$TOOL_STDOUT" "$TMP_DIR/tool_stderr_${STEP_ID}.txt" || TOOL_EXIT=$?
+        "$TOOL_STDOUT" "$TMP_DIR/tool_stderr_${STEP_ID}.txt" "$AGENT_WORK_DIR" || TOOL_EXIT=$?
 
       if [ "$TOOL_EXIT" -ne 0 ]; then
         echo "WARN: tool '$TOOL_BINARY' exited $TOOL_EXIT" >&2
+        if [ -s "$TMP_DIR/tool_stderr_${STEP_ID}.txt" ]; then
+          echo "[$(_log_ts)]   tool stderr (last 8 lines):" >&2
+          tail -8 "$TMP_DIR/tool_stderr_${STEP_ID}.txt" >&2
+        fi
         # Record failure via orchestrator done
         DONE_PAYLOAD=$(python3 -c "
 import json

@@ -9,8 +9,8 @@ tools:
 
   pi:
     binary: pi
-    # {prompt_file} is substituted with path to a temp file containing the prompt
-    args_template: ["run", "--prompt-file", "{prompt_file}"]
+    # Non-interactive: use saved ~/.pi/agent/settings.json (provider/model) + @prompt file.
+    args_template: ["@{prompt_file}", "-p", "."]
     stdin: none
     capture: stdout
 
