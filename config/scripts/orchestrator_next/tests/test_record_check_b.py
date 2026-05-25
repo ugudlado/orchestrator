@@ -171,8 +171,11 @@ class TestCheckBTightening:
         )
         assert result.get("reason") == "agent_step_missing_usage"
 
-    def test_prefill_from_newest_driver_jsonl_before_check_b(self, tmp_path, monkeypatch):
-        """Shell-loop claude -p: zero driver usage + repo JSONL → Check B passes."""
+    def test_zero_usage_no_longer_prefilled_from_newest_jsonl(self, tmp_path, monkeypatch):
+        """Agents must self-report usage. The newest-JSONL prefill is removed
+        because it misattributed unrelated Claude Code session totals to
+        cursor/pi/codex steps when a user's interactive session happened to
+        be the newest JSONL in the slug dir."""
         repo = tmp_path / "repo"
         repo.mkdir()
         (repo / "spec").mkdir()
@@ -210,5 +213,7 @@ class TestCheckBTightening:
             "usage": {"input_tokens": 0, "output_tokens": 0},
         }
         result, exit_code = record(str(state_path), payload)
-        assert exit_code == 0, f"expected success, got {exit_code}: {result}"
-        assert payload["usage"]["input_tokens"] == 42
+        assert exit_code == 3, f"expected check_b rejection, got {exit_code}: {result}"
+        assert result.get("reason") == "agent_step_missing_usage"
+        # Payload usage must NOT have been mutated from the slug-dir JSONL
+        assert payload["usage"]["input_tokens"] == 0

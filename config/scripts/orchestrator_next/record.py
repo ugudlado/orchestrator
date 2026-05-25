@@ -77,68 +77,6 @@ def _usage_has_tokens(usage: dict[str, Any]) -> bool:
     )
 
 
-def _try_prefill_usage_from_jsonl(repo_root: str, payload: dict[str, Any]) -> bool:
-    """Best-effort billing-truth usage before Check B (shell loop / claude -p path).
-
-    Mutates payload['usage'] when JSONL is found. Returns True if tokens > 0.
-    """
-    if not repo_root:
-        return False
-    try:
-        from orchestrator_next.jsonl_usage import (
-            _repo_slug,
-            extract_agent_usage,
-            extract_driver_usage,
-        )
-    except ImportError:
-        return False
-
-    usage: dict[str, Any] = dict(payload.get("usage") or {})
-    agent_id = _resolve_agent_id(payload)
-    if agent_id:
-        jsonl_usage = extract_agent_usage(repo_root, agent_id)
-        for key in (
-            "input_tokens",
-            "output_tokens",
-            "cache_read_input_tokens",
-            "cache_creation_input_tokens",
-            "model",
-            "turns",
-            "duration_ms",
-            "tool_calls",
-        ):
-            if jsonl_usage.get(key) is not None:
-                usage[key] = jsonl_usage[key]
-        if _usage_has_tokens(usage):
-            payload["usage"] = usage
-            return True
-
-    slug_dir = Path.home() / ".claude" / "projects" / _repo_slug(repo_root)
-    if not slug_dir.is_dir():
-        return False
-    jsonl_files = [p for p in slug_dir.glob("*.jsonl") if p.is_file()]
-    if not jsonl_files:
-        return False
-    newest = max(jsonl_files, key=lambda p: p.stat().st_mtime)
-    jsonl_usage = extract_driver_usage(repo_root, newest.stem)
-    for key in (
-        "input_tokens",
-        "output_tokens",
-        "cache_read_input_tokens",
-        "cache_creation_input_tokens",
-        "model",
-        "turns",
-        "duration_ms",
-        "tool_calls",
-    ):
-        if jsonl_usage.get(key) is not None:
-            usage[key] = jsonl_usage[key]
-    if _usage_has_tokens(usage):
-        payload["usage"] = usage
-        return True
-    return False
-
-
 def _validate_phase_review_output(
     step_id: str, outputs: dict[str, Any]
 ) -> tuple[dict[str, Any], int] | None:
@@ -1512,18 +1450,8 @@ def record(
     if status == "completed" and agent != "inline":
         has_tokens = _usage_has_tokens(payload_usage)
         if not has_tokens:
-            try:
-                _repo_for_jsonl = (
-                    yaml.safe_load(Path(state_yaml_path).read_text()) or {}
-                ).get("repo_root") or ""
-            except (OSError, yaml.YAMLError):
-                _repo_for_jsonl = ""
-            if _try_prefill_usage_from_jsonl(_repo_for_jsonl, payload):
-                payload_usage = payload.get("usage") or {}
-                has_tokens = _usage_has_tokens(payload_usage)
-        if not has_tokens:
             if agent_task_result and resolved_agent_id:
-                pass  # JSONL enrichment below supplies billing-truth usage
+                pass  # subagent JSONL enrichment below supplies billing-truth usage
             elif agent_task_result:
                 return (
                     {
@@ -1544,9 +1472,9 @@ def record(
                         "step_id": step_id,
                         "agent": agent,
                         "hint": (
-                            "agent steps must record usage.input_tokens or "
-                            "usage.output_tokens > 0, or pass agent_task_result "
-                            "with an agentId line for JSONL enrichment"
+                            "agent steps must self-report usage in the done payload: "
+                            "set usage.input_tokens / usage.output_tokens, or pass "
+                            "agent_task_result with an agentId line for subagent JSONL enrichment"
                         ),
                     },
                     3,
