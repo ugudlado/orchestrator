@@ -115,7 +115,7 @@ When the reviewer rejects:
 - **Tests fail**: Use `systematic-debugging` skill — no guess-fixes
 - **Build fails**: Read error output, trace the issue, fix root cause
 - **Design conflict**: Escalate to architect — see `config/steps/contracts/architect-escalation.md` for when to escalate and the required output block. Do NOT guess or silently deviate from design.md.
-- **After max_retry_rounds attempts**: Escalate to orchestrator with what you tried and why it didn't work
+- **Retry / escalation on verification failure**: Follow `config/steps/contracts/error-recovery.md § Escalation Protocol` — do not restate the protocol inline.
 
 ## State Updates
 
