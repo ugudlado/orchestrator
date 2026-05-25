@@ -275,6 +275,10 @@ PY
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+_log_ts() {
+  date -u +%H:%M:%S
+}
+
 while true; do
   # Poll ticket lane before each dispatch (reviewer may have moved ticket back)
   reconcile_ticket_before_next
@@ -320,6 +324,7 @@ print(d.get('change_id',''))
 
   # Inline script steps run inside bin/orchestrator (exit 0, no JSON on stdout).
   if [ -z "$(printf '%s' "$ACTION_JSON" | tr -d '[:space:]')" ]; then
+    echo "[$(_log_ts)]   inline step finished inside orchestrator; continuing loop" >&2
     continue
   fi
 
@@ -335,6 +340,8 @@ print(d.get('change_id',''))
   AGENT=$(echo "$ACTION_JSON" | jq -r '.agent // "developer"')
   ATTEMPT=$(echo "$ACTION_JSON" | jq -r '.attempt // 1')
   STARTED_AT=$(echo "$ACTION_JSON" | jq -r '.started_at // empty')
+
+  echo "[$(_log_ts)] → $STEP_ID  phase=$PHASE  kind=$KIND  agent=$AGENT  attempt=$ATTEMPT" >&2
 
   # -----------------------------------------------------------------------
   # Dispatch on kind
@@ -360,6 +367,8 @@ for k, v in env.items():
     print(f'{k}={v}')
 " 2>/dev/null | tr '\n' ' ')
       fi
+
+      echo "[$(_log_ts)]   run: $SCRIPT_PATH" >&2
 
       SCRIPT_EXIT=0
       if [ -n "$ENV_ARGS" ]; then
@@ -388,6 +397,7 @@ if '$STARTED_AT':
 print(json.dumps(payload))
 ")
       if echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML"; then
+        echo "[$(_log_ts)] ✓ $STEP_ID  done  status=$STATUS" >&2
         if [ "$STATUS" = "completed" ]; then
           sync_ticket_after_step "$STEP_ID"
         fi
@@ -417,6 +427,8 @@ print(json.dumps(payload))
         echo "ERROR: tool binary '$TOOL_BINARY' not found in PATH (agent='$AGENT', tool='$TOOL_NAME')" >&2
         exit 4
       fi
+
+      echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)" >&2
 
       # Build the prompt (ticket body + change_id so diagnose/implement agents have a target)
       TICKET_CONTEXT=""
@@ -504,6 +516,7 @@ print(json.dumps(payload))
 
       if echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML"; then
         DONE_STATUS=$(echo "$DONE_PAYLOAD" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','completed'))" 2>/dev/null || echo "completed")
+        echo "[$(_log_ts)] ✓ $STEP_ID  done  status=$DONE_STATUS" >&2
         if [ "$DONE_STATUS" = "completed" ] || [ "$DONE_STATUS" = "recovered" ]; then
           sync_ticket_after_step "$STEP_ID"
         fi
