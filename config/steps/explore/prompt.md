@@ -1,3 +1,9 @@
+0. **Rerun guard (do this first):** Under `$REPO_ROOT/spec/changes/archive/`, check whether
+   this change already completed (`status: completed` or `mark-change-completed` in
+   archived `state.yaml` for the same `change_id` / ticket). If yes, write a short
+   `discovery.md` noting the prior `archive_path`, then return COMPLETION with
+   `outputs.discovery_result: {already_completed: true, archive_path: "...", path: "discovery.md"}`
+   and `artifacts: [discovery.md]`. Do not redo codebase survey.
 1. Search the codebase for files, patterns, and modules relevant to the description.
    Read architecture from spec/project.yaml and directly related source files.
    Do NOT web-search unless the description explicitly references external technology.
