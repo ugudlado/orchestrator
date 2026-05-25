@@ -2,13 +2,15 @@
 # model:      in-process sub-agent model tier (used by Claude Code host)
 # subprocess: tool binary for shell loop (run-workflow.sh)
 agents:
-  architect:    { model: opus,   subprocess: claude }
-  ideator:      { model: opus,   subprocess: claude }
-  reviewer:     { model: sonnet, subprocess: claude }
-  developer:    { model: sonnet, subprocess: cursor }
-  discoverer:   { model: sonnet, subprocess: claude }
-  sonnet-agent: { model: sonnet, subprocess: claude }
-  haiku-agent:  { model: haiku,  subprocess: claude }
+  architect:         { model: opus,   subprocess: claude }
+  ideator:           { model: opus,   subprocess: claude }
+  reviewer:          { model: sonnet, subprocess: claude }
+  developer:         { model: sonnet, subprocess: pi }
+  discoverer:        { model: sonnet, subprocess: claude }
+  workflow-learner:  { model: sonnet, subprocess: claude }
+  ux-reviewer:       { model: sonnet, subprocess: claude }
+  sonnet-agent:      { model: sonnet, subprocess: claude }
+  haiku-agent:       { model: haiku,  subprocess: claude }
 
 # Model backends — map model tier to concrete model-id
 # Keys match agents.<agent>.model values above

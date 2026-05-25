@@ -13,6 +13,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_WORKFLOW="$SCRIPT_DIR/run-workflow.sh"
+# shellcheck source=lib/agent-routes.sh
+source "$SCRIPT_DIR/lib/agent-routes.sh"
 SEED_STATE="${ORCHESTRATOR_HOME:-}/skills/orchestrate/scripts/seed-state.sh"
 # When invoked from a dev checkout, prefer repo-local seed + scripts
 _WORKTREE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -23,14 +25,21 @@ fi
 TICKET_ID=""
 SCHEMA="feature"
 REPO_ROOT_ARG=""
+ROUTES_OVERRIDE_ARG=""
+AGENTS_CONFIG_ARG=""
 FLAG_OVERRIDES=()
+AGENT_ROUTE_FLAGS=()
 
 usage() {
-  echo "Usage: orchestrator run <ticket-id> [--schema feature|bugfix] [--repo PATH] [flag=value ...]" >&2
+  echo "Usage: orchestrator run <ticket-id> [--schema feature|bugfix] [--repo PATH] [--routes-override FILE] [--agents-config FILE] [flag=value ...]" >&2
   echo "  Examples:" >&2
   echo "    orchestrator run ORC-83" >&2
   echo "    orchestrator run HL-287 --schema bugfix" >&2
   echo "    orchestrator run 42 --repo /path/to/app worktree=true" >&2
+  echo "    orchestrator run ORC-84 --agents-config ./agents.config.yaml" >&2
+  echo "    orchestrator run ORC-84 agents.config=./agents.config.yaml" >&2
+  echo "    orchestrator run ORC-84 agent.developer.subprocess=cursor" >&2
+  echo "    orchestrator run ORC-84 --routes-override ./my-routes.yaml" >&2
   exit 7
 }
 
@@ -46,6 +55,16 @@ while [ $# -gt 0 ]; do
       REPO_ROOT_ARG="$2"
       shift 2
       ;;
+    --routes-override)
+      [ $# -ge 2 ] || usage
+      ROUTES_OVERRIDE_ARG="$2"
+      shift 2
+      ;;
+    --agents-config)
+      [ $# -ge 2 ] || usage
+      AGENTS_CONFIG_ARG="$2"
+      shift 2
+      ;;
     --help|-h)
       usage
       ;;
@@ -58,7 +77,13 @@ while [ $# -gt 0 ]; do
         TICKET_ID="$1"
         shift
       elif [[ "$1" == *"="* ]]; then
-        FLAG_OVERRIDES+=("$1")
+        if [[ "$1" =~ ^agent\.[a-zA-Z0-9_-]+\.(subprocess|model)= ]]; then
+          AGENT_ROUTE_FLAGS+=("$1")
+        elif [[ "$1" =~ ^agents\.config= ]]; then
+          AGENTS_CONFIG_ARG="${1#agents.config=}"
+        else
+          FLAG_OVERRIDES+=("$1")
+        fi
         shift
       else
         echo "ERROR: unexpected argument: $1" >&2
@@ -151,6 +176,15 @@ if [ -z "$STATE_YAML" ] || [ ! -f "$STATE_YAML" ]; then
   STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG" 2>/dev/null || true)"
 fi
 
+# Completed feature already archived — do not seed a fresh rerun.
+_ARCHIVE_PROBE=$(PYTHONPATH="${_WORKTREE_ROOT}/config/scripts:${PYTHONPATH:-}" \
+  python3 -m orchestrator_next.archive_completion probe "$REPO_ROOT" "$TICKET_SLUG" "$TICKET_ID" 2>/dev/null | tail -1)
+_ARCHIVE_ACTION=$(echo "$_ARCHIVE_PROBE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('action','continue'))" 2>/dev/null || echo "continue")
+if [ "$_ARCHIVE_ACTION" = "halt_complete" ] && [ ! -f "${STATE_YAML:-}" ]; then
+  echo "$_ARCHIVE_PROBE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','Feature already completed.'))" >&2
+  exit 1
+fi
+
 if [ ! -f "${STATE_YAML:-}" ]; then
   if [ ! -f "$SEED_STATE" ]; then
     echo "ERROR: no state.yaml for $TICKET_SLUG and seed-state.sh missing at $SEED_STATE" >&2
@@ -165,6 +199,30 @@ fi
 if [ ! -f "$STATE_YAML" ]; then
   echo "ERROR: state.yaml not found at $STATE_YAML after seed" >&2
   exit 7
+fi
+
+if [ -n "$ROUTES_OVERRIDE_ARG" ]; then
+  if [ ! -f "$ROUTES_OVERRIDE_ARG" ]; then
+    echo "ERROR: --routes-override file not found: $ROUTES_OVERRIDE_ARG" >&2
+    exit 7
+  fi
+  export ORCHESTRATOR_ROUTES_YAML
+  ORCHESTRATOR_ROUTES_YAML=$(agent_routes_abs_path "$ROUTES_OVERRIDE_ARG")
+  export ORCHESTRATOR_ROUTES_YAML
+fi
+
+if [ -n "$AGENTS_CONFIG_ARG" ]; then
+  if ! ORCHESTRATOR_AGENTS_CONFIG=$(agent_routes_abs_path "$AGENTS_CONFIG_ARG"); then
+    echo "ERROR: --agents-config file not found: $AGENTS_CONFIG_ARG" >&2
+    exit 7
+  fi
+  export ORCHESTRATOR_AGENTS_CONFIG
+fi
+
+if [ "${#AGENT_ROUTE_FLAGS[@]}" -gt 0 ]; then
+  export ORCHESTRATOR_AGENT_ROUTE_OVERRIDES
+  ORCHESTRATOR_AGENT_ROUTE_OVERRIDES=$(agent_routes_build_overrides_from_flags "${AGENT_ROUTE_FLAGS[@]}")
+  export ORCHESTRATOR_AGENT_ROUTE_OVERRIDES
 fi
 
 echo "Running shell workflow: ticket=$TICKET_ID state=$STATE_YAML" >&2

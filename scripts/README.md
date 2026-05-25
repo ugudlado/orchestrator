@@ -157,6 +157,8 @@ execute → `orchestrator done` loop without an LLM in the dispatch path.
 orchestrator run ORC-83
 orchestrator run HL-287 --schema bugfix
 orchestrator run 42 --repo /path/to/app worktree=true
+orchestrator run ORC-84 agent.developer.subprocess=cursor
+orchestrator run ORC-84 --routes-override ./my-routes.yaml
 ```
 
 **Lower-level (when you already have state.yaml):**
@@ -178,26 +180,59 @@ To route `developer` through another tool, set `agents.<role>.subprocess` in
 `scripts/routes.yaml` (or repo copy under `.orchestrator/config/scripts/routes.yaml`).
 Supported tools are defined in `config/tools.yaml` (`claude`, `pi`, `codex`, `cursor`).
 
-**Cursor Agent CLI (default for `developer` on main):**
+**Pi coding agent (default for `developer` on main):**
 
 ```yaml
 # scripts/routes.yaml
 agents:
-  developer: { model: sonnet, subprocess: cursor }
+  developer: { model: sonnet, subprocess: pi }
 ```
 
 ```yaml
-# config/tools.yaml (already ships cursor entry)
-cursor:
-  binary: cursor
-  args_template: ["agent", "--print", "--force", "--output-format", "text", "{prompt}"]
+# config/tools.yaml (pi entry)
+pi:
+  binary: pi
+  args_template: ["run", "--prompt-file", "{prompt_file}"]
 ```
 
-Requirements: `cursor` on PATH (`cursor agent --help` works), authenticated session
-(`cursor agent login` or `CURSOR_API_KEY`). The subprocess must print a `COMPLETION:` YAML
-block on stdout; `run-workflow.sh` appends that requirement to every agent prompt.
+Requirements: `pi` on PATH. The subprocess must print a `COMPLETION:` YAML block on stdout;
+`run-workflow.sh` appends that requirement to every agent prompt.
 
-To use Claude Code instead: `agents.developer.subprocess: claude`.
+**Runtime agent routing (per run, no repo edit):**
+
+Precedence per field: `agent.<role>.<field>=` CLI → `--agents-config` file → `routes.yaml`.
+
+```bash
+# YAML overlay (same agents: block as routes.yaml)
+orchestrator run ORC-84 --agents-config ./agents.config.yaml
+orchestrator run ORC-84 agents.config=./agents.config.yaml
+
+# One-off field overrides (win over agents.config)
+orchestrator run ORC-84 agent.developer.subprocess=cursor
+
+# Replace full routes file for this run
+orchestrator run ORC-84 --routes-override /path/to/routes.yaml
+```
+
+Example `agents.config.yaml` (see `scripts/agents.config.example.yaml`):
+
+```yaml
+agents:
+  developer: { model: sonnet, subprocess: pi }
+  reviewer:  { model: sonnet, subprocess: claude }
+```
+
+`agent.*` and `agents.config` are **not** written to `state.yaml`. Workflow flags like
+`worktree=true` still go to seed-state.
+
+Direct `run-workflow.sh`:
+
+```bash
+export ORCHESTRATOR_AGENTS_CONFIG=/path/to/agents.config.yaml
+# optional fine-grained overrides on top of the file:
+export ORCHESTRATOR_AGENT_ROUTE_OVERRIDES='{"developer":{"subprocess":"cursor"}}'
+scripts/run-workflow.sh spec/changes/my-feat/state.yaml ORC-84
+```
 
 ### Override semantics
 
