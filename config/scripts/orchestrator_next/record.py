@@ -182,6 +182,19 @@ _REWORK_VERDICTS = frozenset({"needs_work", "incomplete_phase"})
 # sets 8, so this only fires on a misconfigured repo / test fixture.
 _DEFAULT_MAX_RETRY_ROUNDS = 3
 
+# Map every payload `status` the driver may send to the state.yaml.status it
+# implies (None = no state-level change). Single source of truth for both
+# validation and FR-2 halt semantics — keeping them in one dict prevents the
+# two from drifting as new terminal statuses are added.
+_STATUS_TO_STATE_STATUS: dict[str, str | None] = {
+    "completed": None,
+    "recovered": None,
+    "abandoned": "blocked",
+    "failed": "blocked",
+    "blocked": "blocked",
+    "escalate_to_architect": "blocked",
+}
+
 
 def _coerce_payload_outputs(raw: Any) -> dict[str, Any]:
     """Normalize payload.outputs to a mapping for step_history evidence."""
@@ -1415,20 +1428,12 @@ def record(
     # status is optional; default 'completed' for backward compat (FR-2).
     status = payload.get("status", "completed")
 
-    _VALID_STATUSES = {
-        "completed",
-        "recovered",
-        "abandoned",
-        "failed",
-        "blocked",
-        "escalate_to_architect",
-    }
-    if status not in _VALID_STATUSES:
+    if status not in _STATUS_TO_STATE_STATUS:
         return (
             {
                 "reason": "invalid_status",
                 "status": status,
-                "valid_statuses": sorted(_VALID_STATUSES),
+                "valid_statuses": sorted(_STATUS_TO_STATE_STATUS),
             },
             3,
         )
@@ -1669,9 +1674,10 @@ def record(
     history.append(entry)
     state_raw["step_history"] = history
 
-    # FR-2: terminal halt statuses → set state.yaml.status = blocked
-    if status in ("abandoned", "blocked", "escalate_to_architect"):
-        state_raw["status"] = "blocked"
+    # FR-2: terminal halt statuses → set state.yaml.status per _STATUS_TO_STATE_STATUS.
+    new_state_status = _STATUS_TO_STATE_STATUS.get(status)
+    if new_state_status:
+        state_raw["status"] = new_state_status
 
     # ORC-63: flip the node's status in workflow_plan via the shared mutator.
     # A repeat_until step whose predicate is still False stays `in_progress`
