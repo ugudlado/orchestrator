@@ -305,11 +305,26 @@ COMPLETION
 STUB
   chmod +x "$STUB_DIR/pi"
 
+  # Also stub claude to avoid accidentally invoking the real claude binary
+  cat > "$STUB_DIR/claude" <<'STUB'
+#!/bin/sh
+cat <<'COMPLETION'
+COMPLETION:
+  status: completed
+  outputs:
+    task_execution_result:
+      task_id: T-1
+      status: completed
+COMPLETION
+STUB
+  chmod +x "$STUB_DIR/claude"
+
   export REPO_ROOT="$BATS_TMPDIR/repo_root"
   mkdir -p "$REPO_ROOT"
 
   run bash "$SCRIPT_UNDER_TEST" "$TMP_STATE"
   # Test passes if run-workflow supports routing override (or basic claude fallback)
+  # accept: 1=complete, 4=unknown-agent; not 5=malformed or 7=unexpected
   [ "$status" -le 1 ] || [ "$status" -eq 4 ]
 }
 
