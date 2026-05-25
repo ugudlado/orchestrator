@@ -96,6 +96,150 @@ class TestCheckB:
         assert exit_code == 0, f"Expected exit_code 0, got {exit_code}: {result}"
         assert "step_id" in result  # recorded response contains step_id
 
+    def test_supplements_updated_artifact_set_from_output_keys(self, tmp_path, monkeypatch):
+        """Missing updated_artifact_set and artifacts — infer from design.md/tasks.yaml keys."""
+        empty = tmp_path / "empty_contracts"
+        step_dir = empty / "design-and-draft-artifacts"
+        step_dir.mkdir(exist_ok=True)
+        (step_dir / "contract.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "id": "design-and-draft-artifacts",
+                    "kind": "agent",
+                    "agent": "architect",
+                    "inputs": [],
+                    "outputs": [
+                        "updated_artifact_set",
+                        "design_direction",
+                        "complexity",
+                        {"name": "design", "path": "spec/changes/<slug>/design.md"},
+                        {"name": "tasks", "path": "spec/changes/<slug>/tasks.yaml"},
+                    ],
+                }
+            )
+        )
+        (step_dir / "prompt.md").write_text("# test\n")
+        monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(empty))
+
+        change_dir = tmp_path / "wt" / "spec" / "changes" / "orc-7"
+        change_dir.mkdir(parents=True)
+        (change_dir / "design.md").write_text("# design\n")
+        (change_dir / "tasks.yaml").write_text("version: 1\ntasks: []\n")
+
+        state = {
+            "change_id": "orc-7",
+            "phase": "main",
+            "repo_root": str(tmp_path),
+            "worktree_path": str(tmp_path / "wt"),
+            "workflow_plan": {"main": {"nodes": [], "filtered": []}},
+            "step_history": [],
+        }
+        state_path = tmp_path / "state.yaml"
+        state_path.write_text(yaml.safe_dump(state, sort_keys=False))
+
+        payload = {
+            "step_id": "design-and-draft-artifacts",
+            "phase": "main",
+            "status": "completed",
+            "agent": "architect",
+            "outputs": {
+                "design.md": "spec/changes/orc-7/design.md",
+                "tasks.yaml": "spec/changes/orc-7/tasks.yaml",
+                "design_direction": "Approach A",
+                "complexity": "S",
+            },
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+        result, exit_code = record(str(state_path), payload)
+        assert exit_code == 0, f"expected 0, got {exit_code}: {result}"
+        entry = yaml.safe_load(state_path.read_text())["step_history"][-1]
+        assert entry["evidence"]["outputs"]["updated_artifact_set"] == [
+            "design.md",
+            "tasks.yaml",
+        ]
+
+    def test_supplements_updated_artifact_set_from_artifacts(self, tmp_path, monkeypatch):
+        """Missing updated_artifact_set but artifacts list present → record succeeds."""
+        empty = tmp_path / "empty_contracts"  # created by isolate_contracts fixture
+        step_dir = empty / "design-and-draft-artifacts"
+        step_dir.mkdir(exist_ok=True)
+        (step_dir / "contract.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "id": "design-and-draft-artifacts",
+                    "kind": "agent",
+                    "agent": "architect",
+                    "inputs": [],
+                    "outputs": [
+                        "updated_artifact_set",
+                        "design_direction",
+                        "complexity",
+                        {"name": "design", "path": "spec/changes/<slug>/design.md"},
+                        {"name": "tasks", "path": "spec/changes/<slug>/tasks.yaml"},
+                    ],
+                }
+            )
+        )
+        (step_dir / "prompt.md").write_text("# test\n")
+        monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(empty))
+
+        change_dir = tmp_path / "wt" / "spec" / "changes" / "orc-7"
+        change_dir.mkdir(parents=True)
+        (change_dir / "design.md").write_text("# design\n")
+        (change_dir / "tasks.yaml").write_text("version: 1\ntasks: []\n")
+
+        state = {
+            "change_id": "orc-7",
+            "phase": "main",
+            "repo_root": str(tmp_path),
+            "worktree_path": str(tmp_path / "wt"),
+            "workflow_plan": {"main": {"nodes": [], "filtered": []}},
+            "step_history": [],
+        }
+        state_path = tmp_path / "state.yaml"
+        state_path.write_text(yaml.safe_dump(state, sort_keys=False))
+
+        payload = {
+            "step_id": "design-and-draft-artifacts",
+            "phase": "main",
+            "status": "completed",
+            "agent": "architect",
+            "outputs": {
+                "design.md": "spec/changes/orc-7/design.md",
+                "tasks.yaml": "spec/changes/orc-7/tasks.yaml",
+                "design_direction": "Approach A",
+                "complexity": "S",
+            },
+            "artifacts": ["design.md", "tasks.yaml"],
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+        result, exit_code = record(str(state_path), payload)
+        assert exit_code == 0, f"expected 0, got {exit_code}: {result}"
+        entry = yaml.safe_load(state_path.read_text())["step_history"][-1]
+        assert entry["evidence"]["outputs"]["updated_artifact_set"] == [
+            "design.md",
+            "tasks.yaml",
+        ]
+
+    def test_accepts_evidence_as_command_list(self, tmp_path):
+        """YAML list evidence (common in agent COMPLETION) must not crash record."""
+        state_path = _minimal_state(tmp_path)
+        payload = {
+            "step_id": "design-and-draft-artifacts",
+            "phase": "specify",
+            "status": "completed",
+            "agent": "architect",
+            "outputs": {"design.md": "spec/changes/test/design.md"},
+            "usage": {"input_tokens": 10, "output_tokens": 20},
+            "evidence": [{"cmd": "pytest -q", "exit_code": 0}],
+        }
+        result, exit_code = record(state_path, payload)
+        assert exit_code == 0, f"Expected exit_code 0, got {exit_code}: {result}"
+        state = yaml.safe_load(Path(state_path).read_text())
+        entry = state["step_history"][-1]
+        assert entry["evidence"]["commands"] == [{"cmd": "pytest -q", "exit_code": 0}]
+        assert entry["evidence"]["outputs"] == {"design.md": "spec/changes/test/design.md"}
+
     def test_accepts_inline_step_without_usage(self, tmp_path):
         """Inline step (agent='inline') with empty usage → records cleanly."""
         state_path = _minimal_state(tmp_path)

@@ -183,6 +183,116 @@ _REWORK_VERDICTS = frozenset({"needs_work", "incomplete_phase"})
 _DEFAULT_MAX_RETRY_ROUNDS = 3
 
 
+def _coerce_payload_outputs(raw: Any) -> dict[str, Any]:
+    """Normalize payload.outputs to a mapping for step_history evidence."""
+    if isinstance(raw, dict):
+        return raw
+    if raw is not None:
+        sys.stderr.write(
+            f"[record] warning: outputs must be a mapping, got {type(raw).__name__}; "
+            "treating as empty\n"
+        )
+    return {}
+
+
+def _artifact_basenames_from_outputs(outputs: dict[str, Any]) -> list[str]:
+    """Infer artifact filenames from COMPLETION output keys/values."""
+    skip_keys = frozenset({
+        "updated_artifact_set",
+        "design_direction",
+        "complexity",
+        "discovery_result",
+    })
+    names: list[str] = []
+    for key, val in outputs.items():
+        if key in skip_keys:
+            continue
+        if isinstance(key, str) and "." in key and not key.startswith("{"):
+            names.append(Path(key).name)
+            continue
+        if isinstance(val, str) and val.strip():
+            candidate = Path(val.strip()).name
+            if "." in candidate:
+                names.append(candidate)
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for name in names:
+        if name not in seen:
+            seen.add(name)
+            ordered.append(name)
+    return ordered
+
+
+def _supplement_legacy_outputs(
+    outputs: dict[str, Any],
+    payload: dict[str, Any],
+    contract: StepContract | None,
+) -> dict[str, Any]:
+    """Fill missing legacy output keys from artifacts list or output paths.
+
+    design-and-draft-artifacts agents often list paths under outputs but omit
+    ``updated_artifact_set`` (and sometimes ``artifacts``); record would reject
+    with missing_outputs even when design.md and tasks.yaml exist on disk.
+    """
+    if contract is None:
+        return outputs
+    out = dict(outputs)
+    if "updated_artifact_set" not in contract.legacy_output_names:
+        return out
+    cur = out.get("updated_artifact_set")
+    empty = cur is None or (hasattr(cur, "__len__") and len(cur) == 0)
+    if not empty:
+        return out
+
+    candidates: list[str] = []
+    artifacts = payload.get("artifacts")
+    if isinstance(artifacts, list):
+        candidates.extend(str(a) for a in artifacts if a is not None)
+    candidates.extend(_artifact_basenames_from_outputs(out))
+
+    if not candidates:
+        return out
+
+    out["updated_artifact_set"] = list(dict.fromkeys(candidates))
+    if not payload.get("artifacts"):
+        payload["artifacts"] = list(out["updated_artifact_set"])
+    sys.stderr.write(
+        "[record] supplemented outputs.updated_artifact_set "
+        "from payload outputs/artifacts\n"
+    )
+    return out
+
+
+def _merge_evidence_block(
+    outputs: dict[str, Any],
+    raw_evidence: Any,
+) -> dict[str, Any]:
+    """Build step_history evidence from payload outputs + optional evidence block.
+
+    Drivers sometimes emit ``evidence`` as a YAML list of command records;
+    spreading that dict would raise TypeError. Lists are stored under
+    ``evidence.commands``; mappings are merged with payload outputs winning on
+    key overlap.
+    """
+    if raw_evidence is None:
+        return {"outputs": outputs}
+    if isinstance(raw_evidence, dict):
+        merged = dict(raw_evidence)
+        prior = merged.get("outputs")
+        if isinstance(prior, dict):
+            merged["outputs"] = {**prior, **outputs}
+        else:
+            merged["outputs"] = outputs
+        return merged
+    if isinstance(raw_evidence, list):
+        sys.stderr.write(
+            "[record] warning: evidence must be a mapping; "
+            "storing list under evidence.commands\n"
+        )
+        return {"outputs": outputs, "commands": raw_evidence}
+    return {"outputs": outputs, "detail": raw_evidence}
+
+
 def _payload_phase_review_verdict(payload: dict[str, Any]) -> str | None:
     """Extract the phase-review verdict from a `done` payload (orc-67).
 
@@ -1316,7 +1426,7 @@ def record(
             3,
         )
 
-    outputs: dict[str, Any] = payload.get("outputs") or {}
+    outputs = _coerce_payload_outputs(payload.get("outputs"))
 
     # Load contract once; reused for expected_outputs validation and Check B
     # (agent guard + token check). ContractError treated as missing file —
@@ -1326,6 +1436,8 @@ def record(
     except (FileNotFoundError, ContractError) as _e:
         sys.stderr.write(f"[record] contract load failed for {step_id}: {_e}\n")
         contract = None
+
+    outputs = _supplement_legacy_outputs(outputs, payload, contract)
 
     if contract is not None and status == "completed":
         # ORC-63 AC-10: a declared output is satisfied only when its key is
@@ -1528,7 +1640,7 @@ def record(
         "started_at": payload.get("started_at", now),
         "ended_at": now,
         "usage": usage,
-        "evidence": {"outputs": outputs, **(payload.get("evidence") or {})},
+        "evidence": _merge_evidence_block(outputs, payload.get("evidence")),
     }
     for key in _OPTIONAL_STEP_HISTORY_KEYS:
         if key in payload:
