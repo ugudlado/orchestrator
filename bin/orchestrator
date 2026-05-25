@@ -74,6 +74,8 @@ def _inline_script_env(state, state_yaml_path: str, action_env: dict) -> dict:
 def _usage() -> None:
     print(
         "Usage:\n"
+        "  orchestrator run <ticket-id> [--schema feature|bugfix] [--repo PATH] [flag=value ...]\n"
+        "      Shell-driven full workflow (ticket check, seed if needed, run-workflow loop).\n"
         "  orchestrator next <state.yaml>\n"
         "  orchestrator done <state.yaml>   # JSON payload on stdin\n"
         "  orchestrator ready <state.yaml>  # JSON array of ready node ids\n"
@@ -83,6 +85,19 @@ def _usage() -> None:
         file=sys.stderr,
     )
     sys.exit(3)
+
+
+def _run_verb(argv: list[str]) -> None:
+    """`orchestrator run` — ticket-driven shell workflow (non-chat driver)."""
+    import subprocess as _sp
+
+    _run_sh = os.path.join(_WORKTREE_ROOT, "scripts", "orchestrator-run.sh")
+    if not os.path.isfile(_run_sh):
+        print(f"error: orchestrator-run.sh not found at {_run_sh}", file=sys.stderr)
+        sys.exit(7)
+    _proc = _sp.run(["bash", _run_sh, *argv])
+    # Propagate run-workflow exit codes (1=complete is success for shell loops).
+    raise SystemExit(_proc.returncode)
 
 
 def _append_in_progress_state_entry_if_absent(
@@ -193,10 +208,15 @@ def main() -> None:
     args = sys.argv[1:]
     # Stage C: ingest-driver and ingest-subagents removed from accepted verbs.
     # 'record' kept for silent backward-compat (one cycle) but absent from the banner.
-    if not args or args[0] not in ("next", "done", "record", "ready", "graph", "doctor", "expand-plan"):
+    if not args or args[0] not in (
+        "next", "done", "record", "ready", "graph", "doctor", "expand-plan", "run",
+    ):
         _usage()
     if len(args) < 2 and args[0] in ("next", "record", "done", "ready", "graph", "expand-plan"):
         _usage()
+
+    if args[0] == "run":
+        _run_verb(args[1:])
 
     if args[0] == "doctor":
         from orchestrator_next.doctor import _doctor_main

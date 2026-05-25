@@ -150,11 +150,19 @@ execute → `orchestrator done` loop without an LLM in the dispatch path.
 
 ### Invocation
 
-```bash
-# Run a workflow to completion
-scripts/run-workflow.sh <state.yaml>
+**Preferred (ticket only, non-chat):**
 
-# Run with a Linear ticket ID (checks ticket status before starting)
+```bash
+# From the target repo (or pass --repo). Seeds state if missing, then runs the loop.
+orchestrator run ORC-83
+orchestrator run HL-287 --schema bugfix
+orchestrator run 42 --repo /path/to/app worktree=true
+```
+
+**Lower-level (when you already have state.yaml):**
+
+```bash
+scripts/run-workflow.sh <state.yaml>
 scripts/run-workflow.sh <state.yaml> TICKET-ID
 ```
 
