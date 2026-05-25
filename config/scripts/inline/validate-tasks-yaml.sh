@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # validate-tasks-yaml.sh — validate a tasks.yaml file against the Tasks YAML
-# Format Contract (contracts/artifact-formats.md § Tasks YAML Format Contract).
+# Format Contract (config/steps/design-and-draft-artifacts/prompt.md § Tasks YAML Format Contract).
 #
 # Usage: validate-tasks-yaml.sh <path-to-tasks.yaml>
 # Exit 0: file is well-formed.

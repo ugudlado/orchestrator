@@ -1,6 +1,7 @@
-"""T-1 tests: validate-tasks-yaml.sh validator and artifact-formats.md Tasks YAML section.
+"""T-1 tests: validate-tasks-yaml.sh validator and Tasks YAML Format Contract section.
 
-These tests run the validator script and check the artifact-formats.md contract.
+These tests run the validator script and check the Tasks YAML Format Contract in
+design-and-draft-artifacts/prompt.md (moved from artifact-formats.md in T-23).
 RED phase: tests fail before T-1 implementation.
 """
 from __future__ import annotations
@@ -16,7 +17,7 @@ import yaml
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
 _VALIDATOR = os.path.join(_REPO_ROOT, "config", "scripts", "inline", "validate-tasks-yaml.sh")
-_ARTIFACT_FORMATS = os.path.join(_REPO_ROOT, "config", "steps", "contracts", "artifact-formats.md")
+_ARTIFACT_FORMATS = os.path.join(_REPO_ROOT, "config", "steps", "design-and-draft-artifacts", "prompt.md")
 
 
 def _write_tasks_yaml(tmp_path, content: dict) -> str:
@@ -61,17 +62,17 @@ VALID_TASKS_YAML = {
 
 
 # ---------------------------------------------------------------------------
-# artifact-formats.md Tasks YAML Format Contract section
+# Tasks YAML Format Contract section (now in design-and-draft-artifacts/prompt.md)
 # ---------------------------------------------------------------------------
 
 class TestArtifactFormatsTasksYamlSection:
 
     def test_artifact_formats_has_tasks_yaml_section(self):
-        """artifact-formats.md must contain a 'Tasks YAML Format Contract' section."""
+        """design-and-draft-artifacts/prompt.md must contain a 'Tasks YAML Format Contract' section."""
         with open(_ARTIFACT_FORMATS, "r") as f:
             content = f.read()
         assert "## Tasks YAML Format Contract" in content, (
-            "artifact-formats.md missing '## Tasks YAML Format Contract' section"
+            "design-and-draft-artifacts/prompt.md missing '## Tasks YAML Format Contract' section"
         )
 
     def test_tasks_yaml_section_documents_required_fields(self):

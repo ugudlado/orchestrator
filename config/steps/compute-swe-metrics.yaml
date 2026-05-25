@@ -1,3 +1,0 @@
-id: compute-swe-metrics
-version: 2
-run: scripts/inline/compute-swe-metrics.sh

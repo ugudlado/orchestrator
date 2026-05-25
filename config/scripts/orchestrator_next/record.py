@@ -1069,21 +1069,51 @@ REPEAT_PREDICATES: dict[str, Any] = {
 
 
 def _check_declared_outputs(
-    declared: list[str], outputs: dict[str, Any], state_raw: dict[str, Any]
+    declared: list[Any], outputs: dict[str, Any], state_raw: dict[str, Any]
 ) -> list[str]:
     """Return the list of declared outputs that are not verifiably satisfied (AC-10).
 
-    A declared output is *satisfied* only when:
-      - its key is present in `outputs` (the payload's evidence.outputs), AND
-      - its value is non-null and non-empty, AND
-      - if the name is a filesystem path (contains '/'), the file exists on
-        disk (resolved against the worktree artifact dir / repo root).
+    `declared` may be either:
+      - list[dict[str, Any]] (Stage B typed spec: each item has 'name' and
+        optionally 'path'), or
+      - list[str] (legacy bare names, preserved for back-compat).
+
+    For typed entries with a non-None `path`:
+      - Substitute '<slug>' → state_raw['change_id'] in the path.
+      - Resolve relative paths against worktree_path or repo_root.
+      - Require os.path.isfile(resolved_path); key presence in outputs is NOT
+        required (the file on disk is the truth signal).
+
+    For legacy entries (bare strings or dicts without path):
+      - Key must be present in outputs, AND
+      - Value must be non-null and non-empty, AND
+      - If the name itself contains '/' (old path-named heuristic), the file
+        must exist on disk.
     """
     unsatisfied: list[str] = []
     base = state_raw.get("worktree_path") or state_raw.get("repo_root") or ""
     if isinstance(base, str) and base.startswith("~"):
         base = os.path.expanduser(base)
-    for name in declared:
+    change_id = state_raw.get("change_id") or ""
+
+    for item in declared:
+        if isinstance(item, dict):
+            name = str(item.get("name", ""))
+            path = item.get("path")
+            if path is not None:
+                # Typed spec: check file existence, ignore evidence.outputs key.
+                resolved = str(path).replace("<slug>", change_id)
+                candidate = Path(resolved)
+                if not candidate.is_absolute() and base:
+                    candidate = Path(base) / resolved
+                if not candidate.is_file():
+                    unsatisfied.append(name)
+                continue
+            # Dict without path: fall through to legacy value-presence check.
+        else:
+            name = str(item)
+
+        # Legacy check: key must be present, value non-null/non-empty.
         if name not in outputs:
             unsatisfied.append(name)
             continue
@@ -1092,7 +1122,7 @@ def _check_declared_outputs(
         if value is None or (hasattr(value, "__len__") and len(value) == 0):
             unsatisfied.append(name)
             continue
-        # Path-named output: the file must exist on disk.
+        # Path-named output (legacy heuristic): the file must exist on disk.
         if "/" in name:
             candidate = Path(name)
             if not candidate.is_absolute() and base:
@@ -1236,6 +1266,9 @@ def record(
             _check_state_raw = yaml.safe_load(Path(state_yaml_path).read_text()) or {}
         except (OSError, yaml.YAMLError):
             _check_state_raw = {}
+        # ORC-76 T-18: pass contract.outputs (list[dict]) directly; typed entries
+        # (with path) get file-existence checks; legacy entries (path: None or
+        # bare strings in legacy_output_names) keep the value-presence check.
         missing_out = _check_declared_outputs(contract.outputs, outputs, _check_state_raw)
         if missing_out:
             return (
@@ -1659,12 +1692,12 @@ def record(
                 import subprocess as _sp
                 script = _os.path.join(
                     state_raw.get("repo_root") or "",
-                    "scripts", "inline", "append-retro.sh",
+                    "config", "scripts", "inline", "append-retro.sh",
                 )
                 if not _os.path.isfile(script):
                     home = _os.environ.get("ORCHESTRATOR_HOME", "")
                     if home:
-                        script = _os.path.join(home, "scripts", "inline", "append-retro.sh")
+                        script = _os.path.join(home, "config", "scripts", "inline", "append-retro.sh")
                 if _os.path.isfile(script):
                     for issue in issues:
                         # per-issue phase/step fallback

@@ -1,3 +1,0 @@
-id: archive-completed-change
-version: 7
-run: scripts/inline/archive-completed-change.sh

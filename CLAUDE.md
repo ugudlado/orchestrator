@@ -42,7 +42,7 @@ Rules every agent must follow when running in this repo. CLAUDE.md auto-loads in
 | Archived features | `$REPO_ROOT/spec/changes/archive/<date>-<slug>/` (state + artifacts merged) |
 | Backlog (CLI-managed) | `$REPO_ROOT/spec/changes/backlog/` — read/write via `backlog` CLI only |
 | Global schemas | `$ORCHESTRATOR_HOME/config/workflows/<schema>.yaml` |
-| Global step contracts | `$ORCHESTRATOR_HOME/config/steps/<step>.yaml` |
+| Global step contracts | `$ORCHESTRATOR_HOME/config/steps/<step>/contract.yaml` + `prompt.md`/`script.sh` (legacy flat form `<step>.yaml` still loads) |
 | Repo overrides | `$REPO_ROOT/.orchestrator/{workflows,steps,templates}/<path>` |
 | Per-feature retro | `spec/changes/<change_id>/retro.md` (active) or under `archive/<date>-<slug>/` |
 

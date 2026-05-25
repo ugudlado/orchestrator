@@ -1,3 +1,0 @@
-id: preview-route
-version: 2
-run: scripts/inline/preview-route.sh

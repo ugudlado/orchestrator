@@ -25,7 +25,7 @@
     - build passes
   depends: T-2
 
-<!-- Format contract: contracts/artifact-formats.md § Task Format Contract -->
+<!-- Format contract: config/steps/design-and-draft-artifacts/prompt.md § Tasks YAML Format Contract -->
 <!-- Each task carries indented fields: -->
 <!--   Why            — the design.md AC / decision the change serves (the reason). -->
 <!--   Files          — exact files the task touches (non-gate tasks). -->

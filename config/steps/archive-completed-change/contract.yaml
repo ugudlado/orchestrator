@@ -1,0 +1,6 @@
+id: archive-completed-change
+version: 7
+kind: script
+run: script.sh
+inputs: []
+outputs: []

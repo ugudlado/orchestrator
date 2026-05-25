@@ -1,3 +1,0 @@
-id: compute-prediction-accuracy
-version: 2
-run: scripts/inline/compute-prediction-accuracy.sh

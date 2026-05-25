@@ -1,0 +1,560 @@
+version: 1
+# ORC-76 — Step-as-directory + typed file I/O
+#
+# Staging:
+#   Stage A (T-1 … T-12): directory layout migration. Parser/dispatch/generate_plan/
+#     orchestrator binary learn the directory form with back-compat for flat files.
+#     All 16 step contracts migrate to directories. Step scripts move out of
+#     config/scripts/inline/.
+#   Stage B (T-13 … T-22): typed file I/O on inputs/outputs. Specs become
+#     {name, path, optional?} objects; dispatch and record do existence checks.
+#   Stage C (T-23 … T-25): artifact-formats.md deletion, append-retro path fix,
+#     and final cleanup.
+#
+# TDD required: every implementation task has a preceding test task.
+
+tasks:
+  # ────────────────────────────────────────────────────────────────────────────
+  # Stage A — directory layout migration (parser, payload split, back-compat)
+  # ────────────────────────────────────────────────────────────────────────────
+
+  - id: T-1
+    title: "Add failing parser tests for directory-form contract load (agent kind)"
+    agent: developer
+    depends_on: []
+    files:
+      - config/scripts/orchestrator_next/tests/test_parser_directory_layout.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_parser_directory_layout.py -q -k agent && false || true"
+    test_scenarios:
+      - "Directory <id>/contract.yaml with sibling prompt.md loads: kind == 'agent', instruction == prompt.md contents."
+      - "Directory <id>/contract.yaml with kind: agent but missing prompt.md raises ContractError."
+      - "Flat <id>.yaml still loads (back-compat) and synthesizes kind from absence of run:."
+    why: "AC-1, AC-6, AC-7"
+
+  - id: T-2
+    title: "Add failing parser tests for directory-form contract load (script kind)"
+    agent: developer
+    depends_on: []
+    files:
+      - config/scripts/orchestrator_next/tests/test_parser_directory_layout.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_parser_directory_layout.py -q -k script && false || true"
+    test_scenarios:
+      - "Directory <id>/contract.yaml declaring kind: script + run: script.sh loads; contract.run resolves to <id>/script.sh."
+      - "Directory <id>/contract.yaml with kind: script but missing script.sh raises ContractDispatchError."
+      - "contract.yaml missing kind: field raises ContractError naming the field."
+    why: "AC-2, AC-6"
+
+  - id: T-3
+    title: "Implement directory-form contract loading in parser._load_contract"
+    agent: developer
+    depends_on: [T-1, T-2]
+    files:
+      - config/scripts/orchestrator_next/parser.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_parser_directory_layout.py -q"
+      - "pytest config/scripts/orchestrator_next/tests/ -q"
+    test_scenarios:
+      - "Same scenarios as T-1 and T-2 now pass."
+    why: "AC-1, AC-2, AC-6, AC-7"
+    change: |
+      In parser._load_contract, after computing search_dirs, iterate each dir
+      and check `{d}/{step_id}/contract.yaml` BEFORE the legacy `{d}/{step_id}.yaml`.
+      When the directory form is found:
+        - Read kind from data['kind']; raise ContractError if absent or not in
+          {'agent','script'}.
+        - For kind == 'agent': read sibling prompt.md into `instruction`. Raise
+          ContractError if missing.
+        - For kind == 'script': require data['run']. Resolve relative paths
+          against the contract directory; raise ContractDispatchError if the
+          file is absent.
+      When the legacy flat form is found, synthesize kind: 'script' if run:
+      else 'agent'; preserve all existing field-parsing logic.
+
+  - id: T-4
+    title: "Add failing tests for generate_plan directory-form contract lookup"
+    agent: developer
+    depends_on: []
+    files:
+      - config/scripts/orchestrator_next/tests/test_generate_plan_directory_layout.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_generate_plan_directory_layout.py -q && false || true"
+    test_scenarios:
+      - "_load_step_contract_raw returns the dict from <id>/contract.yaml when the directory form exists."
+      - "Falls back to <id>.yaml when only the flat form exists."
+      - "_build_step_block reads rules from the directory form."
+    why: "AC-1, AC-7"
+
+  - id: T-5
+    title: "Implement generate_plan directory-form lookup"
+    agent: developer
+    depends_on: [T-4]
+    files:
+      - config/scripts/orchestrator_next/generate_plan.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_generate_plan_directory_layout.py -q"
+      - "pytest config/scripts/orchestrator_next/tests/ -q"
+    test_scenarios:
+      - "Same scenarios as T-4 now pass."
+    why: "AC-1"
+    change: |
+      In generate_plan._load_step_contract_raw, mirror parser's directory-first
+      search: try `{d}/{step_id}/contract.yaml`, then `{d}/{step_id}.yaml`.
+      Return the raw YAML dict either way.
+
+  - id: T-6
+    title: "Add failing tests for bin/orchestrator _run_path resolution against contract dir"
+    agent: developer
+    depends_on: []
+    files:
+      - config/scripts/orchestrator_next/tests/test_orchestrator_run_path.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_orchestrator_run_path.py -q && false || true"
+    test_scenarios:
+      - "When action carries step_contract_dir, relative run: 'script.sh' resolves to <contract_dir>/script.sh."
+      - "When action carries a legacy run: 'scripts/inline/foo.sh', resolution falls back to $ORCHESTRATOR_HOME/config/scripts/inline/foo.sh."
+    why: "AC-2"
+
+  - id: T-7
+    title: "Implement contract-dir-relative _run_path in dispatch.py and bin/orchestrator"
+    agent: developer
+    depends_on: [T-6]
+    files:
+      - config/scripts/orchestrator_next/dispatch.py
+      - bin/orchestrator
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_orchestrator_run_path.py -q"
+      - "pytest config/scripts/orchestrator_next/tests/ -q"
+    test_scenarios:
+      - "Same scenarios as T-6 now pass; existing dispatch tests remain green."
+    why: "AC-2"
+    change: |
+      dispatch.py: when building the action dict for a script kind step, set
+      action['step_contract_dir'] to the directory holding contract.yaml.
+      bin/orchestrator (around lines 359-363): if action['run'] is relative
+      and action.get('step_contract_dir') is set, resolve as
+      `{step_contract_dir}/{run}`; otherwise keep the existing
+      $ORCHESTRATOR_HOME/config/{run} join.
+
+  - id: T-8
+    title: "Migrate 8 script-kind step contracts to directory layout"
+    agent: developer
+    depends_on: [T-3, T-5, T-7]
+    files:
+      - config/steps/archive-completed-change/contract.yaml
+      - config/steps/archive-completed-change/script.sh
+      - config/steps/capture-test-baseline/contract.yaml
+      - config/steps/capture-test-baseline/script.sh
+      - config/steps/complete-workflow/contract.yaml
+      - config/steps/complete-workflow/script.sh
+      - config/steps/compute-prediction-accuracy/contract.yaml
+      - config/steps/compute-prediction-accuracy/script.sh
+      - config/steps/compute-swe-metrics/contract.yaml
+      - config/steps/compute-swe-metrics/script.sh
+      - config/steps/expand-plan/contract.yaml
+      - config/steps/expand-plan/script.sh
+      - config/steps/mark-change-completed/contract.yaml
+      - config/steps/mark-change-completed/script.sh
+      - config/steps/preview-route/contract.yaml
+      - config/steps/preview-route/script.sh
+      - config/steps/archive-completed-change.yaml
+      - config/steps/capture-test-baseline.yaml
+      - config/steps/complete-workflow.yaml
+      - config/steps/compute-prediction-accuracy.yaml
+      - config/steps/compute-swe-metrics.yaml
+      - config/steps/expand-plan.yaml
+      - config/steps/mark-change-completed.yaml
+      - config/steps/preview-route.yaml
+      - config/scripts/inline/archive-completed-change.sh
+      - config/scripts/inline/capture-test-baseline.sh
+      - config/scripts/inline/complete-workflow.sh
+      - config/scripts/inline/compute-prediction-accuracy.sh
+      - config/scripts/inline/compute-swe-metrics.sh
+      - config/scripts/inline/expand-plan.sh
+      - config/scripts/inline/mark-change-completed.sh
+      - config/scripts/inline/preview-route.sh
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/ -q"
+      - "test -f config/steps/expand-plan/script.sh && test -f config/steps/expand-plan/contract.yaml"
+      - "! test -e config/scripts/inline/expand-plan.sh"
+      - "! test -e config/steps/expand-plan.yaml"
+      - "grep -q '^kind: script' config/steps/expand-plan/contract.yaml"
+      - "grep -q '^run: script.sh' config/steps/expand-plan/contract.yaml"
+    test_scenarios:
+      - "Each of the 8 script step contracts now lives at config/steps/<id>/{contract.yaml, script.sh}."
+      - "Old flat-file contracts and the inline script copies are removed."
+      - "contract.yaml declares kind: script and run: script.sh."
+      - "compute-prediction-accuracy.py stays in config/scripts/inline/ (not a step entrypoint)."
+    why: "AC-2, AC-8"
+    change: |
+      For each script step:
+        1. mkdir config/steps/<id>/
+        2. git mv config/scripts/inline/<id>.sh config/steps/<id>/script.sh
+        3. Write config/steps/<id>/contract.yaml with: id, version, kind: script,
+           run: script.sh, plus any existing rules:/verify:/instruction: from the
+           old yaml.
+        4. git rm config/steps/<id>.yaml
+
+  - id: T-9
+    title: "Migrate 8 agent-kind step contracts to directory layout"
+    agent: developer
+    depends_on: [T-3, T-5]
+    files:
+      - config/steps/design-and-draft-artifacts/contract.yaml
+      - config/steps/design-and-draft-artifacts/prompt.md
+      - config/steps/diagnose/contract.yaml
+      - config/steps/diagnose/prompt.md
+      - config/steps/execute-one-task/contract.yaml
+      - config/steps/execute-one-task/prompt.md
+      - config/steps/explore/contract.yaml
+      - config/steps/explore/prompt.md
+      - config/steps/run-learn-cycle/contract.yaml
+      - config/steps/run-learn-cycle/prompt.md
+      - config/steps/run-phase-review/contract.yaml
+      - config/steps/run-phase-review/prompt.md
+      - config/steps/run-ux-critique/contract.yaml
+      - config/steps/run-ux-critique/prompt.md
+      - config/steps/ux-design/contract.yaml
+      - config/steps/ux-design/prompt.md
+      - config/steps/design-and-draft-artifacts.yaml
+      - config/steps/diagnose.yaml
+      - config/steps/execute-one-task.yaml
+      - config/steps/explore.yaml
+      - config/steps/run-learn-cycle.yaml
+      - config/steps/run-phase-review.yaml
+      - config/steps/run-ux-critique.yaml
+      - config/steps/ux-design.yaml
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/ -q"
+      - "test -f config/steps/explore/contract.yaml && test -f config/steps/explore/prompt.md"
+      - "! test -e config/steps/explore.yaml"
+      - "grep -q '^kind: agent' config/steps/explore/contract.yaml"
+      - "! grep -q '^instruction:' config/steps/explore/contract.yaml"
+    test_scenarios:
+      - "Each of the 8 agent step contracts now lives at config/steps/<id>/{contract.yaml, prompt.md}."
+      - "contract.yaml carries id, version, kind: agent, agent, inputs, outputs, rules, flags_read; instruction prose is in prompt.md."
+      - "Old flat-file contracts are removed."
+    why: "AC-1, AC-5"
+    change: |
+      For each agent step:
+        1. mkdir config/steps/<id>/
+        2. Split old <id>.yaml: instruction: block becomes prompt.md (without the
+           YAML key wrapper); rest stays in contract.yaml.
+        3. Add kind: agent at the top of contract.yaml.
+        4. Rules stay in contract.yaml — learn cycle target unchanged.
+        5. git rm config/steps/<id>.yaml.
+
+  - id: T-10
+    title: "Add tests asserting the migrated layout end-to-end (load + dispatch + done)"
+    agent: developer
+    depends_on: [T-8, T-9]
+    files:
+      - config/scripts/orchestrator_next/tests/test_migrated_steps_endtoend.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_migrated_steps_endtoend.py -q"
+    test_scenarios:
+      - "For every config/steps/<id>/ entry, parser._load_contract returns a StepContract whose kind matches the contract.yaml."
+      - "For each agent step, instruction is non-empty (loaded from prompt.md)."
+      - "For each script step, the resolved script path exists and is readable."
+    why: "AC-1, AC-2, AC-8"
+
+  - id: T-11
+    title: "Update existing parser/dispatch tests that asserted flat-file paths"
+    agent: developer
+    depends_on: [T-8, T-9]
+    files:
+      - config/scripts/orchestrator_next/tests/
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/ -q"
+    test_scenarios:
+      - "Tests that asserted on `config/steps/<id>.yaml` paths are updated to the directory form."
+      - "Fixtures that built flat-file contracts in tmp dirs continue to work (back-compat path)."
+    why: "AC-7"
+    change: |
+      Grep for `<id>.yaml` literals in tests/ and update producers to use the
+      directory form where the assertion is about real step contracts (not
+      back-compat fixtures).
+
+  - id: T-12
+    title: "Verify select-workflow.yaml and bootstrap scripts are untouched"
+    agent: developer
+    depends_on: [T-8, T-9]
+    files:
+      - config/steps/select-workflow.yaml
+    verify:
+      - "test -f config/steps/select-workflow.yaml"
+      - "test -f config/scripts/inline/git-init.sh"
+      - "test -f config/scripts/inline/bootstrap-commit.sh"
+      - "test -f config/scripts/inline/_read_state_env.sh"
+      - "test -f config/scripts/inline/merge-to-main.sh"
+      - "test -f config/scripts/inline/remove-worktree.sh"
+      - "test -f config/scripts/inline/append-retro.sh"
+      - "test -f config/scripts/inline/validate-tasks-yaml.sh"
+      - "test -f config/scripts/inline/verify-report.sh"
+      - "test -f config/scripts/inline/compute-prediction-accuracy.py"
+    test_scenarios:
+      - "Out-of-scope items remain at their original locations after Stage A."
+    why: "non-goals enforcement"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Stage B — typed file I/O on inputs/outputs
+  # ────────────────────────────────────────────────────────────────────────────
+
+  - id: T-13
+    title: "Add failing parser tests for typed inputs/outputs specs"
+    agent: developer
+    depends_on: [T-3]
+    files:
+      - config/scripts/orchestrator_next/tests/test_parser_typed_io.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_parser_typed_io.py -q && false || true"
+    test_scenarios:
+      - "inputs item `{name: discovery, path: spec/changes/<slug>/discovery.md}` parses to a typed spec."
+      - "inputs item `{name: discovery, path: ..., optional: true}` marks the input optional."
+      - "Legacy string inputs (`- discovery_result`) still parse into the legacy named-handle form."
+      - "Mixed lists (one typed, one legacy) parse without error."
+    why: "AC-3"
+
+  - id: T-14
+    title: "Implement typed inputs/outputs parsing in StepContract"
+    agent: developer
+    depends_on: [T-13]
+    files:
+      - config/scripts/orchestrator_next/parser.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_parser_typed_io.py -q"
+      - "pytest config/scripts/orchestrator_next/tests/ -q"
+    test_scenarios:
+      - "Same scenarios as T-13 now pass."
+    why: "AC-3, AC-4"
+    change: |
+      In parser._load_contract:
+        - Replace list[str] coercion with a parser that yields list[dict[str,Any]]:
+          mapping items with `path:` become typed specs; bare strings become
+          {'name': str, 'path': None} (legacy).
+        - `optional: true` is now read from the typed spec; preserve the
+          existing {name: optional} sugar for the legacy form.
+      In StepContract:
+        - Change `inputs` and `outputs` field types to list[dict[str,Any]].
+        - Add a small helper `typed_input_paths(state)` that resolves <slug>
+          and returns list[tuple[name, abs_path]] for typed entries only.
+
+  - id: T-15
+    title: "Add failing dispatch tests for typed-input existence checks"
+    agent: developer
+    depends_on: [T-14]
+    files:
+      - config/scripts/orchestrator_next/tests/test_dispatch_typed_inputs.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_dispatch_typed_inputs.py -q && false || true"
+    test_scenarios:
+      - "Typed input with existing file → dispatch proceeds and step_context.inputs[name] is the resolved abs path."
+      - "Typed input with missing file → exit 2, stderr names the resolved path."
+      - "Typed input with optional: true and missing file → dispatch proceeds (does not block)."
+      - "<slug> substitution uses state.change_id."
+    why: "AC-3, AC-9"
+
+  - id: T-16
+    title: "Implement typed-input resolution in dispatch._resolve_inputs / _check_required_inputs"
+    agent: developer
+    depends_on: [T-15]
+    files:
+      - config/scripts/orchestrator_next/dispatch.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_dispatch_typed_inputs.py -q"
+      - "pytest config/scripts/orchestrator_next/tests/ -q"
+    test_scenarios:
+      - "Same scenarios as T-15 now pass."
+    why: "AC-3, AC-9"
+    change: |
+      In dispatch._resolve_inputs:
+        - For each typed input (spec has 'path'), substitute <slug> →
+          state.change_id, then os.path.join(state.worktree_artifact_dir, path).
+        - Add the resolved path to the returned dict under the spec's `name`.
+        - For legacy string inputs, keep the existing evidence.outputs walk.
+      In dispatch._check_required_inputs:
+        - For typed inputs, missing iff not os.path.isfile(resolved_path) and
+          not optional.
+        - Diagnostic mentions the resolved absolute path.
+
+  - id: T-17
+    title: "Add failing record.py tests for typed-output file-existence enforcement"
+    agent: developer
+    depends_on: [T-14]
+    files:
+      - config/scripts/orchestrator_next/tests/test_record_typed_outputs.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_record_typed_outputs.py -q && false || true"
+    test_scenarios:
+      - "Typed output with file present on disk → record accepts payload, returns exit 0."
+      - "Typed output with key in evidence.outputs but file absent → record rejects, exit 3, reason 'missing_outputs'."
+      - "Legacy outputs (string list, no path) continue to obey the current 'value present' check."
+    why: "AC-4"
+
+  - id: T-18
+    title: "Implement typed-output enforcement in record._check_declared_outputs"
+    agent: developer
+    depends_on: [T-17]
+    files:
+      - config/scripts/orchestrator_next/record.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_record_typed_outputs.py -q"
+      - "pytest config/scripts/orchestrator_next/tests/ -q"
+    test_scenarios:
+      - "Same scenarios as T-17 now pass."
+    why: "AC-4"
+    change: |
+      In record._check_declared_outputs:
+        - Accept `declared` as list[dict[str,Any]] (Stage B shape) or list[str]
+          (legacy).
+        - For typed entries with path, substitute <slug> from state_raw, join
+          against worktree_path/repo_root, require os.path.isfile.
+        - Legacy entries keep the current key-present + non-empty value check.
+
+  - id: T-19
+    title: "Convert step contracts to typed inputs/outputs for agent steps"
+    agent: developer
+    depends_on: [T-16, T-18]
+    files:
+      - config/steps/explore/contract.yaml
+      - config/steps/design-and-draft-artifacts/contract.yaml
+      - config/steps/diagnose/contract.yaml
+      - config/steps/run-phase-review/contract.yaml
+      - config/steps/ux-design/contract.yaml
+      - config/steps/run-ux-critique/contract.yaml
+      - config/steps/run-learn-cycle/contract.yaml
+      - config/steps/execute-one-task/contract.yaml
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/ -q"
+      - "grep -q 'path:.*<slug>' config/steps/design-and-draft-artifacts/contract.yaml"
+    test_scenarios:
+      - "Each agent contract whose dispatch consumes a prior-step artifact now lists it as a typed {name, path} input."
+      - "Each agent contract whose COMPLETION writes an artifact now lists it as a typed {name, path} output."
+      - "Optional inputs use `optional: true` in the typed form."
+    why: "AC-3, AC-4, AC-9"
+    change: |
+      Convert these inputs explicitly:
+        explore                → outputs: discovery.md (typed).
+        diagnose               → outputs: discovery.md (typed).
+        design-and-draft-artifacts → inputs: discovery.md; outputs: design.md, tasks.yaml.
+        run-phase-review       → inputs: tasks.yaml + design.md; outputs:
+                                 phase-review.md (typed).
+        ux-design              → inputs: discovery.md; outputs: design.md.
+        run-ux-critique        → no typed inputs needed beyond the existing.
+        run-learn-cycle        → keep final_signoff_decision as legacy
+                                 (it names a gate, not a file).
+        execute-one-task       → inputs/outputs unchanged (task payload is
+                                 not a file).
+
+  - id: T-20
+    title: "Update agents and skill prompts that referenced legacy named handles"
+    agent: developer
+    depends_on: [T-19]
+    files:
+      - config/agents/
+      - skills/
+    verify:
+      - "grep -rn 'discovery_result' config/agents/ skills/ || true"
+      - "pytest config/scripts/orchestrator_next/tests/ -q"
+    test_scenarios:
+      - "References to legacy handles in agent prompts that now have file paths are updated, or removed where the path is visible via step_context.inputs."
+    why: "AC-9"
+    change: |
+      Scan config/agents/*.md and skills/*/SKILL.md for legacy handles like
+      `discovery_result`. Where the handle is replaced by a file path in
+      step_context.inputs, the agent text should reference the path. Where
+      the handle is purely advisory (e.g. final_signoff_decision), leave it.
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Stage C — artifact-formats.md deletion, append-retro fix, cleanup
+  # ────────────────────────────────────────────────────────────────────────────
+
+  - id: T-21
+    title: "Add failing test for append-retro.sh path resolution in record.py"
+    agent: developer
+    depends_on: []
+    files:
+      - config/scripts/orchestrator_next/tests/test_record_append_retro_path.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_record_append_retro_path.py -q && false || true"
+    test_scenarios:
+      - "When workflow_issues is present in payload, record.py invokes append-retro.sh at config/scripts/inline/append-retro.sh."
+      - "The stale `scripts/inline/append-retro.sh` (no `config/` prefix) is NOT looked up."
+    why: "AC-11"
+
+  - id: T-22
+    title: "Fix append-retro.sh path in record.py"
+    agent: developer
+    depends_on: [T-21]
+    files:
+      - config/scripts/orchestrator_next/record.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_record_append_retro_path.py -q"
+      - "pytest config/scripts/orchestrator_next/tests/ -q"
+    test_scenarios:
+      - "Same scenarios as T-21 now pass."
+    why: "AC-11"
+    change: |
+      Change `os.path.join(state_raw.get("repo_root") or "", "scripts", "inline", "append-retro.sh")`
+      to `os.path.join(state_raw.get("repo_root") or "", "config", "scripts", "inline", "append-retro.sh")`,
+      and the same for the $ORCHESTRATOR_HOME fallback at line 1667.
+
+  - id: T-23
+    title: "Move artifact-formats.md content into producer prompt.md files and reviewer prompt"
+    agent: developer
+    depends_on: [T-9]
+    files:
+      - config/steps/explore/prompt.md
+      - config/steps/diagnose/prompt.md
+      - config/steps/design-and-draft-artifacts/prompt.md
+      - config/steps/run-phase-review/prompt.md
+      - config/steps/contracts/artifact-formats.md
+    verify:
+      - "! test -e config/steps/contracts/artifact-formats.md"
+      - "grep -q 'Tasks YAML Format Contract' config/steps/design-and-draft-artifacts/prompt.md"
+      - "grep -q 'Discovery Brief Format Contract' config/steps/explore/prompt.md"
+      - "grep -q 'Diagnosis Format Contract' config/steps/diagnose/prompt.md"
+      - "grep -q 'Design Format Contract' config/steps/design-and-draft-artifacts/prompt.md"
+      - "grep -q 'Format contract reference' config/steps/run-phase-review/prompt.md"
+      - "pytest config/scripts/orchestrator_next/tests/ -q"
+    test_scenarios:
+      - "Each producer step's prompt.md carries the format-contract section for the artifact it produces."
+      - "run-phase-review's prompt.md carries a consolidated reference listing all five format contracts."
+      - "config/steps/contracts/artifact-formats.md is deleted."
+    why: "AC-10"
+    change: |
+      1. Split contracts/artifact-formats.md by section.
+      2. Append the matching § into each producer prompt.md.
+      3. Append a consolidated reference section into run-phase-review/prompt.md.
+      4. git rm config/steps/contracts/artifact-formats.md.
+      5. Update any in-tree references to the deleted path (grep -rn artifact-formats.md).
+
+  - id: T-24
+    title: "Update CONVENTIONS.md and CLAUDE.md to document the new layout"
+    agent: developer
+    depends_on: [T-8, T-9, T-19, T-23]
+    files:
+      - config/steps/CONVENTIONS.md
+      - CLAUDE.md
+    verify:
+      - "grep -q 'config/steps/<id>/contract.yaml' config/steps/CONVENTIONS.md"
+      - "grep -q 'kind: agent' config/steps/CONVENTIONS.md"
+    test_scenarios:
+      - "CONVENTIONS.md describes the directory layout and explicit kind field."
+      - "CLAUDE.md repo-wiring section mentions the new step directory shape."
+    why: "documentation drift prevention"
+
+  - id: T-25
+    title: "End-to-end smoke: run a real workflow phase against the migrated layout"
+    agent: developer
+    depends_on: [T-8, T-9, T-19, T-20, T-22, T-23, T-24]
+    files:
+      - config/scripts/orchestrator_next/tests/test_endtoend_migrated_workflow.py
+    verify:
+      - "pytest config/scripts/orchestrator_next/tests/test_endtoend_migrated_workflow.py -q"
+      - "pytest config/scripts/orchestrator_next/tests/ -q"
+    test_scenarios:
+      - "Driving `orchestrator next` against a synthetic state.yaml selects the next ready step and emits an action JSON whose `instruction` (for agents) or `run` (for scripts) resolves via the new directory layout."
+      - "Pre-step input file missing → exit 2 with diagnostic naming the resolved path."
+      - "Post-step output file missing → `orchestrator done` exit 3 with `reason: missing_outputs`."

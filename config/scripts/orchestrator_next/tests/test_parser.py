@@ -327,7 +327,8 @@ class TestStepContractOptionalInputs:
         })
         from orchestrator_next.parser import _load_contract
         contract = _load_contract("opt-input", "")
-        assert "ux_direction" in contract.inputs
+        # ORC-76 T-14: inputs is now list[dict]; use legacy_input_names for name lookup
+        assert "ux_direction" in contract.legacy_input_names
         assert "ux_direction" in contract.optional_inputs
 
     def test_bare_string_item_required_only(self, steps_dir):
@@ -341,7 +342,8 @@ class TestStepContractOptionalInputs:
         })
         from orchestrator_next.parser import _load_contract
         contract = _load_contract("req-input", "")
-        assert contract.inputs == ["discovery_result"]
+        # ORC-76 T-14: inputs is now list[dict]; use legacy_input_names for name-only checks
+        assert contract.legacy_input_names == ["discovery_result"]
         assert contract.optional_inputs == []
 
     def test_no_annotations_gives_empty_optional_inputs(self, steps_dir):
@@ -368,5 +370,6 @@ class TestStepContractOptionalInputs:
         })
         from orchestrator_next.parser import _load_contract
         contract = _load_contract("mixed-inputs", "")
-        assert contract.inputs == ["discovery_result", "ux_direction"]
+        # ORC-76 T-14: inputs is now list[dict]; use legacy_input_names for name-only checks
+        assert contract.legacy_input_names == ["discovery_result", "ux_direction"]
         assert contract.optional_inputs == ["ux_direction"]

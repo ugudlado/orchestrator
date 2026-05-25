@@ -61,12 +61,22 @@ def _load_step_contract_raw(step_id: str, state_yaml_path: str) -> dict[str, Any
 
     Returns None if not found (missing contract → emit step without rules).
     Uses the same search dirs as parser._contract_search_dirs.
+
+    Search order mirrors parser._load_contract: for each directory, the
+    directory form (<step_id>/contract.yaml) is checked before the flat-file
+    form (<step_id>.yaml).
     """
     search_dirs = _parser._contract_search_dirs(state_yaml_path)
     for d in search_dirs:
-        candidate = os.path.join(d, f"{step_id}.yaml")
-        if os.path.isfile(candidate):
-            with open(candidate, "r", encoding="utf-8") as f:
+        # Directory form: <d>/<step_id>/contract.yaml (preferred)
+        dir_contract = os.path.join(d, step_id, "contract.yaml")
+        if os.path.isfile(dir_contract):
+            with open(dir_contract, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f)
+        # Flat-file form: <d>/<step_id>.yaml (back-compat)
+        flat_contract = os.path.join(d, f"{step_id}.yaml")
+        if os.path.isfile(flat_contract):
+            with open(flat_contract, "r", encoding="utf-8") as f:
                 return yaml.safe_load(f)
     print(f"WARNING: step contract not found for '{step_id}', skipping rules", file=sys.stderr)
     return None

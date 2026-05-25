@@ -11,7 +11,7 @@ import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
-_CONTRACT_FILE = os.path.join(_REPO_ROOT, "config", "steps", "execute-one-task.yaml")
+_CONTRACT_FILE = os.path.join(_REPO_ROOT, "config", "steps", "execute-one-task", "contract.yaml")
 
 
 def _load_contract() -> dict:

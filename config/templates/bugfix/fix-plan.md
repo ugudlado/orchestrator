@@ -32,4 +32,4 @@ Root cause reference: {from diagnosis.md Root Cause section}
 - {Related issues NOT fixed in this change — file separate bugs if needed}
 - {"None — fix is self-contained" if nothing to note}
 
-<!-- Format contract: contracts/artifact-formats.md § Fix Plan Format Contract -->
+<!-- Format contract: config/steps/run-phase-review/prompt.md § Fix Plan Format Contract -->

@@ -1,0 +1,6 @@
+id: compute-swe-metrics
+version: 2
+kind: script
+run: script.sh
+inputs: []
+outputs: []

@@ -1,0 +1,6 @@
+id: capture-test-baseline
+version: 2
+kind: script
+run: script.sh
+inputs: []
+outputs: []

@@ -84,4 +84,4 @@ this section captures only what the design needs to stand on its own.}
 
 - {Unresolved questions that may affect implementation}
 
-<!-- Format contract: contracts/artifact-formats.md § Design Format Contract -->
+<!-- Format contract: config/steps/design-and-draft-artifacts/prompt.md § Design Format Contract -->

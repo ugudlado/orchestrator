@@ -3,6 +3,55 @@
 Rules for designing, evaluating, and modifying step contracts.
 Read by workflow-improver (when auditing and when editing).
 
+## Directory Layout (ORC-76)
+
+Each step lives in its own directory under `config/steps/<id>/`:
+
+```
+config/steps/<id>/contract.yaml   ← schema: id, kind, agent/run, inputs, outputs, rules, verify
+config/steps/<id>/prompt.md       ← agent kind only: full instruction prose for the agent
+config/steps/<id>/script.sh       ← script kind only: executable payload
+```
+
+### contract.yaml required fields
+
+Every `contract.yaml` MUST declare `kind: agent` or `kind: script`:
+
+```yaml
+id: <step-id>
+kind: agent        # or: script
+agent: <agent>     # agent kind only
+run: script.sh     # script kind only
+inputs: [...]
+outputs: [...]
+rules: [...]
+verify: [...]
+```
+
+The legacy flat-file form (`config/steps/<id>.yaml`) still loads for backward compatibility,
+but all new steps MUST use the directory form.
+
+### Typed I/O
+
+Inputs and outputs may be typed file-path entries in addition to legacy named handles:
+
+```yaml
+inputs:
+  - legacy_name            # legacy: resolved from evidence.outputs walk
+  - name: discovery        # typed: file existence checked at dispatch
+    path: spec/changes/<slug>/discovery.md
+    optional: true         # omit or false for required
+
+outputs:
+  - legacy_name            # legacy: value-presence check in COMPLETION outputs
+  - name: design           # typed: file existence checked after step completes
+    path: spec/changes/<slug>/design.md
+```
+
+The `<slug>` placeholder is substituted with `state.change_id` at runtime.
+Typed entries use the raw `worktree_artifact_dir` (the worktree root) as the base
+for path joining. Required typed inputs block dispatch if the file does not exist.
+
 ## Contract Files
 
 Detailed format contracts have been extracted into focused files under `contracts/`.
@@ -10,7 +59,11 @@ Load only the contracts relevant to your step:
 
 | Contract | File | Used By |
 |----------|------|---------|
-| Artifact formats (Task, Discovery, Spec, Design, Diagnosis, Fix Plan) | `contracts/artifact-formats.md` | design-and-draft-artifacts, explore, run-phase-review |
+| Discovery Brief Format Contract | `config/steps/explore/prompt.md` § Discovery Brief Format Contract | explore, design-and-draft-artifacts, run-phase-review |
+| Diagnosis Format Contract | `config/steps/diagnose/prompt.md` § Diagnosis Format Contract | diagnose, design-and-draft-artifacts, run-phase-review |
+| Design Format Contract | `config/steps/design-and-draft-artifacts/prompt.md` § Design Format Contract | design-and-draft-artifacts, run-phase-review |
+| Tasks YAML Format Contract | `config/steps/design-and-draft-artifacts/prompt.md` § Tasks YAML Format Contract | design-and-draft-artifacts, expand-plan, run-phase-review |
+| Fix Plan Format Contract | `config/steps/run-phase-review/prompt.md` § Fix Plan Format Contract | design-and-draft-artifacts, run-phase-review |
 | Error Recovery (state transitions, blocked protocol, escalation) | `contracts/error-recovery.md` | orchestrate skill, execute-one-task, run-phase-review, phase-signoff |
 | Rule Merge (evaluation, merge algorithm, change type detection) | `contracts/rule-merge.md` | orchestrate skill, /learn |
 | Resume Token | `contracts/resume-token.md` | orchestrate skill, workflow-state.sh, auto-continue.sh |
@@ -25,11 +78,11 @@ When step contracts reference `CONVENTIONS.md § <Section>`, check whether the
 section now lives in a contract file above. The `§` references in step contracts
 use short names that map to the contract files:
 
-- `§ Task Format Contract` → `contracts/artifact-formats.md`
-- `§ Discovery Brief Format Contract` → `contracts/artifact-formats.md`
-- `§ Design Format Contract` → `contracts/artifact-formats.md`
-- `§ Diagnosis Format Contract` → `contracts/artifact-formats.md`
-- `§ Fix Plan Format Contract` → `contracts/artifact-formats.md`
+- `§ Discovery Brief Format Contract` → `config/steps/explore/prompt.md`
+- `§ Diagnosis Format Contract` → `config/steps/diagnose/prompt.md`
+- `§ Design Format Contract` → `config/steps/design-and-draft-artifacts/prompt.md`
+- `§ Tasks YAML Format Contract` → `config/steps/design-and-draft-artifacts/prompt.md`
+- `§ Fix Plan Format Contract` → `config/steps/run-phase-review/prompt.md`
 - `§ Error Recovery Contract` → `contracts/error-recovery.md`
 - `§ Fix Task Protocol` → `contracts/error-recovery.md`
 - `§ Agent Blocked Protocol` → `contracts/error-recovery.md`

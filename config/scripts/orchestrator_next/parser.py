@@ -31,22 +31,55 @@ class ContractDispatchError(ValueError):
 class StepContract:
     """Contract fields needed by the dispatcher.
 
-    `inputs` and `outputs` declare the typed I/O for this step (HL-287 M1).
+    `inputs` and `outputs` are typed I/O specs for this step (ORC-76 Stage B).
+    Each item is a dict with keys: name (str), path (str|None), optional (bool).
+    Typed entries (path is not None) use `<slug>` as a placeholder for change_id.
+
     Backward-compatible: contracts that don't declare the fields get `[]`.
+    `legacy_input_names` / `legacy_output_names` hold the flat name strings used
+    by dispatch._resolve_inputs and record._check_declared_outputs until those
+    callers migrate to the typed form (T-16, T-18).
     """
     id: str
     agent: str | None  # None = not declared (ORC-45: use run: path)
     run: str | None  # None = inline-only
     instruction: str
     rules: list[str]
-    inputs: list[str] = field(default_factory=list)
-    outputs: list[str] = field(default_factory=list)
+    inputs: list[dict[str, Any]] = field(default_factory=list)
+    outputs: list[dict[str, Any]] = field(default_factory=list)
     # ORC-63 AC-5: names declared optional via a `{name: optional}` inputs
-    # item. An optional input never blocks dispatch. A subset of `inputs`.
+    # item. An optional input never blocks dispatch. A subset of legacy_input_names.
     optional_inputs: list[str] = field(default_factory=list)
+    # ORC-76 back-compat: flat name strings for dispatch/_check_declared_outputs.
+    # Populated alongside inputs/outputs; removed once T-16/T-18 fully migrate.
+    legacy_input_names: list[str] = field(default_factory=list)
+    legacy_output_names: list[str] = field(default_factory=list)
     allowed_tools: list[str] = field(default_factory=list)
     inline: bool = False  # HL-287 M3: inline: true + run: <script> path
     repeat_until: str | None = None  # ISSUE-16: predicate name gating advance
+    # ORC-76: explicit kind; synthesized from run: presence for flat-file form
+    kind: str = ""  # "agent" | "script" | "" (legacy/unset)
+
+    def typed_input_paths(self, state: "State") -> list[tuple[str, str]]:
+        """Resolve typed inputs to (name, abs_path) pairs for the given state.
+
+        Substitutes `<slug>` with `state.change_id` and joins against
+        `state.worktree_artifact_dir` (or `state.repo_root` as fallback).
+        Only entries where path is not None are returned — legacy inputs
+        (path=None) are omitted.
+
+        ORC-76 T-14: AC-3, AC-9.
+        """
+        base = state.worktree_artifact_dir or state.repo_root
+        result: list[tuple[str, str]] = []
+        for spec in self.inputs:
+            path = spec.get("path")
+            if path is None:
+                continue
+            resolved = path.replace("<slug>", state.change_id)
+            abs_path = os.path.join(base, resolved) if base else resolved
+            result.append((spec["name"], abs_path))
+        return result
 
 
 @dataclass
@@ -101,73 +134,188 @@ def _contract_search_dirs(state_yaml_path: str) -> list[str]:
     return dirs
 
 
+def _parse_contract_fields(
+    step_id: str,
+    data: dict[str, Any],
+    kind: str,
+    run: str | None,
+    instruction: str,
+) -> StepContract:
+    """Build a StepContract from raw YAML data and pre-resolved values.
+
+    Handles inputs/outputs coercion and optional_inputs extraction.
+    Called by both the directory-form and flat-file branches.
+    """
+    # M2: contracts MUST declare `inputs:` and `outputs:` (may be
+    # empty list, may not be absent). Missing raises ContractError.
+    # Exception: inline-script steps (run: or inline: true) default
+    # to [] — they pass data via env vars, not structured I/O.
+    is_inline_script = data.get("inline") is True or bool(run)
+    if "inputs" not in data:
+        if is_inline_script:
+            data["inputs"] = []
+        else:
+            raise ContractError(
+                f"contract {step_id} is missing required `inputs:` field "
+                f"(use `inputs: []` if the step needs none)"
+            )
+    if "outputs" not in data:
+        if is_inline_script:
+            data["outputs"] = []
+        else:
+            raise ContractError(
+                f"contract {step_id} is missing required `outputs:` field "
+                f"(use `outputs: []` if the step produces none)"
+            )
+    # ORC-76 Stage B: parse inputs into list[dict[str,Any]] with unified shape.
+    # Each item becomes: {name: str, path: str|None, optional: bool}.
+    #
+    # Item forms recognized:
+    #   1. Typed spec: `{name: ..., path: ...}` — may include `optional: true`.
+    #   2. Legacy optional sugar (ORC-63 AC-5): `{<name>: "optional"}` (single-key
+    #      mapping where the value is the string "optional").
+    #   3. Legacy bare string: `"<name>"` — becomes {name, path: None}.
+    #
+    # Parallel list `legacy_input_names` carries the flat name strings for
+    # dispatch._resolve_inputs / _check_required_inputs until T-16 migrates them.
+    raw_inputs = data.get("inputs") or []
+    raw_outputs = data.get("outputs") or []
+    inputs: list[dict[str, Any]] = []
+    optional_inputs: list[str] = []
+    legacy_input_names: list[str] = []
+
+    for item in raw_inputs:
+        if isinstance(item, str):
+            # Form 3: bare string
+            inputs.append({"name": item, "path": None, "optional": False})
+            legacy_input_names.append(item)
+        elif isinstance(item, dict) and "path" in item:
+            # Form 1: typed spec {name, path, optional?}
+            name = str(item["name"])
+            path = item["path"]
+            optional = bool(item.get("optional", False))
+            inputs.append({"name": name, "path": path, "optional": optional})
+            legacy_input_names.append(name)
+            if optional:
+                optional_inputs.append(name)
+        elif (
+            isinstance(item, dict)
+            and len(item) == 1
+            and str(next(iter(item.values()))).strip().lower() == "optional"
+        ):
+            # Form 2: legacy {<name>: "optional"} sugar
+            name = str(next(iter(item.keys())))
+            inputs.append({"name": name, "path": None, "optional": True})
+            legacy_input_names.append(name)
+            optional_inputs.append(name)
+        else:
+            # Unknown form: coerce name to str for maximum back-compat
+            name = str(item)
+            inputs.append({"name": name, "path": None, "optional": False})
+            legacy_input_names.append(name)
+
+    # Parse outputs into the same unified dict shape.
+    # Typed spec: {name, path, optional?}. Legacy bare string: {name, path: None}.
+    outputs: list[dict[str, Any]] = []
+    legacy_output_names: list[str] = []
+    for item in raw_outputs:
+        if isinstance(item, str):
+            outputs.append({"name": item, "path": None, "optional": False})
+            legacy_output_names.append(item)
+        elif isinstance(item, dict) and "path" in item:
+            name = str(item["name"])
+            path = item["path"]
+            optional = bool(item.get("optional", False))
+            outputs.append({"name": name, "path": path, "optional": optional})
+            legacy_output_names.append(name)
+        else:
+            name = str(item)
+            outputs.append({"name": name, "path": None, "optional": False})
+            legacy_output_names.append(name)
+
+    # allowed_tools: absent or null -> []; explicit list -> list
+    raw_allowed = data.get("allowed_tools", []) or []
+    allowed_tools = [str(x) if not isinstance(x, str) else x for x in raw_allowed]
+    return StepContract(
+        id=data.get("id", step_id),
+        agent=data.get("agent") or None,
+        run=run,
+        instruction=instruction,
+        rules=data.get("rules", []),
+        inputs=inputs,
+        outputs=outputs,
+        optional_inputs=optional_inputs,
+        legacy_input_names=legacy_input_names,
+        legacy_output_names=legacy_output_names,
+        allowed_tools=allowed_tools,
+        inline=bool(data.get("inline", False)),
+        repeat_until=data.get("repeat_until"),
+        kind=kind,
+    )
+
+
 def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
-    """Load and parse a step contract YAML, searching in priority order."""
+    """Load and parse a step contract YAML, searching in priority order.
+
+    For each search directory, the directory form (<id>/contract.yaml) is
+    checked BEFORE the flat-file form (<id>.yaml). This preserves override
+    precedence while preferring the new layout when both exist.
+    """
     search_dirs = _contract_search_dirs(state_yaml_path)
     for d in search_dirs:
-        candidate = os.path.join(d, f"{step_id}.yaml")
-        if os.path.isfile(candidate):
-            with open(candidate, "r") as f:
+        # ── Directory form: <d>/<step_id>/contract.yaml ──────────────────────
+        dir_contract = os.path.join(d, step_id, "contract.yaml")
+        if os.path.isfile(dir_contract):
+            contract_dir = os.path.join(d, step_id)
+            with open(dir_contract, "r") as f:
                 data = yaml.safe_load(f)
-            # M2: contracts MUST declare `inputs:` and `outputs:` (may be
-            # empty list, may not be absent). Missing raises ContractError.
-            # Exception: inline-script steps (run: or inline: true) default
-            # to [] — they pass data via env vars, not structured I/O.
-            is_inline_script = data.get("inline") is True or bool(data.get("run"))
-            if "inputs" not in data:
-                if is_inline_script:
-                    data["inputs"] = []
-                else:
+
+            # kind is required; must be 'agent' or 'script'
+            kind = data.get("kind")
+            if not kind or kind not in {"agent", "script"}:
+                raise ContractError(
+                    f"contract {step_id} missing kind: field (agent|script)"
+                )
+
+            if kind == "agent":
+                prompt_path = os.path.join(contract_dir, "prompt.md")
+                if not os.path.isfile(prompt_path):
                     raise ContractError(
-                        f"contract {step_id} is missing required `inputs:` field "
-                        f"(use `inputs: []` if the step needs none)"
+                        f"agent contract {step_id} missing prompt.md"
                     )
-            if "outputs" not in data:
-                if is_inline_script:
-                    data["outputs"] = []
-                else:
+                with open(prompt_path, "r") as f:
+                    instruction = f.read()
+                run = None
+            else:  # kind == "script"
+                run_rel = data.get("run")
+                if not run_rel:
                     raise ContractError(
-                        f"contract {step_id} is missing required `outputs:` field "
-                        f"(use `outputs: []` if the step produces none)"
+                        f"script contract {step_id} missing run: field"
                     )
-            # Coerce to list[str]. ORC-63 AC-5: a single-key mapping item
-            # `{<name>: optional}` declares an optional input — <name> goes to
-            # both `inputs` and `optional_inputs`. Any other non-string item
-            # is coerced to str for backward compatibility with legacy prose.
-            raw_inputs = data.get("inputs") or []
-            raw_outputs = data.get("outputs") or []
-            inputs: list[str] = []
-            optional_inputs: list[str] = []
-            for item in raw_inputs:
-                if isinstance(item, str):
-                    inputs.append(item)
-                elif (
-                    isinstance(item, dict)
-                    and len(item) == 1
-                    and str(next(iter(item.values()))).strip().lower() == "optional"
-                ):
-                    name = str(next(iter(item.keys())))
-                    inputs.append(name)
-                    optional_inputs.append(name)
+                # Resolve relative paths against the contract directory
+                if os.path.isabs(run_rel):
+                    run = run_rel
                 else:
-                    inputs.append(str(item))
-            outputs = [str(x) if not isinstance(x, str) else x for x in raw_outputs]
-            # allowed_tools: absent or null -> []; explicit list -> list
-            raw_allowed = data.get("allowed_tools", []) or []
-            allowed_tools = [str(x) if not isinstance(x, str) else x for x in raw_allowed]
-            return StepContract(
-                id=data.get("id", step_id),
-                agent=data.get("agent") or None,
-                run=data.get("run"),
-                instruction=data.get("instruction", ""),
-                rules=data.get("rules", []),
-                inputs=inputs,
-                outputs=outputs,
-                optional_inputs=optional_inputs,
-                allowed_tools=allowed_tools,
-                inline=bool(data.get("inline", False)),
-                repeat_until=data.get("repeat_until"),
-            )
+                    run = os.path.join(contract_dir, run_rel)
+                if not os.path.isfile(run):
+                    raise ContractDispatchError(
+                        f"script contract {step_id} missing script payload: {run}"
+                    )
+                instruction = ""
+
+            return _parse_contract_fields(step_id, data, kind, run, instruction)
+
+        # ── Flat-file form (legacy): <d>/<step_id>.yaml ──────────────────────
+        flat_candidate = os.path.join(d, f"{step_id}.yaml")
+        if os.path.isfile(flat_candidate):
+            with open(flat_candidate, "r") as f:
+                data = yaml.safe_load(f)
+            # Synthesize kind from presence of run:
+            kind = "script" if data.get("run") else "agent"
+            run = data.get("run")
+            instruction = data.get("instruction", "")
+            return _parse_contract_fields(step_id, data, kind, run, instruction)
+
     raise FileNotFoundError(
         f"Step contract not found for '{step_id}'. Searched: {search_dirs}"
     )

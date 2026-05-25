@@ -92,7 +92,7 @@ response — it only maps your **COMPLETION** block to `orchestrator done`.
 ### explore step → `discovery.md`
 
 Write the Discovery Brief to `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md` per
-`contracts/artifact-formats.md` § Discovery Brief Format Contract. Use
+the Discovery Brief Format Contract in `config/steps/explore/prompt.md`. Use
 `$ORCHESTRATOR_HOME/config/templates/$SCHEMA/discovery.md` as structural guide.
 All required sections must be populated (use "N/A" for irrelevant sections):
 
@@ -121,7 +121,7 @@ COMPLETION:
 ### diagnose step → `discovery.md`
 
 Write the diagnosis document to `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md` per
-`contracts/artifact-formats.md` § Diagnosis Format Contract. Then return COMPLETION:
+the Diagnosis Format Contract in `config/steps/diagnose/prompt.md`. Then return COMPLETION:
 
 ```
 COMPLETION:

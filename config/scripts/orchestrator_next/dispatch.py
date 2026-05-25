@@ -77,20 +77,48 @@ def _resolve_inputs(
 ) -> tuple[dict[str, Any], list[str]]:
     """Resolve a contract's declared ``inputs:`` against prior step outputs.
 
-    For each name in ``contract.inputs``, walk ``state.step_history`` in
-    reverse for a terminal ``completed`` entry whose
-    ``evidence.outputs.<name>`` is set; fall back to ``state.raw`` top-level
-    (bootstrap values like ``slug`` / ``repo_root`` / ``change_id``).
+    For typed inputs (path is not None): substitute ``<slug>`` with
+    ``state.change_id``, join against ``state.worktree_artifact_dir``, and
+    add ``{name: abs_path}`` to resolved iff the file exists.  Missing typed
+    inputs (file absent) are added to ``missing`` only when not optional.
+
+    For legacy inputs (path is None): walk ``state.step_history`` in reverse
+    for a terminal ``completed`` entry whose ``evidence.outputs.<name>`` is
+    set; fall back to ``state.raw`` top-level keys.
+
     Returns ``(resolved, missing)``. Missing names are not an error here —
     the caller decides. Contracts with empty ``inputs:`` return ``({}, [])``.
     """
-    if not contract.inputs:
-        return {}, []
-
     resolved: dict[str, Any] = {}
     missing: list[str] = []
 
-    for name in contract.inputs:
+    # ORC-76 T-16: handle typed inputs (path is not None) via file-existence check.
+    # Use the raw worktree_artifact_dir from state.yaml (repo/worktree root) so that
+    # path templates like "spec/changes/<slug>/..." resolve correctly.
+    # state.worktree_artifact_dir is the HL-303 computed value (repo_root/spec/changes)
+    # which is a different concern (legacy evidence.outputs base); typed I/O paths
+    # are always relative to the raw worktree root field from state.yaml.
+    raw_artifact_dir = str(state.raw.get("worktree_artifact_dir") or "") or state.repo_root
+    typed_names: set[str] = set()
+    for spec in contract.inputs:
+        path = spec.get("path")
+        if path is None:
+            continue
+        name = spec["name"]
+        optional = bool(spec.get("optional", False))
+        typed_names.add(name)
+        # Substitute <slug> and join against the raw artifact dir root
+        resolved_rel = path.replace("<slug>", state.change_id)
+        abs_path = os.path.join(raw_artifact_dir, resolved_rel) if raw_artifact_dir else resolved_rel
+        if os.path.isfile(abs_path):
+            resolved[name] = abs_path
+        elif not optional:
+            missing.append(name)
+        # optional + absent → silently skip (no resolved entry, no missing)
+
+    # Legacy inputs: walk evidence.outputs then state.raw
+    legacy_names = [n for n in contract.legacy_input_names if n not in typed_names]
+    for name in legacy_names:
         found = False
         for entry in reversed(state.step_history):
             if entry.status != "completed":
@@ -199,19 +227,42 @@ def _check_required_inputs(
 ) -> int | None:
     """Return exit code 2 if a required input is unresolvable, else None.
 
-    AC-4: a required input is *missing* iff it is not the key of any prior
-    `completed` step's `evidence.outputs` and not a top-level `state.raw` key.
-    Inputs named in `contract.optional_inputs` never block.
+    For typed inputs (path set): missing iff os.path.isfile(resolved_path)
+    is False and optional is False.  Diagnostic names the resolved abs path.
+
+    For legacy inputs: missing iff no prior completed step produced the name
+    under evidence.outputs and the name is absent from state.raw.
+    Inputs named in contract.optional_inputs never block.
     """
     _resolved, missing = _resolve_inputs(state, contract)
     optional = set(contract.optional_inputs)
     required_missing = [m for m in missing if m not in optional]
     if required_missing:
+        # Build diagnostic: for typed inputs include the resolved abs path.
+        raw_artifact_dir = str(state.raw.get("worktree_artifact_dir") or "") or state.repo_root
+        typed_paths: dict[str, str] = {}
+        for spec in contract.inputs:
+            path = spec.get("path")
+            if path is None:
+                continue
+            name = spec["name"]
+            resolved_rel = path.replace("<slug>", state.change_id)
+            abs_path = os.path.join(raw_artifact_dir, resolved_rel) if raw_artifact_dir else resolved_rel
+            typed_paths[name] = abs_path
+
+        parts: list[str] = []
+        for name in required_missing:
+            if name in typed_paths:
+                parts.append(f"{name!r} (expected file: {typed_paths[name]})")
+            else:
+                parts.append(repr(name))
+
         print(
-            f"ERROR: step {step_id!r} blocked — required input(s) "
-            f"{required_missing!r} unresolvable: no prior completed step "
-            f"produced them under evidence.outputs and they are absent from "
-            f"state.raw. The upstream producer has not completed.",
+            f"ERROR: step {step_id!r} blocked — required input(s) missing: "
+            f"{', '.join(parts)}. "
+            f"Typed inputs require the file to exist on disk; legacy inputs "
+            f"require a prior completed step to have produced them under "
+            f"evidence.outputs or a matching key in state.raw.",
             file=sys.stderr,
         )
         return 2
@@ -267,7 +318,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "instruction": contract.instruction,
             "rules": contract.rules,
             "inputs": inputs_resolved,
-            "expected_outputs": contract.outputs,
+            "expected_outputs": contract.legacy_output_names,
             "resolved_allowed_tools": resolved_allowed_tools,
             "env": _build_env(state, step_id, attempt),
             "step_context": _node_step_context(state, step_id),
@@ -334,14 +385,14 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "instruction": contract.instruction,
             "rules": contract.rules,
             "inputs": inputs_resolved,
-            "expected_outputs": contract.outputs,
+            "expected_outputs": contract.legacy_output_names,
             "resolved_allowed_tools": resolved_allowed_tools,
             "env": env,
             "step_context": step_context,
         }
     elif contract.run:
         # Inline script executed synchronously by CLI — no JSON emitted, exit 0
-        action = {
+        action: dict[str, Any] = {
             "step_id": next_step_id,
             "phase": state.phase,
             "attempt": attempt,
@@ -349,11 +400,17 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "instruction": contract.instruction,
             "rules": contract.rules,
             "inputs": inputs_resolved,
-            "expected_outputs": contract.outputs,
+            "expected_outputs": contract.legacy_output_names,
             "resolved_allowed_tools": resolved_allowed_tools,
             "env": env,
             "step_context": step_context,
         }
+        # ORC-76 AC-2: for directory-form contracts the parser pre-resolves
+        # run to an absolute path. Expose the contract directory so
+        # bin/orchestrator can resolve relative run: paths against it when
+        # step_contract_dir is set (and for metadata inspection by callers).
+        if os.path.isabs(contract.run):
+            action["step_contract_dir"] = os.path.dirname(contract.run)
     else:
         raise ContractDispatchError(
             f"step_contract_missing_run: {next_step_id}"

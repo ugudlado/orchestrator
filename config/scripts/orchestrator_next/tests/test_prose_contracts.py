@@ -34,21 +34,21 @@ def _read(rel_path: str) -> str:
 # ---------------------------------------------------------------------------
 
 def test_fr3_preview_route_script_path():
-    """config/steps/preview-route.yaml run: must point to the inline script.
+    """config/steps/preview-route/contract.yaml run: must point to the step script.
 
     Must NOT contain the literal phrase 'state.yaml route_preview block'.
-    Must contain run: pointing to scripts/inline/preview-route.sh.
+    In the directory form, run: is 'script.sh' (relative to the contract dir).
     """
-    content = _read("config/steps/preview-route.yaml")
+    content = _read("config/steps/preview-route/contract.yaml")
 
     # Must NOT contain the prose phrase
     assert "state.yaml route_preview block" not in content, (
-        "config/steps/preview-route.yaml still contains 'state.yaml route_preview block'. "
+        "config/steps/preview-route/contract.yaml still contains 'state.yaml route_preview block'. "
     )
 
-    # Must contain run: pointing to the inline script
-    assert "scripts/inline/preview-route.sh" in content, (
-        "config/steps/preview-route.yaml run: must reference 'scripts/inline/preview-route.sh'."
+    # In the directory form run: is 'script.sh' (the step's own script file).
+    assert "run: script.sh" in content, (
+        "config/steps/preview-route/contract.yaml run: must be 'script.sh' (directory form)."
     )
 
 
@@ -163,11 +163,11 @@ def test_fr9_skill_passes_agent_task_result():
 # ---------------------------------------------------------------------------
 
 def test_fr10_compute_swe_metrics_path():
-    """config/steps/compute-swe-metrics.yaml run: must point to scripts/inline/compute-swe-metrics.sh."""
-    content = _read("config/steps/compute-swe-metrics.yaml")
+    """config/steps/compute-swe-metrics/contract.yaml run: must point to the step script."""
+    content = _read("config/steps/compute-swe-metrics/contract.yaml")
 
-    assert "scripts/inline/compute-swe-metrics.sh" in content, (
-        "config/steps/compute-swe-metrics.yaml run: must reference 'scripts/inline/compute-swe-metrics.sh'."
+    assert "run: script.sh" in content, (
+        "config/steps/compute-swe-metrics/contract.yaml run: must be 'script.sh' (directory form)."
     )
 
 
@@ -208,21 +208,46 @@ _INLINE_RUNTIME_PRODUCERS = {
 }
 
 
+def _contract_path(step_id: str) -> str | None:
+    """Return the path to a step's contract file (directory form preferred over flat form)."""
+    dir_form = os.path.join(_REPO_ROOT, "config", "steps", step_id, "contract.yaml")
+    flat_form = os.path.join(_REPO_ROOT, "config", "steps", f"{step_id}.yaml")
+    if os.path.isfile(dir_form):
+        return dir_form
+    if os.path.isfile(flat_form):
+        return flat_form
+    return None
+
+
 def _load_contract_yaml(step_id: str) -> dict:
-    full = os.path.join(_REPO_ROOT, "config", "steps", f"{step_id}.yaml")
-    with open(full, "r", encoding="utf-8") as f:
+    """Load a step contract, preferring the directory form (contract.yaml) over the flat form."""
+    path = _contract_path(step_id)
+    if path is None:
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def _is_typed_io(item: object) -> bool:
+    """Return True for a valid typed I/O dict: {name, path} with optional 'optional' key."""
+    if not isinstance(item, dict):
+        return False
+    return "name" in item and "path" in item
 
 
 def test_orc63_pruned_contracts_have_no_prose_or_mappings():
     """No inputs:/outputs: item in the nine ORC-63 contracts contains '(' or
-    parses as a YAML mapping; none declares phase_context_bundle."""
+    parses as a YAML mapping (other than valid typed-IO dicts {name, path});
+    none declares phase_context_bundle."""
     offenders = []
     for step_id in _ORC63_PRUNED_CONTRACTS:
         data = _load_contract_yaml(step_id)
         for key in ("inputs", "outputs"):
             for item in (data.get(key) or []):
                 if isinstance(item, dict):
+                    # Typed I/O dicts {name, path} are the new canonical form — skip.
+                    if _is_typed_io(item):
+                        continue
                     offenders.append(f"{step_id}.{key}: mapping item {item!r}")
                 elif isinstance(item, str):
                     if "(" in item:
@@ -238,14 +263,18 @@ def test_no_contract_declares_phase_context_bundle():
     """phase_context_bundle appears in no contract inputs: across config/steps/."""
     import glob
     offenders = []
-    for path in sorted(glob.glob(os.path.join(_REPO_ROOT, "config", "steps", "*.yaml"))):
+    # Check both flat-file contracts (e.g. select-workflow.yaml) and directory-form
+    # contracts (<id>/contract.yaml).
+    candidates = sorted(glob.glob(os.path.join(_REPO_ROOT, "config", "steps", "*.yaml")))
+    candidates += sorted(glob.glob(os.path.join(_REPO_ROOT, "config", "steps", "*", "contract.yaml")))
+    for path in candidates:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         if not isinstance(data, dict):
             continue
         for item in (data.get("inputs") or []):
             if isinstance(item, str) and item == "phase_context_bundle":
-                offenders.append(os.path.basename(path))
+                offenders.append(os.path.relpath(path, os.path.join(_REPO_ROOT, "config", "steps")))
     assert not offenders, (
         f"phase_context_bundle still declared in: {offenders}"
     )
@@ -265,13 +294,15 @@ def test_feature_schema_required_inputs_have_a_producer():
     available: set[str] = set(_STATE_RAW_BOOTSTRAP_KEYS)
     unresolved = []
     for step_id in step_ids:
-        contract_path = os.path.join(_REPO_ROOT, "config", "steps", f"{step_id}.yaml")
-        if not os.path.isfile(contract_path):
+        if _contract_path(step_id) is None:
             continue
         data = _load_contract_yaml(step_id)
         # Required inputs = inputs minus optional-annotated items.
         for item in (data.get("inputs") or []):
             if isinstance(item, dict):
+                # Typed I/O dicts {name, path} are file-path–based — no named producer needed.
+                if _is_typed_io(item):
+                    continue
                 # An optional-annotated {name: optional} item is never required.
                 if len(item) == 1 and str(next(iter(item.values()))).strip().lower() == "optional":
                     continue
@@ -307,12 +338,14 @@ def test_bugfix_schema_required_inputs_have_a_producer():
     available: set[str] = set(_STATE_RAW_BOOTSTRAP_KEYS)
     unresolved = []
     for step_id in step_ids:
-        contract_path = os.path.join(_REPO_ROOT, "config", "steps", f"{step_id}.yaml")
-        if not os.path.isfile(contract_path):
+        if _contract_path(step_id) is None:
             continue
         data = _load_contract_yaml(step_id)
         for item in (data.get("inputs") or []):
             if isinstance(item, dict):
+                # Typed I/O dicts {name, path} are file-path–based — no named producer needed.
+                if _is_typed_io(item):
+                    continue
                 if len(item) == 1 and str(next(iter(item.values()))).strip().lower() == "optional":
                     continue
                 unresolved.append(f"{step_id}: non-string input {item!r}")

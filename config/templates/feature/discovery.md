@@ -49,4 +49,4 @@ UC-E1: {title} — what happens when {error condition}.
 - OQ-1: {Unresolved question that needs answers before or during design}
 
 <!-- Empty section means no blockers. -->
-<!-- Format contract: contracts/artifact-formats.md § Discovery Brief Format Contract -->
+<!-- Format contract: config/steps/explore/prompt.md § Discovery Brief Format Contract -->

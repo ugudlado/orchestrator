@@ -32,19 +32,19 @@ def test_repo_and_home_step_dirs_are_the_same_tree():
 
 
 def test_complete_workflow_contract_present():
-    path = os.path.join(_REPO_STEPS, "complete-workflow.yaml")
+    path = os.path.join(_REPO_STEPS, "complete-workflow", "contract.yaml")
     assert os.path.isfile(path), f"missing step contract: {path}"
 
 
 def test_complete_workflow_contract_shape():
-    path = os.path.join(_REPO_STEPS, "complete-workflow.yaml")
+    path = os.path.join(_REPO_STEPS, "complete-workflow", "contract.yaml")
     assert os.path.isfile(path), f"missing step contract: {path}"
     contract = yaml.safe_load(open(path).read())
     assert contract.get("id") == "complete-workflow", (
         f"contract id must be 'complete-workflow', got {contract.get('id')!r}"
     )
-    assert contract.get("run") == "scripts/inline/complete-workflow.sh", (
-        f"contract run must point at complete-workflow.sh, "
+    assert contract.get("run") == "script.sh", (
+        f"contract run must be 'script.sh' (directory-form), "
         f"got {contract.get('run')!r}"
     )
     # complete-workflow declares NO `outputs:`. It is a state-mutating inline
@@ -73,9 +73,9 @@ def test_obsolete_step_contracts_absent():
 
 
 def test_archive_completed_change_contract_retained():
-    """`archive-completed-change.yaml` is RETAINED — spike.yaml still
+    """`archive-completed-change/contract.yaml` is RETAINED — spike.yaml still
     dispatches `archive-completed-change` as its terminal step."""
-    path = os.path.join(_REPO_STEPS, "archive-completed-change.yaml")
+    path = os.path.join(_REPO_STEPS, "archive-completed-change", "contract.yaml")
     assert os.path.isfile(path), (
-        f"archive-completed-change.yaml must be retained for spike: {path}"
+        f"archive-completed-change/contract.yaml must be retained for spike: {path}"
     )

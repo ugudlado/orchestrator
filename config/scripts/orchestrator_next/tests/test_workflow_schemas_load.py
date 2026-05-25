@@ -161,9 +161,13 @@ def test_real_schema_generates_plan(tmp_path, monkeypatch, schema_name):
         )
         for node in nodes:
             step_id = node["id"]
-            contract_path = _REAL_HOME / "steps" / f"{step_id}.yaml"
-            assert contract_path.exists(), (
-                f"{schema_name}/{phase_name}: step '{step_id}' has no contract at {contract_path} "
+            # Accept either the directory form (<id>/contract.yaml) or the legacy
+            # flat form (<id>.yaml); select-workflow.yaml stays as a flat file.
+            contract_path = _REAL_HOME / "steps" / step_id / "contract.yaml"
+            flat_path = _REAL_HOME / "steps" / f"{step_id}.yaml"
+            assert contract_path.exists() or flat_path.exists(), (
+                f"{schema_name}/{phase_name}: step '{step_id}' has no contract at "
+                f"{contract_path} or {flat_path} "
                 f"(phantom reference — generate_plan silently skips these)"
             )
             assert "agent" in node, (

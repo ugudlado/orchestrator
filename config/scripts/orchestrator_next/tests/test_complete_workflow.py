@@ -27,8 +27,7 @@ import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
-_INLINE_DIR = os.path.join(_REPO_ROOT, "config", "scripts", "inline")
-_SCRIPT = os.path.join(_INLINE_DIR, "complete-workflow.sh")
+_SCRIPT = os.path.join(_REPO_ROOT, "config", "steps", "complete-workflow", "script.sh")
 
 
 # ---------------------------------------------------------------------------
@@ -166,9 +165,12 @@ def test_body_state_reads_precede_archive_and_cd_precedes_remove():
                 return i
         return None
 
-    # Match the actual `bash ... archive-completed-change.sh` invocation.
-    archive_line = first_line(r"bash\b.*archive-completed-change\.sh")
-    assert archive_line is not None, "no archive-completed-change.sh invocation"
+    # Match the actual archive script invocation. In the directory-form layout the
+    # script path is held in $_ARCHIVE_SCRIPT and the invocation is
+    # `bash "$_ARCHIVE_SCRIPT"`. Accept either the variable-invocation form or the
+    # legacy direct-path form.
+    archive_line = first_line(r'bash\b.*(?:archive-completed-change|_ARCHIVE_SCRIPT)')
+    assert archive_line is not None, "no archive-completed-change script invocation"
 
     # Every read_state_env call must come before the archive invocation.
     read_lines = [

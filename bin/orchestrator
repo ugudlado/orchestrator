@@ -357,10 +357,15 @@ def main() -> None:
                 _db = None
 
             _run_path = action["run"]
-            # Resolve relative paths against the orchestrator home (where step scripts live)
+            # Resolve relative paths: prefer contract dir (ORC-76 AC-2), else
+            # fall back to $ORCHESTRATOR_HOME/config/ (legacy behavior).
             if not os.path.isabs(_run_path):
-                _orchestrator_home = os.environ.get("ORCHESTRATOR_HOME") or _WORKTREE_ROOT
-                _run_path = os.path.join(_orchestrator_home, "config", _run_path)
+                _step_contract_dir = action.get("step_contract_dir")
+                if _step_contract_dir:
+                    _run_path = os.path.join(_step_contract_dir, _run_path)
+                else:
+                    _orchestrator_home = os.environ.get("ORCHESTRATOR_HOME") or _WORKTREE_ROOT
+                    _run_path = os.path.join(_orchestrator_home, "config", _run_path)
 
             _script_env = _inline_script_env(state, state_yaml_path, action.get("env", {}))
 
