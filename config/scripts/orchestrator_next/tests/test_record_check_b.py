@@ -170,3 +170,45 @@ class TestCheckBTightening:
             f"Expected exit_code 3, got {exit_code}: {result}"
         )
         assert result.get("reason") == "agent_step_missing_usage"
+
+    def test_prefill_from_newest_driver_jsonl_before_check_b(self, tmp_path, monkeypatch):
+        """Shell-loop claude -p: zero driver usage + repo JSONL → Check B passes."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "spec").mkdir()
+        (repo / "spec" / "project.yaml").write_text("project:\n  name: t\n")
+        state = {
+            "change_id": "test-feature",
+            "phase": "specify",
+            "repo_root": str(repo),
+            "workflow_plan": {"specify": {"active": ["explore"], "filtered": []}},
+            "step_history": [],
+        }
+        state_path = tmp_path / "state.yaml"
+        state_path.write_text(yaml.safe_dump(state, sort_keys=False))
+
+        from pathlib import Path as _Path
+
+        from orchestrator_next.jsonl_usage import _repo_slug
+
+        slug = _repo_slug(str(repo))
+        proj = tmp_path / ".claude" / "projects" / slug
+        proj.mkdir(parents=True)
+        session = "sess-shell-loop"
+        (proj / f"{session}.jsonl").write_text(
+            '{"type":"assistant","message":{"usage":{"input_tokens":42,"output_tokens":7},"model":"claude-sonnet"},'
+            '"timestamp":"2026-05-25T12:00:00Z"}\n'
+        )
+        monkeypatch.setattr(_Path, "home", lambda: tmp_path)
+
+        payload = {
+            "step_id": "explore",
+            "phase": "specify",
+            "status": "completed",
+            "agent": "discoverer",
+            "outputs": {},
+            "usage": {"input_tokens": 0, "output_tokens": 0},
+        }
+        result, exit_code = record(str(state_path), payload)
+        assert exit_code == 0, f"expected success, got {exit_code}: {result}"
+        assert payload["usage"]["input_tokens"] == 42
