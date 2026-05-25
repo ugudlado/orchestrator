@@ -126,16 +126,20 @@ are resolved and the task is fully specified.
 
 ## Workflow integration (orchestrator)
 
-When running as part of an orchestrator workflow:
+**Shell loop (`scripts/run-workflow.sh`):** Ticket lane changes are **not** agent work.
+`ticket-sync.sh` (outbound) and `ticket-reconcile.sh` (inbound poll) update the
+ticketing backend and `state.yaml` (`ticket_id`, `ticket_status`, `ticket_rework`,
+`flags.rework_from_review`). Do not call this skill for status transitions when
+the shell loop is driving the workflow.
+
+**LLM dispatch (`skills/orchestrate/SKILL.md`) or queue skills (`/developer`, `/reviewer`):**
 
 1. **Detect backend** (above) before any operation
 2. **Start of run** — *claim next by status* for the status the calling
    skill asks for (the caller owns the queue policy; e.g. `/developer`
    claims In Progress then a Ready lane, `/reviewer` claims Code Review).
-   Don't assume "Ready" — honor the requested status.
-3. **Mid-task** — *transition status* as the workflow dictates; note
-   blockers in the task description
-4. **After merge** — transition to Done; archive step handles the rest
+3. **Mid-task** — note blockers in the task description (no lane change if shell loop active)
+4. **After merge** — transition to Done when not using shell loop; archive step handles the rest
 5. **New observations** — go into commit footer or a new task, not the current task's files
 
 ---

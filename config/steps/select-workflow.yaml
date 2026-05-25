@@ -36,15 +36,17 @@ instruction: |
   2. Build candidate set from $ORCHESTRATOR_HOME/config/workflows/*.yaml,
      excluding files starting with `_` (include fragments).
 
-  3b. (step 3b — Ticket ID check) If the user_request looks like a ticket ID (matches
-      pattern `^[A-Z]+-\d+$`, e.g. ORC-99, HL-287), call
+  3b. (step 3b — Ticket ID check) If the user_request looks like a ticket ID, call
       scripts/ticket-status-check.sh <ticket-id> $REPO_ROOT and act on the
-      result (reads config/ticket-status-map.yaml for the status→action mapping):
+      result. Backend comes from `ticketing:` in spec/project.yaml (backlog or
+      linear). Ticket ID shapes: Linear `^[A-Z]+-\d+$` (ORC-99, HL-287); Backlog
+      `^task-\d+$` or numeric id (task-42, 42). Reads config/ticket-status-map.yaml
+      for the status→action mapping:
         - action=halt   → print reason and checklist (if any), HALT with error.
         - action=init   → proceed to step 4 with phase hint = result.phase.
         - action=resume → locate the matching state.yaml from result.state_yaml
                           and resume as in step 1 (EMIT schema + reason + STOP).
-        - action=skip   → continue to step 4 (API unavailable or key missing).
+        - action=skip   → continue to step 4 (backend unavailable or credentials missing).
       When LOCAL state.yaml matches the ticket but ticket status disagrees on
       phase, log a WARN and proceed with local state (local state wins; see D-5).
 

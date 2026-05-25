@@ -39,6 +39,8 @@ ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
 
 # Resolve script directory (find siblings like parse-completion.py, cost-report.sh)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/ticket-common.sh
+source "$SCRIPT_DIR/lib/ticket-common.sh"
 
 # -----------------------------------------------------------------------
 # Config resolution: .orchestrator override takes precedence over global
@@ -103,11 +105,44 @@ for item in cl: print('  -', item)
       # Proceed — state.yaml-driven loop handles the rest
       ;;
   esac
+
+  # Persist ticket id + status on state (shell loop owns ticket_* fields)
+  _TICKET_BACKEND=$(ticket_read_backend "$REPO_ROOT")
+  _TICKET_STATUS=$(bash "$SCRIPT_DIR/ticket-fetch-status.sh" "$TICKET_ID" "$REPO_ROOT" 2>/dev/null || true)
+  python3 - "$TICKET_ID" "$_TICKET_BACKEND" "$_TICKET_STATUS" <<'PY' | bash "$SCRIPT_DIR/ticket-state-update.sh" "$STATE_YAML" 2>/dev/null || true
+import json, sys
+p = {"ticket_id": sys.argv[1], "ticketing": sys.argv[2]}
+if sys.argv[3]:
+    p["ticket_status"] = sys.argv[3]
+print(json.dumps(p))
+PY
 fi
 
 # -----------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------
+
+sync_ticket_after_step() {
+  local step_id="$1"
+  local sync_script="$SCRIPT_DIR/ticket-sync.sh"
+  if [ -f "$sync_script" ]; then
+    bash "$sync_script" "$STATE_YAML" "$step_id" 2>/dev/null || true
+  fi
+}
+
+reconcile_ticket_before_next() {
+  local reconcile_script="$SCRIPT_DIR/ticket-reconcile.sh"
+  if [ ! -f "$reconcile_script" ]; then
+    return 0
+  fi
+  local result
+  result=$(bash "$reconcile_script" "$STATE_YAML" 2>/dev/null || echo '{"action":"skip"}')
+  local action
+  action=$(echo "$result" | python3 -c "import sys,json; print(json.load(sys.stdin).get('action','skip'))" 2>/dev/null || echo "skip")
+  if [ "$action" = "rework" ]; then
+    echo "ticket-reconcile: review rework detected — ticket returned to In Progress; flags.rework_from_review set on state.yaml" >&2
+  fi
+}
 
 # Resolve agent -> tool binary
 # Looks up routes.yaml .agents.<agent>.subprocess, falls back to 'claude'
@@ -161,6 +196,9 @@ TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 while true; do
+  # Poll ticket lane before each dispatch (reviewer may have moved ticket back)
+  reconcile_ticket_before_next
+
   # Call orchestrator next
   ACTION_JSON=$(orchestrator next "$STATE_YAML" 2>/tmp/orch_next_stderr) || {
     EXIT_CODE=$?
@@ -259,7 +297,11 @@ if '$STARTED_AT':
     payload['started_at'] = '$STARTED_AT'
 print(json.dumps(payload))
 ")
-      echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML" || true
+      if echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML"; then
+        if [ "$STATUS" = "completed" ]; then
+          sync_ticket_after_step "$STEP_ID"
+        fi
+      fi
       ;;
 
     run_inline|resume_step)
@@ -356,12 +398,17 @@ if '$STARTED_AT':
 print(json.dumps(payload))
 ")
 
-      echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML" || {
+      if echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML"; then
+        DONE_STATUS=$(echo "$DONE_PAYLOAD" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','completed'))" 2>/dev/null || echo "completed")
+        if [ "$DONE_STATUS" = "completed" ] || [ "$DONE_STATUS" = "recovered" ]; then
+          sync_ticket_after_step "$STEP_ID"
+        fi
+      else
         DONE_EXIT=$?
         echo "ERROR: orchestrator done exited $DONE_EXIT" >&2
         cat /tmp/orch_done_stderr 2>/dev/null || true
         exit 7
-      }
+      fi
       ;;
 
     *)

@@ -1,8 +1,14 @@
 version: 1
+# Status names must match the active ticketing backend (spec/project.yaml ticketing:).
+# Linear: Todo, Backlog, In Progress, In Review, Done, Cancelled
+# Backlog.md: To Do, Ready, Backlog, In Progress, Code Review, Done, Cancelled
 mapping:
   Todo:        { action: init,   phase: explore }
   Backlog:     { action: init,   phase: explore }
+  "To Do":     { action: init,   phase: explore }
+  Ready:       { action: init,   phase: explore }
   "In Progress": { action: resume, phase: implement }
   "In Review": { action: resume, phase: run-phase-review }
+  "Code Review": { action: resume, phase: run-phase-review }
   Done:        { action: halt,   reason: "Ticket already Done" }
   Cancelled:   { action: halt,   reason: "Ticket cancelled" }

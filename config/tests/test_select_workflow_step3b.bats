@@ -9,21 +9,19 @@
 #      for the scenarios that step 3b must handle per design.
 
 SCRIPT="$BATS_TEST_DIRNAME/../../scripts/ticket-status-check.sh"
-SELECT_WORKFLOW_YAML="/Users/spidey/.config/orchestrator/config/steps/select-workflow.yaml"
-REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+SELECT_WORKFLOW_YAML="$BATS_TEST_DIRNAME/../../config/steps/select-workflow.yaml"
+ORCHESTRATOR_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+TEST_REPO="$BATS_TMPDIR/test-repo"
 STUB_DIR="$BATS_TMPDIR/stubs"
 
 setup() {
-  mkdir -p "$STUB_DIR"
+  mkdir -p "$STUB_DIR" "$TEST_REPO/spec" "$TEST_REPO/config"
+  cp "$ORCHESTRATOR_ROOT/config/ticket-status-map.yaml" "$TEST_REPO/config/"
+  printf 'version: 1\nticketing: linear\n' > "$TEST_REPO/spec/project.yaml"
   export PATH="$STUB_DIR:$PATH"
   unset LINEAR_API_KEY
 }
 
-teardown() {
-  rm -rf "$STUB_DIR"
-}
-
-# Helper: write a curl stub returning a given Linear state
 write_curl_stub() {
   local state_name="$1"
   cat > "$STUB_DIR/curl" <<STUB
@@ -31,6 +29,10 @@ write_curl_stub() {
 printf '{"data":{"issue":{"state":{"name":"$state_name"}}}}'
 STUB
   chmod +x "$STUB_DIR/curl"
+}
+
+teardown() {
+  rm -rf "$STUB_DIR"
 }
 
 # --- Structural: step 3b must be present in select-workflow.yaml ---
@@ -56,7 +58,7 @@ STUB
   tmp_state_dir="$(mktemp -d)"
   export WORKFLOW_STATE_DIR="$tmp_state_dir"
 
-  run bash "$SCRIPT" "ORC-99" "$REPO_ROOT"
+  run bash "$SCRIPT" "ORC-99" "$TEST_REPO"
   [ "$status" -eq 0 ]
   echo "$output" | python3 -c "
 import sys, json
@@ -82,7 +84,7 @@ status: active
 YAML
   export WORKFLOW_STATE_DIR="$tmp_state_dir"
 
-  run bash "$SCRIPT" "ORC-99" "$REPO_ROOT"
+  run bash "$SCRIPT" "ORC-99" "$TEST_REPO"
   [ "$status" -eq 0 ]
   echo "$output" | python3 -c "
 import sys, json
@@ -107,7 +109,7 @@ status: active
 YAML
   export WORKFLOW_STATE_DIR="$tmp_state_dir"
 
-  run bash "$SCRIPT" "ORC-99" "$REPO_ROOT"
+  run bash "$SCRIPT" "ORC-99" "$TEST_REPO"
   [ "$status" -eq 0 ]
   echo "$output" | python3 -c "
 import sys, json
@@ -127,7 +129,7 @@ assert d.get('phase') == 'run-phase-review', f'Expected phase=run-phase-review, 
   tmp_state_dir="$(mktemp -d)"
   export WORKFLOW_STATE_DIR="$tmp_state_dir"
 
-  run bash "$SCRIPT" "ORC-99" "$REPO_ROOT"
+  run bash "$SCRIPT" "ORC-99" "$TEST_REPO"
   [ "$status" -eq 0 ]
   echo "$output" | python3 -c "
 import sys, json
@@ -147,7 +149,7 @@ assert 'checklist' in d, f'Expected checklist in {d}'
   tmp_state_dir="$(mktemp -d)"
   export WORKFLOW_STATE_DIR="$tmp_state_dir"
 
-  run bash "$SCRIPT" "ORC-99" "$REPO_ROOT"
+  run bash "$SCRIPT" "ORC-99" "$TEST_REPO"
   [ "$status" -eq 0 ]
   echo "$output" | python3 -c "
 import sys, json

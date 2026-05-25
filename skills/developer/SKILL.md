@@ -62,8 +62,10 @@ Spawn `developer` with: full ticket body; `STATE_FILE`, `ARTIFACT_DIR`, working 
 
 Each `step_context.task` carries the full task payload (id, title, files, verify, test_scenarios). The agent implements that one task and returns COMPLETION — no task scanning, no loop.
 
-### 4. Hand off to Code Review
+### 4. Ticket status (shell loop vs this skill)
 
-When `orchestrator next` advances past `run-phase-review` (implement phase review step dispatched or workflow complete), move ticket to `Code Review` via `/backlog-manager`.
+When the workflow runs via `scripts/run-workflow.sh`, **do not** transition ticket lanes with `/backlog-manager` — the shell loop calls `ticket-sync.sh` after each completed step and `ticket-reconcile.sh` before the next dispatch. Agents only implement tasks; ticket updates are out of scope.
 
-Do not move to `QA Review` or `Done`. Task completion and test evidence are verified by `run-phase-review` and `/reviewer`, not this driver loop.
+When using this skill **without** the shell loop (manual `/developer` queue driver), still use `/backlog-manager` for claim and lane changes as documented in steps 1–2.
+
+Do not move tickets to `Done` from this skill. Task completion and test evidence are verified by `run-phase-review` and `/reviewer`.

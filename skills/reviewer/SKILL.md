@@ -48,11 +48,10 @@ Reviewer must not edit production code.
 
 For every approval-blocking issue, append an unchecked `tasks.md` item with: exact code references, what is wrong, why it matters, what should improve, and how to verify the fix. Line-anchored findings also go in resolvr. Non-blocking suggestions stay in the review report only.
 
-### 5. Transition the ticket
+### 5. Ticket status (shell loop vs this skill)
 
-Via `/backlog-manager`:
+When the workflow runs via `scripts/run-workflow.sh`, **do not** transition ticket lanes with `/backlog-manager`. After review, a human or external process moves the ticket back to `In Progress` (or keeps it in `Code Review` while in review). The shell loop detects review→rework via `ticket-reconcile.sh`, sets `ticket_rework` and `flags.rework_from_review` on `state.yaml`, and the next developer task can run.
 
-- `VERDICT: APPROVED` → `QA Review`
-- `VERDICT: CHANGES_REQUESTED` → `In Progress`
+When using this skill **without** the shell loop, still use `/backlog-manager` for claim and for `CHANGES_REQUESTED` → `In Progress` (and project policy for `APPROVED`).
 
-Do not move to `Done`. Report ticket ID, verdict, and transition.
+Do not move to `Done` from this skill. Report ticket ID and verdict.

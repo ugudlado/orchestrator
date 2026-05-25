@@ -415,7 +415,12 @@ find data where they expect it.
 | `next_step` | object | phase-signoff, any step advancing flow | See `contracts/resume-token.md` |
 | `step_history` | list | All steps (append-only) | See § State Updates above |
 | `flags` | object | load-project-context | Resolved runtime flags (e.g., `{ tdd_required: true, ff: true }`) |
-| `ticket_id` | string | create-linear-ticket | Linear issue ID (e.g., `HL-123`). Also stored in `.spec.yaml`. |
+| `ticket_id` | string | create-linear-ticket, `ticket-state-update.sh` (shell loop) | Issue ID (e.g., `HL-123`, `task-42`). Also stored in `.spec.yaml`. |
+| `ticket_status` | string | `ticket-state-update.sh` (shell loop) | Last known lane from ticketing backend (e.g., `In Progress`, `Code Review`) |
+| `ticket_status_checked_at` | string | `ticket-state-update.sh` (shell loop) | ISO 8601 UTC when `ticket_status` was last polled |
+| `ticket_rework` | boolean | `ticket-reconcile.sh` (shell loop) | `true` when ticket moved from review lane back to `In Progress` |
+| `ticketing` | string | `ticket-state-update.sh` (shell loop) | `backlog` or `linear` — mirrors `spec/project.yaml` |
+| `flags.rework_from_review` | boolean | `ticket-reconcile.sh` (shell loop) | `true` when external ticket rework detected; clear manually or on lane change |
 | `archive_path` | string | mark-change-completed | Relative to repo root (e.g., `spec/changes/archive/2026-04-04-HL-123/`) |
 | `completed_at` | string | mark-change-completed | ISO 8601 UTC timestamp when the change completed |
 | `metrics` | object | compute-swe-metrics (via archive-completed-change) | Full metrics block or `{ status: script_unavailable, reason: "..." }` |
