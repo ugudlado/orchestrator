@@ -1,0 +1,1353 @@
+change_id: orc-84
+slug: orc-84
+schema: feature
+status: completed
+repo_root: /Users/spidey/code/orchestrator
+flags:
+  phase_review: true
+  portless: true
+  metrics: true
+  ux_design: false
+  tdd_required: true
+  auto: false
+  agents: false
+  light: false
+  worktree: true
+  merge_to_main: false
+workflow_plan:
+  main:
+    nodes:
+    - id: explore
+      status: completed
+      agent: discoverer
+      goal: ''
+      inputs: []
+      outputs:
+      - discovery_result
+      - '{''name'': ''discovery'', ''path'': ''spec/changes/<slug>/discovery.md''}'
+      rules:
+      - Focus on problem-space survey, NOT solution design (design-and-draft-artifacts
+        owns that).
+      - Capture unresolved questions explicitly.
+      - Scope research to the codebase unless description references external technology.
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+    - id: design-and-draft-artifacts
+      status: completed
+      agent: architect
+      goal: ''
+      inputs:
+      - discovery_result
+      - '{''name'': ''discovery'', ''path'': ''spec/changes/<slug>/discovery.md''}'
+      outputs:
+      - updated_artifact_set
+      - design_direction
+      - complexity
+      - '{''name'': ''design'', ''path'': ''spec/changes/<slug>/design.md''}'
+      - '{''name'': ''tasks'', ''path'': ''spec/changes/<slug>/tasks.yaml''}'
+      rules:
+      - "Design selection and artifact writing happen in one spawn \u2014 no round-trip\
+        \ between them."
+      - Keep artifact content traceable to accepted requirements.
+      - "Avoid implementation details in design.md \u2014 those belong in tasks."
+      - "Keep scope explicit \u2014 design.md must declare both goals and non-goals."
+      - "Make acceptance criteria testable \u2014 each AC must be verifiable by a\
+        \ concrete command or assertion."
+      - "Resolve major design decisions before implementation begins \u2014 do not\
+        \ defer to the implementation phase."
+      - Tasks must be small, verifiable, and ordered.
+      - Attach verification criteria per task.
+      - Output MUST follow the Tasks YAML Format Contract in config/steps/design-and-draft-artifacts/prompt.md.
+      - 'When flags.bugfix is true: first task MUST be the regression test, second
+        task MUST be the fix. Order matters.'
+      - 'When spec or design introduces a new archive/state path for any producer
+        (autopilot, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`)
+        and confirm the new path is matched before committing the artifact. Otherwise
+        downstream consumers (telemetry, /learn) silently skip the new producer. <!--
+        learned: 2026-04-16, source: HL-278, cycle: 10, hits: 22, misses: 1, repo:
+        orchestrator -->'
+      - "SQL sketches in design.md that reference specific field names must be validated\
+        \ against a live row from the target DB (or schema file) before finalizing.\
+        \ Add an explicit note in the task or run a one-query T-0 validation \u2014\
+        \ field name drift between sketch and schema is a common first-review failure.\
+        \ <!-- learned: 2026-04-17, source: learn-and-telemetry-on-duckdb, cycle:\
+        \ 12, hits: 20, misses: 1, repo: orchestrator -->"
+      - "Design claims about caller-site capabilities (e.g., 'X already holds an open\
+        \ connection', 'Y already imports Z', 'the caller has access to W') must be\
+        \ verified by grep against HEAD before finalizing the artifact \u2014 not\
+        \ inferred from pattern-matching similar code paths. Unverified caller-site\
+        \ claims that prove false become critical findings at phase review and force\
+        \ a full re-spin of all three artifacts. <!-- learned: 2026-04-20, source:\
+        \ pricing-table-in-duckdb, cycle: 16, hits: 17, misses: 1, repo: orchestrator\
+        \ -->"
+      - 'Performance budgets in design.md must cite absolute production targets (e.g.,
+        ''p99 < 10ms per call under production load'') rather than synthetic microbenchmark
+        targets (e.g., ''1000 calls in 50ms in a tight loop''). Microbenchmark budgets
+        are easy to set but mislead developers into pivoting away from correct designs
+        when the benchmark fails under artificial conditions that do not match the
+        real workload. <!-- learned: 2026-04-20, source: pricing-table-in-duckdb,
+        cycle: 16, hits: 17, misses: 1, repo: orchestrator -->'
+      - "For every implementation task in a TDD pair (the task that follows the failing-test\
+        \ task), populate the `change:` field with the specific mechanism: which function\
+        \ to edit, what the edit is, and which file:line region it targets. ORC-76\
+        \ achieved 0 retries across 25 tasks with full `change:` coverage \u2014 omitting\
+        \ it forces the developer agent to infer scope from test_scenarios alone,\
+        \ which increases retry risk. <!-- learned: 2026-05-25, source: orc-76, cycle:\
+        \ 1, hits: 2, misses: 0, repo: orchestrator -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - explore
+    - id: expand-plan
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - design-and-draft-artifacts
+    - id: preview-route
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - expand-plan
+    - id: capture-test-baseline
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - preview-route
+    - id: task-T-1
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Add failing bats tests for local-time timestamps, per-step usage line,
+        and feature rollup
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on: []
+      task:
+        id: T-1
+        title: Add failing bats tests for local-time timestamps, per-step usage line,
+          and feature rollup
+        agent: developer
+        depends_on: []
+        files:
+        - config/tests/test_run_workflow.bats
+        verify:
+        - bats config/tests/test_run_workflow.bats
+        test_scenarios:
+        - "Setting TZ=UTC vs TZ=Asia/Kolkata produces different HH:MM:SS in the same\
+          \ `\u2192 <step>` progress line for the same fixed instant (cover AC-1 with\
+          \ a frozen date stub or asserting both formats differ)."
+        - After a run_inline agent step completes with a done payload carrying usage={model:'claude-opus',input_tokens:1000,output_tokens:500,cost_usd:0.0234,duration_ms:4200},
+          stderr contains `model=claude-opus`, `tokens in=1000 out=500`, `cost=$0.0234`,
+          and `duration=4.2s` (cover AC-2/AC-3/AC-4).
+        - 'After a run_step script step completes with usage={input_tokens:0,output_tokens:0,model:''none''},
+          stderr contains the literal `  usage: no tokens (inline/script)` line and
+          the loop continues to the next step (cover AC-6).'
+        - 'When `orchestrator next` returns exit 1 (complete_workflow), stderr contains
+          `feature complete: <stubbed cost-report output>` before exit; reuse/extend
+          the existing `complete_workflow path emits cost report summary` test at
+          test_run_workflow.bats:525 (cover AC-5).'
+        - "When the inline-step branch detects state.yaml has been archived (file\
+          \ removed mid-loop), stderr still contains `feature complete: \u2026` before\
+          \ exiting 1 (cover AC-5/UC-E4)."
+        - When the agent-step usage block is empty/missing in step_history[-1], no
+          usage line is emitted and the loop continues (cover AC-7).
+        - When the cost-report.sh stub exits non-zero or emits empty stdout, no `feature
+          complete:` line is emitted and exit code is still 1 (cover AC-8).
+        why: AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8
+        change: "Append new bats tests to config/tests/test_run_workflow.bats. Reuse\
+          \ setup() / write_orchestrator_seq / run_workflow / run_inline_action helpers\
+          \ (lines 1-80). For the TZ test, stub `date` is not viable under set -e\
+          \ \u2014 instead assert that the timestamp printed in the `\u2192 <step_id>`\
+          \ line matches /^\\[[0-9]{2}:[0-9]{2}:[0-9]{2}\\]/ and is NOT prefixed by\
+          \ a `Z` or `UTC` suffix. For per-step usage, stub `orchestrator done` to\
+          \ write a step_history row into the state.yaml under test (existing bats\
+          \ fixtures already do this for the cost test at line 525). For the empty-usage\
+          \ and missing-cost-report variants, write fixtures that omit those fields.\n"
+    - id: task-T-2
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Reconcile run-workflow.sh helpers against new tests; surface any drift
+        from fbc88d5
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-1
+      task:
+        id: T-2
+        title: Reconcile run-workflow.sh helpers against new tests; surface any drift
+          from fbc88d5
+        agent: developer
+        depends_on:
+        - T-1
+        files:
+        - scripts/run-workflow.sh
+        verify:
+        - bats config/tests/test_run_workflow.bats
+        - bats config/tests/test_run_workflow_smoke.bats
+        test_scenarios:
+        - All T-1 tests pass without modifying their assertions.
+        - Existing smoke tests still pass.
+        why: AC-1 through AC-8 (ensure shipped helpers conform to the tests; patch
+          only if T-1 reveals a gap)
+        change: "Run the T-1 bats tests against the existing helpers in scripts/run-workflow.sh\
+          \ (_log_ts at line 287, _log_step_usage at line 293, _emit_feature_rollup\
+          \ at line 358). If any test fails, the minimum fix is: (a) verify _log_ts\
+          \ uses `date +%H:%M:%S` with no `-u`; (b) verify _log_step_usage formats\
+          \ duration with the ms/s/m thresholds at lines 340-347; (c) verify _emit_feature_rollup\
+          \ wraps cost-report output with `[$(_log_ts)] feature complete: \u2026`.\
+          \ Do NOT widen scope \u2014 if the implementation already passes, this task\
+          \ is a verification no-op and the COMPLETION should record zero source-file\
+          \ edits.\n"
+    - id: task-T-3
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Verify orchestrator next/done stdout contract and state.yaml schema are
+        unchanged
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-1
+      task:
+        id: T-3
+        title: Verify orchestrator next/done stdout contract and state.yaml schema
+          are unchanged
+        agent: developer
+        depends_on:
+        - T-1
+        files:
+        - spec/changes/orc-84/design.md
+        verify:
+        - git diff main -- bin/orchestrator config/scripts/orchestrator_next/record.py
+          | grep -E '^[+-]' | grep -vE '^(---|\+\+\+)' | wc -l
+        - bats config/tests/test_run_workflow.bats
+        test_scenarios:
+        - '`git diff main -- bin/orchestrator config/scripts/orchestrator_next/record.py`
+          shows zero functional changes (output may be empty or only whitespace/comment
+          lines).'
+        - "No new top-level keys added to state.yaml by any of the loop's helpers\
+          \ (grep `_log_step_usage` and `_emit_feature_rollup` \u2014 both are read-only)."
+        why: 'AC-9 (ticket AC-6: contract preservation)'
+        change: "Read-only verification. Run the git diff command from the verify\
+          \ block and confirm there are no functional edits to record.py or bin/orchestrator\
+          \ on this branch relative to main. If the diff is non-empty and not whitespace/comments,\
+          \ escalate per architect-escalation.md \u2014 the implementation has overstepped\
+          \ the ticket's explicit non-goal. Append a short paragraph to design.md\
+          \ `## Decisions` recording the verification result and the commit SHA range\
+          \ checked.\n"
+    - id: run-phase-review
+      status: completed
+      agent: reviewer
+      goal: ''
+      inputs:
+      - task_execution_result
+      - '{''name'': ''design'', ''path'': ''spec/changes/<slug>/design.md'', ''optional'':
+        True}'
+      - '{''name'': ''tasks'', ''path'': ''spec/changes/<slug>/tasks.yaml'', ''optional'':
+        True}'
+      outputs:
+      - phase_review_report
+      - '{''name'': ''phase_review'', ''path'': ''spec/changes/<slug>/phase-review.md''}'
+      rules:
+      - "Target score is quality_bar.min_phase_review_score from project.yaml \u2014\
+        \ retry until met."
+      - "Maximum retries from quality_bar.max_retry_rounds \u2014 escalate to user\
+        \ if exhausted."
+      - "When flags.light is true: lower target review_score to 7 and max_retries\
+        \ to 4 \u2014 light mode trades quality bar for speed on tight-scope changes."
+      - Run type-check + test + build commands at every phase boundary before scoring.
+      - "Capture concrete findings with fix direction \u2014 every finding must be\
+        \ actionable."
+      - Issues found during verification become new tasks in the current phase. Never
+        skip ahead with unresolved findings.
+      - "Do not advance with unresolved critical findings \u2014 these block phase\
+        \ completion regardless of overall score."
+      - 'When flags.bugfix is true: zero regressions tolerated. No existing tests
+        may break.'
+      - "Fix tasks must be minimal and scoped to the specific failure \u2014 no refactoring,\
+        \ no improvements."
+      - "Score of 10 is a first-pass bonus \u2014 only achievable when no retries\
+        \ were used this round."
+      - "Operate at staff-level review quality \u2014 catch architectural issues,\
+        \ not just surface bugs."
+      - Artifact structural compliance with format contracts (see Format contract
+        reference in prompt.md) is a review criterion.
+      - "When a finding requires a new requirement, the fix MUST update design.md\
+        \ (AC + design) and tasks.yaml atomically \u2014 partial updates that sync\
+        \ only one artifact leave the feature in an inconsistent state and will fail\
+        \ re-review. <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb,\
+        \ cycle: 11, hits: 10, misses: 6, repo: orchestrator -->"
+      - "For tasks that spec describes as a rewrite, projection, or byte-compatible\
+        \ replacement of an existing producer, AC verification MUST include a value/shape\
+        \ parity check against at least one real payload from the prior implementation\
+        \ \u2014 key-presence alone is insufficient. Reviewer must run both the old\
+        \ producer and the new one on a real archived fixture and diff the top-level\
+        \ output keys; any key reduction is an important finding. <!-- learned: 2026-04-20,\
+        \ source: single-source-metrics-via-step-events, cycle: 12, hits: 9, misses:\
+        \ 2, repo: orchestrator -->"
+      - "Before scoring the phase, check if any task-nodes (step_id starting with\
+        \ 'task-') in the workflow_plan are still pending. If any task-nodes are pending\
+        \ and not explicitly quarantined in state.yaml, write phase-review.md with\
+        \ verdict incomplete_phase listing the pending task IDs \u2014 return COMPLETION\
+        \ with outputs.phase_review_report: {verdict: incomplete_phase} and do NOT\
+        \ include review_score. This guards against dispatcher bugs or manual advances\
+        \ that reach run-phase-review before all tasks are complete. <!-- learned:\
+        \ 2026-05-08, source: hl-303, cycle: 38, hits: 9, misses: 0, repo: orchestrator\
+        \ --> <!-- updated: 2026-05-25, source: orc-76, cycle: 1, repo: orchestrator\
+        \ -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - task-T-3
+    - id: compute-prediction-accuracy
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - run-phase-review
+    - id: run-learn-cycle
+      status: completed
+      agent: workflow-learner
+      goal: ''
+      inputs:
+      - '{''final_signoff_decision'': ''optional''}'
+      outputs:
+      - learn_result
+      rules:
+      - "Learning failure is non-blocking \u2014 if /learn fails, log a warning and\
+        \ return success."
+      - Read state.yaml from the active change directory (this step runs before archive).
+      - In --auto mode, rule changes apply without user confirmation.
+      - "Never skip compute-prediction-accuracy or run-learn-cycle steps during autopilot\
+        \ \u2014 these feed the self-improving loop and must run even when --auto\
+        \ is set. A `skipped: true` outcome is only valid when an enumerated gating\
+        \ flag is set (e.g. ux_design=false for ux steps, learn=false for run-learn-cycle).\
+        \ Session token budget, time pressure, 'capture via retro', or any cost-based\
+        \ justification is NEVER a valid skip reason for feedback-loop steps. Budget\
+        \ pressure is a signal to stop earlier, not to skip learning. <!-- learned:\
+        \ 2026-04-05, source: HL-203, cycle: 6, hits: 14, misses: 1, repo: orchestrator\
+        \ -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - compute-prediction-accuracy
+    - id: mark-change-completed
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - run-learn-cycle
+    - id: compute-swe-metrics
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - mark-change-completed
+    - id: complete-workflow
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - complete-workflow is the terminal step for the feature and bugfix workflows.
+        It performs merge, archive, and worktree teardown as one atomic step.
+      - The script sequences, in one process so no dispatch boundary sits between
+        a state-moving and a state-reading operation, merge then archive then cd "$REPO_ROOT"
+        then worktree removal.
+      - All state.yaml-derived values are read into bash vars at script start, before
+        the archive phase moves state.yaml out of the worktree.
+      - The merge phase is gated by flags.merge_to_main; the cleanup phase is gated
+        by flags.worktree. The archive phase is unconditional.
+      - "On merge conflict the merge phase exits non-zero and the wrapper halts before\
+        \ archive and cleanup \u2014 the worktree is preserved."
+      - complete-workflow is classified state-mutating in bin/orchestrator and is
+        pre-recorded before its script runs (the ORC-66 record-after-state-deletion
+        crash-avoidance contract).
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - compute-swe-metrics
+    filtered:
+    - id: ux-design
+      reason: flag ux_design=false
+    - id: run-ux-critique
+      reason: flag ux_design=false
+phase: main
+next_step:
+  phase: main
+  step_id: complete-workflow
+step_history:
+- step_id: explore
+  phase: main
+  status: completed
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-05-25T20:41:58Z'
+  ended_at: '2026-05-25T20:41:58Z'
+  usage:
+    input_tokens: 28
+    output_tokens: 6803
+    model: claude-opus-4-7
+    cache_read_input_tokens: 1228470
+    cache_creation_input_tokens: 168531
+    turns: 18
+    duration_ms: 124760
+    tool_calls:
+      Bash: 8
+      Read: 2
+      Write: 1
+    cost_usd: 5.513306249999999
+  evidence:
+    outputs:
+      discovery_result:
+        path: discovery.md
+  artifacts:
+  - discovery.md
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: architect
+  attempt: 1
+  started_at: '2026-05-25T20:45:02Z'
+  ended_at: '2026-05-25T20:45:02Z'
+  usage:
+    input_tokens: 27
+    output_tokens: 13041
+    model: claude-opus-4-7
+    cache_read_input_tokens: 1308976
+    cache_creation_input_tokens: 133940
+    turns: 17
+    duration_ms: 164296
+    tool_calls:
+      Bash: 6
+      Read: 2
+      Edit: 1
+      Write: 2
+    cost_usd: 5.4533190000000005
+  evidence:
+    outputs:
+      design.md: spec/changes/orc-84/design.md
+      tasks.yaml: spec/changes/orc-84/tasks.yaml
+      updated_artifact_set:
+      - design.md
+      - tasks.yaml
+      - discovery.md
+      design_direction: State-only reader
+      complexity: S
+- step_id: expand-plan
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-25T20:45:03Z'
+  ended_at: '2026-05-25T20:45:03Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+- step_id: preview-route
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-25T20:45:03Z'
+  ended_at: '2026-05-25T20:45:03Z'
+  usage: {}
+  evidence:
+    outputs:
+      route_preview:
+        status: estimate_unavailable
+        reason: 'ERROR: state.yaml not found at /Users/spidey/code/feature_worktrees/orc-84/state.yaml '
+        exit_code: 1
+    summary: inline script completed
+- step_id: capture-test-baseline
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-25T20:45:17Z'
+  ended_at: '2026-05-25T20:45:17Z'
+  usage: {}
+  evidence:
+    outputs:
+      baseline:
+        captured_at: '2026-05-25T20:45:04Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 648
+        failing: 16
+        skipped: 0
+        total: 664
+        exit_code: 1
+    summary: inline script completed
+- step_id: task-T-1
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-25T21:01:18Z'
+  ended_at: '2026-05-25T21:01:18Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-1
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 2
+  started_at: '2026-05-25T21:01:26Z'
+  ended_at: '2026-05-25T21:01:26Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-1
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 3
+  started_at: '2026-05-25T21:01:33Z'
+  ended_at: '2026-05-25T21:01:33Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-1
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 4
+  started_at: '2026-05-25T21:15:16Z'
+  ended_at: '2026-05-25T21:15:16Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-1
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 5
+  started_at: '2026-05-25T21:15:24Z'
+  ended_at: '2026-05-25T21:15:24Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-1
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 6
+  started_at: '2026-05-25T21:24:35Z'
+  ended_at: '2026-05-25T21:24:35Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-1
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 7
+  started_at: '2026-05-25T21:24:42Z'
+  ended_at: '2026-05-25T21:24:42Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-1
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 8
+  started_at: '2026-05-25T21:47:12Z'
+  ended_at: '2026-05-25T21:47:12Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-1
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 9
+  started_at: '2026-05-25T21:47:51Z'
+  ended_at: '2026-05-25T21:47:51Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-1
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 10
+  started_at: '2026-05-25T21:47:58Z'
+  ended_at: '2026-05-25T21:47:58Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-1
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 11
+  started_at: '2026-05-25T21:47:59.530004+00:00'
+  outputs:
+    task_execution_result:
+      task_id: T-1
+      status: completed
+      exit_code: 0
+      artifacts:
+      - config/tests/test_run_workflow.bats
+      description: Added failing bats tests for local-time timestamps (AC-1), per-step
+        usage line (AC-2/3/4), feature rollup on exit 1 (AC-5)
+- step_id: task-T-1
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 12
+  started_at: '2026-05-25T22:07:24Z'
+  ended_at: '2026-05-25T22:07:24Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-1
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 13
+  started_at: '2026-05-25T22:14:20Z'
+  ended_at: '2026-05-25T22:14:20Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-1
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 14
+  started_at: '2026-05-25T22:15:53Z'
+  ended_at: '2026-05-25T22:15:53Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-1
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 15
+  started_at: '2026-05-25T22:15:53.940432+00:00'
+  ended_at: '2026-05-25T22:33:19Z'
+  usage:
+    input_tokens: 1262
+    output_tokens: 102315
+    model: claude-opus-4-7
+    cache_read_input_tokens: 29749209
+    cache_creation_input_tokens: 481750
+    turns: 194
+    duration_ms: 5658200
+    tool_calls:
+      Bash: 55
+      Read: 29
+      Edit: 25
+      Write: 4
+      AskUserQuestion: 1
+    cost_usd: 61.349180999999994
+  evidence:
+    commands:
+    - cmd: bats config/tests/test_run_workflow.bats
+      exit_code: 1
+      stdout_tail: '20/21 tests pass; AC-7 (T-2) red test fails as intended (agent
+        empty usage still prints ''usage: no tokens'')'
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result:
+        task_id: T-1
+        status: completed
+  artifacts:
+  - config/tests/test_run_workflow.bats
+- step_id: task-T-2
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-25T22:33:25Z'
+  ended_at: '2026-05-25T22:33:25Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-2
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 2
+  started_at: '2026-05-25T22:33:30Z'
+  ended_at: '2026-05-25T22:33:30Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-2
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 3
+  started_at: '2026-05-25T22:33:35Z'
+  ended_at: '2026-05-25T22:33:35Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-2
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 4
+  started_at: '2026-05-25T22:33:40Z'
+  ended_at: '2026-05-25T22:33:40Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-2
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 5
+  started_at: '2026-05-25T22:33:45Z'
+  ended_at: '2026-05-25T22:33:45Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-2
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 6
+  started_at: '2026-05-25T22:33:50Z'
+  ended_at: '2026-05-25T22:33:50Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-2
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 7
+  started_at: '2026-05-25T22:33:55Z'
+  ended_at: '2026-05-25T22:33:55Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-2
+  phase: main
+  status: failed
+  agent: developer
+  attempt: 8
+  started_at: '2026-05-25T22:34:00Z'
+  ended_at: '2026-05-25T22:34:00Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: task-T-2
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 9
+  started_at: '2026-05-25T22:47:41Z'
+  ended_at: '2026-05-25T22:47:41Z'
+  usage:
+    input_tokens: 100
+    output_tokens: 49620
+    model: claude-opus-4-7
+    cache_read_input_tokens: 5072206
+    cache_creation_input_tokens: 612431
+    turns: 60
+    duration_ms: 486257
+    tool_calls:
+      Bash: 18
+      AskUserQuestion: 1
+      ToolSearch: 1
+      TaskCreate: 4
+      TaskUpdate: 7
+      Write: 5
+      Read: 1
+      Edit: 1
+    cost_usd: 22.814390250000002
+  evidence:
+    commands:
+    - cmd: bats config/tests/test_run_workflow.bats
+      exit_code: 0
+      stdout_tail: 'ok 21 AC-8: empty cost-report stdout suppresses feature complete
+        line but exit stays 1'
+    - cmd: bats config/tests/test_run_workflow_smoke.bats
+      exit_code: 0
+      stdout_tail: ok 2 Cost report mention in output on complete_workflow
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result:
+        task_id: T-2
+        status: completed
+  artifacts:
+  - scripts/run-workflow.sh
+- step_id: task-T-3
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-25T22:49:33Z'
+  ended_at: '2026-05-25T22:49:33Z'
+  usage:
+    input_tokens: 100
+    output_tokens: 49620
+    model: claude-opus-4-7
+    cache_read_input_tokens: 5072206
+    cache_creation_input_tokens: 612431
+    turns: 60
+    duration_ms: 486257
+    tool_calls:
+      Bash: 18
+      AskUserQuestion: 1
+      ToolSearch: 1
+      TaskCreate: 4
+      TaskUpdate: 7
+      Write: 5
+      Read: 1
+      Edit: 1
+    cost_usd: 22.814390250000002
+  evidence:
+    commands:
+    - cmd: git diff main -- bin/orchestrator config/scripts/orchestrator_next/record.py
+        | grep -E '^[+-]' | grep -vE '^(---|\+\+\+)$' | wc -l
+      exit_code: 0
+      stdout_tail: '25'
+    - cmd: git diff main...HEAD -- bin/orchestrator config/scripts/orchestrator_next/record.py
+        | grep -E '^[+-]' | grep -vE '^(---|\+\+\+)$' | wc -l
+      exit_code: 0
+      stdout_tail: '0'
+    - cmd: bats config/tests/test_run_workflow.bats
+      exit_code: 0
+      stdout_tail: '1..10
+
+        ok 1 Script-only workflow runs to completion (exit 1)
+
+        ...
+
+        ok 10 complete_workflow path emits cost report summary'
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result:
+        task_id: T-3
+        status: completed
+  artifacts:
+  - design.md
+- step_id: task-T-3
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 2
+  started_at: '2026-05-25T22:49:41Z'
+  ended_at: '2026-05-25T22:49:41Z'
+  usage:
+    input_tokens: 100
+    output_tokens: 49620
+    model: claude-opus-4-7
+    cache_read_input_tokens: 5072206
+    cache_creation_input_tokens: 612431
+    turns: 60
+    duration_ms: 486257
+    tool_calls:
+      Bash: 18
+      AskUserQuestion: 1
+      ToolSearch: 1
+      TaskCreate: 4
+      TaskUpdate: 7
+      Write: 5
+      Read: 1
+      Edit: 1
+    cost_usd: 22.814390250000002
+  evidence:
+    commands:
+    - cmd: git diff main...HEAD -- bin/orchestrator config/scripts/orchestrator_next/record.py
+        (wc -l)
+      exit_code: 0
+      stdout_tail: '0'
+    - cmd: bats config/tests/test_run_workflow.bats
+      exit_code: 0
+      stdout_tail: 1..10 ok (all passed)
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result:
+        task_id: T-3
+        status: completed
+  artifacts:
+  - design.md
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: '2026-05-25T22:53:15Z'
+  ended_at: '2026-05-25T22:53:15Z'
+  usage:
+    input_tokens: 100
+    output_tokens: 49620
+    model: claude-opus-4-7
+    cache_read_input_tokens: 5072206
+    cache_creation_input_tokens: 612431
+    turns: 60
+    duration_ms: 486257
+    tool_calls:
+      Bash: 18
+      AskUserQuestion: 1
+      ToolSearch: 1
+      TaskCreate: 4
+      TaskUpdate: 7
+      Write: 5
+      Read: 1
+      Edit: 1
+    cost_usd: 22.814390250000002
+  evidence:
+    outputs:
+      phase_review_report:
+        verdict: pass
+  artifacts:
+  - spec/changes/orc-84/phase-review.md
+  review_score:
+    overall: 9
+    dimensions:
+      spec_compliance: 9
+      correctness: 9
+      security: 9
+      simplicity: 9
+      code_quality: 9
+- step_id: compute-prediction-accuracy
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-25T22:53:17Z'
+  ended_at: '2026-05-25T22:53:17Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy:
+        computed_at: '2026-05-25T22:53:17Z'
+        predicted_tasks: 3
+        actual_tasks: 3
+        fix_task_count: 0
+        rework_rate: 0.0
+        task_delta: 0
+        task_accuracy_pct: 100.0
+        predicted_file_count: 11
+        actual_file_count: 0
+        file_delta: -11
+        file_overlap_pct: 0.0
+    summary: inline script completed
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: workflow-learner
+  attempt: 1
+  started_at: '2026-05-25T23:01:18Z'
+  ended_at: '2026-05-25T23:01:18Z'
+  usage:
+    input_tokens: 188
+    output_tokens: 73667
+    model: claude-opus-4-7
+    cache_read_input_tokens: 12497910
+    cache_creation_input_tokens: 682214
+    turns: 118
+    duration_ms: 1489507
+    tool_calls:
+      Bash: 40
+      AskUserQuestion: 3
+      ToolSearch: 1
+      TaskCreate: 5
+      TaskUpdate: 9
+      Write: 5
+      Read: 3
+      Edit: 9
+    cost_usd: 37.066222499999995
+  evidence:
+    outputs:
+      learn_result:
+        completed: true
+        verdict: PASS
+        phase_review_score: 9
+        rules_added: 0
+        rules_updated: 8
+        contracts_modified:
+        - /Users/spidey/.config/orchestrator/config/steps/run-phase-review/contract.yaml
+        - /Users/spidey/.config/orchestrator/config/steps/design-and-draft-artifacts/contract.yaml
+        tickets_filed:
+        - id: ORC-85
+          title: 'Dispatch retry storm: model=none spawn failures bypass retry limit
+            and state-transition guard'
+          priority: high
+        decay_skipped: true
+        decay_reason: cycle 67, next at cycle 70
+        quality_bar_skipped: true
+        quality_bar_reason: fewer than 2 valid score entries in last 5 archives
+  artifacts: []
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-25T23:01:21Z'
+  ended_at: '2026-05-25T23:01:21Z'
+  usage: {}
+  evidence:
+    outputs:
+      status: completed
+      completed_at: '2026-05-25T23:01:21Z'
+      archive_path: spec/changes/archive/2026-05-25-orc-84/
+    summary: inline script completed
+- step_id: compute-swe-metrics
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-25T23:01:23Z'
+  ended_at: '2026-05-25T23:01:23Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+- step_id: complete-workflow
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-25T23:01:24Z'
+  ended_at: '2026-05-25T23:01:24Z'
+  usage: {}
+  evidence:
+    summary: recorded pre-script (state-mutating inline step)
+    outputs: {}
+created_at: '2026-05-25T20:39:37Z'
+started_at: '2026-05-25T20:39:37Z'
+project_context_loaded: true
+worktree_path: /Users/spidey/code/feature_worktrees/orc-84
+branch: feature/orc-84
+ticketing: backlog
+ticket_status: "\u25CB Code Review"
+ticket_id: ORC-84
+ticket_status_checked_at: '2026-05-25T23:01:23Z'
+ticket_rework: false
+completed_at: '2026-05-25T23:01:21Z'
+archive_path: spec/changes/archive/2026-05-25-orc-84/

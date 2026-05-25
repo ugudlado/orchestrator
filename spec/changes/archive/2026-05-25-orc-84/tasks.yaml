@@ -1,0 +1,51 @@
+version: 1
+tasks:
+  - id: T-1
+    title: "Add failing bats tests for local-time timestamps, per-step usage line, and feature rollup"
+    agent: developer
+    depends_on: []
+    files:
+      - config/tests/test_run_workflow.bats
+    verify:
+      - bats config/tests/test_run_workflow.bats
+    test_scenarios:
+      - "Setting TZ=UTC vs TZ=Asia/Kolkata produces different HH:MM:SS in the same `→ <step>` progress line for the same fixed instant (cover AC-1 with a frozen date stub or asserting both formats differ)."
+      - "After a run_inline agent step completes with a done payload carrying usage={model:'claude-opus',input_tokens:1000,output_tokens:500,cost_usd:0.0234,duration_ms:4200}, stderr contains `model=claude-opus`, `tokens in=1000 out=500`, `cost=$0.0234`, and `duration=4.2s` (cover AC-2/AC-3/AC-4)."
+      - "After a run_step script step completes with usage={input_tokens:0,output_tokens:0,model:'none'}, stderr contains the literal `  usage: no tokens (inline/script)` line and the loop continues to the next step (cover AC-6)."
+      - "When `orchestrator next` returns exit 1 (complete_workflow), stderr contains `feature complete: <stubbed cost-report output>` before exit; reuse/extend the existing `complete_workflow path emits cost report summary` test at test_run_workflow.bats:525 (cover AC-5)."
+      - "When the inline-step branch detects state.yaml has been archived (file removed mid-loop), stderr still contains `feature complete: …` before exiting 1 (cover AC-5/UC-E4)."
+      - "When the agent-step usage block is empty/missing in step_history[-1], no usage line is emitted and the loop continues (cover AC-7)."
+      - "When the cost-report.sh stub exits non-zero or emits empty stdout, no `feature complete:` line is emitted and exit code is still 1 (cover AC-8)."
+    why: "AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8"
+    change: |
+      Append new bats tests to config/tests/test_run_workflow.bats. Reuse setup() / write_orchestrator_seq / run_workflow / run_inline_action helpers (lines 1-80). For the TZ test, stub `date` is not viable under set -e — instead assert that the timestamp printed in the `→ <step_id>` line matches /^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]/ and is NOT prefixed by a `Z` or `UTC` suffix. For per-step usage, stub `orchestrator done` to write a step_history row into the state.yaml under test (existing bats fixtures already do this for the cost test at line 525). For the empty-usage and missing-cost-report variants, write fixtures that omit those fields.
+  - id: T-2
+    title: "Reconcile run-workflow.sh helpers against new tests; surface any drift from fbc88d5"
+    agent: developer
+    depends_on: [T-1]
+    files:
+      - scripts/run-workflow.sh
+    verify:
+      - bats config/tests/test_run_workflow.bats
+      - bats config/tests/test_run_workflow_smoke.bats
+    test_scenarios:
+      - "All T-1 tests pass without modifying their assertions."
+      - "Existing smoke tests still pass."
+    why: "AC-1 through AC-8 (ensure shipped helpers conform to the tests; patch only if T-1 reveals a gap)"
+    change: |
+      Run the T-1 bats tests against the existing helpers in scripts/run-workflow.sh (_log_ts at line 287, _log_step_usage at line 293, _emit_feature_rollup at line 358). If any test fails, the minimum fix is: (a) verify _log_ts uses `date +%H:%M:%S` with no `-u`; (b) verify _log_step_usage formats duration with the ms/s/m thresholds at lines 340-347; (c) verify _emit_feature_rollup wraps cost-report output with `[$(_log_ts)] feature complete: …`. Do NOT widen scope — if the implementation already passes, this task is a verification no-op and the COMPLETION should record zero source-file edits.
+  - id: T-3
+    title: "Verify orchestrator next/done stdout contract and state.yaml schema are unchanged"
+    agent: developer
+    depends_on: [T-1]
+    files:
+      - spec/changes/orc-84/design.md
+    verify:
+      - git diff main -- bin/orchestrator config/scripts/orchestrator_next/record.py | grep -E '^[+-]' | grep -vE '^(---|\+\+\+)' | wc -l
+      - bats config/tests/test_run_workflow.bats
+    test_scenarios:
+      - "`git diff main -- bin/orchestrator config/scripts/orchestrator_next/record.py` shows zero functional changes (output may be empty or only whitespace/comment lines)."
+      - "No new top-level keys added to state.yaml by any of the loop's helpers (grep `_log_step_usage` and `_emit_feature_rollup` — both are read-only)."
+    why: "AC-9 (ticket AC-6: contract preservation)"
+    change: |
+      Read-only verification. Run the git diff command from the verify block and confirm there are no functional edits to record.py or bin/orchestrator on this branch relative to main. If the diff is non-empty and not whitespace/comments, escalate per architect-escalation.md — the implementation has overstepped the ticket's explicit non-goal. Append a short paragraph to design.md `## Decisions` recording the verification result and the commit SHA range checked.
