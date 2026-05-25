@@ -55,6 +55,8 @@ ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/ticket-common.sh
 source "$SCRIPT_DIR/lib/ticket-common.sh"
+# shellcheck source=lib/agent-routes.sh
+source "$SCRIPT_DIR/lib/agent-routes.sh"
 
 # -----------------------------------------------------------------------
 # Config resolution: .orchestrator override takes precedence over global
@@ -81,6 +83,16 @@ ROUTES_YAML=$(resolve_config "scripts/routes.yaml")
 # Fall back to worktree scripts/routes.yaml
 if [ -z "$ROUTES_YAML" ] && [ -f "$SCRIPT_DIR/routes.yaml" ]; then
   ROUTES_YAML="$SCRIPT_DIR/routes.yaml"
+fi
+# Runtime full-file override (orchestrator run --routes-override).
+if [ -n "${ORCHESTRATOR_ROUTES_YAML:-}" ] && [ -f "$ORCHESTRATOR_ROUTES_YAML" ]; then
+  ROUTES_YAML="$ORCHESTRATOR_ROUTES_YAML"
+fi
+if [ -n "${ORCHESTRATOR_AGENTS_CONFIG:-}" ]; then
+  echo "agents config: $ORCHESTRATOR_AGENTS_CONFIG" >&2
+fi
+if [ -n "${ORCHESTRATOR_AGENT_ROUTE_OVERRIDES:-}" ] && [ "${ORCHESTRATOR_AGENT_ROUTE_OVERRIDES}" != "{}" ]; then
+  echo "agent route overrides: $ORCHESTRATOR_AGENT_ROUTE_OVERRIDES" >&2
 fi
 
 # -----------------------------------------------------------------------
@@ -158,15 +170,13 @@ reconcile_ticket_before_next() {
   fi
 }
 
-# Resolve agent -> tool binary
-# Looks up routes.yaml .agents.<agent>.subprocess, falls back to 'claude'
+# Resolve agent -> tool name (routes.yaml + ORCHESTRATOR_AGENT_ROUTE_OVERRIDES).
 resolve_agent_tool() {
   local agent="$1"
   local subprocess=""
 
-  # Try routes.yaml first
   if [ -n "$ROUTES_YAML" ] && [ -f "$ROUTES_YAML" ]; then
-    subprocess=$(yq ".agents.${agent}.subprocess // \"\"" "$ROUTES_YAML" 2>/dev/null | tr -d '"')
+    subprocess=$(agent_routes_resolve_subprocess "$agent" "$ROUTES_YAML")
   fi
 
   if [ -n "$subprocess" ]; then
@@ -174,7 +184,6 @@ resolve_agent_tool() {
     return 0
   fi
 
-  # Unknown agent
   return 1
 }
 
@@ -276,8 +285,121 @@ TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 _log_ts() {
-  date -u +%H:%M:%S
+  # Local time (respects TZ); ORC-84 AC-1.
+  date +%H:%M:%S
 }
+
+# Print usage line for the last terminal step_history row matching step_id/phase.
+_log_step_usage() {
+  local step_id="$1"
+  local phase="${2:-main}"
+  python3 - "$STATE_YAML" "$step_id" "$phase" <<'PY' 2>/dev/null || true
+import sys
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    sys.exit(0)
+
+path, step_id, phase = sys.argv[1:4]
+try:
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+except OSError:
+    sys.exit(0)
+
+history = raw.get("step_history") or []
+usage = None
+status = None
+for entry in reversed(history):
+    if not isinstance(entry, dict):
+        continue
+    if entry.get("step_id") != step_id or entry.get("phase", "main") != phase:
+        continue
+    if entry.get("status") in ("completed", "recovered", "failed"):
+        usage = entry.get("usage") or {}
+        status = entry.get("status")
+        break
+
+if usage is None:
+    sys.exit(0)
+
+inp = usage.get("input_tokens") or 0
+out = usage.get("output_tokens") or 0
+cost = usage.get("cost_usd")
+model = usage.get("model")
+dur = usage.get("duration_ms")
+
+parts: list[str] = []
+if model and str(model) not in ("none", "unknown", ""):
+    parts.append(f"model={model}")
+if inp or out:
+    parts.append(f"tokens in={int(inp)} out={int(out)}")
+if isinstance(cost, (int, float)):
+    parts.append(f"cost=${float(cost):.4f}")
+if isinstance(dur, (int, float)) and dur > 0:
+    d = float(dur)
+    if d >= 60_000:
+        parts.append(f"duration={d / 60_000:.1f}m")
+    elif d >= 1_000:
+        parts.append(f"duration={d / 1_000:.1f}s")
+    else:
+        parts.append(f"duration={int(d)}ms")
+
+if not parts:
+    if status in ("completed", "recovered") and not inp and not out:
+        print("  usage: no tokens (inline/script)")
+    sys.exit(0)
+
+print("  " + " · ".join(parts))
+PY
+}
+
+_emit_feature_rollup() {
+  local change_id="$1"
+  local cost_sh=""
+  cost_sh=$(find "$SCRIPT_DIR" "$REPO_ROOT/scripts" "$REPO_ROOT/config/scripts" \
+    -maxdepth 2 -name "cost-report.sh" 2>/dev/null | head -1 || true)
+  if [ -z "$cost_sh" ] || [ ! -f "$cost_sh" ]; then
+    return 0
+  fi
+  local tail_line
+  tail_line=$(bash "$cost_sh" --change-id "$change_id" --tail 2>/dev/null || true)
+  if [ -n "$tail_line" ]; then
+    echo "[$(_log_ts)] feature complete: $tail_line" >&2
+  fi
+}
+
+# Rerun of an already-archived feature: flag via discoverer/architect metadata and exit.
+_archive_completion_handle() {
+  PYTHONPATH="${REPO_ROOT}/config/scripts:${PYTHONPATH:-}" \
+    python3 -m orchestrator_next.archive_completion handle "$STATE_YAML" 2>&1
+}
+
+_ARCHIVE_HANDLE=$(_archive_completion_handle 2>/dev/null | tail -1)
+_ARCHIVE_HANDLE_ACTION=$(echo "$_ARCHIVE_HANDLE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('action','continue'))" 2>/dev/null || echo "continue")
+if [ "$_ARCHIVE_HANDLE_ACTION" = "halt_complete" ]; then
+  echo "$_ARCHIVE_HANDLE" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('message', 'Feature already completed.'))
+fb = d.get('flagged_by')
+if fb:
+    print(f'(flagged_by: {fb})', file=sys.stderr)
+" >&2
+  exit 1
+fi
+if [ "$_ARCHIVE_HANDLE_ACTION" = "error" ]; then
+  echo "WARN: archive_completion handle failed (continuing workflow)" >&2
+  echo "$_ARCHIVE_HANDLE" >&2
+fi
+
+WORKFLOW_CHANGE_ID=$(python3 -c "
+import yaml
+with open('$STATE_YAML') as f:
+    d = yaml.safe_load(f) or {}
+print(d.get('change_id', '') or d.get('slug', ''))
+" 2>/dev/null || echo "")
 
 while true; do
   # Poll ticket lane before each dispatch (reviewer may have moved ticket back)
@@ -290,18 +412,8 @@ while true; do
       1)
         # complete_workflow
         echo "Workflow complete." >&2
-        # Emit cost report if available
-        COST_REPORT_SH=$(find "$SCRIPT_DIR" "$REPO_ROOT/scripts" "$REPO_ROOT/config/scripts" \
-          -maxdepth 2 -name "cost-report.sh" 2>/dev/null | head -1 || true)
-        if [ -n "$COST_REPORT_SH" ] && [ -f "$COST_REPORT_SH" ]; then
-          CHANGE_ID=$(python3 -c "
-import yaml, sys
-with open('$STATE_YAML') as f: d=yaml.safe_load(f)
-print(d.get('change_id',''))
-" 2>/dev/null || echo "")
-          if [ -n "$CHANGE_ID" ]; then
-            bash "$COST_REPORT_SH" --change-id "$CHANGE_ID" 2>/dev/null || true
-          fi
+        if [ -n "$WORKFLOW_CHANGE_ID" ]; then
+          _emit_feature_rollup "$WORKFLOW_CHANGE_ID"
         fi
         exit 1
         ;;
@@ -311,6 +423,13 @@ print(d.get('change_id',''))
         exit 2
         ;;
       3)
+        if [ ! -f "$STATE_YAML" ] && grep -q 'state.yaml not found' /tmp/orch_next_stderr 2>/dev/null; then
+          echo "Workflow complete (state archived)." >&2
+          if [ -n "$WORKFLOW_CHANGE_ID" ]; then
+            _emit_feature_rollup "$WORKFLOW_CHANGE_ID"
+          fi
+          exit 1
+        fi
         echo "Contract error from orchestrator next." >&2
         cat /tmp/orch_next_stderr >&2 2>/dev/null || true
         exit 3
@@ -325,6 +444,15 @@ print(d.get('change_id',''))
   # Inline script steps run inside bin/orchestrator (exit 0, no JSON on stdout).
   if [ -z "$(printf '%s' "$ACTION_JSON" | tr -d '[:space:]')" ]; then
     echo "[$(_log_ts)]   inline step finished inside orchestrator; continuing loop" >&2
+    # complete-workflow archives state.yaml; the next `orchestrator next` would
+    # exit 3 with "state.yaml not found". Treat missing state as success.
+    if [ ! -f "$STATE_YAML" ]; then
+      echo "Workflow complete (state archived)." >&2
+      if [ -n "$WORKFLOW_CHANGE_ID" ]; then
+        _emit_feature_rollup "$WORKFLOW_CHANGE_ID"
+      fi
+      exit 1
+    fi
     continue
   fi
 
@@ -351,6 +479,10 @@ print(d.get('change_id',''))
     AGENT_SUFFIX="  agent=$AGENT"
   fi
   echo "[$(_log_ts)] → $STEP_ID  phase=$PHASE  kind=$KIND_LABEL${AGENT_SUFFIX}  attempt=$ATTEMPT" >&2
+  COST_SO_FAR=$(echo "$ACTION_JSON" | jq -r '.cost_so_far // 0' 2>/dev/null || echo "0")
+  if python3 -c "import sys; sys.exit(0 if float('${COST_SO_FAR:-0}') > 0 else 1)" 2>/dev/null; then
+    printf '[%s]   cost so far: $%.4f\n' "$(_log_ts)" "$COST_SO_FAR" >&2
+  fi
 
   # -----------------------------------------------------------------------
   # Dispatch on kind
@@ -407,6 +539,7 @@ print(json.dumps(payload))
 ")
       if echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML"; then
         echo "[$(_log_ts)] ✓ $STEP_ID  done  status=$STATUS" >&2
+        _log_step_usage "$STEP_ID" "$PHASE"
         if [ "$STATUS" = "completed" ]; then
           sync_ticket_after_step "$STEP_ID"
         fi
@@ -437,7 +570,25 @@ print(json.dumps(payload))
         exit 4
       fi
 
-      echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)" >&2
+      MODEL_TIER=""
+      if [ -n "$ROUTES_YAML" ] && [ -f "$ROUTES_YAML" ]; then
+        MODEL_TIER=$(agent_routes_resolve_model "$AGENT" "$ROUTES_YAML")
+      fi
+      if [ -n "$MODEL_TIER" ]; then
+        echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)  model=$MODEL_TIER" >&2
+      else
+        echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)" >&2
+      fi
+
+      # Do not respawn discoverer/architect when this feature is already archived.
+      if [ "$STEP_ID" = "explore" ] || [ "$STEP_ID" = "design-and-draft-artifacts" ]; then
+        _ARCHIVE_HANDLE=$(_archive_completion_handle 2>/dev/null | tail -1)
+        _ARCHIVE_HANDLE_ACTION=$(echo "$_ARCHIVE_HANDLE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('action','continue'))" 2>/dev/null || echo "continue")
+        if [ "$_ARCHIVE_HANDLE_ACTION" = "halt_complete" ]; then
+          echo "$_ARCHIVE_HANDLE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','Feature already completed.'))" >&2
+          exit 1
+        fi
+      fi
 
       # Build the prompt (ticket body + change_id so diagnose/implement agents have a target)
       TICKET_CONTEXT=""
@@ -454,11 +605,14 @@ wt = s.get("worktree_path") or ""
 schema = s.get("schema") or ""
 repo = s.get("repo_root") or ""
 print(f"Workflow: change_id={cid} schema={schema} repo_root={repo}")
+print(f"state_yaml_path={p}")
 if wt:
     print(f"worktree_path={wt}")
     print(f"artifact_dir={wt}/spec/changes/{cid}")
+    print(f"workflow_state_dir={wt}/spec/changes")
 else:
     print(f"artifact_dir={repo}/spec/changes/{cid}")
+    print(f"workflow_state_dir={repo}/spec/changes")
 PY
 )
       PROMPT=$(build_prompt "$INSTRUCTION" "$STEP_CONTEXT" "$TICKET_CONTEXT" "$WORKFLOW_META")
@@ -523,17 +677,53 @@ if '$STARTED_AT':
 print(json.dumps(payload))
 " <<<"$COMPLETION_JSON")
 
-      if echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML"; then
+      DONE_STDERR="$TMP_DIR/orch_done_stderr_${STEP_ID}.txt"
+      if echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML" 2>"$DONE_STDERR"; then
         DONE_STATUS=$(echo "$DONE_PAYLOAD" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','completed'))" 2>/dev/null || echo "completed")
         echo "[$(_log_ts)] ✓ $STEP_ID  done  status=$DONE_STATUS" >&2
+        _log_step_usage "$STEP_ID" "$PHASE"
         if [ "$DONE_STATUS" = "completed" ] || [ "$DONE_STATUS" = "recovered" ]; then
           sync_ticket_after_step "$STEP_ID"
         fi
       else
         DONE_EXIT=$?
-        echo "ERROR: orchestrator done exited $DONE_EXIT" >&2
-        cat /tmp/orch_done_stderr 2>/dev/null || true
-        exit 7
+        # Heal architect COMPLETION that lists design.md/tasks.yaml but omits updated_artifact_set.
+        HEALED_PAYLOAD=$(DONE_PAYLOAD="$DONE_PAYLOAD" STEP_ID="$STEP_ID" python3 -c "
+import json, os, sys
+payload = json.loads(os.environ['DONE_PAYLOAD'])
+if os.environ.get('STEP_ID') != 'design-and-draft-artifacts':
+    sys.exit(0)
+outs = payload.get('outputs') or {}
+if not isinstance(outs, dict):
+    sys.exit(0)
+cur = outs.get('updated_artifact_set')
+if cur is not None and (not hasattr(cur, '__len__') or len(cur) > 0):
+    sys.exit(0)
+names = []
+for k, v in outs.items():
+    if k in ('design_direction', 'complexity', 'updated_artifact_set'):
+        continue
+    if isinstance(k, str) and '.' in k:
+        names.append(k.split('/')[-1])
+    elif isinstance(v, str) and '.' in v:
+        names.append(v.rsplit('/', 1)[-1])
+names = list(dict.fromkeys(names))
+if not names:
+    sys.exit(0)
+outs['updated_artifact_set'] = names
+payload['outputs'] = outs
+payload['artifacts'] = names
+print(json.dumps(payload))
+" 2>/dev/null || true)
+        if [ -n "$HEALED_PAYLOAD" ] && echo "$HEALED_PAYLOAD" | orchestrator done "$STATE_YAML" 2>"$DONE_STDERR"; then
+          echo "[$(_log_ts)] ✓ $STEP_ID  done  status=completed (healed missing updated_artifact_set)" >&2
+          _log_step_usage "$STEP_ID" "$PHASE"
+          sync_ticket_after_step "$STEP_ID"
+        else
+          echo "ERROR: orchestrator done exited $DONE_EXIT" >&2
+          cat "$DONE_STDERR" 2>/dev/null || true
+          exit 7
+        fi
       fi
       ;;
 

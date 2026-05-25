@@ -497,6 +497,29 @@ STUB
   [ "$status" -eq 3 ]
 }
 
+# --- Test: archived state after terminal inline step (complete-workflow) ---
+
+@test "inline step that archives state exits 1 not 3" {
+  cat > "$STUB_DIR/orchestrator" <<STUB
+#!/bin/sh
+case "\$1" in
+  next)
+    # Simulate complete-workflow: inline finish with no JSON, state already archived.
+    rm -f "$TMP_STATE"
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+STUB
+  chmod +x "$STUB_DIR/orchestrator"
+
+  run_workflow
+  [ "$status" -eq 1 ]
+  [[ "$output" =~ "Workflow complete" ]] || [[ "$output" =~ "archived" ]]
+}
+
 # --- Test: complete_workflow path prints cost report ---
 
 @test "complete_workflow path emits cost report summary" {
