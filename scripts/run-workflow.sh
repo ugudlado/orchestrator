@@ -48,29 +48,24 @@ if [ -z "${REPO_ROOT:-}" ] || [ ! -f "$REPO_ROOT/spec/project.yaml" ]; then
   REPO_ROOT="$(_find_repo_root "$STATE_YAML")" || REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "$STATE_YAML")/../.." && pwd)}"
 fi
 
-# Config files (tools.yaml, routes) come from the orchestrator repo in state.yaml,
-# not the worktree checkout where state.yaml may live (worktree often has a stale
-# config/ copy).
-CONFIG_REPO_ROOT=$(python3 -c "
-import yaml
-from pathlib import Path
-p = Path('$STATE_YAML')
-s = yaml.safe_load(p.read_text(encoding='utf-8')) or {}
-print(s.get('repo_root', '') or '')
-" 2>/dev/null || echo "")
-if [ -z "$CONFIG_REPO_ROOT" ] || [ ! -f "$CONFIG_REPO_ROOT/spec/project.yaml" ]; then
-  CONFIG_REPO_ROOT="$REPO_ROOT"
-fi
-
 # Resolve ORCHESTRATOR_HOME
 ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
 
 # Resolve script directory (find siblings like parse-completion.py, cost-report.sh)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STATE_INSPECT="$SCRIPT_DIR/lib/state_inspect.py"
 # shellcheck source=lib/ticket-common.sh
 source "$SCRIPT_DIR/lib/ticket-common.sh"
 # shellcheck source=lib/agent-routes.sh
 source "$SCRIPT_DIR/lib/agent-routes.sh"
+
+# Config files (tools.yaml, routes) come from the orchestrator repo in state.yaml,
+# not the worktree checkout where state.yaml may live (worktree often has a stale
+# config/ copy).
+CONFIG_REPO_ROOT=$(python3 "$STATE_INSPECT" state-field "$STATE_YAML" repo_root 2>/dev/null || echo "")
+if [ -z "$CONFIG_REPO_ROOT" ] || [ ! -f "$CONFIG_REPO_ROOT/spec/project.yaml" ]; then
+  CONFIG_REPO_ROOT="$REPO_ROOT"
+fi
 
 # -----------------------------------------------------------------------
 # Config resolution: .orchestrator override takes precedence over global
@@ -251,7 +246,9 @@ build_prompt() {
   fi
 }
 
-# Run tool binary using config/tools.yaml args_template ({prompt}, {prompt_file})
+# Run tool binary using config/tools.yaml args_template ({prompt}, {prompt_file}).
+# pi_settings_json (arg 8) carries the resolved pi defaults JSON from the caller
+# so settings.json is read exactly once per agent step.
 invoke_tool() {
   local tool_name="$1"
   local tool_binary="$2"
@@ -260,7 +257,11 @@ invoke_tool() {
   local stdout_path="$5"
   local stderr_path="$6"
   local work_dir="${7:-}"
+  local pi_settings_json="${8:-}"
+  local model_tier="${9:-}"
 
+  PI_SETTINGS_JSON="$pi_settings_json" \
+  ORCHESTRATOR_MODEL_TIER="$model_tier" \
   python3 - "$tool_name" "$tool_binary" "$prompt" "$prompt_file" "$stdout_path" "$stderr_path" "$TOOLS_YAML" "$work_dir" <<'PY'
 import json, os, subprocess, sys
 from pathlib import Path
@@ -277,30 +278,25 @@ if tools_path and Path(tools_path).is_file():
 def _expand_arg(arg: str) -> str:
     if "{prompt_file}" in arg:
         return arg.replace("{prompt_file}", prompt_file)
+    if "{model_tier}" in arg:
+        tier = os.environ.get("ORCHESTRATOR_MODEL_TIER") or "auto"
+        return arg.replace("{model_tier}", tier)
     if arg == "{prompt}":
         return prompt
     return str(arg)
 
 
-def _pi_settings_flags() -> list[str]:
-    """Honor interactive pi defaults (defaultProvider/defaultModel in settings.json)."""
-    settings_path = Path.home() / ".pi" / "agent" / "settings.json"
-    if not settings_path.is_file():
-        return []
+def _pi_flags() -> list[str]:
+    """Convert PI_SETTINGS_JSON ({provider,model,thinking}) into pi CLI flags."""
     try:
-        settings = json.loads(settings_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        settings = json.loads(os.environ.get("PI_SETTINGS_JSON") or "{}")
+    except json.JSONDecodeError:
         return []
     flags: list[str] = []
-    provider = settings.get("defaultProvider")
-    model = settings.get("defaultModel")
-    thinking = settings.get("defaultThinkingLevel")
-    if provider:
-        flags.extend(["--provider", str(provider)])
-    if model:
-        flags.extend(["--model", str(model)])
-    if thinking:
-        flags.extend(["--thinking", str(thinking)])
+    for field, flag in (("provider", "--provider"), ("model", "--model"), ("thinking", "--thinking")):
+        val = settings.get(field)
+        if val:
+            flags.extend([flag, str(val)])
     return flags
 
 
@@ -309,17 +305,17 @@ for arg in template:
     argv.append(_expand_arg(arg))
 
 if len(argv) == 1:
-    if tool_name == "claude":
+    if tool_name in ("claude", "pi"):
         argv.extend(["-p", prompt])
-    elif tool_name == "pi":
-        argv.extend(_pi_settings_flags())
-        argv.extend([f"@{prompt_file}", "-p", "."])
     else:
         argv.append(prompt)
 
-if tool_name == "pi":
-    flags = _pi_settings_flags()
-    if flags and "--provider" not in argv:
+# Pi reads provider/model from saved settings.json by default in interactive mode;
+# subprocess mode needs them as explicit flags. Prepend if the template hasn't
+# already supplied --provider (user override wins).
+if tool_name == "pi" and "--provider" not in argv:
+    flags = _pi_flags()
+    if flags:
         argv = [argv[0]] + flags + argv[1:]
 
 cwd = work_dir if work_dir and Path(work_dir).is_dir() else None
@@ -347,66 +343,7 @@ _log_ts() {
 _log_step_usage() {
   local step_id="$1"
   local phase="${2:-main}"
-  python3 - "$STATE_YAML" "$step_id" "$phase" <<'PY' 2>/dev/null || true
-import sys
-from pathlib import Path
-
-try:
-    import yaml
-except ImportError:
-    sys.exit(0)
-
-path, step_id, phase = sys.argv[1:4]
-try:
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
-except OSError:
-    sys.exit(0)
-
-history = raw.get("step_history") or []
-usage = None
-status = None
-for entry in reversed(history):
-    if not isinstance(entry, dict):
-        continue
-    if entry.get("step_id") != step_id or entry.get("phase", "main") != phase:
-        continue
-    if entry.get("status") in ("completed", "recovered", "failed"):
-        usage = entry.get("usage") or {}
-        status = entry.get("status")
-        break
-
-if usage is None:
-    sys.exit(0)
-
-inp = usage.get("input_tokens") or 0
-out = usage.get("output_tokens") or 0
-cost = usage.get("cost_usd")
-model = usage.get("model")
-dur = usage.get("duration_ms")
-
-parts: list[str] = []
-if model and str(model) not in ("none", "unknown", ""):
-    parts.append(f"model={model}")
-if inp or out:
-    parts.append(f"tokens in={int(inp)} out={int(out)}")
-if isinstance(cost, (int, float)):
-    parts.append(f"cost=${float(cost):.4f}")
-if isinstance(dur, (int, float)) and dur > 0:
-    d = float(dur)
-    if d >= 60_000:
-        parts.append(f"duration={d / 60_000:.1f}m")
-    elif d >= 1_000:
-        parts.append(f"duration={d / 1_000:.1f}s")
-    else:
-        parts.append(f"duration={int(d)}ms")
-
-if not parts:
-    if status in ("completed", "recovered") and not inp and not out:
-        print("  usage: no tokens (inline/script)")
-    sys.exit(0)
-
-print("  " + " · ".join(parts))
-PY
+  python3 "$STATE_INSPECT" log-step-usage "$STATE_YAML" "$step_id" "$phase" 2>/dev/null || true
 }
 
 _emit_feature_rollup() {
@@ -448,12 +385,7 @@ if [ "$_ARCHIVE_HANDLE_ACTION" = "error" ]; then
   echo "$_ARCHIVE_HANDLE" >&2
 fi
 
-WORKFLOW_CHANGE_ID=$(python3 -c "
-import yaml
-with open('$STATE_YAML') as f:
-    d = yaml.safe_load(f) or {}
-print(d.get('change_id', '') or d.get('slug', ''))
-" 2>/dev/null || echo "")
+WORKFLOW_CHANGE_ID=$(python3 "$STATE_INSPECT" state-field "$STATE_YAML" change_id --fallback slug 2>/dev/null || echo "")
 
 while true; do
   # Poll ticket lane before each dispatch (reviewer may have moved ticket back)
@@ -534,7 +466,7 @@ while true; do
   fi
   echo "[$(_log_ts)] → $STEP_ID  phase=$PHASE  kind=$KIND_LABEL${AGENT_SUFFIX}  attempt=$ATTEMPT" >&2
   COST_SO_FAR=$(echo "$ACTION_JSON" | jq -r '.cost_so_far // 0' 2>/dev/null || echo "0")
-  if python3 -c "import sys; sys.exit(0 if float('${COST_SO_FAR:-0}') > 0 else 1)" 2>/dev/null; then
+  if awk "BEGIN{exit !(${COST_SO_FAR:-0}>0)}" 2>/dev/null; then
     printf '[%s]   cost so far: $%.4f\n' "$(_log_ts)" "$COST_SO_FAR" >&2
   fi
 
@@ -555,12 +487,7 @@ while true; do
       # Build env vars from env block
       ENV_ARGS=""
       if [ "$ENV_BLOCK" != "{}" ] && [ "$ENV_BLOCK" != "null" ]; then
-        ENV_ARGS=$(echo "$ENV_BLOCK" | python3 -c "
-import sys, json
-env = json.load(sys.stdin)
-for k, v in env.items():
-    print(f'{k}={v}')
-" 2>/dev/null | tr '\n' ' ')
+        ENV_ARGS=$(echo "$ENV_BLOCK" | jq -r 'to_entries[] | "\(.key)=\(.value)"' 2>/dev/null | tr '\n' ' ')
       fi
 
       echo "[$(_log_ts)]   run: $SCRIPT_PATH" >&2
@@ -578,19 +505,9 @@ for k, v in env.items():
         STATUS="failed"
       fi
 
-      DONE_PAYLOAD=$(python3 -c "
-import json, sys
-payload = {
-    'step_id': '$STEP_ID',
-    'phase': '$PHASE',
-    'status': '$STATUS',
-    'outputs': {},
-    'usage': {'input_tokens': 0, 'output_tokens': 0, 'model': 'none'},
-}
-if '$STARTED_AT':
-    payload['started_at'] = '$STARTED_AT'
-print(json.dumps(payload))
-")
+      DONE_PAYLOAD=$(python3 "$STATE_INSPECT" build-payload script \
+        --step-id "$STEP_ID" --phase "$PHASE" --status "$STATUS" \
+        --started-at "$STARTED_AT")
       if echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML"; then
         echo "[$(_log_ts)] ✓ $STEP_ID  done  status=$STATUS" >&2
         _log_step_usage "$STEP_ID" "$PHASE"
@@ -628,32 +545,35 @@ print(json.dumps(payload))
       if [ -n "$ROUTES_YAML" ] && [ -f "$ROUTES_YAML" ]; then
         MODEL_TIER=$(agent_routes_resolve_model "$AGENT" "$ROUTES_YAML")
       fi
-      # routes.yaml "model" is the Claude billing tier (opus/sonnet/haiku), not the
-      # subprocess LLM — only show it when the tool is claude.
+      # Pi defaults from ~/.pi/agent/settings.json: resolved once here, reused
+      # by both the log line below and invoke_tool (passed as 8th arg).
+      PI_SETTINGS_JSON=""
+      if [ "$TOOL_NAME" = "pi" ]; then
+        PI_SETTINGS_JSON=$(python3 "$STATE_INSPECT" pi-settings 2>/dev/null || echo "{}")
+      fi
+      # routes.yaml "model": Claude billing tier (opus/sonnet/haiku) or Cursor CLI id (auto).
       if [ -n "$MODEL_TIER" ] && [ "$TOOL_NAME" = "claude" ]; then
         echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)  tier=$MODEL_TIER" >&2
+      elif [ -n "$MODEL_TIER" ] && [ "$TOOL_NAME" = "cursor" ]; then
+        echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)  model=$MODEL_TIER" >&2
       elif [ "$TOOL_NAME" = "pi" ]; then
-        PI_PROV=$(python3 -c "import json; from pathlib import Path; p=Path.home()/'.pi/agent/settings.json';
-print((json.loads(p.read_text()) if p.is_file() else {}).get('defaultProvider','') or '')" 2>/dev/null || echo "")
-        PI_MOD=$(python3 -c "import json; from pathlib import Path; p=Path.home()/'.pi/agent/settings.json';
-print((json.loads(p.read_text()) if p.is_file() else {}).get('defaultModel','') or '')" 2>/dev/null || echo "")
-        if [ -n "$PI_PROV" ] && [ -n "$PI_MOD" ]; then
-          echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)  provider=$PI_PROV  model=$PI_MOD" >&2
-        else
-          echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)" >&2
-        fi
+        PI_SUFFIX=$(echo "$PI_SETTINGS_JSON" \
+          | jq -r 'if .provider and .model then "  provider=\(.provider)  model=\(.model)" else "" end' \
+          2>/dev/null || echo "")
+        echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)${PI_SUFFIX}" >&2
       else
         echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)" >&2
       fi
 
       # Do not respawn discoverer/architect when this feature is already archived.
-      if [ "$STEP_ID" = "explore" ] || [ "$STEP_ID" = "design-and-draft-artifacts" ]; then
-        _ARCHIVE_HANDLE=$(_archive_completion_handle 2>/dev/null | tail -1)
-        _ARCHIVE_HANDLE_ACTION=$(echo "$_ARCHIVE_HANDLE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('action','continue'))" 2>/dev/null || echo "continue")
-        if [ "$_ARCHIVE_HANDLE_ACTION" = "halt_complete" ]; then
-          echo "$_ARCHIVE_HANDLE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','Feature already completed.'))" >&2
-          exit 1
-        fi
+      # The startup probe ran archive_completion handle once; reuse its result
+      # since the archive can't appear mid-loop (this process owns the only
+      # complete-workflow step). The cached _ARCHIVE_HANDLE_ACTION is "continue"
+      # by the time we reach here (halt_complete would have exited at startup).
+      if [ "$_ARCHIVE_HANDLE_ACTION" = "halt_complete" ] && \
+         { [ "$STEP_ID" = "explore" ] || [ "$STEP_ID" = "design-and-draft-artifacts" ]; }; then
+        echo "$_ARCHIVE_HANDLE" | jq -r '.message // "Feature already completed."' >&2
+        exit 1
       fi
 
       # Build the prompt (ticket body + change_id so diagnose/implement agents have a target)
@@ -661,26 +581,7 @@ print((json.loads(p.read_text()) if p.is_file() else {}).get('defaultModel','') 
       if [ -n "$TICKET_ID" ]; then
         TICKET_CONTEXT=$(fetch_ticket_context "$TICKET_ID")
       fi
-      WORKFLOW_META=$(python3 - "$STATE_YAML" <<'PY' 2>/dev/null || true
-import sys, yaml
-from pathlib import Path
-p = Path(sys.argv[1])
-s = yaml.safe_load(p.read_text()) or {}
-cid = s.get("change_id") or s.get("slug") or p.parent.name
-wt = s.get("worktree_path") or ""
-schema = s.get("schema") or ""
-repo = s.get("repo_root") or ""
-print(f"Workflow: change_id={cid} schema={schema} repo_root={repo}")
-print(f"state_yaml_path={p}")
-if wt:
-    print(f"worktree_path={wt}")
-    print(f"artifact_dir={wt}/spec/changes/{cid}")
-    print(f"workflow_state_dir={wt}/spec/changes")
-else:
-    print(f"artifact_dir={repo}/spec/changes/{cid}")
-    print(f"workflow_state_dir={repo}/spec/changes")
-PY
-)
+      WORKFLOW_META=$(python3 "$STATE_INSPECT" workflow-meta "$STATE_YAML" 2>/dev/null || true)
       PROMPT=$(build_prompt "$INSTRUCTION" "$STEP_CONTEXT" "$TICKET_CONTEXT" "$WORKFLOW_META")
       PROMPT_FILE="$TMP_DIR/prompt_${STEP_ID}.txt"
       echo "$PROMPT" > "$PROMPT_FILE"
@@ -694,7 +595,8 @@ PY
       TOOL_EXIT=0
       TOOL_STDOUT="$TMP_DIR/tool_stdout_${STEP_ID}.txt"
       invoke_tool "$TOOL_NAME" "$TOOL_BINARY" "$PROMPT" "$PROMPT_FILE" \
-        "$TOOL_STDOUT" "$TMP_DIR/tool_stderr_${STEP_ID}.txt" "$AGENT_WORK_DIR" || TOOL_EXIT=$?
+        "$TOOL_STDOUT" "$TMP_DIR/tool_stderr_${STEP_ID}.txt" "$AGENT_WORK_DIR" \
+        "$PI_SETTINGS_JSON" "$MODEL_TIER" || TOOL_EXIT=$?
 
       if [ "$TOOL_EXIT" -ne 0 ]; then
         echo "WARN: tool '$TOOL_BINARY' exited $TOOL_EXIT" >&2
@@ -703,18 +605,9 @@ PY
           tail -8 "$TMP_DIR/tool_stderr_${STEP_ID}.txt" >&2
         fi
         # Record failure via orchestrator done
-        DONE_PAYLOAD=$(python3 -c "
-import json
-payload = {
-    'step_id': '$STEP_ID',
-    'phase': '$PHASE',
-    'status': 'failed',
-    'agent': '$AGENT',
-    'outputs': {'task_execution_result': {'status': 'failed', 'exit_code': $TOOL_EXIT}},
-    'usage': {'input_tokens': 0, 'output_tokens': 0, 'model': 'none'},
-}
-print(json.dumps(payload))
-")
+        DONE_PAYLOAD=$(python3 "$STATE_INSPECT" build-payload failed \
+          --step-id "$STEP_ID" --phase "$PHASE" --agent "$AGENT" \
+          --exit-code "$TOOL_EXIT")
         echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML" || true
         continue
       fi
@@ -735,23 +628,9 @@ print(json.dumps(payload))
       fi
 
       # Build done payload from COMPLETION JSON + dispatch context
-      DONE_PAYLOAD=$(TOOL_STDOUT="$TOOL_STDOUT" python3 -c "
-import json, os, sys
-completion = json.loads(sys.stdin.read())
-payload = dict(completion)
-payload['step_id'] = '$STEP_ID'
-payload['phase'] = '$PHASE'
-payload['agent'] = '$AGENT'
-stdout_path = os.environ.get('TOOL_STDOUT', '')
-if stdout_path and os.path.isfile(stdout_path):
-    with open(stdout_path, encoding='utf-8', errors='replace') as f:
-        payload['agent_task_result'] = f.read()
-if not payload.get('usage'):
-    payload['usage'] = {'input_tokens': 0, 'output_tokens': 0, 'model': 'none'}
-if '$STARTED_AT':
-    payload['started_at'] = '$STARTED_AT'
-print(json.dumps(payload))
-" <<<"$COMPLETION_JSON")
+      DONE_PAYLOAD=$(python3 "$STATE_INSPECT" build-payload agent \
+        --step-id "$STEP_ID" --phase "$PHASE" --agent "$AGENT" \
+        --stdout-file "$TOOL_STDOUT" --started-at "$STARTED_AT" <<<"$COMPLETION_JSON")
 
       DONE_STDERR="$TMP_DIR/orch_done_stderr_${STEP_ID}.txt"
       if echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML" 2>"$DONE_STDERR"; then
@@ -763,43 +642,9 @@ print(json.dumps(payload))
         fi
       else
         DONE_EXIT=$?
-        # Heal architect COMPLETION that lists design.md/tasks.yaml but omits updated_artifact_set.
-        HEALED_PAYLOAD=$(DONE_PAYLOAD="$DONE_PAYLOAD" STEP_ID="$STEP_ID" python3 -c "
-import json, os, sys
-payload = json.loads(os.environ['DONE_PAYLOAD'])
-if os.environ.get('STEP_ID') != 'design-and-draft-artifacts':
-    sys.exit(0)
-outs = payload.get('outputs') or {}
-if not isinstance(outs, dict):
-    sys.exit(0)
-cur = outs.get('updated_artifact_set')
-if cur is not None and (not hasattr(cur, '__len__') or len(cur) > 0):
-    sys.exit(0)
-names = []
-for k, v in outs.items():
-    if k in ('design_direction', 'complexity', 'updated_artifact_set'):
-        continue
-    if isinstance(k, str) and '.' in k:
-        names.append(k.split('/')[-1])
-    elif isinstance(v, str) and '.' in v:
-        names.append(v.rsplit('/', 1)[-1])
-names = list(dict.fromkeys(names))
-if not names:
-    sys.exit(0)
-outs['updated_artifact_set'] = names
-payload['outputs'] = outs
-payload['artifacts'] = names
-print(json.dumps(payload))
-" 2>/dev/null || true)
-        if [ -n "$HEALED_PAYLOAD" ] && echo "$HEALED_PAYLOAD" | orchestrator done "$STATE_YAML" 2>"$DONE_STDERR"; then
-          echo "[$(_log_ts)] ✓ $STEP_ID  done  status=completed (healed missing updated_artifact_set)" >&2
-          _log_step_usage "$STEP_ID" "$PHASE"
-          sync_ticket_after_step "$STEP_ID"
-        else
-          echo "ERROR: orchestrator done exited $DONE_EXIT" >&2
-          cat "$DONE_STDERR" 2>/dev/null || true
-          exit 7
-        fi
+        echo "ERROR: orchestrator done exited $DONE_EXIT" >&2
+        cat "$DONE_STDERR" 2>/dev/null || true
+        exit 7
       fi
       ;;
 
