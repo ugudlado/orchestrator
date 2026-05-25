@@ -1,0 +1,22 @@
+version: 1
+tools:
+  claude:
+    binary: claude
+    # {prompt} is substituted with the full prompt text
+    args_template: ["-p", "{prompt}"]
+    stdin: none
+    capture: stdout
+
+  pi:
+    binary: pi
+    # {prompt_file} is substituted with path to a temp file containing the prompt
+    args_template: ["run", "--prompt-file", "{prompt_file}"]
+    stdin: none
+    capture: stdout
+
+  codex:
+    binary: codex
+    # {prompt} is substituted with the full prompt text
+    args_template: ["exec", "--prompt", "{prompt}"]
+    stdin: none
+    capture: stdout
