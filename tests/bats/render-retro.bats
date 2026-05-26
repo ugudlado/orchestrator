@@ -175,3 +175,68 @@ PY
   [ "$stderr_auto_false" = "$stderr_auto_true" ]
   [[ "$stderr_auto_false" == *"## Issues this run (3)"* ]]
 }
+
+# --- _emit_feature_rollup integration (run-workflow.sh) ---
+
+_emit_rollup_helpers() {
+  local run_workflow="$BATS_TEST_DIRNAME/../../scripts/run-workflow.sh"
+  export SCRIPT_DIR="$REPO_ROOT/scripts"
+  # shellcheck disable=SC1090
+  source <(sed -n '337,367p' "$run_workflow")
+}
+
+_install_rollup_scripts() {
+  mkdir -p "$REPO_ROOT/scripts"
+  cp "$RENDER_SCRIPT" "$REPO_ROOT/scripts/render-retro.sh"
+  cat > "$REPO_ROOT/scripts/cost-report.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "orc-rollup-fixture: \$0.42 · 1m · 2 steps · 1x median"
+STUB
+  chmod +x "$REPO_ROOT/scripts/cost-report.sh"
+}
+
+@test "_emit_feature_rollup prints cost line then issues table on stderr" {
+  _require_renderer || return 0
+
+  printf 'version: 1\n' > "$FAKE_ROOT/spec/project.yaml"
+  _install_rollup_scripts
+  _install_archived_retro "orc-rollup-integration" "$FIXTURE_POPULATED"
+
+  local rollup_stderr
+  rollup_stderr=$(
+    cd "$FAKE_ROOT" && _emit_rollup_helpers && _emit_feature_rollup "orc-rollup-integration" 2>&1 >/dev/null
+  )
+
+  [[ "$rollup_stderr" == *"feature complete:"* ]]
+  [[ "$rollup_stderr" == *"orc-rollup-fixture:"* ]]
+  [[ "$rollup_stderr" == *"## Issues this run (3)"* ]]
+  [[ "$rollup_stderr" == *"| Severity | Category | Detail | Fix direction |"* ]]
+
+  local cost_line issues_heading
+  cost_line=$(printf '%s\n' "$rollup_stderr" | grep -n 'feature complete:' | head -1 | cut -d: -f1)
+  issues_heading=$(printf '%s\n' "$rollup_stderr" | grep -n '## Issues this run' | head -1 | cut -d: -f1)
+  [ -n "$cost_line" ] && [ -n "$issues_heading" ]
+  [ "$cost_line" -lt "$issues_heading" ]
+
+  # Only blank lines between cost summary and issues heading.
+  local between
+  between=$(printf '%s\n' "$rollup_stderr" | sed -n "$((cost_line + 1)),$((issues_heading - 1))p")
+  [[ -z "${between//[$'\n\r ']/}" ]]
+}
+
+@test "_emit_feature_rollup with no archived retro still prints cost line" {
+  _require_renderer || return 0
+
+  printf 'version: 1\n' > "$FAKE_ROOT/spec/project.yaml"
+  _install_rollup_scripts
+
+  local rollup_stderr
+  rollup_stderr=$(
+    cd "$FAKE_ROOT" && _emit_rollup_helpers && _emit_feature_rollup "orc-no-retro-archive" 2>&1 >/dev/null
+  )
+
+  [ "$?" -eq 0 ]
+  [[ "$rollup_stderr" == *"feature complete:"* ]]
+  [[ "$rollup_stderr" == *"orc-rollup-fixture:"* ]]
+  [[ "$rollup_stderr" != *"## Issues this run"* ]]
+}

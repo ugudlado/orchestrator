@@ -359,6 +359,11 @@ _emit_feature_rollup() {
   if [ -n "$tail_line" ]; then
     echo "[$(_log_ts)] feature complete: $tail_line" >&2
   fi
+  local render_sh=""
+  render_sh=$(find "$SCRIPT_DIR" "$REPO_ROOT/scripts" -maxdepth 2 -name "render-retro.sh" 2>/dev/null | head -1 || true)
+  if [ -n "$render_sh" ] && [ -f "$render_sh" ]; then
+    bash "$render_sh" "$change_id" >&2 || true
+  fi
 }
 
 # Rerun of an already-archived feature: flag via discoverer/architect metadata and exit.
