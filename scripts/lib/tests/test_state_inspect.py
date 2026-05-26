@@ -263,7 +263,8 @@ class TestBuildPayload:
         payload = json.loads(out)
         assert payload["step_id"] == "explore"
         assert payload["agent"] == "discoverer"
-        assert payload["agent_task_result"] == "raw tool output\n"
+        # Driver stdout without agentId is not a Task tool result.
+        assert "agent_task_result" not in payload
         # Completion's usage wins over the default placeholder.
         assert payload["usage"]["model"] == "claude-opus-4-7"
         # Original completion outputs preserved.
@@ -290,6 +291,86 @@ class TestBuildPayload:
         assert payload["usage"] == {"input_tokens": 0, "output_tokens": 0, "model": "none"}
         # Missing stdout file is silently skipped (no agent_task_result key).
         assert "agent_task_result" not in payload
+
+    def test_agent_kind_sets_agent_task_result_when_agent_id_present(self, tmp_path, capsys):
+        stdout_file = tmp_path / "tool_stdout.txt"
+        stdout_file.write_text(
+            "Async agent launched.\nagentId: a6e7ca188209d1f47 (internal)\n",
+            encoding="utf-8",
+        )
+        _, out, _ = _run(
+            capsys,
+            [
+                "build-payload",
+                "agent",
+                "--step-id",
+                "explore",
+                "--phase",
+                "main",
+                "--agent",
+                "discoverer",
+                "--stdout-file",
+                str(stdout_file),
+            ],
+            stdin=json.dumps({"status": "completed", "outputs": {}}),
+        )
+        payload = json.loads(out)
+        assert "agentId: a6e7ca188209d1f47" in payload["agent_task_result"]
+
+    def test_agent_kind_jsonl_usage_fallback_from_cwd(self, tmp_path, capsys, monkeypatch):
+        home = tmp_path / "home"
+        monkeypatch.setenv("HOME", str(home))
+        repo = home / "code" / "feature_worktrees" / "orc-86"
+        repo.mkdir(parents=True)
+        sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "config" / "scripts"))
+        from orchestrator_next.jsonl_usage import _repo_slug
+
+        projects = home / ".claude" / "projects" / _repo_slug(str(repo))
+        projects.mkdir(parents=True)
+        session = projects / "sess-abc.jsonl"
+        session.write_text(
+            json.dumps(
+                {
+                    "type": "assistant",
+                    "timestamp": "2026-05-26T06:28:09.995Z",
+                    "message": {
+                        "model": "claude-opus-4-7",
+                        "usage": {
+                            "input_tokens": 10,
+                            "output_tokens": 20,
+                            "cache_read_input_tokens": 0,
+                            "cache_creation_input_tokens": 0,
+                        },
+                    },
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        stdout_file = tmp_path / "stdout.txt"
+        stdout_file.write_text("COMPLETION only\n", encoding="utf-8")
+        _, out, _ = _run(
+            capsys,
+            [
+                "build-payload",
+                "agent",
+                "--step-id",
+                "explore",
+                "--phase",
+                "main",
+                "--agent",
+                "discoverer",
+                "--stdout-file",
+                str(stdout_file),
+                "--cwd",
+                str(repo),
+            ],
+            stdin=json.dumps({"status": "completed", "outputs": {}}),
+        )
+        payload = json.loads(out)
+        assert "agent_task_result" not in payload
+        assert payload["usage"]["input_tokens"] == 10
+        assert payload["usage"]["output_tokens"] == 20
 
 
 class TestPiSettings:
