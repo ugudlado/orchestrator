@@ -1,13 +1,27 @@
 # Workflow Issues Contract
 
 Authoritative reference for the `workflow_issues` optional field on the
-`orchestrator done` payload (`contracts/done-payload.md`). Producers (dispatch
-driver, inline scripts via `record-issue.sh`, agents in COMPLETION) emit
-issues; `record.py` appends them to `spec/changes/<change_id>/retro.md` via
-`config/scripts/inline/append-retro.sh`. Consumers (`/learn` workflow-learner,
-complete-workflow renderer) read `retro.md`.
+`orchestrator done` payload (`contracts/done-payload.md`). Two producers emit
+issues:
 
-Emission is **best-effort and never-blocking**: malformed payloads, script
+1. **Agents** (semantic/work issues) — list `workflow_issues:` in their
+   COMPLETION block. The driver forwards the field verbatim into the done
+   payload.
+2. **Driver** (workflow/mechanics issues) — invokes
+   `scripts/lib/detect-workflow-issues.sh` after each step. The helper emits a
+   JSON array on stdout; the driver merges it into the done payload's
+   `workflow_issues` field. **One** helper, called by both the shell driver
+   (`scripts/run-workflow.sh`) and the LLM driver (`skills/orchestrate/SKILL.md`).
+
+There is exactly one writer to `retro.md`: `record.py` →
+`config/scripts/inline/append-retro.sh`. The detection helper never writes to
+retro.md directly — it only emits JSON for the driver to merge.
+
+Consumers (`/learn` workflow-learner during `run-learn-cycle`,
+complete-workflow renderer) read `retro.md`. The learn-cycle agent additionally
+hands each unresolved issue to the `backlog-manager` skill for triage.
+
+Emission is **best-effort and never-blocking**: malformed payloads, helper
 failures, or missing env must not fail the step. `record.py` swallows retro
 append errors and still records `completed`.
 
@@ -42,20 +56,23 @@ files; new producers should prefer `fix_direction` for follow-up work.
   "status": "completed",
   "workflow_issues": [
     {
-      "category": "telemetry",
+      "category": "retry-success",
       "severity": "workaround-applied",
       "surfaced_at": "implement/task-T-2",
-      "detail": "agent_task_result included agentId but usage block was empty after record",
-      "workaround": "Step recorded as completed; cost may be under-reported until JSONL enrichment",
-      "fix_direction": "Driver should pass agent_task_result so record.py loads usage from subagent JSONL",
-      "dedup_key": "empty-usage:implement:task-T-2"
+      "detail": "step succeeded on attempt 2 after attempt 1 failed",
+      "fix_direction": "investigate root cause of first-attempt failure",
+      "dedup_key": "retry-success:implement:task-T-2"
     }
   ]
 }
 ```
 
-Agents may also list `workflow_issues:` in a COMPLETION block; the dispatch
-driver maps them into this payload field verbatim.
+Agents list `workflow_issues:` in a COMPLETION block for semantic issues with
+their own work; the driver forwards them verbatim. The driver also calls
+`scripts/lib/detect-workflow-issues.sh` for workflow-mechanics issues
+(retry-success, script-warning, script-failed, tool-crashed,
+manual-phase-advance) and merges
+the helper's stdout into the same field.
 
 ## Retro.md layout
 
@@ -109,8 +126,8 @@ producer-supplied.
 
 ## Dedup semantics
 
-Duplicate anomalies (e.g. empty usage on retry 2 and 3) must produce **one**
-retro block, not one per `orchestrator done` call.
+Duplicate anomalies (e.g. the same `retry-success` key on attempts 2 and 3)
+must produce **one** retro block, not one per `orchestrator done` call.
 
 ### Producer-supplied `dedup_key`
 
@@ -133,24 +150,36 @@ dedup_key = sha256( f"{category}|{surfaced_at}|{detail}" ).hexdigest()[:16]
 after `record.py` fills default `surfaced_at`. Prefer explicit keys for
 driver-detected issues instead of relying on the hash.
 
-### Documented driver key patterns (orc-89)
+### Documented driver key patterns
 
-| Anomaly | `dedup_key` pattern |
-|---------|---------------------|
-| Retry then success | `retry-success:<phase>:<step_id>` |
-| Empty agent usage | `empty-usage:<phase>:<step_id>` |
-| Manual phase advance | `manual-phase-advance:<phase>` |
+`scripts/lib/detect-workflow-issues.sh` emits issues with these dedup_key
+patterns. All driver-detected issues must carry a stable key.
 
-Inline scripts should pass `--dedup-key` to `record-issue.sh` with a stable,
-human-readable key (e.g. `sandbox-block:diagnose:preview-route`).
+| Anomaly | `dedup_key` pattern | Emitted when |
+|---------|---------------------|--------------|
+| Retry then success | `retry-success:<phase>:<step_id>` | `state.yaml.step_history[-1].attempt > 1 && status == completed` |
+| Script warning (soft-fail) | `script-warning:<step_id>` | An inline `run_step` exited 10 (see below) |
+| Script failed (hard-fail) | `script-failed:<phase>:<step_id>` | An inline `run_step` exited non-zero (not 10) |
+| Tool crashed | `tool-crashed:<phase>:<step_id>` | Agent-tool invocation exited non-zero |
+| Manual phase advance | `manual-phase-advance:<phase>` | LLM driver passes `--manual-phase-advance PHASE` after patching state outside `orchestrator done` |
 
-### Sentinel file
+### Inline-script soft-fail (exit 10)
 
-`record-issue.sh` appends one JSON issue object per line to
-`$WORKFLOW_STATE_DIR/<change_id>/.pending-issues.jsonl`. The driver drains
-this file into `workflow_issues` before `orchestrator done` and removes the
-file after exit 0. Dedup in `retro.md` still applies when the same key is
-drained on multiple loops.
+When an inline `run_step` script wants to flag a workflow issue without
+aborting the run, it exits with code **10**. The shell driver maps exit 10 to
+`status: completed` plus one `script-warning` `workflow_issues` entry whose
+`detail` is the last 5 lines of the script's stderr. Any other non-zero exit
+code is a hard failure (`status: failed`) plus one `script-failed`
+`workflow_issues` entry (same stderr tail rule, `dedup_key`
+`script-failed:<phase>:<step_id>`).
+
+Exit codes 10–19 are reserved for future soft-warning variants (e.g. distinct
+"degraded but continued" categories). Codes 1–7 retain their existing
+hard-failure meanings throughout `run-workflow.sh`; codes 8–9 are unused.
+
+Inline scripts emit the issue purely by their exit code — no helper invocation,
+no sentinel file, no JSON construction in the script itself. The driver builds
+the `workflow_issues` entry from the exit-code + stderr signal.
 
 ## Category (seen-so-far)
 
@@ -160,6 +189,11 @@ one. Values observed in archived `retro.md` and orc-89 design:
 
 | Category | Typical use |
 |----------|-------------|
+| `retry-success` | Step succeeded after a previous attempt failed |
+| `script-warning` | Inline `run_step` exited 10 (soft-fail); detail carries last 5 lines of stderr |
+| `script-failed` | Inline `run_step` hard-failed (exit not 0 or 10); detail carries last 5 lines of stderr |
+| `tool-crashed` | Agent-tool invocation exited non-zero |
+| `manual-phase-advance` | Driver patched phase outside `orchestrator done` |
 | `telemetry` | Token/cost/usage tracking broken or incomplete |
 | `telemetry-helper-drift` | Helper script paths or fields out of date |
 | `metrics-accuracy` | Reported metrics disagree with canonical source |
@@ -193,11 +227,12 @@ Default at write time when omitted: `workaround-applied`.
 
 | Role | Action |
 |------|--------|
-| Dispatch driver (`skills/orchestrate`) | Detect anomalies, drain `.pending-issues.jsonl`, merge agent COMPLETION issues, attach `workflow_issues` to `orchestrator done` |
-| `config/scripts/inline/record-issue.sh` | Append one issue line to sentinel JSONL (exit 0 always) |
-| Agents | Optional `workflow_issues:` in COMPLETION |
-| `record.py` | Best-effort invoke `append-retro.sh`; set `retro_appended` in response |
-| `/learn` (workflow-learner) | Read `retro.md` during run-learn-cycle |
+| Driver (shell `run-workflow.sh` or LLM `skills/orchestrate`) | Invoke `scripts/lib/detect-workflow-issues.sh`; merge its stdout with agent COMPLETION issues; attach `workflow_issues` to `orchestrator done` |
+| `scripts/lib/detect-workflow-issues.sh` | Single source of detection logic; emits JSON array on stdout; never writes retro.md |
+| Inline `run_step` scripts | Exit 10 for soft-fail (driver synthesizes `script-warning`); other non-zero = hard fail |
+| Agents | Optional `workflow_issues:` in COMPLETION for semantic/work issues |
+| `record.py` | Best-effort invoke `append-retro.sh`; set `retro_appended` in response (sole writer to retro.md) |
+| `run-learn-cycle` (workflow-learner) | Read `retro.md`; hand each unresolved issue to the `backlog-manager` skill for triage |
 | Complete phase | Renderer may include retro summary from same layout |
 
 ## Related contracts
