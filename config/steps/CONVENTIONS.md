@@ -321,9 +321,13 @@ write to the worktree. `WORKFLOW_STATE_DIR` ($REPO_ROOT/spec/changes) is the
 fallback for CLI invocations outside a worktree context only.
 
 **Lifecycle invariant**: `archive-completed-change` MUST run before
-`remove-worktree`. The archive step copies everything (including `state.yaml`)
-out of the worktree into `spec/changes/archive/<date>-<slug>/`. Removing the
-worktree before archiving destroys state with no recovery path.
+`remove-worktree`. The archive step **moves** the active session dir
+(`spec/changes/<slug>/`) to `spec/changes/archive/<slug>/` on the feature
+worktree (when `worktree=true`) and commits there. `complete-workflow` does
+**not** merge or remove the worktree. `orchestrator complete` runs merge (when
+`merge_to_main`) then `scripts/complete-feature-teardown.sh`; merge failure
+exits without teardown. Removing the worktree before archiving destroys state
+with no recovery path.
 
 Steps that write tracked artifacts (design.md, tasks.yaml, diagnose.md, UX files)
 MUST use `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/`, not `$WORKFLOW_STATE_DIR/$CHANGE_ID/`, as

@@ -76,6 +76,8 @@ def _usage() -> None:
         "Usage:\n"
         "  orchestrator run <ticket-id> [--schema feature|bugfix] [--repo PATH] [flag=value ...]\n"
         "      Shell-driven full workflow (ticket check, seed if needed, run-workflow loop).\n"
+        "  orchestrator complete <ticket-id> [--repo PATH] [--no-teardown] [flag=value ...]\n"
+        "      Complete phase, then merge (if merge_to_main), then worktree teardown.\n"
         "  orchestrator next <state.yaml>\n"
         "  orchestrator done <state.yaml>   # JSON payload on stdin\n"
         "  orchestrator ready <state.yaml>  # JSON array of ready node ids\n"
@@ -87,17 +89,26 @@ def _usage() -> None:
     sys.exit(3)
 
 
-def _run_verb(argv: list[str]) -> None:
-    """`orchestrator run` — ticket-driven shell workflow (non-chat driver)."""
+def _shell_workflow_verb(argv: list[str], script_name: str) -> None:
+    """Delegate to a scripts/orchestrator-*.sh driver."""
     import subprocess as _sp
 
-    _run_sh = os.path.join(_WORKTREE_ROOT, "scripts", "orchestrator-run.sh")
-    if not os.path.isfile(_run_sh):
-        print(f"error: orchestrator-run.sh not found at {_run_sh}", file=sys.stderr)
+    _sh = os.path.join(_WORKTREE_ROOT, "scripts", script_name)
+    if not os.path.isfile(_sh):
+        print(f"error: {script_name} not found at {_sh}", file=sys.stderr)
         sys.exit(7)
-    _proc = _sp.run(["bash", _run_sh, *argv])
-    # Propagate run-workflow exit codes (1=complete is success for shell loops).
+    _proc = _sp.run(["bash", _sh, *argv])
     raise SystemExit(_proc.returncode)
+
+
+def _run_verb(argv: list[str]) -> None:
+    """`orchestrator run` — ticket-driven shell workflow (non-chat driver)."""
+    _shell_workflow_verb(argv, "orchestrator-run.sh")
+
+
+def _complete_verb(argv: list[str]) -> None:
+    """`orchestrator complete` — complete phase only."""
+    _shell_workflow_verb(argv, "orchestrator-complete.sh")
 
 
 def _append_in_progress_state_entry_if_absent(
@@ -210,13 +221,19 @@ def main() -> None:
     # 'record' kept for silent backward-compat (one cycle) but absent from the banner.
     if not args or args[0] not in (
         "next", "done", "record", "ready", "graph", "doctor", "expand-plan", "run",
+        "complete",
     ):
         _usage()
-    if len(args) < 2 and args[0] in ("next", "record", "done", "ready", "graph", "expand-plan"):
+    if len(args) < 2 and args[0] in (
+        "next", "record", "done", "ready", "graph", "expand-plan", "run", "complete",
+    ):
         _usage()
 
     if args[0] == "run":
         _run_verb(args[1:])
+
+    if args[0] == "complete":
+        _complete_verb(args[1:])
 
     if args[0] == "doctor":
         from orchestrator_next.doctor import _doctor_main

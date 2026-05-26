@@ -1,16 +1,15 @@
 """T-17: end-to-end completion regression test for `complete-workflow`.
 
-Proves the full ORC-79 path through the real `bin/orchestrator`:
-  - `orchestrator next` at a terminal `complete-workflow` node dispatches and
-    runs `complete-workflow.sh` (merge → archive → cd → cleanup)
-  - the archive directory is created with the moved state.yaml / tasks.md
-  - the worktree directory is removed
+Proves the full path through the real `bin/orchestrator`:
+  - `orchestrator next` at terminal `complete-workflow` archives on the feature
+    worktree (merge/teardown deferred to `orchestrator complete`)
+  - archive directory created with moved state.yaml / tasks.md
+  - worktree kept after `next` (removed only by `orchestrator complete`)
   - a SECOND `orchestrator next` does NOT raise FileNotFoundError and does NOT
     exit 3 — the ORC-66 failure mode is structurally dissolved
   - no already-`completed` step id is re-dispatched
 
-Second case: merge_to_main=false + an unmerged feature branch — the worktree
-is removed but the branch is preserved (AC-10).
+Second case: merge_to_main=false + unmerged branch — worktree and branch preserved.
 """
 from __future__ import annotations
 
@@ -252,9 +251,8 @@ def test_e2e_complete_workflow_worktree_false(tmp_path):
     )
 
 
-def test_e2e_complete_workflow_full_teardown(tmp_path):
-    """First `next` runs complete-workflow; archive created, worktree gone;
-    second `next` exits 1 (complete), no FileNotFoundError, no re-dispatch."""
+def test_e2e_complete_workflow_archive_keeps_worktree(tmp_path):
+    """First `next` archives on worktree and keeps checkout; second `next` exits 1."""
     (state_path, repo, worktree_path, archive_path, branch,
      metrics_db) = _build(tmp_path, merge_to_main=True)
 
@@ -271,8 +269,7 @@ def test_e2e_complete_workflow_full_teardown(tmp_path):
         f"stderr: {r1.stderr}"
     )
 
-    # archive dir exists with the moved state.yaml + tasks.md
-    archive_dir = os.path.join(repo, archive_path)
+    archive_dir = os.path.join(worktree_path, archive_path)
     assert os.path.isdir(archive_dir), f"archive dir missing: {archive_dir}"
     archived_state = os.path.join(archive_dir, "state.yaml")
     assert os.path.isfile(archived_state), "state.yaml not moved to archive"
@@ -280,9 +277,8 @@ def test_e2e_complete_workflow_full_teardown(tmp_path):
         "tasks.md not moved to archive"
     )
 
-    # worktree dir gone
-    assert not os.path.isdir(worktree_path), (
-        "worktree dir still present after teardown"
+    assert os.path.isdir(worktree_path), (
+        "worktree remains until complete-feature-teardown"
     )
 
     # --- second next: on the archived state.yaml — must NOT exit 3 ---
@@ -320,7 +316,7 @@ def test_e2e_complete_workflow_full_teardown(tmp_path):
 
 
 def test_e2e_merge_false_unmerged_branch_preserved(tmp_path):
-    """merge_to_main=false + an unmerged feature branch → worktree removed,
+    """merge_to_main=false + an unmerged feature branch → worktree kept,
     branch preserved, exit 0."""
     (state_path, repo, worktree_path, archive_path, branch,
      metrics_db) = _build(tmp_path, merge_to_main=False, branch_unmerged=True)
@@ -331,10 +327,8 @@ def test_e2e_merge_false_unmerged_branch_preserved(tmp_path):
         f"next should exit 0, got {r1.returncode}\nstderr: {r1.stderr}"
     )
 
-    # worktree removed
-    assert not os.path.isdir(worktree_path), "worktree not removed"
+    assert os.path.isdir(worktree_path), "worktree not removed by complete-workflow"
 
-    # feature branch still exists (unmerged → not deleted)
     branches = subprocess.run(
         ["git", "branch", "--list", branch],
         cwd=repo, capture_output=True, text=True,
@@ -343,7 +337,6 @@ def test_e2e_merge_false_unmerged_branch_preserved(tmp_path):
         f"unmerged branch {branch} was deleted; it must be preserved"
     )
 
-    # archive dir created
-    assert os.path.isdir(os.path.join(repo, archive_path)), (
-        "archive dir missing"
+    assert os.path.isdir(os.path.join(worktree_path, archive_path)), (
+        "archive dir missing on worktree"
     )

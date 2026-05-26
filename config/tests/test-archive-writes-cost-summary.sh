@@ -12,7 +12,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SCRIPT="$REPO_ROOT/config/scripts/inline/archive-completed-change.sh"
+SCRIPT="$REPO_ROOT/config/steps/archive-completed-change/script.sh"
 
 TMPDIR_BASE="$(mktemp -d)"
 cleanup() { rm -rf "$TMPDIR_BASE"; }
@@ -23,18 +23,20 @@ FAKE_REPO="$TMPDIR_BASE/repo"
 CHANGE_ID="demo"
 ARCHIVE_REL="spec/changes/archive/2099-01-01-demo"
 SRC="$WT_ROOT/spec/changes/$CHANGE_ID"
-DST="$FAKE_REPO/$ARCHIVE_REL"
+DST="$WT_ROOT/$ARCHIVE_REL"
 
 # Seed the worktree source.
 mkdir -p "$SRC"
 printf 'status: completed\n' > "$SRC/state.yaml"
 echo "design" > "$SRC/design.md"
 
-# Fake repo must be a git repo — the script runs git add/commit.
 mkdir -p "$FAKE_REPO/scripts"
 git -C "$FAKE_REPO" init -q
 git -C "$FAKE_REPO" config user.email test@test
 git -C "$FAKE_REPO" config user.name test
+git -C "$WT_ROOT" init -q
+git -C "$WT_ROOT" config user.email test@test
+git -C "$WT_ROOT" config user.name test
 
 # Stub cost-report.sh at the CORRECT location: repo-root scripts/.
 # The buggy path (config/scripts/cost-report.sh) would not find this.

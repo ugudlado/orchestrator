@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# archive-completed-change.sh — move workflow state to repo archive + commit.
+# archive-completed-change.sh — move workflow state to archive + commit.
 #
 # Env inputs:  REPO_ROOT, CHANGE_ID, ARCHIVE_PATH
-#              (ARCHIVE_PATH is relative to REPO_ROOT, e.g. "spec/changes/archive/2026-04-18-hl-287")
-#              WORKTREE_ROOT — root of the feature worktree (worktree=true runs);
-#                             falls back to ORCHESTRATOR_WORKFLOW_DIR (worktree_path
-#                             from state.yaml). When empty (worktree=false run),
-#                             the source dir is archived in-place from REPO_ROOT.
-#                             Source is <root>/spec/changes/$CHANGE_ID/, where
-#                             <root> is WORKTREE_ROOT or, if unset, REPO_ROOT.
+#              (ARCHIVE_PATH is repo-relative, e.g. spec/changes/archive/orc-85/)
+#              WORKTREE_ROOT — feature worktree root (worktree=true runs);
+#                             falls back to ORCHESTRATOR_WORKFLOW_DIR. When set,
+#                             archive + git commit run in that worktree so the
+#                             feature branch owns the archive commit.
+#                             When empty (worktree=false), archive in REPO_ROOT.
+#                             Source is <root>/spec/changes/$CHANGE_ID/.
 # Outputs:     {archive_record: {archived_at, archive_path, commit_sha}}
 #   or        {archive_record: {skipped: true, reason}}
 
@@ -33,53 +33,52 @@ if [ -z "$CHANGE_ID" ] || [ -z "$ARCHIVE_PATH" ]; then
   exit 0
 fi
 
+# Strip trailing slash for consistent mv/git paths.
+ARCHIVE_PATH="${ARCHIVE_PATH%/}"
+
 # The state dir lives under the worktree on a worktree=true run, or in-place
-# under the repo on a worktree=false run. WORKTREE_ROOT is empty in the latter.
+# under the repo on a worktree=false run.
 if [ -n "$WORKTREE_ROOT" ]; then
   SRC="${WORKTREE_ROOT}/spec/changes/${CHANGE_ID}"
+  GIT_ROOT="$WORKTREE_ROOT"
 else
   SRC="${REPO_ROOT}/spec/changes/${CHANGE_ID}"
+  GIT_ROOT="$REPO_ROOT"
 fi
-DST="$REPO_ROOT/$ARCHIVE_PATH"
+DST="${GIT_ROOT}/${ARCHIVE_PATH}"
 
 if [ ! -d "$SRC" ]; then
   printf '%s\n' "{\"archive_record\": {\"skipped\": true, \"reason\": \"source dir missing: $SRC\"}}"
   exit 0
 fi
 
-mkdir -p "$DST"
-# Harden the copy: a failed cp must exit non-zero BEFORE the rm, so the source
-# dir is never deleted on a partial archive. set -e is not enabled, so an
-# explicit guard is required.
-if ! cp -a "$SRC"/. "$DST"/; then
-  printf '%s\n' "{\"archive_record\": {\"skipped\": true, \"reason\": \"cp failed: $SRC -> $DST\"}}"
+if [ -e "$DST" ]; then
+  printf '%s\n' "{\"archive_record\": {\"skipped\": true, \"reason\": \"archive destination already exists: $DST\"}}"
   exit 1
 fi
-rm -rf "$SRC"
+
+mkdir -p "$(dirname "$DST")"
+if ! mv "$SRC" "$DST"; then
+  printf '%s\n' "{\"archive_record\": {\"skipped\": true, \"reason\": \"mv failed: $SRC -> $DST\"}}"
+  exit 1
+fi
 
 ARCHIVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # Write cost-summary.md into the archive dir before committing.
-# cost-report.sh lives at repo-root scripts/, not config/scripts/.
 COST_REPORT_SCRIPT="$REPO_ROOT/scripts/cost-report.sh"
 if [ -f "$COST_REPORT_SCRIPT" ] && [ -n "${ORCHESTRATOR_HOME:-}" ]; then
   bash "$COST_REPORT_SCRIPT" --change-id "$CHANGE_ID" > "$DST/cost-summary.md" 2>/dev/null || true
 fi
 
-cd "$REPO_ROOT"
-# Stage the new archive path and the source removal. On a worktree=false run
-# SRC is inside this repo, so its `rm -rf` is an unstaged deletion that must be
-# committed too; on a worktree run SRC is in another tree and `git add` no-ops.
-git add "$ARCHIVE_PATH" "$SRC" 2>/dev/null
+cd "$GIT_ROOT"
+git add "$ARCHIVE_PATH" 2>/dev/null
+if [ -z "$WORKTREE_ROOT" ]; then
+  git add "spec/changes/${CHANGE_ID}" 2>/dev/null || true
+fi
 git commit -m "archive: $CHANGE_ID — complete phase artifacts" 2>/dev/null
 SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
 
-# After the archive commit succeeds, mark the matching backlog task as Done
-# (idempotent). Backlog lives in spec/changes/backlog/ managed by the
-# `backlog` CLI; tasks carry a `slug-<change_id>` label set at migration time.
-# Look up the task id by label match, then transition status. If no match,
-# skip silently — the change may have predated the backlog migration or
-# never had a backlog entry.
 if command -v backlog >/dev/null 2>&1 && [ -d "$REPO_ROOT/spec/changes/backlog" ]; then
   TASK_ID=$(backlog task list --plain 2>/dev/null \
             | grep -oE "ORC-[0-9]+" \
