@@ -25,9 +25,8 @@ if d.get("status") == "completed" and d.get("completed_at"):
     }))
     raise SystemExit(0)
 now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-date_prefix = now[:10]
 cid = d.get("change_id") or d.get("ticket_id") or "unknown"
-archive_path = f"spec/changes/archive/{date_prefix}-{cid}/"
+archive_path = f"spec/changes/archive/{cid}/"
 d["status"] = "completed"
 d["completed_at"] = now
 d["archive_path"] = archive_path

@@ -26,6 +26,7 @@ if [ -f "$ARG" ]; then
 else
   for candidate in \
     "$REPO_ROOT/spec/changes/$ARG/state.yaml" \
+    "$REPO_ROOT/spec/changes/archive/$ARG/state.yaml" \
     "$REPO_ROOT/spec/changes/archive"/*"-$ARG"/state.yaml; do
     if [ -f "$candidate" ]; then
       STATE_YAML="$candidate"

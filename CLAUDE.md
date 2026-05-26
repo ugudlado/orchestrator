@@ -39,12 +39,12 @@ Rules every agent must follow when running in this repo. CLAUDE.md auto-loads in
 |---|---|
 | Active workflow state (state.yaml, plan.yaml) | `$REPO_ROOT/spec/changes/<slug>/` (gitignored, always repo_root) |
 | Active workflow artifacts (spec/design/tasks/diagnose, UX files) | `$WORKTREE_ARTIFACT_DIR/<slug>/` — resolves to `$WORKTREE_ROOT/spec/changes/<slug>/` when `flags.worktree=true`, else same as state dir |
-| Archived features | `$REPO_ROOT/spec/changes/archive/<date>-<slug>/` (state + artifacts merged) |
+| Archived features | `$REPO_ROOT/spec/changes/archive/<slug>/` (state + artifacts merged; completion date lives in `state.yaml.completed_at`) |
 | Backlog (CLI-managed) | `$REPO_ROOT/spec/changes/backlog/` — read/write via `backlog` CLI only |
 | Global schemas | `$ORCHESTRATOR_HOME/config/workflows/<schema>.yaml` |
 | Global step contracts | `$ORCHESTRATOR_HOME/config/steps/<step>/contract.yaml` + `prompt.md`/`script.sh` (legacy flat form `<step>.yaml` still loads) |
 | Repo overrides | `$REPO_ROOT/.orchestrator/{workflows,steps,templates}/<path>` |
-| Per-feature retro | `spec/changes/<change_id>/retro.md` (active) or under `archive/<date>-<slug>/` |
+| Per-feature retro | `spec/changes/<change_id>/retro.md` (active) or under `archive/<slug>/` |
 
 ### Repo overrides
 
