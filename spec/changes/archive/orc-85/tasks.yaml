@@ -1,0 +1,101 @@
+# tasks.yaml for orc-85 (feature schema, regression-bugfix in spirit)
+# Format contract: config/steps/design-and-draft-artifacts/prompt.md § Tasks YAML Format Contract
+# verify commands are repo-root-relative (no absolute paths, no `cd /abs/...` prefix).
+version: 1
+tasks:
+  - id: T-1
+    title: "Write pytest suite for spawn-failure cap and completion stickiness (RED — tests must fail)"
+    depends_on: []
+    files:
+      - config/scripts/orchestrator_next/tests/test_dispatch_retry_storm.py
+    verify:
+      - cd config/scripts && pytest orchestrator_next/tests/test_dispatch_retry_storm.py -v
+    test_scenarios:
+      - "test_three_consecutive_model_none_failures_for_same_step_id_returns_exit_2_with_spawn_failure_cap_reason (AC-1)"
+      - "test_two_consecutive_model_none_failures_then_a_third_for_a_different_step_id_does_not_trip_cap (AC-1 boundary — counter is per (phase, step_id))"
+      - "test_completed_entry_in_step_history_makes_next_ready_node_skip_that_node_on_promoted_nodes_plan (AC-2 promoted plan)"
+      - "test_completed_entry_in_step_history_makes_next_ready_node_skip_that_node_on_legacy_active_plan (AC-2 legacy plan — regression guard)"
+      - "test_recovered_entry_in_step_history_also_terminates_node (AC-2 — recovered is sticky too)"
+      - "test_failed_entry_with_input_tokens_gt_0_does_not_count_toward_spawn_cap (AC-3)"
+      - "test_failed_entry_with_model_resolved_does_not_count_toward_spawn_cap (AC-3)"
+      - "test_orc84_fixture_with_storm_then_completion_then_more_storm_next_ready_node_skips_completed_step_id (AC-4)"
+    why: "Establishes the failing-test baseline for AC-1 through AC-4. RED phase: tests must fail before T-2 because _consecutive_spawn_failures does not exist and _effective_node_status still gates step_history fallback on _uses_legacy_active_plan."
+    change: "Append eight test functions to a new module config/scripts/orchestrator_next/tests/test_dispatch_retry_storm.py. Each builds a synthetic State via the existing test helpers in config/scripts/orchestrator_next/tests/ (mirror the helper pattern in test_rework_loop.py:235-247 — write a temp project.yaml + state.yaml, instantiate State). Tests call dispatch.dispatch() and readiness.next_ready_node directly and assert exit codes / returned step_ids."
+
+  - id: T-2
+    title: "Implement spawn-failure cap in dispatch.py and history-authoritative completion in readiness.py (GREEN)"
+    depends_on: [T-1]
+    files:
+      - config/scripts/orchestrator_next/dispatch.py
+      - config/scripts/orchestrator_next/readiness.py
+      - spec/project.yaml
+    verify:
+      - cd config/scripts && pytest orchestrator_next/tests/test_dispatch_retry_storm.py -v
+      - cd config/scripts && pytest orchestrator_next/tests/ -v
+    test_scenarios:
+      - "all T-1 tests pass"
+      - "existing dispatch and readiness tests still pass (no regressions in _compute_attempt, _rework_loop_active, repeat_until_redispatch)"
+      - "existing test_rework_loop.py suite still green"
+    why: "AC-1, AC-2, AC-3, AC-4 — the actual fix."
+    change: |
+      Edit dispatch.py: (a) add `_consecutive_spawn_failures(step_history, phase, step_id) -> int` after _compute_attempt at dispatch.py:53 — walks step_history in reverse, counts trailing entries whose `phase`, `step_id` match AND `status == "failed"` AND `usage.model == "none"` AND `usage.input_tokens == 0` AND `usage.output_tokens == 0`; stops at the first non-matching entry. (b) add `_max_spawn_failures(state_raw) -> int` mirroring `record._max_retry_rounds` (record.py:290-318), reading `quality_bar.max_spawn_failures` from project.yaml, default 3. (c) inside `dispatch()` around dispatch.py:397 after `next_step_id` is resolved and before the action response is built, call the guard: if `_consecutive_spawn_failures(state.step_history, state.phase, next_step_id) >= _max_spawn_failures(state.raw)`, return a blocked action with `reason: "spawn_failure_cap"` and exit code 2 (mirror the existing blocked-action return shape used for _BLOCKING_STATUSES at dispatch.py:38). Stderr message format: `BLOCKED: spawn_failure_cap — <N> consecutive zero-token failures for <phase>/<step_id>`.
+
+      Edit readiness.py `_effective_node_status` (readiness.py:83-91): drop the `_uses_legacy_active_plan(state)` gate from the step_history fallback so the function becomes:
+          status = node.get("status")
+          if status == "completed":
+              return "completed"
+          if _step_completed_in_history(state, _node_id(node)):
+              return "completed"
+          return str(status or "pending")
+      Also extend `_step_completed_in_history` to treat status=="recovered" as terminal (currently only "completed" returns True at readiness.py:80).
+
+      Edit spec/project.yaml: add `max_spawn_failures: 3` under the existing `quality_bar:` block (sibling of `max_retry_rounds`).
+
+  - id: T-3
+    title: "Add bats smoke test for driver-level halt on spawn-failure cap exhaustion"
+    depends_on: [T-2]
+    files:
+      - tests/bats/spawn_failure_halt.bats
+    verify:
+      - bats tests/bats/spawn_failure_halt.bats
+    test_scenarios:
+      - "test stubs the tool binary to return exit 1 with empty stdout for 3 consecutive invocations"
+      - "driver loop terminates with exit code 2"
+      - "driver stderr contains the literal string 'spawn_failure_cap'"
+      - "test stubs the tool binary to return exit 1 with empty stdout for 2 invocations then a valid COMPLETION on the third — driver completes without exit 2 (boundary check)"
+    why: "AC-6 — UC-E1 requires the operator sees a halt signal. End-to-end driver coverage closes the gap pytest can't reach."
+    change: "Create tests/bats/spawn_failure_halt.bats following the existing bats-helper layout under tests/bats/. Stub `claude` (or whichever TOOL_BINARY the harness expects) via a PATH-shadowed shim that exits 1 with empty stdout, seed a minimal state.yaml + workflow plan that has one ready task-node, run scripts/run-workflow.sh, assert exit 2 and stderr grep."
+
+  - id: T-4
+    title: "Review checkpoint — orc-85 dispatch retry storm fix (phase gate)"
+    depends_on: [T-3]
+    files: []
+    verify:
+      - cd config/scripts && pytest orchestrator_next/tests/ -v
+      - bats tests/bats/spawn_failure_halt.bats
+    test_scenarios:
+      - "full orchestrator_next pytest suite green"
+      - "bats smoke test green"
+      - "no regressions in test_rework_loop, test_dispatch, test_readiness, test_record suites"
+    why: "Phase gate — confirm both bug fixes integrate cleanly with the existing dispatcher and rework-loop tests before moving on."
+
+  - id: fix-1
+    title: "Prevent bats fixture from polluting repo working tree (F-1, code_quality)"
+    depends_on: [T-4]
+    files:
+      - tests/bats/spawn_failure_halt.bats
+    verify:
+      - bats tests/bats/spawn_failure_halt.bats
+      - test -z "$(git status --porcelain spec/changes/ | grep -v 'orc-85/')"
+    test_scenarios:
+      - "bats suite still passes (2/2) after the fix"
+      - "after a fresh run from a clean checkout, `git status spec/changes/` shows no new directories outside the active orc-85 artifact dir"
+    why: "Phase review F-1: running the bats smoke test currently leaks spec/changes/bats-spawn-halt-unique-99/ and spec/changes/orc-85-bats-probe/ into the real repo working tree because run-workflow.sh resolves spec/changes/<change_id>/ against $PWD instead of state.repo_root."
+    change: |
+      In tests/bats/spawn_failure_halt.bats, change `run_workflow()` to cd into $FIXTURE_ROOT before invoking the script under test, e.g.:
+
+        run_workflow() {
+          run bash -c 'cd "$1" && bash "$2" "$3"' _ "$FIXTURE_ROOT" "$SCRIPT_UNDER_TEST" "$TMP_STATE"
+        }
+
+      Keep the existing exit-code and stderr-grep assertions. Do NOT modify scripts/run-workflow.sh — the cwd-versus-state.repo_root resolution bug is a separate concern; this fix-task is scoped to preventing the test from polluting the repo.
