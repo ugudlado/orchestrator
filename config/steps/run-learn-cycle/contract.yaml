@@ -24,6 +24,8 @@ verify:
   - Step completed (either learn_completed or learn_skipped recorded)
   - If learn_completed: /learn produced output (check for cycle metrics or rule updates)
   - If learn_skipped: learn_error contains a meaningful reason
+  - retro.md issues with non-empty fix_direction have a corresponding entry in backlog_tickets_synced (or backlog_tickets_synced is [] when retro.md is absent)
 
 outputs:
   - learn_result
+  - backlog_tickets_synced
