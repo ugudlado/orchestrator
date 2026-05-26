@@ -49,7 +49,7 @@ _install_archived_retro() {
 
 _invoke_renderer() {
   local change_id="$1"
-  run env WORKTREE_ROOT="$WORKTREE_ROOT" REPO_ROOT="$REPO_ROOT" \
+  run --separate-stderr env WORKTREE_ROOT="$WORKTREE_ROOT" REPO_ROOT="$REPO_ROOT" \
     bash "$RENDER_SCRIPT" "$change_id"
 }
 
