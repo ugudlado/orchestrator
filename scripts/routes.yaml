@@ -1,4 +1,9 @@
 # Agent routing
+# canonical source of truth for agent → model routing.
+# Consumers:
+#   - config/scripts/orchestrator_next/pricing.py
+#   - config/scripts/estimate-cost.sh
+#   - scripts/dashboard/server.py
 # model:      in-process sub-agent model tier (used by Claude Code host)
 # subprocess: tool binary for shell loop (run-workflow.sh)
 agents:
