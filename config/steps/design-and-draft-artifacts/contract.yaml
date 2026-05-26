@@ -63,6 +63,14 @@ rules:
   developer agent to infer scope from test_scenarios alone, which increases retry
   risk. <!-- learned: 2026-05-25, source: orc-76, cycle: 1, hits: 3, misses: 0, repo:
   orchestrator -->"
+- "tasks.yaml verify commands must be repo-root-relative — no absolute paths, no `cd
+  /abs/path &&` prefix. The developer agent runs verify commands from $REPO_ROOT.
+  Hardcoded paths break worktrees and other machines. <!-- learned: 2026-05-26, source:
+  orc-86, cycle: 1, hits: 0, misses: 1, repo: orchestrator -->"
+- "Do not emit `agent:` in tasks.yaml — it is an internal dispatch field, not part
+  of the task contract. The default is developer; set it only via state.yaml flags,
+  not per-task. <!-- learned: 2026-05-26, source: orc-86, cycle: 1, hits: 0, misses:
+  1, repo: orchestrator -->"
 verify:
 - design.md exists in $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/
 - tasks.yaml exists and passes validate-tasks-yaml.sh
@@ -70,6 +78,7 @@ verify:
 - tasks.yaml follows the Tasks YAML Format Contract
 - tasks.yaml covers every acceptance criterion from design.md
 - Every task has a verify field listing the behaviors its tests cover
+- No verify command in tasks.yaml contains an absolute path or cd /abs/path prefix
 - Key Decisions section populated in discovery.md
 outputs:
 - updated_artifact_set

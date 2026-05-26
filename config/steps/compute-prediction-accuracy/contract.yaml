@@ -2,5 +2,3 @@ id: compute-prediction-accuracy
 version: 2
 kind: script
 run: script.sh
-inputs: []
-outputs: []

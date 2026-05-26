@@ -33,9 +33,14 @@ from typing import Any
 def _repo_slug(repo_root: str) -> str:
     """Convert an absolute repo path to the Claude Code projects slug.
 
+    Claude Code maps cwd to ``~/.claude/projects/<slug>/`` by replacing ``/``
+    with ``-`` and normalizing ``_`` to ``-`` (e.g. ``feature_worktrees`` →
+    ``feature-worktrees``).
+
     Example: /Users/spidey/code/orchestrator → -Users-spidey-code-orchestrator
     """
-    return repo_root.replace("/", "-")
+    normalized = repo_root.lstrip("/").replace("/", "-").replace("_", "-")
+    return f"-{normalized}"
 
 
 def _projects_root() -> Path:

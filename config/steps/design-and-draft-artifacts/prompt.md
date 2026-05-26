@@ -24,7 +24,9 @@
    - **Current**: exists and no refresh signal → skip.
 
 6. For each file needing generation:
-   a. Read the template from $ORCHESTRATOR_HOME/config/templates/$SCHEMA/<template>.
+   a. Read the template:
+      - design.md → $ORCHESTRATOR_HOME/config/templates/$SCHEMA/design.md
+      - tasks.yaml → $ORCHESTRATOR_HOME/config/templates/$SCHEMA/tasks.yaml
    b. Read the artifact's format contract from the relevant section below.
    c. Generate using available context (discovery brief, design direction, change description).
    d. Write to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/<file>.
@@ -198,32 +200,8 @@ The `tasks.yaml` file is a machine-readable structural contract between
 `design-and-draft-artifacts` (producer) and `expand-plan` (consumer). Both
 steps MUST use this exact format.
 
-### Format
-
-```yaml
-version: 1
-tasks:
-  - id: T-1
-    title: "Wire X to Y"
-    agent: developer
-    depends_on: []
-    files:
-      - path/to/file.py
-    verify:
-      - pytest tests/test_x.py::test_wire
-    test_scenarios:
-      - "Y observes X's emission"
-    # optional fields:
-    why: "AC-3"
-    change: "edit file.py:42 to call y_emit() instead of y_set()"
-  - id: T-2
-    title: "Add regression test"
-    depends_on: [T-1]
-    files:
-      - tests/test_x.py
-    verify:
-      - pytest tests/test_x.py
-```
+The authoritative template is `$ORCHESTRATOR_HOME/config/templates/$SCHEMA/tasks.yaml`
+— read it in step 6 and use it as the structural skeleton for generation.
 
 ### Field rules
 
@@ -233,10 +211,9 @@ tasks:
 | tasks | Yes | List of task objects |
 | id | Yes | `T-<N>` or `fix-<N>`, unique within the file |
 | title | Yes | One line, imperative verb |
-| agent | No | `developer` (default when absent) |
 | depends_on | No | List of other task ids; empty list or absent means no deps |
 | files | Yes | List of file paths the task is allowed to touch |
-| verify | Yes | List of commands the developer runs before COMPLETION |
+| verify | Yes | List of repo-root-relative commands (no absolute paths, no `cd /abs/path &&`) |
 | test_scenarios | No | List of human-readable test cases |
 | why | No | Which design.md AC this task serves |
 | change | No | The mechanism — what edit, at which file:line |
@@ -248,6 +225,9 @@ tasks:
 - No dependency cycles (validated via `expand-plan`'s topo-sort).
 - Missing required fields (`id`, `title`, `files`, `verify`) are rejected by
   `validate-tasks-yaml.sh`.
+- `verify` commands must be repo-root-relative — no absolute paths, no `cd /...` prefix.
+  The developer agent runs them from `$REPO_ROOT`. Absolute paths break worktrees
+  and other machines.
 
 ### Validator
 

@@ -43,8 +43,13 @@ def _collect_workflow_steps() -> Set[str]:
 
 def _load_contract(step_id: str) -> dict | None:
     """Load a step contract YAML, return None if not found."""
-    path = os.path.join(_STEPS_DIR, f"{step_id}.yaml")
-    if not os.path.exists(path):
+    dir_path = os.path.join(_STEPS_DIR, step_id, "contract.yaml")
+    flat_path = os.path.join(_STEPS_DIR, f"{step_id}.yaml")
+    if os.path.isfile(dir_path):
+        path = dir_path
+    elif os.path.isfile(flat_path):
+        path = flat_path
+    else:
         return None
     with open(path) as f:
         return yaml.safe_load(f)
@@ -85,3 +90,38 @@ def test_all_workflow_steps_have_agent_or_run():
         )
 
     assert not error_lines, "\n".join(error_lines)
+
+
+_BANNED_SCRIPT_PROTOCOL_KEYS = frozenset(
+    {"inputs", "outputs", "rules", "instruction", "verify"}
+)
+
+
+def test_script_contracts_have_no_agent_protocol_fields():
+    """Script-kind contracts must not declare agent-protocol surface keys."""
+    violations: list[tuple[str, list[str]]] = []
+
+    for contract_path in sorted(
+        glob.glob(os.path.join(_STEPS_DIR, "*", "contract.yaml"))
+    ):
+        with open(contract_path) as f:
+            contract = yaml.safe_load(f) or {}
+
+        if contract.get("kind") != "script":
+            continue
+
+        contract_id = contract.get("id") or os.path.basename(
+            os.path.dirname(contract_path)
+        )
+        banned_present = sorted(_BANNED_SCRIPT_PROTOCOL_KEYS & contract.keys())
+        if banned_present:
+            violations.append((contract_id, banned_present))
+
+    if violations:
+        lines = [
+            "Script-kind contracts must not declare agent-protocol fields "
+            f"{sorted(_BANNED_SCRIPT_PROTOCOL_KEYS)}:",
+        ]
+        for contract_id, keys in violations:
+            lines.append(f"  - {contract_id}: {', '.join(keys)}")
+        assert violations == [], "\n".join(lines)

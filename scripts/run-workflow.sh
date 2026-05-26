@@ -630,7 +630,8 @@ while true; do
       # Build done payload from COMPLETION JSON + dispatch context
       DONE_PAYLOAD=$(python3 "$STATE_INSPECT" build-payload agent \
         --step-id "$STEP_ID" --phase "$PHASE" --agent "$AGENT" \
-        --stdout-file "$TOOL_STDOUT" --started-at "$STARTED_AT" <<<"$COMPLETION_JSON")
+        --stdout-file "$TOOL_STDOUT" --cwd "$AGENT_WORK_DIR" \
+        --started-at "$STARTED_AT" <<<"$COMPLETION_JSON")
 
       DONE_STDERR="$TMP_DIR/orch_done_stderr_${STEP_ID}.txt"
       if echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML" 2>"$DONE_STDERR"; then

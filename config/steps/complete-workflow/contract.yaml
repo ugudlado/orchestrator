@@ -2,35 +2,3 @@ id: complete-workflow
 version: 1
 kind: script
 run: script.sh
-inputs: []
-outputs: []
-
-rules:
-  - complete-workflow is the terminal step for the feature and bugfix workflows. It performs merge, archive, and worktree teardown as one atomic step.
-  - The script sequences, in one process so no dispatch boundary sits between a state-moving and a state-reading operation, merge then archive then cd "$REPO_ROOT" then worktree removal.
-  - All state.yaml-derived values are read into bash vars at script start, before the archive phase moves state.yaml out of the worktree.
-  - The merge phase is gated by flags.merge_to_main; the cleanup phase is gated by flags.worktree. The archive phase is unconditional.
-  - On merge conflict the merge phase exits non-zero and the wrapper halts before archive and cleanup — the worktree is preserved.
-  - complete-workflow is classified state-mutating in bin/orchestrator and is pre-recorded before its script runs (the ORC-66 record-after-state-deletion crash-avoidance contract).
-
-instruction: |
-  Run the terminal teardown for the workflow: merge the feature branch into the
-  default branch (if flags.merge_to_main), archive the change directory into the
-  repo archive, then remove the worktree (if flags.worktree). Return a JSON
-  completion_record on stdout.
-
-verify:
-  - completion_record printed to stdout with merge_record, archive_record, and worktree_record sub-records
-  - the change directory is moved to spec/changes/archive/<date>-<slug>/
-  - when flags.worktree is true the worktree directory is removed
-
-# No `outputs:` block. complete-workflow is a state-mutating inline step:
-# bin/orchestrator pre-records it as `completed` BEFORE its script runs (the
-# ORC-66 crash-avoidance contract), so the script's stdout completion_record
-# is never threaded into step_history's evidence.outputs, and the archive
-# phase moves state.yaml out of the worktree before any post-script record
-# could fire. A declared `outputs:` key would therefore be unverifiable and
-# would make the optimistic empty pre-record fail _check_declared_outputs.
-# archive-completed-change.yaml — the surviving pre-record precedent —
-# declares no `outputs:` for exactly this reason. The completion_record shape
-# is documented in `verify:` above as descriptive prose.

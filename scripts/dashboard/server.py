@@ -241,7 +241,8 @@ def get_feature(repo_name: str, change_id: str) -> dict[str, Any]:
 
 def _repo_slug(repo_root: str) -> str:
     """Mirror jsonl_usage._repo_slug: /Users/spidey/code/orchestrator → -Users-spidey-code-orchestrator."""
-    return "-" + repo_root.lstrip("/").replace("/", "-")
+    normalized = repo_root.lstrip("/").replace("/", "-").replace("_", "-")
+    return f"-{normalized}"
 
 
 def _claude_jsonl_candidates(repo_root: str, since_ts: float) -> list[Path]:
