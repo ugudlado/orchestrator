@@ -242,6 +242,7 @@ verify_commands:
 quality_bar:
   min_phase_review_score: 9
   max_retry_rounds: 8
+  max_spawn_failures: 3
   scoring:
     critical_cap: 5
     important_cap: 7
