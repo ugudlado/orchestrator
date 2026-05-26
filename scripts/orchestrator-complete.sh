@@ -185,6 +185,22 @@ PY
 )
 
 if [ "$MERGE_TO_MAIN" = true ]; then
+  # Worktree-first learn-cycle: if learn-cycle modified global config/rules,
+  # commit those changes on the feature branch before merging to main.
+  if [ "$USE_WORKTREE" = true ]; then
+    WT_DIR="$WORKTREE_BASE_DIR/$TICKET_SLUG"
+    BRANCH="$(python3 - "$ARCHIVED_STATE" <<'PY'
+import sys, yaml
+raw = yaml.safe_load(open(sys.argv[1])) or {}
+print(raw.get("branch") or "")
+PY
+)"
+    COMMIT_HELPER="$_INLINE_DIR/commit-worktree-learn-updates.sh"
+    if [ -x "$COMMIT_HELPER" ]; then
+      bash "$COMMIT_HELPER" "$WT_DIR" "$TICKET_SLUG" "$BRANCH"
+    fi
+  fi
+
   echo "Merging $TICKET_SLUG branch to default..." >&2
   set +e
   _MERGE_OUT=$(STATE_YAML_PATH="$ARCHIVED_STATE" REPO_ROOT="$REPO_ROOT" \
