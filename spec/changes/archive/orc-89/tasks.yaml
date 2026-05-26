@@ -125,3 +125,144 @@ tasks:
       - "all new bats tests pass"
       - "no regression: existing append-retro callers still receive the same {appended, retro_path} contract"
     why: "phase gate — confirm the emit-side wiring integrates before complete-phase signoff."
+
+  # ─── ORC-89.1 refactor (see design.md Addendum) ─────────────────────────
+  # Splits agent-issues vs workflow-mechanics issues, makes detection
+  # executable so shell and LLM drivers share one source, deletes the
+  # sentinel protocol in favor of an exit-10 soft-fail convention, and
+  # extends run-learn-cycle to sync retro→backlog.
+  # ────────────────────────────────────────────────────────────────────────
+
+  - id: T-8
+    title: "Rewrite workflow-issues.md for the refactored shape"
+    depends_on: [T-7]
+    files:
+      - config/steps/contracts/workflow-issues.md
+    verify:
+      - grep -q 'detect-workflow-issues.sh' config/steps/contracts/workflow-issues.md
+      - "! grep -q 'pending-issues.jsonl' config/steps/contracts/workflow-issues.md"
+      - "! grep -q 'record-issue.sh' config/steps/contracts/workflow-issues.md"
+      - grep -q 'exit 10' config/steps/contracts/workflow-issues.md
+      - "! grep -q 'empty-usage' config/steps/contracts/workflow-issues.md"
+      - grep -q 'script-warning' config/steps/contracts/workflow-issues.md
+      - grep -q 'script-failed' config/steps/contracts/workflow-issues.md
+    test_scenarios:
+      - "contract names detect-workflow-issues.sh as canonical driver path"
+      - "sentinel-file section is removed; exit-10 soft-fail convention documented in its place"
+      - "empty-usage category dropped from seen-so-far list"
+      - "script-warning category added with stable dedup_key pattern"
+      - "producers/consumers table reflects: agent COMPLETION + driver helper, single writer through record.py"
+    why: "establish the new schema/contract before any code changes so writers and readers agree."
+    change: "Replace § 'Documented driver key patterns (orc-89)' and § 'Sentinel file' with new sections documenting detect-workflow-issues.sh and the exit-10 soft-fail convention. Drop empty-usage row from category table; add script-warning row. Rewrite producers/consumers table: drop record-issue.sh row; replace driver row with 'Driver (shell or LLM) — invoke detect-workflow-issues.sh, merge stdout into done payload'."
+
+  - id: T-9
+    title: "Create scripts/lib/detect-workflow-issues.sh shared helper"
+    depends_on: [T-8]
+    files:
+      - scripts/lib/detect-workflow-issues.sh
+      - config/tests/test_detect_workflow_issues.bats
+    verify:
+      - test -x scripts/lib/detect-workflow-issues.sh
+      - bash -n scripts/lib/detect-workflow-issues.sh
+      - config/tests/bats config/tests/test_detect_workflow_issues.bats
+    test_scenarios:
+      - "called with --state-yaml pointing at a step_history where last attempt > 1 and status == completed, helper emits a single retry-success JSON issue on stdout"
+      - "called with --script-exit 10 and --step-id X, helper emits one script-warning issue with detail derived from stderr-file (last 5 lines) and dedup_key 'script-warning:X'"
+      - "called with --script-exit 0 and no other anomalies, helper emits '[]' on stdout"
+      - "called with --script-exit 1, helper emits one script-failed issue"
+      - "called with --tool-exit non-zero, helper emits one tool-crashed issue"
+      - "called with --manual-phase-advance phase=foo, helper emits one manual-phase-advance issue"
+      - "stdout is always a valid JSON array (jq -e . succeeds)"
+    why: "single source of detection logic both drivers call; replaces the 4-category prose in SKILL.md."
+    change: "Create scripts/lib/detect-workflow-issues.sh accepting flags: --state-yaml PATH (retry via last step_history entry), --attempt N (retry before state.yaml is updated), --script-exit N, --script-stderr-file PATH, --tool-exit N, --manual-phase-advance PHASE, --step-id ID, --phase NAME. Emits a JSON array on stdout. Each detected anomaly becomes one object with category/severity/surfaced_at/detail/dedup_key. Exit 0 always; helper failures emit '[]' and warn to stderr."
+
+  - id: T-10
+    title: "Wire detect-workflow-issues into run-workflow.sh"
+    depends_on: [T-9]
+    files:
+      - scripts/run-workflow.sh
+    verify:
+      - bash -n scripts/run-workflow.sh
+      - grep -q 'detect-workflow-issues.sh' scripts/run-workflow.sh
+      - grep -q 'exit 10\|SCRIPT_EXIT.*10\|== 10' scripts/run-workflow.sh
+    test_scenarios:
+      - "after run_step (script exit 0 path), helper is invoked; non-empty JSON array is merged into done payload's workflow_issues field"
+      - "when SCRIPT_EXIT == 10, status remains 'completed' and a script-warning issue is added"
+      - "when SCRIPT_EXIT > 0 and != 10, behavior is unchanged (status=failed)"
+      - "when TOOL_EXIT != 0, helper emits a tool-crashed issue merged into the failure done payload"
+      - "in the agent-completed path, helper is invoked with --attempt; retry-success entries appear in the merged payload when attempt > 1"
+      - "when SCRIPT_EXIT is 1, a script-failed issue is merged into the done payload"
+    why: "shell driver currently emits zero workflow_issues; this wires the new helper into all three exit points."
+    change: "Edit scripts/run-workflow.sh: (1) in run_step branch around line 525, add 'if SCRIPT_EXIT == 10 then STATUS=completed' before the existing status assignment; (2) before each 'orchestrator done' call (lines 534, 634, 660), invoke detect-workflow-issues.sh with the relevant flags, capture stdout, and use jq to merge into DONE_PAYLOAD's workflow_issues field; (3) ensure helper failure does not break the loop (best-effort)."
+
+  - id: T-11
+    title: "Slim SKILL.md driver-detection prose"
+    depends_on: [T-9]
+    files:
+      - skills/orchestrate/SKILL.md
+    verify:
+      - "! grep -q 'pending-issues.jsonl' skills/orchestrate/SKILL.md"
+      - "! grep -q 'empty-usage' skills/orchestrate/SKILL.md"
+      - "! grep -q 'retry-then-success' skills/orchestrate/SKILL.md"
+      - grep -q 'detect-workflow-issues.sh' skills/orchestrate/SKILL.md
+      - grep -q 'workflow-issues.md' skills/orchestrate/SKILL.md
+    test_scenarios:
+      - "the four-category prose checklist (current lines ~198-217) is replaced with a single-line invocation of detect-workflow-issues.sh"
+      - "sentinel-drain prose and .pending-issues.jsonl handling are removed"
+      - "agent-supplied workflow_issues passthrough mention is preserved (COMPLETION.workflow_issues forwarded verbatim)"
+      - "cross-reference to workflow-issues.md remains"
+    why: "drift trap fix — replace 30+ lines of prose with the executable helper both drivers share."
+    change: "In skills/orchestrate/SKILL.md, replace the 'Compute workflow_issues' sub-step in the LOOP block (current step 3 of the agent-completed path) with: 'Run scripts/lib/detect-workflow-issues.sh and merge its stdout into the done payload. Pass --state-yaml, --action-json, and --manual-phase-advance when applicable. Append any COMPLETION.workflow_issues verbatim.' Delete the four-category bullet list, sentinel-drain instructions, and the post-done rm -f .pending-issues.jsonl block."
+
+  - id: T-12
+    title: "Delete sentinel protocol + record-issue.sh"
+    depends_on: [T-10, T-11]
+    files:
+      - config/scripts/inline/record-issue.sh
+      - config/tests/test_record_issue.bats
+    verify:
+      - "! test -f config/scripts/inline/record-issue.sh"
+      - "! test -f config/tests/test_record_issue.bats"
+      - "! grep -rn 'record-issue.sh\\|pending-issues.jsonl' config/ scripts/ skills/ 2>/dev/null | grep -v '^[^:]*/archive/' | grep -v '^[^:]*/retro.md:'"
+    test_scenarios:
+      - "config/scripts/inline/record-issue.sh is deleted"
+      - "config/tests/test_record_issue.bats is deleted"
+      - "no live code/contract references to record-issue.sh or .pending-issues.jsonl remain outside archived spec/retro files"
+    why: "sentinel protocol is superseded by the exit-10 soft-fail convention; dead code must not linger."
+    change: "git rm config/scripts/inline/record-issue.sh config/tests/test_record_issue.bats. Confirm no live references remain (grep ignoring spec/changes/archive/ and existing retro.md history)."
+
+  - id: T-13
+    title: "Extend run-learn-cycle with retro→backlog sync"
+    depends_on: [T-8]
+    files:
+      - config/steps/run-learn-cycle/contract.yaml
+      - config/steps/run-learn-cycle/prompt.md
+    verify:
+      - grep -q 'backlog_tickets_synced' config/steps/run-learn-cycle/contract.yaml
+      - grep -q 'retro.md' config/steps/run-learn-cycle/prompt.md
+      - grep -q 'backlog' config/steps/run-learn-cycle/prompt.md
+    test_scenarios:
+      - "contract.yaml declares backlog_tickets_synced as a new output"
+      - "contract.yaml verify block includes an AC checking retro.md was consulted"
+      - "prompt.md instructs workflow-learner to read retro.md and invoke the backlog-manager skill for triage — skill handles dedup, priority, and backend selection"
+      - "prompt.md preserves existing learn-cycle instructions; sync is additive"
+    why: "close the loop — retro.md is now consistently populated, learn-cycle must actually act on it."
+    change: "Edit config/steps/run-learn-cycle/contract.yaml: add 'backlog_tickets_synced' to outputs; append an AC to verify block ('retro.md issues with unresolved fix_direction have backlog tickets'). Edit config/steps/run-learn-cycle/prompt.md: add a section instructing the workflow-learner agent to read $WORKTREE_PATH/spec/changes/$CHANGE_ID/retro.md, parse ISSUE-N blocks, and invoke the `backlog-manager` skill for triage of each unresolved issue. The skill owns dedup-against-existing, priority assignment, and backend selection (Linear vs Backlog.md); workflow-learner just hands it the parsed issue data."
+
+  - id: T-14
+    title: "Phase gate — refactor integration check"
+    depends_on: [T-10, T-11, T-12, T-13]
+    files: []
+    verify:
+      - bash -n scripts/run-workflow.sh
+      - bash -n scripts/lib/detect-workflow-issues.sh
+      - config/tests/bats config/tests/test_detect_workflow_issues.bats
+      - config/tests/bats config/tests/test_append_retro_dedup.bats
+      - config/tests/bats config/tests/test_workflow_issues_emit_path.bats
+    test_scenarios:
+      - "all changed shell parses clean"
+      - "new helper tests pass; dedup tests still pass"
+      - "detect → append-retro integration test proves the refactor emit path (AC-6)"
+      - "no live references to record-issue.sh or .pending-issues.jsonl remain"
+      - "SKILL.md and workflow-issues.md no longer reference the removed shape"
+    why: "phase gate for the ORC-89.1 refactor — confirm both driver paths share one source and the sentinel protocol is fully removed."

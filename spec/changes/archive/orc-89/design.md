@@ -148,4 +148,62 @@ The dispatch driver becomes the single assembly point for `workflow_issues`. Thr
 
 - None blocking. Discovery's OQ-1 through OQ-5 resolved per "Decisions" above.
 
+---
+
+## Addendum: ORC-89.1 refactor (post-archive)
+
+Live emission shipped but two architectural gaps surfaced when reviewing how this feature would behave under the shell driver (`scripts/run-workflow.sh` invoked via `orchestrator run <ticket>`):
+
+1. **Driver-side detection was prose-only.** All four detection categories (retry-then-success, empty-usage, manual-phase-advance, sentinel-drain) lived in `skills/orchestrate/SKILL.md` as a checklist the LLM driver runs in its head. The shell driver doesn't read SKILL.md and therefore emitted **none** of these — `workflow_issues` silently degraded to zero under `orchestrator run`.
+2. **The two issue categories were conflated.** "Agent had a problem with its work" and "the workflow loop misbehaved" are different concerns with different observers; the original design treated them as one stream emitted by one detector.
+
+### Refactored division of labor
+
+| Issue type | Reporter | Path to retro.md |
+|------------|----------|------------------|
+| **Agent/work issues** — agent flags semantic problems with its own turn (low confidence, missing input, scope creep) | Agent COMPLETION block | `workflow_issues:` field forwarded by `build-payload agent` → `record.py` → `append-retro.sh` |
+| **Workflow/mechanics issues** — loop observed a mechanical anomaly (script failed, tool crashed, retry-then-success, manual phase patch) | Driver (shell or LLM) calls shared helper | `scripts/lib/detect-workflow-issues.sh` → `append-retro.sh` |
+
+Agents cannot see workflow-loop signals (they only see their turn); the loop cannot judge whether an agent's work was anomalous. Each reports what it observes; nothing else.
+
+### Shared executable helper (replaces SKILL.md prose)
+
+`scripts/lib/detect-workflow-issues.sh` becomes the single source of detection logic for workflow-mechanics issues. Both drivers call it; **the helper emits a JSON array on stdout**, which the driver merges into the `workflow_issues` field of the `orchestrator done` payload. There is exactly one writer to `retro.md`: `record.py` → `append-retro.sh`, unchanged from what shipped. The helper never writes to retro.md directly.
+
+- **Shell driver** (`run-workflow.sh`): invoked at three exit points — script-step failure, tool-invocation crash, post-agent (for retry-then-success). Captures helper stdout, merges into the done payload's `workflow_issues` field before piping to `orchestrator done`.
+- **LLM driver** (`skills/orchestrate/SKILL.md`): one line replaces the ~30-line prose checklist — "Run `scripts/lib/detect-workflow-issues.sh` and merge its stdout into the done payload." The LLM driver additionally passes `--manual-phase-advance` when it patches phase outside `orchestrator done`.
+
+This collapses the drift trap: adding a new workflow-issue category means editing one shell file, not two prose blocks. Keeping the write path single (helper → done payload → record.py → append-retro.sh) preserves the dedup, telemetry, and best-effort error handling already in place — no second writer to retro.md.
+
+### Soft-fail exit code for inline scripts
+
+The `.pending-issues.jsonl` sentinel protocol and `config/scripts/inline/record-issue.sh` are removed. Inline scripts that want to flag a workflow issue without aborting the run exit with a documented soft-fail code (**exit 10**, reserving 10–19 for future soft-warning variants; verified non-colliding with existing exits 1–7 across `run-workflow.sh` and `config/scripts/inline/`). The shell driver maps exit 10 to `status: completed` plus one `workflow_issues` entry derived from the script's stderr (last 5 lines as `detail`, category `script-warning`, `dedup_key: script-warning:<step_id>`). Any other non-zero exit remains a hard failure.
+
+### Backlog sync moved into `run-learn-cycle`
+
+`run-learn-cycle/contract.yaml` and `prompt.md` are extended so the `workflow-learner` agent — already reading state.yaml at this step — also reads `retro.md` and invokes the `backlog-manager` skill for triage of each unresolved issue. The skill owns dedup-against-existing-tickets, priority assignment, and backend selection (Linear vs Backlog.md auto-detect); workflow-learner just hands it the parsed issue data. New output: `backlog_tickets_synced` (list of ticket ids returned by the skill). No new workflow step is added; the loop closes inside the existing learn-cycle agent.
+
+### Categories changed
+
+| Action | Category | Reason |
+|--------|----------|--------|
+| **Drop** | `empty-usage` | Telemetry bug in `record.py`, not a workflow anomaly. Wrong layer. |
+| **Keep** | `retry-success`, `manual-phase-advance` | Driver-observable workflow signals. |
+| **Add** | `script-warning` | Inline-script soft-fail (exit 10) entries. |
+| **Keep** | `script-failed`, `tool-crashed` | New driver-detected categories the helper emits at the existing exit points. |
+
+### Files affected
+
+- `skills/orchestrate/SKILL.md` — replace driver-detection prose with single-line helper invocation.
+- `scripts/run-workflow.sh` — wire helper at three exit points; map exit 10.
+- `scripts/lib/detect-workflow-issues.sh` — **new**: shared detection logic.
+- `config/steps/contracts/workflow-issues.md` — rewrite producers/consumers; document exit-10 convention; drop sentinel section; drop `empty-usage`.
+- `config/scripts/inline/record-issue.sh` — **delete**.
+- `config/steps/run-learn-cycle/{contract.yaml,prompt.md}` — extend with retro→backlog sync.
+- Tests targeting `record-issue.sh` and `.pending-issues.jsonl` — delete or rewrite.
+
+### What's preserved
+
+`retro.md` schema, `append-retro.sh` with `dedup_key` skip, `done-payload.md`'s optional `workflow_issues` field, agent COMPLETION passthrough, and `record.py`'s best-effort retro append all stay exactly as shipped.
+
 <!-- Format contract: config/steps/design-and-draft-artifacts/prompt.md § Design Format Contract -->
