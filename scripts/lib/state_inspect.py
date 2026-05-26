@@ -142,9 +142,9 @@ def cmd_log_step_usage(args: argparse.Namespace) -> int:
 
     if not parts:
         if status in ("completed", "recovered") and not inp and not out:
-            print("  usage: no tokens (inline/script)")
+            print("  usage: no tokens (inline/script)", file=sys.stderr)
         return 0
-    print("  " + " · ".join(parts))
+    print("  " + " · ".join(parts), file=sys.stderr)
     return 0
 
 

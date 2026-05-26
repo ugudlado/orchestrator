@@ -343,7 +343,7 @@ _log_ts() {
 _log_step_usage() {
   local step_id="$1"
   local phase="${2:-main}"
-  python3 "$STATE_INSPECT" log-step-usage "$STATE_YAML" "$step_id" "$phase" 2>/dev/null || true
+  python3 "$STATE_INSPECT" log-step-usage "$STATE_YAML" "$step_id" "$phase" >&2 2>/dev/null || true
 }
 
 _emit_feature_rollup() {
@@ -435,8 +435,14 @@ while true; do
     INLINE_PHASE=$(echo "$LAST_STEP" | jq -r '.phase // "main"')
     INLINE_STATUS=$(echo "$LAST_STEP" | jq -r '.status // empty')
     if [ -n "$INLINE_STEP_ID" ] && [ -n "$INLINE_STATUS" ]; then
-      python3 "$STATE_INSPECT" log-step-usage "$STATE_YAML" "$INLINE_STEP_ID" "$INLINE_PHASE" \
-        2>/dev/null || true
+      # orchestrator next runs inline scripts inside the CLI; progress lines go to
+      # stderr and were captured in orch_next_stderr — surface them on success too.
+      if [ -s /tmp/orch_next_stderr ]; then
+        cat /tmp/orch_next_stderr >&2
+      else
+        echo "[$(_log_ts)] ✓ $INLINE_STEP_ID  done  status=$INLINE_STATUS" >&2
+      fi
+      _log_step_usage "$INLINE_STEP_ID" "$INLINE_PHASE"
       if [ "$INLINE_STATUS" = "completed" ] || [ "$INLINE_STATUS" = "recovered" ]; then
         sync_ticket_after_step "$INLINE_STEP_ID"
       fi

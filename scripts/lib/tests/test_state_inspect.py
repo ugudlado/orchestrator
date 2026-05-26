@@ -115,12 +115,12 @@ class TestLogStepUsage:
                 ]
             },
         )
-        rc, out, _ = _run(capsys, ["log-step-usage", str(p), "explore", "main"])
+        rc, _, err = _run(capsys, ["log-step-usage", str(p), "explore", "main"])
         assert rc == 0
-        assert "model=claude-sonnet-4-6" in out
-        assert "tokens in=1234 out=567" in out
-        assert "cost=$0.0234" in out
-        assert "duration=45.1s" in out
+        assert "model=claude-sonnet-4-6" in err
+        assert "tokens in=1234 out=567" in err
+        assert "cost=$0.0234" in err
+        assert "duration=45.1s" in err
 
     def test_skips_unknown_models(self, tmp_path, capsys):
         p = _write_state(
@@ -136,9 +136,9 @@ class TestLogStepUsage:
                 ]
             },
         )
-        _, out, _ = _run(capsys, ["log-step-usage", str(p), "seed", "main"])
-        assert "model=" not in out
-        assert "tokens in=10 out=5" in out
+        _, _, err = _run(capsys, ["log-step-usage", str(p), "seed", "main"])
+        assert "model=" not in err
+        assert "tokens in=10 out=5" in err
 
     def test_prints_inline_note_when_no_tokens(self, tmp_path, capsys):
         p = _write_state(
@@ -154,14 +154,15 @@ class TestLogStepUsage:
                 ]
             },
         )
-        _, out, _ = _run(capsys, ["log-step-usage", str(p), "inline-step", "main"])
-        assert "usage: no tokens (inline/script)" in out
+        _, _, err = _run(capsys, ["log-step-usage", str(p), "inline-step", "main"])
+        assert "usage: no tokens (inline/script)" in err
 
     def test_silent_when_step_missing(self, tmp_path, capsys):
         p = _write_state(tmp_path, {"step_history": []})
-        rc, out, _ = _run(capsys, ["log-step-usage", str(p), "explore", "main"])
+        rc, out, err = _run(capsys, ["log-step-usage", str(p), "explore", "main"])
         assert rc == 0
         assert out == ""
+        assert err == ""
 
     def test_duration_minutes_branch(self, tmp_path, capsys):
         p = _write_state(
@@ -177,8 +178,8 @@ class TestLogStepUsage:
                 ]
             },
         )
-        _, out, _ = _run(capsys, ["log-step-usage", str(p), "s", "main"])
-        assert "duration=2.1m" in out
+        _, _, err = _run(capsys, ["log-step-usage", str(p), "s", "main"])
+        assert "duration=2.1m" in err
 
 
 class TestBuildPayload:
