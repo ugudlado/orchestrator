@@ -56,6 +56,7 @@ corruption detected after write (file restored), `5` boundary DB write failed.
 | `retry_context` | object | — | Passed into next spawn on retry |
 | `blocker` | object | — | `{ blocked_task, reason }` when STATUS: blocked |
 | `escalation` | object | — | Architect escalation context |
+| `workflow_issues` | list | — | Workflow anomalies to append to `retro.md` (best-effort). Schema: `contracts/workflow-issues.md` |
 | `state_patch` | object | — | Top-level state.yaml scalars/lists to merge (see § State patch) |
 
 Unknown top-level keys are ignored (same as `task_checkpoint` — never persisted).

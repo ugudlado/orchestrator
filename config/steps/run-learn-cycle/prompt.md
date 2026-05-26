@@ -10,7 +10,20 @@ Run the workflow learning pipeline for this completed change.
    update, decay evaluation, and quality bar adjustment per the workflow-learner
    agent pipeline.
 
-3. If learning fails for any reason: log learn_skipped: true and return success.
-   Learning is best-effort and must not fail the complete phase.
+3. Sync retro.md to backlog. Read `<state_dir>/retro.md` if present and parse
+   each `## ISSUE-N` block. For each issue whose `fix_direction` is non-empty
+   and not already addressed, invoke the `backlog-manager` skill to triage —
+   hand it the issue's title, category, severity, surfaced_at, detail,
+   fix_direction, and dedup_key. The skill owns dedup-against-existing
+   tickets (by dedup_key as a stable suffix or by title match), priority
+   assignment, and selecting the active backend (Linear vs Backlog.md). Do
+   not shell out to `backlog`/Linear CLIs directly — let the skill handle
+   backend routing. Collect the ticket ids the skill returns into
+   `backlog_tickets_synced` for the COMPLETION outputs. If retro.md is
+   absent or empty, set `backlog_tickets_synced: []` and continue.
 
-4. Return COMPLETION per contracts/done-payload.md.
+4. If learning or sync fails for any reason: log learn_skipped: true (or
+   continue with partial sync) and return success. Both learning and sync
+   are best-effort and must not fail the complete phase.
+
+5. Return COMPLETION per contracts/done-payload.md.

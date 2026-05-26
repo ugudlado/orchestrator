@@ -54,6 +54,28 @@ ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
 # Resolve script directory (find siblings like parse-completion.py, cost-report.sh)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_INSPECT="$SCRIPT_DIR/lib/state_inspect.py"
+DETECT_WORKFLOW_ISSUES="$SCRIPT_DIR/lib/detect-workflow-issues.sh"
+
+# _merge_workflow_issues PAYLOAD ISSUES_JSON  →  payload with workflow_issues
+# merged.  Best-effort: on jq failure prints PAYLOAD unchanged.  ISSUES_JSON
+# is the JSON array stdout from detect-workflow-issues.sh.  Empty arrays are
+# skipped (no field added).
+_merge_workflow_issues() {
+  local payload="$1" issues="$2"
+  if [ -z "$issues" ] || [ "$issues" = "[]" ]; then
+    printf '%s' "$payload"
+    return 0
+  fi
+  local merged
+  if merged=$(jq -c \
+    --argjson new "$issues" \
+    '.workflow_issues = ((.workflow_issues // []) + $new)' \
+    <<<"$payload" 2>/dev/null); then
+    printf '%s' "$merged"
+  else
+    printf '%s' "$payload"
+  fi
+}
 # shellcheck source=lib/ticket-common.sh
 source "$SCRIPT_DIR/lib/ticket-common.sh"
 # shellcheck source=lib/agent-routes.sh
@@ -522,7 +544,9 @@ while true; do
         bash "$SCRIPT_PATH" >"$TMP_DIR/script_stdout" 2>"$TMP_DIR/script_stderr" || SCRIPT_EXIT=$?
       fi
 
-      if [ "$SCRIPT_EXIT" -eq 0 ]; then
+      # Exit 10 = soft-fail (workflow-issues.md): step still completed, but the
+      # driver records a script-warning entry built from script stderr.
+      if [ "$SCRIPT_EXIT" -eq 0 ] || [ "$SCRIPT_EXIT" -eq 10 ]; then
         STATUS="completed"
       else
         STATUS="failed"
@@ -531,6 +555,14 @@ while true; do
       DONE_PAYLOAD=$(python3 "$STATE_INSPECT" build-payload script \
         --step-id "$STEP_ID" --phase "$PHASE" --status "$STATUS" \
         --started-at "$STARTED_AT")
+
+      # Workflow-issues detection (script-warning on exit 10).
+      WFI_JSON=$(bash "$DETECT_WORKFLOW_ISSUES" \
+        --phase "$PHASE" --step-id "$STEP_ID" \
+        --script-exit "$SCRIPT_EXIT" \
+        --script-stderr-file "$TMP_DIR/script_stderr" 2>/dev/null || echo "[]")
+      DONE_PAYLOAD=$(_merge_workflow_issues "$DONE_PAYLOAD" "$WFI_JSON")
+
       if echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML"; then
         echo "[$(_log_ts)] ✓ $STEP_ID  done  status=$STATUS" >&2
         _log_step_usage "$STEP_ID" "$PHASE"
@@ -631,6 +663,10 @@ while true; do
         DONE_PAYLOAD=$(python3 "$STATE_INSPECT" build-payload failed \
           --step-id "$STEP_ID" --phase "$PHASE" --agent "$AGENT" \
           --exit-code "$TOOL_EXIT")
+        WFI_JSON=$(bash "$DETECT_WORKFLOW_ISSUES" \
+          --phase "$PHASE" --step-id "$STEP_ID" \
+          --tool-exit "$TOOL_EXIT" 2>/dev/null || echo "[]")
+        DONE_PAYLOAD=$(_merge_workflow_issues "$DONE_PAYLOAD" "$WFI_JSON")
         echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML" || true
         continue
       fi
@@ -655,6 +691,12 @@ while true; do
         --step-id "$STEP_ID" --phase "$PHASE" --agent "$AGENT" \
         --stdout-file "$TOOL_STDOUT" --cwd "$AGENT_WORK_DIR" \
         --started-at "$STARTED_AT" <<<"$COMPLETION_JSON")
+
+      # Workflow-issues detection (retry-success when this attempt > 1).
+      WFI_JSON=$(bash "$DETECT_WORKFLOW_ISSUES" \
+        --phase "$PHASE" --step-id "$STEP_ID" \
+        --attempt "$ATTEMPT" 2>/dev/null || echo "[]")
+      DONE_PAYLOAD=$(_merge_workflow_issues "$DONE_PAYLOAD" "$WFI_JSON")
 
       DONE_STDERR="$TMP_DIR/orch_done_stderr_${STEP_ID}.txt"
       if echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML" 2>"$DONE_STDERR"; then

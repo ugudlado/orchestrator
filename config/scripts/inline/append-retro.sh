@@ -60,10 +60,17 @@ if not isinstance(issues, list):
 
 ts = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 appended = 0
+with open(path, 'r') as rf:
+    existing = rf.read()
 with open(path, 'a') as f:
     for i, issue in enumerate(issues):
         if not isinstance(issue, dict):
             continue
+        dedup_key = (issue.get('dedup_key') or '').strip()
+        if dedup_key:
+            marker = f"- **dedup_key**: {dedup_key}"
+            if marker in existing:
+                continue
         n = issue.get('id') or f"ISSUE-{start_n + appended}"
         title = issue.get('title', '(no title)').strip()
         f.write(f"## {n} — {title}\n")
@@ -72,6 +79,8 @@ with open(path, 'a') as f:
         surfaced = issue.get('surfaced_at') or issue.get('phase_step') or 'unknown'
         f.write(f"- **surfaced_at**: {surfaced}\n")
         f.write(f"- **recorded_at**: {ts}\n")
+        if dedup_key:
+            f.write(f"- **dedup_key**: {dedup_key}\n")
         detail = (issue.get('detail') or '').strip()
         if detail:
             f.write(f"- **detail**: {detail}\n")
@@ -85,6 +94,8 @@ with open(path, 'a') as f:
         if ticket:
             f.write(f"- **ticket_linear**: {ticket}\n")
         f.write("\n")
+        if dedup_key:
+            existing += f"- **dedup_key**: {dedup_key}\n"
         appended += 1
 
 print(appended)

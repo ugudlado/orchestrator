@@ -127,6 +127,11 @@ step contract; duplication invites drift when step contracts update.
 
 ```
 LOOP:
+  # Driver-local: set manual_phase_advance_flag = true when patching phase or
+  # next_step outside orchestrator done (e.g. operator forces advance). Reset
+  # to false at the start of each loop iteration unless set again that iteration.
+  manual_phase_advance_flag = false
+
   # ORC-45 two-path dispatch protocol:
   #   exit 0 + JSON with `agent` key  → spawn agent
   #   exit 0 + no JSON                → inline script ran and recorded; loop again
@@ -189,11 +194,35 @@ LOOP:
       #    Merge step_id, phase, agent from dispatch context; pass the raw Task tool
       #    result text as agent_task_result (record.py extracts agentId and loads
       #    billing-truth usage from subagent JSONL — do not parse usage or agentId).
-      # 3. Pipe payload to orchestrator done (driver does not verify tasks/tests):
+      # 3. Compute workflow_issues. Run scripts/lib/detect-workflow-issues.sh
+      #    with --phase, --step-id, --attempt (current attempt), and
+      #    --manual-phase-advance PHASE when manual_phase_advance_flag is set
+      #    this iteration. Merge the helper's stdout (JSON array) with any
+      #    COMPLETION.workflow_issues from the agent, verbatim. Clear the
+      #    manual-phase-advance flag after the helper consumes it.
+      # 4. Pipe payload to orchestrator done (driver does not verify tasks/tests).
+      #    Attach workflow_issues only when the merged list is non-empty.
 
-      orchestrator done state.yaml <<< {step_id, phase, status, agent, agent_task_result, outputs, evidence}
+      done_payload = {step_id, phase, status, agent, agent_task_result, outputs, evidence}
+      IF workflow_issues is non-empty:
+          done_payload.workflow_issues = workflow_issues
+      done_exit = orchestrator done state.yaml <<< done_payload
       # Full contract: config/steps/contracts/done-payload.md
 ```
+
+### Workflow issues
+
+Workflow-mechanics issues (retry-success, script-warning, script-failed,
+tool-crashed, manual-phase-advance) are detected by
+`scripts/lib/detect-workflow-issues.sh`
+— the same helper the shell driver (`scripts/run-workflow.sh`) uses. Both
+drivers share this single source of detection logic; do not re-derive these
+categories in this prompt. Agent-emitted `workflow_issues:` in COMPLETION are
+forwarded verbatim into the done payload. Inline scripts that need to flag a
+workflow issue without aborting exit with code 10 (soft-fail); the driver
+synthesizes a `script-warning` entry from the script's stderr. Full payload
+schema, dedup_key conventions, category/severity values, and retro.md layout:
+`config/steps/contracts/workflow-issues.md`.
 
 Escalation (agent returns STATUS: escalate_to_architect): record a
 step_history entry with `status: escalate_to_architect` — `orchestrator
