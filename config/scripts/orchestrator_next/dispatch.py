@@ -22,13 +22,41 @@ import yaml
 
 from orchestrator_next.parser import (
     ContractError,
-    ContractDispatchError,
+    ContractDispatchError as ParserContractDispatchError,
     State,
     StepContract,
     StepHistoryEntry,
     load_contract_for_step,
     phase_nodes,
 )
+
+
+class ContractDispatchError(RuntimeError):
+    """Missing step contract or agent file on disk; run /doctor to diagnose."""
+
+
+def _agent_definition_path(agent_name: str) -> str | None:
+    """Return the first existing agent .md path, or None if not found."""
+    search_roots: list[str] = []
+    home = os.environ.get("ORCHESTRATOR_HOME", "")
+    if home:
+        search_roots.append(home)
+    search_roots.append(os.path.expanduser("~/.claude"))
+    for root in search_roots:
+        path = os.path.join(root, "agents", f"{agent_name}.md")
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _load_step_contract(step_id: str, state_yaml_path: str) -> StepContract:
+    """Load a step contract; map FileNotFoundError to ContractDispatchError."""
+    try:
+        return load_contract_for_step(step_id, state_yaml_path)
+    except FileNotFoundError as e:
+        raise ContractDispatchError(
+            f"Step contract not found: {step_id}. Run /doctor to diagnose."
+        ) from e
 from orchestrator_next import resolver
 from orchestrator_next import readiness
 from orchestrator_next.reconcile import _step_in_plan
@@ -244,6 +272,11 @@ def _resolve_allowed_tools(contract: StepContract) -> list[str]:
 
     if role_tools is None:
         if contract.allowed_tools:
+            if _agent_definition_path(contract.agent) is None:
+                raise ContractDispatchError(
+                    f"Agent definition not found: {contract.agent!r}. "
+                    f"Run /doctor to diagnose."
+                )
             print(
                 f"WARNING: cannot resolve agent {contract.agent!r} tools; "
                 f"allowed_tools on step {contract.id!r} not enforced",
@@ -386,8 +419,8 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         # it returns max+1 (retry semantics). Resume semantics require attempt unchanged.
         attempt = last.attempt if last.attempt is not None else 1
         try:
-            contract = load_contract_for_step(step_id, state_yaml_path)
-        except FileNotFoundError:
+            contract = _load_step_contract(step_id, state_yaml_path)
+        except ContractDispatchError:
             # Fall back to inline-only contract with minimal data
             contract = StepContract(
                 id=step_id,
@@ -440,8 +473,8 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
 
     # --- Load contract for the next step
     try:
-        contract = load_contract_for_step(next_step_id, state_yaml_path)
-    except FileNotFoundError:
+        contract = _load_step_contract(next_step_id, state_yaml_path)
+    except ContractDispatchError:
         # Fall back to inline-only contract with minimal data when the step
         # contract was deleted after workflow_plan was frozen at pre-dispatch init.
         # Mirrors the resume_step branch above.
@@ -514,7 +547,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         if os.path.isabs(contract.run):
             action["step_contract_dir"] = os.path.dirname(contract.run)
     else:
-        raise ContractDispatchError(
+        raise ParserContractDispatchError(
             f"step_contract_missing_run: {next_step_id}"
         )
 

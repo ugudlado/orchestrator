@@ -506,3 +506,7 @@ def _doctor_main(argv: list) -> int:
         print("error: ORCHESTRATOR_HOME is not set", file=sys.stderr)
         return 3
     return run_all(argv)
+
+
+if __name__ == "__main__":
+    raise SystemExit(_doctor_main(sys.argv[1:]))
