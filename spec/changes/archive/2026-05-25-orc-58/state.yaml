@@ -335,3 +335,7 @@ worktree_path: /Users/spidey/code/feature_worktrees/orc-58
 branch: orc/orc-58
 completed_at: '2026-05-10T20:41:27Z'
 archive_path: spec/changes/archive/2026-05-10-orc-58/
+superseded_by: orc-88
+superseded_note: >-
+  ORC-58's closure narrative claimed scripts/routes.yaml was deleted; it was not.
+  ORC-88 is the corrected resolution — routes.yaml remains the canonical agent→model map.

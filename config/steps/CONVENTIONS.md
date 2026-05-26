@@ -178,17 +178,13 @@ The dispatch loop records this block verbatim in `state.yaml` under the step's
 with edit authority, or any inline step that calls `git`, `rm`, or writes more than
 one file. Exploration, read-only review, and single-field state updates do not need it.
 
-## Step-Level Model Override
+## Agent → Model Routing
 
-A step contract may include an optional `model:` field (e.g., `model: sonnet`).
-When present, the dispatch loop passes it as the `model` parameter to the Agent
-tool, overriding the agent definition's model frontmatter for that step only.
-
-Use this for non-critical steps where a cheaper/faster model is sufficient (e.g.,
-code simplification, formatting checks). The agent definition's model remains the
-default for all other steps that use the same agent.
-
-Valid values: `opus`, `sonnet`, `haiku` (must match the Agent tool's model enum).
+[`scripts/routes.yaml`](../../scripts/routes.yaml) is the single source of truth for
+agent→model mapping. Step contracts declare only `agent:`; the dispatcher resolves
+each agent to a model via `routes.yaml`. Do not add a top-level `model:` field to step
+contracts — routing belongs in one place so pricing, cost estimates, and the
+dashboard stay consistent.
 
 ## Where learned rules go
 

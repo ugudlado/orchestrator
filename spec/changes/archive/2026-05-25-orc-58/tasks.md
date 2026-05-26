@@ -18,3 +18,9 @@
 - [x] T-5: Review checkpoint (phase gate)
   Verify: All AC-1 through AC-6 from spec.md satisfied. `pytest config/scripts/orchestrator_next/tests/` exits 0. Diff limited to `record.py`, `reconcile.py`, and the two new test files.
   depends: T-3, T-4
+
+## Reconciliation
+
+ORC-88 is the corrected resolution for the ORC-58 closure claim that `scripts/routes.yaml`
+was deleted — the file was not actually deleted and remains the canonical agent→model map.
+See change `orc-88` for documentation and convention updates.
