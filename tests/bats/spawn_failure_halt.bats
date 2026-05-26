@@ -155,3 +155,16 @@ STUB
   [ "$(wc -l < "$CLAUDE_INVOKED" | tr -d ' ')" -eq 3 ]
   [[ "$output" != *spawn_failure_cap* ]]
 }
+
+@test "rerun after spawn_failure_cap clears history and retries" {
+  _write_claude_stub_spawn_fail
+  run_workflow
+  [ "$status" -eq 2 ]
+  [ "$(wc -l < "$CLAUDE_INVOKED" | tr -d ' ')" -eq 3 ]
+
+  _write_claude_stub_fail_then_success 0
+  run_workflow
+  [ "$status" -eq 1 ]
+  [[ "$output" =~ Resuming\ after\ spawn_failure_cap ]]
+  [[ "$output" != *BLOCKED:\ spawn_failure_cap* ]]
+}

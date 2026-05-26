@@ -387,6 +387,10 @@ fi
 
 WORKFLOW_CHANGE_ID=$(python3 "$STATE_INSPECT" state-field "$STATE_YAML" change_id --fallback slug 2>/dev/null || echo "")
 
+# Operator rerun after spawn_failure_cap: clear zero-token failures and unblock.
+PYTHONPATH="${REPO_ROOT}/config/scripts:${PYTHONPATH:-}" \
+  python3 -m orchestrator_next.spawn_resume "$STATE_YAML" || true
+
 while true; do
   # Poll ticket lane before each dispatch (reviewer may have moved ticket back)
   reconcile_ticket_before_next

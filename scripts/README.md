@@ -254,7 +254,7 @@ identical to the global version; it replaces the global file entirely
 | Code | Meaning |
 |------|---------|
 | 1 | Workflow complete (`complete_workflow`) |
-| 2 | Workflow blocked |
+| 2 | Workflow blocked (including `spawn_failure_cap` after 3 zero-token spawn failures in one loop). A new `orchestrator run` clears that cap once and sets `status: in_progress` so the failed step retries; failures inside the same loop still trip the cap. |
 | 3 | Contract error (`orchestrator next` exit 3) |
 | 4 | Unknown agent role in `routes.yaml` |
 | 5 | Malformed COMPLETION block from tool |
