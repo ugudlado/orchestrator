@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/ticket-common.sh
 source "$SCRIPT_DIR/lib/ticket-common.sh"
 
-ARG="${1:-}"
+ARG="$(echo "${1:-}" | tr '[:upper:]' '[:lower:]')"
 REPO_ROOT="${2:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 REPO_ROOT="$(ticket_repo_root "$REPO_ROOT")"
 
