@@ -16,5 +16,5 @@ on_step_complete:
     backlog: "Code Review"
     linear: "In Review"
   mark-change-completed:
-    backlog: "Done"
-    linear: "Done"
+    backlog: "QA Review"
+    linear: "QA Review"
