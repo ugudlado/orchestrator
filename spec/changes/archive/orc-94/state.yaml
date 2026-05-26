@@ -1,0 +1,1401 @@
+change_id: orc-94
+slug: orc-94
+schema: feature
+status: completed
+repo_root: /Users/spidey/code/orchestrator
+flags:
+  phase_review: true
+  portless: true
+  metrics: true
+  ux_design: false
+  tdd_required: true
+  auto: false
+  agents: false
+  light: false
+  worktree: true
+  merge_to_main: false
+workflow_plan:
+  main:
+    nodes:
+    - id: explore
+      status: completed
+      agent: discoverer
+      goal: ''
+      inputs: []
+      outputs:
+      - discovery_result
+      - '{''name'': ''discovery'', ''path'': ''spec/changes/<slug>/discovery.md''}'
+      rules:
+      - Focus on problem-space survey, NOT solution design (design-and-draft-artifacts
+        owns that).
+      - Capture unresolved questions explicitly.
+      - Scope research to the codebase unless description references external technology.
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+    - id: design-and-draft-artifacts
+      status: completed
+      agent: architect
+      goal: ''
+      inputs:
+      - discovery_result
+      - '{''name'': ''discovery'', ''path'': ''spec/changes/<slug>/discovery.md''}'
+      outputs:
+      - updated_artifact_set
+      - design_direction
+      - complexity
+      - '{''name'': ''design'', ''path'': ''spec/changes/<slug>/design.md''}'
+      - '{''name'': ''tasks'', ''path'': ''spec/changes/<slug>/tasks.yaml''}'
+      rules:
+      - "Design selection and artifact writing happen in one spawn \u2014 no round-trip\
+        \ between them."
+      - Keep artifact content traceable to accepted requirements.
+      - "Avoid implementation details in design.md \u2014 those belong in tasks."
+      - "Keep scope explicit \u2014 design.md must declare both goals and non-goals."
+      - "Make acceptance criteria testable \u2014 each AC must be verifiable by a\
+        \ concrete command or assertion."
+      - "Resolve major design decisions before implementation begins \u2014 do not\
+        \ defer to the implementation phase."
+      - Tasks must be small, verifiable, and ordered.
+      - Attach verification criteria per task.
+      - Output MUST follow the Tasks YAML Format Contract in config/steps/design-and-draft-artifacts/prompt.md.
+      - 'When flags.bugfix is true: first task MUST be the regression test, second
+        task MUST be the fix. Order matters.'
+      - 'When spec or design introduces a new archive/state path for any producer
+        (autopilot, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`)
+        and confirm the new path is matched before committing the artifact. Otherwise
+        downstream consumers (telemetry, /learn) silently skip the new producer. <!--
+        learned: 2026-04-16, source: HL-278, cycle: 10, hits: 25, misses: 1, repo:
+        orchestrator -->'
+      - "SQL sketches in design.md that reference specific field names must be validated\
+        \ against a live row from the target DB (or schema file) before finalizing.\
+        \ Add an explicit note in the task or run a one-query T-0 validation \u2014\
+        \ field name drift between sketch and schema is a common first-review failure.\
+        \ <!-- learned: 2026-04-17, source: learn-and-telemetry-on-duckdb, cycle:\
+        \ 12, hits: 23, misses: 1, repo: orchestrator -->"
+      - "Design claims about caller-site capabilities (e.g., 'X already holds an open\
+        \ connection', 'Y already imports Z', 'the caller has access to W') must be\
+        \ verified by grep against HEAD before finalizing the artifact \u2014 not\
+        \ inferred from pattern-matching similar code paths. Unverified caller-site\
+        \ claims that prove false become critical findings at phase review and force\
+        \ a full re-spin of all three artifacts. <!-- learned: 2026-04-20, source:\
+        \ pricing-table-in-duckdb, cycle: 16, hits: 20, misses: 1, repo: orchestrator\
+        \ -->"
+      - 'Performance budgets in design.md must cite absolute production targets (e.g.,
+        ''p99 < 10ms per call under production load'') rather than synthetic microbenchmark
+        targets (e.g., ''1000 calls in 50ms in a tight loop''). Microbenchmark budgets
+        are easy to set but mislead developers into pivoting away from correct designs
+        when the benchmark fails under artificial conditions that do not match the
+        real workload. <!-- learned: 2026-04-20, source: pricing-table-in-duckdb,
+        cycle: 16, hits: 20, misses: 1, repo: orchestrator -->'
+      - "For every implementation task in a TDD pair (the task that follows the failing-test\
+        \ task), populate the `change:` field with the specific mechanism: which function\
+        \ to edit, what the edit is, and which file:line region it targets. ORC-76\
+        \ achieved 0 retries across 25 tasks with full `change:` coverage \u2014 omitting\
+        \ it forces the developer agent to infer scope from test_scenarios alone,\
+        \ which increases retry risk. <!-- learned: 2026-05-25, source: orc-76, cycle:\
+        \ 1, hits: 5, misses: 0, repo: orchestrator -->"
+      - "tasks.yaml verify commands must be repo-root-relative \u2014 no absolute\
+        \ paths, no `cd /abs/path &&` prefix. The developer agent runs verify commands\
+        \ from $REPO_ROOT. Hardcoded paths break worktrees and other machines. <!--\
+        \ learned: 2026-05-26, source: orc-86, cycle: 1, hits: 2, misses: 1, repo:\
+        \ orchestrator -->"
+      - "Do not emit `agent:` in tasks.yaml \u2014 it is an internal dispatch field,\
+        \ not part of the task contract. The default is developer; set it only via\
+        \ state.yaml flags, not per-task. <!-- learned: 2026-05-26, source: orc-86,\
+        \ cycle: 1, hits: 2, misses: 1, repo: orchestrator -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - explore
+    - id: expand-plan
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - design-and-draft-artifacts
+    - id: preview-route
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - expand-plan
+    - id: capture-test-baseline
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - preview-route
+    - id: task-T-1
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Write bats tests for resolve-state-yaml.sh (RED)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on: []
+      task:
+        id: T-1
+        title: Write bats tests for resolve-state-yaml.sh (RED)
+        depends_on: []
+        files:
+        - config/tests/test_resolve_state_yaml.bats
+        verify:
+        - bats config/tests/test_resolve_state_yaml.bats
+        test_scenarios:
+        - live state at $REPO/spec/changes/<id>/state.yaml resolves to that path
+        - main archive at $REPO/spec/changes/archive/<id>/state.yaml resolves when
+          no live exists
+        - worktree archive at $WTBASE/<id>/spec/changes/archive/<id>/state.yaml resolves
+          when no live or main archive exists; WORKTREE_ROOT is honored when set
+        - legacy dated archive $REPO/spec/changes/archive/2026-05-01-<id>/state.yaml
+          resolves as last fallback
+        - "no candidate exists \u2192 exit code 1 and stderr lists the four tried\
+          \ paths"
+        - "two candidates exist (live + worktree archive) \u2192 returns live path\
+          \ AND prints 'note: picked ... over ...' to stderr"
+        - "WORKTREE_ROOT unset + git worktree list returns no match \u2192 falls back\
+          \ to $HOME/code/feature_worktrees/<id>"
+        why: AC-1, AC-2, AC-3, AC-4, AC-5
+        change: New bats file at config/tests/test_resolve_state_yaml.bats. Set up
+          TEST_REPO under $BATS_TMPDIR with spec/changes layout, stub $WORKTREE_ROOT
+          and $HOME as needed. Tests must FAIL until T-2 creates scripts/resolve-state-yaml.sh.
+    - id: task-T-2
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Implement scripts/resolve-state-yaml.sh (GREEN)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-1
+      task:
+        id: T-2
+        title: Implement scripts/resolve-state-yaml.sh (GREEN)
+        depends_on:
+        - T-1
+        files:
+        - scripts/resolve-state-yaml.sh
+        verify:
+        - bats config/tests/test_resolve_state_yaml.bats
+        test_scenarios:
+        - all T-1 tests pass
+        - header comment documents lookup order and worktree-base precedence (AC-10)
+        - 'shellcheck scripts/resolve-state-yaml.sh passes (bash 3.2 compatible: no
+          declare -A, no mapfile)'
+        why: AC-1 through AC-5, AC-10
+        change: "Create scripts/resolve-state-yaml.sh as a standalone executable (chmod\
+          \ +x).\nHeader comment block documents:\n  Lookup order: $WORKFLOW_STATE_DIR/<id>/state.yaml\
+          \ (default $REPO_ROOT/spec/changes)\n    \u2192 $REPO_ROOT/spec/changes/archive/<id>/state.yaml\n\
+          \    \u2192 $WTBASE/<id>/spec/changes/archive/<id>/state.yaml\n    \u2192\
+          \ $REPO_ROOT/spec/changes/archive/*-<id>/state.yaml (legacy)\n  Worktree\
+          \ base ($WTBASE) precedence: $WORKTREE_ROOT \u2192 git worktree list parse\
+          \ \u2192 $HOME/code/feature_worktrees\nArgs: $1 = change-id (lowercased),\
+          \ $2 = optional repo-root (defaults to git rev-parse --show-toplevel).\n\
+          Iterate candidates in order, collect existing ones, echo the first match\
+          \ to stdout, if matches > 1 print \"note: picked <first> over <others>\"\
+          \ to stderr. If no match, print all candidates tried to stderr and exit\
+          \ 1.\n"
+    - id: task-T-3
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Write bats test for qa-approve.sh worktree-completed flow (RED)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-2
+      task:
+        id: T-3
+        title: Write bats test for qa-approve.sh worktree-completed flow (RED)
+        depends_on:
+        - T-2
+        files:
+        - config/tests/test_qa_approve_worktree.bats
+        verify:
+        - bats config/tests/test_qa_approve_worktree.bats
+        test_scenarios:
+        - 'fake worktree-completed feature: state.yaml under $WTBASE/<id>/spec/changes/archive/<id>/,
+          branch + worktree exist; qa-approve.sh <id> exits 0'
+        - 'after run: git branch -a does NOT list the feature branch'
+        - 'after run: git worktree list does NOT include the feature worktree path'
+        - merge-to-main stub records that it was called with STATE_YAML_PATH = the
+          worktree-archive path
+        - "no state.yaml resolvable for <id> \u2192 qa-approve.sh exits 1 BEFORE merge\
+          \ stub is invoked"
+        why: AC-3 (pre-side-effect abort), AC-6 (worktree-completed end-to-end)
+        change: New bats file. Stub merge-to-main.sh, remove-worktree.sh, ticket-sync-backlog.sh
+          under $BATS_TMPDIR/stubs and PATH/INLINE_DIR-redirect to them. Construct
+          a fake worktree at $BATS_TMPDIR/wt/<id> with state.yaml containing worktree_path,
+          branch, ticket_id. Tests must FAIL until T-4 wires qa-approve.sh through
+          the helper + remove-worktree.sh.
+    - id: task-T-4
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Refactor qa-approve.sh to use resolver + remove-worktree (GREEN)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-3
+      task:
+        id: T-4
+        title: Refactor qa-approve.sh to use resolver + remove-worktree (GREEN)
+        depends_on:
+        - T-3
+        files:
+        - scripts/qa-approve.sh
+        verify:
+        - bats config/tests/test_qa_approve_worktree.bats
+        - bats config/tests/test_resolve_state_yaml.bats
+        test_scenarios:
+        - all T-3 tests pass
+        - shellcheck scripts/qa-approve.sh passes
+        - git grep -nE 'spec/changes/archive/.*state\.yaml' scripts/qa-approve.sh
+          returns no matches (AC-9)
+        why: AC-3, AC-6, AC-9
+        change: "Edit scripts/qa-approve.sh:\n  Lines 24-38: replace the inline candidate\
+          \ loop with:\n    if [ -f \"$ARG\" ]; then\n      STATE_YAML=\"$(cd \"$(dirname\
+          \ \"$ARG\")\" && pwd)/$(basename \"$ARG\")\"\n    else\n      STATE_YAML=\"\
+          $(bash \"$SCRIPT_DIR/resolve-state-yaml.sh\" \"$ARG\" \"$REPO_ROOT\")\"\
+          \ || {\n        echo \"ERROR: cannot locate state.yaml for '$ARG'\" >&2\n\
+          \        exit 1\n      }\n    fi\n  After the existing \"branch: $BRANCH\
+          \ deleted\" log (around line 117-123): unconditionally invoke\n    STATE_YAML_PATH=\"\
+          $STATE_YAML\" REPO_ROOT=\"$REPO_ROOT\" \\\n      bash \"$INLINE_DIR/remove-worktree.sh\"\
+          \n  and log its JSON output. The branch delete already runs under `2>/dev/null`\
+          \ so no race-mitigation change needed beyond ensuring the worktree-remove\
+          \ step runs even when branch delete printed WARN.\n"
+    - id: task-T-5
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Write bats test for qa-rework.sh symmetry (RED)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-4
+      task:
+        id: T-5
+        title: Write bats test for qa-rework.sh symmetry (RED)
+        depends_on:
+        - T-4
+        files:
+        - config/tests/test_qa_rework_worktree.bats
+        verify:
+        - bats config/tests/test_qa_rework_worktree.bats
+        test_scenarios:
+        - 'fake worktree-completed feature: qa-rework.sh <id> resolves state from
+          $WTBASE archive and calls ticket-sync to set status In Progress'
+        - branch is NOT deleted (qa-rework retains the branch)
+        - worktree is NOT removed (qa-rework retains the worktree)
+        - "no state.yaml resolvable \u2192 qa-rework.sh exits 1 BEFORE any ticket-sync\
+          \ call"
+        why: 'AC-3, AC-6 (qa-rework symmetry per ticket #6)'
+        change: New bats file. Same stubbing approach as T-3. Tests must FAIL until
+          T-6 refactors qa-rework.sh.
+    - id: task-T-6
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Refactor qa-rework.sh to use resolver (GREEN)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-5
+      task:
+        id: T-6
+        title: Refactor qa-rework.sh to use resolver (GREEN)
+        depends_on:
+        - T-5
+        files:
+        - scripts/qa-rework.sh
+        verify:
+        - bats config/tests/test_qa_rework_worktree.bats
+        - bats config/tests/test_resolve_state_yaml.bats
+        test_scenarios:
+        - all T-5 tests pass
+        - shellcheck scripts/qa-rework.sh passes
+        - git grep -nE 'spec/changes/archive/.*state\.yaml' scripts/qa-rework.sh returns
+          no matches
+        why: AC-3, AC-9
+        change: "Edit scripts/qa-rework.sh lines 22-36: replace the inline candidate\
+          \ loop with:\n  if [ -f \"$ARG\" ]; then\n    STATE_YAML=\"$(cd \"$(dirname\
+          \ \"$ARG\")\" && pwd)/$(basename \"$ARG\")\"\n  else\n    STATE_YAML=\"\
+          $(bash \"$SCRIPT_DIR/resolve-state-yaml.sh\" \"$ARG\" \"$REPO_ROOT\")\"\
+          \ || {\n      echo \"ERROR: cannot locate state.yaml for '$ARG'\" >&2\n\
+          \      exit 1\n    }\n  fi\nNo teardown changes \u2014 qa-rework retains\
+          \ branch and worktree by design.\n"
+    - id: task-T-7
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Write bats test for preview-route worktree + non-worktree (RED)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-6
+      task:
+        id: T-7
+        title: Write bats test for preview-route worktree + non-worktree (RED)
+        depends_on:
+        - T-6
+        files:
+        - config/tests/test_preview_route_worktree.bats
+        verify:
+        - bats config/tests/test_preview_route_worktree.bats
+        test_scenarios:
+        - 'worktree dispatch: ORCHESTRATOR_CHANGE_ID=<id>, ORCHESTRATOR_WORKFLOW_DIR=$WTBASE/<id>;
+          state.yaml at $WTBASE/<id>/spec/changes/<id>/state.yaml + tasks.yaml present;
+          estimate-cost.sh stub returns route_preview YAML; preview-route stdout JSON
+          has route_preview.status != ''estimate_unavailable'''
+        - "non-worktree dispatch (back-compat): ORCHESTRATOR_CHANGE_ID unset, ORCHESTRATOR_WORKFLOW_DIR=$REPO\
+          \ with state at $REPO/spec/changes/<id>/state.yaml \u2014 preview-route\
+          \ still produces a non-estimate_unavailable route_preview, identical to\
+          \ pre-change behaviour"
+        - "estimator stub records the directory it was called with \u2014 worktree\
+          \ case must be $WTBASE/<id>/spec/changes/<id> (state-dir), not $WTBASE/<id>\
+          \ (workflow root)"
+        why: AC-7, AC-8
+        change: New bats file. Stub config/scripts/estimate-cost.sh (resolved via
+          $ORCHESTRATOR_HOME) to echo a fixed YAML route_preview and log its argv
+          to $BATS_TMPDIR/estimator_calls.log. Tests must FAIL until T-8 fixes preview-route/script.sh.
+    - id: task-T-8
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Wire preview-route through resolver (GREEN)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-7
+      task:
+        id: T-8
+        title: Wire preview-route through resolver (GREEN)
+        depends_on:
+        - T-7
+        files:
+        - config/steps/preview-route/script.sh
+        verify:
+        - bats config/tests/test_preview_route_worktree.bats
+        test_scenarios:
+        - all T-7 tests pass
+        - shellcheck config/steps/preview-route/script.sh passes
+        - 'non-blocking semantics preserved: when resolver exits 1, preview-route
+          still emits valid route_preview JSON with status=estimate_unavailable (UC-E1
+          / D-4)'
+        why: AC-7, AC-8, AC-9, AC-10
+        change: "Edit config/steps/preview-route/script.sh around lines 24-26 (the\n\
+          `\"$ESTIMATOR\" \"$WORKFLOW_DIR\" > \"$TMPOUT\"` call):\n  Compute STATE_DIR:\n\
+          \    if [ -n \"${ORCHESTRATOR_CHANGE_ID:-}\" ] && [ -n \"${REPO_ROOT:-$(git\
+          \ -C \"$WORKFLOW_DIR\" rev-parse --show-toplevel 2>/dev/null)}\" ]; then\n\
+          \      STATE_YAML=\"$(bash \"$REPO_ROOT/scripts/resolve-state-yaml.sh\"\
+          \ \"$ORCHESTRATOR_CHANGE_ID\" \"$REPO_ROOT\" 2>/dev/null)\" || STATE_YAML=\"\
+          \"\n      if [ -n \"$STATE_YAML\" ]; then\n        ARG_DIR=\"$(dirname \"\
+          $STATE_YAML\")\"\n      else\n        ARG_DIR=\"$WORKFLOW_DIR\"\n      fi\n\
+          \    else\n      ARG_DIR=\"$WORKFLOW_DIR\"\n    fi\n  Then call: \"$ESTIMATOR\"\
+          \ \"$ARG_DIR\" > \"$TMPOUT\" 2> \"$TMPERR\"\nUpdate the header comment block\
+          \ to add the new ORCHESTRATOR_CHANGE_ID env input\nand the lookup order\
+          \ (delegates to scripts/resolve-state-yaml.sh).\n"
+    - id: task-T-9
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: "Phase gate \u2014 full bats sweep + grep verification"
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-8
+      task:
+        id: T-9
+        title: "Phase gate \u2014 full bats sweep + grep verification"
+        depends_on:
+        - T-8
+        files: []
+        verify:
+        - bats config/tests/test_resolve_state_yaml.bats
+        - bats config/tests/test_qa_approve_worktree.bats
+        - bats config/tests/test_qa_rework_worktree.bats
+        - bats config/tests/test_preview_route_worktree.bats
+        - bash -c "! git grep -nE 'spec/changes/archive/.*state\\.yaml' -- scripts/qa-approve.sh
+          scripts/qa-rework.sh config/steps/preview-route/script.sh"
+        test_scenarios:
+        - all four bats files pass
+        - 'AC-9 grep assertion: no inline archive lookup remains in any of the three
+          callers'
+        - existing bats suite still green (no regressions in test_ticket_sync.bats
+          etc.)
+        why: "phase gate \u2014 confirm AC-9 invariant and no regressions"
+        change: No code change. Final verification step before phase review.
+    - id: run-phase-review
+      status: completed
+      agent: reviewer
+      goal: ''
+      inputs:
+      - task_execution_result
+      - '{''name'': ''design'', ''path'': ''spec/changes/<slug>/design.md'', ''optional'':
+        True}'
+      - '{''name'': ''tasks'', ''path'': ''spec/changes/<slug>/tasks.yaml'', ''optional'':
+        True}'
+      outputs:
+      - phase_review_report
+      - '{''name'': ''phase_review'', ''path'': ''spec/changes/<slug>/phase-review.md''}'
+      rules:
+      - "Target score is quality_bar.min_phase_review_score from project.yaml \u2014\
+        \ retry until met."
+      - "Maximum retries from quality_bar.max_retry_rounds \u2014 escalate to user\
+        \ if exhausted."
+      - "When flags.light is true: lower target review_score to 7 and max_retries\
+        \ to 4 \u2014 light mode trades quality bar for speed on tight-scope changes."
+      - Run type-check + test + build commands at every phase boundary before scoring.
+      - "Capture concrete findings with fix direction \u2014 every finding must be\
+        \ actionable."
+      - Issues found during verification become new tasks in the current phase. Never
+        skip ahead with unresolved findings.
+      - "Do not advance with unresolved critical findings \u2014 these block phase\
+        \ completion regardless of overall score."
+      - 'When flags.bugfix is true: zero regressions tolerated. No existing tests
+        may break.'
+      - "Fix tasks must be minimal and scoped to the specific failure \u2014 no refactoring,\
+        \ no improvements."
+      - "Score of 10 is a first-pass bonus \u2014 only achievable when no retries\
+        \ were used this round."
+      - "Operate at staff-level review quality \u2014 catch architectural issues,\
+        \ not just surface bugs."
+      - Artifact structural compliance with format contracts (see Format contract
+        reference in prompt.md) is a review criterion.
+      - "When a finding requires a new requirement, the fix MUST update design.md\
+        \ (AC + design) and tasks.yaml atomically \u2014 partial updates that sync\
+        \ only one artifact leave the feature in an inconsistent state and will fail\
+        \ re-review. <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb,\
+        \ cycle: 11, hits: 11, misses: 8, repo: orchestrator -->"
+      - "For tasks that spec describes as a rewrite, projection, or byte-compatible\
+        \ replacement of an existing producer, AC verification MUST include a value/shape\
+        \ parity check against at least one real payload from the prior implementation\
+        \ \u2014 key-presence alone is insufficient. Reviewer must run both the old\
+        \ producer and the new one on a real archived fixture and diff the top-level\
+        \ output keys; any key reduction is an important finding. <!-- learned: 2026-04-20,\
+        \ source: single-source-metrics-via-step-events, cycle: 12, hits: 10, misses:\
+        \ 4, repo: orchestrator -->"
+      - "Before scoring the phase, check if any task-nodes (step_id starting with\
+        \ 'task-') in the workflow_plan are still pending. If any task-nodes are pending\
+        \ and not explicitly quarantined in state.yaml, write phase-review.md with\
+        \ verdict incomplete_phase listing the pending task IDs \u2014 return COMPLETION\
+        \ with outputs.phase_review_report: {verdict: incomplete_phase} and do NOT\
+        \ include review_score. This guards against dispatcher bugs or manual advances\
+        \ that reach run-phase-review before all tasks are complete. <!-- learned:\
+        \ 2026-05-08, source: hl-303, cycle: 38, hits: 10, misses: 2, repo: orchestrator\
+        \ --> <!-- updated: 2026-05-25, source: orc-76, cycle: 1, repo: orchestrator\
+        \ -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - task-T-9
+    - id: compute-prediction-accuracy
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - run-phase-review
+    - id: run-learn-cycle
+      status: completed
+      agent: workflow-learner
+      goal: ''
+      inputs:
+      - '{''final_signoff_decision'': ''optional''}'
+      outputs:
+      - learn_result
+      rules:
+      - "Learning failure is non-blocking \u2014 if /learn fails, log a warning and\
+        \ return success."
+      - Read state.yaml from the active change directory (this step runs before archive).
+      - In --auto mode, rule changes apply without user confirmation.
+      - "Never skip compute-prediction-accuracy or run-learn-cycle steps during autopilot\
+        \ \u2014 these feed the self-improving loop and must run even when --auto\
+        \ is set. A `skipped: true` outcome is only valid when an enumerated gating\
+        \ flag is set (e.g. ux_design=false for ux steps, learn=false for run-learn-cycle).\
+        \ Session token budget, time pressure, 'capture via retro', or any cost-based\
+        \ justification is NEVER a valid skip reason for feedback-loop steps. Budget\
+        \ pressure is a signal to stop earlier, not to skip learning. <!-- learned:\
+        \ 2026-04-05, source: HL-203, cycle: 6, hits: 16, misses: 1, repo: orchestrator\
+        \ -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - compute-prediction-accuracy
+    - id: mark-change-completed
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - run-learn-cycle
+    - id: compute-swe-metrics
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - mark-change-completed
+    - id: complete-workflow
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - compute-swe-metrics
+    filtered:
+    - id: ux-design
+      reason: flag ux_design=false
+    - id: run-ux-critique
+      reason: flag ux_design=false
+phase: main
+next_step:
+  phase: main
+  step_id: complete-workflow
+step_history:
+- step_id: explore
+  phase: main
+  status: completed
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-05-26T11:51:05Z'
+  ended_at: '2026-05-26T11:51:05Z'
+  usage:
+    input_tokens: 54
+    output_tokens: 17895
+    model: claude-opus-4-7
+    cache_read_input_tokens: 2965307
+    cache_creation_input_tokens: 285165
+    turns: 39
+    tool_calls:
+      Bash: 17
+      Glob: 5
+      Read: 8
+      Write: 1
+    duration_ms: 131685
+    cost_usd: 11.13773925
+  evidence:
+    outputs:
+      discovery_result:
+        path: discovery.md
+  artifacts:
+  - discovery.md
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: architect
+  attempt: 1
+  started_at: '2026-05-26T11:55:50Z'
+  ended_at: '2026-05-26T11:55:50Z'
+  usage:
+    input_tokens: 54
+    output_tokens: 34767
+    model: claude-opus-4-7
+    cache_read_input_tokens: 4033264
+    cache_creation_input_tokens: 162408
+    turns: 39
+    tool_calls:
+      Bash: 11
+      Read: 10
+      Edit: 1
+      Write: 2
+    duration_ms: 274531
+    cost_usd: 11.703381
+  evidence:
+    outputs:
+      design.md: spec/changes/orc-94/design.md
+      tasks.yaml: spec/changes/orc-94/tasks.yaml
+      updated_artifact_set:
+      - design.md
+      - tasks.yaml
+      design_direction: Standalone CLI helper (scripts/resolve-state-yaml.sh)
+      complexity: S
+- step_id: expand-plan
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-26T11:55:51Z'
+  ended_at: '2026-05-26T11:55:51Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+- step_id: preview-route
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-26T11:55:52Z'
+  ended_at: '2026-05-26T11:55:52Z'
+  usage: {}
+  evidence:
+    outputs:
+      route_preview:
+        status: estimate_unavailable
+        reason: 'ERROR: state.yaml not found at /Users/spidey/code/feature_worktrees/orc-94/state.yaml '
+        exit_code: 1
+    summary: inline script completed
+- step_id: capture-test-baseline
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-26T11:56:05Z'
+  ended_at: '2026-05-26T11:56:05Z'
+  usage: {}
+  evidence:
+    outputs:
+      baseline:
+        captured_at: '2026-05-26T11:55:53Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 660
+        failing: 16
+        skipped: 0
+        total: 676
+        exit_code: 1
+    summary: inline script completed
+- step_id: task-T-1
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-26T11:57:24Z'
+  ended_at: '2026-05-26T11:57:24Z'
+  usage:
+    input_tokens: 54
+    output_tokens: 34767
+    model: claude-opus-4-7
+    cache_read_input_tokens: 4033264
+    cache_creation_input_tokens: 162408
+    turns: 39
+    tool_calls:
+      Bash: 11
+      Read: 10
+      Edit: 1
+      Write: 2
+    duration_ms: 274531
+    cost_usd: 11.703381
+  evidence:
+    commands:
+    - cmd: bats config/tests/test_resolve_state_yaml.bats
+      exit_code: 1
+      stdout_tail: '1..8
+
+        not ok 1-8 (all fail: resolve-state-yaml.sh missing, bash exit 127)
+
+        Expected RED until T-2 implements scripts/resolve-state-yaml.sh
+
+        '
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result: completed
+  artifacts:
+  - config/tests/test_resolve_state_yaml.bats
+- step_id: task-T-2
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-26T12:01:01Z'
+  ended_at: '2026-05-26T12:01:01Z'
+  usage:
+    input_tokens: 54
+    output_tokens: 34767
+    model: claude-opus-4-7
+    cache_read_input_tokens: 4033264
+    cache_creation_input_tokens: 162408
+    turns: 39
+    tool_calls:
+      Bash: 11
+      Read: 10
+      Edit: 1
+      Write: 2
+    duration_ms: 274531
+    cost_usd: 11.703381
+  evidence:
+    commands:
+    - cmd: bats config/tests/test_resolve_state_yaml.bats
+      exit_code: 0
+      stdout_tail: '1..8
+
+        ok 1 live state at WORKFLOW_STATE_DIR/<id>/state.yaml resolves to that path
+
+        ok 2 main archive resolves when no live state exists
+
+        ok 3 worktree archive resolves when no live or main archive; WORKTREE_ROOT
+        honored
+
+        ok 4 legacy dated archive resolves as last fallback
+
+        ok 5 no candidate exists: exit 1 and stderr lists four tried paths
+
+        ok 6 two candidates: live wins and stderr notes pick over worktree archive
+
+        ok 7 WORKTREE_ROOT unset and git worktree list empty falls back to HOME/code/feature_worktrees/<id>
+
+        ok 8 git worktree list match used when WORKTREE_ROOT unset
+
+        '
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result:
+        task_id: T-2
+        status: completed
+  artifacts:
+  - scripts/resolve-state-yaml.sh
+  - config/tests/test_resolve_state_yaml.bats
+- step_id: task-T-3
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-26T12:02:53Z'
+  ended_at: '2026-05-26T12:02:53Z'
+  usage:
+    input_tokens: 54
+    output_tokens: 34767
+    model: claude-opus-4-7
+    cache_read_input_tokens: 4033264
+    cache_creation_input_tokens: 162408
+    turns: 39
+    tool_calls:
+      Bash: 11
+      Read: 10
+      Edit: 1
+      Write: 2
+    duration_ms: 274531
+    cost_usd: 11.703381
+  evidence:
+    commands:
+    - cmd: bats config/tests/test_qa_approve_worktree.bats
+      exit_code: 1
+      stdout_tail: '1..5
+
+        not ok 1 worktree-completed feature: qa-approve by change-id exits 0
+
+        not ok 2 after qa-approve: feature branch is not listed
+
+        not ok 3 after qa-approve: worktree path is not in git worktree list
+
+        not ok 4 merge-to-main stub receives worktree-archive STATE_YAML_PATH
+
+        ok 5 missing state: qa-approve exits 1 before merge stub is invoked
+
+        Expected RED until T-4 wires qa-approve.sh through resolve-state-yaml.sh
+
+        '
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result: completed
+  artifacts:
+  - config/tests/test_qa_approve_worktree.bats
+- step_id: task-T-4
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-26T12:04:13Z'
+  ended_at: '2026-05-26T12:04:13Z'
+  usage:
+    input_tokens: 54
+    output_tokens: 34767
+    model: claude-opus-4-7
+    cache_read_input_tokens: 4033264
+    cache_creation_input_tokens: 162408
+    turns: 39
+    tool_calls:
+      Bash: 11
+      Read: 10
+      Edit: 1
+      Write: 2
+    duration_ms: 274531
+    cost_usd: 11.703381
+  evidence:
+    commands:
+    - cmd: bats config/tests/test_qa_approve_worktree.bats
+      exit_code: 0
+      stdout_tail: '1..5
+
+        ok 1 worktree-completed feature: qa-approve by change-id exits 0
+
+        ok 2 after qa-approve: feature branch is not listed
+
+        ok 3 after qa-approve: worktree path is not in git worktree list
+
+        ok 4 merge-to-main stub receives worktree-archive STATE_YAML_PATH
+
+        ok 5 missing state: qa-approve exits 1 before merge stub is invoked
+
+        '
+    - cmd: bats config/tests/test_resolve_state_yaml.bats
+      exit_code: 0
+      stdout_tail: 'ok 6-13 all passed
+
+        '
+    - cmd: git grep -nE 'spec/changes/archive/.*state\.yaml' scripts/qa-approve.sh
+      exit_code: 1
+      stdout_tail: "(no matches \u2014 expected)"
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result:
+        task_id: T-4
+        status: completed
+  artifacts:
+  - scripts/qa-approve.sh
+- step_id: task-T-5
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-26T12:06:10Z'
+  ended_at: '2026-05-26T12:06:10Z'
+  usage:
+    input_tokens: 54
+    output_tokens: 34767
+    model: claude-opus-4-7
+    cache_read_input_tokens: 4033264
+    cache_creation_input_tokens: 162408
+    turns: 39
+    tool_calls:
+      Bash: 11
+      Read: 10
+      Edit: 1
+      Write: 2
+    duration_ms: 274531
+    cost_usd: 11.703381
+  evidence:
+    commands:
+    - cmd: bats config/tests/test_qa_rework_worktree.bats
+      exit_code: 1
+      stdout_tail: '1..4
+
+        not ok 1 worktree-completed feature: qa-rework resolves archive state and
+        syncs In Progress
+
+        not ok 2 after qa-rework: feature branch is still listed
+
+        not ok 3 after qa-rework: worktree path remains in git worktree list
+
+        ok 4 missing state: qa-rework exits 1 before ticket-sync (backlog) is invoked
+
+        '
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result:
+        task_id: T-5
+        status: completed
+  artifacts:
+  - config/tests/test_qa_rework_worktree.bats
+- step_id: task-T-6
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-26T12:07:05Z'
+  ended_at: '2026-05-26T12:07:05Z'
+  usage:
+    input_tokens: 54
+    output_tokens: 34767
+    model: claude-opus-4-7
+    cache_read_input_tokens: 4033264
+    cache_creation_input_tokens: 162408
+    turns: 39
+    tool_calls:
+      Bash: 11
+      Read: 10
+      Edit: 1
+      Write: 2
+    duration_ms: 274531
+    cost_usd: 11.703381
+  evidence:
+    commands:
+    - cmd: bats config/tests/test_qa_rework_worktree.bats
+      exit_code: 0
+      stdout_tail: 'ok 1 worktree-completed feature: qa-rework resolves archive state
+        and syncs In Progress
+
+        ok 2 after qa-rework: feature branch is still listed
+
+        ok 3 after qa-rework: worktree path remains in git worktree list
+
+        ok 4 missing state: qa-rework exits 1 before ticket-sync (backlog) is invoked'
+    - cmd: bats config/tests/test_resolve_state_yaml.bats
+      exit_code: 0
+      stdout_tail: 'ok 5 live state at WORKFLOW_STATE_DIR/<id>/state.yaml resolves
+        to that path
+
+        ok 12 git worktree list match used when WORKTREE_ROOT unset'
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result:
+        task_id: T-6
+        status: completed
+  artifacts:
+  - scripts/qa-rework.sh
+- step_id: task-T-7
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-26T12:10:34Z'
+  ended_at: '2026-05-26T12:10:34Z'
+  usage:
+    input_tokens: 54
+    output_tokens: 34767
+    model: claude-opus-4-7
+    cache_read_input_tokens: 4033264
+    cache_creation_input_tokens: 162408
+    turns: 39
+    tool_calls:
+      Bash: 11
+      Read: 10
+      Edit: 1
+      Write: 2
+    duration_ms: 274531
+    cost_usd: 11.703381
+  evidence:
+    commands:
+    - cmd: bats config/tests/test_preview_route_worktree.bats
+      exit_code: 1
+      stdout_tail: '1..4
+
+        not ok 1 worktree dispatch: route_preview status is not estimate_unavailable
+
+        not ok 2 worktree dispatch: estimator receives per-change state-dir, not worktree
+        root
+
+        ok 3 non-worktree dispatch: route_preview status is not estimate_unavailable
+
+        ok 4 non-worktree dispatch: estimator receives workflow dir (state-dir pass-through)
+
+        '
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result: completed
+  artifacts:
+  - config/tests/test_preview_route_worktree.bats
+- step_id: task-T-8
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-26T12:13:07Z'
+  ended_at: '2026-05-26T12:13:07Z'
+  usage:
+    input_tokens: 54
+    output_tokens: 34767
+    model: claude-opus-4-7
+    cache_read_input_tokens: 4033264
+    cache_creation_input_tokens: 162408
+    turns: 39
+    tool_calls:
+      Bash: 11
+      Read: 10
+      Edit: 1
+      Write: 2
+    duration_ms: 274531
+    cost_usd: 11.703381
+  evidence:
+    commands:
+    - cmd: bats config/tests/test_preview_route_worktree.bats
+      exit_code: 0
+      stdout_tail: '1..4
+
+        ok 1 worktree dispatch: route_preview status is not estimate_unavailable
+
+        ok 2 worktree dispatch: estimator receives per-change state-dir, not worktree
+        root
+
+        ok 3 non-worktree dispatch: route_preview status is not estimate_unavailable
+
+        ok 4 non-worktree dispatch: estimator receives workflow dir (state-dir pass-through)
+
+        '
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result:
+        task_id: T-8
+        status: completed
+  artifacts:
+  - config/steps/preview-route/script.sh
+- step_id: task-T-9
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-26T12:14:44Z'
+  ended_at: '2026-05-26T12:14:44Z'
+  usage:
+    input_tokens: 54
+    output_tokens: 34767
+    model: claude-opus-4-7
+    cache_read_input_tokens: 4033264
+    cache_creation_input_tokens: 162408
+    turns: 39
+    tool_calls:
+      Bash: 11
+      Read: 10
+      Edit: 1
+      Write: 2
+    duration_ms: 274531
+    cost_usd: 11.703381
+  evidence:
+    commands:
+    - cmd: bats config/tests/test_resolve_state_yaml.bats config/tests/test_qa_approve_worktree.bats
+        config/tests/test_qa_rework_worktree.bats config/tests/test_preview_route_worktree.bats
+      exit_code: 0
+      stdout_tail: '1..21
+
+        ok 1 live state at WORKFLOW_STATE_DIR/<id>/state.yaml resolves to that path
+
+        ...
+
+        ok 21 non-worktree dispatch: estimator receives workflow dir (state-dir pass-through)'
+    - cmd: bats config/tests/test_ticket_sync.bats config/tests/test_ticket_state_update.bats
+      exit_code: 0
+      stdout_tail: '1..4
+
+        ok 1 backlog: run-phase-review maps to Code Review
+
+        ...
+
+        ok 4 ticket-state-update merges whitelisted keys only'
+    - cmd: bash -c "! git grep -nE 'spec/changes/archive/.*state\\.yaml' -- scripts/qa-approve.sh
+        scripts/qa-rework.sh config/steps/preview-route/script.sh"
+      exit_code: 0
+      stdout_tail: 'grep AC-9: pass'
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result:
+        task_id: T-9
+        status: completed
+  artifacts:
+  - scripts/qa-approve.sh
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: '2026-05-26T12:17:30Z'
+  ended_at: '2026-05-26T12:17:30Z'
+  usage:
+    input_tokens: 44
+    output_tokens: 14880
+    model: claude-opus-4-7
+    cache_read_input_tokens: 1766783
+    cache_creation_input_tokens: 217061
+    turns: 24
+    tool_calls:
+      Bash: 16
+      Write: 1
+    duration_ms: 147403
+    cost_usd: 7.83672825
+  evidence:
+    outputs:
+      phase_review_report:
+        verdict: pass
+  artifacts:
+  - spec/changes/orc-94/phase-review.md
+  review_score:
+    overall: 9
+    dimensions:
+      spec_compliance: 9
+      correctness: 9
+      security: 9
+      simplicity: 9
+      code_quality: 9
+- step_id: compute-prediction-accuracy
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-26T12:17:32Z'
+  ended_at: '2026-05-26T12:17:32Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy:
+        computed_at: '2026-05-26T12:17:32Z'
+        predicted_tasks: 9
+        actual_tasks: 9
+        fix_task_count: 0
+        rework_rate: 0.0
+        task_delta: 0
+        task_accuracy_pct: 100.0
+        predicted_file_count: 22
+        actual_file_count: 0
+        file_delta: -22
+        file_overlap_pct: 0.0
+    summary: inline script completed
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: workflow-learner
+  attempt: 1
+  started_at: '2026-05-26T12:21:22Z'
+  ended_at: '2026-05-26T12:21:22Z'
+  usage:
+    input_tokens: 13
+    output_tokens: 1758
+    model: claude-opus-4-7
+    cache_read_input_tokens: 119542
+    cache_creation_input_tokens: 78133
+    turns: 3
+    tool_calls:
+      Agent: 1
+    duration_ms: 219075
+    cost_usd: 1.7763517500000001
+  evidence:
+    outputs:
+      learn_result:
+        learn_status: success
+        findings_count: 0
+        rules_added: 0
+        rules_updated: 0
+        quality_bar: 9.0
+        decay_evaluated: false
+        decay_skip_reason: cycle 73, next at 75
+        hit_counters_skipped: true
+        hit_counters_skip_reason: sandbox denied writes to ~/.config/orchestrator
+          (best-effort, non-blocking)
+        summary: "Clean run \u2014 0 retries across 9 tasks, phase review PASS 9/10,\
+          \ no findings classified. Quality bar stable at 9.0. No new rules routed."
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-26T12:21:24Z'
+  ended_at: '2026-05-26T12:21:24Z'
+  usage: {}
+  evidence:
+    outputs:
+      status: completed
+      completed_at: '2026-05-26T12:21:24Z'
+      archive_path: spec/changes/archive/orc-94/
+    summary: inline script completed
+- step_id: compute-swe-metrics
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-26T12:21:26Z'
+  ended_at: '2026-05-26T12:21:26Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+- step_id: complete-workflow
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-26T12:21:28Z'
+  ended_at: '2026-05-26T12:21:28Z'
+  usage: {}
+  evidence:
+    summary: recorded pre-script (state-mutating inline step)
+    outputs: {}
+created_at: '2026-05-26T11:48:43Z'
+started_at: '2026-05-26T11:48:43Z'
+project_context_loaded: true
+worktree_path: /Users/spidey/code/feature_worktrees/orc-94
+branch: feature/orc-94
+ticketing: backlog
+ticket_id: ORC-94
+ticket_status: "\u25CB QA Review"
+ticket_status_checked_at: '2026-05-26T12:21:27Z'
+ticket_rework: false
+completed_at: '2026-05-26T12:21:24Z'
+archive_path: spec/changes/archive/orc-94/
