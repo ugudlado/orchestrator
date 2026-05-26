@@ -1,0 +1,1022 @@
+change_id: orc-91
+slug: orc-91
+schema: feature
+status: completed
+repo_root: /Users/spidey/code/orchestrator
+flags:
+  phase_review: true
+  portless: true
+  metrics: true
+  ux_design: false
+  tdd_required: true
+  auto: false
+  agents: false
+  light: false
+  worktree: true
+  merge_to_main: false
+workflow_plan:
+  main:
+    nodes:
+    - id: explore
+      status: completed
+      agent: discoverer
+      goal: ''
+      inputs: []
+      outputs:
+      - discovery_result
+      - '{''name'': ''discovery'', ''path'': ''spec/changes/<slug>/discovery.md''}'
+      rules:
+      - Focus on problem-space survey, NOT solution design (design-and-draft-artifacts
+        owns that).
+      - Capture unresolved questions explicitly.
+      - Scope research to the codebase unless description references external technology.
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+    - id: design-and-draft-artifacts
+      status: completed
+      agent: architect
+      goal: ''
+      inputs:
+      - discovery_result
+      - '{''name'': ''discovery'', ''path'': ''spec/changes/<slug>/discovery.md''}'
+      outputs:
+      - updated_artifact_set
+      - design_direction
+      - complexity
+      - '{''name'': ''design'', ''path'': ''spec/changes/<slug>/design.md''}'
+      - '{''name'': ''tasks'', ''path'': ''spec/changes/<slug>/tasks.yaml''}'
+      rules:
+      - "Design selection and artifact writing happen in one spawn \u2014 no round-trip\
+        \ between them."
+      - Keep artifact content traceable to accepted requirements.
+      - "Avoid implementation details in design.md \u2014 those belong in tasks."
+      - "Keep scope explicit \u2014 design.md must declare both goals and non-goals."
+      - "Make acceptance criteria testable \u2014 each AC must be verifiable by a\
+        \ concrete command or assertion."
+      - "Resolve major design decisions before implementation begins \u2014 do not\
+        \ defer to the implementation phase."
+      - Tasks must be small, verifiable, and ordered.
+      - Attach verification criteria per task.
+      - Output MUST follow the Tasks YAML Format Contract in config/steps/design-and-draft-artifacts/prompt.md.
+      - 'When flags.bugfix is true: first task MUST be the regression test, second
+        task MUST be the fix. Order matters.'
+      - 'When spec or design introduces a new archive/state path for any producer
+        (autopilot, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`)
+        and confirm the new path is matched before committing the artifact. Otherwise
+        downstream consumers (telemetry, /learn) silently skip the new producer. <!--
+        learned: 2026-04-16, source: HL-278, cycle: 10, hits: 24, misses: 1, repo:
+        orchestrator -->'
+      - "SQL sketches in design.md that reference specific field names must be validated\
+        \ against a live row from the target DB (or schema file) before finalizing.\
+        \ Add an explicit note in the task or run a one-query T-0 validation \u2014\
+        \ field name drift between sketch and schema is a common first-review failure.\
+        \ <!-- learned: 2026-04-17, source: learn-and-telemetry-on-duckdb, cycle:\
+        \ 12, hits: 22, misses: 1, repo: orchestrator -->"
+      - "Design claims about caller-site capabilities (e.g., 'X already holds an open\
+        \ connection', 'Y already imports Z', 'the caller has access to W') must be\
+        \ verified by grep against HEAD before finalizing the artifact \u2014 not\
+        \ inferred from pattern-matching similar code paths. Unverified caller-site\
+        \ claims that prove false become critical findings at phase review and force\
+        \ a full re-spin of all three artifacts. <!-- learned: 2026-04-20, source:\
+        \ pricing-table-in-duckdb, cycle: 16, hits: 19, misses: 1, repo: orchestrator\
+        \ -->"
+      - 'Performance budgets in design.md must cite absolute production targets (e.g.,
+        ''p99 < 10ms per call under production load'') rather than synthetic microbenchmark
+        targets (e.g., ''1000 calls in 50ms in a tight loop''). Microbenchmark budgets
+        are easy to set but mislead developers into pivoting away from correct designs
+        when the benchmark fails under artificial conditions that do not match the
+        real workload. <!-- learned: 2026-04-20, source: pricing-table-in-duckdb,
+        cycle: 16, hits: 19, misses: 1, repo: orchestrator -->'
+      - "For every implementation task in a TDD pair (the task that follows the failing-test\
+        \ task), populate the `change:` field with the specific mechanism: which function\
+        \ to edit, what the edit is, and which file:line region it targets. ORC-76\
+        \ achieved 0 retries across 25 tasks with full `change:` coverage \u2014 omitting\
+        \ it forces the developer agent to infer scope from test_scenarios alone,\
+        \ which increases retry risk. <!-- learned: 2026-05-25, source: orc-76, cycle:\
+        \ 1, hits: 4, misses: 0, repo: orchestrator -->"
+      - "tasks.yaml verify commands must be repo-root-relative \u2014 no absolute\
+        \ paths, no `cd /abs/path &&` prefix. The developer agent runs verify commands\
+        \ from $REPO_ROOT. Hardcoded paths break worktrees and other machines. <!--\
+        \ learned: 2026-05-26, source: orc-86, cycle: 1, hits: 1, misses: 1, repo:\
+        \ orchestrator -->"
+      - "Do not emit `agent:` in tasks.yaml \u2014 it is an internal dispatch field,\
+        \ not part of the task contract. The default is developer; set it only via\
+        \ state.yaml flags, not per-task. <!-- learned: 2026-05-26, source: orc-86,\
+        \ cycle: 1, hits: 1, misses: 1, repo: orchestrator -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - explore
+    - id: expand-plan
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - design-and-draft-artifacts
+    - id: preview-route
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - expand-plan
+    - id: capture-test-baseline
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - preview-route
+    - id: task-T-1
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: "Write bats tests for backlog-sync-from-retro.sh (RED \u2014 tests must\
+        \ fail)"
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on: []
+      task:
+        id: T-1
+        title: "Write bats tests for backlog-sync-from-retro.sh (RED \u2014 tests\
+          \ must fail)"
+        depends_on: []
+        files:
+        - tests/inline/test_backlog_sync_from_retro.bats
+        - tests/inline/fixtures/retro_new_issue.md
+        - tests/inline/fixtures/retro_recurrence_open.md
+        - tests/inline/fixtures/retro_recurrence_done.md
+        - tests/inline/fixtures/retro_self_dedup.md
+        - tests/inline/fixtures/retro_prose_only.md
+        - tests/inline/fixtures/retro_explicit_backlog_entry.md
+        - tests/inline/fixtures/project_yaml_linear.yaml
+        - tests/inline/fixtures/project_yaml_backlog.yaml
+        verify:
+        - bats tests/inline/test_backlog_sync_from_retro.bats
+        test_scenarios:
+        - "UC-1: new issue \u2192 exactly one ticket created with labels recurrence-1,\
+          \ from-retro and the fix_direction as AC (AC-1)"
+        - "UC-2: dedup_key matches an open ticket \u2192 --append-notes invoked with\
+          \ 'Recurred in feature' line; no new ticket created (AC-2)"
+        - "UC-3: dedup_key matches a Done ticket \u2192 recurrence note appended to\
+          \ closed ticket AND new Regression: ticket created with HIGH priority and\
+          \ reference to original id (AC-3)"
+        - "audit line `[learn] sync: ISSUE-N \u2192 <decision>` emitted to stdout\
+          \ for every issue plus summary `[learn] Backlog sync: X created, Y bumped,\
+          \ Z regressions` (AC-4)"
+        - 'UC-5: explicit backlog_entry slug is used verbatim as the search query
+          (AC-5)'
+        - "UC-E6 / D-9: project.yaml ticketing=linear \u2192 helper exits 0 with `Backlog\
+          \ sync: skipped \u2014 ticketing=linear`; no backlog CLI invoked (AC-6)"
+        - "UC-E1 / UC-E3: missing retro.md OR prose-only retro (no ## ISSUE blocks)\
+          \ \u2192 helper exits 0 with `no retro issues found` (AC-7)"
+        - "UC-E4: two issues with same dedup_key in one retro \u2192 one ticket created,\
+          \ second appended as recurrence on it (AC-8)"
+        - "UC-E5: simulated backlog CLI failure (stub returns nonzero) \u2192 `ERROR\
+          \ (<reason>)` audit line for that issue; remaining issues still processed;\
+          \ overall exit 0 (AC-9)"
+        why: Establishes the executable contract for the helper before it exists.
+          Covers AC-1 through AC-9. Tests fail because backlog-sync-from-retro.sh
+          does not exist yet.
+        change: Create new bats file under tests/inline/ plus fixture retros under
+          tests/inline/fixtures/. Tests invoke `config/scripts/inline/backlog-sync-from-retro.sh
+          <fixture> <feature_id>` with a stubbed `backlog` CLI on PATH that records
+          invocations to a tempfile, and assert on the recorded calls + stdout. All
+          tests fail until T-2 creates the helper.
+    - id: task-T-2
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: "Implement backlog-sync-from-retro.sh helper (GREEN \u2014 make tests\
+        \ pass)"
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-1
+      task:
+        id: T-2
+        title: "Implement backlog-sync-from-retro.sh helper (GREEN \u2014 make tests\
+          \ pass)"
+        depends_on:
+        - T-1
+        files:
+        - config/scripts/inline/backlog-sync-from-retro.sh
+        verify:
+        - bats tests/inline/test_backlog_sync_from_retro.bats
+        - bash -n config/scripts/inline/backlog-sync-from-retro.sh
+        test_scenarios:
+        - all T-1 bats scenarios pass
+        - shellcheck (or bash -n) reports no syntax errors
+        - helper exits 0 in every test scenario including simulated CLI failures
+        why: "AC-1 through AC-9 \u2014 the helper IS the deterministic sync logic;\
+          \ the agent only invokes it."
+        change: "Create config/scripts/inline/backlog-sync-from-retro.sh (~150 lines\
+          \ bash). Top-of-file: parse args ($1=retro_path, $2=feature_id), read spec/project.yaml\
+          \ ticketing key via `grep -E '^ticketing:'`, early-exit if != backlog (AC-6).\
+          \ Then `grep -c '^## ISSUE-' \"$retro_path\"` \u2014 if 0 or file missing,\
+          \ emit `no retro issues found` and exit 0 (AC-7). Main loop: use awk to\
+          \ split the file into per-ISSUE blocks; for each block extract `category`,\
+          \ `severity`, `detail`, `fix_direction`, `backlog_entry` via `grep -E '^-\
+          \ \\*\\*<name>\\*\\*:'`. Resolve dedup_key per D-2 / D-6 (lowercase + collapse\
+          \ non-alnum to `-`; first 8 words for fix_direction). Maintain an associative-array\
+          \ ledger `declare -A LEDGER` of `dedup_key \u2192 new_ticket_id` for self-dedup\
+          \ (AC-8). For each issue: check ledger; else `backlog search \"$key\" --plain`\
+          \ and parse rows (tab/space-separated `task-N  Title  Status`); apply D-3\
+          \ tie-break (substring match wins, then `In Progress > To Do > Done`, then\
+          \ lowest id). Branch on match status: open \u2192 `backlog task edit <id>\
+          \ --append-notes \"$(printf 'Recurred in feature %s on %s\\n- detail: %s'\
+          \ \"$feature_id\" \"$(date +%F)\" \"$detail\")\"` (AC-2); Done \u2192 same\
+          \ append on closed ticket + `backlog task create \"Regression: $orig_title\
+          \ ($orig_id) recurred after close\" --priority high --label recurrence-1,from-retro,regression\
+          \ --ac \"$fix_direction\" -d \"...\"` then capture new id from stdout (AC-3);\
+          \ none \u2192 `backlog task create \"$title\" --priority $(severity_to_priority\
+          \ $severity per D-4) --label recurrence-1,from-retro --ac \"$fix_direction\"\
+          \ -d \"...\"` and store id in ledger (AC-1). Wrap every `backlog` invocation\
+          \ in `if ! out=$(... 2>&1); then echo \"[learn] sync: $issue_id \u2192 ERROR\
+          \ ($(head -1 <<<\"$out\"))\"; continue; fi` (AC-9, D-10). Emit one audit\
+          \ line per issue + final summary (AC-4). Final `exit 0`."
+    - id: task-T-3
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: "Wire helper into workflow-learner agent prompt (\xA74b Backlog Sync)"
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-2
+      task:
+        id: T-3
+        title: "Wire helper into workflow-learner agent prompt (\xA74b Backlog Sync)"
+        depends_on:
+        - T-2
+        files:
+        - agents/workflow-learner.md
+        verify:
+        - bats tests/inline/test_backlog_sync_from_retro.bats
+        - grep -q '### 4b. Backlog Sync' agents/workflow-learner.md
+        - grep -q 'backlog-sync-from-retro.sh' agents/workflow-learner.md
+        test_scenarios:
+        - "agents/workflow-learner.md contains a new `### 4b. Backlog Sync` section\
+          \ placed between \xA74 (Route Findings) and \xA75 (Report)"
+        - the new section instructs the agent to invoke `config/scripts/inline/backlog-sync-from-retro.sh
+          <retro_path> <feature_id>` unconditionally on every run
+        - "\xA75 Report block is updated to surface the helper's summary line"
+        - bats suite from T-1/T-2 still green (no regression in helper)
+        why: "AC-10 \u2014 the agent must call the helper on every /learn invocation;\
+          \ the \xA75 Report incorporates the helper's summary."
+        change: "Edit agents/workflow-learner.md: after the existing `### 4. Route\
+          \ Findings` section and before `### 5. Report`, insert a `### 4b. Backlog\
+          \ Sync` section (~12 lines) instructing: (1) resolve the active retro path\
+          \ as `$WORKFLOW_STATE_DIR/$change_id/retro.md`; (2) run `bash $ORCHESTRATOR_HOME/config/scripts/inline/backlog-sync-from-retro.sh\
+          \ \"$retro_path\" \"$change_id\"`; (3) capture stdout; (4) include the final\
+          \ `Backlog sync: X created, Y bumped, Z regressions` line in the \xA75 report\
+          \ block. Also extend the \xA75 Report code-fence to add a `Backlog sync:\
+          \ ...` line."
+    - id: task-T-4
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: "Review checkpoint \u2014 phase gate"
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-3
+      task:
+        id: T-4
+        title: "Review checkpoint \u2014 phase gate"
+        depends_on:
+        - T-3
+        files: []
+        verify:
+        - bats tests/inline/test_backlog_sync_from_retro.bats
+        - bash -n config/scripts/inline/backlog-sync-from-retro.sh
+        - bash config/scripts/inline/validate-tasks-yaml.sh spec/changes/orc-91/tasks.yaml
+        test_scenarios:
+        - full bats suite green
+        - helper script passes bash syntax check
+        - tasks.yaml validates
+        - 'manual smoke: invoke helper against a real archived retro.md with a stub
+          backlog on PATH and confirm audit lines render as designed'
+        why: "phase gate \u2014 confirm helper + agent edit integrate cleanly before\
+          \ /complete."
+    - id: run-phase-review
+      status: completed
+      agent: reviewer
+      goal: ''
+      inputs:
+      - task_execution_result
+      - '{''name'': ''design'', ''path'': ''spec/changes/<slug>/design.md'', ''optional'':
+        True}'
+      - '{''name'': ''tasks'', ''path'': ''spec/changes/<slug>/tasks.yaml'', ''optional'':
+        True}'
+      outputs:
+      - phase_review_report
+      - '{''name'': ''phase_review'', ''path'': ''spec/changes/<slug>/phase-review.md''}'
+      rules:
+      - "Target score is quality_bar.min_phase_review_score from project.yaml \u2014\
+        \ retry until met."
+      - "Maximum retries from quality_bar.max_retry_rounds \u2014 escalate to user\
+        \ if exhausted."
+      - "When flags.light is true: lower target review_score to 7 and max_retries\
+        \ to 4 \u2014 light mode trades quality bar for speed on tight-scope changes."
+      - Run type-check + test + build commands at every phase boundary before scoring.
+      - "Capture concrete findings with fix direction \u2014 every finding must be\
+        \ actionable."
+      - Issues found during verification become new tasks in the current phase. Never
+        skip ahead with unresolved findings.
+      - "Do not advance with unresolved critical findings \u2014 these block phase\
+        \ completion regardless of overall score."
+      - 'When flags.bugfix is true: zero regressions tolerated. No existing tests
+        may break.'
+      - "Fix tasks must be minimal and scoped to the specific failure \u2014 no refactoring,\
+        \ no improvements."
+      - "Score of 10 is a first-pass bonus \u2014 only achievable when no retries\
+        \ were used this round."
+      - "Operate at staff-level review quality \u2014 catch architectural issues,\
+        \ not just surface bugs."
+      - Artifact structural compliance with format contracts (see Format contract
+        reference in prompt.md) is a review criterion.
+      - "When a finding requires a new requirement, the fix MUST update design.md\
+        \ (AC + design) and tasks.yaml atomically \u2014 partial updates that sync\
+        \ only one artifact leave the feature in an inconsistent state and will fail\
+        \ re-review. <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb,\
+        \ cycle: 11, hits: 11, misses: 7, repo: orchestrator -->"
+      - "For tasks that spec describes as a rewrite, projection, or byte-compatible\
+        \ replacement of an existing producer, AC verification MUST include a value/shape\
+        \ parity check against at least one real payload from the prior implementation\
+        \ \u2014 key-presence alone is insufficient. Reviewer must run both the old\
+        \ producer and the new one on a real archived fixture and diff the top-level\
+        \ output keys; any key reduction is an important finding. <!-- learned: 2026-04-20,\
+        \ source: single-source-metrics-via-step-events, cycle: 12, hits: 10, misses:\
+        \ 3, repo: orchestrator -->"
+      - "Before scoring the phase, check if any task-nodes (step_id starting with\
+        \ 'task-') in the workflow_plan are still pending. If any task-nodes are pending\
+        \ and not explicitly quarantined in state.yaml, write phase-review.md with\
+        \ verdict incomplete_phase listing the pending task IDs \u2014 return COMPLETION\
+        \ with outputs.phase_review_report: {verdict: incomplete_phase} and do NOT\
+        \ include review_score. This guards against dispatcher bugs or manual advances\
+        \ that reach run-phase-review before all tasks are complete. <!-- learned:\
+        \ 2026-05-08, source: hl-303, cycle: 38, hits: 10, misses: 1, repo: orchestrator\
+        \ --> <!-- updated: 2026-05-25, source: orc-76, cycle: 1, repo: orchestrator\
+        \ -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - task-T-4
+    - id: compute-prediction-accuracy
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - run-phase-review
+    - id: run-learn-cycle
+      status: completed
+      agent: workflow-learner
+      goal: ''
+      inputs:
+      - '{''final_signoff_decision'': ''optional''}'
+      outputs:
+      - learn_result
+      rules:
+      - "Learning failure is non-blocking \u2014 if /learn fails, log a warning and\
+        \ return success."
+      - Read state.yaml from the active change directory (this step runs before archive).
+      - In --auto mode, rule changes apply without user confirmation.
+      - "Never skip compute-prediction-accuracy or run-learn-cycle steps during autopilot\
+        \ \u2014 these feed the self-improving loop and must run even when --auto\
+        \ is set. A `skipped: true` outcome is only valid when an enumerated gating\
+        \ flag is set (e.g. ux_design=false for ux steps, learn=false for run-learn-cycle).\
+        \ Session token budget, time pressure, 'capture via retro', or any cost-based\
+        \ justification is NEVER a valid skip reason for feedback-loop steps. Budget\
+        \ pressure is a signal to stop earlier, not to skip learning. <!-- learned:\
+        \ 2026-04-05, source: HL-203, cycle: 6, hits: 15, misses: 1, repo: orchestrator\
+        \ -->"
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - compute-prediction-accuracy
+    - id: mark-change-completed
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - run-learn-cycle
+    - id: compute-swe-metrics
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - mark-change-completed
+    - id: complete-workflow
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - compute-swe-metrics
+    filtered:
+    - id: ux-design
+      reason: flag ux_design=false
+    - id: run-ux-critique
+      reason: flag ux_design=false
+phase: main
+next_step:
+  phase: main
+  step_id: complete-workflow
+step_history:
+- step_id: explore
+  phase: main
+  status: completed
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-05-26T11:06:24Z'
+  ended_at: '2026-05-26T11:06:24Z'
+  usage:
+    input_tokens: 44
+    output_tokens: 14223
+    model: claude-opus-4-7
+    cache_read_input_tokens: 2035369
+    cache_creation_input_tokens: 249083
+    turns: 29
+    tool_calls:
+      Bash: 8
+      Glob: 5
+      Read: 6
+      Write: 1
+    duration_ms: 103224
+    cost_usd: 8.79074475
+  evidence:
+    outputs:
+      discovery_result:
+        path: discovery.md
+  artifacts:
+  - discovery.md
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: architect
+  attempt: 1
+  started_at: '2026-05-26T11:10:43Z'
+  ended_at: '2026-05-26T11:10:43Z'
+  usage:
+    input_tokens: 42
+    output_tokens: 24699
+    model: claude-opus-4-7
+    cache_read_input_tokens: 2648506
+    cache_creation_input_tokens: 152545
+    turns: 27
+    tool_calls:
+      Bash: 11
+      Read: 2
+      Edit: 1
+      Write: 2
+    duration_ms: 248239
+    cost_usd: 8.686032749999999
+  evidence:
+    outputs:
+      design.md: spec/changes/orc-91/design.md
+      tasks.yaml: spec/changes/orc-91/tasks.yaml
+      updated_artifact_set:
+      - spec/changes/orc-91/design.md
+      - spec/changes/orc-91/tasks.yaml
+      - spec/changes/orc-91/discovery.md
+      design_direction: Shell helper invoked by the agent
+      complexity: S
+- step_id: expand-plan
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-26T11:10:44Z'
+  ended_at: '2026-05-26T11:10:44Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+- step_id: preview-route
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-26T11:10:45Z'
+  ended_at: '2026-05-26T11:10:45Z'
+  usage: {}
+  evidence:
+    outputs:
+      route_preview:
+        status: estimate_unavailable
+        reason: 'ERROR: state.yaml not found at /Users/spidey/code/feature_worktrees/orc-91/state.yaml '
+        exit_code: 1
+    summary: inline script completed
+- step_id: capture-test-baseline
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-26T11:10:58Z'
+  ended_at: '2026-05-26T11:10:58Z'
+  usage: {}
+  evidence:
+    outputs:
+      baseline:
+        captured_at: '2026-05-26T11:10:46Z'
+        test_command: pytest config/scripts/orchestrator_next/tests/ -q
+        passing: 656
+        failing: 16
+        skipped: 0
+        total: 672
+        exit_code: 1
+    summary: inline script completed
+- step_id: task-T-1
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-26T11:13:13Z'
+  ended_at: '2026-05-26T11:13:13Z'
+  usage:
+    input_tokens: 42
+    output_tokens: 24699
+    model: claude-opus-4-7
+    cache_read_input_tokens: 2648506
+    cache_creation_input_tokens: 152545
+    turns: 27
+    tool_calls:
+      Bash: 11
+      Read: 2
+      Edit: 1
+      Write: 2
+    duration_ms: 248239
+    cost_usd: 8.686032749999999
+  evidence:
+    commands:
+    - cmd: bats tests/inline/test_backlog_sync_from_retro.bats
+      exit_code: 1
+      stdout_tail: "1..10 \u2014 all 10 tests failed with exit 127 (backlog-sync-from-retro.sh\
+        \ missing). RED baseline as intended for T-1."
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result: completed
+  artifacts:
+  - tests/inline/test_backlog_sync_from_retro.bats
+  - tests/inline/fixtures/project_yaml_backlog.yaml
+  - tests/inline/fixtures/project_yaml_linear.yaml
+  - tests/inline/fixtures/retro_new_issue.md
+  - tests/inline/fixtures/retro_recurrence_open.md
+  - tests/inline/fixtures/retro_recurrence_done.md
+  - tests/inline/fixtures/retro_self_dedup.md
+  - tests/inline/fixtures/retro_prose_only.md
+  - tests/inline/fixtures/retro_explicit_backlog_entry.md
+  - tests/inline/fixtures/retro_cli_failure.md
+- step_id: task-T-2
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-26T11:18:12Z'
+  ended_at: '2026-05-26T11:18:12Z'
+  usage:
+    input_tokens: 42
+    output_tokens: 24699
+    model: claude-opus-4-7
+    cache_read_input_tokens: 2648506
+    cache_creation_input_tokens: 152545
+    turns: 27
+    tool_calls:
+      Bash: 11
+      Read: 2
+      Edit: 1
+      Write: 2
+    duration_ms: 248239
+    cost_usd: 8.686032749999999
+  evidence:
+    commands:
+    - cmd: bats tests/inline/test_backlog_sync_from_retro.bats
+      exit_code: 0
+      stdout_tail: '1..10
+
+        ok 1 UC-1: new issue creates one ticket...
+
+        ...
+
+        ok 10 UC-E5: backlog CLI failure...'
+    - cmd: bash -n config/scripts/inline/backlog-sync-from-retro.sh
+      exit_code: 0
+      stdout_tail: ''
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result:
+        task_id: T-2
+        status: completed
+  artifacts:
+  - config/scripts/inline/backlog-sync-from-retro.sh
+- step_id: task-T-3
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-26T11:18:56Z'
+  ended_at: '2026-05-26T11:18:56Z'
+  usage:
+    input_tokens: 42
+    output_tokens: 24699
+    model: claude-opus-4-7
+    cache_read_input_tokens: 2648506
+    cache_creation_input_tokens: 152545
+    turns: 27
+    tool_calls:
+      Bash: 11
+      Read: 2
+      Edit: 1
+      Write: 2
+    duration_ms: 248239
+    cost_usd: 8.686032749999999
+  evidence:
+    commands:
+    - cmd: bats tests/inline/test_backlog_sync_from_retro.bats
+      exit_code: 0
+      stdout_tail: ok 1 UC-1 ... ok 10 UC-E5 ... 1..10
+    - cmd: grep -q '### 4b. Backlog Sync' agents/workflow-learner.md
+      exit_code: 0
+    - cmd: grep -q 'backlog-sync-from-retro.sh' agents/workflow-learner.md
+      exit_code: 0
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result:
+        task_id: T-3
+        status: completed
+  artifacts:
+  - agents/workflow-learner.md
+- step_id: task-T-4
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-26T11:19:51Z'
+  ended_at: '2026-05-26T11:19:51Z'
+  usage:
+    input_tokens: 42
+    output_tokens: 24699
+    model: claude-opus-4-7
+    cache_read_input_tokens: 2648506
+    cache_creation_input_tokens: 152545
+    turns: 27
+    tool_calls:
+      Bash: 11
+      Read: 2
+      Edit: 1
+      Write: 2
+    duration_ms: 248239
+    cost_usd: 8.686032749999999
+  evidence:
+    commands:
+    - cmd: bats tests/inline/test_backlog_sync_from_retro.bats
+      exit_code: 0
+      stdout_tail: '1..10
+
+        ok 1 UC-1: new issue creates one ticket...
+
+        ...
+
+        ok 10 UC-E5: backlog CLI failure...
+
+        '
+    - cmd: bash -n config/scripts/inline/backlog-sync-from-retro.sh
+      exit_code: 0
+      stdout_tail: ''
+    - cmd: bash config/scripts/inline/validate-tasks-yaml.sh spec/changes/orc-91/tasks.yaml
+      exit_code: 0
+      stdout_tail: 'OK: spec/changes/orc-91/tasks.yaml is valid (4 tasks)'
+    - cmd: "manual smoke \u2014 backlog-sync-from-retro.sh on archive/2026-04-19-fix-inline-scripts-tmpdir/retro.md"
+      exit_code: 0
+      stdout_tail: "[learn] sync: ISSUE-24 \u2192 created task-smoke-1\n...\n[learn]\
+        \ Backlog sync: 6 created, 0 bumped, 0 regressions\n"
+    counts:
+      tasks_marked: 1
+    outputs:
+      task_execution_result:
+        task_id: T-4
+        status: completed
+- step_id: run-phase-review
+  phase: main
+  status: failed
+  agent: reviewer
+  attempt: 1
+  started_at: '2026-05-26T11:19:58Z'
+  ended_at: '2026-05-26T11:19:58Z'
+  usage:
+    input_tokens: 0
+    output_tokens: 0
+    model: none
+    cost_usd: 0.0
+  evidence:
+    outputs:
+      task_execution_result:
+        status: failed
+        exit_code: 1
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: reviewer
+  attempt: 2
+  started_at: '2026-05-26T11:22:06Z'
+  ended_at: '2026-05-26T11:22:06Z'
+  usage:
+    input_tokens: 44
+    output_tokens: 16606
+    model: claude-opus-4-7
+    cache_read_input_tokens: 2772098
+    cache_creation_input_tokens: 148441
+    turns: 34
+    tool_calls:
+      Bash: 21
+      Read: 2
+      Write: 1
+    duration_ms: 119165
+    cost_usd: 8.187525749999999
+  evidence:
+    outputs:
+      phase_review_report:
+        verdict: pass
+      review_score:
+        overall: 9
+        dimensions:
+          spec_compliance: 9
+          correctness: 9
+          security: 9
+          simplicity: 9
+          code_quality: 9
+  artifacts:
+  - spec/changes/orc-91/phase-review.md
+- step_id: compute-prediction-accuracy
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-26T11:22:07Z'
+  ended_at: '2026-05-26T11:22:07Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy:
+        computed_at: '2026-05-26T11:22:07Z'
+        predicted_tasks: 4
+        actual_tasks: 4
+        fix_task_count: 0
+        rework_rate: 0.0
+        task_delta: 0
+        task_accuracy_pct: 100.0
+        predicted_file_count: 8
+        actual_file_count: 0
+        file_delta: -8
+        file_overlap_pct: 0.0
+    summary: inline script completed
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: workflow-learner
+  attempt: 1
+  started_at: '2026-05-26T11:28:44Z'
+  ended_at: '2026-05-26T11:28:44Z'
+  usage:
+    input_tokens: 16
+    output_tokens: 2205
+    model: claude-opus-4-7
+    cache_read_input_tokens: 317963
+    cache_creation_input_tokens: 78980
+    turns: 6
+    tool_calls:
+      Bash: 2
+      Agent: 1
+    duration_ms: 387108
+    cost_usd: 2.1234345
+  evidence:
+    outputs:
+      learn_result: clean
+      rules_added: 0
+      rules_updated: 10
+      rules_decayed: 0
+      backlog_sync: skipped_no_retro
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-26T11:28:46Z'
+  ended_at: '2026-05-26T11:28:46Z'
+  usage: {}
+  evidence:
+    outputs:
+      status: completed
+      completed_at: '2026-05-26T11:28:45Z'
+      archive_path: spec/changes/archive/orc-91/
+    summary: inline script completed
+- step_id: compute-swe-metrics
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-26T11:28:47Z'
+  ended_at: '2026-05-26T11:28:47Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+- step_id: complete-workflow
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-26T11:28:49Z'
+  ended_at: '2026-05-26T11:28:49Z'
+  usage: {}
+  evidence:
+    summary: recorded pre-script (state-mutating inline step)
+    outputs: {}
+created_at: '2026-05-26T11:04:29Z'
+started_at: '2026-05-26T11:04:29Z'
+project_context_loaded: true
+worktree_path: /Users/spidey/code/feature_worktrees/orc-91
+branch: feature/orc-91
+ticketing: backlog
+ticket_id: ORC-91
+ticket_status: "\u25CB QA Review"
+ticket_status_checked_at: '2026-05-26T11:28:48Z'
+ticket_rework: false
+completed_at: '2026-05-26T11:28:45Z'
+archive_path: spec/changes/archive/orc-91/

@@ -1,0 +1,78 @@
+# tasks.yaml for orc-91 — workflow-learner backlog sync from retro.md
+# verify commands run from $REPO_ROOT.
+version: 1
+tasks:
+  - id: T-1
+    title: "Write bats tests for backlog-sync-from-retro.sh (RED — tests must fail)"
+    depends_on: []
+    files:
+      - tests/inline/test_backlog_sync_from_retro.bats
+      - tests/inline/fixtures/retro_new_issue.md
+      - tests/inline/fixtures/retro_recurrence_open.md
+      - tests/inline/fixtures/retro_recurrence_done.md
+      - tests/inline/fixtures/retro_self_dedup.md
+      - tests/inline/fixtures/retro_prose_only.md
+      - tests/inline/fixtures/retro_explicit_backlog_entry.md
+      - tests/inline/fixtures/project_yaml_linear.yaml
+      - tests/inline/fixtures/project_yaml_backlog.yaml
+    verify:
+      - bats tests/inline/test_backlog_sync_from_retro.bats
+    test_scenarios:
+      - "UC-1: new issue → exactly one ticket created with labels recurrence-1, from-retro and the fix_direction as AC (AC-1)"
+      - "UC-2: dedup_key matches an open ticket → --append-notes invoked with 'Recurred in feature' line; no new ticket created (AC-2)"
+      - "UC-3: dedup_key matches a Done ticket → recurrence note appended to closed ticket AND new Regression: ticket created with HIGH priority and reference to original id (AC-3)"
+      - "audit line `[learn] sync: ISSUE-N → <decision>` emitted to stdout for every issue plus summary `[learn] Backlog sync: X created, Y bumped, Z regressions` (AC-4)"
+      - "UC-5: explicit backlog_entry slug is used verbatim as the search query (AC-5)"
+      - "UC-E6 / D-9: project.yaml ticketing=linear → helper exits 0 with `Backlog sync: skipped — ticketing=linear`; no backlog CLI invoked (AC-6)"
+      - "UC-E1 / UC-E3: missing retro.md OR prose-only retro (no ## ISSUE blocks) → helper exits 0 with `no retro issues found` (AC-7)"
+      - "UC-E4: two issues with same dedup_key in one retro → one ticket created, second appended as recurrence on it (AC-8)"
+      - "UC-E5: simulated backlog CLI failure (stub returns nonzero) → `ERROR (<reason>)` audit line for that issue; remaining issues still processed; overall exit 0 (AC-9)"
+    why: "Establishes the executable contract for the helper before it exists. Covers AC-1 through AC-9. Tests fail because backlog-sync-from-retro.sh does not exist yet."
+    change: "Create new bats file under tests/inline/ plus fixture retros under tests/inline/fixtures/. Tests invoke `config/scripts/inline/backlog-sync-from-retro.sh <fixture> <feature_id>` with a stubbed `backlog` CLI on PATH that records invocations to a tempfile, and assert on the recorded calls + stdout. All tests fail until T-2 creates the helper."
+
+  - id: T-2
+    title: "Implement backlog-sync-from-retro.sh helper (GREEN — make tests pass)"
+    depends_on: [T-1]
+    files:
+      - config/scripts/inline/backlog-sync-from-retro.sh
+    verify:
+      - bats tests/inline/test_backlog_sync_from_retro.bats
+      - bash -n config/scripts/inline/backlog-sync-from-retro.sh
+    test_scenarios:
+      - "all T-1 bats scenarios pass"
+      - "shellcheck (or bash -n) reports no syntax errors"
+      - "helper exits 0 in every test scenario including simulated CLI failures"
+    why: "AC-1 through AC-9 — the helper IS the deterministic sync logic; the agent only invokes it."
+    change: "Create config/scripts/inline/backlog-sync-from-retro.sh (~150 lines bash). Top-of-file: parse args ($1=retro_path, $2=feature_id), read spec/project.yaml ticketing key via `grep -E '^ticketing:'`, early-exit if != backlog (AC-6). Then `grep -c '^## ISSUE-' \"$retro_path\"` — if 0 or file missing, emit `no retro issues found` and exit 0 (AC-7). Main loop: use awk to split the file into per-ISSUE blocks; for each block extract `category`, `severity`, `detail`, `fix_direction`, `backlog_entry` via `grep -E '^- \\*\\*<name>\\*\\*:'`. Resolve dedup_key per D-2 / D-6 (lowercase + collapse non-alnum to `-`; first 8 words for fix_direction). Maintain an associative-array ledger `declare -A LEDGER` of `dedup_key → new_ticket_id` for self-dedup (AC-8). For each issue: check ledger; else `backlog search \"$key\" --plain` and parse rows (tab/space-separated `task-N  Title  Status`); apply D-3 tie-break (substring match wins, then `In Progress > To Do > Done`, then lowest id). Branch on match status: open → `backlog task edit <id> --append-notes \"$(printf 'Recurred in feature %s on %s\\n- detail: %s' \"$feature_id\" \"$(date +%F)\" \"$detail\")\"` (AC-2); Done → same append on closed ticket + `backlog task create \"Regression: $orig_title ($orig_id) recurred after close\" --priority high --label recurrence-1,from-retro,regression --ac \"$fix_direction\" -d \"...\"` then capture new id from stdout (AC-3); none → `backlog task create \"$title\" --priority $(severity_to_priority $severity per D-4) --label recurrence-1,from-retro --ac \"$fix_direction\" -d \"...\"` and store id in ledger (AC-1). Wrap every `backlog` invocation in `if ! out=$(... 2>&1); then echo \"[learn] sync: $issue_id → ERROR ($(head -1 <<<\"$out\"))\"; continue; fi` (AC-9, D-10). Emit one audit line per issue + final summary (AC-4). Final `exit 0`."
+
+  - id: T-3
+    title: "Wire helper into workflow-learner agent prompt (§4b Backlog Sync)"
+    depends_on: [T-2]
+    files:
+      - agents/workflow-learner.md
+    verify:
+      - bats tests/inline/test_backlog_sync_from_retro.bats
+      - grep -q '### 4b. Backlog Sync' agents/workflow-learner.md
+      - grep -q 'backlog-sync-from-retro.sh' agents/workflow-learner.md
+    test_scenarios:
+      - "agents/workflow-learner.md contains a new `### 4b. Backlog Sync` section placed between §4 (Route Findings) and §5 (Report)"
+      - "the new section instructs the agent to invoke `config/scripts/inline/backlog-sync-from-retro.sh <retro_path> <feature_id>` unconditionally on every run"
+      - "§5 Report block is updated to surface the helper's summary line"
+      - "bats suite from T-1/T-2 still green (no regression in helper)"
+    why: "AC-10 — the agent must call the helper on every /learn invocation; the §5 Report incorporates the helper's summary."
+    change: "Edit agents/workflow-learner.md: after the existing `### 4. Route Findings` section and before `### 5. Report`, insert a `### 4b. Backlog Sync` section (~12 lines) instructing: (1) resolve the active retro path as `$WORKFLOW_STATE_DIR/$change_id/retro.md`; (2) run `bash $ORCHESTRATOR_HOME/config/scripts/inline/backlog-sync-from-retro.sh \"$retro_path\" \"$change_id\"`; (3) capture stdout; (4) include the final `Backlog sync: X created, Y bumped, Z regressions` line in the §5 report block. Also extend the §5 Report code-fence to add a `Backlog sync: ...` line."
+
+  - id: T-4
+    title: "Review checkpoint — phase gate"
+    depends_on: [T-3]
+    files: []
+    verify:
+      - bats tests/inline/test_backlog_sync_from_retro.bats
+      - bash -n config/scripts/inline/backlog-sync-from-retro.sh
+      - bash config/scripts/inline/validate-tasks-yaml.sh spec/changes/orc-91/tasks.yaml
+    test_scenarios:
+      - "full bats suite green"
+      - "helper script passes bash syntax check"
+      - "tasks.yaml validates"
+      - "manual smoke: invoke helper against a real archived retro.md with a stub backlog on PATH and confirm audit lines render as designed"
+    why: "phase gate — confirm helper + agent edit integrate cleanly before /complete."
