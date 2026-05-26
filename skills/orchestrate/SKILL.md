@@ -127,6 +127,11 @@ step contract; duplication invites drift when step contracts update.
 
 ```
 LOOP:
+  # Driver-local: set manual_phase_advance_flag = true when patching phase or
+  # next_step outside orchestrator done (e.g. operator forces advance). Reset
+  # to false at the start of each loop iteration unless set again that iteration.
+  manual_phase_advance_flag = false
+
   # ORC-45 two-path dispatch protocol:
   #   exit 0 + JSON with `agent` key  → spawn agent
   #   exit 0 + no JSON                → inline script ran and recorded; loop again
@@ -189,11 +194,48 @@ LOOP:
       #    Merge step_id, phase, agent from dispatch context; pass the raw Task tool
       #    result text as agent_task_result (record.py extracts agentId and loads
       #    billing-truth usage from subagent JSONL — do not parse usage or agentId).
-      # 3. Pipe payload to orchestrator done (driver does not verify tasks/tests):
+      # 3. Compute workflow_issues — driver assembly point (orc-89). Schema and
+      #    retro layout: config/steps/contracts/workflow-issues.md. Start with [].
+      #    Four driver-detected categories (append one issue object each when true):
+      #    (a) Retry-then-success: read state.yaml step_history[-1]; when attempt > 1
+      #        and status == completed, append {category: driver-bug, severity:
+      #        workaround-applied, surfaced_at: "<phase>/<step_id>",
+      #        detail: "retry-then-success on <phase>/<step_id>",
+      #        dedup_key: "retry-success:<phase>:<step_id>"}.
+      #    (b) Empty usage: when agent_task_result includes an agentId line but the
+      #        usage block is empty or reports zero tokens, append {category: telemetry,
+      #        severity: workaround-applied, dedup_key: "empty-usage:<phase>:<step_id>"}.
+      #    (c) Manual phase advance: when manual_phase_advance_flag is true, append
+      #        {category: driver-bug, severity: workaround-applied,
+      #        dedup_key: "manual-phase-advance:<phase>"}; clear the flag after emit.
+      #    (d) Sentinel drain: for each line in
+      #        $WORKFLOW_STATE_DIR/$CHANGE_ID/.pending-issues.jsonl (if present),
+      #        parse JSON and append; log malformed lines to stderr and skip.
+      #    (e) Agent-supplied: concatenate COMPLETION.workflow_issues verbatim when set.
+      # 4. Pipe payload to orchestrator done (driver does not verify tasks/tests).
+      #    Attach workflow_issues only when the merged list is non-empty.
 
-      orchestrator done state.yaml <<< {step_id, phase, status, agent, agent_task_result, outputs, evidence}
+      done_payload = {step_id, phase, status, agent, agent_task_result, outputs, evidence}
+      IF workflow_issues is non-empty:
+          done_payload.workflow_issues = workflow_issues
+      done_exit = orchestrator done state.yaml <<< done_payload
       # Full contract: config/steps/contracts/done-payload.md
+      IF done_exit == 0:
+          rm -f $WORKFLOW_STATE_DIR/$CHANGE_ID/.pending-issues.jsonl
+      # On done exit 3 (ContractDispatchError) or any other non-zero done exit, do NOT
+      # rm .pending-issues.jsonl — preserve drained sentinel lines for retry.
 ```
+
+### Workflow issues (orc-89)
+
+The dispatch driver is the single assembly point for `workflow_issues` on each
+agent step. Inline scripts surface non-fatal anomalies via
+`config/scripts/inline/record-issue.sh` (append to
+`.pending-issues.jsonl`); the driver drains that file each loop iteration before
+`orchestrator done`. Agents may also list `workflow_issues:` in COMPLETION; the
+driver passes them through unchanged. Full payload schema, dedup_key conventions,
+category/severity values, and retro.md layout:
+`config/steps/contracts/workflow-issues.md`.
 
 Escalation (agent returns STATUS: escalate_to_architect): record a
 step_history entry with `status: escalate_to_architect` — `orchestrator
