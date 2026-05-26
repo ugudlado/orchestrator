@@ -1,0 +1,127 @@
+# tasks.yaml — orc-89: Emit workflow_issues live to retro.md
+# Format contract: config/steps/design-and-draft-artifacts/prompt.md § Tasks YAML Format Contract
+# verify commands are repo-root-relative (run from $REPO_ROOT).
+version: 1
+tasks:
+  - id: T-1
+    title: "Write the workflow-issues contract (config/steps/contracts/workflow-issues.md)"
+    depends_on: []
+    files:
+      - config/steps/contracts/workflow-issues.md
+      - config/steps/contracts/done-payload.md
+    verify:
+      - test -f config/steps/contracts/workflow-issues.md
+      - grep -q 'dedup_key' config/steps/contracts/workflow-issues.md
+      - grep -q 'category' config/steps/contracts/workflow-issues.md
+      - grep -q 'severity' config/steps/contracts/workflow-issues.md
+      - grep -q 'workflow-issues.md' config/steps/contracts/done-payload.md
+    test_scenarios:
+      - "contract documents the workflow_issues block schema with field types"
+      - "contract lists allowed category values (seen-so-far list) and severity enum"
+      - "contract documents retro.md H2 block layout matching append-retro.sh output"
+      - "contract documents dedup_key conventions and the hash fallback"
+      - "done-payload.md's workflow_issues row links to the new contract"
+    why: "AC-4 — establish the format contract before any producer or consumer is wired."
+    change: "Create config/steps/contracts/workflow-issues.md with sections: Payload schema (id, category, severity, surfaced_at, detail, workaround, fix_direction, dedup_key), Retro.md layout (H2 per issue, matching append-retro.sh lines 55-90), Dedup semantics, Category seen-so-far list, Severity enum. Edit done-payload.md's optional-fields table to add the workflow_issues row pointing to this contract."
+
+  - id: T-2
+    title: "Write tests for record-issue.sh and append-retro.sh dedup (RED — tests must fail)"
+    depends_on: [T-1]
+    files:
+      - config/tests/test_record_issue.bats
+      - config/tests/test_append_retro_dedup.bats
+    verify:
+      - "! config/tests/bats config/tests/test_record_issue.bats"
+      - "! config/tests/bats config/tests/test_append_retro_dedup.bats"
+    test_scenarios:
+      - "record-issue.sh with all env+flags writes a single JSON line to .pending-issues.jsonl with the supplied fields"
+      - "record-issue.sh with missing CHANGE_ID or WORKTREE_PATH exits 0 and prints a stderr warning, no file written"
+      - "record-issue.sh appends (not overwrites) when called multiple times in one step"
+      - "append-retro.sh skips an issue whose dedup_key already appears in retro.md and reports {appended: 0}"
+      - "append-retro.sh appends a new issue with a fresh dedup_key and reports {appended: 1}"
+      - "append-retro.sh with missing dedup_key behaves as today (no skip)"
+    why: "AC-2, AC-5 — failing tests pin behavior before implementation lands."
+    change: "Create two bats test files exercising the helper and dedup paths via WORKTREE_PATH/CHANGE_ID env in a $BATS_TMPDIR sandbox. Tests fail before T-3/T-4 because record-issue.sh does not exist and append-retro.sh does not dedup."
+
+  - id: T-3
+    title: "Implement config/scripts/inline/record-issue.sh (GREEN — record-issue tests pass)"
+    depends_on: [T-2]
+    files:
+      - config/scripts/inline/record-issue.sh
+    verify:
+      - test -x config/scripts/inline/record-issue.sh
+      - bash -n config/scripts/inline/record-issue.sh
+      - config/tests/bats config/tests/test_record_issue.bats
+    test_scenarios:
+      - "all T-2 record-issue.sh tests pass"
+      - "script parses clean (bash -n)"
+      - "script never exits non-zero, even on bad input"
+    why: "AC-2 — inline helper that surfaces non-fatal issues via the sentinel file."
+    change: "Create config/scripts/inline/record-issue.sh: parse --category/--severity/--detail/--dedup-key/--workaround/--fix-direction flags; require CHANGE_ID and WORKTREE_PATH env (warn-to-stderr-and-exit-0 if missing); emit one JSON object as a single line appended to $WORKTREE_PATH/spec/changes/$CHANGE_ID/.pending-issues.jsonl; default surfaced_at to ${PHASE:-unknown}/${STEP_ID:-unknown}; chmod +x. Wrap body in 'trap : ERR' so any unexpected failure still exits 0."
+
+  - id: T-4
+    title: "Add dedup_key skip to config/scripts/inline/append-retro.sh (GREEN — dedup tests pass)"
+    depends_on: [T-2]
+    files:
+      - config/scripts/inline/append-retro.sh
+    verify:
+      - bash -n config/scripts/inline/append-retro.sh
+      - config/tests/bats config/tests/test_append_retro_dedup.bats
+    test_scenarios:
+      - "all T-2 append-retro dedup tests pass"
+      - "existing append-retro callers (record.py path) continue to work — appended count and retro_path still emitted"
+      - "appended count in stdout JSON excludes skipped duplicates"
+    why: "AC-5 — single retro entry across retries for the same anomaly."
+    change: "Edit config/scripts/inline/append-retro.sh inside the python3 heredoc (around line 70): (1) add 'dedup_key' as a written field in the H2 block so it appears in retro.md; (2) before writing each issue, if issue.get('dedup_key') is set, scan the already-on-disk file content for a line matching '- **dedup_key**: <value>' and if found skip the issue (do not increment appended)."
+
+  - id: T-5
+    title: "Wire driver detection + sentinel drain in skills/orchestrate/SKILL.md"
+    depends_on: [T-3, T-4]
+    files:
+      - skills/orchestrate/SKILL.md
+    verify:
+      - grep -q 'workflow_issues' skills/orchestrate/SKILL.md
+      - grep -q '.pending-issues.jsonl' skills/orchestrate/SKILL.md
+      - grep -q 'retry-then-success' skills/orchestrate/SKILL.md
+      - grep -q 'empty-usage' skills/orchestrate/SKILL.md
+      - grep -q 'manual-phase-advance' skills/orchestrate/SKILL.md
+      - grep -q 'workflow-issues.md' skills/orchestrate/SKILL.md
+    test_scenarios:
+      - "SKILL.md documents the four detection categories the driver checks"
+      - "SKILL.md instructs the driver to drain .pending-issues.jsonl, merge with detected + agent-supplied issues, attach to the done payload, then rm -f only on done exit 0"
+      - "SKILL.md notes that on done exit 3 the sentinel file is NOT removed (preserved for retry)"
+      - "SKILL.md cross-references config/steps/contracts/workflow-issues.md"
+    why: "AC-1, AC-3 — driver becomes the single assembly point for workflow_issues."
+    change: "Edit skills/orchestrate/SKILL.md in the LOOP section (around line 192, immediately before 'orchestrator done state.yaml <<< ...'): insert a numbered sub-step 'Compute workflow_issues' that (a) reads state.yaml.step_history[-1] to detect retry-then-success (attempt > 1 and status == completed; dedup_key 'retry-success:<phase>:<step_id>'), (b) inspects COMPLETION.agent_task_result for an agentId line with an empty usage block (dedup_key 'empty-usage:<phase>:<step_id>'), (c) tracks a driver-local manual_phase_advance_flag set when the driver patches phase outside orchestrator done (dedup_key 'manual-phase-advance:<phase>'), (d) drains $WORKFLOW_STATE_DIR/$CHANGE_ID/.pending-issues.jsonl line-by-line, (e) concatenates with any agent-supplied workflow_issues from COMPLETION. Modify the done payload line to include workflow_issues when the merged list is non-empty. Add a post-done step: 'on exit 0, rm -f .pending-issues.jsonl'. Append a paragraph linking to config/steps/contracts/workflow-issues.md."
+
+  - id: T-6
+    title: "Real-run validation: produce a non-empty retro.md from this workflow run"
+    depends_on: [T-5]
+    files:
+      - spec/changes/orc-89/retro.md
+    verify:
+      - test -f spec/changes/orc-89/retro.md
+      - grep -qE '^## ISSUE-[0-9]+' spec/changes/orc-89/retro.md
+      - grep -q 'dedup_key' spec/changes/orc-89/retro.md
+    test_scenarios:
+      - "spec/changes/orc-89/retro.md exists and is non-empty"
+      - "at least one ISSUE-N H2 block is present"
+      - "the block carries category, severity, surfaced_at, detail, dedup_key"
+      - "no human-authored content — file was produced solely by the live emit path"
+    why: "AC-6 — proves the end-to-end emit path works on a real workflow run (this feature's own run satisfies the AC)."
+    change: "Trigger the emission path during this workflow run by invoking config/scripts/inline/record-issue.sh with a representative issue (category=tooling-bug, dedup_key=orc-89-validation) and confirming the driver drains the sentinel into retro.md. Acceptable: a deliberate one-shot invocation counts as a live emit (AC-6 requires non-empty retro.md from the live path, not from an organic anomaly)."
+
+  - id: T-7
+    title: "Phase gate — full repo tests + lint on changed shell scripts"
+    depends_on: [T-3, T-4, T-5, T-6]
+    files: []
+    verify:
+      - bash -n config/scripts/inline/record-issue.sh
+      - bash -n config/scripts/inline/append-retro.sh
+      - config/tests/bats config/tests/test_record_issue.bats
+      - config/tests/bats config/tests/test_append_retro_dedup.bats
+    test_scenarios:
+      - "all new and edited shell scripts parse clean"
+      - "all new bats tests pass"
+      - "no regression: existing append-retro callers still receive the same {appended, retro_path} contract"
+    why: "phase gate — confirm the emit-side wiring integrates before complete-phase signoff."
