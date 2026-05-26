@@ -15,34 +15,20 @@ source "$SCRIPT_DIR/lib/ticket-common.sh"
 ARG="$(echo "${1:-}" | tr '[:upper:]' '[:lower:]')"
 REPO_ROOT="${2:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 REPO_ROOT="$(ticket_repo_root "$REPO_ROOT")"
-WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-$HOME/code/feature_worktrees}"
 
 if [ -z "$ARG" ]; then
   echo "Usage: qa-approve.sh <change-id-or-state-yaml> [repo-root]" >&2
   exit 1
 fi
 
-# Resolve state.yaml path
-STATE_YAML=""
+# Resolve state.yaml path (see scripts/resolve-state-yaml.sh for lookup order)
 if [ -f "$ARG" ]; then
   STATE_YAML="$(cd "$(dirname "$ARG")" && pwd)/$(basename "$ARG")"
 else
-  for candidate in \
-    "$REPO_ROOT/spec/changes/$ARG/state.yaml" \
-    "$WORKTREE_BASE_DIR/$ARG/spec/changes/$ARG/state.yaml" \
-    "$REPO_ROOT/spec/changes/archive/$ARG/state.yaml" \
-    "$WORKTREE_BASE_DIR/$ARG/spec/changes/archive/$ARG/state.yaml" \
-    "$REPO_ROOT/spec/changes/archive"/*"-$ARG"/state.yaml; do
-    if [ -f "$candidate" ]; then
-      STATE_YAML="$candidate"
-      break
-    fi
-  done
-fi
-
-if [ -z "$STATE_YAML" ] || [ ! -f "$STATE_YAML" ]; then
-  echo "ERROR: cannot locate state.yaml for '$ARG'" >&2
-  exit 1
+  STATE_YAML="$(bash "$SCRIPT_DIR/resolve-state-yaml.sh" "$ARG" "$REPO_ROOT")" || {
+    echo "ERROR: cannot locate state.yaml for '$ARG'" >&2
+    exit 1
+  }
 fi
 
 # Read ticket_id and branch from state.yaml
@@ -123,4 +109,18 @@ if [ -n "$BRANCH" ]; then
   fi
 else
   echo "WARN: no branch in state.yaml — skipping branch deletion" >&2
+fi
+
+# --- Step 4: remove feature worktree -----------------------------------------
+REMOVE_RESULT="$(STATE_YAML_PATH="$STATE_YAML" REPO_ROOT="$REPO_ROOT" \
+  bash "$INLINE_DIR/remove-worktree.sh")"
+echo "worktree: $REMOVE_RESULT"
+
+# Branch may still exist if step 3 ran while the worktree held it checked out (UC-E4).
+if [ -n "$BRANCH" ]; then
+  if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$BRANCH" 2>/dev/null; then
+    if git -C "$REPO_ROOT" branch -D "$BRANCH" 2>/dev/null; then
+      echo "branch: $BRANCH deleted"
+    fi
+  fi
 fi
