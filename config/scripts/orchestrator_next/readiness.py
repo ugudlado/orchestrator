@@ -73,19 +73,20 @@ def _uses_legacy_active_plan(state: State) -> bool:
 
 def _step_completed_in_history(state: State, node_id: str) -> bool:
     """Return True when step_history has a terminal completed entry for the node."""
-    for entry in reversed(state.step_history):
+    for entry in state.step_history:
         if entry.phase != state.phase or entry.step_id != node_id:
             continue
-        return entry.status == "completed"
+        if entry.status in ("completed", "recovered"):
+            return True
     return False
 
 
 def _effective_node_status(state: State, node: dict[str, Any]) -> str:
-    """Node status with legacy-plan completion inferred from step_history."""
+    """Node status with completion inferred from step_history when terminal."""
     status = node.get("status")
     if status == "completed":
         return "completed"
-    if _uses_legacy_active_plan(state) and _step_completed_in_history(state, _node_id(node)):
+    if _step_completed_in_history(state, _node_id(node)):
         return "completed"
     return str(status or "pending")
 

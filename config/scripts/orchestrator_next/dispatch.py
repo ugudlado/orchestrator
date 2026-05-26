@@ -35,6 +35,7 @@ from orchestrator_next.reconcile import _step_in_plan
 
 # Blocking statuses: caller cannot proceed
 _BLOCKING_STATUSES = frozenset({"escalate_to_architect", "blocked"})
+_DEFAULT_MAX_SPAWN_FAILURES = 3
 
 
 def _compute_attempt(step_history: list[StepHistoryEntry], phase: str, step_id: str) -> int:
@@ -50,6 +51,70 @@ def _compute_attempt(step_history: list[StepHistoryEntry], phase: str, step_id: 
         if e.phase == phase and e.step_id == step_id and e.attempt is not None
     ]
     return (max(attempts) + 1) if attempts else 1
+
+
+def _is_spawn_failure(entry: StepHistoryEntry) -> bool:
+    """True when the entry is a pre-agent spawn failure (model=none, zero tokens)."""
+    if entry.status != "failed":
+        return False
+    usage = entry.usage if isinstance(entry.usage, dict) else {}
+    model = usage.get("model")
+    input_tokens = usage.get("input_tokens", 0)
+    output_tokens = usage.get("output_tokens", 0)
+    return (
+        model == "none"
+        and input_tokens == 0
+        and output_tokens == 0
+    )
+
+
+def _consecutive_spawn_failures(
+    step_history: list[StepHistoryEntry], phase: str, step_id: str
+) -> int:
+    """Count trailing spawn failures for (phase, step_id) in step_history."""
+    count = 0
+    for entry in reversed(step_history):
+        if entry.phase != phase or entry.step_id != step_id:
+            continue
+        if _is_spawn_failure(entry):
+            count += 1
+            continue
+        break
+    return count
+
+
+def _max_spawn_failures(state_raw: dict[str, Any]) -> int:
+    """Read `quality_bar.max_spawn_failures` from the repo's project.yaml (orc-85)."""
+    candidate: Path | None = None
+    worktree = state_raw.get("worktree_path")
+    if isinstance(worktree, str) and worktree:
+        wt = Path(os.path.expanduser(worktree))
+        if wt.is_dir():
+            candidate = wt / "spec" / "project.yaml"
+    if candidate is None:
+        repo_root = state_raw.get("repo_root")
+        if isinstance(repo_root, str) and repo_root:
+            candidate = Path(os.path.expanduser(repo_root)) / "spec" / "project.yaml"
+
+    if candidate is not None and candidate.is_file():
+        try:
+            data = yaml.safe_load(candidate.read_text()) or {}
+            quality_bar = data.get("quality_bar") if isinstance(data, dict) else None
+            value = (
+                quality_bar.get("max_spawn_failures")
+                if isinstance(quality_bar, dict)
+                else None
+            )
+            if isinstance(value, int) and not isinstance(value, bool):
+                return value
+        except (yaml.YAMLError, OSError) as exc:
+            sys.stderr.write(f"[dispatch] warning: could not read {candidate}: {exc}\n")
+
+    sys.stderr.write(
+        f"[dispatch] warning: quality_bar.max_spawn_failures not found in project.yaml; "
+        f"defaulting to {_DEFAULT_MAX_SPAWN_FAILURES}\n"
+    )
+    return _DEFAULT_MAX_SPAWN_FAILURES
 
 
 def _build_env(
@@ -393,6 +458,18 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
     block_code = _check_required_inputs(state, contract, next_step_id)
     if block_code is not None:
         return {}, block_code
+
+    spawn_failures = _consecutive_spawn_failures(
+        state.step_history, state.phase, next_step_id
+    )
+    max_spawn_failures = _max_spawn_failures(state.raw)
+    if spawn_failures >= max_spawn_failures:
+        print(
+            f"BLOCKED: spawn_failure_cap — {spawn_failures} consecutive zero-token "
+            f"failures for {state.phase}/{next_step_id}",
+            file=sys.stderr,
+        )
+        return {"reason": "spawn_failure_cap"}, 2
 
     attempt = _compute_attempt(state.step_history, state.phase, next_step_id)
     env = _build_env(state, next_step_id, attempt, state_yaml_path)
