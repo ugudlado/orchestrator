@@ -5,7 +5,7 @@
 #
 # Examples:
 #   qa-approve.sh orc-86
-#   qa-approve.sh spec/changes/archive/2026-05-26-orc-86/state.yaml
+#   qa-approve.sh /path/to/archived/state.yaml
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
