@@ -194,24 +194,12 @@ LOOP:
       #    Merge step_id, phase, agent from dispatch context; pass the raw Task tool
       #    result text as agent_task_result (record.py extracts agentId and loads
       #    billing-truth usage from subagent JSONL — do not parse usage or agentId).
-      # 3. Compute workflow_issues — driver assembly point (orc-89). Schema and
-      #    retro layout: config/steps/contracts/workflow-issues.md. Start with [].
-      #    Four driver-detected categories (append one issue object each when true):
-      #    (a) Retry-then-success: read state.yaml step_history[-1]; when attempt > 1
-      #        and status == completed, append {category: driver-bug, severity:
-      #        workaround-applied, surfaced_at: "<phase>/<step_id>",
-      #        detail: "retry-then-success on <phase>/<step_id>",
-      #        dedup_key: "retry-success:<phase>:<step_id>"}.
-      #    (b) Empty usage: when agent_task_result includes an agentId line but the
-      #        usage block is empty or reports zero tokens, append {category: telemetry,
-      #        severity: workaround-applied, dedup_key: "empty-usage:<phase>:<step_id>"}.
-      #    (c) Manual phase advance: when manual_phase_advance_flag is true, append
-      #        {category: driver-bug, severity: workaround-applied,
-      #        dedup_key: "manual-phase-advance:<phase>"}; clear the flag after emit.
-      #    (d) Sentinel drain: for each line in
-      #        $WORKFLOW_STATE_DIR/$CHANGE_ID/.pending-issues.jsonl (if present),
-      #        parse JSON and append; log malformed lines to stderr and skip.
-      #    (e) Agent-supplied: concatenate COMPLETION.workflow_issues verbatim when set.
+      # 3. Compute workflow_issues. Run scripts/lib/detect-workflow-issues.sh
+      #    with --phase, --step-id, --attempt (current attempt), and
+      #    --manual-phase-advance PHASE when manual_phase_advance_flag is set
+      #    this iteration. Merge the helper's stdout (JSON array) with any
+      #    COMPLETION.workflow_issues from the agent, verbatim. Clear the
+      #    manual-phase-advance flag after the helper consumes it.
       # 4. Pipe payload to orchestrator done (driver does not verify tasks/tests).
       #    Attach workflow_issues only when the merged list is non-empty.
 
@@ -220,21 +208,20 @@ LOOP:
           done_payload.workflow_issues = workflow_issues
       done_exit = orchestrator done state.yaml <<< done_payload
       # Full contract: config/steps/contracts/done-payload.md
-      IF done_exit == 0:
-          rm -f $WORKFLOW_STATE_DIR/$CHANGE_ID/.pending-issues.jsonl
-      # On done exit 3 (ContractDispatchError) or any other non-zero done exit, do NOT
-      # rm .pending-issues.jsonl — preserve drained sentinel lines for retry.
 ```
 
-### Workflow issues (orc-89)
+### Workflow issues
 
-The dispatch driver is the single assembly point for `workflow_issues` on each
-agent step. Inline scripts surface non-fatal anomalies via
-`config/scripts/inline/record-issue.sh` (append to
-`.pending-issues.jsonl`); the driver drains that file each loop iteration before
-`orchestrator done`. Agents may also list `workflow_issues:` in COMPLETION; the
-driver passes them through unchanged. Full payload schema, dedup_key conventions,
-category/severity values, and retro.md layout:
+Workflow-mechanics issues (retry-success, script-warning, script-failed,
+tool-crashed, manual-phase-advance) are detected by
+`scripts/lib/detect-workflow-issues.sh`
+— the same helper the shell driver (`scripts/run-workflow.sh`) uses. Both
+drivers share this single source of detection logic; do not re-derive these
+categories in this prompt. Agent-emitted `workflow_issues:` in COMPLETION are
+forwarded verbatim into the done payload. Inline scripts that need to flag a
+workflow issue without aborting exit with code 10 (soft-fail); the driver
+synthesizes a `script-warning` entry from the script's stderr. Full payload
+schema, dedup_key conventions, category/severity values, and retro.md layout:
 `config/steps/contracts/workflow-issues.md`.
 
 Escalation (agent returns STATUS: escalate_to_architect): record a
