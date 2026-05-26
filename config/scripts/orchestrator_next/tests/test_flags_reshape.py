@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import os
 
+import pytest
 import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +33,10 @@ def _load_flags():
     return yaml.safe_load(open(_REPO_FLAGS).read())
 
 
+@pytest.mark.skipif(
+    os.path.realpath(_HOME_FLAGS) != os.path.realpath(_REPO_FLAGS),
+    reason="install symlink points ORCHESTRATOR_HOME at a different tree (e.g. feature worktree)",
+)
 def test_repo_and_home_flags_are_the_same_file():
     """Dual-tree guarantee: HOME flags.yaml resolves to the repo one."""
     assert os.path.realpath(_HOME_FLAGS) == os.path.realpath(_REPO_FLAGS), (

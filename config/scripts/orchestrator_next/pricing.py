@@ -50,6 +50,43 @@ def _load_routes() -> dict:
         return {}
 
 
+def _model_id_from_route(routes: dict, route_entry: object) -> str | None:
+    """Map an agents.<name> route entry to a concrete model_id."""
+    if route_entry is None:
+        return None
+    if isinstance(route_entry, dict):
+        tier = route_entry.get("model")
+        if not isinstance(tier, str) or not tier:
+            return None
+        model_val = (routes.get("models") or {}).get(tier)
+        if isinstance(model_val, str):
+            return model_val
+        if isinstance(model_val, dict):
+            mid = model_val.get("model")
+            return str(mid) if mid else None
+        return None
+    backend = route_entry
+    backends_map = routes.get("backends") or {}
+    if backend in backends_map:
+        return backends_map[backend]
+    model_val = (routes.get("models") or {}).get(backend)
+    if isinstance(model_val, str):
+        return model_val
+    if isinstance(model_val, dict):
+        mid = model_val.get("model")
+        return str(mid) if mid else None
+    return None
+
+
+def _route_backend_label(route_entry: object) -> str | None:
+    if route_entry is None:
+        return None
+    if isinstance(route_entry, dict):
+        tier = route_entry.get("model")
+        return str(tier) if tier else None
+    return str(route_entry)
+
+
 _LOOKUP_SQL = (
     "SELECT input_usd, output_usd, cache_read_usd, cache_creation_usd "
     "FROM pricing "
@@ -186,21 +223,12 @@ def _compute_cost_usd(
     bills = _billable_token_units(usage)
 
     if not model_id:
-        # Step 1: agent → backend
-        backend = (routes.get("agents") or {}).get(agent)
-        if backend:
-            # Step 2: backend → model_id
-            backends_map = routes.get("backends") or {}
-            if backend in backends_map:
-                model_id = backends_map[backend]
-            else:
-                # Try routes.models.<backend>.model (proxy path)
-                model_entry = (routes.get("models") or {}).get(backend)
-                if isinstance(model_entry, dict):
-                    model_id = model_entry.get("model")
+        route_entry = (routes.get("agents") or {}).get(agent)
+        if route_entry:
+            model_id = _model_id_from_route(routes, route_entry)
             if not model_id and bills == 0:
                 sys.stderr.write(
-                    f"[record] cost_usd: backend {backend!r} for agent {agent!r} "
+                    f"[record] cost_usd: route {route_entry!r} for agent {agent!r} "
                     f"not resolved to a model_id; skipping cost computation\n"
                 )
 
@@ -210,7 +238,7 @@ def _compute_cost_usd(
             model_id = "__default__"
 
         if not model_id:
-            if not backend:
+            if not route_entry:
                 sys.stderr.write(
                     f"[record] cost_usd: agent {agent!r} not in routes.yaml and "
                     f"usage.model not set; skipping cost computation\n"
@@ -259,16 +287,10 @@ def _resolve_agent_model(agent: str) -> "tuple[str | None, str | None]":
     resolves to no model_id — the caller then prices it via the __default__ row.
     """
     routes = _load_routes()
-    backend = (routes.get("agents") or {}).get(agent)
-    if not backend:
+    route_entry = (routes.get("agents") or {}).get(agent)
+    if not route_entry:
         return None, None
-    backends_map = routes.get("backends") or {}
-    if backend in backends_map:
-        return backend, backends_map[backend]
-    model_entry = (routes.get("models") or {}).get(backend)
-    if isinstance(model_entry, dict) and model_entry.get("model"):
-        return backend, model_entry["model"]
-    return backend, None
+    return _route_backend_label(route_entry), _model_id_from_route(routes, route_entry)
 
 
 def main(argv: "list[str] | None" = None) -> int:

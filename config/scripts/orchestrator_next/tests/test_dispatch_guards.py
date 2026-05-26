@@ -16,7 +16,7 @@ _SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-from orchestrator_next.parser import StepContract, load_contract_for_step
+from orchestrator_next.parser import StepContract
 
 
 def _write_state(tmp_path, change_id: str = "guard-test") -> str:
@@ -40,10 +40,10 @@ class TestDispatchContractMissing:
         monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps_dir))
         state_yaml = _write_state(tmp_path)
 
-        from orchestrator_next.dispatch import ContractDispatchError
+        from orchestrator_next.dispatch import ContractDispatchError, _load_step_contract
 
         with pytest.raises(ContractDispatchError) as exc_info:
-            load_contract_for_step("missing-step", state_yaml)
+            _load_step_contract("missing-step", state_yaml)
 
         msg = str(exc_info.value)
         assert "Run /doctor" in msg

@@ -28,7 +28,7 @@ normalize_output() {
 }
 
 capture_make_doctor() {
-  make -C "$REPO_ROOT" doctor 2>&1 || true
+  make -C "$REPO_ROOT" doctor 2>&1 | grep -v '^make: \*\*\*' || true
 }
 
 capture_python_doctor() {

@@ -305,12 +305,12 @@ class TestGracefulDegradation:
     def test_role_unresolvable_warns_and_gives_empty_list(self, steps_dir, agents_dir, state_dir, monkeypatch, capsys):
         """Role tools unresolvable -> warning on stderr, resolved_allowed_tools == [], no exception (AC-5)."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
-        # Do NOT write the agent file — it's missing
         home = agents_dir.parent.parent / "empty_home"
         (home / ".claude" / "agents").mkdir(parents=True)
         monkeypatch.setenv("HOME", str(home))
+        (agents_dir / "unparsed-agent.md").write_text("---\nname: unparsed\n---\n")
         _write_contract(steps_dir, "missing-role-step", {
-            "id": "missing-role-step", "agent": "nonexistent-agent",
+            "id": "missing-role-step", "agent": "unparsed-agent",
             "instruction": "do thing", "inputs": [], "outputs": [],
             "allowed_tools": ["Read"],
         })

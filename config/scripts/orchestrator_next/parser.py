@@ -264,7 +264,7 @@ def _contract_lookup_id(step_id: str, state_yaml_path: str) -> str:
     try:
         with open(state_yaml_path, "r") as f:
             raw = yaml.safe_load(f) or {}
-    except OSError:
+    except (OSError, yaml.YAMLError):
         return step_id
 
     plan = raw.get("workflow_plan") or {}
@@ -444,14 +444,7 @@ def load_state(state_yaml_path: str) -> State:
 
 def load_contract_for_step(step_id: str, state_yaml_path: str) -> StepContract:
     """Public convenience wrapper around _load_contract."""
-    try:
-        return _load_contract(step_id, state_yaml_path)
-    except FileNotFoundError as e:
-        from orchestrator_next.dispatch import ContractDispatchError
-
-        raise ContractDispatchError(
-            f"Step contract not found: {step_id}. Run /doctor to diagnose."
-        ) from e
+    return _load_contract(step_id, state_yaml_path)
 
 
 def phase_nodes(state: State, phase: str) -> list[dict]:

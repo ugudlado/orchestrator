@@ -268,23 +268,24 @@ def test_rewrite_output_matches_baseline_shape(state_dir: Path, seeded_db: Path)
         f"estimate_reason: {actual_rp.get('estimate_reason')!r}"
     )
 
-    # Agent names must match (order-independent)
+    # Agent names must match routes.yaml (order-independent; fixture may lag renames)
     actual_agents = {a["agent"] for a in actual_rp.get("agents", [])}
-    expected_agents = {a["agent"] for a in expected_rp.get("agents", [])}
+    routes_doc = yaml.safe_load(_ROUTES_YAML.read_text()) or {}
+    expected_agents = set((routes_doc.get("agents") or {}).keys())
     assert actual_agents == expected_agents, (
         f"Agent set mismatch.\nActual:   {sorted(actual_agents)}\n"
         f"Expected: {sorted(expected_agents)}"
     )
 
-    # Spot-check: developer agent has sonnet pricing (3.00 input / 15.00 output)
-    dev_list = [a for a in actual_rp["agents"] if a["agent"] == "developer"]
-    assert len(dev_list) == 1, "Expected exactly one 'developer' agent entry"
-    pricing = dev_list[0].get("pricing", {})
+    # Spot-check: discoverer → sonnet tier (3.00 input / 15.00 output in seed DB)
+    sonnet_list = [a for a in actual_rp["agents"] if a["agent"] == "discoverer"]
+    assert len(sonnet_list) == 1, "Expected exactly one 'discoverer' agent entry"
+    pricing = sonnet_list[0].get("pricing", {})
     assert float(pricing.get("input", 0)) == pytest.approx(3.00, rel=1e-6), (
-        f"developer input pricing: expected 3.00, got {pricing.get('input')}"
+        f"discoverer input pricing: expected 3.00, got {pricing.get('input')}"
     )
     assert float(pricing.get("output", 0)) == pytest.approx(15.00, rel=1e-6), (
-        f"developer output pricing: expected 15.00, got {pricing.get('output')}"
+        f"discoverer output pricing: expected 15.00, got {pricing.get('output')}"
     )
 
 
