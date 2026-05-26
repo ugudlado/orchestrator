@@ -21,7 +21,7 @@ teardown() {
 }
 
 @test "record-issue.sh with all env+flags writes one JSON line with supplied fields" {
-  run bash "$RECORD_ISSUE" \
+  run --separate-stderr bash "$RECORD_ISSUE" \
     --category telemetry \
     --severity workaround-applied \
     --detail "usage block empty" \
@@ -53,7 +53,7 @@ PY
 @test "record-issue.sh with missing CHANGE_ID exits 0, warns on stderr, writes nothing" {
   unset CHANGE_ID
 
-  run bash "$RECORD_ISSUE" \
+  run --separate-stderr bash "$RECORD_ISSUE" \
     --category tooling-bug \
     --severity cosmetic \
     --detail "missing change id"
@@ -66,7 +66,7 @@ PY
 @test "record-issue.sh with missing WORKTREE_PATH exits 0, warns on stderr, writes nothing" {
   unset WORKTREE_PATH
 
-  run bash "$RECORD_ISSUE" \
+  run --separate-stderr bash "$RECORD_ISSUE" \
     --category tooling-bug \
     --severity cosmetic \
     --detail "missing worktree"
