@@ -1,0 +1,72 @@
+# tasks.yaml for orc-88 — lock in routes.yaml as canonical model source
+# verify commands are repo-root-relative and run from $REPO_ROOT.
+version: 1
+tasks:
+  - id: T-1
+    title: "Edit CONVENTIONS.md: remove Step-Level Model Override, add Agent → Model Routing"
+    depends_on: []
+    files:
+      - config/steps/CONVENTIONS.md
+    verify:
+      - bash -c '! grep -q "^## Step-Level Model Override" config/steps/CONVENTIONS.md'
+      - grep -q "^## Agent → Model Routing" config/steps/CONVENTIONS.md
+      - grep -q "scripts/routes.yaml" config/steps/CONVENTIONS.md
+      - grep -qE "declare only .agent:|only \`agent:\`" config/steps/CONVENTIONS.md
+    test_scenarios:
+      - "The ## Step-Level Model Override section (currently around lines 181–191) is gone"
+      - "A new ## Agent → Model Routing section exists in its place"
+      - "The new section names scripts/routes.yaml as the single source of truth"
+      - "The new section instructs step contracts to declare only `agent:`"
+    why: "AC-1, AC-2 — remove the phantom override doc and replace it with the correct routing rule in the file contributors read when authoring step contracts."
+    change: "In config/steps/CONVENTIONS.md, delete the `## Step-Level Model Override` heading and its body (~lines 181–191, ending before `## Where learned rules go`). Insert in the same location a `## Agent → Model Routing` section: state that scripts/routes.yaml is the single source of truth for agent→model mapping, that step contracts declare only `agent:` (the dispatcher resolves it to a model via routes.yaml), and link to scripts/routes.yaml for the current mapping."
+
+  - id: T-2
+    title: "Update scripts/routes.yaml header to declare canonical status and list consumers"
+    depends_on: []
+    files:
+      - scripts/routes.yaml
+    verify:
+      - grep -q "canonical" scripts/routes.yaml
+      - grep -q "config/scripts/orchestrator_next/pricing.py" scripts/routes.yaml
+      - grep -q "config/scripts/estimate-cost.sh" scripts/routes.yaml
+      - grep -q "scripts/dashboard/server.py" scripts/routes.yaml
+      - python3 -c "import yaml; yaml.safe_load(open('scripts/routes.yaml'))"
+    test_scenarios:
+      - "Header comment block declares the file canonical for agent→model routing"
+      - "Header lists all three consumer paths exactly"
+      - "YAML still parses (only comments changed; agents: map untouched)"
+    why: "AC-5 — self-describing header so a future refactorer sees the file is load-bearing and which consumers to update if its shape ever changes."
+    change: "Expand the existing 3-line header comment at the top of scripts/routes.yaml. Keep `# Agent routing`, `# model:`, `# subprocess:` lines. Add lines declaring `Canonical source of truth for agent → model routing.` and a `Consumers:` list naming config/scripts/orchestrator_next/pricing.py, config/scripts/estimate-cost.sh, and scripts/dashboard/server.py. Do not modify the `agents:` mapping below the header."
+
+  - id: T-3
+    title: "Reconcile ORC-58 archive: append forward pointer to orc-88"
+    depends_on: []
+    files:
+      - spec/changes/archive/2026-05-25-orc-58/state.yaml
+      - spec/changes/archive/2026-05-25-orc-58/tasks.md
+    verify:
+      - grep -q "orc-88" spec/changes/archive/2026-05-25-orc-58/state.yaml
+      - grep -q "orc-88" spec/changes/archive/2026-05-25-orc-58/tasks.md
+      - grep -qiE "supersed|reconcil|corrected" spec/changes/archive/2026-05-25-orc-58/tasks.md
+      - python3 -c "import yaml; yaml.safe_load(open('spec/changes/archive/2026-05-25-orc-58/state.yaml'))"
+    test_scenarios:
+      - "state.yaml has a top-level key (e.g., superseded_by: orc-88) pointing forward"
+      - "tasks.md has an appended reconciliation section naming orc-88 and explaining routes.yaml was not actually deleted"
+      - "Both files still parse / render correctly"
+    why: "AC-4 — leave a discoverable forward pointer so future readers of the ORC-58 archive find the corrected resolution."
+    change: "Append (do not rewrite) to spec/changes/archive/2026-05-25-orc-58/state.yaml a top-level entry `superseded_by: orc-88` plus a short `superseded_note:` explaining scripts/routes.yaml was not actually deleted. Append to spec/changes/archive/2026-05-25-orc-58/tasks.md a final `## Reconciliation` section noting orc-88 as the corrected resolution with the same one-line explanation."
+
+  - id: T-4
+    title: "Repo-wide verification: zero step-level `model:` keys and no dispatch reads"
+    depends_on: [T-1, T-2, T-3]
+    files: []
+    verify:
+      - bash -c 'test "$(grep -rln "^model:" config/steps/ | wc -l | tr -d " ")" = "0"'
+      - bash -c '! grep -rn "step.*model_override\|contract.*model_override\|step\[..model..\]\|contract\[..model..\]" config/scripts/ scripts/ --include="*.py" --include="*.sh"'
+      - bash -c '! grep -q "^## Step-Level Model Override" config/steps/CONVENTIONS.md'
+    test_scenarios:
+      - "No step contract under config/steps/ contains a top-level `model:` key"
+      - "No dispatch code in config/scripts/ or scripts/ reads a step-level model override field (DB-column references to the recorded `model` on step_events are excluded)"
+      - "CONVENTIONS.md no longer documents the override"
+    why: "AC-3 — durable evidence the phantom field is gone everywhere it could have been read or written."
+    change: "No file edits — verification-only checkpoint. Each grep must return the expected zero-result; non-zero output fails the task and surfaces a reintroduction or missed deletion."
