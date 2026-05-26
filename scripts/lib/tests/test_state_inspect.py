@@ -373,6 +373,36 @@ class TestBuildPayload:
         assert payload["usage"]["output_tokens"] == 20
 
 
+class TestLastTerminalStep:
+    def test_returns_latest_terminal_entry(self, tmp_path, capsys):
+        state = _write_state(
+            tmp_path,
+            {
+                "step_history": [
+                    {"step_id": "explore", "phase": "main", "status": "in_progress", "attempt": 1},
+                    {
+                        "step_id": "expand-plan",
+                        "phase": "main",
+                        "status": "completed",
+                        "attempt": 1,
+                    },
+                ],
+            },
+        )
+        _, out, _ = _run(capsys, ["last-terminal-step", str(state)])
+        data = json.loads(out)
+        assert data["step_id"] == "expand-plan"
+        assert data["status"] == "completed"
+
+    def test_empty_when_no_terminal_rows(self, tmp_path, capsys):
+        state = _write_state(
+            tmp_path,
+            {"step_history": [{"step_id": "x", "phase": "main", "status": "in_progress"}]},
+        )
+        _, out, _ = _run(capsys, ["last-terminal-step", str(state)])
+        assert json.loads(out) == {}
+
+
 class TestPiSettings:
     def test_returns_provider_model_thinking(self, tmp_path, capsys, monkeypatch):
         settings = tmp_path / "settings.json"

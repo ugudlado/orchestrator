@@ -75,6 +75,36 @@ def _format_duration_ms(ms: float) -> str:
     return f"duration={int(ms)}ms"
 
 
+def cmd_last_terminal_step(args: argparse.Namespace) -> int:
+    """Emit JSON for the most recent terminal step_history row (for inline-step logging)."""
+    raw = _load_state(args.state_yaml)
+    if raw is None:
+        print("{}")
+        return 0
+    terminal = frozenset(
+        {"completed", "recovered", "failed", "abandoned", "blocked", "escalate_to_architect"}
+    )
+    for entry in reversed(raw.get("step_history") or []):
+        if not isinstance(entry, dict):
+            continue
+        status = entry.get("status")
+        if status not in terminal:
+            continue
+        print(
+            json.dumps(
+                {
+                    "step_id": entry.get("step_id"),
+                    "phase": entry.get("phase", "main"),
+                    "status": status,
+                    "attempt": entry.get("attempt"),
+                }
+            )
+        )
+        return 0
+    print("{}")
+    return 0
+
+
 def cmd_log_step_usage(args: argparse.Namespace) -> int:
     raw = _load_state(args.state_yaml)
     if raw is None:
@@ -263,6 +293,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("step_id")
     p.add_argument("phase", nargs="?", default="main")
     p.set_defaults(func=cmd_log_step_usage)
+
+    p = sub.add_parser(
+        "last-terminal-step",
+        help="emit JSON for the latest terminal step_history entry",
+    )
+    p.add_argument("state_yaml")
+    p.set_defaults(func=cmd_last_terminal_step)
 
     p = sub.add_parser("build-payload", help="emit JSON done-payload")
     p.add_argument("kind", choices=("script", "failed", "agent"))

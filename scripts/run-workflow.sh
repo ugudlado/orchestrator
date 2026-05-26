@@ -428,8 +428,21 @@ while true; do
   }
 
   # Inline script steps run inside bin/orchestrator (exit 0, no JSON on stdout).
+  # bin/orchestrator logs →/run/✓ on stderr; here we add usage from step_history.
   if [ -z "$(printf '%s' "$ACTION_JSON" | tr -d '[:space:]')" ]; then
-    echo "[$(_log_ts)]   inline step finished inside orchestrator; continuing loop" >&2
+    LAST_STEP=$(python3 "$STATE_INSPECT" last-terminal-step "$STATE_YAML" 2>/dev/null || echo "{}")
+    INLINE_STEP_ID=$(echo "$LAST_STEP" | jq -r '.step_id // empty')
+    INLINE_PHASE=$(echo "$LAST_STEP" | jq -r '.phase // "main"')
+    INLINE_STATUS=$(echo "$LAST_STEP" | jq -r '.status // empty')
+    if [ -n "$INLINE_STEP_ID" ] && [ -n "$INLINE_STATUS" ]; then
+      python3 "$STATE_INSPECT" log-step-usage "$STATE_YAML" "$INLINE_STEP_ID" "$INLINE_PHASE" \
+        2>/dev/null || true
+      if [ "$INLINE_STATUS" = "completed" ] || [ "$INLINE_STATUS" = "recovered" ]; then
+        sync_ticket_after_step "$INLINE_STEP_ID"
+      fi
+    else
+      echo "[$(_log_ts)]   orchestrator next returned no action; continuing loop" >&2
+    fi
     # complete-workflow archives state.yaml; the next `orchestrator next` would
     # exit 3 with "state.yaml not found". Treat missing state as success.
     if [ ! -f "$STATE_YAML" ]; then

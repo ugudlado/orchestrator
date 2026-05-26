@@ -430,6 +430,15 @@ def main() -> None:
             _phase = action["phase"]
             _attempt = action["attempt"]
 
+            def _stderr_step_log(msg: str) -> None:
+                from datetime import datetime
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr)
+
+            _stderr_step_log(
+                f"→ {_step_id}  phase={_phase}  kind=inline script  attempt={_attempt}"
+            )
+            _stderr_step_log(f"  run: {_run_path}")
+
             # State-mutating inline steps move/delete state.yaml as their side
             # effect (complete-workflow's archive phase rm -rf's the state
             # directory). record() re-opens state_yaml_path to read pre-write
@@ -502,6 +511,7 @@ def main() -> None:
                         db=_db,
                     )
                 # Surface script failure via stderr; exit 3 signals script error
+                _stderr_step_log(f"✗ {_step_id}  failed  script_exit={_proc.returncode}")
                 print(f"error: inline script failed (exit {_proc.returncode}): {_run_path}", file=sys.stderr)
                 sys.exit(3)  # finally block will close _db
             else:
@@ -527,6 +537,7 @@ def main() -> None:
                         },
                         db=_db,
                     )
+                _stderr_step_log(f"✓ {_step_id}  done  status=completed")
                 # No JSON on stdout — driver loops by calling orchestrator next again
                 sys.exit(0)  # finally block will close _db
 
