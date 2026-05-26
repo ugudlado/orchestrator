@@ -31,7 +31,7 @@ This skill runs the evaluation + self-improvement loop after a feature is comple
 
 ### 0. Resolve scope
 
-Parse `--scope` from `$ARGUMENTS` (default `all`). It biases — does not replace — the pipeline below; every scope still runs Find Context → Route Findings → Report.
+Parse `--scope` from `$ARGUMENTS` (default `all`). It biases — does not replace — the pipeline below; every scope still runs Find Context → Route Findings → Backlog Sync → Report.
 
 | `--scope` | Emphasis in §3 evaluation & §4 routing | Replaces legacy skill |
 |---|---|---|
@@ -256,6 +256,21 @@ After classification:
 **Tooling rules** (eslint, knip config, build settings):
 - Log as manual TODO — these need human oversight
 
+### 4b. Backlog Sync
+
+Runs unconditionally after §4 on every invocation — no `--scope` gate, no opt-in.
+
+1. Resolve `change_id` from the feature under evaluation (§1).
+2. Set `retro_path="$WORKFLOW_STATE_DIR/$change_id/retro.md"`.
+3. From `$REPO_ROOT`, run:
+   ```bash
+   bash "$ORCHESTRATOR_HOME/config/scripts/inline/backlog-sync-from-retro.sh" "$retro_path" "$change_id"
+   ```
+4. Capture all stdout (per-issue `[learn] sync: ISSUE-N → …` audit lines plus the summary).
+5. Extract the final summary line matching `[learn] Backlog sync:` (created/bumped/regressions, skipped, or no retro issues) for §5.
+
+The helper is fail-soft (always exits 0). Do not skip when `retro.md` is missing — the helper handles that case.
+
 ### 5. Report
 
 ```
@@ -263,6 +278,7 @@ After classification:
   Verdict: [CLEAN/PASS/FAIL]
   Step contracts: +N rules added to M step contracts
   Workflow fixes: [applied/none needed]
+  Backlog sync: [summary line from §4b helper stdout]
   Metrics: cycle K written to .claude/metrics.jsonl
   Consecutive clean: N/3
 ```
