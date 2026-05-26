@@ -1,0 +1,78 @@
+version: 1
+tasks:
+  - id: T-1
+    title: "Add regression test that locks script-kind minimal shape (RED)"
+    agent: developer
+    depends_on: []
+    files:
+      - config/steps/__tests__/test_all_contracts_have_agent_or_run.py
+    verify:
+      - cd /Users/spidey/code/orchestrator && python -m pytest config/steps/__tests__/test_all_contracts_have_agent_or_run.py::test_script_contracts_have_no_agent_protocol_fields -v
+    test_scenarios:
+      - "Test discovers every config/steps/*/contract.yaml on disk via glob"
+      - "Test filters to entries where contract.get('kind') == 'script'"
+      - "Test asserts {inputs, outputs, rules, instruction, verify}.isdisjoint(contract.keys()) for each"
+      - "Test FAILS before T-2/T-3 with a diagnostic message listing each offending contract and which banned keys it carries (proves the test actually detects the drift)"
+      - "Failure message names the contract id and the banned keys present, not just an opaque assertion error"
+    why: "AC-3"
+    change: "Append a new test function test_script_contracts_have_no_agent_protocol_fields to config/steps/__tests__/test_all_contracts_have_agent_or_run.py. Function globs glob.glob(os.path.join(_STEPS_DIR, '*', 'contract.yaml')), yaml.safe_loads each, filters to kind=='script', and collects violations into a list of (contract_id, banned_keys_present) tuples. Assert violations == [] with a multi-line error message. Do NOT touch the existing _load_contract helper or the existing test_all_workflow_steps_have_agent_or_run function."
+
+  - id: T-2
+    title: "Strip inputs/outputs stubs from 7 minimal script contracts (GREEN)"
+    agent: developer
+    depends_on: [T-1]
+    files:
+      - config/steps/archive-completed-change/contract.yaml
+      - config/steps/capture-test-baseline/contract.yaml
+      - config/steps/compute-prediction-accuracy/contract.yaml
+      - config/steps/compute-swe-metrics/contract.yaml
+      - config/steps/expand-plan/contract.yaml
+      - config/steps/mark-change-completed/contract.yaml
+      - config/steps/preview-route/contract.yaml
+    verify:
+      - cd /Users/spidey/code/orchestrator && python -m pytest config/steps/__tests__/test_all_contracts_have_agent_or_run.py::test_script_contracts_have_no_agent_protocol_fields -v
+      - cd /Users/spidey/code/orchestrator && python -m pytest config/steps/__tests__/test_all_contracts_have_agent_or_run.py -v
+    test_scenarios:
+      - "Each of the 7 contracts loads cleanly via yaml.safe_load after the edit"
+      - "Each contract's top-level key set is a subset of {id, kind, run, version, flags_read}"
+      - "Neither 'inputs:' nor 'outputs:' line remains in any of the 7 files"
+      - "The existing test_all_workflow_steps_have_agent_or_run continues to pass (run: script.sh still present)"
+    why: "AC-1"
+    change: "In each of the 7 listed contract.yaml files, delete the two lines 'inputs: []' and 'outputs: []'. No other edits — version: line and the id/kind/run lines stay. Each file shrinks by exactly 2 lines."
+
+  - id: T-3
+    title: "Strip agent-protocol surface from complete-workflow contract (GREEN)"
+    agent: developer
+    depends_on: [T-1]
+    files:
+      - config/steps/complete-workflow/contract.yaml
+    verify:
+      - cd /Users/spidey/code/orchestrator && python -m pytest config/steps/__tests__/test_all_contracts_have_agent_or_run.py::test_script_contracts_have_no_agent_protocol_fields -v
+      - cd /Users/spidey/code/orchestrator && python -m pytest config/scripts/orchestrator_next/tests/test_complete_workflow_contract.py -v
+      - cd /Users/spidey/code/orchestrator && grep -L 'No .outputs.' config/steps/complete-workflow/contract.yaml
+    test_scenarios:
+      - "complete-workflow/contract.yaml loads cleanly via yaml.safe_load"
+      - "Top-level keys are a subset of {id, kind, run, version, flags_read}"
+      - "No 'inputs:', 'outputs:', 'rules:', 'instruction:', or 'verify:' top-level key remains"
+      - "The 9-line trailing comment block beginning '# No `outputs:` block.' is fully removed"
+      - "test_complete_workflow_contract.py::test_complete_workflow_contract_shape continues to pass (its assertion contract.get('outputs') in (None, []) is satisfied by outputs being absent → None)"
+    why: "AC-1, AC-2"
+    change: "In config/steps/complete-workflow/contract.yaml, delete: (1) the 'inputs: []' line, (2) the 'outputs: []' line, (3) the blank line then the entire 'rules:' block (6 bullet items), (4) the 'instruction: |' block (5 lines of prose), (5) the 'verify:' list (3 items), (6) the trailing 9-line '# No `outputs:` block.' comment. After edit, the file contains only the 4 lines: id, version, kind, run."
+
+  - id: T-4
+    title: "Verify regression test now passes and run end-to-end test suite (GREEN gate)"
+    agent: developer
+    depends_on: [T-2, T-3]
+    files: []
+    verify:
+      - cd /Users/spidey/code/orchestrator && python -m pytest config/steps/__tests__/ -v
+      - cd /Users/spidey/code/orchestrator && python -m pytest config/scripts/orchestrator_next/tests/ -v
+      - cd /Users/spidey/code/orchestrator && git diff --name-only main...HEAD -- 'config/steps/*/contract.yaml'
+    test_scenarios:
+      - "test_script_contracts_have_no_agent_protocol_fields passes (was RED in T-1, now GREEN)"
+      - "test_all_workflow_steps_have_agent_or_run passes"
+      - "test_complete_workflow_contract.py suite passes"
+      - "Full config/scripts/orchestrator_next/tests/ suite passes"
+      - "No agent-kind contract appears in the change's diff (AC-6 guard)"
+    why: "AC-4, AC-6 — phase gate confirming all contract-shape and engine tests are green and no agent contract was inadvertently modified"
+    change: "No file edits — verification gate only. Runs the full contract-shape and orchestrator-engine test suites and asserts the diff contains no agent-kind contract."
