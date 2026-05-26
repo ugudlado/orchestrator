@@ -19,25 +19,14 @@ if [ -z "$ARG" ]; then
   exit 1
 fi
 
-# Resolve state.yaml path
-STATE_YAML=""
+# Resolve state.yaml path (see scripts/resolve-state-yaml.sh for lookup order)
 if [ -f "$ARG" ]; then
   STATE_YAML="$(cd "$(dirname "$ARG")" && pwd)/$(basename "$ARG")"
 else
-  for candidate in \
-    "$REPO_ROOT/spec/changes/$ARG/state.yaml" \
-    "$REPO_ROOT/spec/changes/archive/$ARG/state.yaml" \
-    "$REPO_ROOT/spec/changes/archive"/*"-$ARG"/state.yaml; do
-    if [ -f "$candidate" ]; then
-      STATE_YAML="$candidate"
-      break
-    fi
-  done
-fi
-
-if [ -z "$STATE_YAML" ] || [ ! -f "$STATE_YAML" ]; then
-  echo "ERROR: cannot locate state.yaml for '$ARG'" >&2
-  exit 1
+  STATE_YAML="$(bash "$SCRIPT_DIR/resolve-state-yaml.sh" "$ARG" "$REPO_ROOT")" || {
+    echo "ERROR: cannot locate state.yaml for '$ARG'" >&2
+    exit 1
+  }
 fi
 
 TICKET_ID="$(python3 - "$STATE_YAML" <<'PY'
