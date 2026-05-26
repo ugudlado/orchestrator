@@ -15,6 +15,7 @@ source "$SCRIPT_DIR/lib/ticket-common.sh"
 ARG="$(echo "${1:-}" | tr '[:upper:]' '[:lower:]')"
 REPO_ROOT="${2:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 REPO_ROOT="$(ticket_repo_root "$REPO_ROOT")"
+WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-$HOME/code/feature_worktrees}"
 
 if [ -z "$ARG" ]; then
   echo "Usage: qa-approve.sh <change-id-or-state-yaml> [repo-root]" >&2
@@ -28,7 +29,9 @@ if [ -f "$ARG" ]; then
 else
   for candidate in \
     "$REPO_ROOT/spec/changes/$ARG/state.yaml" \
+    "$WORKTREE_BASE_DIR/$ARG/spec/changes/$ARG/state.yaml" \
     "$REPO_ROOT/spec/changes/archive/$ARG/state.yaml" \
+    "$WORKTREE_BASE_DIR/$ARG/spec/changes/archive/$ARG/state.yaml" \
     "$REPO_ROOT/spec/changes/archive"/*"-$ARG"/state.yaml; do
     if [ -f "$candidate" ]; then
       STATE_YAML="$candidate"
