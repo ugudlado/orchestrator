@@ -43,8 +43,13 @@ def _collect_workflow_steps() -> Set[str]:
 
 def _load_contract(step_id: str) -> dict | None:
     """Load a step contract YAML, return None if not found."""
-    path = os.path.join(_STEPS_DIR, f"{step_id}.yaml")
-    if not os.path.exists(path):
+    dir_path = os.path.join(_STEPS_DIR, step_id, "contract.yaml")
+    flat_path = os.path.join(_STEPS_DIR, f"{step_id}.yaml")
+    if os.path.isfile(dir_path):
+        path = dir_path
+    elif os.path.isfile(flat_path):
+        path = flat_path
+    else:
         return None
     with open(path) as f:
         return yaml.safe_load(f)
