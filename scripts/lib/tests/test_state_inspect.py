@@ -271,6 +271,28 @@ class TestBuildPayload:
         # Original completion outputs preserved.
         assert payload["outputs"] == {"discovery.md": "discovery.md"}
 
+    def test_agent_kind_defaults_missing_outputs_and_hoists_learn_result(self, capsys):
+        _, out, _ = _run(
+            capsys,
+            [
+                "build-payload",
+                "agent",
+                "--step-id",
+                "run-learn-cycle",
+                "--phase",
+                "main",
+                "--agent",
+                "workflow-learner",
+                "--stdout-file",
+                "/nonexistent/path",
+            ],
+            stdin=json.dumps({"status": "completed", "learn_result": {"completed": True}}),
+        )
+        payload = json.loads(out)
+        assert isinstance(payload["outputs"], dict)
+        assert payload["outputs"]["learn_result"] == {"completed": True}
+        assert "learn_result" not in payload or payload.get("learn_result") is None
+
     def test_agent_kind_fills_default_usage_when_missing(self, capsys):
         _, out, _ = _run(
             capsys,

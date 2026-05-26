@@ -221,6 +221,13 @@ def cmd_build_payload(args: argparse.Namespace) -> int:
         payload["step_id"] = args.step_id
         payload["phase"] = args.phase
         payload["agent"] = args.agent
+        raw_outputs = payload.get("outputs")
+        if not isinstance(raw_outputs, dict):
+            payload["outputs"] = {}
+        # Agents sometimes place contract output keys beside status (not under outputs:).
+        for key in ("learn_result", "phase_review_report", "discovery_result"):
+            if key in payload and key not in payload["outputs"]:
+                payload["outputs"][key] = payload.pop(key)
         stdout_text = ""
         if args.stdout_file and os.path.isfile(args.stdout_file):
             with open(args.stdout_file, encoding="utf-8", errors="replace") as f:
