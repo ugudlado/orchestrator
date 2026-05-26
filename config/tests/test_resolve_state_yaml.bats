@@ -60,7 +60,8 @@ abs_path() {
 run_resolve() {
   local change_id="${1:-$CHANGE_ID}"
   STDERR_FILE="$BATS_TMPDIR/resolve-stderr-$$"
-  run bash "$RESOLVER" "$change_id" "$TEST_REPO" 2>"$STDERR_FILE"
+  # Redirect must live inside bash -c: bats run merges stderr into $output otherwise.
+  run bash -c "\"$RESOLVER\" \"${change_id}\" \"${TEST_REPO}\" 2>\"${STDERR_FILE}\""
   RESOLVE_STDERR="$(cat "$STDERR_FILE")"
 }
 
