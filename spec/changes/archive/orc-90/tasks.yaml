@@ -1,0 +1,95 @@
+version: 1
+tasks:
+  - id: T-1
+    title: "Write bats tests for render-retro.sh (RED — tests must fail)"
+    depends_on: []
+    files:
+      - tests/bats/render-retro.bats
+      - tests/bats/fixtures/retro-populated.md
+      - tests/bats/fixtures/retro-header-only.md
+    verify:
+      - bats tests/bats/render-retro.bats
+    test_scenarios:
+      - "fixture retro-populated.md (3 ISSUE blocks) → stderr contains '## Issues this run (3)' and a markdown pipe-table whose header reads 'Severity | Category | Detail | Fix direction' in that order; one body row per issue in document order; exit 0"
+      - "missing retro.md (call with a change_id that has no archive dir) → stdout empty, stderr empty, exit 0"
+      - "header-only fixture (banner present, zero '## ISSUE-' headings) → stdout empty, stderr empty, exit 0"
+      - "malformed issue block (missing 'severity' bullet) → cell renders as '—'; remaining rows still render; exit 0"
+      - "detail value of 200 characters → cell value truncated to 120 chars with trailing '…'; full text preserved in fixture file"
+      - "renderer behaves identically with AUTO=true and AUTO=false env (no prompt, no pause, identical stderr capture)"
+    why: "AC-1, AC-2, AC-3, AC-4, AC-6, AC-7, AC-8 — failing tests pin down the renderer contract before any implementation exists."
+    change: "Create tests/bats/render-retro.bats with six @test blocks plus two retro.md fixtures under tests/bats/fixtures/. All tests must fail with 'scripts/render-retro.sh: No such file or directory' before T-2."
+
+  - id: T-2
+    title: "Implement scripts/render-retro.sh (GREEN — make T-1 pass)"
+    depends_on: [T-1]
+    files:
+      - scripts/render-retro.sh
+    verify:
+      - bats tests/bats/render-retro.bats
+      - bash -n scripts/render-retro.sh
+    test_scenarios:
+      - "all six T-1 bats tests pass"
+      - "shellcheck scripts/render-retro.sh (if installed) produces no errors"
+      - "running scripts/render-retro.sh against a populated retro.md fixture from the command line prints the expected table on stderr"
+    why: "AC-1, AC-2, AC-3, AC-6, AC-7 — the renderer itself, isolated and testable."
+    change: |
+      Create scripts/render-retro.sh as a new ~80-line bash + python3-heredoc script.
+      Argument: $1 = change_id (exit 2 with usage if absent).
+      Env: WORKTREE_ROOT (default $PWD), REPO_ROOT (default $WORKTREE_ROOT).
+      Resolution chain (first existing wins):
+        1. $WORKTREE_ROOT/spec/changes/archive/<change_id>/retro.md
+        2. $WORKTREE_ROOT/spec/changes/archive/*-<change_id>/retro.md (legacy date-prefixed; use a glob)
+        3. $REPO_ROOT/spec/changes/archive/<change_id>/retro.md
+        4. $REPO_ROOT/spec/changes/archive/*-<change_id>/retro.md
+        5. $WORKTREE_ROOT/spec/changes/<change_id>/retro.md (pre-archive fallback)
+      Silent-omit guards (return 0 with no output):
+        - no candidate path exists
+        - `grep -cE '^## ISSUE-' "$path"` returns 0
+        - python3 not on PATH (emit one-line "render-retro: python3 missing" to stderr, exit 0)
+      Parser (python3 heredoc, mirrors append-retro.sh's pattern):
+        - split file on regex r'^## ISSUE-\d+' headings
+        - for each block, extract bullets: severity, category, detail, fix_direction (regex r'^- \*\*(\w+)\*\*:\s*(.*)$')
+        - missing field → '—'
+        - per-cell truncate to 120 chars + '…' for detail and fix_direction
+        - print to stderr:
+              "" (blank line)
+              "## Issues this run (N)"
+              "| Severity | Category | Detail | Fix direction |"
+              "|---|---|---|---|"
+              one "| ... | ... | ... | ... |" row per issue, in document order
+
+  - id: T-3
+    title: "Wire render-retro.sh into _emit_feature_rollup"
+    depends_on: [T-2]
+    files:
+      - scripts/run-workflow.sh
+      - tests/bats/render-retro.bats
+    verify:
+      - bash -n scripts/run-workflow.sh
+      - bats tests/bats/render-retro.bats
+    test_scenarios:
+      - "_emit_feature_rollup prints the cost line first, then (if retro has issues) the rendered table — both on stderr, in that order, no separator other than a single blank line"
+      - "_emit_feature_rollup with a change_id that has no archived retro.md still prints the cost line and exits cleanly"
+      - "_emit_feature_rollup added to bats test exercises the integration: source the function, call it with a fixture change_id, capture stderr, assert ordering (cost line BEFORE issues table)"
+    why: "AC-5 — cost and issues appear together at the end of every workflow run."
+    change: |
+      Edit scripts/run-workflow.sh:349-362 (_emit_feature_rollup body). After the existing
+      `echo "[$(_log_ts)] feature complete: $tail_line" >&2` line, append:
+        - a `find "$SCRIPT_DIR" "$REPO_ROOT/scripts" -maxdepth 2 -name "render-retro.sh" 2>/dev/null | head -1` lookup, mirroring the cost_sh pattern
+        - `if [ -n "$render_sh" ] && [ -f "$render_sh" ]; then bash "$render_sh" "$change_id" >&2 || true; fi`
+      The `|| true` ensures renderer failure never breaks the driver loop.
+      Add one bats test in tests/bats/render-retro.bats that sources run-workflow.sh, sets up a fake change_id with archived retro.md, calls `_emit_feature_rollup`, and asserts both lines appear on stderr in the documented order.
+
+  - id: T-4
+    title: "Review checkpoint — full bats + driver integration (phase gate)"
+    depends_on: [T-3]
+    files: []
+    verify:
+      - bats tests/bats/render-retro.bats
+      - bash -n scripts/render-retro.sh
+      - bash -n scripts/run-workflow.sh
+    test_scenarios:
+      - "all render-retro.bats tests pass"
+      - "shell syntax check passes for both modified files"
+      - "no regression: existing bats suite under tests/bats/ still green"
+    why: "phase gate — confirm renderer + driver integration land cleanly before signoff."
