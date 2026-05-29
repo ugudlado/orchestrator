@@ -1,0 +1,128 @@
+# tasks.yaml for orc-96 — Inject project.yaml learnings into agent step_context.
+#
+# The dispatch.py implementation (helpers + both injection sites + best-effort
+# error handling + JSON date-flatten) already landed CLEAN in this worktree
+# during the investigation that unblocked this workflow. The remaining work is
+# TEST COVERAGE of the as-built seams — the gap CMEM flagged ("learnings
+# functionality untested").
+#
+# These are test-only tasks. They MUST NOT edit, re-implement, or list
+# config/scripts/orchestrator_next/dispatch.py in `files:`. A developer agent
+# that re-implements _relevant_learnings / _load_learnings would damage clean
+# code. `change:` points at the dispatch.py:NNN lines each test pins.
+version: 1
+tasks:
+  - id: T-1
+    title: "Test _load_learnings loader: missing/empty/malformed/date-flatten (UC-E1, UC-E2)"
+    depends_on: []
+    files:
+      - config/scripts/orchestrator_next/tests/test_dispatch_learnings.py
+    verify:
+      - pytest config/scripts/orchestrator_next/tests/test_dispatch_learnings.py -v
+    test_scenarios:
+      - "no project.yaml (state has no resolvable spec/project.yaml) → _load_learnings returns []"
+      - "project.yaml present but `learnings:` key absent → returns []"
+      - "`learnings:` is a scalar/dict, not a list → returns []"
+      - "unreadable/malformed YAML → returns [] (stderr warning allowed)"
+      - "entry with `learned: 2026-04-09` (YAML date) → result is JSON-serializable, date is a string"
+      - "non-dict items in the learnings list are dropped"
+    why: "Design AC-4 (no project.yaml → []), AC-5 (empty/malformed → [], no crash)"
+    change: "New test file. Pin _load_learnings (dispatch.py:326-348): assert [] on
+      the missing/absent/non-list/unreadable cases, and assert json.dumps(result)
+      succeeds with the date coerced to str (the dispatch.py:345-348 round-trip).
+      Build state dicts with repo_root=tmp_path and write spec/project.yaml under it;
+      reuse the _make_state_yaml / project.yaml fixture pattern from
+      test_dispatch_step_context.py and test_dispatch_guards.py. Do NOT edit dispatch.py."
+
+  - id: T-2
+    title: "Test _relevant_learnings policy: informational exclusion + tag matching (UC-2, AC-4 tags)"
+    depends_on: []
+    files:
+      - config/scripts/orchestrator_next/tests/test_dispatch_learnings.py
+    verify:
+      - pytest config/scripts/orchestrator_next/tests/test_dispatch_learnings.py -v
+    test_scenarios:
+      - "entry with `kind: informational` is excluded; behavioral entries retained"
+      - "untagged entry (no agents:/phases:) is included for every agent and phase (universal)"
+      - "entry with `agents: [developer]` is included for developer, excluded for reviewer"
+      - "entry with `phases: [implement]` is included in implement phase, excluded in specify"
+      - "entry tagged with BOTH agents: and phases: requires both to match"
+      - "order is preserved in the returned list"
+    why: "Design AC-2 (exclude informational), AC-6 (tag matching, untagged=universal)"
+    change: "Add test functions to the T-1 file pinning _relevant_learnings
+      (dispatch.py:351-380): drive it directly with crafted learnings lists and
+      (agent_name, phase) args; assert the dispatch.py:371 informational skip, the
+      dispatch.py:373-378 agents/phases filters, and that untagged entries pass
+      through. Do NOT edit dispatch.py."
+
+  - id: T-3
+    title: "Test injection sites: agent path injects, resume path injects, run: path omits (UC-1, UC-E3)"
+    depends_on: [T-1, T-2]
+    files:
+      - config/scripts/orchestrator_next/tests/test_dispatch_learnings.py
+    verify:
+      - pytest config/scripts/orchestrator_next/tests/test_dispatch_learnings.py -v
+    test_scenarios:
+      - "agent-path dispatch with behavioral learnings → action['learnings'] is the filtered list (AC-1)"
+      - "agent-path dispatch with no project.yaml → action carries learnings: [] and exit code 0 (AC-4)"
+      - "fresh inline run: path dispatch → action has NO 'learnings' key (AC-3)"
+      - "resume path (in_progress AGENT step retry) → resume action carries learnings (mirrors fresh)"
+      - "resume path (in_progress INLINE run: step) → action carries learnings (as-built edge, OQ-A); pin actual behavior"
+      - "informational-only project.yaml on agent path → action['learnings'] == []"
+    why: "Design AC-1 (inject on agent path), AC-3 (omit on FRESH run: path), AC-4 (no project.yaml → exit 0)"
+    change: "Add end-to-end dispatch tests to the T-1 file. Call dispatch(load_state(sp), sp)
+      and assert: agent branch (dispatch.py:593-616) sets action['learnings'];
+      FRESH run: branch (dispatch.py:617-637) has no 'learnings' key; resume branch
+      (dispatch.py:471-527) sets it for both agent and inline resumes (the resume
+      branch has no agent-vs-run guard — pin the as-built behavior per design OQ-A,
+      do not assert it clean). Use a `run:` contract for the AC-3 case and an
+      in_progress step_history row for the resume cases (see test_dispatch_resume.py
+      and test_spawn_resume.py for the resume fixture shape). Write spec/project.yaml
+      under repo_root=tmp_path. Do NOT edit dispatch.py."
+
+  - id: T-4
+    title: "Review checkpoint — learnings injection test coverage (phase gate)"
+    depends_on: [T-3]
+    files: []
+    verify:
+      - pytest config/scripts/orchestrator_next/tests/ -q
+    test_scenarios:
+      - "new test_dispatch_learnings.py passes in full"
+      - "full orchestrator_next test suite green — no regressions (AC-7)"
+    why: "Design AC-7 — full suite green; phase gate confirms the new tests integrate cleanly"
+    change: "No code change. Run the full dispatch test suite from repo root and
+      confirm green, including the new test_dispatch_learnings.py."
+
+  - id: fix-1
+    title: "Commit the uncommitted learnings implementation in dispatch.py"
+    depends_on: [T-4]
+    files:
+      - config/scripts/orchestrator_next/dispatch.py
+    verify:
+      - git diff HEAD --quiet -- config/scripts/orchestrator_next/dispatch.py
+      - pytest config/scripts/orchestrator_next/tests/test_dispatch_learnings.py -q
+      - pytest config/scripts/orchestrator_next/tests/ -q
+    test_scenarios:
+      - "git diff HEAD on dispatch.py is empty (implementation is committed, not just in working tree)"
+      - "git show HEAD:dispatch.py contains def _load_learnings and def _relevant_learnings"
+      - "test_dispatch_learnings.py collects and passes against committed HEAD (no ImportError)"
+      - "full orchestrator_next suite green from committed tree"
+    why: >-
+      CRITICAL (run-phase-review finding): the entire learnings feature
+      (_load_learnings, _relevant_learnings, both injection sites — 96 insertions)
+      lives ONLY as an uncommitted `M dispatch.py` working-tree change. The three
+      ORC-96 commits added the test file alone; committed HEAD:dispatch.py has zero
+      `learnings` references. A clean checkout of feature/orc-96 fails collection
+      with `ImportError: cannot import name '_load_learnings'` (proven by stashing
+      the edit). AC-1/AC-3/AC-4/AC-6/AC-7 only pass because of uncommitted code, so
+      the phase cannot pass — the feature would merge as tests-without-implementation.
+    change: >-
+      No code edit. Stage and commit ONLY config/scripts/orchestrator_next/dispatch.py
+      (the existing working-tree implementation — do NOT rewrite or re-derive it; it
+      is correct and already validated by the T-1..T-3 tests). Use message
+      `feat(orc-96): commit learnings injection implementation (_load_learnings,
+      _relevant_learnings, agent+resume injection sites)`. Do NOT stage doctor.py,
+      test_doctor.py (already committed on this branch), the pytest-of-spidey/ cache,
+      or spec/changes/orc-96/ artifacts. After committing, verify `git diff HEAD
+      --quiet -- config/scripts/orchestrator_next/dispatch.py` exits 0 and the test
+      suite is green against the committed tree.
