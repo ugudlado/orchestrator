@@ -1,14 +1,16 @@
 """
-Tests for dispatch.py learnings helpers (ORC-96).
+Tests for dispatch.py learnings helpers and injection sites (ORC-96).
 
 T-1: _load_learnings — project.yaml loader edge cases (UC-E1 / UC-E2).
 T-2: _relevant_learnings — informational exclusion + tag matching (UC-2, AC-4).
+T-3: dispatch() — agent path injects, fresh run: omits, resume injects (UC-1, UC-E3).
 """
 from __future__ import annotations
 
 import json
 import os
 import sys
+import textwrap
 from datetime import date
 from pathlib import Path
 
@@ -20,7 +22,8 @@ _SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-from orchestrator_next.dispatch import _load_learnings, _relevant_learnings
+from orchestrator_next.dispatch import _load_learnings, _relevant_learnings, dispatch
+from orchestrator_next.parser import load_state
 
 
 def _make_state_raw(repo_root: Path, **extra: object) -> dict:
@@ -196,3 +199,300 @@ class TestRelevantLearningsOrder:
             "rule-third",
             "rule-fourth",
         ]
+
+
+# --- dispatch() injection sites (T-3) -----------------------------------------
+
+
+def _sample_learnings_project() -> dict:
+    """Behavioral + informational + agent-tagged entries for filter assertions."""
+    return {
+        "learnings": [
+            {"id": "behavior-1", "rule": "Always run tests before commit."},
+            {
+                "id": "info-1",
+                "kind": "informational",
+                "rule": "Benchmark refs only.",
+            },
+            {
+                "id": "dev-only",
+                "rule": "Developer-specific rule.",
+                "agents": ["developer"],
+            },
+        ]
+    }
+
+
+def _informational_only_project() -> dict:
+    return {
+        "learnings": [
+            {
+                "id": "info-only",
+                "kind": "informational",
+                "rule": "Reference data only.",
+            },
+        ]
+    }
+
+
+def _write_agent_contract(steps_dir: Path, step_id: str, *, agent: str = "developer") -> None:
+    (steps_dir / f"{step_id}.yaml").write_text(
+        textwrap.dedent(
+            f"""\
+            id: {step_id}
+            agent: {agent}
+            instruction: Run {step_id}.
+            rules: []
+            inputs: []
+            outputs: []
+            """
+        )
+    )
+
+
+def _write_run_contract(steps_dir: Path, step_id: str, script_path: Path) -> None:
+    (steps_dir / f"{step_id}.yaml").write_text(
+        textwrap.dedent(
+            f"""\
+            id: {step_id}
+            run: {script_path}
+            inputs: []
+            outputs: []
+            rules: []
+            """
+        )
+    )
+
+
+def _pending_node(step_id: str, *, agent: str = "developer") -> dict:
+    return {
+        "id": step_id,
+        "status": "pending",
+        "agent": agent,
+        "goal": f"Run {step_id}",
+        "inputs": [],
+        "outputs": [],
+        "rules": [],
+        "depends_on": [],
+    }
+
+
+def _in_progress_history_row(
+    step_id: str,
+    *,
+    phase: str = "main",
+    agent: str = "developer",
+    attempt: int = 1,
+) -> dict:
+    return {
+        "step_id": step_id,
+        "phase": phase,
+        "status": "in_progress",
+        "agent": agent,
+        "attempt": attempt,
+        "started_at": "2026-01-01T00:00:00Z",
+    }
+
+
+def _setup_dispatch_fixture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    state: dict,
+    *,
+    project_yaml: dict | None = None,
+    steps: list[tuple[str, str]] | None = None,
+    run_scripts: dict[str, Path] | None = None,
+) -> str:
+    """Write contracts, optional project.yaml, state.yaml; return state path."""
+    steps_dir = tmp_path / "steps"
+    steps_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps_dir))
+
+    run_scripts = run_scripts or {}
+    for step_id, kind in steps or []:
+        if kind == "agent":
+            _write_agent_contract(steps_dir, step_id)
+        elif kind == "run":
+            script = run_scripts.get(step_id)
+            if script is None:
+                script = tmp_path / f"{step_id}.sh"
+                script.write_text("#!/usr/bin/env bash\nexit 0\n")
+                script.chmod(0o755)
+            _write_run_contract(steps_dir, step_id, script)
+
+    if project_yaml is not None:
+        spec_dir = tmp_path / "spec"
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        (spec_dir / "project.yaml").write_text(
+            yaml.safe_dump(project_yaml, sort_keys=False)
+        )
+
+    state.setdefault("repo_root", str(tmp_path))
+    state.setdefault("worktree_path", str(tmp_path))
+    state_path = tmp_path / "state.yaml"
+    state_path.write_text(yaml.safe_dump(state, sort_keys=False))
+    return str(state_path)
+
+
+class TestDispatchLearningsInjection:
+    """End-to-end dispatch(load_state(sp), sp) learnings key behavior (T-3)."""
+
+    def test_agent_path_injects_filtered_learnings(self, tmp_path, monkeypatch) -> None:
+        """AC-1: agent-path dispatch attaches policy-filtered learnings."""
+        step_id = "learnings-agent-step"
+        sp = _setup_dispatch_fixture(
+            tmp_path,
+            monkeypatch,
+            {
+                "change_id": "orc96-agent",
+                "phase": "main",
+                "workflow_plan": {
+                    "main": {"nodes": [_pending_node(step_id)], "filtered": []}
+                },
+                "step_history": [],
+            },
+            project_yaml=_sample_learnings_project(),
+            steps=[(step_id, "agent")],
+        )
+        action, code = dispatch(load_state(sp), sp)
+
+        assert code == 0
+        assert "agent" in action
+        assert "learnings" in action
+        ids = [item["id"] for item in action["learnings"]]
+        assert ids == ["behavior-1", "dev-only"]
+        assert action["learnings"] == _relevant_learnings(
+            _load_learnings({"repo_root": str(tmp_path), "worktree_path": str(tmp_path)}),
+            "developer",
+            "main",
+        )
+
+    def test_agent_path_no_project_yaml_learnings_empty_exit_0(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """AC-4: missing project.yaml → learnings: [], exit 0."""
+        step_id = "learnings-agent-step"
+        sp = _setup_dispatch_fixture(
+            tmp_path,
+            monkeypatch,
+            {
+                "change_id": "orc96-no-yaml",
+                "phase": "main",
+                "workflow_plan": {
+                    "main": {"nodes": [_pending_node(step_id)], "filtered": []}
+                },
+                "step_history": [],
+            },
+            project_yaml=None,
+            steps=[(step_id, "agent")],
+        )
+        action, code = dispatch(load_state(sp), sp)
+
+        assert code == 0
+        assert action.get("learnings") == []
+
+    def test_fresh_run_path_omits_learnings_key(self, tmp_path, monkeypatch) -> None:
+        """AC-3: fresh inline run: dispatch has no learnings key."""
+        step_id = "learnings-run-step"
+        sp = _setup_dispatch_fixture(
+            tmp_path,
+            monkeypatch,
+            {
+                "change_id": "orc96-run",
+                "phase": "main",
+                "workflow_plan": {
+                    "main": {"nodes": [_pending_node(step_id, agent="inline")], "filtered": []}
+                },
+                "step_history": [],
+            },
+            project_yaml=_sample_learnings_project(),
+            steps=[(step_id, "run")],
+        )
+        action, code = dispatch(load_state(sp), sp)
+
+        assert code == 0
+        assert "run" in action
+        assert "agent" not in action
+        assert "learnings" not in action
+
+    def test_informational_only_project_yaml_empty_learnings(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """Informational-only corpus → action['learnings'] == []."""
+        step_id = "learnings-agent-step"
+        sp = _setup_dispatch_fixture(
+            tmp_path,
+            monkeypatch,
+            {
+                "change_id": "orc96-info-only",
+                "phase": "main",
+                "workflow_plan": {
+                    "main": {"nodes": [_pending_node(step_id)], "filtered": []}
+                },
+                "step_history": [],
+            },
+            project_yaml=_informational_only_project(),
+            steps=[(step_id, "agent")],
+        )
+        action, code = dispatch(load_state(sp), sp)
+
+        assert code == 0
+        assert action.get("learnings") == []
+
+    def test_resume_agent_path_carries_learnings(self, tmp_path, monkeypatch) -> None:
+        """Resume of in_progress agent step mirrors fresh agent learnings injection."""
+        step_id = "learnings-agent-step"
+        sp = _setup_dispatch_fixture(
+            tmp_path,
+            monkeypatch,
+            {
+                "change_id": "orc96-resume-agent",
+                "phase": "main",
+                "workflow_plan": {
+                    "main": {"nodes": [_pending_node(step_id)], "filtered": []}
+                },
+                "step_history": [_in_progress_history_row(step_id)],
+            },
+            project_yaml=_sample_learnings_project(),
+            steps=[(step_id, "agent")],
+        )
+        action, code = dispatch(load_state(sp), sp)
+
+        assert code == 0
+        assert action.get("is_resume") is True
+        assert "learnings" in action
+        ids = [item["id"] for item in action["learnings"]]
+        assert ids == ["behavior-1", "dev-only"]
+
+    def test_resume_inline_run_path_carries_learnings_as_built(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """OQ-A: resume of in_progress run: step still sets learnings (as-built)."""
+        step_id = "learnings-run-step"
+        sp = _setup_dispatch_fixture(
+            tmp_path,
+            monkeypatch,
+            {
+                "change_id": "orc96-resume-run",
+                "phase": "main",
+                "workflow_plan": {
+                    "main": {
+                        "nodes": [_pending_node(step_id, agent="inline")],
+                        "filtered": [],
+                    }
+                },
+                "step_history": [
+                    _in_progress_history_row(step_id, agent="inline")
+                ],
+            },
+            project_yaml=_sample_learnings_project(),
+            steps=[(step_id, "run")],
+        )
+        action, code = dispatch(load_state(sp), sp)
+
+        assert code == 0
+        assert action.get("is_resume") is True
+        assert "run" not in action
+        # Resume branch has no agent-vs-run guard; universal learnings still attach.
+        assert "learnings" in action
+        assert [item["id"] for item in action["learnings"]] == ["behavior-1"]
