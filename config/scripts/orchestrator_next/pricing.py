@@ -41,8 +41,15 @@ def _orchestrator_home() -> Path:
 
 @functools.lru_cache(maxsize=1)
 def _load_routes() -> dict:
-    """Load scripts/routes.yaml (cached per process)."""
-    path = _orchestrator_home() / "scripts" / "routes.yaml"
+    """Load config/agents.yaml routing config (cached per process).
+
+    ORC-105: merged from scripts/routes.yaml into config/agents.yaml. Falls
+    back to the legacy path so older installs / worktrees still resolve.
+    """
+    home = _orchestrator_home()
+    path = home / "config" / "agents.yaml"
+    if not path.is_file():
+        path = home / "scripts" / "routes.yaml"  # legacy fallback
     try:
         with open(path) as f:
             return yaml.safe_load(f) or {}

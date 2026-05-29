@@ -47,7 +47,9 @@ fi
 
 REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$REPO_ROOT}"
-ROUTES_FILE="${ROUTES_FILE:-$REPO_ROOT/scripts/routes.yaml}"
+# ORC-105: routes merged into config/agents.yaml; legacy scripts/routes.yaml fallback.
+ROUTES_FILE="${ROUTES_FILE:-$REPO_ROOT/config/agents.yaml}"
+if [ ! -f "$ROUTES_FILE" ]; then ROUTES_FILE="$REPO_ROOT/scripts/routes.yaml"; fi
 ARCHIVE_GLOB="${ARCHIVE_GLOB:-$REPO_ROOT/spec/changes/archive/*/state.yaml}"
 
 SCHEMA=$(awk '/^schema:/ {print $2; exit}' "$STATE_FILE" | tr -d '"')

@@ -226,6 +226,10 @@ def sync_agent(source_path: Path, config: dict[str, Any], out_dirs: list[Path]) 
 def main() -> int:
     args = parse_args()
     config = yaml.safe_load(args.config.read_text(encoding="utf-8")) or {}
+    # ORC-105: pi overrides now live under a `pi:` key in the merged
+    # config/agents.yaml. Unwrap it; fall back to the flat top-level shape
+    # for the legacy standalone config/pi-agents.yaml.
+    config = config.get("pi", config)
     sources = sorted(args.source.glob("*.md"))
     if not sources:
         print(f"error: no agent files found in {args.source}", file=sys.stderr)

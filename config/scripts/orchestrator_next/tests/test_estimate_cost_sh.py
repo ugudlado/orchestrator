@@ -59,7 +59,7 @@ _HERE = Path(__file__).parent.resolve()
 _SCRIPTS_DIR = _HERE.parents[1]           # config/scripts/
 _REPO_ROOT = _HERE.parents[3]             # repo root
 _ESTIMATE_COST_SH = _SCRIPTS_DIR / "estimate-cost.sh"
-_ROUTES_YAML = _REPO_ROOT / "scripts" / "routes.yaml"
+_ROUTES_YAML = _REPO_ROOT / "config" / "agents.yaml"  # ORC-105: merged from scripts/routes.yaml
 _FIXTURE = _HERE / "fixtures" / "estimate_cost_before.txt"
 
 

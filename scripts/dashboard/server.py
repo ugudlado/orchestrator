@@ -20,7 +20,10 @@ from fastapi.staticfiles import StaticFiles
 ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT / "metrics.duckdb"
 REGISTRY_PATH = ROOT / "metrics-registry.yaml"
-ROUTES_PATH = ROOT / "scripts" / "routes.yaml"
+# ORC-105: routes merged into config/agents.yaml; legacy scripts/routes.yaml fallback.
+ROUTES_PATH = ROOT / "config" / "agents.yaml"
+if not ROUTES_PATH.exists():
+    ROUTES_PATH = ROOT / "scripts" / "routes.yaml"
 WORKFLOWS_DIR = Path(os.path.expanduser("~/.workflows"))
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
