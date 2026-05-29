@@ -111,18 +111,30 @@ def _consecutive_spawn_failures(
     return count
 
 
-def _max_spawn_failures(state_raw: dict[str, Any]) -> int:
-    """Read `quality_bar.max_spawn_failures` from the repo's project.yaml (orc-85)."""
-    candidate: Path | None = None
+def _project_yaml_path(state_raw: dict[str, Any]) -> Path | None:
+    """Resolve the repo's project.yaml, worktree-first then repo_root (orc-85).
+
+    Shared by callers that read project.yaml fields (quality_bar, learnings).
+    Returns None when neither location yields an existing file.
+    """
     worktree = state_raw.get("worktree_path")
     if isinstance(worktree, str) and worktree:
         wt = Path(os.path.expanduser(worktree))
         if wt.is_dir():
             candidate = wt / "spec" / "project.yaml"
-    if candidate is None:
-        repo_root = state_raw.get("repo_root")
-        if isinstance(repo_root, str) and repo_root:
-            candidate = Path(os.path.expanduser(repo_root)) / "spec" / "project.yaml"
+            if candidate.is_file():
+                return candidate
+    repo_root = state_raw.get("repo_root")
+    if isinstance(repo_root, str) and repo_root:
+        candidate = Path(os.path.expanduser(repo_root)) / "spec" / "project.yaml"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _max_spawn_failures(state_raw: dict[str, Any]) -> int:
+    """Read `quality_bar.max_spawn_failures` from the repo's project.yaml (orc-85)."""
+    candidate = _project_yaml_path(state_raw)
 
     if candidate is not None and candidate.is_file():
         try:
@@ -311,6 +323,63 @@ def _node_step_context(state: State, step_id: str) -> dict[str, Any]:
     return {"id": step_id}
 
 
+def _load_learnings(state_raw: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read `learnings[]` from the repo's project.yaml. Empty list on any failure.
+
+    project.yaml learnings are already repo-scoped — the file IS the repo. So
+    no repo: filtering here (that lives in contract-rule metadata, not here).
+    This just loads the raw list; relevance filtering is _relevant_learnings.
+    """
+    path = _project_yaml_path(state_raw)
+    if path is None:
+        return []
+    try:
+        data = yaml.safe_load(path.read_text()) or {}
+    except (yaml.YAMLError, OSError) as exc:
+        sys.stderr.write(f"[dispatch] warning: could not read learnings from {path}: {exc}\n")
+        return []
+    learnings = data.get("learnings") if isinstance(data, dict) else None
+    if not isinstance(learnings, list):
+        return []
+    items = [item for item in learnings if isinstance(item, dict)]
+    # YAML parses `learned: 2026-04-09` into a date object, which is not JSON
+    # serializable — the action payload must be. Round-trip through json with
+    # default=str to flatten dates (and any other non-JSON scalar) to strings.
+    return json.loads(json.dumps(items, default=str))
+
+
+def _relevant_learnings(
+    learnings: list[dict[str, Any]], agent_name: str, phase: str
+) -> list[dict[str, Any]]:
+    """Select which project learnings to inject into a given agent's context.
+
+    Policy (tag-and-filter, untagged = universal):
+      - Exclude `kind: informational` — reference data (e.g. external-benchmark-
+        references), not behavioral guidance for an agent.
+      - If a learning carries an optional `agents:` list, include it only when
+        `agent_name` is in that list. If it carries `phases:`, include only when
+        `phase` matches. A learning with both must match both.
+      - Untagged learnings (no `agents:` and no `phases:`) are universal —
+        injected for every agent. This degrades to inject-all today, since no
+        learning is tagged yet, and tightens automatically as the learner adds
+        tags going forward.
+
+    Order is preserved. Returns [] to inject nothing.
+    """
+    selected: list[dict[str, Any]] = []
+    for item in learnings:
+        if item.get("kind") == "informational":
+            continue
+        agents = item.get("agents")
+        if isinstance(agents, list) and agents and agent_name not in agents:
+            continue
+        phases = item.get("phases")
+        if isinstance(phases, list) and phases and phase not in phases:
+            continue
+        selected.append(item)
+    return selected
+
+
 def _persist_node_status(state_yaml_path: str, phase: str, step_id: str, status: str) -> None:
     """Mark a node's status in state.yaml on disk via readiness.mark_node_status.
 
@@ -431,6 +500,15 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             )
         inputs_resolved, _missing = _resolve_inputs(state, contract)
         resolved_allowed_tools = _resolve_allowed_tools(contract)
+        # Best-effort learnings injection (mirrors the fresh-dispatch path below);
+        # a failure here must never block a resume.
+        try:
+            _resume_learnings = _relevant_learnings(
+                _load_learnings(state.raw), contract.agent, state.phase
+            )
+        except Exception as exc:  # noqa: BLE001 — dispatch must not crash on this
+            sys.stderr.write(f"[dispatch] warning: learnings injection skipped: {exc}\n")
+            _resume_learnings = []
         action = {
             "step_id": step_id,
             "phase": state.phase,
@@ -438,6 +516,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "is_resume": True,
             "started_at": last.started_at,
             "agent": contract.agent,
+            "learnings": _resume_learnings,
             "instruction": contract.instruction,
             "rules": contract.rules,
             "inputs": inputs_resolved,
@@ -512,11 +591,21 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
 
     # ORC-45 two-path dispatch: agent: → spawn; run: → execute inline; else → error.
     if contract.agent:
+        # Learnings injection is best-effort: a failure here must never block a
+        # spawn. Degrade to no learnings rather than taking down the dispatcher.
+        try:
+            learnings = _relevant_learnings(
+                _load_learnings(state.raw), contract.agent, state.phase
+            )
+        except Exception as exc:  # noqa: BLE001 — dispatch must not crash on this
+            sys.stderr.write(f"[dispatch] warning: learnings injection skipped: {exc}\n")
+            learnings = []
         action = {
             "step_id": next_step_id,
             "phase": state.phase,
             "attempt": attempt,
             "agent": contract.agent,
+            "learnings": learnings,
             "instruction": contract.instruction,
             "rules": contract.rules,
             "inputs": inputs_resolved,
