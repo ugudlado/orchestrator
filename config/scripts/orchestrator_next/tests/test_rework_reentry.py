@@ -417,3 +417,32 @@ class TestReworkRecordExhaustion:
         action, exit_code = dispatch.dispatch(state, state_path)
         assert exit_code == 2
         assert action == {}
+
+
+# ---------------------------------------------------------------------------
+# fix-1: record() history entry through _effective_node_status / next_ready_node
+# ---------------------------------------------------------------------------
+
+
+class TestReworkRecordComposition:
+    """F-1: real record()-produced needs_work entry via next_ready_node (orc-96 surface)."""
+
+    def test_real_needs_work_record_reenters_then_pass_advances(
+        self, tmp_path, monkeypatch,
+    ):
+        """record() needs_work → re-entry at review; pass → advance to compute."""
+        state_path = _record_setup(
+            tmp_path,
+            monkeypatch,
+            _nodes_state_with_compute(tmp_path),
+            max_retry_rounds=8,
+        )
+
+        record.record(state_path, _review_payload("needs_work"))
+        state = load_state(state_path)
+        assert readiness.next_ready_node(state) == "run-phase-review"
+        assert readiness.next_ready_node(state) != "compute-prediction-accuracy"
+
+        record.record(state_path, _review_payload("pass"))
+        state = load_state(state_path)
+        assert readiness.next_ready_node(state) == "compute-prediction-accuracy"
