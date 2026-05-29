@@ -1,8 +1,8 @@
 """
-Tests for dispatch.py _load_learnings (ORC-96): project.yaml loader edge cases.
+Tests for dispatch.py learnings helpers (ORC-96).
 
-Pins UC-E1 / UC-E2 — missing file, absent key, non-list, malformed YAML,
-YAML date flattening, non-dict item filtering.
+T-1: _load_learnings — project.yaml loader edge cases (UC-E1 / UC-E2).
+T-2: _relevant_learnings — informational exclusion + tag matching (UC-2, AC-4).
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ _SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-from orchestrator_next.dispatch import _load_learnings
+from orchestrator_next.dispatch import _load_learnings, _relevant_learnings
 
 
 def _make_state_raw(repo_root: Path, **extra: object) -> dict:
@@ -114,3 +114,85 @@ class TestLoadLearningsHappyPath:
         )
         result = _load_learnings(_make_state_raw(tmp_path))
         assert result == [{"id": "keep-me", "rule": "valid dict entry"}]
+
+
+# --- _relevant_learnings (T-2) ------------------------------------------------
+
+
+def _learning(id_suffix: str, **fields: object) -> dict:
+    entry: dict = {"id": f"rule-{id_suffix}", "rule": f"Rule {id_suffix}."}
+    entry.update(fields)
+    return entry
+
+
+class TestRelevantLearningsInformational:
+    def test_informational_excluded_behavioral_retained(self) -> None:
+        """kind: informational is skipped; other entries kept."""
+        learnings = [
+            _learning("info", kind="informational", rule="Benchmark refs only."),
+            _learning("behavior", rule="Always run tests before commit."),
+        ]
+        result = _relevant_learnings(learnings, "developer", "implement")
+        assert result == [learnings[1]]
+
+
+class TestRelevantLearningsUniversal:
+    @pytest.mark.parametrize(
+        ("agent_name", "phase"),
+        [
+            ("developer", "implement"),
+            ("reviewer", "specify"),
+            ("discoverer", "complete"),
+        ],
+    )
+    def test_untagged_included_for_every_agent_and_phase(
+        self, agent_name: str, phase: str
+    ) -> None:
+        """No agents:/phases: → universal for any (agent, phase)."""
+        entry = _learning("universal")
+        result = _relevant_learnings([entry], agent_name, phase)
+        assert result == [entry]
+
+
+class TestRelevantLearningsAgentFilter:
+    def test_agents_tag_includes_matching_agent_excludes_other(self) -> None:
+        """agents: [developer] → developer yes, reviewer no."""
+        entry = _learning("dev-only", agents=["developer"])
+        assert _relevant_learnings([entry], "developer", "implement") == [entry]
+        assert _relevant_learnings([entry], "reviewer", "implement") == []
+
+
+class TestRelevantLearningsPhaseFilter:
+    def test_phases_tag_includes_matching_phase_excludes_other(self) -> None:
+        """phases: [implement] → implement yes, specify no."""
+        entry = _learning("impl-only", phases=["implement"])
+        assert _relevant_learnings([entry], "developer", "implement") == [entry]
+        assert _relevant_learnings([entry], "developer", "specify") == []
+
+
+class TestRelevantLearningsCombinedTags:
+    def test_both_agents_and_phases_must_match(self) -> None:
+        """agents: + phases: → both required."""
+        entry = _learning("both", agents=["developer"], phases=["implement"])
+        assert _relevant_learnings([entry], "developer", "implement") == [entry]
+        assert _relevant_learnings([entry], "reviewer", "implement") == []
+        assert _relevant_learnings([entry], "developer", "specify") == []
+
+
+class TestRelevantLearningsOrder:
+    def test_order_preserved_in_returned_list(self) -> None:
+        """Selection preserves input order."""
+        learnings = [
+            _learning("first"),
+            _learning("info", kind="informational"),
+            _learning("second", agents=["developer"]),
+            _learning("third", phases=["implement"]),
+            _learning("fourth", agents=["developer"], phases=["implement"]),
+        ]
+        result = _relevant_learnings(learnings, "developer", "implement")
+        assert [item["id"] for item in result] == [
+            "rule-first",
+            "rule-second",
+            "rule-third",
+            "rule-fourth",
+        ]
