@@ -380,7 +380,7 @@ _log_step_usage() {
 _emit_feature_rollup() {
   local change_id="$1"
   local cost_sh=""
-  cost_sh=$(find "$SCRIPT_DIR" "$REPO_ROOT/scripts" "$REPO_ROOT/config/scripts" \
+  cost_sh=$(find "$SCRIPT_DIR" "$REPO_ROOT/scripts" \
     -maxdepth 2 -name "cost-report.sh" 2>/dev/null | head -1 || true)
   if [ -z "$cost_sh" ] || [ ! -f "$cost_sh" ]; then
     return 0

@@ -12,7 +12,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SCRIPT="$REPO_ROOT/config/scripts/metrics-query.sh"
+SCRIPT="$REPO_ROOT/scripts/metrics-query.sh"
 
 pass=0
 fail=0

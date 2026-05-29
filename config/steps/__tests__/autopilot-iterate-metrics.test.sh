@@ -10,7 +10,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-HELPER="$REPO_ROOT/config/scripts/read-sub-state-metrics.sh"
+HELPER="$REPO_ROOT/scripts/read-sub-state-metrics.sh"
 
 pass=0
 fail=0

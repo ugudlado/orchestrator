@@ -42,7 +42,7 @@ done
 echo "  pass"
 
 echo "Gate 5: test suite"
-python3 -m unittest discover -s config/scripts/tests 2>&1 | tail -3
+python3 -m unittest discover -s tests 2>&1 | tail -3
 
 echo "Gate 6: CLI banner advertises done (strict) and does NOT mention record"
 banner=$(./bin/orchestrator 2>&1 || true)

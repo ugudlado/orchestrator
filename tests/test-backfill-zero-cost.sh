@@ -12,7 +12,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SCRIPT="$REPO_ROOT/config/scripts/backfill-zero-cost-metrics.sh"
+SCRIPT="$REPO_ROOT/scripts/backfill-zero-cost-metrics.sh"
 
 pass=0
 fail=0
@@ -46,7 +46,7 @@ echo "=== Test: backfill-zero-cost-metrics.sh ==="
 
 # Script must exist
 [[ -f "$SCRIPT" ]]
-check "backfill script exists at config/scripts/backfill-zero-cost-metrics.sh" $?
+check "backfill script exists at scripts/backfill-zero-cost-metrics.sh" $?
 
 if [[ ! -f "$SCRIPT" ]]; then
   echo ""

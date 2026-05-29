@@ -15,7 +15,7 @@ set -uo pipefail
 ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
 REPO="${ORCHESTRATOR_REPO_ROOT:-${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}}"
 
-REGISTER_SCRIPT="$ORCHESTRATOR_HOME/config/scripts/register-repo.sh"
+REGISTER_SCRIPT="$ORCHESTRATOR_HOME/scripts/register-repo.sh"
 
 if [ ! -f "$REGISTER_SCRIPT" ]; then
   echo "[register-with-orchestrator-home] warn: register-repo.sh not found at $REGISTER_SCRIPT — skipping" >&2

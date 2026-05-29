@@ -75,10 +75,10 @@ echo " verify-all — full test suite"
 echo "==========================================="
 echo ""
 echo "--- Python tests ---"
-printf "%-60s " "pytest config/scripts/orchestrator_next/tests/"
+printf "%-60s " "pytest orchestrator_next/tests/"
 set +e
 PYTEST_OUT=$(mktemp "${TMPDIR:-/tmp}/verify-pytest-XXXXXX.txt")
-cd "$REPO_ROOT" && pytest config/scripts/orchestrator_next/tests/ -q >"$PYTEST_OUT" 2>&1
+cd "$REPO_ROOT" && pytest orchestrator_next/tests/ -q >"$PYTEST_OUT" 2>&1
 PYTEST_EXIT=$?
 set -e
 
@@ -109,11 +109,11 @@ run_bash_test \
 
 run_bash_test \
   "compute-swe-metrics-projection.test.sh" \
-  "$REPO_ROOT/config/scripts/__tests__/compute-swe-metrics-projection.test.sh"
+  "$REPO_ROOT/tests/__tests__/compute-swe-metrics-projection.test.sh"
 
 run_bash_test \
   "read-sub-state-metrics.test.sh" \
-  "$REPO_ROOT/config/scripts/__tests__/read-sub-state-metrics.test.sh"
+  "$REPO_ROOT/tests/__tests__/read-sub-state-metrics.test.sh"
 
 run_bash_test \
   "test-register-repo-usage-invariant.sh" \
@@ -129,7 +129,7 @@ echo "--- register-repo.test.sh (known pre-FR-11 assertion mismatches) ---"
 printf "%-60s " "register-repo.test.sh"
 RROUT=$(mktemp "${TMPDIR:-/tmp}/verify-rr-XXXXXX.txt")
 set +e
-bash "$REPO_ROOT/config/scripts/__tests__/register-repo.test.sh" >"$RROUT" 2>&1
+bash "$REPO_ROOT/tests/__tests__/register-repo.test.sh" >"$RROUT" 2>&1
 set -e
 RR_FAIL=$(grep -c "^FAIL:" "$RROUT" 2>/dev/null || echo "0")
 RR_PASS=$(grep -c "^PASS:" "$RROUT" 2>/dev/null || echo "0")
@@ -178,7 +178,7 @@ else
 fi
 
 # T-15: read-sub-state-metrics.sh < 50 lines
-RSM_LINES=$(wc -l < "$REPO_ROOT/config/scripts/read-sub-state-metrics.sh")
+RSM_LINES=$(wc -l < "$REPO_ROOT/scripts/read-sub-state-metrics.sh")
 printf "%-60s " "read-sub-state-metrics.sh < 50 lines (${RSM_LINES} lines)"
 if [[ "$RSM_LINES" -lt 50 ]]; then
   echo "PASS"

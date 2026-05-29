@@ -23,7 +23,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-SCRIPT="$REPO_ROOT/config/scripts/read-sub-state-metrics.sh"
+SCRIPT="$REPO_ROOT/scripts/read-sub-state-metrics.sh"
 FIXTURES_DIR="$(dirname "$0")/fixtures"
 BASELINE_SQL="$FIXTURES_DIR/baseline.duckdb.sql"
 BASELINE_FIXTURE="$FIXTURES_DIR/baseline_read_sub_state_metrics.yaml"

@@ -26,7 +26,7 @@ make doctor
 Equivalent direct entry (same output):
 
 ```bash
-PYTHONPATH="$REPO_ROOT/config/scripts:$PYTHONPATH" \
+PYTHONPATH="$REPO_ROOT:$PYTHONPATH" \
   ORCHESTRATOR_HOME="$ORCHESTRATOR_HOME" \
   python3 -m orchestrator_next.doctor
 ```

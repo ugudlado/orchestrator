@@ -14,7 +14,7 @@ set -uo pipefail
 
 WORKFLOW_DIR="${ORCHESTRATOR_WORKFLOW_DIR:-${WORKFLOW_DIR:-}}"
 ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
-ESTIMATOR="$ORCHESTRATOR_HOME/config/scripts/estimate-cost.sh"
+ESTIMATOR="$ORCHESTRATOR_HOME/scripts/estimate-cost.sh"
 
 if [ ! -x "$ESTIMATOR" ]; then
   printf '%s\n' "{\"route_preview\": {\"status\": \"estimate_unavailable\", \"reason\": \"estimator not found at $ESTIMATOR\"}}"
