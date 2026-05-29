@@ -385,6 +385,27 @@ If fewer than 2 valid entries exist: skip this sub-step entirely and log `[learn
    - If adjusted: `[learn] Quality bar adjusted: green_base X.X → Y.Y (avg score: Z.Z, retry rate: W%)`
    - If stable: `[learn] Quality bar stable at X.X (avg score: Y.Y, retry rate: Z%)`
 
+## Commit edits (final act)
+
+Learn runs from two entry points — orchestrated (via `run-workflow.sh`, cwd is
+the feature worktree) and standalone (`/learn` skill spawns this agent directly,
+cwd is usually the main checkout). Both converge here, so commit your edits as
+the **last action before returning**, on whatever branch is checked out. This
+keeps `main` (and the worktree) free of an uncommitted learn diff.
+
+Run the shared helper against the current repo dir (do NOT pass `--require-clean`
+— that guard is for the pre-merge worktree path only, which `orchestrator-complete.sh`
+handles):
+
+```bash
+REPO_DIR="${WORKTREE_ROOT:-$REPO_ROOT}"
+HELPER="$ORCHESTRATOR_HOME/config/scripts/inline/commit-worktree-learn-updates.sh"
+[ -x "$HELPER" ] && bash "$HELPER" "$REPO_DIR" "$REPO_NAME" "" || true
+```
+
+The helper stages only learn's write targets (`config/steps/`, `.orchestrator/`,
+`spec/project.yaml`) — never whole dirs — so unrelated WIP is left untouched.
+
 ## Output
 
 Return COMPLETION per contracts/done-payload.md:

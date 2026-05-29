@@ -197,7 +197,8 @@ PY
 )"
     COMMIT_HELPER="$_INLINE_DIR/commit-worktree-learn-updates.sh"
     if [ -x "$COMMIT_HELPER" ]; then
-      bash "$COMMIT_HELPER" "$WT_DIR" "$TICKET_SLUG" "$BRANCH"
+      # --require-clean: a dirty worktree must not be merged to main.
+      bash "$COMMIT_HELPER" "$WT_DIR" "$TICKET_SLUG" "$BRANCH" --require-clean
     fi
   fi
 

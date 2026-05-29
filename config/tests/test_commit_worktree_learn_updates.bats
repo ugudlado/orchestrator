@@ -34,10 +34,23 @@ teardown() {
   [ "$msg" = "chore(orc-999): learn-cycle rule updates" ]
 }
 
-@test "dirty disallowed path -> refuses to merge (exit 7)" {
+@test "merge path: dirty disallowed path -> refuses to merge (exit 7)" {
   mkdir -p "$SANDBOX/repo/spec/changes/orc-999"
   echo "artifact" > "$SANDBOX/repo/spec/changes/orc-999/tmp.txt"
-  run bash "$HELPER" "$SANDBOX/repo" "orc-999" ""
+  run bash "$HELPER" "$SANDBOX/repo" "orc-999" "" --require-clean
   [ "$status" -eq 7 ]
+}
+
+@test "standalone path: unrelated WIP tolerated -> commits learn files, exit 0" {
+  # Learn target (committed) plus unrelated WIP (left dirty, not swept in).
+  echo "y" >> "$SANDBOX/repo/config/steps/foo.txt"
+  echo "wip" > "$SANDBOX/repo/engine.py"
+  run bash "$HELPER" "$SANDBOX/repo" "orc-999" ""
+  [ "$status" -eq 0 ]
+  # Learn file committed...
+  msg="$(git -C "$SANDBOX/repo" log -1 --format=%s)"
+  [ "$msg" = "chore(orc-999): learn-cycle rule updates" ]
+  # ...unrelated WIP NOT swept into the commit (still untracked).
+  [ -n "$(git -C "$SANDBOX/repo" status --porcelain engine.py)" ]
 }
 
