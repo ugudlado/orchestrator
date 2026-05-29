@@ -1,12 +1,11 @@
-"""T-3: Tests for `_read_state_env.sh` flag resolvers (RED before T-4).
+"""Tests for `_read_state_env.sh` flag resolvers.
 
-`complete-workflow.sh` reads `flags.merge_to_main` and `flags.worktree` from
-state.yaml via the `_read_state_env.sh` allowlist. T-4 adds two resolvers,
-`MERGE_TO_MAIN` and `WORKTREE`, to the embedded-Python RESOLVERS map.
+`complete-workflow.sh` reads `flags.merge_to_main` from state.yaml via the
+`_read_state_env.sh` allowlist. (ORC-108 removed the `WORKTREE` resolver:
+worktree is unconditional, keyed off `worktree_path` presence, not a flag.)
 
 These tests prove:
   - MERGE_TO_MAIN resolves to flags.merge_to_main (true / false)
-  - WORKTREE resolves to flags.worktree
   - an absent `flags:` map yields empty strings, no crash
   - an unknown var name still exits non-zero (allowlist intact — regression)
 """
@@ -78,29 +77,14 @@ def test_merge_to_main_resolves_false(tmp_path):
     )
 
 
-def test_worktree_resolves(tmp_path):
-    state = _write_state(tmp_path, {
-        "change_id": "x",
-        "flags": {"merge_to_main": False, "worktree": False},
-    })
-    rc, vals = _resolve(state, "WORKTREE")
-    assert rc == 0
-    assert vals.get("WORKTREE") == "False", (
-        f"WORKTREE should resolve to flags.worktree, got {vals!r}"
-    )
-
-
 def test_absent_flags_map_yields_empty(tmp_path):
-    """A state.yaml with no `flags:` map → resolvers yield empty strings,
+    """A state.yaml with no `flags:` map → resolver yields empty string,
     no crash, exit 0."""
     state = _write_state(tmp_path, {"change_id": "x"})
-    rc, vals = _resolve(state, "MERGE_TO_MAIN", "WORKTREE")
+    rc, vals = _resolve(state, "MERGE_TO_MAIN")
     assert rc == 0, "read_state_env crashed on a state.yaml with no flags map"
     assert vals.get("MERGE_TO_MAIN") == "", (
         f"absent flags → MERGE_TO_MAIN should be empty, got {vals!r}"
-    )
-    assert vals.get("WORKTREE") == "", (
-        f"absent flags → WORKTREE should be empty, got {vals!r}"
     )
 
 

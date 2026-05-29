@@ -1,20 +1,20 @@
-"""T-14: flags.yaml reshape — `worktree` / `merge_to_main` become behavioral.
+"""flags.yaml reshape — `merge_to_main` is a behavioral flag.
 
-After ORC-79 collapses the teardown steps, `worktree` and `merge_to_main` no
-longer filter steps from a workflow's `steps:` list — they are read directly
-by `complete-workflow.sh` to gate its merge and cleanup phases. So they move
-from the `gates:` section (step-filtering) to the `behavioral:` section.
+`merge_to_main` does not filter steps from a workflow's `steps:` list — it is
+read by `complete-workflow.sh` to gate its merge phase. So it lives under the
+`behavioral:` section, not `gates:`.
+
+(ORC-108 removed the `worktree` flag entirely: worktree is unconditional.)
 
 These tests prove:
-  - `worktree` and `merge_to_main` are under `behavioral:`, not `gates:`
-  - neither carries a `steps:` key
-  - the seed-state flag-default merge still yields both keys with their
-    defaults (worktree=true, merge_to_main=false)
+  - `merge_to_main` is under `behavioral:`, not `gates:`
+  - it carries no `steps:` key
+  - its default stays False
   - `--autopilot` still resolves `merge_to_main: true`
 
-Dual-tree note: `~/.config/orchestrator/config/flags.yaml` resolves (via the
+Dual-tree note: `~/.config/orchestrator/config/workflow.yaml` resolves (via the
 install.sh config symlink) to the same physical file as the repo
-`config/flags.yaml` — one edit covers both trees.
+`config/workflow.yaml` — one edit covers both trees.
 """
 from __future__ import annotations
 
@@ -46,44 +46,39 @@ def test_repo_and_home_flags_are_the_same_file():
     )
 
 
-def test_worktree_and_merge_to_main_under_behavioral():
+def test_merge_to_main_under_behavioral():
     flags = _load_flags()
     behavioral = flags.get("behavioral") or {}
-    assert "worktree" in behavioral, (
-        "worktree must be under behavioral:"
-    )
     assert "merge_to_main" in behavioral, (
         "merge_to_main must be under behavioral:"
     )
 
 
-def test_worktree_and_merge_to_main_absent_from_gates():
+def test_merge_to_main_absent_from_gates():
     flags = _load_flags()
     gates = flags.get("gates") or {}
-    assert "worktree" not in gates, (
-        "worktree must NOT be under gates: — it no longer filters steps"
-    )
     assert "merge_to_main" not in gates, (
         "merge_to_main must NOT be under gates: — it no longer filters steps"
     )
 
 
-def test_neither_carries_a_steps_key():
+def test_worktree_flag_removed():
+    """ORC-108: worktree is unconditional — the flag must not exist anywhere."""
+    flags = _load_flags()
+    assert "worktree" not in (flags.get("behavioral") or {}), "worktree flag must be removed"
+    assert "worktree" not in (flags.get("gates") or {}), "worktree flag must be removed"
+
+
+def test_merge_to_main_carries_no_steps_key():
     flags = _load_flags()
     behavioral = flags.get("behavioral") or {}
-    for name in ("worktree", "merge_to_main"):
-        entry = behavioral.get(name) or {}
-        assert "steps" not in entry, (
-            f"behavioral flag {name} must not carry a steps: key"
-        )
+    entry = behavioral.get("merge_to_main") or {}
+    assert "steps" not in entry, "behavioral flag merge_to_main must not carry a steps: key"
 
 
 def test_defaults_preserved():
     flags = _load_flags()
     behavioral = flags.get("behavioral") or {}
-    assert (behavioral.get("worktree") or {}).get("default") is True, (
-        "worktree default must stay True"
-    )
     assert (behavioral.get("merge_to_main") or {}).get("default") is False, (
         "merge_to_main default must stay False"
     )

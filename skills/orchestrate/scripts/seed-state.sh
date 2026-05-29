@@ -3,16 +3,15 @@
 #
 # Usage: seed-state.sh <slug> <schema> [flag=value ...]
 #
-# When flags.worktree=true: creates the git worktree first, then writes
-# state.yaml under $WORKTREE_PATH/spec/changes/<slug>/.
-# Otherwise writes under $WORKFLOW_STATE_DIR/<slug>/ (repo_root).
+# ORC-108: every run is isolated in its own worktree. Creates the git worktree
+# first, then writes state.yaml under $WORKTREE_PATH/spec/changes/<slug>/.
 # Idempotent: exits 0 without overwriting an existing state.yaml.
 # generate_plan promotes the seeded workflow_plan into the nodes shape
 # in place inside state.yaml — there is no separate plan file (ORC-63).
 #
 # Required environment:
 #   REPO_ROOT            — root of the target git repo (default: git rev-parse --show-toplevel)
-#   WORKFLOW_STATE_DIR   — fallback state dir when worktree=false (default: $REPO_ROOT/spec/changes)
+#   WORKTREE_BASE_DIR    — parent dir for worktrees (default: $HOME/code/feature_worktrees)
 #   ORCHESTRATOR_HOME    — path to orchestrator config (default: $HOME/.config/orchestrator)
 #
 # Exit codes:
@@ -32,7 +31,6 @@ SLUG="$1"; SCHEMA="$2"; shift 2
 REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo "")}"
 [[ -n "$REPO_ROOT" ]] || { echo "error: cannot locate repo root" >&2; exit 1; }
 
-WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}"
 ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
 WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-$HOME/code/feature_worktrees}"
 
@@ -59,7 +57,6 @@ FLAGS_YAML="$ORCHESTRATOR_HOME/config/workflow.yaml"
 INIT_JSON=$(python3 - \
     "$SLUG" "$SCHEMA" "$REPO_ROOT" \
     "$SCHEMA_YAML" "$FLAGS_YAML" \
-    "$WORKFLOW_STATE_DIR" \
     "$WORKTREE_BASE_DIR" \
     "$@" \
     <<'PYEOF'
@@ -70,8 +67,8 @@ import yaml
 
 slug, schema_name, repo_root = sys.argv[1], sys.argv[2], sys.argv[3]
 schema_yaml_path, flags_yaml_path = sys.argv[4], sys.argv[5]
-workflow_state_dir, worktree_base_dir = sys.argv[6], sys.argv[7]
-raw_overrides = sys.argv[8:]
+worktree_base_dir = sys.argv[6]
+raw_overrides = sys.argv[7:]
 
 # Parse key=value overrides
 overrides: dict = {}
@@ -114,13 +111,11 @@ if not active:
     print("error: no active steps after gate-flag filtering", file=sys.stderr)
     sys.exit(1)
 
-# Emit JSON consumed by bash for worktree setup + deferred state write
+# Emit JSON consumed by bash for the deferred state write.
 print(json.dumps({
-    "worktree": bool(flags.get("worktree", False)),
     "slug": slug,
     "schema_name": schema_name,
     "repo_root": repo_root,
-    "workflow_state_dir": workflow_state_dir,
     "worktree_base_dir": worktree_base_dir,
     "flags": flags,
     "active": active,
@@ -129,39 +124,30 @@ print(json.dumps({
 PYEOF
 ) || exit 1
 
-USE_WORKTREE=$(python3 -c "import json,sys; print(json.loads(sys.stdin.read())['worktree'])" <<< "$INIT_JSON")
-
 # ---------------------------------------------------------------------------
-# Worktree creation (before any file writes so STATE_DIR resolves correctly)
+# Worktree creation (before any file writes so STATE_DIR resolves correctly).
+# ORC-108: every run is isolated in its own worktree — unconditional.
 # ---------------------------------------------------------------------------
 
 BRANCH="$SCHEMA/$SLUG"
-WORKTREE_PATH=""
+WORKTREE_PATH="$WORKTREE_BASE_DIR/$SLUG"
+mkdir -p "$WORKTREE_BASE_DIR"
 
-if [[ "$USE_WORKTREE" == "True" ]]; then
-    WORKTREE_PATH="$WORKTREE_BASE_DIR/$SLUG"
-    mkdir -p "$WORKTREE_BASE_DIR"
-
-    if git -C "$REPO_ROOT" worktree list --porcelain | grep -q "worktree $WORKTREE_PATH"; then
-        echo "worktree already exists at $WORKTREE_PATH" >&2
-    else
-        git -C "$REPO_ROOT" worktree add -b "$BRANCH" "$WORKTREE_PATH" HEAD 2>&1 >&2 || {
-            git -C "$REPO_ROOT" worktree add "$WORKTREE_PATH" "$BRANCH" 2>&1 >&2 || {
-                echo "error: git worktree add failed" >&2; exit 1
-            }
-        }
-    fi
-fi
-
-# ---------------------------------------------------------------------------
-# Resolve STATE_DIR and write state.yaml
-# ---------------------------------------------------------------------------
-
-if [[ -n "$WORKTREE_PATH" ]]; then
-    STATE_DIR="$WORKTREE_PATH/spec/changes/$SLUG"
+if git -C "$REPO_ROOT" worktree list --porcelain | grep -q "worktree $WORKTREE_PATH"; then
+    echo "worktree already exists at $WORKTREE_PATH" >&2
 else
-    STATE_DIR="$WORKFLOW_STATE_DIR/$SLUG"
+    git -C "$REPO_ROOT" worktree add -b "$BRANCH" "$WORKTREE_PATH" HEAD 2>&1 >&2 || {
+        git -C "$REPO_ROOT" worktree add "$WORKTREE_PATH" "$BRANCH" 2>&1 >&2 || {
+            echo "error: git worktree add failed" >&2; exit 1
+        }
+    }
 fi
+
+# ---------------------------------------------------------------------------
+# Resolve STATE_DIR and write state.yaml — state always lives in the worktree.
+# ---------------------------------------------------------------------------
+
+STATE_DIR="$WORKTREE_PATH/spec/changes/$SLUG"
 STATE_YAML="$STATE_DIR/state.yaml"
 
 if [[ -f "$STATE_YAML" ]]; then

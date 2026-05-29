@@ -176,11 +176,12 @@ flags = raw.get("flags") or {}
 print("true" if flags.get("merge_to_main") else "false")
 PY
 )
+# ORC-108: worktree is unconditional — its presence is keyed off worktree_path
+# in state, not a flag (which no longer exists).
 USE_WORKTREE=$(python3 - "$ARCHIVED_STATE" <<'PY'
 import sys, yaml
 raw = yaml.safe_load(open(sys.argv[1])) or {}
-flags = raw.get("flags") or {}
-print("true" if flags.get("worktree") else "false")
+print("true" if (raw.get("worktree_path") or "").strip() else "false")
 PY
 )
 

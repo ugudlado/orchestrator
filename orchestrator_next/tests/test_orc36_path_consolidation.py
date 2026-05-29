@@ -61,15 +61,18 @@ def _write_project_yaml(repo_root: Path) -> None:
     )
 
 
-def _run_seed(slug: str, schema: str, *, repo_root: Path,
+def _run_seed(slug: str, schema: str, *, repo_root: Path, worktree_base: Path,
               flag_overrides: list[str] | None = None,
               extra_env: dict | None = None) -> subprocess.CompletedProcess:
-    """Run seed-state.sh with NO explicit WORKFLOW_STATE_DIR so the default fires."""
+    """Run seed-state.sh against a real git repo with an isolated worktree base.
+
+    ORC-108: seed-state.sh always creates a worktree, so WORKTREE_BASE_DIR is
+    pinned to a tmp path (never the developer's real worktree directory).
+    """
     env = os.environ.copy()
     env["REPO_ROOT"] = str(repo_root)
     env["ORCHESTRATOR_HOME"] = _ORCHESTRATOR_HOME
-    # Remove any inherited WORKFLOW_STATE_DIR so the script's default is exercised.
-    env.pop("WORKFLOW_STATE_DIR", None)
+    env["WORKTREE_BASE_DIR"] = str(worktree_base)
     # Ensure orchestrator_next is importable in the subprocess.
     real_scripts_dir = str(_HERE.parents[1])
     existing_pypath = env.get("PYTHONPATH", "")
@@ -254,13 +257,12 @@ def test_archive_contains_artifact_files(tmp_path):
 
 def test_seed_state_writes_to_spec_changes(tmp_path):
     """
-    POST-FIX: seed-state.sh writes state.yaml and plan.yaml to
-      spec/changes/<slug>/state.yaml  (WORKFLOW_STATE_DIR default = spec/changes)
-      and does NOT create a .state/ directory.
+    seed-state.sh writes state.yaml under spec/changes/<slug>/ — inside the
+    worktree (ORC-108: every run is isolated) — and does NOT create a .state/
+    directory. The no-.state/ invariant is the original ORC-36 protection; only
+    the root moved from repo_root to the worktree.
 
-    PRE-FIX (HEAD): writes to .state/<slug>/state.yaml — FAILS here.
-
-    orc-36 failure mode #4 / seed-state.sh line 49.
+    orc-36 failure mode #4 (path shape) + orc-108 (worktree always-on).
     """
     assert _SEED_SCRIPT.exists(), (
         f"seed-state.sh not found at {_SEED_SCRIPT}. "
@@ -270,34 +272,35 @@ def test_seed_state_writes_to_spec_changes(tmp_path):
     slug = "orc36-path-test"
     schema = "bugfix"
     fake_repo = tmp_path / "repo"
+    worktree_base = tmp_path / "wt"
+    fake_repo.mkdir(parents=True)
+    subprocess.run(["git", "-C", str(fake_repo), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(fake_repo), "config", "user.email", "t@t.com"], check=True)
+    subprocess.run(["git", "-C", str(fake_repo), "config", "user.name", "t"], check=True)
     _write_project_yaml(fake_repo)
+    subprocess.run(["git", "-C", str(fake_repo), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(fake_repo), "commit", "-qm", "init"], check=True)
 
-    # Run seed-state.sh with no WORKFLOW_STATE_DIR — exercises the default.
     result = _run_seed(
         slug,
         schema,
         repo_root=fake_repo,
-        flag_overrides=["worktree=false"],
+        worktree_base=worktree_base,
     )
     assert result.returncode == 0, (
         f"seed-state.sh exited {result.returncode}\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
 
-    # Post-fix expectation: state.yaml written to spec/changes/<slug>/.
-    expected_state = fake_repo / "spec" / "changes" / slug / "state.yaml"
+    # state.yaml written to <worktree>/spec/changes/<slug>/.
+    expected_state = worktree_base / slug / "spec" / "changes" / slug / "state.yaml"
     assert expected_state.exists(), (
-        f"[ORC-36 failure mode 4] state.yaml not found at post-fix path:\n"
+        f"state.yaml not found at expected worktree path:\n"
         f"  {expected_state}\n"
-        f"Pre-fix: seed-state.sh writes to .state/{slug}/state.yaml instead.\n"
         f"seed-state.sh stdout: {result.stdout!r}\n"
         f"seed-state.sh stderr: {result.stderr!r}"
     )
 
-    # Post-fix expectation: no .state/ directory should have been created.
-    old_state_dir = fake_repo / ".state"
-    assert not old_state_dir.exists(), (
-        f"[ORC-36 failure mode 4] .state/ directory was created at {old_state_dir}.\n"
-        f"Post-fix: seed-state.sh must NOT create .state/. "
-        f"Only spec/changes/{slug}/ should exist."
-    )
+    # ORC-36 invariant preserved: no .state/ directory anywhere.
+    assert not (fake_repo / ".state").exists(), "seed-state.sh must NOT create .state/ in the repo"
+    assert not (worktree_base / slug / ".state").exists(), "seed-state.sh must NOT create .state/ in the worktree"
