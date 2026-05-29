@@ -409,7 +409,7 @@ _emit_feature_rollup() {
 
 # Rerun of an already-archived feature: flag via discoverer/architect metadata and exit.
 _archive_completion_handle() {
-  PYTHONPATH="${REPO_ROOT}/config/scripts:${PYTHONPATH:-}" \
+  PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}" \
     python3 -m orchestrator_next.archive_completion handle "$STATE_YAML" 2>&1
 }
 
@@ -434,7 +434,7 @@ fi
 WORKFLOW_CHANGE_ID=$(python3 "$STATE_INSPECT" state-field "$STATE_YAML" change_id --fallback slug 2>/dev/null || echo "")
 
 # Operator rerun after spawn_failure_cap: clear zero-token failures and unblock.
-PYTHONPATH="${REPO_ROOT}/config/scripts:${PYTHONPATH:-}" \
+PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}" \
   python3 -m orchestrator_next.spawn_resume "$STATE_YAML" || true
 
 while true; do

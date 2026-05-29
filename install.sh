@@ -65,6 +65,11 @@ setup_core() {
 
   safe_ln "$ORCHESTRATOR_DIR/scripts" "$ORCHESTRATOR_HOME/scripts"
   echo "  Scripts: $ORCHESTRATOR_HOME/scripts -> $ORCHESTRATOR_DIR/scripts"
+
+  # ORC-106: orchestrator_next Python package moved to the repo root; expose it
+  # under ORCHESTRATOR_HOME so $ORCHESTRATOR_HOME-based PYTHONPATH/sys.path still resolves.
+  safe_ln "$ORCHESTRATOR_DIR/orchestrator_next" "$ORCHESTRATOR_HOME/orchestrator_next"
+  echo "  Package: $ORCHESTRATOR_HOME/orchestrator_next -> $ORCHESTRATOR_DIR/orchestrator_next"
 }
 
 setup_metrics_db() {
@@ -73,7 +78,7 @@ setup_metrics_db() {
 
   # Idempotent: ensure_schema uses CREATE TABLE IF NOT EXISTS, so
   # re-running on a populated DB is a no-op.
-  PYTHONPATH="$ORCHESTRATOR_DIR/config/scripts" \
+  PYTHONPATH="$ORCHESTRATOR_DIR" \
     python3 -c "
 import duckdb
 from orchestrator_next.upsert import ensure_schema
@@ -154,7 +159,7 @@ setup_pi() {
   mkdir -p "$PI_AGENT_DIR"
   [ -L "$PI_AGENT_DIR" ] && rm "$PI_AGENT_DIR" && mkdir -p "$PI_AGENT_DIR"
   mkdir -p "$project_pi_agents"
-  PYTHONPATH="$ORCHESTRATOR_DIR/config/scripts" \
+  PYTHONPATH="$ORCHESTRATOR_DIR" \
     python3 "$ORCHESTRATOR_DIR/scripts/sync_pi_agents.py" \
       --source "$ORCHESTRATOR_DIR/agents" \
       --config "$pi_config" \

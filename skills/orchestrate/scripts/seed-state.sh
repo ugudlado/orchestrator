@@ -205,7 +205,7 @@ PYEOF
 # in place inside state.yaml (no separate file is written).
 # ---------------------------------------------------------------------------
 
-PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$REPO_ROOT/config/scripts" \
+PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$REPO_ROOT" \
     python3 -m orchestrator_next.generate_plan "$STATE_YAML"
 GENPLAN_EXIT=$?
 

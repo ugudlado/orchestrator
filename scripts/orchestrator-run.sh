@@ -177,7 +177,7 @@ if [ -z "$STATE_YAML" ] || [ ! -f "$STATE_YAML" ]; then
 fi
 
 # Completed feature already archived — do not seed a fresh rerun.
-_ARCHIVE_PROBE=$(PYTHONPATH="${_WORKTREE_ROOT}/config/scripts:${PYTHONPATH:-}" \
+_ARCHIVE_PROBE=$(PYTHONPATH="${_WORKTREE_ROOT}:${PYTHONPATH:-}" \
   python3 -m orchestrator_next.archive_completion probe "$REPO_ROOT" "$TICKET_SLUG" "$TICKET_ID" 2>/dev/null | tail -1)
 _ARCHIVE_ACTION=$(echo "$_ARCHIVE_PROBE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('action','continue'))" 2>/dev/null || echo "continue")
 if [ "$_ARCHIVE_ACTION" = "halt_complete" ] && [ ! -f "${STATE_YAML:-}" ]; then

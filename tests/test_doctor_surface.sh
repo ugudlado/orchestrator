@@ -19,7 +19,7 @@ fail() { echo "FAIL: $1"; FAIL=$((FAIL + 1)); }
 
 export ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
 export REPO_ROOT
-export PYTHONPATH="$REPO_ROOT/config/scripts:${PYTHONPATH:-}"
+export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"
 
 normalize_output() {
   sed -E \

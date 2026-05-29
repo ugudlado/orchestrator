@@ -27,7 +27,8 @@ import sys
 # resolves to the repo location, not the symlink location.
 _BIN_DIR = os.path.dirname(os.path.realpath(__file__))
 _WORKTREE_ROOT = os.path.dirname(_BIN_DIR)
-_SCRIPTS_DIR = os.path.join(_WORKTREE_ROOT, "config", "scripts")
+# ORC-106: orchestrator_next package lives at the repo root (was config/scripts/).
+_SCRIPTS_DIR = _WORKTREE_ROOT
 
 # Insert at position 0 so project modules take precedence over any installed packages.
 if _SCRIPTS_DIR not in sys.path:
