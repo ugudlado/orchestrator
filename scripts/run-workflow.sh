@@ -192,11 +192,11 @@ fi
 # -----------------------------------------------------------------------
 
 sync_ticket_after_step() {
-  local step_id="$1"
-  local sync_script="$SCRIPT_DIR/ticket-sync.sh"
-  if [ -f "$sync_script" ]; then
-    bash "$sync_script" "$STATE_YAML" "$step_id" 2>/dev/null || true
-  fi
+  # ORC-107: outbound ticket sync is now explicit workflow steps
+  # (ticket-start / ticket-review / ticket-qa, kind: script, call the backlog CLI).
+  # The per-step loop hook + ticket-step-sync.yaml table are retired; this is a
+  # no-op kept so existing call sites stay inert without touching loop control flow.
+  :
 }
 
 reconcile_ticket_before_next() {

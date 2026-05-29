@@ -1,0 +1,4 @@
+id: ticket-start
+version: 1
+kind: script
+run: script.sh

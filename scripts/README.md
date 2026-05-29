@@ -292,20 +292,21 @@ the check returns `action: skip` and the loop proceeds with the existing `state.
 
 ### Outbound ticket sync (workflow → ticket)
 
-`scripts/ticket-sync.sh` runs from `run-workflow.sh` after each successful
-`orchestrator done` — agents do **not** need to call `/backlog-manager` for lane
-changes when using the shell loop.
+Outbound lane changes are explicit **workflow steps** (ORC-107), not a per-step hook:
+`ticket-start` (→ In Progress, at implement entry), `ticket-review` (→ Code Review,
+after `run-phase-review`), `ticket-qa` (→ QA Review, before `mark-change-completed`).
+Each is a `kind: script` step that calls the backlog CLI. Agents do **not** need to
+call `/backlog-manager` for lane changes when using the shell loop.
 
 | Config | Direction | Mechanism |
 |--------|-----------|-----------|
 | `config/ticket-status-map.yaml` | ticket status → workflow entry (`init` / `resume` / `halt` + phase hint) | `ticket-status-check.sh` at start |
-| `config/ticket-step-sync.yaml` | completed `step_id` → ticket status | `ticket-sync.sh` after each step |
 
-`ticket-step-sync.yaml` keys are workflow step ids (or `pattern:task-*`). Values
-are per-backend status strings. Transports are shell-only:
+Each `ticket-*` step bakes in its target status (per backend). Transports:
 
 - **backlog** — `backlog task edit <id> -s "<status>"` when the CLI is installed
-- **linear** — `curl` GraphQL `issueUpdate` (needs `LINEAR_API_KEY` and `linear.team_id` in `spec/project.yaml`)
+- **linear** — the `ticket-sync-linear.sh` backend (GraphQL `issueUpdate`) is still
+  available for the QA skills; the workflow `ticket-*` steps currently target backlog
 
 ### `state.yaml` ticket fields (shell loop only)
 
@@ -324,7 +325,8 @@ Written by `ticket-state-update.sh` (not `orchestrator done` / `record.py`):
 iteration (before `orchestrator next`) so external lane changes are visible on state
 before the next agent dispatch.
 
-**Outbound sync:** `ticket-sync.sh` runs after each successful `orchestrator done`.
+**Outbound sync:** the `ticket-start` / `ticket-review` / `ticket-qa` workflow steps
+push lane changes via the backlog CLI at their placements in the workflow `steps:` list.
 
 ### COMPLETION parsing
 

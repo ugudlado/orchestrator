@@ -64,7 +64,7 @@ Each `step_context.task` carries the full task payload (id, title, files, verify
 
 ### 4. Ticket status (shell loop vs this skill)
 
-When the workflow runs via `scripts/run-workflow.sh`, **do not** transition ticket lanes with `/backlog-manager` — the shell loop calls `ticket-sync.sh` after each completed step and `ticket-reconcile.sh` before the next dispatch. Agents only implement tasks; ticket updates are out of scope.
+When the workflow runs via `scripts/run-workflow.sh`, **do not** transition ticket lanes with `/backlog-manager` — dedicated workflow steps (`ticket-start`, `ticket-review`, `ticket-qa`) update the ticket via the backlog CLI at the right transitions, and `ticket-reconcile.sh` polls for external rework before the next dispatch. Agents only implement tasks; ticket updates are out of scope.
 
 When using this skill **without** the shell loop (manual `/developer` queue driver), still use `/backlog-manager` for claim and lane changes as documented in steps 1–2.
 
