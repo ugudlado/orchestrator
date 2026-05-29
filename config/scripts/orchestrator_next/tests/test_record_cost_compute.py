@@ -153,7 +153,7 @@ class TestRecordCostCompute:
             fn.cache_clear()
 
     def test_computes_cost_for_native_sonnet_agent(self, tmp_path, in_memory_db):
-        """developer → native_sonnet → claude-sonnet-4-6.
+        """discoverer → sonnet → claude-sonnet-4-6.
 
         After record(), usage.cost_usd should be:
           22000 * 3.0/1e6 + 5000 * 15.0/1e6 = 0.141000
@@ -161,7 +161,7 @@ class TestRecordCostCompute:
         """
         state_path = _write_state(tmp_path)
         payload = _base_payload(
-            agent="developer",
+            agent="discoverer",
             usage={"input_tokens": 22000, "output_tokens": 5000, "duration_ms": 45000},
         )
         result, exit_code = record(state_path, payload, db=in_memory_db)
@@ -205,12 +205,12 @@ class TestRecordCostCompute:
     def test_includes_cache_read_tokens_when_present(self, tmp_path, in_memory_db):
         """cache_read_input_tokens should be included in cost.
 
-        With developer (claude-sonnet-4-6):
+        With discoverer (claude-sonnet-4-6):
           22000 * 3.0/1e6 + 5000 * 15.0/1e6 + 10000 * 0.30/1e6 = 0.144000
         """
         state_path = _write_state(tmp_path)
         payload = _base_payload(
-            agent="developer",
+            agent="discoverer",
             usage={
                 "input_tokens": 22000,
                 "output_tokens": 5000,

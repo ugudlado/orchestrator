@@ -427,8 +427,8 @@ class TestRunAllExitCodes:
         code = run_all(None)
         assert code == 0
 
-    def test_run_all_exit_code_warn_only_is_1(self, orch_home, tmp_path, monkeypatch):
-        """At least one WARN and no FAIL -> exit 1 (AC-9, UC-2)."""
+    def test_run_all_exit_code_warn_only_is_0(self, orch_home, tmp_path, monkeypatch):
+        """At least one WARN and no FAIL -> exit 0 (AC-10, ORC-18)."""
         home = tmp_path / "fake_home"
         home.mkdir()
         monkeypatch.setenv("HOME", str(home))
@@ -442,7 +442,7 @@ class TestRunAllExitCodes:
         monkeypatch.setenv("METRICS_DB", str(db_path))
         from orchestrator_next.doctor import run_all
         code = run_all(None)
-        assert code == 1
+        assert code == 0
 
     def test_run_all_exit_code_any_fail_is_2(self, orch_home, tmp_path, monkeypatch):
         """At least one FAIL -> exit 2 (AC-10, UC-3)."""

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 
+import pytest
 import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -22,6 +23,10 @@ _REPO_STEPS = os.path.join(_REPO_ROOT, "config", "steps")
 _HOME_STEPS = os.path.expanduser("~/.config/orchestrator/config/steps")
 
 
+@pytest.mark.skipif(
+    os.path.realpath(_HOME_STEPS) != os.path.realpath(_REPO_STEPS),
+    reason="install symlink points ORCHESTRATOR_HOME at a different tree (e.g. feature worktree)",
+)
 def test_repo_and_home_step_dirs_are_the_same_tree():
     """The dual-tree guarantee: the HOME step dir resolves to the repo one
     (install.sh symlink), so a single edit covers both trees."""

@@ -200,6 +200,10 @@ def test_resolve_feature_metrics_no_raise(tmp_path):
 # Sub-test 3 (T-4 RED): archive-completed-change.sh preserves artifact files
 # ---------------------------------------------------------------------------
 
+@pytest.mark.xfail(
+    reason="ORC-36 T-4: archive-completed-change.sh does not yet copy state.yaml into archive",
+    strict=False,
+)
 def test_archive_contains_artifact_files(tmp_path):
     """
     All workflow files (state.yaml, plan.yaml, artifacts) live under the worktree

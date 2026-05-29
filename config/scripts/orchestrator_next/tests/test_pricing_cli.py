@@ -117,10 +117,10 @@ def test_bulk_emits_json_array_of_n_objects(seeded_db: Path):
 def test_all_four_pricing_columns_present_and_non_null(seeded_db: Path):
     """For a seeded routed model, all four pricing columns are present and
     non-null (AC-7, D-5)."""
-    result = _run_cli(["--agents", "developer"], {"METRICS_DB": str(seeded_db)})
+    result = _run_cli(["--agents", "discoverer"], {"METRICS_DB": str(seeded_db)})
     assert result.returncode == 0, result.stderr[:500]
     obj = json.loads(result.stdout)[0]
-    # developer → native_sonnet → claude-sonnet-4-6 (seeded: 3/15/0.30/3.75)
+    # discoverer → sonnet → claude-sonnet-4-6 (seeded: 3/15/0.30/3.75)
     assert obj["input_usd"] == pytest.approx(3.00, rel=1e-9)
     assert obj["output_usd"] == pytest.approx(15.00, rel=1e-9)
     assert obj["cache_read_usd"] == pytest.approx(0.30, rel=1e-9)
@@ -198,7 +198,7 @@ def test_future_dated_row_not_applied(seeded_db: Path):
     finally:
         db.close()
 
-    result = _run_cli(["--agents", "developer"], {"METRICS_DB": str(seeded_db)})
+    result = _run_cli(["--agents", "discoverer"], {"METRICS_DB": str(seeded_db)})
     assert result.returncode == 0, result.stderr[:500]
     obj = json.loads(result.stdout)[0]
     assert obj["input_usd"] == pytest.approx(3.00, rel=1e-9), (

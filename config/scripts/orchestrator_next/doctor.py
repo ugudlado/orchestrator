@@ -1,8 +1,8 @@
 """
 orchestrator doctor — structural health check command.
 
-Runs seven independent checks and prints a PASS/WARN/FAIL table to stdout.
-Exit codes: 0 (all pass), 1 (warnings only), 2 (at least one failure).
+Runs structural and graph health checks and prints a PASS/WARN/FAIL table to stdout.
+Exit codes: 0 (all pass or warnings only), 2 (at least one failure).
 """
 from __future__ import annotations
 
@@ -22,6 +22,119 @@ from orchestrator_next import upsert as _upsert
 CheckResult = namedtuple("CheckResult", "name status detail")
 
 EXPECTED_TABLES = ("step_events", "tool_calls")
+
+
+def _repo_root_from_env(orch_home: Path) -> Path:
+    """Resolve consumer repo root for .orchestrator override checks."""
+    for key in ("ORCHESTRATOR_REPO_ROOT", "REPO_ROOT"):
+        val = os.environ.get(key)
+        if val:
+            return Path(val).expanduser().resolve()
+    return orch_home.resolve()
+
+
+def _resolve_artifact(
+    kind: str, name: str, repo_root: Path, orch_home: Path
+) -> Path | None:
+    """Repo override first, then ORCHESTRATOR_HOME/config/<kind>/<name>."""
+    roots = (repo_root / ".orchestrator", orch_home / "config")
+    if kind == "steps":
+        step_id = name
+        for root in roots:
+            dir_contract = root / "steps" / step_id / "contract.yaml"
+            if dir_contract.is_file():
+                return dir_contract
+            flat = root / "steps" / f"{step_id}.yaml"
+            if flat.is_file():
+                return flat
+        return None
+    if kind == "workflows":
+        wf_name = name if name.endswith(".yaml") else f"{name}.yaml"
+        for root in roots:
+            path = root / "workflows" / wf_name
+            if path.is_file():
+                return path
+        return None
+    if kind == "agents":
+        agent_name = name if name.endswith(".md") else f"{name}.md"
+        override = repo_root / ".orchestrator" / "agents" / agent_name
+        if override.is_file():
+            return override
+        canonical = orch_home / "agents" / agent_name
+        if canonical.is_file():
+            return canonical
+        return None
+    for root in roots:
+        path = root / kind / name
+        if path.exists():
+            return path
+    return None
+
+
+def _normalize_workflow_step_ref(item: object) -> str:
+    if isinstance(item, dict):
+        return str(item.get("id", "")).strip()
+    if isinstance(item, str) and " if " in item:
+        return item.split(" if ")[0].strip()
+    return str(item).strip() if item else ""
+
+
+def _workflow_schema_paths(repo_root: Path, orch_home: Path) -> dict[str, Path]:
+    """Schema name -> authoritative workflow path (override wins)."""
+    paths: dict[str, Path] = {}
+    for root in (orch_home / "config" / "workflows", repo_root / ".orchestrator" / "workflows"):
+        if not root.is_dir():
+            continue
+        for path in sorted(root.glob("*.yaml")):
+            paths[path.stem] = path
+    return paths
+
+
+def _iter_step_contract_paths(repo_root: Path, orch_home: Path) -> dict[str, Path]:
+    """Step id -> contract path (override wins)."""
+    found: dict[str, Path] = {}
+    for root in (orch_home / "config" / "steps", repo_root / ".orchestrator" / "steps"):
+        if not root.is_dir():
+            continue
+        for child in sorted(root.iterdir()):
+            if child.is_dir() and (child / "contract.yaml").is_file():
+                found[child.name] = child / "contract.yaml"
+            elif child.is_file() and child.suffix == ".yaml":
+                found[child.stem] = child
+    return found
+
+
+def _load_declared_flags(repo_root: Path, orch_home: Path) -> set[str]:
+    declared: set[str] = set()
+    for path in (
+        repo_root / ".orchestrator" / "flags.yaml",
+        orch_home / "config" / "flags.yaml",
+    ):
+        if not path.is_file():
+            continue
+        try:
+            with open(path) as f:
+                data = yaml.safe_load(f) or {}
+        except Exception:
+            continue
+        for section in ("gates", "behavioral"):
+            block = data.get(section) or {}
+            if isinstance(block, dict):
+                declared.update(block.keys())
+    return declared
+
+
+def _collect_symlinks(root: Path) -> list[Path]:
+    links: list[Path] = []
+    if not root.exists():
+        return links
+    for dirpath, dirnames, filenames in os.walk(root):
+        base = Path(dirpath)
+        for name in dirnames + filenames:
+            path = base / name
+            if path.is_symlink():
+                links.append(path)
+    return links
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +305,157 @@ def check_workflow_plans(orch_home: Path) -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
+# Check 8: symlink validity
+# ---------------------------------------------------------------------------
+
+def check_symlinks(repo_root: Path, orch_home: Path) -> CheckResult:
+    """WARN/FAIL when symlinks under repo_root or orch_home point at missing targets."""
+    stale: list[str] = []
+    for root in (repo_root, orch_home):
+        for link in _collect_symlinks(root):
+            if link.exists():
+                continue
+            try:
+                target = os.readlink(link)
+            except OSError as exc:
+                target = f"<unreadable: {exc}>"
+            stale.append(f"{link} -> {target}")
+    if stale:
+        return CheckResult("symlinks valid", "WARN", "; ".join(stale))
+    return CheckResult("symlinks valid", "PASS", "all symlink targets exist")
+
+
+# ---------------------------------------------------------------------------
+# Check 9: ORCHESTRATOR_HOME vs install symlink
+# ---------------------------------------------------------------------------
+
+def check_orchestrator_home(repo_root: Path, orch_home: Path) -> CheckResult:
+    """FAIL when ORCHESTRATOR_HOME env does not match ~/.config/orchestrator target."""
+    del repo_root, orch_home  # reserved for future repo-specific install layouts
+    current = os.environ.get("ORCHESTRATOR_HOME", "").strip()
+    if not current:
+        return CheckResult("ORCHESTRATOR_HOME", "FAIL", "ORCHESTRATOR_HOME is not set")
+    install_link = Path.home() / ".config" / "orchestrator"
+    try:
+        if not install_link.exists():
+            return CheckResult(
+                "ORCHESTRATOR_HOME",
+                "WARN",
+                f"install symlink missing: {install_link}",
+            )
+        expected = install_link.resolve()
+    except OSError as exc:
+        return CheckResult(
+            "ORCHESTRATOR_HOME",
+            "WARN",
+            f"cannot resolve install symlink {install_link}: {exc}",
+        )
+    current_path = Path(current).expanduser().resolve()
+    if current_path != expected:
+        return CheckResult(
+            "ORCHESTRATOR_HOME",
+            "FAIL",
+            f"ORCHESTRATOR_HOME points to {current_path}, expected {expected}",
+        )
+    return CheckResult(
+        "ORCHESTRATOR_HOME",
+        "PASS",
+        f"matches install symlink ({expected})",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Check 10: schema → step graph
+# ---------------------------------------------------------------------------
+
+def check_schema_step_graph(repo_root: Path, orch_home: Path) -> CheckResult:
+    """FAIL when a workflow step id has no resolvable contract (override-aware)."""
+    failures: list[str] = []
+    for schema, wf_path in sorted(_workflow_schema_paths(repo_root, orch_home).items()):
+        try:
+            with open(wf_path) as f:
+                data = yaml.safe_load(f) or {}
+        except Exception as exc:
+            failures.append(f"{schema}.yaml: {exc}")
+            continue
+        steps = data.get("steps") or []
+        if not isinstance(steps, list):
+            continue
+        for item in steps:
+            step_id = _normalize_workflow_step_ref(item)
+            if not step_id:
+                continue
+            if _resolve_artifact("steps", step_id, repo_root, orch_home) is None:
+                failures.append(
+                    f"schema graph: {schema}.yaml references {step_id} which has no contract"
+                )
+    if failures:
+        return CheckResult("schema step graph", "FAIL", "; ".join(failures))
+    return CheckResult("schema step graph", "PASS", "all workflow steps resolve")
+
+
+# ---------------------------------------------------------------------------
+# Check 11: contract → flag graph
+# ---------------------------------------------------------------------------
+
+def check_contract_flag_graph(repo_root: Path, orch_home: Path) -> CheckResult:
+    """FAIL when flags_read names are not declared in flags.yaml."""
+    declared = _load_declared_flags(repo_root, orch_home)
+    failures: list[str] = []
+    for step_id, path in sorted(_iter_step_contract_paths(repo_root, orch_home).items()):
+        try:
+            with open(path) as f:
+                data = yaml.safe_load(f) or {}
+        except Exception as exc:
+            failures.append(f"{step_id}: {exc}")
+            continue
+        for entry in data.get("flags_read") or []:
+            if isinstance(entry, dict):
+                flag_name = entry.get("name")
+            elif isinstance(entry, str):
+                flag_name = entry
+            else:
+                continue
+            if not flag_name:
+                continue
+            if flag_name not in declared:
+                failures.append(
+                    f"flag graph: {flag_name} in {step_id} contract not declared in flags registry"
+                )
+    if failures:
+        return CheckResult("contract flag graph", "FAIL", "; ".join(failures))
+    return CheckResult("contract flag graph", "PASS", "all flags_read entries declared")
+
+
+# ---------------------------------------------------------------------------
+# Check 12: contract → template graph
+# ---------------------------------------------------------------------------
+
+def check_contract_template_graph(repo_root: Path, orch_home: Path) -> CheckResult:
+    """FAIL when template_paths entries do not exist on disk."""
+    failures: list[str] = []
+    for step_id, path in sorted(_iter_step_contract_paths(repo_root, orch_home).items()):
+        try:
+            with open(path) as f:
+                data = yaml.safe_load(f) or {}
+        except Exception as exc:
+            failures.append(f"{step_id}: {exc}")
+            continue
+        for tpl in data.get("template_paths") or []:
+            if not tpl or not isinstance(tpl, str):
+                continue
+            tpl_path = Path(tpl)
+            resolved = tpl_path if tpl_path.is_absolute() else orch_home / tpl_path
+            if not resolved.is_file():
+                failures.append(
+                    f"template graph: {step_id} contract missing template {tpl}"
+                )
+    if failures:
+        return CheckResult("contract template graph", "FAIL", "; ".join(failures))
+    return CheckResult("contract template graph", "PASS", "all template paths exist")
+
+
+# ---------------------------------------------------------------------------
 # run_all + formatting
 # ---------------------------------------------------------------------------
 
@@ -208,8 +472,10 @@ def _format_table(results: list) -> str:
 
 
 def run_all(args) -> int:
-    """Run all seven checks and return exit code 0/1/2."""
+    """Run all checks and return exit code 0 (pass/warn) or 2 (any failure)."""
+    del args
     orch_home = Path(os.environ["ORCHESTRATOR_HOME"])
+    repo_root = _repo_root_from_env(orch_home)
     db_path = Path(os.environ.get("METRICS_DB") or str(orch_home / "metrics.duckdb"))
     results = [
         check_state_valid(),
@@ -219,12 +485,15 @@ def run_all(args) -> int:
         check_agent_files(orch_home),
         check_duckdb_schema(db_path),
         check_workflow_plans(orch_home),
+        check_symlinks(repo_root, orch_home),
+        check_orchestrator_home(repo_root, orch_home),
+        check_schema_step_graph(repo_root, orch_home),
+        check_contract_flag_graph(repo_root, orch_home),
+        check_contract_template_graph(repo_root, orch_home),
     ]
     print(_format_table(results))
     if any(r.status == "FAIL" for r in results):
         return 2
-    if any(r.status == "WARN" for r in results):
-        return 1
     return 0
 
 
@@ -237,3 +506,7 @@ def _doctor_main(argv: list) -> int:
         print("error: ORCHESTRATOR_HOME is not set", file=sys.stderr)
         return 3
     return run_all(argv)
+
+
+if __name__ == "__main__":
+    raise SystemExit(_doctor_main(sys.argv[1:]))

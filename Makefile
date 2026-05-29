@@ -13,16 +13,8 @@ setup: ## Run install.sh to wire per-tool symlinks
 
 install: setup ## Alias for setup
 
-doctor: ## Check all required tools and symlinks are in place
-	@echo "Checking orchestrator health..."
-	@[ -f "spec/project.yaml" ] && echo "  ✅ spec/project.yaml" || echo "  ❌ spec/project.yaml missing"
-	@[ -f "install.sh" ] && echo "  ✅ install.sh" || echo "  ⚠️  install.sh not yet created"
-	@[ -d "config/workflows" ] && echo "  ✅ config/workflows" || echo "  ⚠️  config/workflows not yet created"
-	@[ -d "config/steps" ] && echo "  ✅ config/steps" || echo "  ⚠️  config/steps not yet created"
-	@[ -d "config/steps/contracts" ] && echo "  ✅ config/steps/contracts" || echo "  ⚠️  config/steps/contracts not yet created"
-	@[ -d "agents" ] && echo "  ✅ agents" || echo "  ⚠️  agents not yet created"
-	@[ -d "skills" ] && echo "  ✅ skills" || echo "  ⚠️  skills not yet created"
-	@echo "Done."
+doctor: ## Run unified orchestrator health check (orchestrator_next.doctor)
+	@PYTHONPATH="$(CURDIR)/config/scripts:$$PYTHONPATH" python3 -m orchestrator_next.doctor
 
 stale: ## Detect stale/abandoned workflow state directories
 	@echo "Scanning for stale workflow state..."

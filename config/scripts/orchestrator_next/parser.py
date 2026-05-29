@@ -264,7 +264,7 @@ def _contract_lookup_id(step_id: str, state_yaml_path: str) -> str:
     try:
         with open(state_yaml_path, "r") as f:
             raw = yaml.safe_load(f) or {}
-    except OSError:
+    except (OSError, yaml.YAMLError):
         return step_id
 
     plan = raw.get("workflow_plan") or {}
