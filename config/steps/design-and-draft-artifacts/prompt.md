@@ -1,3 +1,45 @@
+# Design and Draft Artifacts
+
+**Intent:** Generate design approaches, select one, then write all phase artifacts
+(design.md, tasks.yaml) in a single architect pass. Show artifacts to user for review
+when not in auto mode.
+
+## Inputs
+
+- `discovery_result` — handle from the explore/diagnose step.
+- `discovery.md` at `spec/changes/<slug>/discovery.md` — the discovery brief this step
+  reads for constraints, integration points, and recommended approach.
+
+## Outputs
+
+- `updated_artifact_set` — list of artifact files generated this pass.
+- `design_direction` — name of the selected design approach.
+- `complexity` — complexity rating of the selected approach (XS/S/M/L/XL).
+- Artifact `design.md` at `spec/changes/<slug>/design.md`
+  (`$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/design.md`).
+- Artifact `tasks.yaml` at `spec/changes/<slug>/tasks.yaml`
+  (`$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/tasks.yaml`).
+
+## Flags
+
+- `tdd_required` — Every implementation task must have a preceding test task.
+- `auto` — Skip artifact review pause (Part 3); advance immediately after writing.
+
+## Pre-Execute: approach statement required
+
+Before executing the instructions below, emit an APPROACH block (per
+CONVENTIONS.md § Pre-Execute Approach Statement) — this step writes multi-file
+artifacts, so it MUST state its approach first:
+
+```
+APPROACH:
+  files: <paths that will be created or modified>
+  approach: <one sentence describing the mechanism, not the goal>
+  not_doing: <what's deliberately out of scope>
+```
+
+## Instructions
+
 ## Part 1: Design Selection
 
 1. Read the discovery brief at $WORKFLOW_STATE_DIR/$CHANGE_ID/discovery.md for
@@ -60,6 +102,39 @@
    - If the user requests changes: apply them to the relevant artifacts and re-present.
    - Once confirmed: proceed to next step.
    If auto=true: skip this pause and return STATUS: completed immediately.
+
+### Rules (constraints on how)
+
+- Design selection and artifact writing happen in one spawn — no round-trip between them.
+- Keep artifact content traceable to accepted requirements.
+- Avoid implementation details in design.md — those belong in tasks.
+- Keep scope explicit — design.md must declare both goals and non-goals.
+- Make acceptance criteria testable — each AC must be verifiable by a concrete command or assertion.
+- Resolve major design decisions before implementation begins — do not defer to the implementation phase.
+- Tasks must be small, verifiable, and ordered.
+- Attach verification criteria per task.
+- Output MUST follow the Tasks YAML Format Contract in config/steps/design-and-draft-artifacts/prompt.md.
+- When flags.bugfix is true: first task MUST be the regression test, second task MUST be the fix. Order matters.
+- When spec or design introduces a new archive/state path for any producer (autopilot, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`) and confirm the new path is matched before committing the artifact. Otherwise downstream consumers (telemetry, /learn) silently skip the new producer. <!-- learned: 2026-04-16, source: HL-278, cycle: 10, hits: 29, misses: 1, repo: orchestrator -->
+- SQL sketches in design.md that reference specific field names must be validated against a live row from the target DB (or schema file) before finalizing. Add an explicit note in the task or run a one-query T-0 validation — field name drift between sketch and schema is a common first-review failure. <!-- learned: 2026-04-17, source: learn-and-telemetry-on-duckdb, cycle: 12, hits: 27, misses: 1, repo: orchestrator -->
+- Design claims about caller-site capabilities (e.g., 'X already holds an open connection', 'Y already imports Z', 'the caller has access to W') must be verified by grep against HEAD before finalizing the artifact — not inferred from pattern-matching similar code paths. Unverified caller-site claims that prove false become critical findings at phase review and force a full re-spin of all three artifacts. <!-- learned: 2026-04-20, source: pricing-table-in-duckdb, cycle: 16, hits: 24, misses: 1, repo: orchestrator -->
+- Performance budgets in design.md must cite absolute production targets (e.g., 'p99 < 10ms per call under production load') rather than synthetic microbenchmark targets (e.g., '1000 calls in 50ms in a tight loop'). Microbenchmark budgets are easy to set but mislead developers into pivoting away from correct designs when the benchmark fails under artificial conditions that do not match the real workload. <!-- learned: 2026-04-20, source: pricing-table-in-duckdb, cycle: 16, hits: 24, misses: 1, repo: orchestrator -->
+- For every implementation task in a TDD pair (the task that follows the failing-test task), populate the `change:` field with the specific mechanism: which function to edit, what the edit is, and which file:line region it targets. ORC-76 achieved 0 retries across 25 tasks with full `change:` coverage — omitting it forces the developer agent to infer scope from test_scenarios alone, which increases retry risk. <!-- learned: 2026-05-25, source: orc-76, cycle: 1, hits: 9, misses: 0, repo: orchestrator -->
+- tasks.yaml verify commands must be repo-root-relative — no absolute paths, no `cd /abs/path &&` prefix. The developer agent runs verify commands from $REPO_ROOT. Hardcoded paths break worktrees and other machines. <!-- learned: 2026-05-26, source: orc-86, cycle: 1, hits: 6, misses: 1, repo: orchestrator -->
+- Do not emit `agent:` in tasks.yaml — it is an internal dispatch field, not part of the task contract. The default is developer; set it only via state.yaml flags, not per-task. <!-- learned: 2026-05-26, source: orc-86, cycle: 1, hits: 6, misses: 1, repo: orchestrator -->
+
+## Verify
+
+Before returning COMPLETION, confirm:
+
+- design.md exists in $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/
+- tasks.yaml exists and passes validate-tasks-yaml.sh
+- design.md has Acceptance Criteria section with testable criteria
+- tasks.yaml follows the Tasks YAML Format Contract
+- tasks.yaml covers every acceptance criterion from design.md
+- Every task has a verify field listing the behaviors its tests cover
+- No verify command in tasks.yaml contains an absolute path or cd /abs/path prefix
+- Key Decisions section populated in discovery.md
 
 ---
 

@@ -1,3 +1,19 @@
+# Explore
+
+**Intent:** Survey the problem space — constraints, patterns, and open questions.
+
+## Inputs
+
+None. (Reads `spec/project.yaml` and codebase source for context.)
+
+## Outputs
+
+- `discovery_result` — COMPLETION output handle: `{path: "discovery.md"}` (or
+  `{already_completed: true, archive_path: "...", path: "discovery.md"}` on rerun-guard hit).
+- Artifact: `discovery.md` written to `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md`.
+
+## Instructions
+
 0. **Rerun guard (do this first):** Under `$REPO_ROOT/spec/changes/archive/`, check whether
    this change already completed (`status: completed` or `mark-change-completed` in
    archived `state.yaml` for the same `change_id` / ticket). If yes, write a short
@@ -17,6 +33,22 @@
 6. Return COMPLETION per contracts/done-payload.md with
    outputs.discovery_result: {path: "discovery.md"} and artifacts: [discovery.md].
    Do not return the brief as chat prose — the file is the artifact.
+
+### Rules (constraints on how)
+
+- Focus on problem-space survey, NOT solution design (design-and-draft-artifacts owns that).
+- Capture unresolved questions explicitly.
+- Scope research to the codebase unless description references external technology.
+
+## Verify
+
+Before returning COMPLETION, confirm:
+
+- Discovery brief written to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md
+- Brief covers constraints and integration points (not design approaches — those belong in design-and-draft-artifacts)
+- Unresolved questions explicitly listed (not hidden)
+- At least 2 use cases defined (minimum 1 happy path UC-N, minimum 1 error/edge UC-EN)
+- Build-or-reuse decision is explicitly stated (Key Decisions section addresses whether to build new or reuse/extend existing)
 
 ---
 

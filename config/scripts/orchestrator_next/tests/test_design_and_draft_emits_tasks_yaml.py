@@ -39,26 +39,20 @@ def _load_instruction() -> str:
 class TestDesignAndDraftEmitsTasksYaml:
 
     def test_tasks_yaml_in_outputs(self):
-        """design-and-draft-artifacts contract must declare tasks.yaml in outputs
-        (either as legacy string 'tasks.yaml' or typed dict with path ending in tasks.yaml)."""
-        step = _load_step()
-        outputs = step.get("outputs", [])
-        found = "tasks.yaml" in outputs or any(
-            isinstance(o, dict) and str(o.get("path", "")).endswith("tasks.yaml")
-            for o in outputs
-        )
-        assert found, (
-            f"design-and-draft-artifacts contract outputs does not include 'tasks.yaml'. "
-            f"Got: {outputs}"
+        """ORC-104: outputs declaration moved to prompt.md's ## Outputs section.
+        The prompt must declare tasks.yaml as a produced artifact."""
+        instruction = _load_instruction()
+        assert "## Outputs" in instruction and "tasks.yaml" in instruction, (
+            "design-and-draft-artifacts prompt.md ## Outputs does not declare 'tasks.yaml'"
         )
 
     def test_tasks_yaml_in_verify(self):
-        """design-and-draft-artifacts contract verify block must reference tasks.yaml."""
-        step = _load_step()
-        verify_items = step.get("verify", [])
-        verify_text = "\n".join(str(v) for v in verify_items)
-        assert "tasks.yaml" in verify_text, (
-            "design-and-draft-artifacts contract verify block does not reference 'tasks.yaml'"
+        """ORC-104: verify block moved to prompt.md's ## Verify section.
+        The prompt must reference tasks.yaml in its verification checks."""
+        instruction = _load_instruction()
+        verify_section = instruction.split("## Verify", 1)[-1] if "## Verify" in instruction else ""
+        assert "tasks.yaml" in verify_section, (
+            "design-and-draft-artifacts prompt.md ## Verify does not reference 'tasks.yaml'"
         )
 
     def test_tasks_yaml_in_instruction(self):

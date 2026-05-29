@@ -181,13 +181,18 @@ def check_active_vs_archive(orch_home: Path) -> CheckResult:
 # ---------------------------------------------------------------------------
 
 def check_contracts(orch_home: Path) -> CheckResult:
-    """FAIL if any contract is missing id, inputs, or outputs."""
+    """FAIL if any contract is missing id.
+
+    ORC-104: contracts are pure routing (id/version/kind/agent|run). inputs and
+    outputs are optional and default to [] — instruction and I/O-path content
+    lives in prompt.md. Only `id` remains structurally required.
+    """
     failures = []
     for path in glob.glob(str(orch_home / "config" / "steps" / "*.yaml")):
         try:
             with open(path) as f:
                 data = yaml.safe_load(f)
-            missing = [k for k in ("id", "inputs", "outputs") if k not in data]
+            missing = [k for k in ("id",) if k not in data]
             if missing:
                 failures.append(f"{os.path.basename(path)}: missing {', '.join(missing)}")
         except Exception as exc:

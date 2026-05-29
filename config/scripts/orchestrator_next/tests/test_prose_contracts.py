@@ -280,6 +280,10 @@ def test_no_contract_declares_phase_context_bundle():
     )
 
 
+@pytest.mark.skip(
+    reason="ORC-104: contract inputs/outputs stripped to prose in prompt.md; "
+    "named-handle dataflow integrity is no longer statically checkable. See ORC-104 ticket."
+)
 def test_feature_schema_required_inputs_have_a_producer():
     """For the feature schema, every required (non-optional) input resolves to
     an upstream contract outputs: entry, a state.raw bootstrap key, or an
@@ -326,6 +330,10 @@ def test_feature_schema_required_inputs_have_a_producer():
     )
 
 
+@pytest.mark.skip(
+    reason="ORC-104: contract inputs/outputs stripped to prose in prompt.md; "
+    "named-handle dataflow integrity is no longer statically checkable. See ORC-104 ticket."
+)
 def test_bugfix_schema_required_inputs_have_a_producer():
     """For the bugfix schema, every required input resolves to an upstream producer."""
     schema = yaml.safe_load(_read("config/workflows/bugfix.yaml"))

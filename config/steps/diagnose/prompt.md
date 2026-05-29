@@ -1,3 +1,18 @@
+# Diagnose
+
+**Intent:** Reproduce the bug with runnable evidence, trace the exact root cause, and document findings.
+
+## Inputs
+
+None.
+
+## Outputs
+
+- `discovery_result` — COMPLETION output handle: `{path: "discovery.md"}`.
+- Artifact: `discovery.md` written to `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md`.
+
+## Instructions
+
 Follow these steps in order. Do not skip steps.
 
 ### Step 1: Reproduce
@@ -43,6 +58,22 @@ the Diagnosis Format Contract below, containing:
 5. Return COMPLETION per contracts/done-payload.md with
    outputs.discovery_result: {path: "discovery.md"} and artifacts: [discovery.md].
    Do not return the diagnosis as chat prose — the file is the artifact.
+
+### Rules (constraints on how)
+
+- Reproduction MUST be runnable — a command or script, not just a description.
+- Root cause must identify the EXACT line(s) where behavior diverges from expected.
+- Do not propose a fix during diagnosis. Diagnosis and fix are separate concerns.
+- For codebase-wide pattern bugs: search the ENTIRE source tree (including gitignored source dirs), cross-check catalog count against `find + grep + wc -l`.
+- Catalog count mismatch protocol: if fresh grep count differs from earlier count by >0, update the impact assessment to use the fresh count. If counts differ by >20%, investigate the discrepancy (new files? false positives?) before proceeding.
+
+## Verify
+
+- Diagnosis document written to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md
+- Root cause confirmed with evidence (file path + line number + explanation)
+- Reproduction is a runnable command or script, not just prose
+- Unresolved questions explicitly listed (not hidden)
+- If pattern-based bug: catalog count matches `find + grep` count across entire source tree
 
 ---
 

@@ -146,27 +146,14 @@ def _parse_contract_fields(
     Handles inputs/outputs coercion and optional_inputs extraction.
     Called by both the directory-form and flat-file branches.
     """
-    # M2: contracts MUST declare `inputs:` and `outputs:` (may be
-    # empty list, may not be absent). Missing raises ContractError.
-    # Exception: inline-script steps (run: or inline: true) default
-    # to [] — they pass data via env vars, not structured I/O.
-    is_inline_script = data.get("inline") is True or bool(run)
-    if "inputs" not in data:
-        if is_inline_script:
-            data["inputs"] = []
-        else:
-            raise ContractError(
-                f"contract {step_id} is missing required `inputs:` field "
-                f"(use `inputs: []` if the step needs none)"
-            )
-    if "outputs" not in data:
-        if is_inline_script:
-            data["outputs"] = []
-        else:
-            raise ContractError(
-                f"contract {step_id} is missing required `outputs:` field "
-                f"(use `outputs: []` if the step produces none)"
-            )
+    # Stripped-contract model (ORC-104): contracts are pure routing
+    # (id/version/kind/agent|run). All instruction, constraint, and I/O-path
+    # content lives in prompt.md (agent kind) organized as
+    # Inputs / Outputs / Instructions / Verify sections. inputs/outputs/rules
+    # are therefore optional and default to []. Typed I/O gating in dispatch
+    # and record becomes a no-op when these are empty.
+    data.setdefault("inputs", [])
+    data.setdefault("outputs", [])
     # ORC-76 Stage B: parse inputs into list[dict[str,Any]] with unified shape.
     # Each item becomes: {name: str, path: str|None, optional: bool}.
     #
@@ -304,11 +291,15 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
             with open(dir_contract, "r") as f:
                 data = yaml.safe_load(f)
 
-            # kind is required; must be 'agent' or 'script'
+            # kind: explicit when declared, else inferred from run:/agent:
+            # presence (ORC-104 stripped contracts may omit it). A `run:` field
+            # means script; otherwise agent. Mirrors the flat-file branch.
             kind = data.get("kind")
-            if not kind or kind not in {"agent", "script"}:
+            if not kind:
+                kind = "script" if data.get("run") else "agent"
+            if kind not in {"agent", "script"}:
                 raise ContractError(
-                    f"contract {step_id} missing kind: field (agent|script)"
+                    f"contract {step_id} has invalid kind: {kind!r} (agent|script)"
                 )
 
             if kind == "agent":
