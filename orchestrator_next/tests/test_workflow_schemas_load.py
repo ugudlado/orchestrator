@@ -34,9 +34,10 @@ _REPO_ROOT = Path(_REPO_ROOT_STR)
 _REAL_HOME = _REPO_ROOT / "config"  # config/ holds workflows + steps
 _WORKFLOWS_DIR = _REAL_HOME / "workflows"
 
-# Schemas exercised by orchestrate / autopilot. Excludes:
-#   autopilot — inline-script-driven, not run via generate_plan
-_USER_FACING_SCHEMAS = ["feature", "bugfix"]
+# Schemas exercised by orchestrate / autopilot. ORC-108: autopilot is now a
+# real steps-based workflow (config/workflows/autopilot.yaml), run via
+# generate_plan like the others — no longer inline-script-driven.
+_USER_FACING_SCHEMAS = ["feature", "bugfix", "autopilot"]
 
 _STEP_REF_RE = re.compile(r"^([a-zA-Z0-9_-]+)(?:\s+if\s+(?:not\s+)?[a-zA-Z0-9_]+)?$")
 
@@ -200,7 +201,7 @@ def _schema_step_ids(schema_name):
     ]
 
 
-@pytest.mark.parametrize("schema_name", ["feature", "bugfix"])
+@pytest.mark.parametrize("schema_name", ["feature", "bugfix", "autopilot"])
 def test_schema_ends_with_complete_workflow(schema_name):
     """feature.yaml / bugfix.yaml steps must end with the single terminal
     `complete-workflow` step (orc-79)."""
@@ -211,7 +212,7 @@ def test_schema_ends_with_complete_workflow(schema_name):
     )
 
 
-@pytest.mark.parametrize("schema_name", ["feature", "bugfix"])
+@pytest.mark.parametrize("schema_name", ["feature", "bugfix", "autopilot"])
 def test_schema_drops_the_three_removed_steps(schema_name):
     """The three collapsed teardown steps must not appear in feature/bugfix."""
     steps = set(_schema_step_ids(schema_name))

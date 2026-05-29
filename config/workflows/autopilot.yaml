@@ -1,0 +1,23 @@
+# Autopilot workflow — fully autonomous, NO review steps (ORC-108).
+# Autopilot is not a mode/flag bundle: it is just this step list. It runs the
+# produce → implement → complete spine straight through and merges to main,
+# with no run-phase-review / run-ux-critique gate and no Code-Review/QA ticket
+# lanes (nothing reviews, so the ticket goes In Progress → Done).
+#
+# Behavioral effects that were the old --autopilot bundle (auto/agents/
+# merge_to_main) are being rehomed as per-workflow defaults in the flag-teardown
+# pass; until then the autopilot SKILL still sets them. The STEP LIST here is the
+# durable definition of "what autopilot does".
+steps:
+  - explore
+  - ux-design
+  - design-and-draft-artifacts
+  - expand-plan
+  - preview-route
+  - ticket-start          # ticket -> In Progress
+  - capture-test-baseline
+  - compute-prediction-accuracy
+  - run-learn-cycle
+  - mark-change-completed
+  - compute-swe-metrics
+  - complete-workflow
