@@ -12,6 +12,9 @@ __pycache__/
 .coverage
 htmlcov/
 
+# pytest tmp_path basetemp (created when pytest runs with cwd at repo/worktree root)
+pytest-of-*/
+
 # Workflow state (ephemeral, per-repo)
 .state/
 !.state/.gitkeep
