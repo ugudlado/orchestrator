@@ -9,6 +9,7 @@ completed entry as terminal (ORC-85 history-authoritative completion).
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 
@@ -20,8 +21,19 @@ _SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-from orchestrator_next import readiness  # noqa: E402
+from orchestrator_next import dispatch, readiness, record  # noqa: E402
 from orchestrator_next.parser import load_state, phase_nodes  # noqa: E402
+
+_loop_spec = importlib.util.spec_from_file_location(
+    "orchestrator_test_rework_loop",
+    os.path.join(_HERE, "test_rework_loop.py"),
+)
+_rework_loop = importlib.util.module_from_spec(_loop_spec)
+assert _loop_spec.loader is not None
+_loop_spec.loader.exec_module(_rework_loop)
+_nodes_state = _rework_loop._nodes_state
+_review_payload = _rework_loop._review_payload
+_record_setup = _rework_loop._setup
 
 
 # ---------------------------------------------------------------------------
@@ -302,3 +314,106 @@ class TestNextReadyNodeReworkReentry:
         state = load_state(state_path)
 
         assert readiness.next_ready_node(state) == "compute-prediction-accuracy"
+
+
+# ---------------------------------------------------------------------------
+# T-4: end-to-end record() — engine-owned retry counter + cap escalation
+# ---------------------------------------------------------------------------
+
+
+def _nodes_state_with_compute(tmp_path) -> dict:
+    """_nodes_state plus downstream compute node (for dispatch non-advance checks)."""
+    state = _nodes_state(tmp_path)
+    state["workflow_plan"]["implement"]["nodes"].append(
+        {
+            "id": "compute-prediction-accuracy",
+            "status": "pending",
+            "depends_on": ["run-phase-review"],
+            "agent": "inline",
+            "goal": "",
+            "inputs": [],
+            "outputs": [],
+            "rules": [],
+        }
+    )
+    return state
+
+
+def _state_retries(state_path: str) -> int:
+    raw = yaml.safe_load(open(state_path).read())
+    retries = raw.get("retries") or {}
+    return int(retries.get("run-phase-review", 0))
+
+
+def _node_status(state_path: str, node_id: str) -> str:
+    raw = yaml.safe_load(open(state_path).read())
+    nodes = raw["workflow_plan"]["implement"]["nodes"]
+    return next(n["status"] for n in nodes if n["id"] == node_id)
+
+
+class TestReworkRecordCounterClimb:
+    """AC-1: engine increments retries — payloads must not supply state_patch.retries."""
+
+    def test_needs_work_counter_climbs_from_engine_not_payload(
+        self, tmp_path, monkeypatch,
+    ):
+        state_path = _record_setup(
+            tmp_path, monkeypatch, _nodes_state(tmp_path), max_retry_rounds=8
+        )
+        assert _state_retries(state_path) == 0
+
+        for expected in (1, 2, 3):
+            record.record(state_path, _review_payload("needs_work"))
+            assert _state_retries(state_path) == expected
+
+    def test_below_cap_does_not_block_or_pause(self, tmp_path, monkeypatch):
+        """AC-3: retries below max + needs_work → completed entry, in_progress node, active."""
+        state_path = _record_setup(
+            tmp_path, monkeypatch, _nodes_state(tmp_path), max_retry_rounds=8
+        )
+        record.record(state_path, _review_payload("needs_work"))
+
+        raw = yaml.safe_load(open(state_path).read())
+        last = raw["step_history"][-1]
+        assert last["step_id"] == "run-phase-review"
+        assert last["status"] == "completed"
+        assert raw.get("status") != "paused"
+        assert _node_status(state_path, "run-phase-review") == "in_progress"
+
+
+class TestReworkRecordExhaustion:
+    """AC-3: cap exhaustion blocks, pauses, and dispatch exits 2."""
+
+    def test_max_retries_exhaustion_blocks_pauses_dispatch_exits_2(
+        self, tmp_path, monkeypatch,
+    ):
+        max_rounds = 3
+        state_path = _record_setup(
+            tmp_path,
+            monkeypatch,
+            _nodes_state_with_compute(tmp_path),
+            max_retry_rounds=max_rounds,
+        )
+
+        for round_idx in range(1, max_rounds + 1):
+            record.record(state_path, _review_payload("needs_work"))
+            raw = yaml.safe_load(open(state_path).read())
+            assert raw.get("status") != "paused"
+            assert _state_retries(state_path) == round_idx
+            assert raw["step_history"][-1]["status"] == "completed"
+
+        assert _state_retries(state_path) == max_rounds
+
+        record.record(state_path, _review_payload("needs_work"))
+
+        raw = yaml.safe_load(open(state_path).read())
+        last = raw["step_history"][-1]
+        assert last["step_id"] == "run-phase-review"
+        assert last["status"] == "blocked"
+        assert raw.get("status") == "paused"
+
+        # End-to-end: blocked last entry halts dispatch (no spawn of compute).
+        state = load_state(state_path)
+        action, exit_code = dispatch.dispatch(state, state_path)
+        assert exit_code == 2
+        assert action == {}
