@@ -75,8 +75,11 @@ def _inline_script_env(state, state_yaml_path: str, action_env: dict) -> dict:
 def _usage() -> None:
     print(
         "Usage:\n"
+        "  orchestrator <workflow> <ticket-id> [--repo PATH] [flag=value ...]\n"
+        "      Run a workflow by name (config/workflows/<workflow>.yaml), e.g.\n"
+        "      `orchestrator feature ORC-1`, `orchestrator bugfix ORC-2`.\n"
         "  orchestrator run <ticket-id> [--schema feature|bugfix] [--repo PATH] [flag=value ...]\n"
-        "      Shell-driven full workflow (ticket check, seed if needed, run-workflow loop).\n"
+        "      Equivalent explicit form (workflow via --schema).\n"
         "  orchestrator complete <ticket-id> [--repo PATH] [--no-teardown] [flag=value ...]\n"
         "      Complete phase, then merge (if merge_to_main), then worktree teardown.\n"
         "  orchestrator next <state.yaml>\n"
@@ -216,19 +219,44 @@ def _graph_verb(state_yaml_path: str) -> None:
     sys.exit(0)
 
 
+def _workflow_subcommands() -> set[str]:
+    """ORC-108: each config/workflows/<name>.yaml is a CLI subcommand.
+
+    `orchestrator feature <id>` == `orchestrator run <id> --schema feature`.
+    Resolved dynamically so adding a workflow file adds a subcommand with no
+    code change. Falls back to the empty set if the dir is unreadable.
+    """
+    import glob
+    wf_dir = os.path.join(_WORKTREE_ROOT, "config", "workflows")
+    try:
+        return {
+            os.path.splitext(os.path.basename(p))[0]
+            for p in glob.glob(os.path.join(wf_dir, "*.yaml"))
+        }
+    except OSError:
+        return set()
+
+
 def main() -> None:
     args = sys.argv[1:]
     # Stage C: ingest-driver and ingest-subagents removed from accepted verbs.
     # 'record' kept for silent backward-compat (one cycle) but absent from the banner.
-    if not args or args[0] not in (
+    _wf_subcommands = _workflow_subcommands()
+    _core_verbs = (
         "next", "done", "record", "ready", "graph", "doctor", "expand-plan", "run",
         "complete",
-    ):
+    )
+    if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
     if len(args) < 2 and args[0] in (
         "next", "record", "done", "ready", "graph", "expand-plan", "run", "complete",
-    ):
+    ) or (len(args) < 2 and args[0] in _wf_subcommands):
         _usage()
+
+    # ORC-108: workflow subcommand → run driver with --schema preset.
+    # `orchestrator feature <id> [flags]` == `orchestrator run <id> --schema feature [flags]`.
+    if args[0] in _wf_subcommands:
+        _run_verb([args[1], "--schema", args[0], *args[2:]])
 
     if args[0] == "run":
         _run_verb(args[1:])
