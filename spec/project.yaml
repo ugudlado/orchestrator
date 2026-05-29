@@ -246,7 +246,7 @@ quality_bar:
   scoring:
     critical_cap: 5
     important_cap: 7
-    green_base: 9
+    green_base: 9.25  # auto-adjusted 2026-05-29 from 9.0 (avg: 9.6, retry: 0%)
 
 storage:
   active_changes_root: $REPO_ROOT/spec/changes
