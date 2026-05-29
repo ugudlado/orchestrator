@@ -191,6 +191,20 @@ learnings:
       and estimate-cost.sh to fail with "state.yaml not found" — the estimator
       falls back to estimate_unavailable and the cost preview is silently lost.
       This affects any inline step that locates state.yaml via ORCHESTRATOR_WORKFLOW_DIR.
+  - id: pre-staged-impl-must-commit-before-review
+    learned: 2026-05-29
+    source: orc-96
+    agents: [reviewer, architect]
+    rule: >
+      Implementation code written or staged before the workflow run starts is never
+      automatically committed by the developer agent — the agent commits only the work
+      it performs in its own task. If dispatch.py (or any file) was modified in the
+      working tree before the first task runs, the tests will pass locally but the
+      committed HEAD will be missing the implementation. Phase review will catch this
+      as CF-1 (tests without implementation). The fix is: commit any pre-staged working-
+      tree edits before starting the workflow, or include an explicit commit-it task as
+      the first task after test tasks. Reviewer: verify `git diff HEAD -- <impl_file>`
+      is empty for every file listed in tasks.yaml.files before scoring.
   - id: worktree-branch-sync
     learned: 2026-05-22
     source: orc-78
@@ -246,7 +260,7 @@ quality_bar:
   scoring:
     critical_cap: 5
     important_cap: 7
-    green_base: 9
+    green_base: 9.25  # auto-adjusted 2026-05-29 from 9.0 (avg: 9.6, retry: 0%)
 
 storage:
   active_changes_root: $REPO_ROOT/spec/changes
