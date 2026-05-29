@@ -54,11 +54,11 @@ The contract owns the matching logic — trigger keywords, CLI-flag binding, res
 
 After the step emits `{schema, reason, confidence, considered}`:
 
-1. Read the schema YAML: `$ORCHESTRATOR_HOME/config/workflows/<schema>.yaml`. Workflow files declare `steps:` (and rarely `defaults:` overrides). They do NOT declare their own flags — flag definitions live in `$ORCHESTRATOR_HOME/config/flags.yaml`.
+1. Read the schema YAML: `$ORCHESTRATOR_HOME/config/workflows/<schema>.yaml`. Workflow files declare `steps:` (and rarely `defaults:` overrides). They do NOT declare their own flags — flag definitions live in `$ORCHESTRATOR_HOME/config/workflow.yaml`.
 2. Resolve flags by merging in this order:
-   - `flags.yaml.gates.<flag>.default` and `flags.yaml.behavioral.<flag>.default` — global defaults.
+   - `workflow.yaml.gates.<flag>.default` and `workflow.yaml.behavioral.<flag>.default` — global defaults.
    - Workflow's `defaults:` block (if present) — overrides for this schema.
-   - User-supplied CLI flags resolved via `flags.yaml.cli.<--name>.sets` — final override.
+   - User-supplied CLI flags resolved via `workflow.yaml.cli.<--name>.sets` — final override.
 3. Tell the user the schema, the reason it was selected, the confidence tier, and the resolved flags.
 
 ### 2. Resume entry point

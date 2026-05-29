@@ -15,11 +15,11 @@ intent: >
 inputs:
   - user_request (string — the prompt or ticket reference)
   - available_schemas (list — derived from config/workflows/*.yaml)
-  - guidelines (config/guidelines.yaml — schema descriptions and triggers)
+  - guidelines (config/workflow.yaml § guidelines — schema descriptions and triggers)
   - cli_flags (list — any --foo passed by the user)
 
 rules:
-  - Match by trigger keywords first (literal prompt substring match against guidelines.yaml triggers); use semantic match only when no trigger fires.
+  - Match by trigger keywords first (literal prompt substring match against workflow.yaml guidelines triggers); use semantic match only when no trigger fires.
   - When the user passes a CLI flag that is bound to a specific schema (e.g. --bugfix on a schema that defines it), prefer that schema.
   - Resume case takes precedence — if an active state.yaml exists for this repo, do not re-select; reuse the persisted schema.
   - When two schemas tie, prefer the more specific one (bugfix > feature for a "fix" prompt).
@@ -50,12 +50,12 @@ instruction: |
       When LOCAL state.yaml matches the ticket but ticket status disagrees on
       phase, log a WARN and proceed with local state (local state wins; see D-5).
 
-  4. Trigger match pass: read $ORCHESTRATOR_HOME/config/guidelines.yaml.
+  4. Trigger match pass: read $ORCHESTRATOR_HOME/config/workflow.yaml `guidelines:` block.
      For each schema entry, scan its description for "Triggers:" and check
      whether any trigger keyword appears literally in the user request.
      Collect candidates that fire.
 
-  5. CLI flag pass: read $ORCHESTRATOR_HOME/config/flags.yaml `cli:` block.
+  5. CLI flag pass: read $ORCHESTRATOR_HOME/config/workflow.yaml `cli:` block.
      If user passed a flag defined there with a `sets.bugfix: true` or similar
      schema-binding effect, prefer the matching schema (e.g. --bugfix → bugfix
      schema even if "fix" trigger didn't fire on the prompt).
@@ -64,7 +64,7 @@ instruction: |
      - If exactly one candidate → select it.
      - If multiple → apply tie-breaker rules; select the most specific.
      - If zero → fall back to semantic match against schema descriptions
-       (LLM judgment over the guidelines.yaml prose). Pick the closest match
+       (LLM judgment over the workflow.yaml guidelines prose). Pick the closest match
        above a confidence threshold; if no candidate is plausible, HALT
        and ask the user which schema to use.
 

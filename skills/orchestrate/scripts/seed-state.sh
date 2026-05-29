@@ -44,8 +44,11 @@ REPO_SCHEMA_OVERRIDE="$REPO_ROOT/.orchestrator/workflows/$SCHEMA.yaml"
 [[ -f "$REPO_SCHEMA_OVERRIDE" ]] && SCHEMA_YAML="$REPO_SCHEMA_OVERRIDE"
 [[ -f "$SCHEMA_YAML" ]] || { echo "error: schema '$SCHEMA' not found. Searched: $SCHEMA_YAML" >&2; exit 1; }
 
-FLAGS_YAML="$ORCHESTRATOR_HOME/config/flags.yaml"
-[[ -f "$FLAGS_YAML" ]] || { echo "error: flags.yaml not found at $FLAGS_YAML" >&2; exit 1; }
+# ORC-105: flags merged into config/workflow.yaml (gates/behavioral/cli keys
+# unchanged at top level); legacy config/flags.yaml fallback.
+FLAGS_YAML="$ORCHESTRATOR_HOME/config/workflow.yaml"
+[[ -f "$FLAGS_YAML" ]] || FLAGS_YAML="$ORCHESTRATOR_HOME/config/flags.yaml"
+[[ -f "$FLAGS_YAML" ]] || { echo "error: workflow.yaml/flags.yaml not found in $ORCHESTRATOR_HOME/config/" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # Single Python pass: parse overrides, resolve worktree flag, emit state.yaml
