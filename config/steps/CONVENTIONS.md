@@ -337,9 +337,9 @@ fallback for CLI invocations outside a worktree context only.
 **Lifecycle invariant**: `archive-completed-change` MUST run before
 `remove-worktree`. The archive step **moves** the active session dir
 (`spec/changes/<slug>/`) to `spec/changes/archive/<slug>/` on the feature
-worktree (when `worktree=true`) and commits there. `complete-workflow` does
-**not** merge or remove the worktree. `orchestrator complete` runs merge (when
-`merge_to_main`) then `scripts/complete-feature-teardown.sh`; merge failure
+worktree and commits there. `complete-workflow` does
+**not** merge or remove the worktree. `orchestrator complete` runs merge
+(unconditional — invoking the verb is the signal) then `scripts/complete-feature-teardown.sh`; merge failure
 exits without teardown. Removing the worktree before archiving destroys state
 with no recovery path.
 

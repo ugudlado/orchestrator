@@ -1,16 +1,17 @@
-"""flags.yaml reshape — `merge_to_main` is a behavioral flag.
+"""merge_to_main is gone entirely; autopilot ends at the boundary (ORC-108).
 
-`merge_to_main` does not filter steps from a workflow's `steps:` list — it is
-read by `complete-workflow.sh` to gate its merge phase. So it lives under the
-`behavioral:` section, not `gates:`.
+Autopilot's merge-to-default behavior used to be a behavioral flag flipped by the
+`--autopilot` CLI set. ORC-108 removes the flag — and the user's decision is that
+autopilot does NOT merge at all: it runs the loop, archives, and exits at the
+boundary (same end state as feature/bugfix), leaving the worktree/branch intact.
+Merging is a deliberate, separate action (`orchestrator complete` / `/approve-qa`),
+which merges unconditionally — invoking the verb IS the signal.
 
-(ORC-108 removed the `worktree` flag entirely: worktree is unconditional.)
-
-These tests prove:
-  - `merge_to_main` is under `behavioral:`, not `gates:`
-  - it carries no `steps:` key
-  - its default stays False
-  - `--autopilot` still resolves `merge_to_main: true`
+These tests prove the mechanism is fully removed:
+  - `merge_to_main` is absent from the flag registry (gates AND behavioral)
+  - `--autopilot` does not set it
+  - NO workflow file declares `merge_to_main` (autopilot included)
+  - the `worktree` flag stays removed (worktree is unconditional)
 
 Dual-tree note: `~/.config/orchestrator/config/workflow.yaml` resolves (via the
 install.sh config symlink) to the same physical file as the repo
@@ -28,10 +29,15 @@ _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
 # ORC-105: flags merged into config/workflow.yaml (gates/behavioral/cli unchanged).
 _REPO_FLAGS = os.path.join(_REPO_ROOT, "config", "workflow.yaml")
 _HOME_FLAGS = os.path.expanduser("~/.config/orchestrator/config/workflow.yaml")
+_WORKFLOWS_DIR = os.path.join(_REPO_ROOT, "config", "workflows")
 
 
 def _load_flags():
     return yaml.safe_load(open(_REPO_FLAGS).read())
+
+
+def _load_workflow(name):
+    return yaml.safe_load(open(os.path.join(_WORKFLOWS_DIR, f"{name}.yaml")).read()) or {}
 
 
 @pytest.mark.skipif(
@@ -46,19 +52,34 @@ def test_repo_and_home_flags_are_the_same_file():
     )
 
 
-def test_merge_to_main_under_behavioral():
+def test_merge_to_main_flag_removed():
+    """ORC-108: merge_to_main is no longer a flag in any registry section."""
     flags = _load_flags()
-    behavioral = flags.get("behavioral") or {}
-    assert "merge_to_main" in behavioral, (
-        "merge_to_main must be under behavioral:"
+    assert "merge_to_main" not in (flags.get("behavioral") or {}), (
+        "merge_to_main must be removed from behavioral: — it is a workflow property now"
+    )
+    assert "merge_to_main" not in (flags.get("gates") or {}), (
+        "merge_to_main must not be under gates:"
     )
 
 
-def test_merge_to_main_absent_from_gates():
+def test_autopilot_flag_no_longer_sets_merge_to_main():
+    """The --autopilot CLI set must not flip merge_to_main — it's a workflow property."""
     flags = _load_flags()
-    gates = flags.get("gates") or {}
-    assert "merge_to_main" not in gates, (
-        "merge_to_main must NOT be under gates: — it no longer filters steps"
+    autopilot = (flags.get("cli") or {}).get("--autopilot") or {}
+    sets = autopilot.get("sets") or {}
+    assert "merge_to_main" not in sets, (
+        f"--autopilot must not set merge_to_main (it's a workflow property), got {sets!r}"
+    )
+
+
+@pytest.mark.parametrize("name", ["autopilot", "feature", "bugfix"])
+def test_no_workflow_declares_merge_to_main(name):
+    """No workflow auto-merges — they all end at the boundary. Autopilot included:
+    it loops, archives, and exits; merge is the separate `orchestrator complete`."""
+    wf = _load_workflow(name)
+    assert not wf.get("merge_to_main", False), (
+        f"{name}.yaml must not declare merge_to_main (no workflow auto-merges)"
     )
 
 
@@ -67,28 +88,3 @@ def test_worktree_flag_removed():
     flags = _load_flags()
     assert "worktree" not in (flags.get("behavioral") or {}), "worktree flag must be removed"
     assert "worktree" not in (flags.get("gates") or {}), "worktree flag must be removed"
-
-
-def test_merge_to_main_carries_no_steps_key():
-    flags = _load_flags()
-    behavioral = flags.get("behavioral") or {}
-    entry = behavioral.get("merge_to_main") or {}
-    assert "steps" not in entry, "behavioral flag merge_to_main must not carry a steps: key"
-
-
-def test_defaults_preserved():
-    flags = _load_flags()
-    behavioral = flags.get("behavioral") or {}
-    assert (behavioral.get("merge_to_main") or {}).get("default") is False, (
-        "merge_to_main default must stay False"
-    )
-
-
-def test_autopilot_still_sets_merge_to_main():
-    """The --autopilot CLI flag-set must still flip merge_to_main true."""
-    flags = _load_flags()
-    autopilot = (flags.get("cli") or {}).get("--autopilot") or {}
-    sets = autopilot.get("sets") or {}
-    assert sets.get("merge_to_main") is True, (
-        f"--autopilot must still set merge_to_main: true, got {sets!r}"
-    )

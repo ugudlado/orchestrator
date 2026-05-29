@@ -9,7 +9,8 @@ Proves the full path through the real `bin/orchestrator`:
     exit 3 — the ORC-66 failure mode is structurally dissolved
   - no already-`completed` step id is re-dispatched
 
-Second case: merge_to_main=false + unmerged branch — worktree and branch preserved.
+Second case: an unmerged branch — the archive step keeps the worktree and branch
+(it never merges; merge is the separate `orchestrator complete` verb).
 """
 from __future__ import annotations
 
@@ -42,7 +43,7 @@ def _run_next(state_path, metrics_db):
     )
 
 
-def _build(tmp_path, *, merge_to_main, branch_unmerged=False):
+def _build(tmp_path, *, branch_unmerged=False):
     """Build a temp git repo + worktree + a state.yaml whose only pending node
     is the terminal `complete-workflow` (all prior nodes `completed`).
 
@@ -85,7 +86,10 @@ def _build(tmp_path, *, merge_to_main, branch_unmerged=False):
         "worktree_path": str(worktree_path),
         "branch": branch,
         "archive_path": archive_path,
-        "flags": {"merge_to_main": merge_to_main, "worktree": True},
+        # ORC-108: these tests drive `orchestrator next` (the complete-workflow
+        # archive step) only — they never reach the merge tail, so no merge
+        # property is needed.
+        "flags": {},
         "workflow_plan": {
             "main": {
                 "nodes": [
@@ -145,7 +149,8 @@ def _build_no_worktree(tmp_path):
         "status": "active",
         "repo_root": str(repo),
         "archive_path": archive_path,
-        "flags": {"merge_to_main": False, "worktree": False},
+        # ORC-108: no merge_to_main key → no merge (feature ends at boundary).
+        "flags": {},
         "workflow_plan": {
             "main": {
                 "nodes": [
@@ -254,7 +259,7 @@ def test_e2e_complete_workflow_worktree_false(tmp_path):
 def test_e2e_complete_workflow_archive_keeps_worktree(tmp_path):
     """First `next` archives on worktree and keeps checkout; second `next` exits 1."""
     (state_path, repo, worktree_path, archive_path, branch,
-     metrics_db) = _build(tmp_path, merge_to_main=True)
+     metrics_db) = _build(tmp_path)
 
     # --- first next: dispatches + runs complete-workflow.sh ---
     r1 = _run_next(state_path, metrics_db)
@@ -315,11 +320,12 @@ def test_e2e_complete_workflow_archive_keeps_worktree(tmp_path):
     )
 
 
-def test_e2e_merge_false_unmerged_branch_preserved(tmp_path):
-    """merge_to_main=false + an unmerged feature branch → worktree kept,
-    branch preserved, exit 0."""
+def test_e2e_archive_step_keeps_unmerged_branch(tmp_path):
+    """The complete-workflow archive step never merges: an unmerged feature
+    branch → worktree kept, branch preserved, exit 0. (Merge is the separate
+    `orchestrator complete` verb, not this step.)"""
     (state_path, repo, worktree_path, archive_path, branch,
-     metrics_db) = _build(tmp_path, merge_to_main=False, branch_unmerged=True)
+     metrics_db) = _build(tmp_path, branch_unmerged=True)
 
     r1 = _run_next(state_path, metrics_db)
     assert "FileNotFoundError" not in r1.stderr, r1.stderr

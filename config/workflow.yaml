@@ -21,7 +21,6 @@ behavioral:
   tdd_required:  { default: true,  description: "Strict red-green-refactor in execute-next-task" }
   auto:          { default: false, description: "Skip signoff gates" }
   light:         { default: false, description: "Lower review threshold to 7, skip tdd/phase_review" }
-  merge_to_main: { default: false, description: "Merge feature branch to default in complete-workflow" }
 
 # CLI flags. Each `sets:` flips one or more underlying flags.
 cli:
@@ -38,8 +37,7 @@ cli:
   --autopilot:
     sets:
       auto: true
-      merge_to_main: true
-    description: Full autonomy. Implicit when the autopilot skill dispatches; the terminal complete-workflow step merges to the default branch and removes the worktree; do not pause for signoff or flag confirmation.
+    description: Full autonomy. Implicit when the autopilot skill dispatches; do not pause for signoff or flag confirmation. Autopilot ends at the boundary and does NOT merge — merging is a separate deliberate action (orchestrator complete / approve-qa).
 
   # --bugfix routes to the bugfix schema via select-workflow rather than
   # flipping flags on feature. select-workflow.yaml owns this routing.

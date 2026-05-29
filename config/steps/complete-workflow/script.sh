@@ -7,7 +7,7 @@
 #      worktree when worktree=true, else in REPO_ROOT
 #
 # Merge and worktree removal run from `orchestrator complete` after the complete
-# phase succeeds: merge first (when flags.merge_to_main), then teardown.
+# phase succeeds: merge first (unconditional — invoking that verb is the signal), then teardown.
 #
 # Env inputs:  STATE_YAML_PATH, REPO_ROOT  (forwarded by bin/orchestrator)
 # Outputs:     {"completion_record": {merge_record, archive_record, worktree_record}}
