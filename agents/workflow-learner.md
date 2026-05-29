@@ -8,16 +8,17 @@ tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "WebSearch", "mcp__plug
 
 ## Variables
 
-REPO_ROOT=${REPO_ROOT:-$(git rev-parse --show-toplevel)}
-REPO_NAME=${REPO_NAME:-$(basename "$REPO_ROOT")}
+# REPO_ROOT is derived from the CURRENT working directory, not the inherited
+# env var. When dispatched into a feature worktree (cwd = worktree), this
+# resolves to the worktree; standalone (cwd = main checkout) it resolves to
+# main. The orchestrator exports REPO_ROOT=<main> during complete-phase, so we
+# must NOT honour that fallback when running inside a worktree — learn edits
+# belong on the branch they were learned on.
+REPO_ROOT=$(git rev-parse --show-toplevel)
+REPO_NAME=$(basename "$REPO_ROOT")
 ORCHESTRATOR_HOME=${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}
-# Active state dir: worktree when flags.worktree=true, else repo spec/changes.
-if [ -n "${WORKTREE_ROOT:-}" ]; then
-  WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$WORKTREE_ROOT/spec/changes}"
-else
-  WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}"
-fi
-WORKTREE_ARTIFACT_DIR="${WORKTREE_ARTIFACT_DIR:-${WORKTREE_ROOT:-$REPO_ROOT}/spec/changes}"
+WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}"
+WORKTREE_ARTIFACT_DIR="${WORKTREE_ARTIFACT_DIR:-$REPO_ROOT/spec/changes}"
 
 ## Learn from Last Feature
 
@@ -393,12 +394,14 @@ cwd is usually the main checkout). Both converge here, so commit your edits as
 the **last action before returning**, on whatever branch is checked out. This
 keeps `main` (and the worktree) free of an uncommitted learn diff.
 
-Run the shared helper against the current repo dir (do NOT pass `--require-clean`
-— that guard is for the pre-merge worktree path only, which `orchestrator-complete.sh`
-handles):
+Run the shared helper against the repo the cwd lives in — the worktree when
+orchestrated, main when standalone. Resolve it from the current toplevel, NOT
+from the inherited `REPO_ROOT` (the orchestrator exports that pointing at main).
+Do NOT pass `--require-clean` — that guard is for the pre-merge worktree path
+only, which `orchestrator-complete.sh` handles:
 
 ```bash
-REPO_DIR="${WORKTREE_ROOT:-$REPO_ROOT}"
+REPO_DIR="$(git -C "$(pwd)" rev-parse --show-toplevel)"
 HELPER="$ORCHESTRATOR_HOME/config/scripts/inline/commit-worktree-learn-updates.sh"
 [ -x "$HELPER" ] && bash "$HELPER" "$REPO_DIR" "$REPO_NAME" "" || true
 ```
