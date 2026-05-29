@@ -1,0 +1,188 @@
+version: 1
+tasks:
+  - id: T-1
+    title: "Write bats tests for resolve-state-yaml.sh (RED)"
+    depends_on: []
+    files:
+      - config/tests/test_resolve_state_yaml.bats
+    verify:
+      - bats config/tests/test_resolve_state_yaml.bats
+    test_scenarios:
+      - "live state at $REPO/spec/changes/<id>/state.yaml resolves to that path"
+      - "main archive at $REPO/spec/changes/archive/<id>/state.yaml resolves when no live exists"
+      - "worktree archive at $WTBASE/<id>/spec/changes/archive/<id>/state.yaml resolves when no live or main archive exists; WORKTREE_ROOT is honored when set"
+      - "legacy dated archive $REPO/spec/changes/archive/2026-05-01-<id>/state.yaml resolves as last fallback"
+      - "no candidate exists → exit code 1 and stderr lists the four tried paths"
+      - "two candidates exist (live + worktree archive) → returns live path AND prints 'note: picked ... over ...' to stderr"
+      - "WORKTREE_ROOT unset + git worktree list returns no match → falls back to $HOME/code/feature_worktrees/<id>"
+    why: "AC-1, AC-2, AC-3, AC-4, AC-5"
+    change: "New bats file at config/tests/test_resolve_state_yaml.bats. Set up TEST_REPO under $BATS_TMPDIR with spec/changes layout, stub $WORKTREE_ROOT and $HOME as needed. Tests must FAIL until T-2 creates scripts/resolve-state-yaml.sh."
+
+  - id: T-2
+    title: "Implement scripts/resolve-state-yaml.sh (GREEN)"
+    depends_on: [T-1]
+    files:
+      - scripts/resolve-state-yaml.sh
+    verify:
+      - bats config/tests/test_resolve_state_yaml.bats
+    test_scenarios:
+      - "all T-1 tests pass"
+      - "header comment documents lookup order and worktree-base precedence (AC-10)"
+      - "shellcheck scripts/resolve-state-yaml.sh passes (bash 3.2 compatible: no declare -A, no mapfile)"
+    why: "AC-1 through AC-5, AC-10"
+    change: |
+      Create scripts/resolve-state-yaml.sh as a standalone executable (chmod +x).
+      Header comment block documents:
+        Lookup order: $WORKFLOW_STATE_DIR/<id>/state.yaml (default $REPO_ROOT/spec/changes)
+          → $REPO_ROOT/spec/changes/archive/<id>/state.yaml
+          → $WTBASE/<id>/spec/changes/archive/<id>/state.yaml
+          → $REPO_ROOT/spec/changes/archive/*-<id>/state.yaml (legacy)
+        Worktree base ($WTBASE) precedence: $WORKTREE_ROOT → git worktree list parse → $HOME/code/feature_worktrees
+      Args: $1 = change-id (lowercased), $2 = optional repo-root (defaults to git rev-parse --show-toplevel).
+      Iterate candidates in order, collect existing ones, echo the first match to stdout, if matches > 1 print "note: picked <first> over <others>" to stderr. If no match, print all candidates tried to stderr and exit 1.
+
+  - id: T-3
+    title: "Write bats test for qa-approve.sh worktree-completed flow (RED)"
+    depends_on: [T-2]
+    files:
+      - config/tests/test_qa_approve_worktree.bats
+    verify:
+      - bats config/tests/test_qa_approve_worktree.bats
+    test_scenarios:
+      - "fake worktree-completed feature: state.yaml under $WTBASE/<id>/spec/changes/archive/<id>/, branch + worktree exist; qa-approve.sh <id> exits 0"
+      - "after run: git branch -a does NOT list the feature branch"
+      - "after run: git worktree list does NOT include the feature worktree path"
+      - "merge-to-main stub records that it was called with STATE_YAML_PATH = the worktree-archive path"
+      - "no state.yaml resolvable for <id> → qa-approve.sh exits 1 BEFORE merge stub is invoked"
+    why: "AC-3 (pre-side-effect abort), AC-6 (worktree-completed end-to-end)"
+    change: "New bats file. Stub merge-to-main.sh, remove-worktree.sh, ticket-sync-backlog.sh under $BATS_TMPDIR/stubs and PATH/INLINE_DIR-redirect to them. Construct a fake worktree at $BATS_TMPDIR/wt/<id> with state.yaml containing worktree_path, branch, ticket_id. Tests must FAIL until T-4 wires qa-approve.sh through the helper + remove-worktree.sh."
+
+  - id: T-4
+    title: "Refactor qa-approve.sh to use resolver + remove-worktree (GREEN)"
+    depends_on: [T-3]
+    files:
+      - scripts/qa-approve.sh
+    verify:
+      - bats config/tests/test_qa_approve_worktree.bats
+      - bats config/tests/test_resolve_state_yaml.bats
+    test_scenarios:
+      - "all T-3 tests pass"
+      - "shellcheck scripts/qa-approve.sh passes"
+      - "git grep -nE 'spec/changes/archive/.*state\\.yaml' scripts/qa-approve.sh returns no matches (AC-9)"
+    why: "AC-3, AC-6, AC-9"
+    change: |
+      Edit scripts/qa-approve.sh:
+        Lines 24-38: replace the inline candidate loop with:
+          if [ -f "$ARG" ]; then
+            STATE_YAML="$(cd "$(dirname "$ARG")" && pwd)/$(basename "$ARG")"
+          else
+            STATE_YAML="$(bash "$SCRIPT_DIR/resolve-state-yaml.sh" "$ARG" "$REPO_ROOT")" || {
+              echo "ERROR: cannot locate state.yaml for '$ARG'" >&2
+              exit 1
+            }
+          fi
+        After the existing "branch: $BRANCH deleted" log (around line 117-123): unconditionally invoke
+          STATE_YAML_PATH="$STATE_YAML" REPO_ROOT="$REPO_ROOT" \
+            bash "$INLINE_DIR/remove-worktree.sh"
+        and log its JSON output. The branch delete already runs under `2>/dev/null` so no race-mitigation change needed beyond ensuring the worktree-remove step runs even when branch delete printed WARN.
+
+  - id: T-5
+    title: "Write bats test for qa-rework.sh symmetry (RED)"
+    depends_on: [T-4]
+    files:
+      - config/tests/test_qa_rework_worktree.bats
+    verify:
+      - bats config/tests/test_qa_rework_worktree.bats
+    test_scenarios:
+      - "fake worktree-completed feature: qa-rework.sh <id> resolves state from $WTBASE archive and calls ticket-sync to set status In Progress"
+      - "branch is NOT deleted (qa-rework retains the branch)"
+      - "worktree is NOT removed (qa-rework retains the worktree)"
+      - "no state.yaml resolvable → qa-rework.sh exits 1 BEFORE any ticket-sync call"
+    why: "AC-3, AC-6 (qa-rework symmetry per ticket #6)"
+    change: "New bats file. Same stubbing approach as T-3. Tests must FAIL until T-6 refactors qa-rework.sh."
+
+  - id: T-6
+    title: "Refactor qa-rework.sh to use resolver (GREEN)"
+    depends_on: [T-5]
+    files:
+      - scripts/qa-rework.sh
+    verify:
+      - bats config/tests/test_qa_rework_worktree.bats
+      - bats config/tests/test_resolve_state_yaml.bats
+    test_scenarios:
+      - "all T-5 tests pass"
+      - "shellcheck scripts/qa-rework.sh passes"
+      - "git grep -nE 'spec/changes/archive/.*state\\.yaml' scripts/qa-rework.sh returns no matches"
+    why: "AC-3, AC-9"
+    change: |
+      Edit scripts/qa-rework.sh lines 22-36: replace the inline candidate loop with:
+        if [ -f "$ARG" ]; then
+          STATE_YAML="$(cd "$(dirname "$ARG")" && pwd)/$(basename "$ARG")"
+        else
+          STATE_YAML="$(bash "$SCRIPT_DIR/resolve-state-yaml.sh" "$ARG" "$REPO_ROOT")" || {
+            echo "ERROR: cannot locate state.yaml for '$ARG'" >&2
+            exit 1
+          }
+        fi
+      No teardown changes — qa-rework retains branch and worktree by design.
+
+  - id: T-7
+    title: "Write bats test for preview-route worktree + non-worktree (RED)"
+    depends_on: [T-6]
+    files:
+      - config/tests/test_preview_route_worktree.bats
+    verify:
+      - bats config/tests/test_preview_route_worktree.bats
+    test_scenarios:
+      - "worktree dispatch: ORCHESTRATOR_CHANGE_ID=<id>, ORCHESTRATOR_WORKFLOW_DIR=$WTBASE/<id>; state.yaml at $WTBASE/<id>/spec/changes/<id>/state.yaml + tasks.yaml present; estimate-cost.sh stub returns route_preview YAML; preview-route stdout JSON has route_preview.status != 'estimate_unavailable'"
+      - "non-worktree dispatch (back-compat): ORCHESTRATOR_CHANGE_ID unset, ORCHESTRATOR_WORKFLOW_DIR=$REPO with state at $REPO/spec/changes/<id>/state.yaml — preview-route still produces a non-estimate_unavailable route_preview, identical to pre-change behaviour"
+      - "estimator stub records the directory it was called with — worktree case must be $WTBASE/<id>/spec/changes/<id> (state-dir), not $WTBASE/<id> (workflow root)"
+    why: "AC-7, AC-8"
+    change: "New bats file. Stub config/scripts/estimate-cost.sh (resolved via $ORCHESTRATOR_HOME) to echo a fixed YAML route_preview and log its argv to $BATS_TMPDIR/estimator_calls.log. Tests must FAIL until T-8 fixes preview-route/script.sh."
+
+  - id: T-8
+    title: "Wire preview-route through resolver (GREEN)"
+    depends_on: [T-7]
+    files:
+      - config/steps/preview-route/script.sh
+    verify:
+      - bats config/tests/test_preview_route_worktree.bats
+    test_scenarios:
+      - "all T-7 tests pass"
+      - "shellcheck config/steps/preview-route/script.sh passes"
+      - "non-blocking semantics preserved: when resolver exits 1, preview-route still emits valid route_preview JSON with status=estimate_unavailable (UC-E1 / D-4)"
+    why: "AC-7, AC-8, AC-9, AC-10"
+    change: |
+      Edit config/steps/preview-route/script.sh around lines 24-26 (the
+      `"$ESTIMATOR" "$WORKFLOW_DIR" > "$TMPOUT"` call):
+        Compute STATE_DIR:
+          if [ -n "${ORCHESTRATOR_CHANGE_ID:-}" ] && [ -n "${REPO_ROOT:-$(git -C "$WORKFLOW_DIR" rev-parse --show-toplevel 2>/dev/null)}" ]; then
+            STATE_YAML="$(bash "$REPO_ROOT/scripts/resolve-state-yaml.sh" "$ORCHESTRATOR_CHANGE_ID" "$REPO_ROOT" 2>/dev/null)" || STATE_YAML=""
+            if [ -n "$STATE_YAML" ]; then
+              ARG_DIR="$(dirname "$STATE_YAML")"
+            else
+              ARG_DIR="$WORKFLOW_DIR"
+            fi
+          else
+            ARG_DIR="$WORKFLOW_DIR"
+          fi
+        Then call: "$ESTIMATOR" "$ARG_DIR" > "$TMPOUT" 2> "$TMPERR"
+      Update the header comment block to add the new ORCHESTRATOR_CHANGE_ID env input
+      and the lookup order (delegates to scripts/resolve-state-yaml.sh).
+
+  - id: T-9
+    title: "Phase gate — full bats sweep + grep verification"
+    depends_on: [T-8]
+    files: []
+    verify:
+      - bats config/tests/test_resolve_state_yaml.bats
+      - bats config/tests/test_qa_approve_worktree.bats
+      - bats config/tests/test_qa_rework_worktree.bats
+      - bats config/tests/test_preview_route_worktree.bats
+      - bash -c "! git grep -nE 'spec/changes/archive/.*state\\.yaml' -- scripts/qa-approve.sh scripts/qa-rework.sh config/steps/preview-route/script.sh"
+    test_scenarios:
+      - "all four bats files pass"
+      - "AC-9 grep assertion: no inline archive lookup remains in any of the three callers"
+      - "existing bats suite still green (no regressions in test_ticket_sync.bats etc.)"
+    why: "phase gate — confirm AC-9 invariant and no regressions"
+    change: "No code change. Final verification step before phase review."
