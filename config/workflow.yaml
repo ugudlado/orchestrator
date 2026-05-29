@@ -20,7 +20,6 @@ gates:
 behavioral:
   tdd_required:  { default: true,  description: "Strict red-green-refactor in execute-next-task" }
   auto:          { default: false, description: "Skip signoff gates" }
-  agents:        { default: false, description: "Spawn specialist agents instead of running inline" }
   light:         { default: false, description: "Lower review threshold to 7, skip tdd/phase_review" }
   worktree:      { default: true,  description: "Run in a git worktree; gates complete-workflow cleanup phase" }
   merge_to_main: { default: false, description: "Merge feature branch to default in complete-workflow" }
@@ -29,7 +28,6 @@ behavioral:
 cli:
   --no-tdd:      { sets: { tdd_required: false } }
   --auto:        { sets: { auto: true } }
-  --agents:      { sets: { agents: true } }
 
   --light:
     sets:
@@ -41,7 +39,6 @@ cli:
   --autopilot:
     sets:
       auto: true
-      agents: true
       merge_to_main: true
     description: Full autonomy. Implicit when the autopilot skill dispatches; the terminal complete-workflow step merges to the default branch and removes the worktree; do not pause for signoff or flag confirmation.
 

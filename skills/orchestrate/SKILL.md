@@ -78,7 +78,7 @@ bash skills/orchestrate/scripts/seed-state.sh <slug> <schema> [flag=value ...]
 Arguments:
 - `<slug>` is the change_id / feature slug for this workflow (derived from the request or Linear ticket).
 - `<schema>` is the schema name emitted by the select-workflow step (e.g. `bugfix`, `feature`).
-- `[flag=value ...]` are any resolved CLI flag overrides (e.g. `auto=true agents=true tdd_required=false`).
+- `[flag=value ...]` are any resolved CLI flag overrides (e.g. `auto=true tdd_required=false`).
 
 After the script exits 0, assert that state.yaml exists with a promoted
 workflow plan before proceeding:

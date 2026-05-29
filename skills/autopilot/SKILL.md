@@ -54,7 +54,7 @@ IF SLUG is empty or unparseable:
 Skill({ skill: "orchestrate", args: "$SLUG --autopilot" })
 ```
 
-`--autopilot` is defined in `config/flags.yaml` and flips `auto=true`, `agents=true`, and `merge_to_main=true`. The orchestrate skill runs the full feature workflow (specify → implement → complete) without signoff prompts and spawns specialist agents instead of running inline. The complete phase ends with `complete-workflow` (archive on the feature worktree). Merge and worktree removal run from `orchestrator complete` in order: merge when `merge_to_main`, then teardown (merge failure keeps the worktree). Do not pause for confirmation.
+`--autopilot` is defined in `config/workflow.yaml` and flips `auto=true` and `merge_to_main=true`. The orchestrate skill runs the full feature workflow (specify → implement → complete) without signoff prompts. The complete phase ends with `complete-workflow` (archive on the feature worktree). Merge and worktree removal run from `orchestrator complete` in order: merge when `merge_to_main`, then teardown (merge failure keeps the worktree). Do not pause for confirmation.
 
 ## What This Skill Does NOT Do
 
