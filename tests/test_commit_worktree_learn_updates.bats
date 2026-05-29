@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
-HELPER="$REPO_ROOT/config/scripts/inline/commit-worktree-learn-updates.sh"
+HELPER="$REPO_ROOT/scripts/inline/commit-worktree-learn-updates.sh"
 
 setup() {
   SANDBOX="$BATS_TMPDIR/commit-wt-$$-$RANDOM"

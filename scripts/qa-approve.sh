@@ -47,7 +47,7 @@ PY
 )"
 
 # --- Step 1: merge branch to main -------------------------------------------
-INLINE_DIR="${ORCHESTRATOR_HOME:-$REPO_ROOT}/config/scripts/inline"
+INLINE_DIR="${ORCHESTRATOR_HOME:-$REPO_ROOT}/scripts/inline"
 MERGE_RESULT="$(STATE_YAML_PATH="$STATE_YAML" REPO_ROOT="$REPO_ROOT" \
   bash "$INLINE_DIR/merge-to-main.sh" 2>&1)"
 MERGE_OK="$(printf '%s\n' "$MERGE_RESULT" | python3 -c "

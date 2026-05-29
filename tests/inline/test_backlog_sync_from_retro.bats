@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
 
-# Contract tests for config/scripts/inline/backlog-sync-from-retro.sh
+# Contract tests for scripts/inline/backlog-sync-from-retro.sh
 # RED phase (T-1): fails until the helper exists (T-2).
 
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
-SCRIPT="$REPO_ROOT/config/scripts/inline/backlog-sync-from-retro.sh"
+SCRIPT="$REPO_ROOT/scripts/inline/backlog-sync-from-retro.sh"
 FIXTURES="$BATS_TEST_DIRNAME/fixtures"
 FEATURE_ID="orc-91-test"
 TEST_REPO="$BATS_TMPDIR/backlog-sync-repo"

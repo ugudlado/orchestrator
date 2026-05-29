@@ -19,8 +19,8 @@ import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
-_HELPER = os.path.join(_REPO_ROOT, "config", "scripts", "inline",
-                       "_read_state_env.sh")
+# ORC-106: inline CLI helpers moved to repo-root scripts/inline/.
+_HELPER = os.path.join(_REPO_ROOT, "scripts", "inline", "_read_state_env.sh")
 
 
 def _resolve(state_path, *vars_):

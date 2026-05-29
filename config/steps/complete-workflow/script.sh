@@ -15,11 +15,11 @@
 set -uo pipefail
 
 _ORC_HOME="${ORCHESTRATOR_HOME:-${REPO_ROOT}}"
-_INLINE_DIR="${_ORC_HOME}/config/scripts/inline"
+_INLINE_DIR="${_ORC_HOME}/scripts/inline"
 _ARCHIVE_SCRIPT="${_ORC_HOME}/config/steps/archive-completed-change/script.sh"
 
 if [[ -n "${STATE_YAML_PATH:-}" && -f "${STATE_YAML_PATH:-}" ]]; then
-  # shellcheck source=config/scripts/inline/_read_state_env.sh
+  # shellcheck source=scripts/inline/_read_state_env.sh
   source "$_INLINE_DIR/_read_state_env.sh"
   read_state_env "$STATE_YAML_PATH" REPO_ROOT
 fi

@@ -306,7 +306,7 @@ The authoritative template is `$ORCHESTRATOR_HOME/config/templates/$SCHEMA/tasks
 
 ### Validator
 
-`config/scripts/inline/validate-tasks-yaml.sh <path-to-tasks.yaml>` — exits 0
+`config/steps/design-and-draft-artifacts/validate-tasks-yaml.sh <path-to-tasks.yaml>` — exits 0
 on a well-formed file, exits non-zero with a diagnostic message otherwise.
 
 ### Consumers

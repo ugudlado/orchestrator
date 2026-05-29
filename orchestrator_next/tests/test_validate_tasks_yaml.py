@@ -16,7 +16,8 @@ import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
-_VALIDATOR = os.path.join(_REPO_ROOT, "config", "scripts", "inline", "validate-tasks-yaml.sh")
+# ORC-106: validate-tasks-yaml.sh moved into its owning step dir.
+_VALIDATOR = os.path.join(_REPO_ROOT, "config", "steps", "design-and-draft-artifacts", "validate-tasks-yaml.sh")
 _ARTIFACT_FORMATS = os.path.join(_REPO_ROOT, "config", "steps", "design-and-draft-artifacts", "prompt.md")
 
 

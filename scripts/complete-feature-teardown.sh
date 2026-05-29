@@ -12,7 +12,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)}"
-INLINE_DIR="${ORCHESTRATOR_HOME:-$REPO_ROOT}/config/scripts/inline"
+INLINE_DIR="${ORCHESTRATOR_HOME:-$REPO_ROOT}/scripts/inline"
 ARG="${1:-}"
 
 if [ -z "$ARG" ]; then
@@ -47,7 +47,7 @@ fi
 WORKTREE_PATH=""
 BRANCH=""
 WORKTREE=""
-# shellcheck source=config/scripts/inline/_read_state_env.sh
+# shellcheck source=scripts/inline/_read_state_env.sh
 source "$INLINE_DIR/_read_state_env.sh"
 read_state_env "$STATE_YAML" WORKTREE_PATH BRANCH WORKTREE REPO_ROOT
 

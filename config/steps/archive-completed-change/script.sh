@@ -20,9 +20,9 @@ ARCHIVE_PATH="${ARCHIVE_PATH:-}"
 WORKTREE_ROOT="${WORKTREE_ROOT:-${ORCHESTRATOR_WORKFLOW_DIR:-}}"
 
 if [[ -n "${STATE_YAML_PATH:-}" && -f "$STATE_YAML_PATH" ]]; then
-  # shellcheck source=config/scripts/inline/_read_state_env.sh
+  # shellcheck source=scripts/inline/_read_state_env.sh
   _ORC_HOME="${ORCHESTRATOR_HOME:-${REPO_ROOT}}"
-  source "${_ORC_HOME}/config/scripts/inline/_read_state_env.sh"
+  source "${_ORC_HOME}/scripts/inline/_read_state_env.sh"
   read_state_env "$STATE_YAML_PATH" CHANGE_ID ARCHIVE_PATH WORKTREE_ROOT REPO_ROOT
   REPO_ROOT="${REPO_ROOT:-}"
   WORKTREE_ROOT="${WORKTREE_ROOT:-${ORCHESTRATOR_WORKFLOW_DIR:-}}"

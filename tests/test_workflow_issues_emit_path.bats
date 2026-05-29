@@ -4,7 +4,7 @@
 
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 HELPER="$REPO_ROOT/scripts/lib/detect-workflow-issues.sh"
-APPEND_RETRO="$REPO_ROOT/config/scripts/inline/append-retro.sh"
+APPEND_RETRO="$REPO_ROOT/scripts/inline/append-retro.sh"
 CHANGE_ID="orc-89-emit-path-bats"
 
 setup() {

@@ -14,7 +14,7 @@ issues:
    (`scripts/run-workflow.sh`) and the LLM driver (`skills/orchestrate/SKILL.md`).
 
 There is exactly one writer to `retro.md`: `record.py` →
-`config/scripts/inline/append-retro.sh`. The detection helper never writes to
+`scripts/inline/append-retro.sh`. The detection helper never writes to
 retro.md directly — it only emits JSON for the driver to merge.
 
 Consumers (`/learn` workflow-learner during `run-learn-cycle`,
@@ -94,7 +94,7 @@ When `retro.md` does not exist, `append-retro.sh` creates:
 ### Per-issue block (one H2 per issue)
 
 Each issue object becomes one block. Layout matches
-`config/scripts/inline/append-retro.sh` (embedded Python, lines 67–87):
+`scripts/inline/append-retro.sh` (embedded Python, lines 67–87):
 
 ```markdown
 ## <id> — <title>

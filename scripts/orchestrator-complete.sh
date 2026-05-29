@@ -16,7 +16,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUN_WORKFLOW="$SCRIPT_DIR/run-workflow.sh"
 TEARDOWN="$SCRIPT_DIR/complete-feature-teardown.sh"
-_INLINE_DIR="${ORCHESTRATOR_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}/config/scripts/inline"
+_INLINE_DIR="${ORCHESTRATOR_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}/scripts/inline"
 # shellcheck source=lib/agent-routes.sh
 source "$SCRIPT_DIR/lib/agent-routes.sh"
 
@@ -88,7 +88,7 @@ export REPO_ROOT
 export ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
 if [ -d "$_WORKTREE_ROOT/config" ]; then
   export ORCHESTRATOR_HOME="$_WORKTREE_ROOT"
-  _INLINE_DIR="$_WORKTREE_ROOT/config/scripts/inline"
+  _INLINE_DIR="$_WORKTREE_ROOT/scripts/inline"
 fi
 
 WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}"

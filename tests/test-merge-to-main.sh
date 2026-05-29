@@ -4,7 +4,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
-SCRIPT="$REPO_ROOT/config/scripts/inline/merge-to-main.sh"
+SCRIPT="$REPO_ROOT/scripts/inline/merge-to-main.sh"
 PASS=0
 FAIL=0
 
