@@ -77,7 +77,7 @@ include at least one non-empty subsection:
 {
   "evidence": {
     "commands": [
-      {"cmd": "pytest config/tests/ -q", "exit_code": 0, "stdout_tail": "…last 20 lines…"}
+      {"cmd": "pytest tests/ -q", "exit_code": 0, "stdout_tail": "…last 20 lines…"}
     ],
     "file_checks": [
       {"path": "spec/changes/foo/tasks.yaml", "exists": true, "sha256": "…", "lines": 42}

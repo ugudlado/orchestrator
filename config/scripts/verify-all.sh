@@ -101,11 +101,11 @@ echo ""
 echo "--- Bash tests (this feature) ---"
 run_bash_test \
   "test-orchestrator-metrics-json-shape.sh" \
-  "$REPO_ROOT/config/tests/test-orchestrator-metrics-json-shape.sh"
+  "$REPO_ROOT/tests/test-orchestrator-metrics-json-shape.sh"
 
 run_bash_test \
   "test-complete-phase-order.sh" \
-  "$REPO_ROOT/config/tests/test-complete-phase-order.sh"
+  "$REPO_ROOT/tests/test-complete-phase-order.sh"
 
 run_bash_test \
   "compute-swe-metrics-projection.test.sh" \
@@ -117,11 +117,11 @@ run_bash_test \
 
 run_bash_test \
   "test-register-repo-usage-invariant.sh" \
-  "$REPO_ROOT/config/tests/test-register-repo-usage-invariant.sh"
+  "$REPO_ROOT/tests/test-register-repo-usage-invariant.sh"
 
 run_bash_test \
   "test-metrics-pipeline-integration.sh (T-19)" \
-  "$REPO_ROOT/config/tests/test-metrics-pipeline-integration.sh" \
+  "$REPO_ROOT/tests/test-metrics-pipeline-integration.sh" \
   "scope"   # expected to fail: surfacing T-10 scope gap
 
 echo ""

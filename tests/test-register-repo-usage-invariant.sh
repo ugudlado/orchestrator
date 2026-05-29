@@ -7,7 +7,7 @@
 #
 # Invariant defined in spec.md FR-11 and design.md §9.
 #
-# Usage: bash config/tests/test-register-repo-usage-invariant.sh
+# Usage: bash tests/test-register-repo-usage-invariant.sh
 
 set -uo pipefail
 
