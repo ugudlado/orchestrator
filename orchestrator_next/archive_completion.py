@@ -124,10 +124,10 @@ def _step_completed(state_raw: dict[str, Any], step_id: str, phase: str = "main"
     return False
 
 
-# ORC-106: package moved to repo root; parents[1] is the repo root, templates
-# live under config/templates/ (was config/scripts/orchestrator_next → parents[2] = config/).
+# ORC-107: this template is package-private (sole consumer is this module),
+# so it lives next to it in the orchestrator_next/ package.
 _DISCOVERY_TEMPLATE_PATH = (
-    Path(__file__).resolve().parents[1] / "config" / "templates" / "already-completed-discovery.md"
+    Path(__file__).resolve().parent / "already-completed-discovery.md"
 )
 
 

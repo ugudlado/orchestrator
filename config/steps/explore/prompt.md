@@ -28,7 +28,7 @@ None. (Reads `spec/project.yaml` and codebase source for context.)
 4. List unresolved questions that will inform design choices.
 5. Write discovery brief to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md per the
    Discovery Brief Format Contract below,
-   using the template at $ORCHESTRATOR_HOME/config/templates/$SCHEMA/discovery.md as structural guide.
+   using the template at $ORCHESTRATOR_HOME/config/steps/explore/templates/$SCHEMA/discovery.md as structural guide.
    All required sections must be populated (use "N/A" for irrelevant sections).
 6. Return COMPLETION per contracts/done-payload.md with
    outputs.discovery_result: {path: "discovery.md"} and artifacts: [discovery.md].

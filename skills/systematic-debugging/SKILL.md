@@ -11,7 +11,7 @@ args:
 ## Scope
 
 This skill owns the **trace → hypothesize** middle of root-cause investigation.
-It is invoked at T-2 of the bugfix template (`config/templates/bugfix/tasks.md`),
+It is invoked at T-2 of the bugfix task plan (`tasks.yaml`),
 *after* the bug is reproducible (T-1) and *before* the root cause is written to
 `diagnosis.md` (T-3, owned by `config/steps/diagnose.yaml`).
 

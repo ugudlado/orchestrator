@@ -67,8 +67,8 @@ APPROACH:
 
 6. For each file needing generation:
    a. Read the template:
-      - design.md → $ORCHESTRATOR_HOME/config/templates/$SCHEMA/design.md
-      - tasks.yaml → $ORCHESTRATOR_HOME/config/templates/$SCHEMA/tasks.yaml
+      - design.md → $ORCHESTRATOR_HOME/config/steps/design-and-draft-artifacts/templates/$SCHEMA/design.md
+      - tasks.yaml → $ORCHESTRATOR_HOME/config/steps/design-and-draft-artifacts/templates/$SCHEMA/tasks.yaml
    b. Read the artifact's format contract from the relevant section below.
    c. Generate using available context (discovery brief, design direction, change description).
    d. Write to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/<file>.
@@ -275,7 +275,7 @@ The `tasks.yaml` file is a machine-readable structural contract between
 `design-and-draft-artifacts` (producer) and `expand-plan` (consumer). Both
 steps MUST use this exact format.
 
-The authoritative template is `$ORCHESTRATOR_HOME/config/templates/$SCHEMA/tasks.yaml`
+The authoritative template is `$ORCHESTRATOR_HOME/config/steps/design-and-draft-artifacts/templates/$SCHEMA/tasks.yaml`
 — read it in step 6 and use it as the structural skeleton for generation.
 
 ### Field rules
