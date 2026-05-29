@@ -141,7 +141,7 @@ if [[ "$STATE_YAML" == *"/archive/"* ]]; then
   exit 1
 fi
 
-_PREPARE=$(PYTHONPATH="${_WORKTREE_ROOT}/config/scripts:${PYTHONPATH:-}" \
+_PREPARE=$(PYTHONPATH="${_WORKTREE_ROOT}:${PYTHONPATH:-}" \
   python3 -m orchestrator_next.complete_phase "$STATE_YAML" 2>&1) || {
   echo "$_PREPARE" >&2
   exit 2

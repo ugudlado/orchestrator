@@ -61,7 +61,8 @@ fi
 # ── Determine PYTHONPATH for orchestrator_next imports ────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-ORCHESTRATOR_NEXT_PARENT="$REPO_ROOT/config/scripts"
+# ORC-106: orchestrator_next package moved to the repo root (was config/scripts/).
+ORCHESTRATOR_NEXT_PARENT="$REPO_ROOT"
 
 # ── Setup temp directory for JSON data files ──────────────────────────────────
 TMPDIR_REPORT="$(mktemp -d "${TMPDIR:-/tmp}/cost-report-XXXXXX")"

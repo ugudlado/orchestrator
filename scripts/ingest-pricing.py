@@ -22,17 +22,17 @@ import sys
 
 
 def _resolve_orchestrator_home():
-    """Return the repo root that contains config/scripts/orchestrator_next/, or None.
+    """Return the dir that contains orchestrator_next/ (the package parent), or None.
+
+    ORC-106: the package moved to the repo root (was config/scripts/). install.sh
+    also symlinks it under $ORCHESTRATOR_HOME/orchestrator_next.
 
     Checks (in order):
-    1. $ORCHESTRATOR_HOME env var — but only if it has config/scripts/orchestrator_next/
-       (the env var may point to a deployed config dir without the module source).
-    2. Walk up from __file__ until config/scripts/orchestrator_next/ is found.
+    1. $ORCHESTRATOR_HOME env var — if it has orchestrator_next/.
+    2. Walk up from __file__ until orchestrator_next/ is found.
     """
     env = os.environ.get("ORCHESTRATOR_HOME")
-    if env and os.path.isdir(
-        os.path.join(env, "config", "scripts", "orchestrator_next")
-    ):
+    if env and os.path.isdir(os.path.join(env, "orchestrator_next")):
         return env
     # Walk up from __file__ to find the repo root.
     here = os.path.dirname(os.path.abspath(__file__))
@@ -41,17 +41,15 @@ def _resolve_orchestrator_home():
         parent = os.path.dirname(cur)
         if parent == cur:  # filesystem root
             break
-        if os.path.isdir(os.path.join(cur, "config", "scripts", "orchestrator_next")):
+        if os.path.isdir(os.path.join(cur, "orchestrator_next")):
             return cur
         cur = parent
     return None
 
 
 _home = _resolve_orchestrator_home()
-if _home:
-    _scripts_dir = os.path.join(_home, "config", "scripts")
-    if _scripts_dir not in sys.path:
-        sys.path.insert(0, _scripts_dir)
+if _home and _home not in sys.path:
+    sys.path.insert(0, _home)
 
 import argparse  # noqa: E402
 import datetime as dt  # noqa: E402

@@ -50,7 +50,9 @@ METRICS_DB = os.environ.get("METRICS_DB") or (
 )
 if not STATE_PATH or not METRICS_DB:
     sys.exit(0)
-sys.path.insert(0, os.path.join(ORCHESTRATOR_HOME, "config", "scripts"))
+# ORC-106: orchestrator_next package lives directly under ORCHESTRATOR_HOME
+# (was config/scripts/); install.sh symlinks it there.
+sys.path.insert(0, ORCHESTRATOR_HOME)
 import duckdb
 from orchestrator_next.upsert import ensure_schema, upsert_feature_complexity
 with open(STATE_PATH) as f:

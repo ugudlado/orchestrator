@@ -209,7 +209,9 @@ PRICING_ROWS=""
 if [ -n "$ALL_AGENTS_LIST" ]; then
   AGENTS_ARGS=$(echo "$ALL_AGENTS_LIST" | tr '\n' ' ')
   # shellcheck disable=SC2086  # word-splitting $AGENTS_ARGS into separate --agents values is intended
-  PRICING_JSON=$(PYTHONPATH="$ORCHESTRATOR_HOME/config/scripts" \
+  # ORC-106: orchestrator_next package lives in the repo (REPO_ROOT), not under
+  # the installed ORCHESTRATOR_HOME symlink dir (which only links config/ + scripts/).
+  PRICING_JSON=$(PYTHONPATH="$REPO_ROOT" \
     python3 -m orchestrator_next.pricing --agents $AGENTS_ARGS)
   CLI_RC=$?
   if [ "$CLI_RC" -ne 0 ]; then
