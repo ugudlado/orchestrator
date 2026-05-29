@@ -139,3 +139,28 @@ run_preview_route() {
 
   grep -qxF "$(abs_path "$NON_WT_STATE_DIR")" "$ESTIMATOR_CALLS_LOG"
 }
+
+@test "worktree dispatch (real-env, no WORKFLOW_STATE_DIR): estimator gets worktree-live state-dir" {
+  # Reproduces production env from bin/orchestrator _inline_script_env: the
+  # dispatcher exports ORCHESTRATOR_CHANGE_ID, ORCHESTRATOR_WORKFLOW_DIR,
+  # WORKTREE_ROOT and REPO_ROOT — but NEVER WORKFLOW_STATE_DIR. REPO_ROOT is the
+  # main checkout, which for an in-flight worktree run has NO state of its own,
+  # so resolution must fall through to the worktree-live path. Remove the
+  # main-repo-live fixture this suite's setup() created so the scenario is
+  # representative. Guards the resolver's worktree-live candidate (the path real
+  # dispatch relies on) against regression.
+  rm -rf "$NON_WT_STATE_DIR"
+  unset WORKFLOW_STATE_DIR
+  export ORCHESTRATOR_CHANGE_ID="$CHANGE_ID"
+  export ORCHESTRATOR_WORKFLOW_DIR="$WT_BASE"
+  export REPO_ROOT="$TEST_REPO"
+  export WORKTREE_ROOT="$WT_BASE"
+
+  run_preview_route
+  [ "$status" -eq 0 ]
+
+  rp_status="$(printf '%s' "$output" | route_preview_status)"
+  [ "$rp_status" != "estimate_unavailable" ]
+  grep -qxF "$(abs_path "$STATE_DIR")" "$ESTIMATOR_CALLS_LOG"
+  ! grep -qxF "$(abs_path "$WT_BASE")" "$ESTIMATOR_CALLS_LOG"
+}

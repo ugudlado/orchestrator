@@ -2,11 +2,20 @@
 # resolve-state-yaml.sh — unified state.yaml path resolver (worktree-aware).
 #
 # Lookup order (first existing file wins):
-#   1. $WORKFLOW_STATE_DIR/<id>/state.yaml
+#   1. $WORKFLOW_STATE_DIR/<id>/state.yaml          (main-repo live)
 #      (default: $REPO_ROOT/spec/changes/<id>/state.yaml)
-#   2. $REPO_ROOT/spec/changes/archive/<id>/state.yaml
-#   3. $WTBASE/spec/changes/archive/<id>/state.yaml
-#   4. $REPO_ROOT/spec/changes/archive/*-<id>/state.yaml (legacy dated archives)
+#   2. $WTBASE/spec/changes/<id>/state.yaml         (worktree live)
+#   3. $REPO_ROOT/spec/changes/archive/<id>/state.yaml      (main archive)
+#   4. $WTBASE/spec/changes/archive/<id>/state.yaml         (worktree archive)
+#   5. $REPO_ROOT/spec/changes/archive/*-<id>/state.yaml    (legacy dated archives)
+#
+# Order rule: all "live" candidates before all "archive" candidates, and within
+# each, main-repo before worktree. Matches scripts/qa-approve.sh's historical
+# inline lookup (main commit 563dcc6) so consolidating onto this helper is a
+# strict no-regression: every path qa-approve.sh resolved is still covered,
+# including the worktree-live path that real dispatch relies on (REPO_ROOT is
+# the main checkout, so candidate #1 never finds an in-flight worktree run —
+# #2 does).
 #
 # Worktree base ($WTBASE) precedence:
 #   $WORKTREE_ROOT → git worktree list (branch refs/heads/feature/<id>) →
@@ -62,8 +71,10 @@ WTBASE="$(discover_wtbase)"
 LEGACY_GLOB="$REPO_ROOT/spec/changes/archive/*-$CHANGE_ID/state.yaml"
 
 # Ordered search paths (bash 3.2: indexed array, no mapfile/declare -A).
+# Live candidates first (main-repo then worktree), then archives.
 SEARCH_PATHS=()
 SEARCH_PATHS+=("$WORKFLOW_STATE_DIR/$CHANGE_ID/state.yaml")
+SEARCH_PATHS+=("$WTBASE/spec/changes/$CHANGE_ID/state.yaml")
 SEARCH_PATHS+=("$REPO_ROOT/spec/changes/archive/$CHANGE_ID/state.yaml")
 SEARCH_PATHS+=("$WTBASE/spec/changes/archive/$CHANGE_ID/state.yaml")
 
@@ -86,6 +97,7 @@ if [ "${#MATCHES[@]}" -eq 0 ]; then
   echo "  ${SEARCH_PATHS[0]}" >&2
   echo "  ${SEARCH_PATHS[1]}" >&2
   echo "  ${SEARCH_PATHS[2]}" >&2
+  echo "  ${SEARCH_PATHS[3]}" >&2
   echo "  $LEGACY_GLOB" >&2
   exit 1
 fi

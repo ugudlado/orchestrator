@@ -153,3 +153,33 @@ run_resolve() {
   [ "$status" -eq 0 ]
   [ "$output" = "$(abs_path "$archived")" ]
 }
+
+@test "worktree-live state resolves via WTBASE when no main-repo state exists (real-dispatch shape)" {
+  # Mirrors production: REPO_ROOT is the main checkout (no live state there),
+  # WORKTREE_ROOT points at the worktree, and the in-flight run's state lives at
+  # $WTBASE/spec/changes/<id>/state.yaml (live, not archived). WORKFLOW_STATE_DIR
+  # is intentionally NOT set — real inline dispatch never exports it.
+  local wt_root="$BATS_TMPDIR/wt-live-$$"
+  local wt_live="$wt_root/spec/changes/$CHANGE_ID/state.yaml"
+  write_minimal_state "$wt_live"
+  export WORKTREE_ROOT="$wt_root"
+  unset WORKFLOW_STATE_DIR
+
+  run_resolve
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(abs_path "$wt_live")" ]
+}
+
+@test "worktree-live beats worktree-archive (live precedence)" {
+  local wt_root="$BATS_TMPDIR/wt-live-arch-$$"
+  local wt_live="$wt_root/spec/changes/$CHANGE_ID/state.yaml"
+  local wt_arch="$wt_root/spec/changes/archive/$CHANGE_ID/state.yaml"
+  write_minimal_state "$wt_live"
+  write_minimal_state "$wt_arch"
+  export WORKTREE_ROOT="$wt_root"
+  unset WORKFLOW_STATE_DIR
+
+  run_resolve
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(abs_path "$wt_live")" ]
+}
