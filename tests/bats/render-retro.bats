@@ -181,8 +181,11 @@ PY
 _emit_rollup_helpers() {
   local run_workflow="$BATS_TEST_DIRNAME/../../scripts/run-workflow.sh"
   export SCRIPT_DIR="$REPO_ROOT/scripts"
+  # Extract the rollup helpers by name (not line range) so upstream edits to
+  # run-workflow.sh don't silently shift the source window. Each helper is a
+  # top-level `name() {` ... `}` block.
   # shellcheck disable=SC1090
-  source <(sed -n '337,367p' "$run_workflow")
+  source <(awk '/^(_log_ts|_log_step_usage|_emit_feature_rollup)\(\) \{/,/^\}/' "$run_workflow")
 }
 
 _install_rollup_scripts() {
