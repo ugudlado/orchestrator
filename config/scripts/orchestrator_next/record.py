@@ -1686,6 +1686,8 @@ def record(
             )
         if rework == "retry":
             readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
+            retries_map = state_raw.setdefault("retries", {})
+            retries_map["run-phase-review"] = retries_map.get("run-phase-review", 0) + 1
         elif rework == "escalate":
             readiness.mark_node_status(state_raw, phase, step_id, "completed")
             entry["status"] = "blocked"

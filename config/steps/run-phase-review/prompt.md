@@ -87,7 +87,6 @@
       outputs.phase_review_report: {verdict: needs_work}
       review_score: { overall: <N>, dimensions: {...} }
       artifacts: [phase-review.md]
-      state_patch.retries increment for this step.
    e. Follow Error Recovery Contract (contracts/error-recovery.md):
       - If retries >= phase verify.max_retries (default 3):
         execute on_max_retries action per § Escalation Protocol.
