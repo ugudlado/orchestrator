@@ -144,7 +144,10 @@ setup_git_hooks() {
 setup_pi() {
   echo "Syncing Pi coding agent..."
 
-  local pi_config="${ORCHESTRATOR_DIR}/config/pi-agents.yaml"
+  # ORC-105: pi overrides merged under the `pi:` key in config/agents.yaml;
+  # sync_pi_agents.py unwraps it. Legacy config/pi-agents.yaml fallback.
+  local pi_config="${ORCHESTRATOR_DIR}/config/agents.yaml"
+  [ -f "$pi_config" ] || pi_config="${ORCHESTRATOR_DIR}/config/pi-agents.yaml"
   local project_pi_agents="${ORCHESTRATOR_DIR}/.pi/agents"
 
   # Agents: generated Pi frontmatter (Claude JSON tools -> Pi comma-separated tools)

@@ -1,0 +1,109 @@
+# Agent routing + spin-up — single source of truth for how an agent is routed
+# to a model, which subprocess tool runs it, how that tool is invoked, and the
+# Pi-specific overrides applied at install time.
+#
+# NOTE: agent *identity* (system prompt + tools) stays in agents/<name>.md.
+# This file is the *execution* config only.
+#
+# Consumers:
+#   - config/scripts/orchestrator_next/pricing.py        (agents, models)
+#   - config/scripts/estimate-cost.sh                    (agents)
+#   - scripts/dashboard/server.py                        (agents, models)
+#   - scripts/lib/agent-routes.sh                        (agents)
+#   - scripts/run-workflow.sh                            (agents, tools)
+#   - scripts/sync_pi_agents.py                          (pi)
+
+# ── Agent routing ──────────────────────────────────────────────────
+# model:      in-process sub-agent model tier (used by Claude Code host)
+# subprocess: tool binary for shell loop (run-workflow.sh) — see tools: below
+agents:
+  architect:         { model: opus,   subprocess: claude }
+  ideator:           { model: opus,   subprocess: claude }
+  reviewer:          { model: sonnet, subprocess: claude }
+  # subprocess: cursor agent CLI; model=auto → cursor agent --model auto
+  # Override per run: orchestrator run <id> agent.developer.subprocess=pi
+  developer:         { model: auto, subprocess: cursor }
+  discoverer:        { model: sonnet, subprocess: claude }
+  workflow-learner:  { model: sonnet, subprocess: claude }
+  ux-reviewer:       { model: sonnet, subprocess: claude }
+  sonnet-agent:      { model: sonnet, subprocess: claude }
+  haiku-agent:       { model: haiku,  subprocess: claude }
+
+# ── Model backends — map model tier to concrete model-id ───────────
+# Keys match agents.<agent>.model values above
+models:
+  opus:   claude-opus-4-7
+  sonnet: claude-sonnet-4-6
+  haiku:  claude-haiku-4-5
+  auto:   auto   # Cursor CLI model id (Cursor picks best fit)
+
+# ── Subprocess tool invocation (shell loop: run-workflow.sh) ───────
+tools:
+  claude:
+    binary: claude
+    # {prompt} is substituted with the full prompt text
+    args_template: ["-p", "{prompt}"]
+    stdin: none
+    capture: stdout
+
+  pi:
+    binary: pi
+    # Non-interactive: use saved ~/.pi/agent/settings.json (provider/model) + @prompt file.
+    args_template: ["@{prompt_file}", "-p", "."]
+    stdin: none
+    capture: stdout
+
+  codex:
+    binary: codex
+    # {prompt} is substituted with the full prompt text
+    args_template: ["exec", "--prompt", "{prompt}"]
+    stdin: none
+    capture: stdout
+
+  cursor:
+    binary: cursor
+    # Cursor Agent CLI (non-interactive). Requires `cursor agent` on PATH.
+    # {model_tier} comes from agents.<role>.model (e.g. auto).
+    # Agent must emit a COMPLETION: YAML block on stdout for parse-completion.py.
+    args_template: ["agent", "--print", "--force", "--output-format", "text", "--model", "{model_tier}", "{prompt}"]
+    stdin: none
+    capture: stdout
+
+# ── Pi subagent overrides (applied by sync_pi_agents.py at install) ─
+# Source of truth for prompts remains agents/*.md (Claude/Cursor format).
+pi:
+  defaults:
+    systemPromptMode: replace
+    inheritProjectContext: true
+    inheritSkills: false
+
+  # Claude tool name -> Pi builtin tool name
+  tool_map:
+    Read: read
+    Write: write
+    Edit: edit
+    Grep: grep
+    Glob: find
+    Bash: bash
+    WebSearch: web_search
+    WebFetch: fetch_content
+
+  # Claude-only tools dropped during conversion
+  skip_tools:
+    - Skill
+    - SendMessage
+
+  # Claude mcp__server__tool -> Pi mcp:server/tool direct tool entries
+  mcp_tool_map:
+    mcp__plugin_context7_context7__resolve-library-id: mcp:plugin-context7-context7/resolve-library-id
+    mcp__plugin_context7_context7__query-docs: mcp:plugin-context7-context7/query-docs
+
+  agents:
+    reviewer:
+      inheritProjectContext: false
+      defaultContext: fresh
+    ux-reviewer:
+      inheritProjectContext: false
+      defaultContext: fresh
+      extra_tools:
+        - mcp:cursor-ide-browser

@@ -106,8 +106,11 @@ def _iter_step_contract_paths(repo_root: Path, orch_home: Path) -> dict[str, Pat
 
 def _load_declared_flags(repo_root: Path, orch_home: Path) -> set[str]:
     declared: set[str] = set()
+    # ORC-105: flags merged into config/workflow.yaml; legacy flags.yaml kept.
     for path in (
+        repo_root / ".orchestrator" / "workflow.yaml",
         repo_root / ".orchestrator" / "flags.yaml",
+        orch_home / "config" / "workflow.yaml",
         orch_home / "config" / "flags.yaml",
     ):
         if not path.is_file():

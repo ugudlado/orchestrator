@@ -1,7 +1,14 @@
-# Flag registry. Two kinds of flags:
-#   gates:       boolean flags that filter steps from a workflow's steps list.
-#   behavioral:  boolean flags that change agent/step behavior without filtering.
+# Workflow composition config — flags (what runs / how) + guidelines (which schema).
+# ORC-105: merged from config/flags.yaml + config/guidelines.yaml.
 #
+# Consumers:
+#   - skills/orchestrate/scripts/seed-state.sh        (gates, behavioral, cli)
+#   - config/scripts/orchestrator_next/doctor.py      (gates, behavioral)
+#   - config/steps/select-workflow.yaml               (guidelines)
+
+# ── Flag registry ──────────────────────────────────────────────────
+# gates:      boolean flags that filter steps from a workflow's steps list.
+# behavioral: boolean flags that change agent/step behavior without filtering.
 # Workflow files no longer carry defaults — the `default` here is global.
 # The steps list in each workflow IS the declaration of what runs;
 # only flags listed under `gates` actually filter that list.
@@ -44,3 +51,23 @@ cli:
 
   # --bugfix routes to the bugfix schema via select-workflow rather than
   # flipping flags on feature. select-workflow.yaml owns this routing.
+
+# ── Workflow selection guidelines ──────────────────────────────────
+# Read by config/steps/select-workflow.yaml at orchestrate-time. Trigger
+# keywords are the literal-match fast path; semantic match against the
+# description is the fallback.
+guidelines:
+  feature: >
+    Default schema for any change that adds, modifies, or cleans up
+    production behavior. Full pipeline: discovery → design → execute →
+    review → archive.
+    Triggers: "add", "implement", "feature", "build", "create".
+    Compose with --light for tight-scope work that lowers the review
+    threshold to 7.
+
+  bugfix: >
+    Use when something is broken, regressing, or producing incorrect
+    output. Same pipeline shape as feature but starts with diagnose
+    (reproduce + root-cause) and the first task is always the regression
+    test.
+    Triggers: "fix", "broken", "regression", "crash", "error when".

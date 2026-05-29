@@ -109,11 +109,20 @@ resolve_config() {
   fi
 }
 
-TOOLS_YAML=$(resolve_config "tools.yaml")
+# ORC-105: tools + routes merged into config/agents.yaml. Resolve once; both
+# vars point at the same file (tools: and agents:/models: blocks within it).
+# Legacy fallbacks (tools.yaml, scripts/routes.yaml) retained for older installs.
+TOOLS_YAML=$(resolve_config "agents.yaml")
+if [ -z "$TOOLS_YAML" ]; then
+  TOOLS_YAML=$(resolve_config "tools.yaml")
+fi
 if [ -z "$TOOLS_YAML" ] && [ -f "$SCRIPT_DIR/../config/tools.yaml" ]; then
   TOOLS_YAML="$(cd "$SCRIPT_DIR/../config" && pwd)/tools.yaml"
 fi
-ROUTES_YAML=$(resolve_config "scripts/routes.yaml")
+ROUTES_YAML=$(resolve_config "agents.yaml")
+if [ -z "$ROUTES_YAML" ]; then
+  ROUTES_YAML=$(resolve_config "scripts/routes.yaml")
+fi
 # Fall back to worktree scripts/routes.yaml
 if [ -z "$ROUTES_YAML" ] && [ -f "$SCRIPT_DIR/routes.yaml" ]; then
   ROUTES_YAML="$SCRIPT_DIR/routes.yaml"

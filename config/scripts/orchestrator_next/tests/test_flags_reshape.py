@@ -25,8 +25,9 @@ import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
-_REPO_FLAGS = os.path.join(_REPO_ROOT, "config", "flags.yaml")
-_HOME_FLAGS = os.path.expanduser("~/.config/orchestrator/config/flags.yaml")
+# ORC-105: flags merged into config/workflow.yaml (gates/behavioral/cli unchanged).
+_REPO_FLAGS = os.path.join(_REPO_ROOT, "config", "workflow.yaml")
+_HOME_FLAGS = os.path.expanduser("~/.config/orchestrator/config/workflow.yaml")
 
 
 def _load_flags():
