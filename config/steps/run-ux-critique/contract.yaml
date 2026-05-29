@@ -1,26 +1,3 @@
 id: run-ux-critique
-version: 3
-
-intent: Run UX critique on UI changes and iterate until quality_bar score is met.
-
-kind: agent
-
+version: 4
 agent: ux-reviewer
-
-inputs: []
-
-rules:
-  - Only runs when the phase includes UI-facing changes.
-  - Target score is quality_bar.min_phase_review_score from project.yaml.
-  - Retry with fixes until target score is met or max_retry_rounds exhausted.
-  - Spawn ux-reviewer agent directly with context — do NOT invoke /critique skill.
-
-verify:
-  - If UI files modified: critique_score >= quality_bar.min_phase_review_score
-  - If no UI files: step skipped (logged)
-  - All verify_commands pass after fixes
-
-outputs:
-  - critique_score
-  - critique_skipped
-  - critique_retries

@@ -12,6 +12,7 @@ import yaml
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", "..", ".."))
 _CONTRACT_FILE = os.path.join(_REPO_ROOT, "config", "steps", "execute-one-task", "contract.yaml")
+_PROMPT_FILE = os.path.join(_REPO_ROOT, "config", "steps", "execute-one-task", "prompt.md")
 
 
 def _load_contract() -> dict:
@@ -47,10 +48,11 @@ class TestExecuteOneTaskContract:
         )
 
     def test_references_step_context_task(self):
-        with open(_CONTRACT_FILE, "r") as f:
+        # ORC-104: instruction prose moved from contract.yaml to prompt.md.
+        with open(_PROMPT_FILE, "r") as f:
             content = f.read()
         assert "step_context.task" in content, (
-            "execute-one-task.yaml instruction must reference 'step_context.task'"
+            "execute-one-task prompt.md instruction must reference 'step_context.task'"
         )
 
     def test_no_tasks_md_in_inputs(self):

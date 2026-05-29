@@ -1,3 +1,19 @@
+# Run UX Critique
+
+**Intent:** Run UX critique on UI changes and iterate until quality_bar score is met.
+
+## Inputs
+
+None named. (Reads modified files in the phase and `quality_bar` from `spec/project.yaml`.)
+
+## Outputs
+
+- `critique_score`
+- `critique_skipped`
+- `critique_retries`
+
+## Instructions
+
 1. Read quality thresholds from project.yaml:
    - target_score = quality_bar.min_phase_review_score
    - max_retries = quality_bar.max_retry_rounds
@@ -30,3 +46,16 @@
    ```
    style(<change-id>): UX critique improvements (score: N/10)
    ```
+
+### Rules (constraints on how)
+
+- Only runs when the phase includes UI-facing changes.
+- Target score is quality_bar.min_phase_review_score from project.yaml.
+- Retry with fixes until target score is met or max_retry_rounds exhausted.
+- Spawn ux-reviewer agent directly with context — do NOT invoke /critique skill.
+
+## Verify
+
+- If UI files modified: critique_score >= quality_bar.min_phase_review_score
+- If no UI files: step skipped (logged)
+- All verify_commands pass after fixes

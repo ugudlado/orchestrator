@@ -44,10 +44,17 @@ def _discover_step_dirs() -> list[str]:
 
 
 def _step_kind(step_id: str) -> str:
-    """Read the kind field from a step's contract.yaml."""
+    """Return a step's kind: explicit `kind:` when declared, else inferred from
+    `run:`/`agent:` presence (ORC-104 stripped contracts omit `kind:`). Mirrors
+    parser._load_contract inference so this test guards that logic.
+    """
     contract_yaml_path = os.path.join(_STEPS_DIR, step_id, "contract.yaml")
     with open(contract_yaml_path) as f:
-        return yaml.safe_load(f).get("kind", "")
+        data = yaml.safe_load(f) or {}
+    kind = data.get("kind")
+    if kind:
+        return kind
+    return "script" if data.get("run") else "agent"
 
 
 _ALL_STEP_IDS = _discover_step_dirs()

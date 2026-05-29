@@ -1,26 +1,3 @@
 id: execute-one-task
-version: 1
-
-intent: Implement a single task from the expand-plan DAG. The agent reads the task
-  payload from step_context.task, implements it, runs verification, commits, and
-  returns COMPLETION for that one task. No scheduling logic, no loop.
-
-kind: agent
-
+version: 2
 agent: developer
-
-inputs: []
-
-rules:
-  - Read step_context.task for the task to implement (id, title, files, verify, test_scenarios, change).
-  - Implement only the files listed in step_context.task.files — do not touch other files.
-  - Run every command in step_context.task.verify before returning COMPLETION.
-  - Commit per contracts/auto-commit.md after all verify commands pass.
-  - Return one COMPLETION block — no loop, no next-task scanning.
-
-outputs:
-  - task_execution_result
-
-verify:
-  - All commands in step_context.task.verify pass
-  - Commit exists for this task per auto-commit.md

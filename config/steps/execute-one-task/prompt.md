@@ -1,4 +1,18 @@
-## Single-Task Implementation
+# Execute One Task
+
+**Intent:** Implement a single task from the expand-plan DAG. The agent reads the task payload from step_context.task, implements it, runs verification, commits, and returns COMPLETION for that one task. No scheduling logic, no loop.
+
+## Inputs
+
+The task payload arrives via `step_context.task` (id, title, files, verify, test_scenarios, change) — not a named input handle. The old contract declared `inputs: []` precisely because the input is delivered through `step_context`, not a named handle.
+
+## Outputs
+
+- `task_execution_result` — COMPLETION output handle for this one task.
+
+## Instructions
+
+### Single-Task Implementation
 
 You have been spawned to implement exactly one task. The task payload is in
 `step_context.task`:
@@ -31,3 +45,16 @@ step_context.task:
 Touch only the files in `step_context.task.files`. If you discover a
 necessary file is missing from the list, add it to your COMPLETION's
 `known_concerns` — do NOT modify unlisted files.
+
+### Rules (constraints on how)
+
+- Read step_context.task for the task to implement (id, title, files, verify, test_scenarios, change).
+- Implement only the files listed in step_context.task.files — do not touch other files.
+- Run every command in step_context.task.verify before returning COMPLETION.
+- Commit per contracts/auto-commit.md after all verify commands pass.
+- Return one COMPLETION block — no loop, no next-task scanning.
+
+## Verify
+
+- All commands in step_context.task.verify pass
+- Commit exists for this task per auto-commit.md

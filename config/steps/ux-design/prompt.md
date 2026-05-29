@@ -1,3 +1,19 @@
+# UX Design
+
+**Intent:** Design and validate UI/UX through playground prototyping and critique.
+
+## Inputs
+
+- `discovery_result`
+- `discovery.md` at `spec/changes/<slug>/discovery.md`.
+
+## Outputs
+
+- `ux_direction`
+- Artifacts: `ux-prototype.html` and `ux-artifacts.yaml` (in `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/`).
+
+## Instructions
+
 1. Read the discovery brief's "UI Direction" section for context.
 2. Generate 3 design options via /playground skill.
    - If /playground fails: escalate to user with error. Do not proceed silently.
@@ -21,3 +37,16 @@
       - prototype.critique_status: passed|passed-with-fixes|skipped
       - prototype.critique_rounds: number of /critique iterations run
 8. Return COMPLETION per contracts/done-payload.md (driver calls orchestrator done).
+
+### Rules (constraints on how)
+
+- Use playground for rapid prototyping, frontend-design for polish, critique for validation.
+
+## Verify
+
+Before returning COMPLETION, confirm:
+
+- UI Direction section updated in discovery brief
+- At least 3 options were generated and one selected
+- ux-prototype.html exists in $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/
+- ux-artifacts.yaml exists and follows § UX Artifact Contract format

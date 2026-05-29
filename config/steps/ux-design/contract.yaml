@@ -1,20 +1,3 @@
 id: ux-design
-version: 4
-kind: agent
-intent: Design and validate UI/UX through playground prototyping and critique.
+version: 5
 agent: ideator
-inputs:
-- discovery_result
-- name: discovery
-  path: spec/changes/<slug>/discovery.md
-rules:
-- Use playground for rapid prototyping, frontend-design for polish, critique for validation.
-verify:
-- UI Direction section updated in discovery brief
-- At least 3 options were generated and one selected
-- ux-prototype.html exists in $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/
-- ux-artifacts.yaml exists and follows § UX Artifact Contract format
-outputs:
-- ux_direction
-- ux-prototype.html
-- ux-artifacts.yaml

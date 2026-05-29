@@ -3,54 +3,83 @@
 Rules for designing, evaluating, and modifying step contracts.
 Read by workflow-improver (when auditing and when editing).
 
-## Directory Layout (ORC-76)
+## Minimal contracts (ORC-104)
 
-Each step lives in its own directory under `config/steps/<id>/`:
+A step contract is **pure routing**. It answers one question: which agent (or
+script) runs this step. Everything else — intent, inputs, outputs, rules, and
+verification — lives in `prompt.md` as prose the agent reads directly.
 
 ```
-config/steps/<id>/contract.yaml   ← schema: id, kind, agent/run, inputs, outputs, rules, verify
-config/steps/<id>/prompt.md       ← agent kind only: full instruction prose for the agent
-config/steps/<id>/script.sh       ← script kind only: executable payload
+config/steps/<id>/contract.yaml   ← routing only: id, version, agent (or run:)
+config/steps/<id>/prompt.md       ← agent kind: all instruction/I-O/rules/verify prose
+config/steps/<id>/script.sh       ← script kind: executable payload
 ```
 
-### contract.yaml required fields
+### contract.yaml fields
 
-Every `contract.yaml` MUST declare `kind: agent` or `kind: script`:
+Agent step — three keys:
 
 ```yaml
 id: <step-id>
-kind: agent        # or: script
-agent: <agent>     # agent kind only
-run: script.sh     # script kind only
-inputs: [...]
-outputs: [...]
-rules: [...]
-verify: [...]
+version: <int>
+agent: <agent>     # routing target; resolved to a model via scripts/routes.yaml
 ```
 
-The legacy flat-file form (`config/steps/<id>.yaml`) still loads for backward compatibility,
-but all new steps MUST use the directory form.
-
-### Typed I/O
-
-Inputs and outputs may be typed file-path entries in addition to legacy named handles:
+Script step:
 
 ```yaml
-inputs:
-  - legacy_name            # legacy: resolved from evidence.outputs walk
-  - name: discovery        # typed: file existence checked at dispatch
-    path: spec/changes/<slug>/discovery.md
-    optional: true         # omit or false for required
-
-outputs:
-  - legacy_name            # legacy: value-presence check in COMPLETION outputs
-  - name: design           # typed: file existence checked after step completes
-    path: spec/changes/<slug>/design.md
+id: <step-id>
+version: <int>
+run: script.sh     # presence of run: marks it a script step
 ```
 
-The `<slug>` placeholder is substituted with `state.change_id` at runtime.
-Typed entries use the raw `worktree_artifact_dir` (the worktree root) as the base
-for path joining. Required typed inputs block dispatch if the file does not exist.
+- **`kind:` is inferred**, not declared: a `run:` field means `script`; otherwise
+  `agent`. Declaring `kind:` explicitly is still accepted (back-compat) but no
+  longer required or needed.
+- **`inputs` / `outputs` / `rules` are no longer contract fields.** They default
+  to `[]` when absent. Their content moves into `prompt.md` (see below). The
+  dispatcher's typed-I/O gating becomes a no-op when these are empty — file
+  existence is now the agent's responsibility, enforced via the prompt's
+  `## Verify` section, not by the dispatch loop.
+- The legacy flat-file form (`config/steps/<id>.yaml`) and the older full
+  contract shape still load for backward compatibility.
+
+### prompt.md structure (agent kind)
+
+Each agent prompt is organized into these sections so the agent has everything
+it needs without reading the contract:
+
+```markdown
+# <Step Title>
+
+**Intent:** <one sentence — the one thing this step does>
+
+## Inputs
+<named handles + artifact paths this step reads, or "None.">
+
+## Outputs
+<COMPLETION output handles + artifact paths this step writes>
+
+## Instructions
+<numbered steps — the happy path + error handling>
+
+### Rules (constraints on how)
+<declarative constraints; learned rules keep their <!-- learned: ... --> comments>
+
+## Verify
+<checkable assertions the agent confirms before returning COMPLETION>
+```
+
+Steps with behavioral flags add a `## Flags` section; steps that must emit an
+APPROACH block add a `## Pre-Execute` section (see § Pre-Execute Approach
+Statement). Embedded format contracts (Discovery Brief, Design, Tasks YAML, Fix
+Plan) follow the standard sections, separated by `---`.
+
+> **Consequence (ORC-104):** moving inputs/outputs/rules to prose removed four
+> machine checks — typed-I/O dispatch gating, the producer/consumer dataflow
+> test, `flags_read` validation in doctor, and `/learn`'s structured rule
+> routing/decay. These are now prompt-prose responsibilities. See the ORC-104
+> ticket for the tracked follow-ups.
 
 ## Contract Files
 
@@ -99,22 +128,24 @@ Sections that remain in this file are referenced directly (e.g., `CONVENTIONS.md
 
 ## Single Responsibility Principle
 
-Each step contract does ONE thing. Its `intent:` field must be a single sentence
-describing that one thing. If the intent uses "and" to join unrelated verbs, it's
-doing too much — split it.
+Each step does ONE thing. Its `**Intent:**` line in `prompt.md` must be a single
+sentence describing that one thing. If the intent uses "and" to join unrelated
+verbs, it's doing too much — split it.
 
 **Test**: Can you describe what this step does in 5 words? If not, it's too broad.
 
 ## Structure
 
-Every step contract has exactly 4 sections, each with a distinct purpose:
+The instruction prose in `prompt.md` is organized into these sections, each with a
+distinct purpose (see § prompt.md structure above for the layout):
 
 | Section | Purpose | Contains |
 |---------|---------|----------|
-| `rules:` | Constraints on HOW to do the one thing | Short declarative statements. Guards and quality criteria. |
-| `instruction:` | Sequential steps for the one thing | Numbered steps the agent follows. Only the happy path + error handling. |
-| `verify:` | Assertions that the one thing was done correctly | Checkable conditions. Must be evaluable without re-reading instruction. |
-| `outputs:` | What the step produces | Artifact names only. |
+| `## Inputs` | What the step reads | Named handles and artifact paths, or "None." |
+| `## Outputs` | What the step produces | COMPLETION output handles and artifact paths. |
+| `## Instructions` | Sequential steps for the one thing | Numbered steps the agent follows. Only the happy path + error handling. |
+| `### Rules (constraints on how)` | Constraints on HOW to do the one thing | Short declarative statements. Guards and quality criteria. |
+| `## Verify` | Assertions that the one thing was done correctly | Checkable conditions. Must be evaluable without re-reading instructions. |
 
 ## Evidence-Required Verification
 
@@ -188,62 +219,50 @@ dashboard stay consistent.
 
 ## Where learned rules go
 
-When `/learn` discovers a new rule, route it to the right section:
+When `/learn` discovers a new rule, route it to the right section **of the step's
+`prompt.md`** (ORC-104 — rules no longer live in `contract.yaml`):
 
 | Rule type | Target section | Example |
 |-----------|---------------|---------|
-| Quality constraint | `rules:` | "For FIXED claims, re-verify from scratch" |
-| Verification check | `verify:` | "Catalog count matches full-tree grep count" |
-| Process guidance | `instruction:` (only if it's a step in the existing flow) | Rarely — prefer rules over instruction additions |
+| Quality constraint | `### Rules (constraints on how)` | "For FIXED claims, re-verify from scratch" |
+| Verification check | `## Verify` | "Catalog count matches full-tree grep count" |
+| Process guidance | `## Instructions` (only if it's a step in the existing flow) | Rarely — prefer rules over instruction additions |
 
-**Never** add a rule as a paragraph in `instruction:`. Instructions describe the flow;
-rules constrain it. If you're tempted to add a "### Special Rule" section inside
-instruction, it belongs in `rules:` instead.
+**Never** add a rule as a paragraph in `## Instructions`. Instructions describe the
+flow; rules constrain it. If you're tempted to add a "### Special Rule" section
+inside instructions, it belongs in `### Rules` instead.
 
-## Flag Dependencies (`flags_read:`)
+Learned rules keep their `<!-- learned: ... -->` metadata comments verbatim when
+folded into prose. Because they now live in markdown rather than a YAML `rules:`
+list, automated decay routing is no longer wired — see the ORC-104 ticket.
 
-Steps that change behavior based on runtime flags (from `state.yaml.flags`) MUST
-declare them in a `flags_read:` section. This makes behavioral flag dependencies
-explicit and auditable — agents see structured config instead of parsing prose.
+## Flag Dependencies (`## Flags`)
+
+Steps that change behavior based on runtime flags (from `state.yaml.flags`) declare
+them in a `## Flags` section in `prompt.md`, so the agent sees which flags shape its
+behavior (ORC-104 — formerly the `flags_read:` contract field, now prose).
 
 **Gating vs behavioral flags**: Flags that control *whether* a step runs (e.g.,
 `ux_design`, `linear`, `auto_approve_phases`) are handled by the schema via `if:`
 conditions — the orchestrator pre-filters steps before execution, so gated steps
-never load. Only flags that change *how* a step runs need `flags_read:`.
+never load. Only flags that change *how* a step runs go in `## Flags`.
 
 ### Format
 
-```yaml
-flags_read:
-  - name: auto_approve_phases
-    effect: "Pick recommended approach automatically instead of asking user"
-  - name: tdd_required
-    effect: "Require test task before each implementation task"
+```markdown
+## Flags
+
+- `auto_approve_phases` — Pick recommended approach automatically instead of asking user.
+- `tdd_required` — Require a test task before each implementation task.
 ```
 
 ### Rules
 
-- **Only declare behavioral flags** — flags that change how the step executes, not
+- **Only list behavioral flags** — flags that change how the step executes, not
   whether it runs. Gating is the schema's job (`if:` / `if not`).
-- **Do NOT duplicate skip logic in instruction** when the schema already gates the
+- **Do NOT duplicate skip logic in instructions** when the schema already gates the
   step. The step should assume it will only run when the condition is met.
-- **`effect` is a human-readable description** of what the flag changes in the step's
-  behavior. Keep it under one sentence.
-
-### Example
-
-```yaml
-id: design-and-draft-artifacts (feature) or create-or-refresh-artifacts (bugfix/spike)
-flags_read:
-  - name: tdd_required
-    effect: "Every implementation task must have a preceding test task"
-rules:
-  - Tasks must be small, verifiable, and ordered.
-instruction: |
-  ...
-  FLAG-DEPENDENT BEHAVIOR (per flags_read):
-  - When tdd_required: every implementation task has a preceding test task.
-```
+- **Describe the effect in one sentence** — what the flag changes in the step's behavior.
 
 ## Usage Block Contract
 
@@ -492,10 +511,11 @@ This ensures new phases get signoff by default rather than silently skipping app
 
 ## Anti-patterns
 
-- **Instruction bloat**: Adding paragraphs of conditional logic to `instruction:`. Move to `rules:`.
+- **Instruction bloat**: Adding paragraphs of conditional logic to `## Instructions`. Move to `### Rules`.
 - **Multi-intent**: Step that computes metrics AND archives AND writes logs. Split into separate steps.
-- **Verify-as-instruction**: Writing verification logic in `instruction:` instead of `verify:`.
-- **Rules in wrong place**: Workflow rules belong in step contracts. Project-specific learnings belong in project.yaml `learnings:`. CLAUDE.md is a pointer only.
+- **Verify-as-instruction**: Writing verification logic in `## Instructions` instead of `## Verify`.
+- **Rules in wrong place**: Workflow rules belong in the step's `prompt.md` (`### Rules`). Project-specific learnings belong in project.yaml `learnings:`. CLAUDE.md is a pointer only.
+- **Fields back in the contract**: Re-adding `inputs`/`outputs`/`rules`/`verify`/`intent` to `contract.yaml`. The contract is routing only — those belong in `prompt.md` (ORC-104).
 
 ## When to split a step
 

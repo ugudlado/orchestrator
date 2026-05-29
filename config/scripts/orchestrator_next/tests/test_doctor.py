@@ -184,15 +184,14 @@ class TestCheckContracts:
         assert result.status == "FAIL"
         assert "id" in result.detail
 
-    def test_check_contracts_missing_inputs_fails(self, orch_home):
-        """Contract missing `inputs:` -> FAIL."""
+    def test_check_contracts_missing_inputs_passes(self, orch_home):
+        """ORC-104: missing `inputs:` is now valid (optional, defaults to [])."""
         _write_contract(orch_home / "config" / "steps", "no-inputs", {
             "id": "no-inputs", "outputs": [],
         })
         from orchestrator_next.doctor import check_contracts
         result = check_contracts(orch_home)
-        assert result.status == "FAIL"
-        assert "inputs" in result.detail
+        assert result.status == "PASS"
 
     def test_check_contracts_no_contracts_pass(self, orch_home):
         """No contracts in steps dir -> PASS (nothing to validate)."""
