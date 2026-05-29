@@ -68,8 +68,15 @@ def _write_state(workflows_dir, change_id, extra=None):
 
 
 def _write_contract(steps_dir, name, data):
-    """Write a step contract YAML to steps_dir/<name>.yaml."""
+    """Write a flat-form step contract YAML to steps_dir/<name>.yaml."""
     (steps_dir / f"{name}.yaml").write_text(yaml.dump(data))
+
+
+def _write_dir_contract(steps_dir, name, data):
+    """Write a dir-form step contract to steps_dir/<name>/contract.yaml."""
+    d = steps_dir / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "contract.yaml").write_text(yaml.dump(data))
 
 
 # ---------------------------------------------------------------------------
@@ -245,13 +252,14 @@ class TestCheckAgentFiles:
         home = tmp_path / "fake_home"
         home.mkdir()
         monkeypatch.setenv("HOME", str(home))
+        repo_root = tmp_path / "repo"
         (orch_home / "agents" / "my-agent.md").write_text("# my-agent")
         _write_contract(orch_home / "config" / "steps", "uses-agent", {
             "id": "uses-agent", "agent": "my-agent",
             "inputs": [], "outputs": [],
         })
         from orchestrator_next.doctor import check_agent_files
-        result = check_agent_files(orch_home)
+        result = check_agent_files(repo_root, orch_home)
         assert result.status == "PASS"
 
     def test_check_agent_files_inline_sentinel_skipped(self, orch_home, tmp_path, monkeypatch):
@@ -259,26 +267,28 @@ class TestCheckAgentFiles:
         home = tmp_path / "fake_home"
         home.mkdir()
         monkeypatch.setenv("HOME", str(home))
+        repo_root = tmp_path / "repo"
         _write_contract(orch_home / "config" / "steps", "inline-step", {
             "id": "inline-step", "agent": "inline",
             "inputs": [], "outputs": [],
         })
         from orchestrator_next.doctor import check_agent_files
-        result = check_agent_files(orch_home)
+        result = check_agent_files(repo_root, orch_home)
         assert result.status == "PASS"
 
     def test_check_agent_files_missing_agent_warns(self, orch_home, tmp_path, monkeypatch):
-        """Agent file missing in both locations -> WARN."""
+        """Agent file missing in all locations -> WARN."""
         home = tmp_path / "fake_home"
         home.mkdir()
         monkeypatch.setenv("HOME", str(home))
+        repo_root = tmp_path / "repo"
         (home / ".claude" / "agents").mkdir(parents=True)
         _write_contract(orch_home / "config" / "steps", "ghost-step", {
             "id": "ghost-step", "agent": "ghost-agent",
             "inputs": [], "outputs": [],
         })
         from orchestrator_next.doctor import check_agent_files
-        result = check_agent_files(orch_home)
+        result = check_agent_files(repo_root, orch_home)
         assert result.status == "WARN"
         assert "ghost-agent" in result.detail
 
@@ -287,11 +297,60 @@ class TestCheckAgentFiles:
         home = tmp_path / "fake_home"
         home.mkdir()
         monkeypatch.setenv("HOME", str(home))
+        repo_root = tmp_path / "repo"
         _write_contract(orch_home / "config" / "steps", "no-agent", {
             "id": "no-agent", "inputs": [], "outputs": [],
         })
         from orchestrator_next.doctor import check_agent_files
-        result = check_agent_files(orch_home)
+        result = check_agent_files(repo_root, orch_home)
+        assert result.status == "PASS"
+
+    def test_check_agent_files_dir_form_missing_agent_warns(self, orch_home, tmp_path, monkeypatch):
+        """UC-4: dir-form (steps/<id>/contract.yaml) agent refs are validated too."""
+        home = tmp_path / "fake_home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        (home / ".claude" / "agents").mkdir(parents=True)
+        repo_root = tmp_path / "repo"
+        _write_dir_contract(orch_home / "config" / "steps", "dir-step", {
+            "id": "dir-step", "agent": "phantom-agent",
+            "inputs": [], "outputs": [],
+        })
+        from orchestrator_next.doctor import check_agent_files
+        result = check_agent_files(repo_root, orch_home)
+        assert result.status == "WARN"
+        assert "phantom-agent" in result.detail
+        assert "dir-step" in result.detail
+
+    def test_check_agent_files_dir_form_present_passes(self, orch_home, tmp_path, monkeypatch):
+        """Dir-form contract whose agent .md exists -> PASS."""
+        home = tmp_path / "fake_home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        repo_root = tmp_path / "repo"
+        (orch_home / "agents" / "real-agent.md").write_text("# real-agent")
+        _write_dir_contract(orch_home / "config" / "steps", "dir-step", {
+            "id": "dir-step", "agent": "real-agent",
+            "inputs": [], "outputs": [],
+        })
+        from orchestrator_next.doctor import check_agent_files
+        result = check_agent_files(repo_root, orch_home)
+        assert result.status == "PASS"
+
+    def test_check_agent_files_repo_override_resolves(self, orch_home, tmp_path, monkeypatch):
+        """Agent provided only via repo .orchestrator/agents override -> PASS."""
+        home = tmp_path / "fake_home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        repo_root = tmp_path / "repo"
+        (repo_root / ".orchestrator" / "agents").mkdir(parents=True)
+        (repo_root / ".orchestrator" / "agents" / "override-agent.md").write_text("# override")
+        _write_dir_contract(orch_home / "config" / "steps", "ov-step", {
+            "id": "ov-step", "agent": "override-agent",
+            "inputs": [], "outputs": [],
+        })
+        from orchestrator_next.doctor import check_agent_files
+        result = check_agent_files(repo_root, orch_home)
         assert result.status == "PASS"
 
 

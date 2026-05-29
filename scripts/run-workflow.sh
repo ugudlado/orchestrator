@@ -384,7 +384,17 @@ _emit_feature_rollup() {
   local render_sh=""
   render_sh=$(find "$SCRIPT_DIR" "$REPO_ROOT/scripts" -maxdepth 2 -name "render-retro.sh" 2>/dev/null | head -1 || true)
   if [ -n "$render_sh" ] && [ -f "$render_sh" ]; then
-    bash "$render_sh" "$change_id" >&2 || true
+    # Resolve the worktree root so the renderer finds the archived retro.md in
+    # worktree=true runs (archive lives under $worktree_path, not $REPO_ROOT).
+    # Falls back to REPO_ROOT for non-worktree runs.
+    local wt_root="$REPO_ROOT"
+    local wt_path
+    wt_path=$(python3 "$STATE_INSPECT" workflow-meta "$STATE_YAML" 2>/dev/null \
+      | sed -n 's/^worktree_path=//p' | head -1 || true)
+    if [ -n "$wt_path" ] && [ -d "$wt_path" ]; then
+      wt_root="$wt_path"
+    fi
+    WORKTREE_ROOT="$wt_root" REPO_ROOT="$REPO_ROOT" bash "$render_sh" "$change_id" >&2 || true
   fi
 }
 

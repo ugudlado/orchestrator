@@ -243,3 +243,39 @@ STUB
   [[ "$rollup_stderr" == *"orc-rollup-fixture:"* ]]
   [[ "$rollup_stderr" != *"## Issues this run"* ]]
 }
+
+@test "_emit_feature_rollup renders worktree-archived retro via worktree_path" {
+  _require_renderer || return 0
+
+  # retro.md lives ONLY under a separate worktree root, not under REPO_ROOT —
+  # the renderer must learn that path from STATE_INSPECT workflow-meta.
+  local wt_root="$BATS_TMPDIR/render_retro_worktree"
+  rm -rf "$wt_root"
+  mkdir -p "$wt_root/spec/changes/archive/orc-wt-feature"
+  cp "$FIXTURE_POPULATED" "$wt_root/spec/changes/archive/orc-wt-feature/retro.md"
+
+  printf 'version: 1\n' > "$FAKE_ROOT/spec/project.yaml"
+  _install_rollup_scripts
+
+  # Stub STATE_INSPECT: emit worktree_path for workflow-meta, swallow the rest.
+  local stub="$FAKE_ROOT/state_inspect_stub.py"
+  cat > "$stub" <<STUB
+import sys
+if len(sys.argv) > 1 and sys.argv[1] == "workflow-meta":
+    print("worktree_path=$wt_root")
+STUB
+  export STATE_INSPECT="$stub"
+  export STATE_YAML="$FAKE_ROOT/state.yaml"
+  printf 'change_id: orc-wt-feature\n' > "$STATE_YAML"
+
+  local rollup_stderr
+  rollup_stderr=$(
+    cd "$FAKE_ROOT" && _emit_rollup_helpers && _emit_feature_rollup "orc-wt-feature" 2>&1 >/dev/null
+  )
+
+  rm -rf "$wt_root"
+  unset STATE_INSPECT STATE_YAML
+
+  [[ "$rollup_stderr" == *"feature complete:"* ]]
+  [[ "$rollup_stderr" == *"## Issues this run (3)"* ]]
+}

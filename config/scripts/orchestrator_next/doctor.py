@@ -225,21 +225,27 @@ def check_inline_scripts(orch_home: Path) -> CheckResult:
 # Check 5: agent files exist
 # ---------------------------------------------------------------------------
 
-def check_agent_files(orch_home: Path) -> CheckResult:
-    """WARN if any contract's agent file is missing in both search locations."""
+def check_agent_files(repo_root: Path, orch_home: Path) -> CheckResult:
+    """WARN if any contract's agent file is missing in all search locations.
+
+    Covers both dir-form (steps/<id>/contract.yaml) and flat-form
+    (steps/<id>.yaml) contracts, plus repo .orchestrator overrides, via
+    _iter_step_contract_paths. Agent resolution is override-aware
+    (.orchestrator/agents -> orch_home/agents) with a ~/.claude/agents global
+    fallback.
+    """
     missing = []
-    for path in glob.glob(str(orch_home / "config" / "steps" / "*.yaml")):
+    for step_id, path in _iter_step_contract_paths(repo_root, orch_home).items():
         try:
             with open(path) as f:
-                data = yaml.safe_load(f)
+                data = yaml.safe_load(f) or {}
             name = data.get("agent")
             if not name or name == "inline":
                 continue
-            local = orch_home / "agents" / f"{name}.md"
+            resolved = _resolve_artifact("agents", name, repo_root, orch_home)
             global_ = Path.home() / ".claude" / "agents" / f"{name}.md"
-            if not local.exists() and not global_.exists():
-                cid = data.get("id", os.path.basename(path))
-                missing.append(f"{name} (in {cid})")
+            if resolved is None and not global_.exists():
+                missing.append(f"{name} (in {step_id})")
         except Exception as exc:
             missing.append(f"{path}: {exc}")
     if missing:
@@ -482,7 +488,7 @@ def run_all(args) -> int:
         check_active_vs_archive(orch_home),
         check_contracts(orch_home),
         check_inline_scripts(orch_home),
-        check_agent_files(orch_home),
+        check_agent_files(repo_root, orch_home),
         check_duckdb_schema(db_path),
         check_workflow_plans(orch_home),
         check_symlinks(repo_root, orch_home),
