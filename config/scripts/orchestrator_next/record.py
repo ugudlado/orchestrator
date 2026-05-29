@@ -214,6 +214,10 @@ def _supplement_legacy_outputs(
     return out
 
 
+# Declared outputs that may be an empty list (contract allows "no tickets synced").
+_OUTPUTS_ALLOW_EMPTY_LIST: frozenset[str] = frozenset({"backlog_tickets_synced"})
+
+
 def _supplement_learn_result(
     outputs: dict[str, Any],
     payload: dict[str, Any],
@@ -233,6 +237,25 @@ def _supplement_learn_result(
     sys.stderr.write(
         "[record] supplemented outputs.learn_result for run-learn-cycle "
         "(COMPLETION missing outputs:; treated as learn completed)\n"
+    )
+    return out
+
+
+def _supplement_backlog_tickets_synced(
+    outputs: dict[str, Any],
+    step_id: str,
+    status: str,
+) -> dict[str, Any]:
+    """run-learn-cycle: ensure backlog_tickets_synced when the agent omitted it."""
+    if step_id != "run-learn-cycle" or status != "completed":
+        return outputs
+    out = dict(outputs)
+    if "backlog_tickets_synced" in out:
+        return out
+    out["backlog_tickets_synced"] = []
+    sys.stderr.write(
+        "[record] supplemented outputs.backlog_tickets_synced=[] for "
+        "run-learn-cycle (COMPLETION missing backlog sync list)\n"
     )
     return out
 
@@ -1272,7 +1295,11 @@ def _check_declared_outputs(
             continue
         value = outputs[name]
         # Reject null / empty (empty str, empty list/dict). Zero/False are real.
-        if value is None or (hasattr(value, "__len__") and len(value) == 0):
+        if value is None or (
+            hasattr(value, "__len__")
+            and len(value) == 0
+            and name not in _OUTPUTS_ALLOW_EMPTY_LIST
+        ):
             unsatisfied.append(name)
             continue
         # Path-named output (legacy heuristic): the file must exist on disk.
@@ -1412,6 +1439,7 @@ def record(
 
     outputs = _supplement_legacy_outputs(outputs, payload, contract)
     outputs = _supplement_learn_result(outputs, payload, step_id, status)
+    outputs = _supplement_backlog_tickets_synced(outputs, step_id, status)
 
     if contract is not None and status == "completed":
         # ORC-63 AC-10: a declared output is satisfied only when its key is

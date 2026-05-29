@@ -391,4 +391,6 @@ Return COMPLETION per contracts/done-payload.md:
   status: completed (or abandoned if learn fails and is non-blocking)
   outputs:
     learn_result: {completed: true} or {skipped: true, reason: "..."}
+    backlog_tickets_synced: [<ticket ids from §4b backlog-sync helper stdout>]
+      # e.g. task-42, ORC-95 — empty list [] when retro.md is absent or no issues synced
   artifacts: []

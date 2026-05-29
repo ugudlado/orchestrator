@@ -48,3 +48,21 @@ def test_run_learn_cycle_empty_outputs_gets_learn_result_supplement(tmp_path):
     last = state["step_history"][-1]
     assert last["step_id"] == "run-learn-cycle"
     assert last["evidence"]["outputs"]["learn_result"] == {"completed": True}
+    assert last["evidence"]["outputs"]["backlog_tickets_synced"] == []
+
+
+def test_run_learn_cycle_accepts_empty_backlog_tickets_synced_list(tmp_path):
+    state_path = _state_path(tmp_path)
+    payload = {
+        "step_id": "run-learn-cycle",
+        "phase": "main",
+        "status": "completed",
+        "agent": "workflow-learner",
+        "outputs": {
+            "learn_result": {"completed": True},
+            "backlog_tickets_synced": [],
+        },
+        "usage": {"input_tokens": 10, "output_tokens": 5, "model": "claude-sonnet-4-6"},
+    }
+    result, code = record(state_path, payload)
+    assert code == 0, result
