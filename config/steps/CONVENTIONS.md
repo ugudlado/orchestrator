@@ -101,7 +101,6 @@ Load only the contracts relevant to your step:
 | Metrics Schema | `contracts/metrics-schema.md` | compute-swe-metrics, telemetry, learn, workflow-improver |
 | Step Dispatch (CLI interface, JSON schema, exit codes) | `contracts/step-dispatch.md` | orchestrate skill, adapter authors, callers of `orchestrator next` |
 | Done Payload (`orchestrator done` JSON stdin, COMPLETION block) | `contracts/done-payload.md` | orchestrate skill, developer skill, all agent-spawned steps |
-| Run Field Migration (adding `run:` adapter path to a step) | `contracts/migration-run-field.md` | developer adding subprocess adapter to a step contract |
 
 When step contracts reference `CONVENTIONS.md § <Section>`, check whether the
 section now lives in a contract file above. The `§` references in step contracts
