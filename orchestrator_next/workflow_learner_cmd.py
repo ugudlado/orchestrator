@@ -1,11 +1,11 @@
-"""`orchestrator learn` — thin driver for config/workflows/workflow-learner.yaml."""
+"""`orchestrator learn` — metrics prep via the gather-learn-metrics step."""
 from __future__ import annotations
 
 import os
 import sys
 from pathlib import Path
 
-from orchestrator_next.operator_workflow import ensure_orchestrator_home, load_step_params, run_script_workflow
+from orchestrator_next.operator_workflow import ensure_orchestrator_home, load_step_params, run_script_step
 from orchestrator_next.parser import load_state
 from orchestrator_next.step_env import inline_script_env
 
@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     env = inline_script_env(state, state_yaml)
 
     print(f"[workflow-learner] change={change_id} state={state_yaml}", file=sys.stderr)
-    code = run_script_workflow("workflow-learner", env)
+    code = run_script_step("gather-learn-metrics", env)
     if code != 0:
         return code
 

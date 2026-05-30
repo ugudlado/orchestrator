@@ -17,7 +17,7 @@ $ARGUMENTS
 
 ## Overview
 
-1. **Metrics prep** — `orchestrator learn <change-id>` (operator workflow, step `gather-learn-metrics`).
+1. **Metrics prep** — `orchestrator learn <change-id>` (runs step `gather-learn-metrics` directly).
 2. **Evaluation** — spawn the `workflow-learner` agent with the feature id, scope, and JSON metrics from step 1.
 
 Step defaults: `config/steps/gather-learn-metrics/contract.yaml`. Override scope via

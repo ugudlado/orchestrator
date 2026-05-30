@@ -68,7 +68,7 @@ fi
 
 # generate_plan smoke (skip operator/resume-only schemas without a standard seed shape)
 case "$SCHEMA" in
-  telemetry|workflow-learner|rework|complete|approve-qa)
+  telemetry|complete)
     echo "OK: contracts valid ($SCHEMA — generate_plan smoke skipped)" >&2
     exit 0
     ;;

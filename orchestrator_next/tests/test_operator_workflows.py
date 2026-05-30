@@ -14,7 +14,6 @@ if _REPO_ROOT not in sys.path:
 from orchestrator_next.operator_workflow import (  # noqa: E402
     load_step_params,
     merge_step_env,
-    run_script_workflow,
     workflow_step_ids,
 )
 
@@ -22,11 +21,6 @@ from orchestrator_next.operator_workflow import (  # noqa: E402
 def test_telemetry_workflow_step_list(monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_HOME", _REPO_ROOT)
     assert workflow_step_ids("telemetry") == ["render-telemetry"]
-
-
-def test_workflow_learner_workflow_step_list(monkeypatch):
-    monkeypatch.setenv("ORCHESTRATOR_HOME", _REPO_ROOT)
-    assert workflow_step_ids("workflow-learner") == ["gather-learn-metrics"]
 
 
 def test_step_params_from_contract(monkeypatch):
@@ -42,6 +36,12 @@ def test_merge_step_env_os_environ_overrides_contract(monkeypatch):
     merged = merge_step_env("render-telemetry", {"REPO_ROOT": "/tmp/repo"})
     assert merged["TELEMETRY_SCOPE"] == "all"
     assert merged["TELEMETRY_FEATURES_LIMIT"] == "5"
+
+
+def test_gather_learn_metrics_step_contract(monkeypatch):
+    monkeypatch.setenv("ORCHESTRATOR_HOME", _REPO_ROOT)
+    params = load_step_params("gather-learn-metrics")
+    assert params  # contract defines operator defaults
 
 
 def test_gather_learn_metrics_emits_json(monkeypatch, tmp_path):
@@ -63,8 +63,8 @@ def test_gather_learn_metrics_emits_json(monkeypatch, tmp_path):
             "-c",
             "import os, sys; "
             "sys.path.insert(0, os.environ['REPO']); "
-            "from orchestrator_next.operator_workflow import run_script_workflow; "
-            "raise SystemExit(run_script_workflow('workflow-learner', "
+            "from orchestrator_next.operator_workflow import run_script_step; "
+            "raise SystemExit(run_script_step('gather-learn-metrics', "
             "{k: os.environ[k] for k in "
             "('REPO_ROOT','ORCHESTRATOR_REPO_ROOT',"
             "'ORCHESTRATOR_STATE_YAML_PATH','STATE_YAML_PATH')}))",
