@@ -4,18 +4,19 @@ description: "QA passed — merge branch to main, move ticket to Done, delete br
 user-invocable: true
 args:
   - name: change-id
-    description: Change ID or path to state.yaml (e.g. orc-86). Auto-detected from current branch if omitted.
+    description: Change ID (e.g. orc-86). Auto-detected from current branch if omitted.
     required: false
 ---
 
 ## Execution
 
 1. Resolve the change ID from `$ARGUMENTS` or the current git branch name.
-2. Run `scripts/qa-approve.sh <change-id>` from `$REPO_ROOT`.
-3. Report: ticket moved to Done, branch deleted (or any warnings).
+2. Run `orchestrator approve-qa <change-id>` — runs the complete phase DAG
+   (mark-change-completed → compute-swe-metrics → complete-workflow → merge → teardown).
+3. Report: archived, merged to main, branch deleted (or any warnings).
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 CHANGE_ID="${ARGUMENTS:-$(git branch --show-current | sed 's|.*/||')}"
-bash "$REPO_ROOT/scripts/qa-approve.sh" "$CHANGE_ID" "$REPO_ROOT"
+cd "$REPO_ROOT" && orchestrator approve-qa "$CHANGE_ID"
 ```

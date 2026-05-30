@@ -1,0 +1,4 @@
+steps:
+  - mark-change-completed
+  - compute-swe-metrics
+  - complete-workflow
