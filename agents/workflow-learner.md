@@ -119,7 +119,15 @@ Evaluate the feature with:
 - Aggregate metrics for pattern detection
 - **Systemic retry patterns** from step 2b (if any) — include the full `systemic_retry_patterns` list with step IDs, reasons, counts, and suggested target contracts
 - The step contracts directory path: `$ORCHESTRATOR_HOME/config/steps/`
-- The step contract conventions: `$ORCHESTRATOR_HOME/config/steps/CONVENTIONS.md` (must read before suggesting changes)
+- The step contracts directory for rule placement (when writing a learned rule, pick the section based on rule type):
+
+  | Rule type | Target section in `prompt.md` |
+  |-----------|-------------------------------|
+  | Quality constraint | `### Rules (constraints on how)` |
+  | Verification check | `## Verify` |
+  | Process guidance | `## Instructions` (only if it's a step in the existing flow — prefer Rules) |
+
+  **Never** add a rule as a paragraph in `## Instructions`. Instructions describe the flow; rules constrain it.
 - Instruction to run all 5 parts: compliance → step analysis → pattern detection → step contract updates → metrics write
 
 **Step analysis**: The evaluator examines:
@@ -129,7 +137,7 @@ Evaluate the feature with:
 - **Insights**: Which should become rules in the appropriate step contract?
 - **Duration outliers**: Steps taking >2x average may need decomposition
 - **Drift events**: `skip_reason: "model drift"` entries indicate the workflow lost the model — tighten instructions
-- **SRP violations**: Flag step contracts where the intent has multiple unrelated verbs, or where instruction contains rule-like paragraphs that belong in `rules:`. See `$ORCHESTRATOR_HOME/config/steps/CONVENTIONS.md`.
+- **SRP violations**: Flag step contracts where the intent has multiple unrelated verbs, or where instruction contains rule-like paragraphs that belong in `### Rules`.
 
 ### 4. Route Findings
 
@@ -218,7 +226,7 @@ After classification:
 - Resolve the target file path per scope:
   - Global → `$ORCHESTRATOR_HOME/config/steps/<step>.yaml`
   - Repo override → `$REPO_ROOT/.orchestrator/steps/<step>.yaml` (copy global first if missing)
-- Read `$ORCHESTRATOR_HOME/config/steps/CONVENTIONS.md` before editing any step contract.
+- Only edit `### Rules`, `## Verify`, or `## Instructions` sections in `prompt.md` — never touch contract.yaml (routing only) or permanent rules (no `<!-- learned:` stamp).
 - For repo overrides, the override file fully replaces its global counterpart — copy the global file first if the override doesn't exist, then edit.
 - Apply the edit directly and stamp the rule with `<!-- learned: ... -->` metadata per § Rule metadata below.
 - Fix is applied immediately to disk — improves the next workflow execution.
@@ -252,7 +260,6 @@ After classification:
   `<!-- learned: YYYY-MM-DD, source: FEATURE-ID, cycle: N, repo: REPO_NAME -->`
   Where: `YYYY-MM-DD` = today's date, `FEATURE-ID` = the feature being evaluated, `N` = current cycle count (run `config/scripts/metrics-query.sh cycle-count`; if it exits non-zero or is empty, fall back to `ls spec/changes/archive/*/state.yaml 2>/dev/null | wc -l`), `REPO_NAME` = `basename $(git rev-parse --show-toplevel)` (the repo that generated this rule).
   **Repo scoping**: Default to `repo: $REPO_NAME` (repo-scoped). Only use `repo: *` (universal) when the rule is about workflow mechanics itself (e.g., "always write next_step before spawn") and NOT about tech-stack, domain, or repo-specific patterns.
-  This is required by `$ORCHESTRATOR_HOME/config/steps/CONVENTIONS.md` § Rule Lifecycle Convention.
   Permanent (hand-written) rules already in the step contract MUST NOT receive a metadata comment.
 
 **Tooling rules** (eslint, knip config, build settings):
@@ -340,9 +347,8 @@ step contracts for ineffective learned rules and removes flagged rules.
 1. Collect all flagged rules (removal + resolution candidates) with their file paths and line context.
 2. If no rules are flagged: log `[learn] Rule decay: scanned N rules, nothing flagged` and stop.
 3. For each flagged rule:
-   - Read CONVENTIONS.md § Rule Lifecycle Convention before editing
    - Remove or resolve the flagged rule from the step contract
-   - ONLY remove rules with `<!-- learned:` metadata — never touch permanent rules
+   - ONLY remove rules with `<!-- learned:` metadata — never touch permanent rules (no metadata comment)
 4. Log: `[learn] Rule decay: scanned N rules, flagged M for removal, K for resolution`
 
 ### 5c. Adaptive Quality Bar (every invocation)

@@ -26,7 +26,7 @@
    - If /critique finds issues requiring user input: escalate to user.
    - Max 2 /critique retry loops. After that, proceed with current state.
 6. Record final UI direction in the discovery brief's "UI Direction" section.
-7. Persist UX artifacts per CONVENTIONS.md § UX Artifact Contract:
+7. Persist UX artifacts:
    a. Save the final polished prototype HTML to
       $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ux-prototype.html
    b. Write $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ux-artifacts.yaml with:

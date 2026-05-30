@@ -26,8 +26,7 @@ on interactive schemas (feature/bugfix); autopilot runs straight through.
 
 ## Pre-Execute: approach statement required
 
-Before executing the instructions below, emit an APPROACH block (per
-CONVENTIONS.md § Pre-Execute Approach Statement) — this step writes multi-file
+Before executing the instructions below, emit an APPROACH block — this step writes multi-file
 artifacts, so it MUST state its approach first:
 
 ```

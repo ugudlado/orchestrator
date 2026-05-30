@@ -9,11 +9,11 @@
 # 1. Verifies the skill/orchestrate/SKILL.md documents the inline-step usage schema.
 # 2. Parses a fixture state.yaml to detect entries missing required usage fields.
 # 3. Confirms the test correctly detects missing-field gaps.
+# (CONVENTIONS.md check removed — usage contract lives in SKILL.md only)
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SKILL_FILE="$REPO_ROOT/skills/orchestrate/SKILL.md"
-CONVENTIONS_FILE="$REPO_ROOT/config/steps/CONVENTIONS.md"
 
 pass=0
 fail=0
@@ -56,15 +56,7 @@ check_contains "SKILL.md documents duration_ms for inline steps" "$SKILL_FILE" "
 check_contains "SKILL.md documents tool_uses for inline steps" "$SKILL_FILE" "tool_uses"
 check_contains "SKILL.md documents agent: inline marker" "$SKILL_FILE" "agent: inline\|agent.*inline"
 
-# ── Part 2: CONVENTIONS.md usage-block contract subsection ────────────────
-[[ -f "$CONVENTIONS_FILE" ]]
-check "CONVENTIONS.md exists" $?
-
-check_contains "CONVENTIONS.md has usage block contract section" "$CONVENTIONS_FILE" "Usage block contract\|Usage Block Contract"
-check_contains "CONVENTIONS.md documents required fields" "$CONVENTIONS_FILE" "duration_ms"
-check_contains "CONVENTIONS.md documents inline step rules" "$CONVENTIONS_FILE" "inline"
-
-# ── Part 3: Fixture validation — detect missing usage fields ─────────────
+# ── Part 2: Fixture validation — detect missing usage fields ─────────────
 TMPDIR_BASE="${TMPDIR:-/tmp}/test-usage-block-$$"
 mkdir -p "$TMPDIR_BASE"
 cleanup() { rm -rf "$TMPDIR_BASE"; }
