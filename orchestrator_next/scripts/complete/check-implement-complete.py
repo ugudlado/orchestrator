@@ -1,9 +1,10 @@
-"""Prepare state.yaml for a complete-phase-only workflow run.
+#!/usr/bin/env python3
+"""Implement-completeness guard for `orchestrator complete`.
 
-`orchestrator complete <ticket>` loads active state, verifies implement work is
-finished, and marks non-complete plan nodes as completed so the dispatch loop
-only runs the schema tail from ``compute-prediction-accuracy`` through
-``archive-completed-change``.
+Verifies all non-complete-phase nodes are completed/skipped, marks any
+remaining implement nodes completed, and advances next_step to the first
+incomplete complete-phase step. Complete-phase nodes are declared in the
+feature/bugfix schema tail (no runtime DAG injection).
 """
 from __future__ import annotations
 
@@ -14,39 +15,28 @@ from typing import Any
 
 import yaml
 
-from orchestrator_next.operator_workflow import workflow_step_ids
+from orchestrator_next.operator_workflow import ensure_orchestrator_home, workflow_step_ids
 
 _COMPLETE_ANCHOR = "compute-prediction-accuracy"
 
 
-def _load_schema_steps(schema_name: str) -> list[str]:
-    return workflow_step_ids(schema_name)
-
-
-def complete_step_ids_for_schema(schema_name: str) -> list[str]:
-    """Return ordered complete-phase step ids for a workflow schema."""
-    steps = _load_schema_steps(schema_name)
+def _complete_step_ids(schema_name: str) -> list[str]:
+    steps = workflow_step_ids(schema_name)
     if _COMPLETE_ANCHOR not in steps:
         raise ValueError(
             f"schema {schema_name!r} has no {_COMPLETE_ANCHOR!r} step; "
             "cannot run complete phase"
         )
-    idx = steps.index(_COMPLETE_ANCHOR)
-    return steps[idx:]
+    return steps[steps.index(_COMPLETE_ANCHOR) :]
 
 
-def prepare_complete_phase(state_yaml_path: str) -> dict[str, Any]:
-    """Rewrite workflow_plan so only complete-phase steps can dispatch.
-
-    Raises ValueError when implement-phase nodes or task nodes are incomplete.
-    Returns a summary dict for logging.
-    """
-    path = Path(state_yaml_path)
+def check_implement_complete(state_yaml: str) -> dict[str, Any]:
+    ensure_orchestrator_home()
+    path = Path(state_yaml)
     pre = path.read_bytes()
     state = yaml.safe_load(pre.decode("utf-8")) or {}
     if not isinstance(state, dict):
         raise ValueError("state.yaml must be a mapping")
-
     if state.get("status") == "completed":
         raise ValueError("workflow already completed")
 
@@ -54,13 +44,9 @@ def prepare_complete_phase(state_yaml_path: str) -> dict[str, Any]:
     if not schema:
         raise ValueError("state.yaml missing schema")
 
-    # The `complete` workflow file is the step list for `orchestrator complete`
-    # (not the parent feature/bugfix tail — same anchor, but complete.yaml is canonical).
-    complete_steps = complete_step_ids_for_schema("complete")
-    complete_ids = set(complete_steps)
+    complete_ids = set(_complete_step_ids(schema))
     phase = str(state.get("phase") or "main")
-    phase_plan = (state.get("workflow_plan") or {}).get(phase) or {}
-    nodes = phase_plan.get("nodes")
+    nodes = (state.get("workflow_plan") or {}).get(phase, {}).get("nodes")
     if not isinstance(nodes, list) or not nodes:
         raise ValueError(f"workflow_plan.{phase}.nodes is missing or empty")
 
@@ -77,8 +63,8 @@ def prepare_complete_phase(state_yaml_path: str) -> dict[str, Any]:
             continue
         if nid.startswith("task-"):
             blocked.append(f"task node {nid} is {status}")
-            continue
-        blocked.append(f"step {nid} is {status}")
+        else:
+            blocked.append(f"step {nid} is {status}")
     if blocked:
         raise ValueError(
             "implement phase must finish before complete: " + "; ".join(blocked)
@@ -94,29 +80,10 @@ def prepare_complete_phase(state_yaml_path: str) -> dict[str, Any]:
             node["status"] = "completed"
             auto_completed.append(nid)
 
-    # Inject any complete-phase nodes missing from the DAG (e.g. mark-change-completed,
-    # cost-report, archive-completed-change are not in the feature workflow_plan).
-    existing_ids = {str(n.get("id") or "") for n in nodes if isinstance(n, dict)}
-    last_complete_node = None
-    for node in reversed(nodes):
-        if isinstance(node, dict) and str(node.get("id") or "") in complete_ids:
-            last_complete_node = node
-            break
-    prev_id = str(last_complete_node.get("id") or "") if last_complete_node else None
-    for sid in complete_steps:
-        if sid not in existing_ids:
-            new_node: dict[str, Any] = {"id": sid, "status": "pending", "agent": None,
-                                        "goal": "", "inputs": [], "outputs": [], "rules": []}
-            if prev_id is not None:
-                new_node["depends_on"] = [prev_id]
-            nodes.append(new_node)
-            prev_id = sid
-
-    # Point next_step at the first incomplete complete-phase node.
     next_id = None
-    for sid in complete_steps:
+    for sid in _complete_step_ids(schema):
         for node in nodes:
-            if str(node.get("id") or "") == sid:
+            if isinstance(node, dict) and str(node.get("id") or "") == sid:
                 if str(node.get("status") or "") != "completed":
                     next_id = sid
                 break
@@ -127,7 +94,6 @@ def prepare_complete_phase(state_yaml_path: str) -> dict[str, Any]:
         state["next_step"] = {"phase": phase, "step_id": next_id}
     else:
         state.pop("next_step", None)
-
     state["status"] = "active"
 
     try:
@@ -142,19 +108,21 @@ def prepare_complete_phase(state_yaml_path: str) -> dict[str, Any]:
     return {
         "change_id": state.get("change_id") or state.get("slug"),
         "schema": schema,
-        "complete_steps": list(complete_ids),
+        "complete_steps": sorted(complete_ids),
         "auto_completed_nodes": auto_completed,
         "next_step": next_id,
     }
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Prepare state for complete phase")
+    parser = argparse.ArgumentParser(
+        description="Check implement phase complete and advance to complete tail"
+    )
     parser.add_argument("state_yaml", help="Path to state.yaml")
     args = parser.parse_args(argv)
     try:
-        summary = prepare_complete_phase(args.state_yaml)
-    except (ValueError, FileNotFoundError, EnvironmentError) as exc:
+        summary = check_implement_complete(args.state_yaml)
+    except (ValueError, FileNotFoundError, OSError, EnvironmentError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(yaml.safe_dump(summary, sort_keys=False), end="")

@@ -94,7 +94,7 @@ def _write_archive_step_state(tmp_path):
 def _env(contracts):
     return {
         "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE": contracts,
-        "ORCHESTRATOR_HOME": "",
+        "ORCHESTRATOR_HOME": _WORKTREE_ROOT,
         "METRICS_DB": "",
     }
 

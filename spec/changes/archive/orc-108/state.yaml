@@ -1,0 +1,1630 @@
+change_id: orc-108
+slug: orc-108
+schema: feature
+status: completed
+repo_root: /Users/spidey/code/orchestrator
+flags: {}
+workflow_plan:
+  main:
+    nodes:
+    - id: explore
+      status: completed
+      agent: discoverer
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      - "Test fixture YAML files under tests/fixtures/ that share a state.yaml-like\
+        \ structure (step_history, next_step, etc.) are picked up and mutated by the\
+        \ orchestrator dispatcher's step_start writer when the orchestrator runs from\
+        \ the worktree root. This is not a code bug in the feature being developed\
+        \ \u2014 it is a side effect of the dispatcher's glob pattern matching any\
+        \ YAML with the expected shape. Reviewer: before scoring, run `git diff HEAD\
+        \ -- tests/fixtures/` and restore any mutated fixtures with `git checkout\
+        \ HEAD -- tests/fixtures/`. Do not count fixture dirt as a code finding against\
+        \ the feature under review.\n"
+      - "The execute-one-task contract requires `files_changed: [<list>]` in the COMPLETION\
+        \ block, but the dispatcher does not record this field into step_history[].evidence.outputs\
+        \ \u2014 it records only what the agent emits under the named output handle\
+        \ (task_execution_result). As a result, compute-prediction-accuracy always\
+        \ sees file_overlap_pct: 0.0 for developer tasks. This is a dispatcher recording\
+        \ gap, not an agent miss. Do not interpret file_overlap_pct: 0.0 as evidence\
+        \ that the developer agent failed to list changed files; verify agent output\
+        \ directly from session logs if file accuracy is needed.\n"
+    - id: ux-design
+      status: completed
+      agent: ideator
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      - "Test fixture YAML files under tests/fixtures/ that share a state.yaml-like\
+        \ structure (step_history, next_step, etc.) are picked up and mutated by the\
+        \ orchestrator dispatcher's step_start writer when the orchestrator runs from\
+        \ the worktree root. This is not a code bug in the feature being developed\
+        \ \u2014 it is a side effect of the dispatcher's glob pattern matching any\
+        \ YAML with the expected shape. Reviewer: before scoring, run `git diff HEAD\
+        \ -- tests/fixtures/` and restore any mutated fixtures with `git checkout\
+        \ HEAD -- tests/fixtures/`. Do not count fixture dirt as a code finding against\
+        \ the feature under review.\n"
+      - "The execute-one-task contract requires `files_changed: [<list>]` in the COMPLETION\
+        \ block, but the dispatcher does not record this field into step_history[].evidence.outputs\
+        \ \u2014 it records only what the agent emits under the named output handle\
+        \ (task_execution_result). As a result, compute-prediction-accuracy always\
+        \ sees file_overlap_pct: 0.0 for developer tasks. This is a dispatcher recording\
+        \ gap, not an agent miss. Do not interpret file_overlap_pct: 0.0 as evidence\
+        \ that the developer agent failed to list changed files; verify agent output\
+        \ directly from session logs if file accuracy is needed.\n"
+      depends_on:
+      - explore
+    - id: design-and-draft-artifacts
+      status: completed
+      agent: architect
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      - "Test fixture YAML files under tests/fixtures/ that share a state.yaml-like\
+        \ structure (step_history, next_step, etc.) are picked up and mutated by the\
+        \ orchestrator dispatcher's step_start writer when the orchestrator runs from\
+        \ the worktree root. This is not a code bug in the feature being developed\
+        \ \u2014 it is a side effect of the dispatcher's glob pattern matching any\
+        \ YAML with the expected shape. Reviewer: before scoring, run `git diff HEAD\
+        \ -- tests/fixtures/` and restore any mutated fixtures with `git checkout\
+        \ HEAD -- tests/fixtures/`. Do not count fixture dirt as a code finding against\
+        \ the feature under review.\n"
+      - "The execute-one-task contract requires `files_changed: [<list>]` in the COMPLETION\
+        \ block, but the dispatcher does not record this field into step_history[].evidence.outputs\
+        \ \u2014 it records only what the agent emits under the named output handle\
+        \ (task_execution_result). As a result, compute-prediction-accuracy always\
+        \ sees file_overlap_pct: 0.0 for developer tasks. This is a dispatcher recording\
+        \ gap, not an agent miss. Do not interpret file_overlap_pct: 0.0 as evidence\
+        \ that the developer agent failed to list changed files; verify agent output\
+        \ directly from session logs if file accuracy is needed.\n"
+      depends_on:
+      - ux-design
+    - id: expand-plan
+      status: completed
+      agent: null
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      - "Test fixture YAML files under tests/fixtures/ that share a state.yaml-like\
+        \ structure (step_history, next_step, etc.) are picked up and mutated by the\
+        \ orchestrator dispatcher's step_start writer when the orchestrator runs from\
+        \ the worktree root. This is not a code bug in the feature being developed\
+        \ \u2014 it is a side effect of the dispatcher's glob pattern matching any\
+        \ YAML with the expected shape. Reviewer: before scoring, run `git diff HEAD\
+        \ -- tests/fixtures/` and restore any mutated fixtures with `git checkout\
+        \ HEAD -- tests/fixtures/`. Do not count fixture dirt as a code finding against\
+        \ the feature under review.\n"
+      - "The execute-one-task contract requires `files_changed: [<list>]` in the COMPLETION\
+        \ block, but the dispatcher does not record this field into step_history[].evidence.outputs\
+        \ \u2014 it records only what the agent emits under the named output handle\
+        \ (task_execution_result). As a result, compute-prediction-accuracy always\
+        \ sees file_overlap_pct: 0.0 for developer tasks. This is a dispatcher recording\
+        \ gap, not an agent miss. Do not interpret file_overlap_pct: 0.0 as evidence\
+        \ that the developer agent failed to list changed files; verify agent output\
+        \ directly from session logs if file accuracy is needed.\n"
+      depends_on:
+      - design-and-draft-artifacts
+    - id: preview-route
+      status: completed
+      agent: null
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      - "Test fixture YAML files under tests/fixtures/ that share a state.yaml-like\
+        \ structure (step_history, next_step, etc.) are picked up and mutated by the\
+        \ orchestrator dispatcher's step_start writer when the orchestrator runs from\
+        \ the worktree root. This is not a code bug in the feature being developed\
+        \ \u2014 it is a side effect of the dispatcher's glob pattern matching any\
+        \ YAML with the expected shape. Reviewer: before scoring, run `git diff HEAD\
+        \ -- tests/fixtures/` and restore any mutated fixtures with `git checkout\
+        \ HEAD -- tests/fixtures/`. Do not count fixture dirt as a code finding against\
+        \ the feature under review.\n"
+      - "The execute-one-task contract requires `files_changed: [<list>]` in the COMPLETION\
+        \ block, but the dispatcher does not record this field into step_history[].evidence.outputs\
+        \ \u2014 it records only what the agent emits under the named output handle\
+        \ (task_execution_result). As a result, compute-prediction-accuracy always\
+        \ sees file_overlap_pct: 0.0 for developer tasks. This is a dispatcher recording\
+        \ gap, not an agent miss. Do not interpret file_overlap_pct: 0.0 as evidence\
+        \ that the developer agent failed to list changed files; verify agent output\
+        \ directly from session logs if file accuracy is needed.\n"
+      depends_on:
+      - expand-plan
+    - id: ticket-start
+      status: completed
+      agent: null
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      - "Test fixture YAML files under tests/fixtures/ that share a state.yaml-like\
+        \ structure (step_history, next_step, etc.) are picked up and mutated by the\
+        \ orchestrator dispatcher's step_start writer when the orchestrator runs from\
+        \ the worktree root. This is not a code bug in the feature being developed\
+        \ \u2014 it is a side effect of the dispatcher's glob pattern matching any\
+        \ YAML with the expected shape. Reviewer: before scoring, run `git diff HEAD\
+        \ -- tests/fixtures/` and restore any mutated fixtures with `git checkout\
+        \ HEAD -- tests/fixtures/`. Do not count fixture dirt as a code finding against\
+        \ the feature under review.\n"
+      - "The execute-one-task contract requires `files_changed: [<list>]` in the COMPLETION\
+        \ block, but the dispatcher does not record this field into step_history[].evidence.outputs\
+        \ \u2014 it records only what the agent emits under the named output handle\
+        \ (task_execution_result). As a result, compute-prediction-accuracy always\
+        \ sees file_overlap_pct: 0.0 for developer tasks. This is a dispatcher recording\
+        \ gap, not an agent miss. Do not interpret file_overlap_pct: 0.0 as evidence\
+        \ that the developer agent failed to list changed files; verify agent output\
+        \ directly from session logs if file accuracy is needed.\n"
+      depends_on:
+      - preview-route
+    - id: capture-test-baseline
+      status: completed
+      agent: null
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      - "Test fixture YAML files under tests/fixtures/ that share a state.yaml-like\
+        \ structure (step_history, next_step, etc.) are picked up and mutated by the\
+        \ orchestrator dispatcher's step_start writer when the orchestrator runs from\
+        \ the worktree root. This is not a code bug in the feature being developed\
+        \ \u2014 it is a side effect of the dispatcher's glob pattern matching any\
+        \ YAML with the expected shape. Reviewer: before scoring, run `git diff HEAD\
+        \ -- tests/fixtures/` and restore any mutated fixtures with `git checkout\
+        \ HEAD -- tests/fixtures/`. Do not count fixture dirt as a code finding against\
+        \ the feature under review.\n"
+      - "The execute-one-task contract requires `files_changed: [<list>]` in the COMPLETION\
+        \ block, but the dispatcher does not record this field into step_history[].evidence.outputs\
+        \ \u2014 it records only what the agent emits under the named output handle\
+        \ (task_execution_result). As a result, compute-prediction-accuracy always\
+        \ sees file_overlap_pct: 0.0 for developer tasks. This is a dispatcher recording\
+        \ gap, not an agent miss. Do not interpret file_overlap_pct: 0.0 as evidence\
+        \ that the developer agent failed to list changed files; verify agent output\
+        \ directly from session logs if file accuracy is needed.\n"
+      depends_on:
+      - ticket-start
+    - id: run-ux-critique
+      status: completed
+      agent: ux-reviewer
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      - "Test fixture YAML files under tests/fixtures/ that share a state.yaml-like\
+        \ structure (step_history, next_step, etc.) are picked up and mutated by the\
+        \ orchestrator dispatcher's step_start writer when the orchestrator runs from\
+        \ the worktree root. This is not a code bug in the feature being developed\
+        \ \u2014 it is a side effect of the dispatcher's glob pattern matching any\
+        \ YAML with the expected shape. Reviewer: before scoring, run `git diff HEAD\
+        \ -- tests/fixtures/` and restore any mutated fixtures with `git checkout\
+        \ HEAD -- tests/fixtures/`. Do not count fixture dirt as a code finding against\
+        \ the feature under review.\n"
+      - "The execute-one-task contract requires `files_changed: [<list>]` in the COMPLETION\
+        \ block, but the dispatcher does not record this field into step_history[].evidence.outputs\
+        \ \u2014 it records only what the agent emits under the named output handle\
+        \ (task_execution_result). As a result, compute-prediction-accuracy always\
+        \ sees file_overlap_pct: 0.0 for developer tasks. This is a dispatcher recording\
+        \ gap, not an agent miss. Do not interpret file_overlap_pct: 0.0 as evidence\
+        \ that the developer agent failed to list changed files; verify agent output\
+        \ directly from session logs if file accuracy is needed.\n"
+      depends_on:
+      - capture-test-baseline
+    - id: task-T-1
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Write tests for execute-tasks anchor in feature/bugfix schemas (RED)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on: []
+      task:
+        id: T-1
+        title: Write tests for execute-tasks anchor in feature/bugfix schemas (RED)
+        depends_on: []
+        files:
+        - orchestrator_next/tests/test_expand_plan.py
+        verify:
+        - pytest orchestrator_next/tests/test_expand_plan.py -v -k "execute_tasks"
+          --tb=short
+        test_scenarios:
+        - feature.yaml contains execute-tasks step between expand-plan and run-phase-review
+        - bugfix.yaml contains execute-tasks step between expand-plan and run-phase-review
+        - expand_plan.py injects task nodes under execute-tasks anchor (not before
+          run-phase-review)
+        - expand_plan.py rewires execute-tasks.depends_on to [task-T-last] after injection
+        - run-phase-review.depends_on is not mutated by expand_plan.py
+        - 'expand-plan idempotency: re-running does not duplicate nodes'
+        why: "AC-1, AC-2 \u2014 schema declares execute-tasks anchor; expand_plan\
+          \ targets it"
+        change: Append test functions to test_expand_plan.py asserting the anchor
+          position in feature.yaml/bugfix.yaml and the new injection target; tests
+          fail before T-2 because execute-tasks does not exist in schemas yet and
+          expand_plan.py still targets run-phase-review.
+    - id: task-T-2
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Add execute-tasks anchor to feature.yaml and bugfix.yaml
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-1
+      task:
+        id: T-2
+        title: Add execute-tasks anchor to feature.yaml and bugfix.yaml
+        depends_on:
+        - T-1
+        files:
+        - config/workflows/feature.yaml
+        - config/workflows/bugfix.yaml
+        verify:
+        - grep -n "execute-tasks" config/workflows/feature.yaml
+        - grep -n "execute-tasks" config/workflows/bugfix.yaml
+        - pytest orchestrator_next/tests/test_expand_plan.py -v -k "execute_tasks"
+          --tb=short
+        test_scenarios:
+        - execute-tasks appears after expand-plan and before run-phase-review in both
+          schemas
+        why: "AC-1 \u2014 schema readability: maintainer sees execute-tasks in the\
+          \ declared step list"
+        change: Edit config/workflows/feature.yaml and bugfix.yaml to insert 'execute-tasks'
+          string entry between 'expand-plan' and 'run-phase-review' in the steps list.
+    - id: task-T-3
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Refactor expand_plan.py to target execute-tasks anchor (GREEN)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-2
+      task:
+        id: T-3
+        title: Refactor expand_plan.py to target execute-tasks anchor (GREEN)
+        depends_on:
+        - T-2
+        files:
+        - orchestrator_next/expand_plan.py
+        - config/steps/expand-plan/expand_plan.py
+        verify:
+        - pytest orchestrator_next/tests/test_expand_plan.py -v --tb=short
+        - pytest orchestrator_next/tests/ -v -k "expand" --tb=short
+        test_scenarios:
+        - all T-1 tests pass
+        - existing expand_plan tests still pass
+        why: "AC-2 \u2014 expand_plan targets execute-tasks anchor; run-phase-review\
+          \ depends_on unchanged"
+        change: 'Edit orchestrator_next/expand_plan.py: change the anchor search from
+          ''run-phase-review'' to ''execute-tasks'' (lines ~159 and ~182); rewire
+          execute-tasks.depends_on=[task-T-last] instead of run-phase-review.depends_on.
+          Update module docstring lines 8-10. Mirror changes to config/steps/expand-plan/expand_plan.py.'
+    - id: task-T-4
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: "Review checkpoint \u2014 anchor + expand_plan group (phase gate)"
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-3
+      task:
+        id: T-4
+        title: "Review checkpoint \u2014 anchor + expand_plan group (phase gate)"
+        depends_on:
+        - T-3
+        files: []
+        verify:
+        - pytest orchestrator_next/tests/ -q --tb=short
+        test_scenarios:
+        - full test suite green after anchor and expand_plan changes
+        why: "phase gate \u2014 confirm schema + expand_plan changes integrate cleanly\
+          \ before complete-phase work"
+    - id: task-T-5
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Write tests for complete-phase steps in feature/bugfix schema tails (RED)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-4
+      task:
+        id: T-5
+        title: Write tests for complete-phase steps in feature/bugfix schema tails
+          (RED)
+        depends_on:
+        - T-4
+        files:
+        - orchestrator_next/tests/test_complete_workflow_contract.py
+        verify:
+        - pytest orchestrator_next/tests/test_complete_workflow_contract.py -v -k
+          "complete_steps_in_schema" --tb=short
+        test_scenarios:
+        - feature.yaml includes compute-prediction-accuracy through ticket-done after
+          ticket-qa
+        - bugfix.yaml includes compute-prediction-accuracy through ticket-done after
+          ticket-qa
+        - seeded feature state.yaml DAG contains complete-phase nodes as pending from
+          day 1
+        why: "AC-3, AC-5 \u2014 complete steps declared statically; no runtime injection\
+          \ from complete_phase.py"
+        change: Append test functions to test_complete_workflow_contract.py asserting
+          complete-phase step ids appear in feature.yaml and bugfix.yaml step lists
+          after the implement-phase tail; tests fail before T-6 because the steps
+          are not yet in the schemas.
+    - id: task-T-6
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Add complete-phase steps to feature.yaml and bugfix.yaml schema tails
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-5
+      task:
+        id: T-6
+        title: Add complete-phase steps to feature.yaml and bugfix.yaml schema tails
+        depends_on:
+        - T-5
+        files:
+        - config/workflows/feature.yaml
+        - config/workflows/bugfix.yaml
+        verify:
+        - grep -q "compute-prediction-accuracy" config/workflows/feature.yaml
+        - grep -q "archive-completed-change" config/workflows/feature.yaml
+        - grep -q "compute-prediction-accuracy" config/workflows/bugfix.yaml
+        - pytest orchestrator_next/tests/test_complete_workflow_contract.py -v -k
+          "complete_steps_in_schema" --tb=short
+        test_scenarios:
+        - complete-phase steps appear in feature.yaml and bugfix.yaml after ticket-qa
+        why: "AC-5 \u2014 complete steps are declared in schema, not injected at runtime"
+        change: 'Edit config/workflows/feature.yaml: append to steps list after ticket-qa:
+          compute-prediction-accuracy, run-learn-cycle, mark-change-completed, compute-swe-metrics,
+          gather-learn-metrics, cost-report, archive-completed-change, ticket-done.
+          Mirror in bugfix.yaml (after run-learn-cycle which is its last current step).'
+    - id: task-T-7
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Write implement-completeness guard script and wire into orchestrator-run.sh
+        (GREEN)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-6
+      task:
+        id: T-7
+        title: Write implement-completeness guard script and wire into orchestrator-run.sh
+          (GREEN)
+        depends_on:
+        - T-6
+        files:
+        - orchestrator_next/scripts/complete/check-implement-complete.py
+        - orchestrator_next/scripts/orchestrator-run.sh
+        verify:
+        - python3 orchestrator_next/scripts/complete/check-implement-complete.py --help
+          2>&1 | grep -q "state_yaml"
+        - pytest orchestrator_next/tests/test_complete_workflow_e2e.py -v --tb=short
+        - pytest orchestrator_next/tests/test_complete_workflow.py -v --tb=short
+        test_scenarios:
+        - guard exits 0 when all task-T-* and implement-phase nodes are completed
+        - guard exits non-zero with error when task-T-* nodes are still pending
+        - orchestrator-run.sh calls guard instead of complete_phase.py
+        - existing e2e and contract tests pass
+        why: "AC-3, AC-4 \u2014 implement-completeness guard preserves UC-E2 behavior;\
+          \ orchestrator-run.sh wired to new guard"
+        change: 'Create orchestrator_next/scripts/complete/check-implement-complete.py:
+          reads state.yaml, identifies complete-phase step ids from schema, checks
+          all non-complete-phase nodes are completed/skipped, marks them as completed,
+          advances next_step. ~30 lines. Edit orchestrator-run.sh lines 289-294: replace
+          ''python3 -m orchestrator_next.complete_phase'' with ''python3 orchestrator_next/scripts/complete/check-implement-complete.py''.'
+    - id: task-T-8
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Delete complete_phase.py and test_complete_phase.py
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-7
+      task:
+        id: T-8
+        title: Delete complete_phase.py and test_complete_phase.py
+        depends_on:
+        - T-7
+        files:
+        - orchestrator_next/complete_phase.py
+        - orchestrator_next/tests/test_complete_phase.py
+        verify:
+        - '! test -f orchestrator_next/complete_phase.py'
+        - '! test -f orchestrator_next/tests/test_complete_phase.py'
+        - pytest orchestrator_next/tests/ -q --ignore=orchestrator_next/tests/test_complete_phase.py
+          --tb=short
+        test_scenarios:
+        - complete_phase.py file does not exist
+        - test_complete_phase.py file does not exist
+        - remaining test suite passes without complete_phase.py
+        why: "AC-6 (ticket AC #6) \u2014 complete_phase.py deleted; deletion is safe\
+          \ because T-7 replaced its functionality"
+        change: Delete orchestrator_next/complete_phase.py and orchestrator_next/tests/test_complete_phase.py.
+          Verify no other non-test file imports complete_phase (grep confirmed none
+          in T-1 research).
+    - id: task-T-9
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Update complete.yaml comment and expand_plan docstring
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-8
+      task:
+        id: T-9
+        title: Update complete.yaml comment and expand_plan docstring
+        depends_on:
+        - T-8
+        files:
+        - config/workflows/complete.yaml
+        - orchestrator_next/expand_plan.py
+        - config/steps/expand-plan/expand_plan.py
+        verify:
+        - grep -q "declared in feature/bugfix schemas" config/workflows/complete.yaml
+        - grep -q "execute-tasks" orchestrator_next/expand_plan.py
+        test_scenarios:
+        - complete.yaml comment references new model (steps declared in feature/bugfix
+          schemas)
+        - expand_plan.py docstring references execute-tasks anchor, not positional
+          run-phase-review
+        why: "AC-6 (ticket AC #3) \u2014 schema readability; maintainer reads accurate\
+          \ comments"
+        change: 'Edit config/workflows/complete.yaml line 9: update comment from ''complete-phase
+          steps through archive-completed-change'' to describe that steps are declared
+          in feature/bugfix schemas and seeded at feature init time. Edit orchestrator_next/expand_plan.py
+          docstring lines 8-10: replace ''rewires run-phase-review'' with ''rewires
+          execute-tasks.depends_on to the last task-node id''.'
+    - id: task-T-10
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: "Full integration review \u2014 verify all ACs (phase gate)"
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-9
+      task:
+        id: T-10
+        title: "Full integration review \u2014 verify all ACs (phase gate)"
+        depends_on:
+        - T-9
+        files: []
+        verify:
+        - pytest orchestrator_next/tests/ -q --tb=short
+        - python3 -c "import yaml; f=yaml.safe_load(open('config/workflows/feature.yaml'));
+          steps=f['steps']; assert 'execute-tasks' in steps and 'compute-prediction-accuracy'
+          in steps and 'archive-completed-change' in steps, 'schema incomplete'"
+        - python3 -c "import yaml; b=yaml.safe_load(open('config/workflows/bugfix.yaml'));
+          steps=b['steps']; assert 'execute-tasks' in steps and 'compute-prediction-accuracy'
+          in steps and 'archive-completed-change' in steps, 'schema incomplete'"
+        - '! test -f orchestrator_next/complete_phase.py'
+        test_scenarios:
+        - full pytest suite passes (excluding deleted test_complete_phase.py)
+        - feature.yaml has execute-tasks and complete-phase steps
+        - bugfix.yaml has execute-tasks and complete-phase steps
+        - complete_phase.py does not exist
+        why: "All ACs \u2014 final integration gate confirming the full refactor is\
+          \ coherent"
+    - id: run-phase-review
+      status: completed
+      agent: reviewer
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      - "Test fixture YAML files under tests/fixtures/ that share a state.yaml-like\
+        \ structure (step_history, next_step, etc.) are picked up and mutated by the\
+        \ orchestrator dispatcher's step_start writer when the orchestrator runs from\
+        \ the worktree root. This is not a code bug in the feature being developed\
+        \ \u2014 it is a side effect of the dispatcher's glob pattern matching any\
+        \ YAML with the expected shape. Reviewer: before scoring, run `git diff HEAD\
+        \ -- tests/fixtures/` and restore any mutated fixtures with `git checkout\
+        \ HEAD -- tests/fixtures/`. Do not count fixture dirt as a code finding against\
+        \ the feature under review.\n"
+      - "The execute-one-task contract requires `files_changed: [<list>]` in the COMPLETION\
+        \ block, but the dispatcher does not record this field into step_history[].evidence.outputs\
+        \ \u2014 it records only what the agent emits under the named output handle\
+        \ (task_execution_result). As a result, compute-prediction-accuracy always\
+        \ sees file_overlap_pct: 0.0 for developer tasks. This is a dispatcher recording\
+        \ gap, not an agent miss. Do not interpret file_overlap_pct: 0.0 as evidence\
+        \ that the developer agent failed to list changed files; verify agent output\
+        \ directly from session logs if file accuracy is needed.\n"
+      depends_on:
+      - task-T-10
+    - id: ticket-review
+      status: completed
+      agent: null
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      - "Test fixture YAML files under tests/fixtures/ that share a state.yaml-like\
+        \ structure (step_history, next_step, etc.) are picked up and mutated by the\
+        \ orchestrator dispatcher's step_start writer when the orchestrator runs from\
+        \ the worktree root. This is not a code bug in the feature being developed\
+        \ \u2014 it is a side effect of the dispatcher's glob pattern matching any\
+        \ YAML with the expected shape. Reviewer: before scoring, run `git diff HEAD\
+        \ -- tests/fixtures/` and restore any mutated fixtures with `git checkout\
+        \ HEAD -- tests/fixtures/`. Do not count fixture dirt as a code finding against\
+        \ the feature under review.\n"
+      - "The execute-one-task contract requires `files_changed: [<list>]` in the COMPLETION\
+        \ block, but the dispatcher does not record this field into step_history[].evidence.outputs\
+        \ \u2014 it records only what the agent emits under the named output handle\
+        \ (task_execution_result). As a result, compute-prediction-accuracy always\
+        \ sees file_overlap_pct: 0.0 for developer tasks. This is a dispatcher recording\
+        \ gap, not an agent miss. Do not interpret file_overlap_pct: 0.0 as evidence\
+        \ that the developer agent failed to list changed files; verify agent output\
+        \ directly from session logs if file accuracy is needed.\n"
+      depends_on:
+      - run-phase-review
+    - id: compute-prediction-accuracy
+      status: completed
+      agent: null
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      - "Test fixture YAML files under tests/fixtures/ that share a state.yaml-like\
+        \ structure (step_history, next_step, etc.) are picked up and mutated by the\
+        \ orchestrator dispatcher's step_start writer when the orchestrator runs from\
+        \ the worktree root. This is not a code bug in the feature being developed\
+        \ \u2014 it is a side effect of the dispatcher's glob pattern matching any\
+        \ YAML with the expected shape. Reviewer: before scoring, run `git diff HEAD\
+        \ -- tests/fixtures/` and restore any mutated fixtures with `git checkout\
+        \ HEAD -- tests/fixtures/`. Do not count fixture dirt as a code finding against\
+        \ the feature under review.\n"
+      - "The execute-one-task contract requires `files_changed: [<list>]` in the COMPLETION\
+        \ block, but the dispatcher does not record this field into step_history[].evidence.outputs\
+        \ \u2014 it records only what the agent emits under the named output handle\
+        \ (task_execution_result). As a result, compute-prediction-accuracy always\
+        \ sees file_overlap_pct: 0.0 for developer tasks. This is a dispatcher recording\
+        \ gap, not an agent miss. Do not interpret file_overlap_pct: 0.0 as evidence\
+        \ that the developer agent failed to list changed files; verify agent output\
+        \ directly from session logs if file accuracy is needed.\n"
+      depends_on:
+      - ticket-review
+    - id: run-learn-cycle
+      status: completed
+      agent: workflow-learner
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      - "Test fixture YAML files under tests/fixtures/ that share a state.yaml-like\
+        \ structure (step_history, next_step, etc.) are picked up and mutated by the\
+        \ orchestrator dispatcher's step_start writer when the orchestrator runs from\
+        \ the worktree root. This is not a code bug in the feature being developed\
+        \ \u2014 it is a side effect of the dispatcher's glob pattern matching any\
+        \ YAML with the expected shape. Reviewer: before scoring, run `git diff HEAD\
+        \ -- tests/fixtures/` and restore any mutated fixtures with `git checkout\
+        \ HEAD -- tests/fixtures/`. Do not count fixture dirt as a code finding against\
+        \ the feature under review.\n"
+      - "The execute-one-task contract requires `files_changed: [<list>]` in the COMPLETION\
+        \ block, but the dispatcher does not record this field into step_history[].evidence.outputs\
+        \ \u2014 it records only what the agent emits under the named output handle\
+        \ (task_execution_result). As a result, compute-prediction-accuracy always\
+        \ sees file_overlap_pct: 0.0 for developer tasks. This is a dispatcher recording\
+        \ gap, not an agent miss. Do not interpret file_overlap_pct: 0.0 as evidence\
+        \ that the developer agent failed to list changed files; verify agent output\
+        \ directly from session logs if file accuracy is needed.\n"
+      depends_on:
+      - compute-prediction-accuracy
+    - id: ticket-qa
+      status: completed
+      agent: null
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      - "Test fixture YAML files under tests/fixtures/ that share a state.yaml-like\
+        \ structure (step_history, next_step, etc.) are picked up and mutated by the\
+        \ orchestrator dispatcher's step_start writer when the orchestrator runs from\
+        \ the worktree root. This is not a code bug in the feature being developed\
+        \ \u2014 it is a side effect of the dispatcher's glob pattern matching any\
+        \ YAML with the expected shape. Reviewer: before scoring, run `git diff HEAD\
+        \ -- tests/fixtures/` and restore any mutated fixtures with `git checkout\
+        \ HEAD -- tests/fixtures/`. Do not count fixture dirt as a code finding against\
+        \ the feature under review.\n"
+      - "The execute-one-task contract requires `files_changed: [<list>]` in the COMPLETION\
+        \ block, but the dispatcher does not record this field into step_history[].evidence.outputs\
+        \ \u2014 it records only what the agent emits under the named output handle\
+        \ (task_execution_result). As a result, compute-prediction-accuracy always\
+        \ sees file_overlap_pct: 0.0 for developer tasks. This is a dispatcher recording\
+        \ gap, not an agent miss. Do not interpret file_overlap_pct: 0.0 as evidence\
+        \ that the developer agent failed to list changed files; verify agent output\
+        \ directly from session logs if file accuracy is needed.\n"
+      depends_on:
+      - run-learn-cycle
+    - id: mark-change-completed
+      status: completed
+      agent: null
+      goal: ''
+      inputs: []
+      outputs: []
+      rules: []
+      depends_on:
+      - run-learn-cycle
+    - id: compute-swe-metrics
+      status: completed
+      agent: null
+      goal: ''
+      inputs: []
+      outputs: []
+      rules: []
+      depends_on:
+      - mark-change-completed
+    - id: gather-learn-metrics
+      status: completed
+      agent: null
+      goal: ''
+      inputs: []
+      outputs: []
+      rules: []
+      depends_on:
+      - compute-swe-metrics
+    - id: cost-report
+      status: completed
+      agent: null
+      goal: ''
+      inputs: []
+      outputs: []
+      rules: []
+      depends_on:
+      - gather-learn-metrics
+    - id: archive-completed-change
+      status: completed
+      agent: null
+      goal: ''
+      inputs: []
+      outputs: []
+      rules: []
+      depends_on:
+      - cost-report
+    - id: ticket-done
+      status: pending
+      agent: null
+      goal: ''
+      inputs: []
+      outputs: []
+      rules: []
+      depends_on:
+      - archive-completed-change
+    filtered: []
+phase: main
+next_step:
+  phase: main
+  step_id: ticket-done
+step_history:
+- step_id: explore
+  phase: main
+  status: completed
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-05-30T22:32:15Z'
+  ended_at: '2026-05-30T22:32:15Z'
+  usage:
+    input_tokens: 35
+    output_tokens: 7487
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 902713
+    cache_creation_input_tokens: 181202
+    turns: 21
+    tool_calls:
+      Bash: 7
+      Agent: 1
+      Read: 6
+      Write: 1
+    duration_ms: 198879
+    cost_usd: 1.0627314
+  evidence:
+    outputs:
+      discovery_result:
+        path: discovery.md
+  artifacts:
+  - discovery.md
+- step_id: ux-design
+  phase: main
+  status: completed
+  agent: ideator
+  attempt: 1
+  started_at: '2026-05-30T22:32:30Z'
+  ended_at: '2026-05-30T22:32:30Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 430
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88063
+    cache_creation_input_tokens: 34746
+    turns: 3
+    tool_calls:
+      Read: 1
+    duration_ms: 8357
+    cost_usd: 0.1631874
+  evidence:
+    outputs:
+      ux_direction: "N/A \u2014 engine-level DAG refactor with no UI components; discovery\
+        \ brief explicitly marks UI Direction as not applicable"
+  artifacts: []
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: architect
+  attempt: 1
+  started_at: '2026-05-30T22:40:15Z'
+  ended_at: '2026-05-30T22:40:15Z'
+  usage:
+    input_tokens: 93
+    output_tokens: 33866
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 5759963
+    cache_creation_input_tokens: 180733
+    turns: 79
+    tool_calls:
+      Read: 19
+      Glob: 12
+      Bash: 23
+      Write: 2
+      Edit: 3
+    duration_ms: 458026
+    cost_usd: 2.91400665
+  evidence:
+    outputs:
+      design.md: spec/changes/orc-108/design.md
+      tasks.yaml: spec/changes/orc-108/tasks.yaml
+      updated_artifact_set:
+      - design.md
+      - tasks.yaml
+      design_direction: "Hybrid \u2014 execute-tasks anchor for task injection, static\
+        \ complete steps in schemas"
+      complexity: S
+- step_id: expand-plan
+  phase: main
+  status: completed
+  agent: null
+  attempt: 1
+  started_at: '2026-05-30T22:40:16Z'
+  ended_at: '2026-05-30T22:40:16Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+- step_id: preview-route
+  phase: main
+  status: completed
+  agent: null
+  attempt: 1
+  started_at: '2026-05-30T22:40:18Z'
+  ended_at: '2026-05-30T22:40:18Z'
+  usage: {}
+  evidence:
+    outputs:
+      route_preview:
+        schema: feature
+        generated_at: '2026-05-30T22:40:18Z'
+        agents:
+        - agent: architect
+          backend: opus
+          model: claude-opus-4-7
+          pricing:
+            input: 15.0
+            output: 75.0
+            cache_read: 1.5
+          share: 0.251297
+          tokens_estimate: 14333
+          cost_estimate_usd: 0.301
+        - agent: developer
+          backend: auto
+          model: auto
+          pricing:
+            input: 15.0
+            output: 75.0
+            cache_read: 1.5
+          share: 0.275762
+          tokens_estimate: 15729
+          cost_estimate_usd: 0.3303
+        - agent: discoverer
+          backend: sonnet
+          model: claude-sonnet-4-6
+          pricing:
+            input: 3.0
+            output: 15.0
+            cache_read: 0.3
+          share: 0.32101
+          tokens_estimate: 18310
+          cost_estimate_usd: 0.0769
+        - agent: haiku-agent
+          backend: haiku
+          model: claude-haiku-4-5
+          pricing:
+            input: 0.8
+            output: 4.0
+            cache_read: 0.08
+          share: 0
+          tokens_estimate: 0
+          cost_estimate_usd: 0.0
+        - agent: ideator
+          backend: opus
+          model: claude-opus-4-7
+          pricing:
+            input: 15.0
+            output: 75.0
+            cache_read: 1.5
+          share: 0
+          tokens_estimate: 0
+          cost_estimate_usd: 0.0
+        - agent: reviewer
+          backend: sonnet
+          model: claude-sonnet-4-6
+          pricing:
+            input: 3.0
+            output: 15.0
+            cache_read: 0.3
+          share: 0.235311
+          tokens_estimate: 13422
+          cost_estimate_usd: 0.0564
+        - agent: sonnet-agent
+          backend: sonnet
+          model: claude-sonnet-4-6
+          pricing:
+            input: 3.0
+            output: 15.0
+            cache_read: 0.3
+          share: 0
+          tokens_estimate: 0
+          cost_estimate_usd: 0.0
+        - agent: ux-reviewer
+          backend: sonnet
+          model: claude-sonnet-4-6
+          pricing:
+            input: 3.0
+            output: 15.0
+            cache_read: 0.3
+          share: 0
+          tokens_estimate: 0
+          cost_estimate_usd: 0.0
+        - agent: workflow-improver
+          backend: unrouted
+          model: unknown
+          pricing:
+            input: 15.0
+            output: 75.0
+            cache_read: 1.5
+          share: 0.115156
+          tokens_estimate: 6568
+          cost_estimate_usd: 0.1379
+        - agent: workflow-learner
+          backend: sonnet
+          model: claude-sonnet-4-6
+          pricing:
+            input: 3.0
+            output: 15.0
+            cache_read: 0.3
+          share: 0
+          tokens_estimate: 0
+          cost_estimate_usd: 0.0
+        estimate:
+          tokens: 68362
+          cost_usd: 0.9025
+          tasks_planned: 1
+          tokens_per_task_median: 57037.5
+          archive_sample_size: 6
+    summary: inline script completed
+- step_id: ticket-start
+  phase: main
+  status: completed
+  agent: null
+  attempt: 1
+  started_at: '2026-05-30T22:40:19Z'
+  ended_at: '2026-05-30T22:40:19Z'
+  usage: {}
+  evidence:
+    outputs:
+      status: completed
+      outputs:
+        ticket_status_set: In Progress
+    summary: inline script completed
+- step_id: capture-test-baseline
+  phase: main
+  status: completed
+  agent: null
+  attempt: 1
+  started_at: '2026-05-30T22:40:20Z'
+  ended_at: '2026-05-30T22:40:20Z'
+  usage: {}
+  evidence:
+    outputs:
+      baseline:
+        skipped: true
+        reason: unparseable
+        raw_tail: '
+
+          no tests ran in 0.00s
+
+          ERROR: file or directory not found: config/scripts/orchestrator_next/tests/
+
+          '
+        exit_code: 4
+    summary: inline script completed
+- step_id: run-ux-critique
+  phase: main
+  status: completed
+  agent: ux-reviewer
+  attempt: 1
+  started_at: '2026-05-30T22:40:34Z'
+  ended_at: '2026-05-30T22:40:34Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 616
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88085
+    cache_creation_input_tokens: 33031
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 6787
+    cost_usd: 0.15955275
+  evidence:
+    outputs:
+      critique_score: null
+      critique_skipped: true
+      critique_retries: 0
+- step_id: task-T-1
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T22:42:00Z'
+  ended_at: '2026-05-30T22:42:00Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 616
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88085
+    cache_creation_input_tokens: 33031
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 6787
+    cost_usd: 0.15955275
+  evidence:
+    outputs: {}
+- step_id: task-T-2
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T22:42:28Z'
+  ended_at: '2026-05-30T22:42:28Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 616
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88085
+    cache_creation_input_tokens: 33031
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 6787
+    cost_usd: 0.15955275
+  evidence:
+    outputs: {}
+- step_id: task-T-3
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T22:43:13Z'
+  ended_at: '2026-05-30T22:43:13Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 616
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88085
+    cache_creation_input_tokens: 33031
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 6787
+    cost_usd: 0.15955275
+  evidence:
+    outputs: {}
+- step_id: task-T-4
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T22:45:46Z'
+  ended_at: '2026-05-30T22:45:46Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 616
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88085
+    cache_creation_input_tokens: 33031
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 6787
+    cost_usd: 0.15955275
+  evidence:
+    outputs: {}
+- step_id: task-T-5
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T22:46:35Z'
+  ended_at: '2026-05-30T22:46:35Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 616
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88085
+    cache_creation_input_tokens: 33031
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 6787
+    cost_usd: 0.15955275
+  evidence:
+    outputs: {}
+- step_id: task-T-6
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T22:47:08Z'
+  ended_at: '2026-05-30T22:47:08Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 616
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88085
+    cache_creation_input_tokens: 33031
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 6787
+    cost_usd: 0.15955275
+  evidence:
+    outputs: {}
+- step_id: task-T-7
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T22:48:40Z'
+  ended_at: '2026-05-30T22:48:40Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 616
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88085
+    cache_creation_input_tokens: 33031
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 6787
+    cost_usd: 0.15955275
+  evidence:
+    outputs: {}
+- step_id: task-T-8
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T22:50:24Z'
+  ended_at: '2026-05-30T22:50:24Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 616
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88085
+    cache_creation_input_tokens: 33031
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 6787
+    cost_usd: 0.15955275
+  evidence:
+    outputs: {}
+- step_id: task-T-9
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T22:50:56Z'
+  ended_at: '2026-05-30T22:50:56Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 616
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88085
+    cache_creation_input_tokens: 33031
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 6787
+    cost_usd: 0.15955275
+  evidence:
+    outputs: {}
+- step_id: task-T-10
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T22:51:46Z'
+  ended_at: '2026-05-30T22:51:46Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 616
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88085
+    cache_creation_input_tokens: 33031
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 6787
+    cost_usd: 0.15955275
+  evidence:
+    outputs: {}
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: '2026-05-30T22:56:04Z'
+  ended_at: '2026-05-30T22:56:04Z'
+  usage:
+    input_tokens: 9991
+    output_tokens: 16970
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 3057086
+    cache_creation_input_tokens: 107486
+    turns: 52
+    tool_calls:
+      Bash: 37
+      Read: 2
+      Write: 1
+    duration_ms: 248237
+    cost_usd: 1.6047212999999998
+  evidence:
+    outputs:
+      phase_review_report:
+        verdict: pass
+  artifacts:
+  - phase-review.md
+  review_score:
+    overall: 9
+    dimensions:
+      spec_compliance: 9
+      correctness: 9
+      security: 9
+      simplicity: 9
+      code_quality: 9
+- step_id: ticket-review
+  phase: main
+  status: completed
+  agent: null
+  attempt: 1
+  started_at: '2026-05-30T22:56:06Z'
+  ended_at: '2026-05-30T22:56:06Z'
+  usage: {}
+  evidence:
+    outputs:
+      status: completed
+      outputs:
+        ticket_status_set: Code Review
+    summary: inline script completed
+- step_id: compute-prediction-accuracy
+  phase: main
+  status: completed
+  agent: null
+  attempt: 1
+  started_at: '2026-05-30T22:56:08Z'
+  ended_at: '2026-05-30T22:56:08Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy:
+        computed_at: '2026-05-30T22:56:08Z'
+        predicted_tasks: 10
+        actual_tasks: 10
+        fix_task_count: 0
+        rework_rate: 0.0
+        task_delta: 0
+        task_accuracy_pct: 100.0
+        predicted_file_count: 21
+        actual_file_count: 0
+        file_delta: -21
+        file_overlap_pct: 0.0
+    summary: inline script completed
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: workflow-learner
+  attempt: 1
+  started_at: '2026-05-30T22:59:45Z'
+  ended_at: '2026-05-30T22:59:45Z'
+  usage:
+    input_tokens: 100
+    output_tokens: 7308
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 1346413
+    cache_creation_input_tokens: 120427
+    turns: 22
+    tool_calls:
+      Read: 2
+      Glob: 1
+      Skill: 2
+      Bash: 6
+      Agent: 1
+    duration_ms: 204886
+    cost_usd: 0.9654451499999999
+  evidence:
+    outputs:
+      learn_result: completed
+      backlog_tickets_synced:
+      - ORC-109
+      - ORC-110
+- step_id: ticket-qa
+  phase: main
+  status: completed
+  agent: null
+  attempt: 1
+  started_at: '2026-05-30T22:59:47Z'
+  ended_at: '2026-05-30T22:59:47Z'
+  usage: {}
+  evidence:
+    outputs:
+      status: completed
+      outputs:
+        ticket_status_set: QA Review
+    summary: inline script completed
+- step_id: mark-change-completed
+  phase: main
+  status: completed
+  agent: null
+  attempt: 1
+  started_at: '2026-05-30T23:21:16Z'
+  ended_at: '2026-05-30T23:21:16Z'
+  usage: {}
+  evidence:
+    outputs:
+      status: completed
+      completed_at: '2026-05-30T23:21:16Z'
+      archive_path: spec/changes/archive/orc-108/
+    summary: inline script completed
+- step_id: compute-swe-metrics
+  phase: main
+  status: completed
+  agent: null
+  attempt: 1
+  started_at: '2026-05-30T23:21:18Z'
+  ended_at: '2026-05-30T23:21:18Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+- step_id: gather-learn-metrics
+  phase: main
+  status: completed
+  agent: null
+  attempt: 1
+  started_at: '2026-05-30T23:21:20Z'
+  ended_at: '2026-05-30T23:21:20Z'
+  usage: {}
+  evidence:
+    outputs:
+      learn_metrics:
+        scope: all
+        state_yaml_path: /Users/spidey/code/feature_worktrees/orc-108/spec/changes/orc-108/state.yaml
+        retry_hotspots_csv: 'step_id,feature_count,total_retries
+
+          execute-next-task,6,54
+
+          run-phase-review,12,18
+
+          task-T-1,2,15
+
+          design-and-draft-artifacts,7,11
+
+          task-T-2,1,8
+
+          explore,4,6
+
+          run-learn-cycle,4,5
+
+          task-T-spawn,1,3
+
+          ticket-start,2,2
+
+          ticket-review,1,1'
+        cycle_count_csv: 'cycle_count
+
+          38'
+        recent_features_csv: 'change_id,status,completed_at,payload_json
+
+          orc-107,completed,2026-05-31 21:48:26,"{""repo_root"":""/Users/spidey/code/orchestrator"",""change_id"":""orc-107"",""cost_usd"":5.090348250000001,""input_tokens"":181,""output_tokens"":42898,""cache_creation_input_tokens"":600545,""cache_read_input_tokens"":7314305,""total_tokens"":643624,""turns"":139,""duration_ms"":1254762,""step_count"":23,""rework_ratio"":0.3273428787509774,""model"":""claude-sonnet-4-6"",""pricing_input_usd"":3.0,""pricing_output_usd"":15.0,""pricing_cache_read_usd"":0.3,""pricing_cache_creation_usd"":3.75,""gross_usd"":24.388563,""tool_calls_count"":100,""category"":""feature"",""complexity"":null,""tasks_total"":null,""tasks_planned"":null,""tasks_added"":null,""tasks_completed"":null,""tasks_failed"":null,""resolve_rate"":null,""pass_at_1"":null,""pass_at_2"":null,""regressions"":null,""regression_rate"":null,""retries_total"":null,""human_interventions"":null,""files_changed"":null,""insertions"":null,""deletions"":null,""total_commits"":null,""rework_commits"":null,""rework_rate"":null,""review_scores_json"":null,""review_score_avg"":null,""wall_clock_minutes"":null,""cost_per_task_usd"":0.0,""cost_per_resolution_usd"":0.0,""tokens_per_task"":0,""tokens_per_resolution"":0,""input_output_ratio"":14.0036,""cache_hit_rate"":0.9241,""per_agent_tokens"":""{\""workflow-learner\"":{\""total_tokens\"":4444,\""input_tokens\"":21,\""output_tokens\"":4423,\""cost_usd\"":0.5570281499999999,\""duration_ms\"":650302,\""step_count\"":1},\""ideator\"":{\""total_tokens\"":461,\""input_tokens\"":7,\""output_tokens\"":454,\""cost_usd\"":0.15925650000000002,\""duration_ms\"":10082,\""step_count\"":1},\""ux-reviewer\"":{\""total_tokens\"":433,\""input_tokens\"":7,\""output_tokens\"":426,\""cost_usd\"":0.1576167,\""duration_ms\"":5173,\""step_count\"":1},\""discoverer\"":{\""total_tokens\"":10060,\""input_tokens\"":42,\""output_tokens\"":10018,\""cost_usd\"":1.2354053999999999,\""duration_ms\"":134392,\""step_count\"":1},\""none\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":0,\""step_count\"":13},\""developer\"":{\""total_tokens\"":1299,\""input_tokens\"":21,\""output_tokens\"":1278,\""cost_usd\"":0.4728501,\""duration_ms\"":15519,\""step_count\"":3},\""reviewer\"":{\""total_tokens\"":13249,\""input_tokens\"":57,\""output_tokens\"":13192,\""cost_usd\"":1.6662892500000002,\""duration_ms\"":301323,\""step_count\"":2},\""architect\"":{\""total_tokens\"":13133,\""input_tokens\"":26,\""output_tokens\"":13107,\""cost_usd\"":0.8419021499999999,\""duration_ms\"":137971,\""step_count\"":1}}"",""per_agent_tools"":""{\""reviewer\"":{\""Bash\"":37,\""Edit\"":1,\""Write\"":1,\""Read\"":4},\""ux-reviewer\"":{\""Bash\"":1},\""ideator\"":{\""Read\"":1},\""architect\"":{\""Write\"":2,\""Bash\"":5,\""Edit\"":1,\""Glob\"":1,\""Read\"":4},\""workflow-learner\"":{\""Agent\"":1,\""Bash\"":2,\""Glob\"":1,\""Read\"":2,\""Skill\"":1},\""developer\"":{\""Bash\"":3},\""discoverer\"":{\""Write\"":1,\""Bash\"":30,\""Read\"":1}}"",""per_tool_uses"":""{\""Bash\"":78,\""Edit\"":2,\""Glob\"":2,\""Read\"":12,\""Agent\"":1,\""Skill\"":1,\""Write\"":4}"",""per_step"":""{\""expand-plan\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""compute-swe-metrics\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""explore\"":{\""total_tokens\"":10060,\""tool_uses\"":32,\""duration_ms\"":134392,\""executions\"":1},\""design-and-draft-artifacts\"":{\""total_tokens\"":13133,\""tool_uses\"":13,\""duration_ms\"":137971,\""executions\"":1},\""task-T-3\"":{\""total_tokens\"":433,\""tool_uses\"":1,\""duration_ms\"":5173,\""executions\"":1},\""gather-learn-metrics\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""compute-prediction-accuracy\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""preview-route\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""capture-test-baseline\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""task-T-1\"":{\""total_tokens\"":433,\""tool_uses\"":1,\""duration_ms\"":5173,\""executions\"":1},\""mark-change-completed\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""run-ux-critique\"":{\""total_tokens\"":433,\""tool_uses\"":1,\""duration_ms\"":5173,\""executions\"":1},\""run-phase-review\"":{\""total_tokens\"":13249,\""tool_uses\"":43,\""duration_ms\"":301323,\""executions\"":2},\""ticket-review\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""ticket-qa\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""ux-design\"":{\""total_tokens\"":461,\""tool_uses\"":1,\""duration_ms\"":10082,\""executions\"":1},\""ticket-start\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":3},\""cost-report\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""task-T-2\"":{\""total_tokens\"":433,\""tool_uses\"":1,\""duration_ms\"":5173,\""executions\"":1},\""run-learn-cycle\"":{\""total_tokens\"":4444,\""tool_uses\"":7,\""duration_ms\"":650302,\""executions\"":1}}""}"
+
+          orc-77,completed,2026-05-31 07:25:30,"{""repo_root"":""/Users/spidey/code/orchestrator"",""change_id"":""orc-77"",""cost_usd"":17.360610150000003,""input_tokens"":80632,""output_tokens"":131568,""cache_creation_input_tokens"":1326231,""cache_read_input_tokens"":29106093,""total_tokens"":1538431,""turns"":431,""duration_ms"":2823605,""step_count"":26,""rework_ratio"":0.20269418353363572,""model"":""auto"",""pricing_input_usd"":15.0,""pricing_output_usd"":75.0,""pricing_cache_read_usd"":1.5,""pricing_cache_creation_usd"":18.75,""gross_usd"":467.56194,""tool_calls_count"":357,""category"":""feature"",""complexity"":null,""tasks_total"":null,""tasks_planned"":null,""tasks_added"":null,""tasks_completed"":null,""tasks_failed"":null,""resolve_rate"":null,""pass_at_1"":null,""pass_at_2"":null,""regressions"":null,""regression_rate"":null,""retries_total"":null,""human_interventions"":null,""files_changed"":null,""insertions"":null,""deletions"":null,""total_commits"":null,""rework_commits"":null,""rework_rate"":null,""review_scores_json"":null,""review_score_avg"":null,""wall_clock_minutes"":null,""cost_per_task_usd"":0.0,""cost_per_resolution_usd"":0.0,""tokens_per_task"":0,""tokens_per_resolution"":0,""input_output_ratio"":10.693,""cache_hit_rate"":0.9539,""per_agent_tokens"":""{\""ideator\"":{\""total_tokens\"":1193,\""input_tokens\"":10,\""output_tokens\"":1183,\""cost_usd\"":0.2261625,\""duration_ms\"":17502,\""step_count\"":1},\""discoverer\"":{\""total_tokens\"":6647,\""input_tokens\"":21,\""output_tokens\"":6626,\""cost_usd\"":0.7889652,\""duration_ms\"":194422,\""step_count\"":1},\""inline\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":0,\""step_count\"":8},\""reviewer\"":{\""total_tokens\"":48294,\""input_tokens\"":191,\""output_tokens\"":48103,\""cost_usd\"":6.088721249999999,\""duration_ms\"":910788,\""step_count\"":2},\""workflow-learner\"":{\""total_tokens\"":6170,\""input_tokens\"":157,\""output_tokens\"":6013,\""cost_usd\"":1.13411895,\""duration_ms\"":519635,\""step_count\"":2},\""architect\"":{\""total_tokens\"":31430,\""input_tokens\"":87,\""output_tokens\"":31343,\""cost_usd\"":2.67920025,\""duration_ms\"":538173,\""step_count\"":1},\""developer\"":{\""total_tokens\"":118466,\""input_tokens\"":80166,\""output_tokens\"":38300,\""cost_usd\"":6.443442,\""duration_ms\"":643085,\""step_count\"":11}}"",""per_agent_tools"":""{\""ideator\"":{\""Read\"":1,\""Write\"":2},\""discoverer\"":{\""Write\"":1,\""Bash\"":1,\""Glob\"":5,\""Read\"":3,\""Agent\"":1},\""reviewer\"":{\""Bash\"":151,\""Edit\"":1,\""Write\"":4,\""Read\"":6},\""workflow-learner\"":{\""Skill\"":1,\""Read\"":6,\""Agent\"":1,\""Bash\"":1,\""Edit\"":2,\""Glob\"":1},\""architect\"":{\""Grep\"":11,\""Write\"":2,\""Bash\"":8,\""Edit\"":5,\""Glob\"":2,\""Read\"":27},\""developer\"":{\""Bash\"":110,\""Edit\"":1,\""Write\"":1,\""Read\"":2}}"",""per_tool_uses"":""{\""Read\"":45,\""Agent\"":2,\""Grep\"":11,\""Skill\"":1,\""Bash\"":271,\""Glob\"":8,\""Edit\"":9,\""Write\"":10}"",""per_step"":""{\""explore\"":{\""total_tokens\"":6647,\""tool_uses\"":11,\""duration_ms\"":194422,\""executions\"":1},\""design-and-draft-artifacts\"":{\""total_tokens\"":31430,\""tool_uses\"":55,\""duration_ms\"":538173,\""executions\"":1},\""task-T-3\"":{\""total_tokens\"":407,\""tool_uses\"":1,\""duration_ms\"":4756,\""executions\"":1},\""task-T-7\"":{\""total_tokens\"":55000,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":2},\""run-phase-review\"":{\""total_tokens\"":48294,\""tool_uses\"":162,\""duration_ms\"":910788,\""executions\"":2},\""task-fix-1\"":{\""total_tokens\"":33000,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":2},\""ticket-review\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":2},\""task-T-5\"":{\""total_tokens\"":407,\""tool_uses\"":1,\""duration_ms\"":4756,\""executions\"":1},\""task-T-2\"":{\""total_tokens\"":407,\""tool_uses\"":1,\""duration_ms\"":4756,\""executions\"":1},\""run-learn-cycle\"":{\""total_tokens\"":6170,\""tool_uses\"":12,\""duration_ms\"":519635,\""executions\"":2},\""task-T-8\"":{\""total_tokens\"":407,\""tool_uses\"":1,\""duration_ms\"":4756,\""executions\"":1},\""ux-design\"":{\""total_tokens\"":1193,\""tool_uses\"":3,\""duration_ms\"":17502,\""executions\"":1},\""ticket-start\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":2},\""compute-prediction-accuracy\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""preview-route\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""task-T-4\"":{\""total_tokens\"":407,\""tool_uses\"":1,\""duration_ms\"":4756,\""executions\"":1},\""capture-test-baseline\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""expand-plan\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""task-T-6\"":{\""total_tokens\"":407,\""tool_uses\"":1,\""duration_ms\"":4756,\""executions\"":1},\""task-fix-2\"":{\""total_tokens\"":28024,\""tool_uses\"":108,\""duration_ms\"":614549,\""executions\"":1}}""}"
+
+          orc-108,completed,2026-05-30 23:21:18,"{""repo_root"":""/Users/spidey/code/orchestrator"",""change_id"":""orc-108"",""cost_usd"":8.465172149999994,""input_tokens"":10303,""output_tokens"":72837,""cache_creation_input_tokens"":987935,""cache_read_input_tokens"":12123173,""total_tokens"":1071075,""turns"":210,""duration_ms"":1193042,""step_count"":25,""rework_ratio"":0.0,""model"":""claude-sonnet-4-6"",""pricing_input_usd"":3.0,""pricing_output_usd"":15.0,""pricing_cache_read_usd"":0.3,""pricing_cache_creation_usd"":3.75,""gross_usd"":40.456787999999996,""tool_calls_count"":138,""category"":""feature"",""complexity"":null,""tasks_total"":null,""tasks_planned"":null,""tasks_added"":null,""tasks_completed"":null,""tasks_failed"":null,""resolve_rate"":null,""pass_at_1"":null,""pass_at_2"":null,""regressions"":null,""regression_rate"":null,""retries_total"":null,""human_interventions"":null,""files_changed"":null,""insertions"":null,""deletions"":null,""total_commits"":null,""rework_commits"":null,""rework_rate"":null,""review_scores_json"":null,""review_score_avg"":null,""wall_clock_minutes"":null,""cost_per_task_usd"":0.0,""cost_per_resolution_usd"":0.0,""tokens_per_task"":0,""tokens_per_resolution"":0,""input_output_ratio"":13.7051,""cache_hit_rate"":0.9239,""per_agent_tokens"":""{\""developer\"":{\""total_tokens\"":6230,\""input_tokens\"":70,\""output_tokens\"":6160,\""cost_usd\"":1.5955275,\""duration_ms\"":67870,\""step_count\"":10},\""architect\"":{\""total_tokens\"":33959,\""input_tokens\"":93,\""output_tokens\"":33866,\""cost_usd\"":2.91400665,\""duration_ms\"":458026,\""step_count\"":1},\""ux-reviewer\"":{\""total_tokens\"":623,\""input_tokens\"":7,\""output_tokens\"":616,\""cost_usd\"":0.15955275,\""duration_ms\"":6787,\""step_count\"":1},\""reviewer\"":{\""total_tokens\"":26961,\""input_tokens\"":9991,\""output_tokens\"":16970,\""cost_usd\"":1.6047212999999998,\""duration_ms\"":248237,\""step_count\"":1},\""discoverer\"":{\""total_tokens\"":7522,\""input_tokens\"":35,\""output_tokens\"":7487,\""cost_usd\"":1.0627314,\""duration_ms\"":198879,\""step_count\"":1},\""none\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":0,\""step_count\"":9},\""workflow-learner\"":{\""total_tokens\"":7408,\""input_tokens\"":100,\""output_tokens\"":7308,\""cost_usd\"":0.9654451499999999,\""duration_ms\"":204886,\""step_count\"":1},\""ideator\"":{\""total_tokens\"":437,\""input_tokens\"":7,\""output_tokens\"":430,\""cost_usd\"":0.1631874,\""duration_ms\"":8357,\""step_count\"":1}}"",""per_agent_tools"":""{\""ideator\"":{\""Read\"":1},\""discoverer\"":{\""Write\"":1,\""Bash\"":7,\""Read\"":6,\""Agent\"":1},\""developer\"":{\""Bash\"":10},\""workflow-learner\"":{\""Skill\"":2,\""Read\"":2,\""Bash\"":6,\""Glob\"":1,\""Agent\"":1},\""architect\"":{\""Bash\"":23,\""Edit\"":3,\""Glob\"":12,\""Write\"":2,\""Read\"":19},\""ux-reviewer\"":{\""Bash\"":1},\""reviewer\"":{\""Write\"":1,\""Read\"":2,\""Bash\"":37}}"",""per_tool_uses"":""{\""Bash\"":84,\""Edit\"":3,\""Glob\"":13,\""Agent\"":2,\""Write\"":4,\""Read\"":30,\""Skill\"":2}"",""per_step"":""{\""task-T-10\"":{\""total_tokens\"":623,\""tool_uses\"":1,\""duration_ms\"":6787,\""executions\"":1},\""ux-design\"":{\""total_tokens\"":437,\""tool_uses\"":1,\""duration_ms\"":8357,\""executions\"":1},\""ticket-start\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""expand-plan\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""compute-swe-metrics\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""capture-test-baseline\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""task-T-1\"":{\""total_tokens\"":623,\""tool_uses\"":1,\""duration_ms\"":6787,\""executions\"":1},\""mark-change-completed\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""task-T-8\"":{\""total_tokens\"":623,\""tool_uses\"":1,\""duration_ms\"":6787,\""executions\"":1},\""task-T-2\"":{\""total_tokens\"":623,\""tool_uses\"":1,\""duration_ms\"":6787,\""executions\"":1},\""run-learn-cycle\"":{\""total_tokens\"":7408,\""tool_uses\"":12,\""duration_ms\"":204886,\""executions\"":1},\""explore\"":{\""total_tokens\"":7522,\""tool_uses\"":15,\""duration_ms\"":198879,\""executions\"":1},\""design-and-draft-artifacts\"":{\""total_tokens\"":33959,\""tool_uses\"":59,\""duration_ms\"":458026,\""executions\"":1},\""task-T-3\"":{\""total_tokens\"":623,\""tool_uses\"":1,\""duration_ms\"":6787,\""executions\"":1},\""task-T-6\"":{\""total_tokens\"":623,\""tool_uses\"":1,\""duration_ms\"":6787,\""executions\"":1},\""task-T-5\"":{\""total_tokens\"":623,\""tool_uses\"":1,\""duration_ms\"":6787,\""executions\"":1},\""task-T-9\"":{\""total_tokens\"":623,\""tool_uses\"":1,\""duration_ms\"":6787,\""executions\"":1},\""preview-route\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""task-T-4\"":{\""total_tokens\"":623,\""tool_uses\"":1,\""duration_ms\"":6787,\""executions\"":1},\""run-ux-critique\"":{\""total_tokens\"":623,\""tool_uses\"":1,\""duration_ms\"":6787,\""executions\"":1},\""task-T-7\"":{\""total_tokens\"":623,\""tool_uses\"":1,\""duration_ms\"":6787,\""executions\"":1},\""run-phase-review\"":{\""total_tokens\"":26961,\""tool_uses\"":40,\""duration_ms\"":248237,\""executions\"":1},\""ticket-review\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""ticket-qa\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""compute-prediction-accuracy\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1}}""}"
+
+          orc-103,completed,2026-05-29 14:55:33,"{""repo_root"":""/Users/spidey/code/orchestrator"",""change_id"":""orc-103"",""cost_usd"":109.97314425000002,""input_tokens"":529341,""output_tokens"":204528,""cache_creation_input_tokens"":2090721,""cache_read_input_tokens"":31661607,""total_tokens"":2824590,""turns"":336,""duration_ms"":2592566,""step_count"":20,""rework_ratio"":0.0,""model"":""claude-opus-4-8"",""pricing_input_usd"":15.0,""pricing_output_usd"":75.0,""pricing_cache_read_usd"":1.5,""pricing_cache_creation_usd"":18.75,""gross_usd"":529.5646350000001,""tool_calls_count"":173,""category"":""feature"",""complexity"":null,""tasks_total"":null,""tasks_planned"":null,""tasks_added"":null,""tasks_completed"":null,""tasks_failed"":null,""resolve_rate"":null,""pass_at_1"":null,""pass_at_2"":null,""regressions"":null,""regression_rate"":null,""retries_total"":null,""human_interventions"":null,""files_changed"":null,""insertions"":null,""deletions"":null,""total_commits"":null,""rework_commits"":null,""rework_rate"":null,""review_scores_json"":null,""review_score_avg"":null,""wall_clock_minutes"":null,""cost_per_task_usd"":0.0,""cost_per_resolution_usd"":0.0,""tokens_per_task"":0,""tokens_per_resolution"":0,""input_output_ratio"":12.8103,""cache_hit_rate"":0.9236,""per_agent_tokens"":""{\""architect\"":{\""total_tokens\"":65785,\""input_tokens\"":56536,\""output_tokens\"":9249,\""cost_usd\"":5.3981295,\""duration_ms\"":68490,\""step_count\"":1},\""reviewer\"":{\""total_tokens\"":107947,\""input_tokens\"":55453,\""output_tokens\"":52494,\""cost_usd\"":26.50524825,\""duration_ms\"":696392,\""step_count\"":4},\""discoverer\"":{\""total_tokens\"":59289,\""input_tokens\"":45080,\""output_tokens\"":14209,\""cost_usd\"":6.697278,\""duration_ms\"":203545,\""step_count\"":1},\""inline\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":0,\""step_count\"":7},\""developer\"":{\""total_tokens\"":436872,\""input_tokens\"":338133,\""output_tokens\"":98739,\""cost_usd\"":53.49589575,\""duration_ms\"":1038842,\""step_count\"":6},\""workflow-learner\"":{\""total_tokens\"":63976,\""input_tokens\"":34139,\""output_tokens\"":29837,\""cost_usd\"":17.87659275,\""duration_ms\"":585297,\""step_count\"":1}}"",""per_agent_tools"":""{\""workflow-learner\"":{\""Write\"":1,\""Skill\"":1,\""Read\"":4,\""Bash\"":16},\""developer\"":{\""Read\"":24,\""Bash\"":61,\""Edit\"":1,\""Write\"":2},\""architect\"":{\""Read\"":4,\""Bash\"":5},\""discoverer\"":{\""Read\"":3,\""Write\"":1,\""Bash\"":7},\""reviewer\"":{\""Write\"":2,\""Read\"":4,\""Bash\"":36,\""Edit\"":1}}"",""per_tool_uses"":""{\""Write\"":6,\""Bash\"":125,\""Edit\"":2,\""Skill\"":1,\""Read\"":39}"",""per_step"":""{\""compute-prediction-accuracy\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""capture-test-baseline\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""task-T-1\"":{\""total_tokens\"":65785,\""tool_uses\"":9,\""duration_ms\"":68490,\""executions\"":1},\""mark-change-completed\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""task-T-5\"":{\""total_tokens\"":65785,\""tool_uses\"":9,\""duration_ms\"":68490,\""executions\"":1},\""complete-workflow\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""explore\"":{\""total_tokens\"":59289,\""tool_uses\"":11,\""duration_ms\"":203545,\""executions\"":1},\""design-and-draft-artifacts\"":{\""total_tokens\"":65785,\""tool_uses\"":9,\""duration_ms\"":68490,\""executions\"":1},\""task-T-3\"":{\""total_tokens\"":65785,\""tool_uses\"":9,\""duration_ms\"":68490,\""executions\"":1},\""expand-plan\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""compute-swe-metrics\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""task-T-2\"":{\""total_tokens\"":65785,\""tool_uses\"":9,\""duration_ms\"":68490,\""executions\"":1},\""run-learn-cycle\"":{\""total_tokens\"":63976,\""tool_uses\"":22,\""duration_ms\"":585297,\""executions\"":1},\""run-phase-review\"":{\""total_tokens\"":107947,\""tool_uses\"":43,\""duration_ms\"":696392,\""executions\"":4},\""task-fix-1\"":{\""total_tokens\"":107947,\""tool_uses\"":43,\""duration_ms\"":696392,\""executions\"":1},\""preview-route\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""task-T-4\"":{\""total_tokens\"":65785,\""tool_uses\"":9,\""duration_ms\"":68490,\""executions\"":1}}""}"
+
+          orc-96,completed,2026-05-29 10:35:39,"{""repo_root"":""/Users/spidey/code/orchestrator"",""change_id"":""orc-96"",""cost_usd"":2.5601167499999997,""input_tokens"":29944,""output_tokens"":3535,""cache_creation_input_tokens"":66089,""cache_read_input_tokens"":404442,""total_tokens"":99568,""turns"":9,""duration_ms"":28435,""step_count"":3,""rework_ratio"":0.0,""model"":""claude-opus-4-8"",""pricing_input_usd"":15.0,""pricing_output_usd"":75.0,""pricing_cache_read_usd"":1.5,""pricing_cache_creation_usd"":18.75,""gross_usd"":7.7722500000000005,""tool_calls_count"":4,""category"":""feature"",""complexity"":null,""tasks_total"":null,""tasks_planned"":null,""tasks_added"":null,""tasks_completed"":null,""tasks_failed"":null,""resolve_rate"":null,""pass_at_1"":null,""pass_at_2"":null,""regressions"":null,""regression_rate"":null,""retries_total"":null,""human_interventions"":null,""files_changed"":null,""insertions"":null,""deletions"":null,""total_commits"":null,""rework_commits"":null,""rework_rate"":null,""review_scores_json"":null,""review_score_avg"":null,""wall_clock_minutes"":null,""cost_per_task_usd"":0.0,""cost_per_resolution_usd"":0.0,""tokens_per_task"":0,""tokens_per_resolution"":0,""input_output_ratio"":27.1663,""cache_hit_rate"":0.8081,""per_agent_tokens"":""{\""architect\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":0,\""step_count\"":1},\""discoverer\"":{\""total_tokens\"":33479,\""input_tokens\"":29944,\""output_tokens\"":3535,\""cost_usd\"":2.5601167499999997,\""duration_ms\"":28435,\""step_count\"":2}}"",""per_agent_tools"":""{\""discoverer\"":{\""Write\"":1,\""Bash\"":3}}"",""per_tool_uses"":""{\""Bash\"":3,\""Write\"":1}"",""per_step"":""{\""explore\"":{\""total_tokens\"":33479,\""tool_uses\"":4,\""duration_ms\"":28435,\""executions\"":2},\""design-and-draft-artifacts\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1}}""}"
+
+          orc106-smoke,completed,2026-05-29 10:01:00,"{""repo_root"":""/Users/spidey/code/orchestrator"",""change_id"":""orc106-smoke"",""cost_usd"":0.0,""input_tokens"":0,""output_tokens"":0,""cache_creation_input_tokens"":0,""cache_read_input_tokens"":0,""total_tokens"":0,""turns"":0,""duration_ms"":1000,""step_count"":2,""rework_ratio"":0.0,""model"":null,""pricing_input_usd"":15.0,""pricing_output_usd"":75.0,""pricing_cache_read_usd"":1.5,""pricing_cache_creation_usd"":18.75,""gross_usd"":0.0,""tool_calls_count"":0,""category"":""feature"",""complexity"":null,""tasks_total"":null,""tasks_planned"":null,""tasks_added"":null,""tasks_completed"":null,""tasks_failed"":null,""resolve_rate"":null,""pass_at_1"":null,""pass_at_2"":null,""regressions"":null,""regression_rate"":null,""retries_total"":null,""human_interventions"":null,""files_changed"":null,""insertions"":null,""deletions"":null,""total_commits"":null,""rework_commits"":null,""rework_rate"":null,""review_scores_json"":null,""review_score_avg"":null,""wall_clock_minutes"":null,""cost_per_task_usd"":0.0,""cost_per_resolution_usd"":0.0,""tokens_per_task"":0,""tokens_per_resolution"":0,""input_output_ratio"":0.0,""cache_hit_rate"":0.0,""per_agent_tokens"":""{\""developer\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":1000,\""step_count\"":1},\""reviewer\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":0,\""step_count\"":1}}"",""per_agent_tools"":""{}"",""per_tool_uses"":""{}"",""per_step"":""{\""run-phase-review\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1},\""execute-one-task\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":1000,\""executions\"":1}}""}"
+
+          orc106-s4,completed,2026-05-29 10:01:00,"{""repo_root"":""/Users/spidey/code/orchestrator"",""change_id"":""orc106-s4"",""cost_usd"":0.0,""input_tokens"":0,""output_tokens"":0,""cache_creation_input_tokens"":0,""cache_read_input_tokens"":0,""total_tokens"":0,""turns"":0,""duration_ms"":1000,""step_count"":2,""rework_ratio"":0.0,""model"":null,""pricing_input_usd"":15.0,""pricing_output_usd"":75.0,""pricing_cache_read_usd"":1.5,""pricing_cache_creation_usd"":18.75,""gross_usd"":0.0,""tool_calls_count"":0,""category"":""feature"",""complexity"":null,""tasks_total"":null,""tasks_planned"":null,""tasks_added"":null,""tasks_completed"":null,""tasks_failed"":null,""resolve_rate"":null,""pass_at_1"":null,""pass_at_2"":null,""regressions"":null,""regression_rate"":null,""retries_total"":null,""human_interventions"":null,""files_changed"":null,""insertions"":null,""deletions"":null,""total_commits"":null,""rework_commits"":null,""rework_rate"":null,""review_scores_json"":null,""review_score_avg"":null,""wall_clock_minutes"":null,""cost_per_task_usd"":0.0,""cost_per_resolution_usd"":0.0,""tokens_per_task"":0,""tokens_per_resolution"":0,""input_output_ratio"":0.0,""cache_hit_rate"":0.0,""per_agent_tokens"":""{\""reviewer\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":0,\""step_count\"":1},\""developer\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":1000,\""step_count\"":1}}"",""per_agent_tools"":""{}"",""per_tool_uses"":""{}"",""per_step"":""{\""execute-one-task\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":1000,\""executions\"":1},\""run-phase-review\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1}}""}"
+
+          orc106-final,completed,2026-05-29 10:01:00,"{""repo_root"":""/Users/spidey/code/orchestrator"",""change_id"":""orc106-final"",""cost_usd"":0.0,""input_tokens"":0,""output_tokens"":0,""cache_creation_input_tokens"":0,""cache_read_input_tokens"":0,""total_tokens"":0,""turns"":0,""duration_ms"":1000,""step_count"":2,""rework_ratio"":0.0,""model"":null,""pricing_input_usd"":15.0,""pricing_output_usd"":75.0,""pricing_cache_read_usd"":1.5,""pricing_cache_creation_usd"":18.75,""gross_usd"":0.0,""tool_calls_count"":0,""category"":""feature"",""complexity"":null,""tasks_total"":null,""tasks_planned"":null,""tasks_added"":null,""tasks_completed"":null,""tasks_failed"":null,""resolve_rate"":null,""pass_at_1"":null,""pass_at_2"":null,""regressions"":null,""regression_rate"":null,""retries_total"":null,""human_interventions"":null,""files_changed"":null,""insertions"":null,""deletions"":null,""total_commits"":null,""rework_commits"":null,""rework_rate"":null,""review_scores_json"":null,""review_score_avg"":null,""wall_clock_minutes"":null,""cost_per_task_usd"":0.0,""cost_per_resolution_usd"":0.0,""tokens_per_task"":0,""tokens_per_resolution"":0,""input_output_ratio"":0.0,""cache_hit_rate"":0.0,""per_agent_tokens"":""{\""developer\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":1000,\""step_count\"":1},\""reviewer\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":0,\""step_count\"":1}}"",""per_agent_tools"":""{}"",""per_tool_uses"":""{}"",""per_step"":""{\""execute-one-task\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":1000,\""executions\"":1},\""run-phase-review\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1}}""}"
+
+          orc106-s3,completed,2026-05-29 10:01:00,"{""repo_root"":""/Users/spidey/code/orchestrator"",""change_id"":""orc106-s3"",""cost_usd"":0.0,""input_tokens"":0,""output_tokens"":0,""cache_creation_input_tokens"":0,""cache_read_input_tokens"":0,""total_tokens"":0,""turns"":0,""duration_ms"":1000,""step_count"":2,""rework_ratio"":0.0,""model"":null,""pricing_input_usd"":15.0,""pricing_output_usd"":75.0,""pricing_cache_read_usd"":1.5,""pricing_cache_creation_usd"":18.75,""gross_usd"":0.0,""tool_calls_count"":0,""category"":""feature"",""complexity"":null,""tasks_total"":null,""tasks_planned"":null,""tasks_added"":null,""tasks_completed"":null,""tasks_failed"":null,""resolve_rate"":null,""pass_at_1"":null,""pass_at_2"":null,""regressions"":null,""regression_rate"":null,""retries_total"":null,""human_interventions"":null,""files_changed"":null,""insertions"":null,""deletions"":null,""total_commits"":null,""rework_commits"":null,""rework_rate"":null,""review_scores_json"":null,""review_score_avg"":null,""wall_clock_minutes"":null,""cost_per_task_usd"":0.0,""cost_per_resolution_usd"":0.0,""tokens_per_task"":0,""tokens_per_resolution"":0,""input_output_ratio"":0.0,""cache_hit_rate"":0.0,""per_agent_tokens"":""{\""developer\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":1000,\""step_count\"":1},\""reviewer\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":0,\""step_count\"":1}}"",""per_agent_tools"":""{}"",""per_tool_uses"":""{}"",""per_step"":""{\""execute-one-task\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":1000,\""executions\"":1},\""run-phase-review\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1}}""}"
+
+          orc105-smoke,completed,2026-05-29 10:01:00,"{""repo_root"":""/Users/spidey/code/orchestrator"",""change_id"":""orc105-smoke"",""cost_usd"":0.0,""input_tokens"":0,""output_tokens"":0,""cache_creation_input_tokens"":0,""cache_read_input_tokens"":0,""total_tokens"":0,""turns"":0,""duration_ms"":1000,""step_count"":2,""rework_ratio"":0.0,""model"":null,""pricing_input_usd"":15.0,""pricing_output_usd"":75.0,""pricing_cache_read_usd"":1.5,""pricing_cache_creation_usd"":18.75,""gross_usd"":0.0,""tool_calls_count"":0,""category"":""feature"",""complexity"":null,""tasks_total"":null,""tasks_planned"":null,""tasks_added"":null,""tasks_completed"":null,""tasks_failed"":null,""resolve_rate"":null,""pass_at_1"":null,""pass_at_2"":null,""regressions"":null,""regression_rate"":null,""retries_total"":null,""human_interventions"":null,""files_changed"":null,""insertions"":null,""deletions"":null,""total_commits"":null,""rework_commits"":null,""rework_rate"":null,""review_scores_json"":null,""review_score_avg"":null,""wall_clock_minutes"":null,""cost_per_task_usd"":0.0,""cost_per_resolution_usd"":0.0,""tokens_per_task"":0,""tokens_per_resolution"":0,""input_output_ratio"":0.0,""cache_hit_rate"":0.0,""per_agent_tokens"":""{\""developer\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":1000,\""step_count\"":1},\""reviewer\"":{\""total_tokens\"":0,\""input_tokens\"":0,\""output_tokens\"":0,\""cost_usd\"":0.0,\""duration_ms\"":0,\""step_count\"":1}}"",""per_agent_tools"":""{}"",""per_tool_uses"":""{}"",""per_step"":""{\""execute-one-task\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":1000,\""executions\"":1},\""run-phase-review\"":{\""total_tokens\"":0,\""tool_uses\"":0,\""duration_ms\"":0,\""executions\"":1}}""}"'
+        quality_trend_csv: 'change_id,completed_at,quality_score
+
+          orc-107,2026-05-31 21:48:26,null
+
+          orc-77,2026-05-31 07:25:30,null
+
+          orc-108,2026-05-30 23:21:18,null
+
+          orc-103,2026-05-29 14:55:33,null
+
+          orc-96,2026-05-29 10:35:39,null'
+    summary: inline script completed
+- step_id: cost-report
+  phase: main
+  status: completed
+  agent: null
+  attempt: 1
+  started_at: '2026-05-30T23:21:23Z'
+  ended_at: '2026-05-30T23:21:23Z'
+  usage: {}
+  evidence:
+    outputs:
+      status: completed
+      outputs:
+        tail_summary: "orc-108: $8.4652 \xB7 19.9m \xB7 26 steps \xB7 0.17x median"
+        cost_summary_path: spec/changes/orc-108/cost-summary.md
+    summary: inline script completed
+- step_id: archive-completed-change
+  phase: main
+  status: completed
+  agent: null
+  attempt: 1
+  started_at: '2026-05-30T23:21:25Z'
+  ended_at: '2026-05-30T23:21:25Z'
+  usage: {}
+  evidence:
+    summary: recorded pre-script (state-mutating inline step)
+    outputs: {}
+created_at: '2026-05-30T22:28:47Z'
+started_at: '2026-05-30T22:28:47Z'
+project_context_loaded: true
+worktree_path: /Users/spidey/code/feature_worktrees/orc-108
+branch: feature/orc-108
+ticket_id: ORC-108
+ticketing: backlog
+ticket_status: "\u25CB QA Review"
+ticket_status_checked_at: '2026-05-30T23:21:23Z'
+ticket_rework: false
+completed_at: '2026-05-30T23:21:16Z'
+archive_path: spec/changes/archive/orc-108/

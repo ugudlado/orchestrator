@@ -287,7 +287,8 @@ if [ "$SCHEMA" = "complete" ]; then
     exit 1
   fi
   _PREPARE=$(PYTHONPATH="${_WORKTREE_ROOT}:${PYTHONPATH:-}" \
-    python3 -m orchestrator_next.complete_phase "$STATE_YAML" 2>&1) || {
+    python3 "${_WORKTREE_ROOT}/orchestrator_next/scripts/complete/check-implement-complete.py" \
+    "$STATE_YAML" 2>&1) || {
     echo "$_PREPARE" >&2
     exit 2
   }

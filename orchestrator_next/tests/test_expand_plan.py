@@ -12,9 +12,13 @@ import pytest
 import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
 _SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
+
+_FEATURE_SCHEMA = os.path.join(_REPO_ROOT, "config", "workflows", "feature.yaml")
+_BUGFIX_SCHEMA = os.path.join(_REPO_ROOT, "config", "workflows", "bugfix.yaml")
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +121,50 @@ def _load_state(state_path: str) -> dict:
 def _sha256(path: str) -> str:
     with open(path, "rb") as f:
         return hashlib.sha256(f.read()).hexdigest()
+
+
+def _load_schema_steps(schema_path: str) -> list:
+    with open(schema_path, encoding="utf-8") as f:
+        doc = yaml.safe_load(f)
+    steps = doc.get("steps") or []
+    return [s["id"] if isinstance(s, dict) else str(s) for s in steps]
+
+
+def _step_index(steps: list, step_id: str) -> int:
+    try:
+        return steps.index(step_id)
+    except ValueError:
+        return -1
+
+
+def _make_state_with_execute_tasks_anchor(tmp_path, tasks_yaml_content=None) -> tuple[str, str]:
+    """Like _make_state but includes execute-tasks anchor in the seeded plan."""
+    state_path, tasks_path = _make_state(tmp_path, tasks_yaml_content)
+    raw = _load_state(state_path)
+    nodes = raw["workflow_plan"]["implement"]["nodes"]
+    # Insert execute-tasks between expand-plan and run-phase-review.
+    rpr_index = next(i for i, n in enumerate(nodes) if n.get("id") == "run-phase-review")
+    nodes.insert(
+        rpr_index,
+        {
+            "id": "execute-tasks",
+            "status": "pending",
+            "agent": None,
+            "goal": "Execute implementation tasks",
+            "inputs": [],
+            "outputs": [],
+            "rules": [],
+            "depends_on": ["expand-plan"],
+        },
+    )
+    # Schema declares run-phase-review depends on execute-tasks (not rewired by expand_plan).
+    for node in nodes:
+        if node.get("id") == "run-phase-review":
+            node["depends_on"] = ["execute-tasks"]
+            break
+    with open(state_path, "w") as f:
+        yaml.safe_dump(raw, f, sort_keys=False, default_flow_style=False)
+    return state_path, tasks_path
 
 
 # ---------------------------------------------------------------------------
@@ -327,3 +375,107 @@ class TestExpandPlanErrors:
 
         with pytest.raises((FileNotFoundError, SystemExit)):
             expand_plan.expand_plan(str(state_path))
+
+
+# ---------------------------------------------------------------------------
+# ORC-108 T-1: execute-tasks anchor in feature/bugfix schemas (RED)
+# ---------------------------------------------------------------------------
+
+_EXECUTE_TASKS_XFAIL = pytest.mark.xfail(
+    reason="ORC-108 RED: execute-tasks anchor not in schemas / expand_plan still targets run-phase-review",
+    strict=False,
+)
+
+
+class TestExecuteTasksSchemaAnchor:
+    """feature.yaml and bugfix.yaml declare execute-tasks between expand-plan and run-phase-review."""
+
+    @_EXECUTE_TASKS_XFAIL
+    def test_feature_yaml_execute_tasks_between_expand_plan_and_run_phase_review(self):
+        steps = _load_schema_steps(_FEATURE_SCHEMA)
+        expand_idx = _step_index(steps, "expand-plan")
+        execute_idx = _step_index(steps, "execute-tasks")
+        rpr_idx = _step_index(steps, "run-phase-review")
+        assert expand_idx >= 0, "expand-plan missing from feature.yaml"
+        assert execute_idx >= 0, "execute-tasks missing from feature.yaml"
+        assert rpr_idx >= 0, "run-phase-review missing from feature.yaml"
+        assert expand_idx < execute_idx < rpr_idx, (
+            f"execute-tasks must sit between expand-plan and run-phase-review; "
+            f"got indices expand-plan={expand_idx}, execute-tasks={execute_idx}, "
+            f"run-phase-review={rpr_idx}"
+        )
+
+    @_EXECUTE_TASKS_XFAIL
+    def test_bugfix_yaml_execute_tasks_between_expand_plan_and_run_phase_review(self):
+        steps = _load_schema_steps(_BUGFIX_SCHEMA)
+        expand_idx = _step_index(steps, "expand-plan")
+        execute_idx = _step_index(steps, "execute-tasks")
+        rpr_idx = _step_index(steps, "run-phase-review")
+        assert expand_idx >= 0, "expand-plan missing from bugfix.yaml"
+        assert execute_idx >= 0, "execute-tasks missing from bugfix.yaml"
+        assert rpr_idx >= 0, "run-phase-review missing from bugfix.yaml"
+        assert expand_idx < execute_idx < rpr_idx, (
+            f"execute-tasks must sit between expand-plan and run-phase-review; "
+            f"got indices expand-plan={expand_idx}, execute-tasks={execute_idx}, "
+            f"run-phase-review={rpr_idx}"
+        )
+
+
+class TestExecuteTasksExpandPlanInjection:
+    """expand_plan.py injects under execute-tasks anchor; does not mutate run-phase-review."""
+
+    @_EXECUTE_TASKS_XFAIL
+    def test_injects_task_nodes_before_execute_tasks_anchor(self, tmp_path):
+        """Task nodes precede execute-tasks, not run-phase-review."""
+        state_path, _ = _make_state_with_execute_tasks_anchor(tmp_path)
+        expand_plan.expand_plan(state_path)
+        raw = _load_state(state_path)
+        nodes = raw["workflow_plan"]["implement"]["nodes"]
+        ids = [n["id"] for n in nodes]
+        execute_idx = ids.index("execute-tasks")
+        rpr_idx = ids.index("run-phase-review")
+        task_indices = [ids.index(tid) for tid in ("task-T-1", "task-T-2", "task-T-3")]
+        assert all(idx < execute_idx for idx in task_indices), (
+            "task nodes must be injected before execute-tasks anchor"
+        )
+        assert execute_idx < rpr_idx, "execute-tasks must precede run-phase-review"
+        assert all(idx < rpr_idx for idx in task_indices), (
+            "task nodes must not be injected immediately before run-phase-review"
+        )
+
+    @_EXECUTE_TASKS_XFAIL
+    def test_rewires_execute_tasks_depends_on_to_last_task(self, tmp_path):
+        """execute-tasks.depends_on becomes [task-T-last] after injection."""
+        state_path, _ = _make_state_with_execute_tasks_anchor(tmp_path)
+        expand_plan.expand_plan(state_path)
+        raw = _load_state(state_path)
+        nodes = {n["id"]: n for n in raw["workflow_plan"]["implement"]["nodes"]}
+        assert nodes["execute-tasks"]["depends_on"] == ["task-T-3"]
+
+    @_EXECUTE_TASKS_XFAIL
+    def test_execute_tasks_run_phase_review_depends_on_not_mutated(self, tmp_path):
+        """run-phase-review.depends_on stays schema-declared; expand_plan does not rewire it."""
+        state_path, _ = _make_state_with_execute_tasks_anchor(tmp_path)
+        rpr_before = _load_state(state_path)["workflow_plan"]["implement"]["nodes"]
+        rpr_deps_before = next(
+            n.get("depends_on") for n in rpr_before if n.get("id") == "run-phase-review"
+        )
+        expand_plan.expand_plan(state_path)
+        raw = _load_state(state_path)
+        nodes = {n["id"]: n for n in raw["workflow_plan"]["implement"]["nodes"]}
+        assert nodes["run-phase-review"].get("depends_on") == rpr_deps_before
+        assert nodes["run-phase-review"]["depends_on"] == ["execute-tasks"]
+
+    @_EXECUTE_TASKS_XFAIL
+    def test_execute_tasks_idempotency_no_duplicate_nodes(self, tmp_path):
+        """Second expand-plan invocation does not duplicate task nodes."""
+        state_path, _ = _make_state_with_execute_tasks_anchor(tmp_path)
+        expand_plan.expand_plan(state_path)
+        sha1 = _sha256(state_path)
+        expand_plan.expand_plan(state_path)
+        sha2 = _sha256(state_path)
+        assert sha1 == sha2, "Second expand-plan invocation mutated state.yaml"
+        raw = _load_state(state_path)
+        ids = [n["id"] for n in raw["workflow_plan"]["implement"]["nodes"]]
+        for tid in ("task-T-1", "task-T-2", "task-T-3"):
+            assert ids.count(tid) == 1, f"{tid} duplicated after second expand-plan run"
