@@ -2,4 +2,4 @@ steps:
   - mark-change-completed
   - compute-swe-metrics
   - cost-report
-  - complete-workflow
+  - archive-completed-change

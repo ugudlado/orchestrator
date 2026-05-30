@@ -57,7 +57,7 @@ Smaller steps improve resume, cost attribution, and clarity.
 ## Reusing existing steps
 
 Before creating a new step, check `config/steps/`. Reuse when behavior and I/O match
-(e.g. `complete-workflow`, `cost-report`, `expand-plan`). Otherwise create a new step
+(e.g. `archive-completed-change`, `cost-report`, `expand-plan`). Otherwise create a new step
 id — do not overload unrelated steps.
 
 ## Agent picker (probabilistic steps)

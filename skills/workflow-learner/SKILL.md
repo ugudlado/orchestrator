@@ -43,7 +43,7 @@ A narrow scope still produces the §5 report; it just weights which findings are
 
 ### 1. Find Context
 
-Locate the feature under evaluation (this step runs **before** `complete-workflow`
+Locate the feature under evaluation (this step runs **before** `archive-completed-change`
 merge/archive/worktree teardown):
 
 1. If the dispatch prompt includes `state_yaml_path=...`, read that file first.

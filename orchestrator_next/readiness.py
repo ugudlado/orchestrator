@@ -114,7 +114,7 @@ def repeat_until_redispatch(state: State, state_yaml_path: str) -> str | None:
     Repeat semantics only fire while the workflow still has forward work: when
     no node is ready (the phase is otherwise complete), return None rather than
     resurrecting a completed step. Without this guard, after the terminal
-    `complete-workflow` step archives `tasks.md`, `_check_all_tasks_completed`
+    `archive-completed-change` step archives `tasks.md`, `_check_all_tasks_completed`
     fails-closed on the moved file and re-picks the long-completed
     `execute-next-task` — the OQ-5 ORC-66 re-dispatch hazard.
     """

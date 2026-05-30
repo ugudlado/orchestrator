@@ -177,7 +177,7 @@ complete_post_merge() {
   local archived_state
   archived_state="$(resolve_archived_state_yaml "$ticket_slug" 2>/dev/null || true)"
   if [ -z "$archived_state" ] || [ ! -f "$archived_state" ]; then
-    echo "ERROR: archived state.yaml not found for $ticket_slug after complete-workflow" >&2
+    echo "ERROR: archived state.yaml not found for $ticket_slug after archive-completed-change" >&2
     return 7
   fi
 

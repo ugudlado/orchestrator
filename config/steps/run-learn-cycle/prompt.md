@@ -19,7 +19,7 @@ Run the workflow learning pipeline for this completed change.
    dispatch prompt (worktree runs: under `worktree_path/spec/changes/<change_id>/`;
    non-worktree: `$REPO_ROOT/spec/changes/<change_id>/`). Do not read from archive
    or from `$REPO_ROOT/spec/changes/` while a worktree path is set — merge and
-   archive happen only in the later `complete-workflow` step.
+   archive happen only in the later `archive-completed-change` step.
 
 2. Run the full evaluation, finding classification, rule routing, hit/miss
    update, decay evaluation, and quality bar adjustment per the workflow-learner

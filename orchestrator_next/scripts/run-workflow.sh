@@ -479,7 +479,7 @@ while true; do
     else
       echo "[$(_log_ts)]   orchestrator next returned no action; continuing loop" >&2
     fi
-    # complete-workflow archives state.yaml; the next `orchestrator next` would
+    # archive-completed-change moves state.yaml; the next `orchestrator next` would
     # exit 3 with "state.yaml not found". Treat missing state as success.
     if [ ! -f "$STATE_YAML" ]; then
       echo "Workflow complete (state archived)." >&2
@@ -627,7 +627,7 @@ while true; do
       # Do not respawn discoverer/architect when this feature is already archived.
       # The startup probe ran archive_completion handle once; reuse its result
       # since the archive can't appear mid-loop (this process owns the only
-      # complete-workflow step). The cached _ARCHIVE_HANDLE_ACTION is "continue"
+      # archive-completed-change step). The cached _ARCHIVE_HANDLE_ACTION is "continue"
       # by the time we reach here (halt_complete would have exited at startup).
       if [ "$_ARCHIVE_HANDLE_ACTION" = "halt_complete" ] && \
          { [ "$STEP_ID" = "explore" ] || [ "$STEP_ID" = "design-and-draft-artifacts" ]; }; then

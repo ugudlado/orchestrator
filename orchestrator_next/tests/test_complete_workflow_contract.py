@@ -1,9 +1,9 @@
 """T-7 / T-12: step contract presence after the ORC-79 teardown collapse.
 
-The new terminal `complete-workflow` step needs a dispatchable contract.
-`merge-to-main` and `remove-worktree` no longer dispatch in any schema — their
-contracts are deleted. `archive-completed-change.yaml` is RETAINED: spike.yaml
-still dispatches `archive-completed-change` as its terminal step.
+`archive-completed-change` is the terminal inline step for all production
+schemas. `merge-to-main` and `remove-worktree` no longer dispatch in any
+schema — their contracts are deleted. Merge and worktree teardown run from
+`orchestrator complete` after the workflow phase.
 
 Dual-tree note: `~/.config/orchestrator/config` is an install.sh symlink to the
 repo `config/`, so `config/steps/` is one physical directory serving both
@@ -36,32 +36,31 @@ def test_repo_and_home_step_dirs_are_the_same_tree():
     )
 
 
-def test_complete_workflow_contract_present():
-    path = os.path.join(_REPO_STEPS, "complete-workflow", "contract.yaml")
+def test_archive_completed_change_contract_present():
+    path = os.path.join(_REPO_STEPS, "archive-completed-change", "contract.yaml")
     assert os.path.isfile(path), f"missing step contract: {path}"
 
 
-def test_complete_workflow_contract_shape():
-    path = os.path.join(_REPO_STEPS, "complete-workflow", "contract.yaml")
-    assert os.path.isfile(path), f"missing step contract: {path}"
+def test_archive_completed_change_contract_shape():
+    path = os.path.join(_REPO_STEPS, "archive-completed-change", "contract.yaml")
     contract = yaml.safe_load(open(path).read())
-    assert contract.get("id") == "complete-workflow", (
-        f"contract id must be 'complete-workflow', got {contract.get('id')!r}"
+    assert contract.get("id") == "archive-completed-change", (
+        f"contract id must be 'archive-completed-change', got {contract.get('id')!r}"
     )
     assert contract.get("run") == "script.sh", (
         f"contract run must be 'script.sh' (directory-form), "
         f"got {contract.get('run')!r}"
     )
-    # complete-workflow declares NO `outputs:`. It is a state-mutating inline
-    # step pre-recorded as `completed` BEFORE its script runs (ORC-66
-    # crash-avoidance), so its stdout completion_record is never threaded into
-    # step_history's evidence.outputs — a declared output would be
-    # unverifiable and would fail the optimistic empty pre-record's
-    # _check_declared_outputs. This matches the archive-completed-change.yaml
-    # pre-record precedent, which also declares no `outputs:`.
     assert contract.get("outputs") in (None, []), (
-        f"complete-workflow.yaml must declare no outputs (pre-record contract), "
+        f"archive-completed-change must declare no outputs (pre-record contract), "
         f"got {contract.get('outputs')!r}"
+    )
+
+
+def test_complete_workflow_contract_absent():
+    path = os.path.join(_REPO_STEPS, "complete-workflow", "contract.yaml")
+    assert not os.path.isfile(path), (
+        f"complete-workflow wrapper step removed; archive is dispatched directly: {path}"
     )
 
 
@@ -75,12 +74,3 @@ def test_obsolete_step_contracts_absent():
         assert not os.path.isfile(path), (
             f"obsolete step contract should be deleted: {path}"
         )
-
-
-def test_archive_completed_change_contract_retained():
-    """`archive-completed-change/contract.yaml` is RETAINED — spike.yaml still
-    dispatches `archive-completed-change` as its terminal step."""
-    path = os.path.join(_REPO_STEPS, "archive-completed-change", "contract.yaml")
-    assert os.path.isfile(path), (
-        f"archive-completed-change/contract.yaml must be retained for spike: {path}"
-    )

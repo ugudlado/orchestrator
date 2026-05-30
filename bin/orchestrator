@@ -497,32 +497,27 @@ def main() -> None:
             _stderr_step_log(f"  run: {' '.join(_run_cmd)}")
 
             # State-mutating inline steps move/delete state.yaml as their side
-            # effect (complete-workflow's archive phase rm -rf's the state
-            # directory). record() re-opens state_yaml_path to read pre-write
+            # effect (archive-completed-change mv's the change dir out of the
+            # active path). record() re-opens state_yaml_path to read pre-write
             # bytes — if the script has already moved the file, that raises
             # FileNotFoundError. Fix: record these steps as completed BEFORE
             # running the script, so the step_history entry is durable in
             # state.yaml at its current location; the script then moves the
             # already-final file.
             #
-            # Two ids are state-mutating:
-            #   - complete-workflow: the terminal step for feature/bugfix; its
-            #     archive phase rm -rf's the state dir.
-            #   - archive-completed-change: still the terminal step for the
-            #     spike schema (spike.yaml), which ORC-79 left untouched. Its
-            #     script rm -rf's the state dir the same way, so it keeps its
-            #     pre-record protection.
+            # `archive-completed-change` is the terminal workflow step for
+            # feature/bugfix/autopilot/complete/approve-qa. Merge and worktree
+            # teardown run from `orchestrator complete` after the phase.
             #
             # Tradeoff: a state-mutating step records `completed` before its
-            # script's exit code is known. The archive phase's hardened
-            # `cp ... || exit 1` ensures a failed copy exits non-zero BEFORE the
-            # `rm -rf`, so the source dir (with the optimistic entry) stays
-            # intact and the driver halts on exit 3 — recoverable, not
-            # catastrophic. The script's own outputs (commit_sha etc.) are not
-            # threaded into step_history; that is the accepted cost.
+            # script's exit code is known. The archive script's hardened
+            # `mv ... || exit 1` ensures a failed move exits non-zero BEFORE
+            # any destructive cleanup, so the source dir (with the optimistic
+            # entry) stays intact and the driver halts on exit 3 — recoverable,
+            # not catastrophic. The script's own outputs (commit_sha etc.) are
+            # not threaded into step_history; that is the accepted cost.
             _STATE_MUTATING_INLINE_STEPS = {
                 "archive-completed-change",
-                "complete-workflow",
             }
             _state_mutating = _step_id in _STATE_MUTATING_INLINE_STEPS
 

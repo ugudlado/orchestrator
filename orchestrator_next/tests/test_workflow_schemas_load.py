@@ -181,12 +181,10 @@ def test_real_schema_generates_plan(tmp_path, monkeypatch, schema_name):
 
 
 # ---------------------------------------------------------------------------
-# orc-79: the three teardown steps collapse into one terminal `complete-workflow`
-# in feature/bugfix.
+# Terminal step is `archive-completed-change` (merge/teardown run from CLI).
 # ---------------------------------------------------------------------------
 
-_FEATURE_BUGFIX_REMOVED_STEPS = {
-    "archive-completed-change",
+_OBSOLETE_TEARDOWN_STEPS = {
     "merge-to-main",
     "remove-worktree",
 }
@@ -202,24 +200,23 @@ def _schema_step_ids(schema_name):
 
 
 @pytest.mark.parametrize("schema_name", ["feature", "bugfix", "autopilot"])
-def test_schema_ends_with_complete_workflow(schema_name):
-    """feature.yaml / bugfix.yaml steps must end with the single terminal
-    `complete-workflow` step (orc-79)."""
+def test_schema_ends_with_archive_completed_change(schema_name):
+    """Production schemas must end with the archive terminal step."""
     steps = _schema_step_ids(schema_name)
-    assert steps and steps[-1] == "complete-workflow", (
-        f"{schema_name}.yaml steps must end with 'complete-workflow', "
+    assert steps and steps[-1] == "archive-completed-change", (
+        f"{schema_name}.yaml steps must end with 'archive-completed-change', "
         f"got tail {steps[-3:]}"
     )
 
 
 @pytest.mark.parametrize("schema_name", ["feature", "bugfix", "autopilot"])
-def test_schema_drops_the_three_removed_steps(schema_name):
-    """The three collapsed teardown steps must not appear in feature/bugfix."""
+def test_schema_drops_obsolete_teardown_steps(schema_name):
+    """merge-to-main and remove-worktree must not appear in workflow YAML."""
     steps = set(_schema_step_ids(schema_name))
-    leftover = steps & _FEATURE_BUGFIX_REMOVED_STEPS
+    leftover = steps & _OBSOLETE_TEARDOWN_STEPS
     assert not leftover, (
         f"{schema_name}.yaml still lists removed step(s) {leftover} — "
-        f"these collapse into complete-workflow"
+        f"merge/teardown run from orchestrator complete"
     )
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract the last JSON object line from a stream (complete-workflow archive output)."""
+"""Extract the last JSON object line from a stream (archive step output)."""
 from __future__ import annotations
 
 import json

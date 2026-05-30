@@ -12,7 +12,8 @@ args:
 
 1. Resolve the change ID from `$ARGUMENTS` or the current git branch name.
 2. Run `orchestrator approve-qa <change-id>` — runs the complete phase DAG
-   (mark-change-completed → compute-swe-metrics → complete-workflow → merge → teardown).
+   (mark-change-completed → compute-swe-metrics → cost-report → ticket-done →
+   archive-completed-change → merge → teardown).
 3. Report: archived, merged to main, branch deleted (or any warnings).
 
 ```bash

@@ -6,7 +6,7 @@
 # Does not seed a new feature; requires existing state.yaml from a prior
 # `orchestrator feature|bugfix|autopilot` run.
 #
-# On success: complete-phase steps (through complete-workflow → archive), then
+# On success: complete-phase steps (through archive-completed-change), then
 # merge to default branch (unconditional — invoking complete IS the merge signal),
 # then worktree teardown unless --no-teardown.
 #
@@ -18,4 +18,4 @@ steps:
   - mark-change-completed
   - compute-swe-metrics
   - cost-report
-  - complete-workflow
+  - archive-completed-change

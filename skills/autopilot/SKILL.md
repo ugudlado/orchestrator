@@ -56,7 +56,7 @@ orchestrator autopilot $SLUG
 
 The `autopilot` subcommand resolves `config/workflows/autopilot.yaml` directly (each workflow file is a CLI subcommand: `orchestrator autopilot <slug>` == `orchestrator run <slug> --schema autopilot`). It seeds `schema=autopilot`, runs the produce → implement → complete spine straight through with no review gates, and drives the loop to completion via `orchestrator_next/scripts/run-workflow.sh`.
 
-Autopilot **ends at the boundary — it does NOT merge.** The loop archives the change on the feature worktree (`complete-workflow`) and exits; the worktree and branch are left intact. Merging is a deliberate, separate action — `orchestrator complete <slug>` (`/complete-feature`) or `/approve-qa` — both of which merge unconditionally. Do not pause for confirmation during the autopilot run itself.
+Autopilot **ends at the boundary — it does NOT merge.** The loop archives the change on the feature worktree (`archive-completed-change`) and exits; the worktree and branch are left intact. Merging is a deliberate, separate action — `orchestrator complete <slug>` (`/complete-feature`) or `/approve-qa` — both of which merge unconditionally. Do not pause for confirmation during the autopilot run itself.
 
 ## What This Skill Does NOT Do
 

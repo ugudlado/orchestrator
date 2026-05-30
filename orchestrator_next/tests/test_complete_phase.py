@@ -21,9 +21,9 @@ from orchestrator_next.complete_phase import (  # noqa: E402
 def test_complete_step_ids_feature_schema():
     steps = complete_step_ids_for_schema("feature")
     assert steps[0] == "compute-prediction-accuracy"
-    assert steps[-1] == "complete-workflow"
+    assert steps[-1] == "archive-completed-change"
     assert "cost-report" in steps
-    assert "mark-change-completed" in steps
+    assert "archive-completed-change" in steps
 
 
 def test_complete_step_ids_complete_workflow_schema(monkeypatch):
@@ -37,7 +37,7 @@ def test_complete_step_ids_complete_workflow_schema(monkeypatch):
         "mark-change-completed",
         "compute-swe-metrics",
         "cost-report",
-        "complete-workflow",
+        "archive-completed-change",
     ]
 
 
@@ -55,7 +55,7 @@ def test_prepare_blocks_incomplete_task(tmp_path, monkeypatch):
                     "main": {
                         "nodes": [
                             {"id": "task-T-1", "status": "pending"},
-                            {"id": "complete-workflow", "status": "pending"},
+                            {"id": "archive-completed-change", "status": "pending"},
                         ],
                         "filtered": [],
                     }
@@ -84,7 +84,7 @@ def test_prepare_marks_prior_nodes_completed(tmp_path, monkeypatch):
                             {"id": "task-T-1", "status": "completed"},
                             {"id": "run-phase-review", "status": "completed"},
                             {"id": "mark-change-completed", "status": "pending"},
-                            {"id": "complete-workflow", "status": "pending"},
+                            {"id": "archive-completed-change", "status": "pending"},
                         ],
                         "filtered": [],
                     }

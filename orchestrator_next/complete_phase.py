@@ -3,7 +3,7 @@
 `orchestrator complete <ticket>` loads active state, verifies implement work is
 finished, and marks non-complete plan nodes as completed so the dispatch loop
 only runs the schema tail from ``compute-prediction-accuracy`` through
-``complete-workflow``.
+``archive-completed-change``.
 """
 from __future__ import annotations
 

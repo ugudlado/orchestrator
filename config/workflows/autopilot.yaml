@@ -4,7 +4,7 @@
 # run-phase-review / run-ux-critique gate and no Code-Review/QA ticket lanes.
 #
 # Autopilot ENDS AT THE BOUNDARY — it does NOT merge. The run loop archives the
-# change on the feature worktree (complete-workflow) and exits; the worktree and
+# change on the feature worktree (archive-completed-change) and exits; the worktree and
 # branch are left intact for inspection. Merging is a deliberate, separate
 # action: `orchestrator complete <slug>` (/complete-feature) or /approve-qa.
 # This is the same end state as feature/bugfix.
@@ -20,4 +20,4 @@ steps:
   - mark-change-completed
   - compute-swe-metrics
   - cost-report
-  - complete-workflow
+  - archive-completed-change

@@ -1,7 +1,7 @@
-"""T-17: end-to-end completion regression test for `complete-workflow`.
+"""T-17: end-to-end completion regression test for `archive-completed-change`.
 
 Proves the full path through the real `bin/orchestrator`:
-  - `orchestrator next` at terminal `complete-workflow` archives on the feature
+  - `orchestrator next` at terminal `archive-completed-change` archives on the feature
     worktree (merge/teardown deferred to `orchestrator complete`)
   - archive directory created with moved state.yaml / tasks.md
   - worktree kept after `next` (removed only by `orchestrator complete`)
@@ -45,7 +45,7 @@ def _run_next(state_path, metrics_db):
 
 def _build(tmp_path, *, branch_unmerged=False):
     """Build a temp git repo + worktree + a state.yaml whose only pending node
-    is the terminal `complete-workflow` (all prior nodes `completed`).
+    is the terminal `archive-completed-change` (all prior nodes `completed`).
 
     Returns (state_yaml_path, repo, worktree_path, archive_path, branch,
              metrics_db).
@@ -76,7 +76,7 @@ def _build(tmp_path, *, branch_unmerged=False):
     change_dir.mkdir(parents=True)
     archive_path = f"spec/changes/archive/2026-05-23-{change_id}"
 
-    # All prior nodes completed; only complete-workflow pending.
+    # All prior nodes completed; only archive-completed-change pending.
     state = {
         "change_id": change_id,
         "slug": change_id,
@@ -86,7 +86,7 @@ def _build(tmp_path, *, branch_unmerged=False):
         "worktree_path": str(worktree_path),
         "branch": branch,
         "archive_path": archive_path,
-        # ORC-108: these tests drive `orchestrator next` (the complete-workflow
+        # ORC-108: these tests drive `orchestrator next` (the archive-completed-change
         # archive step) only — they never reach the merge tail, so no merge
         # property is needed.
         "flags": {},
@@ -97,14 +97,14 @@ def _build(tmp_path, *, branch_unmerged=False):
                      "agent": "developer"},
                     {"id": "compute-swe-metrics", "status": "completed",
                      "agent": "inline"},
-                    {"id": "complete-workflow", "status": "pending",
+                    {"id": "archive-completed-change", "status": "pending",
                      "agent": "inline"},
                 ],
                 "filtered": [],
             }
         },
         "phase": "main",
-        "next_step": {"phase": "main", "step_id": "complete-workflow"},
+        "next_step": {"phase": "main", "step_id": "archive-completed-change"},
         "step_history": [
             {"step_id": "execute-next-task", "phase": "main",
              "status": "completed", "agent": "developer", "attempt": 1},
@@ -158,14 +158,14 @@ def _build_no_worktree(tmp_path):
                      "agent": "developer"},
                     {"id": "compute-swe-metrics", "status": "completed",
                      "agent": "inline"},
-                    {"id": "complete-workflow", "status": "pending",
+                    {"id": "archive-completed-change", "status": "pending",
                      "agent": "inline"},
                 ],
                 "filtered": [],
             }
         },
         "phase": "main",
-        "next_step": {"phase": "main", "step_id": "complete-workflow"},
+        "next_step": {"phase": "main", "step_id": "archive-completed-change"},
         "step_history": [
             {"step_id": "execute-next-task", "phase": "main",
              "status": "completed", "agent": "developer", "attempt": 1},
@@ -185,13 +185,13 @@ def _build_no_worktree(tmp_path):
 
 def test_e2e_complete_workflow_worktree_false(tmp_path):
     """ORC-80: a `worktree=false` run archives in-place. The state dir lives at
-    `$REPO_ROOT/spec/changes/$CHANGE_ID`; complete-workflow must move it to the
+    `$REPO_ROOT/spec/changes/$CHANGE_ID`; archive-completed-change must move it to the
     archive (not skip with "WORKTREE_ROOT not set"), the cleanup phase skips on
     the worktree flag, and a second `next` exits 1 with no re-dispatch."""
     state_path, repo, archive_path, metrics_db = _build_no_worktree(tmp_path)
     source_dir = os.path.dirname(state_path)
 
-    # --- first next: dispatches + runs complete-workflow.sh ---
+    # --- first next: dispatches + runs archive-completed-change.sh ---
     r1 = _run_next(state_path, metrics_db)
     assert "FileNotFoundError" not in r1.stderr, (
         "first next raised FileNotFoundError:\n" + r1.stderr
@@ -248,7 +248,7 @@ def test_e2e_complete_workflow_worktree_false(tmp_path):
     ent_counts = {
         sid: sum(1 for h in history if h.get("step_id") == sid)
         for sid in ("execute-next-task", "compute-swe-metrics",
-                    "complete-workflow")
+                    "archive-completed-change")
     }
     assert all(c == 1 for c in ent_counts.values()), (
         f"a step id was re-dispatched — expected each exactly once, "
@@ -261,7 +261,7 @@ def test_e2e_complete_workflow_archive_keeps_worktree(tmp_path):
     (state_path, repo, worktree_path, archive_path, branch,
      metrics_db) = _build(tmp_path)
 
-    # --- first next: dispatches + runs complete-workflow.sh ---
+    # --- first next: dispatches + runs archive-completed-change.sh ---
     r1 = _run_next(state_path, metrics_db)
     assert "FileNotFoundError" not in r1.stderr, (
         "first next raised FileNotFoundError:\n" + r1.stderr
@@ -308,20 +308,20 @@ def test_e2e_complete_workflow_archive_keeps_worktree(tmp_path):
     ent_counts = {
         sid: sum(1 for h in history if h.get("step_id") == sid)
         for sid in ("execute-next-task", "compute-swe-metrics",
-                    "complete-workflow")
+                    "archive-completed-change")
     }
     assert all(c == 1 for c in ent_counts.values()), (
         f"a step id was re-dispatched — expected each exactly once, "
         f"got {ent_counts}. history: {[h.get('step_id') for h in history]}"
     )
-    cw_entries = [h for h in history if h.get("step_id") == "complete-workflow"]
+    cw_entries = [h for h in history if h.get("step_id") == "archive-completed-change"]
     assert cw_entries[0].get("status") == "completed", (
-        f"complete-workflow entry not 'completed': {cw_entries[0]}"
+        f"archive-completed-change entry not 'completed': {cw_entries[0]}"
     )
 
 
 def test_e2e_archive_step_keeps_unmerged_branch(tmp_path):
-    """The complete-workflow archive step never merges: an unmerged feature
+    """The archive-completed-change archive step never merges: an unmerged feature
     branch → worktree kept, branch preserved, exit 0. (Merge is the separate
     `orchestrator complete` verb, not this step.)"""
     (state_path, repo, worktree_path, archive_path, branch,
@@ -333,7 +333,7 @@ def test_e2e_archive_step_keeps_unmerged_branch(tmp_path):
         f"next should exit 0, got {r1.returncode}\nstderr: {r1.stderr}"
     )
 
-    assert os.path.isdir(worktree_path), "worktree not removed by complete-workflow"
+    assert os.path.isdir(worktree_path), "worktree not removed by archive-completed-change"
 
     branches = subprocess.run(
         ["git", "branch", "--list", branch],
