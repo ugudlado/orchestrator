@@ -14,16 +14,26 @@ Design constraints:
 """
 from __future__ import annotations
 
-import re
 import json
+import re
 from pathlib import Path
 from typing import Any
 
-import json
 from orchestrator_next.parser import StepHistoryEntry
 
 # Slug guard: change_id must match ^[a-z0-9][a-z0-9-]*$
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_SLUG_GUARD_MSG = (
+    "Must match ^[a-z0-9][a-z0-9-]*$ (lowercase alphanumeric and hyphens only, "
+    "no leading hyphen)."
+)
+
+
+def _validate_change_id(change_id: str) -> None:
+    if not _SLUG_RE.match(change_id):
+        raise ValueError(
+            f"change_id '{change_id}' violates slug guard. {_SLUG_GUARD_MSG}"
+        )
 
 _DDL_STEP_EVENTS = """
 CREATE TABLE IF NOT EXISTS step_events (
@@ -214,13 +224,7 @@ def sum_cost_usd(db, context: dict) -> float:
     change_id: str = context["change_id"]
     repo_root: str = context.get("repo_root", "")
 
-    # Slug guard — reject invalid change_id before any query
-    if not _SLUG_RE.match(change_id):
-        raise ValueError(
-            f"change_id '{change_id}' violates slug guard. "
-            f"Must match ^[a-z0-9][a-z0-9-]*$ (lowercase alphanumeric and hyphens only, "
-            f"no leading hyphen)."
-        )
+    _validate_change_id(change_id)
 
     row = db.execute(_SUM_COST_SQL, [repo_root, change_id]).fetchone()
     return float(row[0]) if row and row[0] is not None else 0.0
@@ -412,12 +416,7 @@ def upsert_feature_metrics(
     Raises:
         ValueError: if change_id violates the slug guard
     """
-    if not _SLUG_RE.match(change_id):
-        raise ValueError(
-            f"change_id '{change_id}' violates slug guard. "
-            f"Must match ^[a-z0-9][a-z0-9-]*$ (lowercase alphanumeric and hyphens only, "
-            f"no leading hyphen)."
-        )
+    _validate_change_id(change_id)
 
     db.execute(_INSERT_FEATURE_METRICS, [
         repo_root,
@@ -448,6 +447,54 @@ def upsert_feature_metrics(
     ])
 
 
+def _fan_out_tool_calls(
+    db,
+    *,
+    repo_root: str,
+    change_id: str,
+    phase: str,
+    step_id: str,
+    attempt: int,
+    agent_name: str,
+    usage: dict[str, Any] | None,
+) -> None:
+    """Write per-call tool_calls rows; DELETE first so retries drop orphans."""
+    db.execute(_DELETE_TOOL_CALLS, [repo_root, change_id, phase, step_id, attempt])
+    usage = usage or {}
+    tool_calls_detail = usage.get("tool_calls_detail")
+    if isinstance(tool_calls_detail, list) and tool_calls_detail:
+        call_seq = 1
+        for call in tool_calls_detail:
+            if not isinstance(call, dict):
+                continue
+            tn = call.get("tool_name")
+            if not tn:
+                continue
+            db.execute(_INSERT_TOOL_CALL, [
+                repo_root, change_id, phase, step_id, attempt,
+                agent_name, tn, bool(call.get("is_mcp") or tn.startswith("mcp__")),
+                call_seq, call.get("started_at"), call.get("duration_ms"),
+            ])
+            call_seq += 1
+        return
+
+    usage_tools = usage.get("tool_calls")
+    if not isinstance(usage_tools, dict):
+        return
+    call_seq = 1
+    for tool_name in sorted(usage_tools.keys()):
+        count = usage_tools[tool_name]
+        if not isinstance(count, int) or count < 1:
+            continue
+        is_mcp = tool_name.startswith("mcp__")
+        for _ in range(count):
+            db.execute(_INSERT_TOOL_CALL, [
+                repo_root, change_id, phase, step_id, attempt,
+                agent_name, tool_name, is_mcp, call_seq, None, None,
+            ])
+            call_seq += 1
+
+
 def upsert_step_event(
     db,
     entry: StepHistoryEntry,
@@ -467,13 +514,7 @@ def upsert_step_event(
     change_id: str = context["change_id"]
     repo_root: str = context.get("repo_root", "")
 
-    # Slug guard — before any DB operation
-    if not _SLUG_RE.match(change_id):
-        raise ValueError(
-            f"change_id '{change_id}' violates slug guard. "
-            f"Must match ^[a-z0-9][a-z0-9-]*$ (lowercase alphanumeric and hyphens only, "
-            f"no leading hyphen)."
-        )
+    _validate_change_id(change_id)
 
     # Attempt defaults to 1 if not set
     attempt: int = entry.attempt if entry.attempt is not None else 1
@@ -520,43 +561,16 @@ def upsert_step_event(
 
     db.execute(_INSERT_OR_REPLACE, params)
 
-    # Fan out usage.tool_calls into per-call tool_calls rows.
-    # Always DELETE first so retries with fewer tools don't leave orphan rows.
-    db.execute(_DELETE_TOOL_CALLS, [repo_root, change_id, entry.phase, entry.step_id, attempt])
-
-    usage_tools: dict = {}
-    if entry.usage and isinstance(entry.usage.get("tool_calls"), dict):
-        usage_tools = entry.usage["tool_calls"]
-
-    # Prefer per-call detail (from JSONL) — it carries wall-clock duration.
-    tool_calls_detail = (entry.usage or {}).get("tool_calls_detail") if entry.usage else None
-    if isinstance(tool_calls_detail, list) and tool_calls_detail:
-        call_seq = 1
-        for call in tool_calls_detail:
-            if not isinstance(call, dict):
-                continue
-            tn = call.get("tool_name")
-            if not tn:
-                continue
-            db.execute(_INSERT_TOOL_CALL, [
-                repo_root, change_id, entry.phase, entry.step_id, attempt,
-                entry.agent, tn, bool(call.get("is_mcp") or tn.startswith("mcp__")),
-                call_seq, call.get("started_at"), call.get("duration_ms"),
-            ])
-            call_seq += 1
-    else:
-        call_seq = 1
-        for tool_name in sorted(usage_tools.keys()):
-            count = usage_tools[tool_name]
-            if not isinstance(count, int) or count < 1:
-                continue
-            is_mcp = tool_name.startswith("mcp__")
-            for _ in range(count):
-                db.execute(_INSERT_TOOL_CALL, [
-                    repo_root, change_id, entry.phase, entry.step_id, attempt,
-                    entry.agent, tool_name, is_mcp, call_seq, None, None,
-                ])
-                call_seq += 1
+    _fan_out_tool_calls(
+        db,
+        repo_root=repo_root,
+        change_id=change_id,
+        phase=entry.phase,
+        step_id=entry.step_id,
+        attempt=attempt,
+        agent_name=entry.agent,
+        usage=entry.usage,
+    )
 
 
 def upsert_pending_step_event(
@@ -592,12 +606,7 @@ def upsert_pending_step_event(
     Raises:
         ValueError: if change_id violates the slug guard.
     """
-    if not _SLUG_RE.match(change_id):
-        raise ValueError(
-            f"change_id '{change_id}' violates slug guard. "
-            f"Must match ^[a-z0-9][a-z0-9-]*$ (lowercase alphanumeric and hyphens only, "
-            f"no leading hyphen)."
-        )
+    _validate_change_id(change_id)
 
     params = [
         repo_root,
@@ -650,12 +659,7 @@ def upsert_synthetic_event(
     """
     change_id: str = context["change_id"]
     repo_root: str = context.get("repo_root", "")
-    if not _SLUG_RE.match(change_id):
-        raise ValueError(
-            f"change_id '{change_id}' violates slug guard. "
-            f"Must match ^[a-z0-9][a-z0-9-]*$ (lowercase alphanumeric and hyphens only, "
-            f"no leading hyphen)."
-        )
+    _validate_change_id(change_id)
 
     attempt = 1
     tool_calls_raw = usage.get("tool_calls")
@@ -686,35 +690,13 @@ def upsert_synthetic_event(
     ]
     db.execute(_INSERT_OR_REPLACE, params)
 
-    # Fan out tool_calls the same way upsert_step_event does, so per-tool
-    # rollups include driver-loop activity.
-    db.execute(_DELETE_TOOL_CALLS, [repo_root, change_id, phase, step_id, attempt])
-    tool_calls_detail = usage.get("tool_calls_detail")
-    if isinstance(tool_calls_detail, list) and tool_calls_detail:
-        call_seq = 1
-        for call in tool_calls_detail:
-            if not isinstance(call, dict):
-                continue
-            tn = call.get("tool_name")
-            if not tn:
-                continue
-            db.execute(_INSERT_TOOL_CALL, [
-                repo_root, change_id, phase, step_id, attempt,
-                agent_name, tn, bool(call.get("is_mcp") or tn.startswith("mcp__")),
-                call_seq, call.get("started_at"), call.get("duration_ms"),
-            ])
-            call_seq += 1
-    else:
-        usage_tools = tool_calls_raw if isinstance(tool_calls_raw, dict) else {}
-        call_seq = 1
-        for tool_name in sorted(usage_tools.keys()):
-            count = usage_tools[tool_name]
-            if not isinstance(count, int) or count < 1:
-                continue
-            is_mcp = tool_name.startswith("mcp__")
-            for _ in range(count):
-                db.execute(_INSERT_TOOL_CALL, [
-                    repo_root, change_id, phase, step_id, attempt,
-                    agent_name, tool_name, is_mcp, call_seq, None, None,
-                ])
-                call_seq += 1
+    _fan_out_tool_calls(
+        db,
+        repo_root=repo_root,
+        change_id=change_id,
+        phase=phase,
+        step_id=step_id,
+        attempt=attempt,
+        agent_name=agent_name,
+        usage=usage,
+    )
