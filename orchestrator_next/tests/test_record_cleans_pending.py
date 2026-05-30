@@ -110,9 +110,9 @@ def _terminal_payload(step_id: str = "execute-next-task", phase: str = "implemen
         "step_id": step_id,
         "phase": phase,
         "status": "completed",
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {"task_execution_result": {"task_id": "T-1"}},
-        "usage": {},
+        "usage": {"input_tokens": 1, "output_tokens": 1},
     }
 
 
@@ -214,7 +214,7 @@ class TestRecordCleansPending:
             step_id=te["step_id"],
             phase=te["phase"],
             status=te["status"],
-            agent=te.get("agent", "inline"),
+            agent=te.get("agent"),
             attempt=te.get("attempt", 1),
             started_at=te.get("started_at"),
             ended_at=te.get("ended_at"),
@@ -393,9 +393,9 @@ class TestTwoCycleInvariant:
             "step_id": "review-task",
             "phase": "implement",
             "status": "completed",
-            "agent": "inline",
+            "agent": "developer",
             "outputs": {"review_result": {"ok": True}},
-            "usage": {},
+            "usage": {"input_tokens": 1, "output_tokens": 1},
         }
         result2, code2 = record(state_path, payload2, db=in_memory_db)
         assert code2 == 0, f"Cycle 2 record() failed: {result2}"

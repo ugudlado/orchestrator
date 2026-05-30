@@ -285,7 +285,7 @@ def test_byte_stable_output(tmp_path, monkeypatch):
     for sid in ("step-a", "step-b"):
         _write_step_contract(
             contracts_dir, sid,
-            {"id": sid, "agent": "inline", "inputs": [], "outputs": [], "rules": [f"Rule for {sid}."]},
+            {"id": sid, "agent": None, "inputs": [], "outputs": [], "rules": [f"Rule for {sid}."]},
         )
     _make_project_yaml(tmp_path, [])
 
@@ -406,7 +406,7 @@ def test_phase_verify_attached_to_phase_block(tmp_path, monkeypatch):
     for sid in ("step-first", "step-last"):
         _write_step_contract(
             contracts_dir, sid,
-            {"id": sid, "agent": "inline", "inputs": [], "outputs": [], "rules": []},
+            {"id": sid, "agent": None, "inputs": [], "outputs": [], "rules": []},
         )
     _make_project_yaml(tmp_path, [])
 
@@ -459,7 +459,7 @@ def test_promotes_state_to_nodes_shape_no_plan_yaml(tmp_path, monkeypatch):
         }],
     }
     contracts = {
-        sid: {"id": sid, "agent": "inline", "inputs": [], "outputs": [], "rules": []}
+        sid: {"id": sid, "agent": None, "inputs": [], "outputs": [], "rules": []}
         for sid in ("step-a", "step-b")
     }
     home, contracts_dir = _setup_home(tmp_path, "feature", schema, contracts)
@@ -495,7 +495,7 @@ def test_linear_schema_synthesizes_implicit_chain_depends_on(tmp_path, monkeypat
         }],
     }
     contracts = {
-        sid: {"id": sid, "agent": "inline", "inputs": [], "outputs": [], "rules": []}
+        sid: {"id": sid, "agent": None, "inputs": [], "outputs": [], "rules": []}
         for sid in ("s1", "s2", "s3")
     }
     home, contracts_dir = _setup_home(tmp_path, "feature", schema, contracts)
@@ -524,7 +524,7 @@ def test_explicit_depends_on_lands_on_node(tmp_path, monkeypatch):
         }],
     }
     contracts = {
-        sid: {"id": sid, "agent": "inline", "inputs": [], "outputs": [], "rules": []}
+        sid: {"id": sid, "agent": None, "inputs": [], "outputs": [], "rules": []}
         for sid in ("explore", "design")
     }
     home, contracts_dir = _setup_home(tmp_path, "feature", schema, contracts)
@@ -554,7 +554,7 @@ def test_cyclic_edges_raise_and_keep_pre_promotion_shape(tmp_path, monkeypatch):
         }],
     }
     contracts = {
-        sid: {"id": sid, "agent": "inline", "inputs": [], "outputs": [], "rules": []}
+        sid: {"id": sid, "agent": None, "inputs": [], "outputs": [], "rules": []}
         for sid in ("a", "b")
     }
     home, contracts_dir = _setup_home(tmp_path, "feature", schema, contracts)
@@ -583,7 +583,7 @@ def test_depends_on_to_filtered_step_dropped_with_warning(tmp_path, monkeypatch,
         }],
     }
     contracts = {
-        "design": {"id": "design", "agent": "inline", "inputs": [], "outputs": [], "rules": []},
+        "design": {"id": "design", "agent": None, "inputs": [], "outputs": [], "rules": []},
     }
     home, contracts_dir = _setup_home(tmp_path, "feature", schema, contracts)
     monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
@@ -615,7 +615,7 @@ def test_depends_on_unknown_id_raises(tmp_path, monkeypatch):
         }],
     }
     contracts = {
-        "design": {"id": "design", "agent": "inline", "inputs": [], "outputs": [], "rules": []},
+        "design": {"id": "design", "agent": None, "inputs": [], "outputs": [], "rules": []},
     }
     home, contracts_dir = _setup_home(tmp_path, "feature", schema, contracts)
     monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))

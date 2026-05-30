@@ -401,7 +401,7 @@ class TestDispatchLearningsInjection:
                 "change_id": "orc96-run",
                 "phase": "main",
                 "workflow_plan": {
-                    "main": {"nodes": [_pending_node(step_id, agent="inline")], "filtered": []}
+                    "main": {"nodes": [_pending_node(step_id, agent=None)], "filtered": []}
                 },
                 "step_history": [],
             },
@@ -477,12 +477,12 @@ class TestDispatchLearningsInjection:
                 "phase": "main",
                 "workflow_plan": {
                     "main": {
-                        "nodes": [_pending_node(step_id, agent="inline")],
+                        "nodes": [_pending_node(step_id, agent=None)],
                         "filtered": [],
                     }
                 },
                 "step_history": [
-                    _in_progress_history_row(step_id, agent="inline")
+                    _in_progress_history_row(step_id, agent=None)
                 ],
             },
             project_yaml=_sample_learnings_project(),

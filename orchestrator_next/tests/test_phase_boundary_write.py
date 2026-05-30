@@ -186,7 +186,7 @@ def test_atomic_commit_phase_boundary(tmp_path, monkeypatch):
         "step_id": "spec-step",
         "phase": "specify",
         "status": "completed",
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.001},
     }
@@ -226,7 +226,7 @@ def test_rollback_on_failure(tmp_path, monkeypatch):
         "step_id": "fail-step",
         "phase": "implement",
         "status": "completed",
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }
@@ -278,7 +278,7 @@ def test_non_boundary_failure_is_fail_soft(tmp_path, monkeypatch):
         "step_id": "step-a",
         "phase": "implement",
         "status": "completed",
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }
@@ -314,7 +314,7 @@ def test_atomic_commit_feature_boundary(tmp_path, monkeypatch):
         "step_id": "final-step",
         "phase": "implement",
         "status": "completed",
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }
@@ -378,7 +378,7 @@ def test_subagent_parse_before_begin(tmp_path, monkeypatch):
         "step_id": "final-step",
         "phase": "implement",
         "status": "completed",
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }

@@ -6,11 +6,11 @@ T-1 test cases — must fail before T-2/T-3 land:
 1. test_missing_agent_rejected_for_agent_step
    A payload that omits 'agent' for a step whose contract declares
    agent: discoverer must be rejected with reason=payload_missing_agent_for_agent_step.
-   (fails at HEAD: record.py defaults to 'inline' and does not reject)
+   (fails at HEAD: record.py defaults agent incorrectly and does not reject)
 
 2. test_agent_recorded_from_payload
    A payload with agent: 'developer' must persist that value in state.yaml.
-   (passes at HEAD: record.py uses payload.get("agent", "inline"))
+   (passes at HEAD: record.py uses payload.get("agent"))
 
 3. test_jsonl_enrichment_fires_with_agent_id
    A payload with agent_id='a6e7ca188209d1f47' (orc-30 JSONL on disk) must
@@ -19,7 +19,7 @@ T-1 test cases — must fail before T-2/T-3 land:
 
 4. test_inline_step_no_agent_required
    An inline-script step (no agent: field in contract) with no 'agent' in
-   payload succeeds, and state.yaml records agent='inline'.
+   payload succeeds, and state.yaml records agent=None.
    (passes at HEAD)
 
 Red-light verification command (before T-2/T-3):
@@ -124,7 +124,7 @@ class TestRecordAgentField:
         """
         RED: payload omits 'agent' for a step whose contract declares agent: discoverer.
         Expected: record returns (error_dict, 3) with reason=payload_missing_agent_for_agent_step.
-        At HEAD this FAILS because record.py silently defaults to 'inline'.
+        At HEAD this FAILS because record.py silently defaults agent incorrectly.
         """
         _write_contract(contracts_dir, "diagnose", agent="discoverer")
         state_path = _write_state(tmp_path)
@@ -141,7 +141,7 @@ class TestRecordAgentField:
 
         assert exit_code == 3, (
             f"Expected exit_code=3, got {exit_code}. "
-            f"record.py is silently defaulting agent to 'inline' instead of rejecting the payload. "
+            f"record.py is silently defaulting agent incorrectly instead of rejecting the payload. "
             f"Result: {result}"
         )
         assert isinstance(result, dict), f"Expected dict result, got: {result!r}"

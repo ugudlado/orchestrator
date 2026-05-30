@@ -189,7 +189,7 @@ class TestResolvedAllowedToolsInjection:
         """run_inline (inline: true + run:) action dict has resolved_allowed_tools key."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_contract(steps_dir, "inline-run-step", {
-            "id": "inline-run-step", "agent": "inline",
+            "id": "inline-run-step",
             "inline": True, "run": "scripts/inline.sh",
             "instruction": "inline thing", "inputs": [], "outputs": [],
         })
@@ -198,7 +198,7 @@ class TestResolvedAllowedToolsInjection:
         state = _make_state(["inline-run-step"])
         action, code = dispatch(state, str(state_dir / "state.yaml"))
         # Under ORC-45: inline:true + run: contracts without a real agent go to run: path
-        # The test contract has agent="inline" which routes to agent path but resolved_allowed_tools=[]
+        # Script step (no agent) routes to run: path but resolved_allowed_tools=[]
         assert "resolved_allowed_tools" in action
 
     def test_resume_step_has_resolved_allowed_tools(self, steps_dir, agents_dir, state_dir, monkeypatch):

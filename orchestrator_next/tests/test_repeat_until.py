@@ -85,9 +85,9 @@ def _payload() -> dict:
         "step_id": "execute-next-task",
         "phase": "implement",
         "status": "completed",
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {"task_execution_result": {"task_id": "T-1", "status": "completed"}},
-        "usage": {},
+        "usage": {"input_tokens": 1, "output_tokens": 1},
     }
 
 

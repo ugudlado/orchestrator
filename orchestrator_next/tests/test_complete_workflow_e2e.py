@@ -96,9 +96,9 @@ def _build(tmp_path, *, branch_unmerged=False):
                     {"id": "execute-next-task", "status": "completed",
                      "agent": "developer"},
                     {"id": "compute-swe-metrics", "status": "completed",
-                     "agent": "inline"},
+                     "agent": None},
                     {"id": "archive-completed-change", "status": "pending",
-                     "agent": "inline"},
+                     "agent": None},
                 ],
                 "filtered": [],
             }
@@ -109,7 +109,7 @@ def _build(tmp_path, *, branch_unmerged=False):
             {"step_id": "execute-next-task", "phase": "main",
              "status": "completed", "agent": "developer", "attempt": 1},
             {"step_id": "compute-swe-metrics", "phase": "main",
-             "status": "completed", "agent": "inline", "attempt": 1},
+             "status": "completed", "agent": None, "attempt": 1},
         ],
     }
     state_path = change_dir / "state.yaml"
@@ -157,9 +157,9 @@ def _build_no_worktree(tmp_path):
                     {"id": "execute-next-task", "status": "completed",
                      "agent": "developer"},
                     {"id": "compute-swe-metrics", "status": "completed",
-                     "agent": "inline"},
+                     "agent": None},
                     {"id": "archive-completed-change", "status": "pending",
-                     "agent": "inline"},
+                     "agent": None},
                 ],
                 "filtered": [],
             }
@@ -170,7 +170,7 @@ def _build_no_worktree(tmp_path):
             {"step_id": "execute-next-task", "phase": "main",
              "status": "completed", "agent": "developer", "attempt": 1},
             {"step_id": "compute-swe-metrics", "phase": "main",
-             "status": "completed", "agent": "inline", "attempt": 1},
+             "status": "completed", "agent": None, "attempt": 1},
         ],
     }
     state_path = change_dir / "state.yaml"

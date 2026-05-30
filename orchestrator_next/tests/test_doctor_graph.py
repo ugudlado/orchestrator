@@ -246,7 +246,7 @@ class TestRunAllExitCodes:
         (home / ".workflows").mkdir()
         # Flat legacy contract missing id → FAIL from check_contracts
         (orch_home / "config" / "steps" / "bad.yaml").write_text(yaml.dump({
-            "agent": "inline",
+            "agent": None,
             "inputs": [],
             "outputs": [],
         }))
