@@ -17,12 +17,14 @@ import sys
 import tempfile
 import unittest
 
-# Paths are relative to the worktree root, resolved from this file's location.
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_WORKTREE_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
-_FIXTURES_DIR = os.path.join(_HERE, "fixtures")
-_GOLDEN_DIR = os.path.join(_HERE, "golden")
-_BIN_ORCHESTRATOR = os.path.join(_WORKTREE_ROOT, "bin", "orchestrator")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from conftest import ORCHESTRATOR_ROOT
+
+# Paths are relative to the orchestrator root, resolved from this file's location.
+_TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
+_FIXTURES_DIR = os.path.join(_TESTS_DIR, "fixtures")
+_GOLDEN_DIR = os.path.join(_TESTS_DIR, "golden")
+_BIN_ORCHESTRATOR = os.path.join(ORCHESTRATOR_ROOT, "bin", "orchestrator")
 _STEP_CONTRACTS_DIR = os.path.join(_FIXTURES_DIR, "step_contracts")
 
 
@@ -39,7 +41,7 @@ def _run_next(fixture_name: str, metrics_db_path: str) -> subprocess.CompletedPr
     env["METRICS_DB"] = metrics_db_path
     env["ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE"] = _STEP_CONTRACTS_DIR
     # Ensure the worktree scripts are on the path
-    env["PYTHONPATH"] = os.path.join(_WORKTREE_ROOT, "config", "scripts")
+    env["PYTHONPATH"] = os.path.join(ORCHESTRATOR_ROOT, "config", "scripts")
     # Remove ORCHESTRATOR_HOME so the fallback path is never used.
     env.pop("ORCHESTRATOR_HOME", None)
     return subprocess.run(

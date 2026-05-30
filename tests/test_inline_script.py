@@ -2,10 +2,11 @@
 from __future__ import annotations
 import json, os, subprocess, sys, tempfile, shutil, unittest
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_WORKTREE_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
-_FIXTURES_DIR = os.path.join(_HERE, "fixtures")
-_BIN = os.path.join(_WORKTREE_ROOT, "bin", "orchestrator")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from conftest import ORCHESTRATOR_ROOT
+
+_FIXTURES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
+_BIN = os.path.join(ORCHESTRATOR_ROOT, "bin", "orchestrator")
 _CONTRACTS = os.path.join(_FIXTURES_DIR, "step_contracts")
 
 

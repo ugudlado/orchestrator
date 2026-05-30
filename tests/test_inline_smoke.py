@@ -25,11 +25,12 @@ import unittest
 
 import yaml
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_WORKTREE_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
-_BIN_ORCHESTRATOR = os.path.join(_WORKTREE_ROOT, "bin", "orchestrator")
-_STEPS_DIR = os.path.join(_WORKTREE_ROOT, "config", "steps")
-_SCRIPTS_DIR = os.path.join(_WORKTREE_ROOT, "config", "scripts")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from conftest import ORCHESTRATOR_ROOT
+
+_BIN_ORCHESTRATOR = os.path.join(ORCHESTRATOR_ROOT, "bin", "orchestrator")
+_STEPS_DIR = os.path.join(ORCHESTRATOR_ROOT, "config", "steps")
+_SCRIPTS_DIR = os.path.join(ORCHESTRATOR_ROOT, "config", "scripts")
 
 # Minimal state.yaml template for a pending inline step.
 _STATE_TEMPLATE = """\
@@ -91,8 +92,8 @@ class TestInlineContractSmoke(unittest.TestCase):
         env = os.environ.copy()
         # Point upsert at the isolated per-test DB.
         env["METRICS_DB"] = self._metrics_db
-        # ORCHESTRATOR_HOME points at the worktree root so parser finds real contracts.
-        env["ORCHESTRATOR_HOME"] = _WORKTREE_ROOT
+        # ORCHESTRATOR_HOME points at the orchestrator root so parser finds real contracts.
+        env["ORCHESTRATOR_HOME"] = ORCHESTRATOR_ROOT
         # Remove the test override so the real steps directory is used.
         env.pop("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", None)
         env["PYTHONPATH"] = _SCRIPTS_DIR

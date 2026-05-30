@@ -20,13 +20,14 @@ import tempfile
 import shutil
 import unittest
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_WORKTREE_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
-_SCRIPTS_DIR = os.path.join(_WORKTREE_ROOT, "config", "scripts")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from conftest import ORCHESTRATOR_ROOT
+
+_SCRIPTS_DIR = os.path.join(ORCHESTRATOR_ROOT, "config", "scripts")
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-_FIXTURES_DIR = os.path.join(_HERE, "fixtures")
+_FIXTURES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 _STEP_CONTRACTS_DIR = os.path.join(_FIXTURES_DIR, "step_contracts")
 os.environ.setdefault("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", _STEP_CONTRACTS_DIR)
 
