@@ -347,7 +347,7 @@ _log_ts() {
 _log_step_usage() {
   local step_id="$1"
   local phase="${2:-main}"
-  python3 "$STATE_INSPECT" log-step-usage "$STATE_YAML" "$step_id" "$phase" >&2 2>/dev/null || true
+  python3 "$STATE_INSPECT" log-step-usage "$STATE_YAML" "$step_id" "$phase" 2>&1 >&2 || true
 }
 
 _emit_feature_rollup() {
