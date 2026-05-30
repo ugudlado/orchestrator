@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS step_events (
   phase       VARCHAR NOT NULL,
   step_id     VARCHAR NOT NULL,
   attempt     INTEGER NOT NULL,
-  agent_name  VARCHAR NOT NULL,
+  agent_name  VARCHAR,
   agent_id    VARCHAR,
   status      VARCHAR NOT NULL,
   schema_name VARCHAR,
