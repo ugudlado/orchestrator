@@ -100,12 +100,6 @@ for each workflow schema:
 | `per_step.*` | R | R | R |
 | `estimate_vs_actual.*` | O | O | O |
 
-When `feature` runs with `--light`, all required fields remain required —
-review scores and task counts are still emitted, just against a lower
-threshold (7 vs 9). `metrics.category` stays `feature` regardless of the
-light flag; consumers that need to distinguish can inspect `state.yaml`'s
-`flags.light` field.
-
 **R** = required, present with a real value
 **~** = explicit YAML null (key is present, value is `~`)
 **—** = key is omitted entirely from the block

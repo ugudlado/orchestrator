@@ -12,15 +12,14 @@ session interruptions — each completed task is durably saved.
 
 ## Schema-to-Prefix Mapping
 
-| Schema / Flag | Prefix |
-|---------------|--------|
+| Schema | Prefix |
+|--------|--------|
 | `feature` | `feat` |
-| `feature --light` | `chore` |
 | `bugfix` | `fix` |
 
-When running `feature --light`, use `chore:` as the commit prefix — it matches
-the conventional-commits category (housekeeping, config, renames, small
-cleanup) and preserves the signal that this change is scope-light.
+For a config/docs-only change (per the change-type classification), use `chore:`
+as the commit prefix — it matches the conventional-commits category
+(housekeeping, config, renames, small cleanup).
 
 ## Rules
 
