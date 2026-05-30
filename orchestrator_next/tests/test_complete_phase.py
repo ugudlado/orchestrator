@@ -94,9 +94,9 @@ def test_prepare_marks_prior_nodes_completed(tmp_path, monkeypatch):
         )
     )
     summary = prepare_complete_phase(str(state_path))
-    assert summary["next_step"] == "mark-change-completed"
+    assert summary["next_step"] == "compute-prediction-accuracy"
     state = yaml.safe_load(state_path.read_text())
-    assert state["next_step"]["step_id"] == "mark-change-completed"
+    assert state["next_step"]["step_id"] == "compute-prediction-accuracy"
     by_id = {n["id"]: n["status"] for n in state["workflow_plan"]["main"]["nodes"]}
     assert by_id["run-phase-review"] == "completed"
     assert by_id["mark-change-completed"] == "pending"
