@@ -7,6 +7,7 @@ steps:
   - ticket-start # ticket -> In Progress (implement entry; covers task-* case)
   - capture-test-baseline
   - run-ux-critique
+  - execute-tasks
   - run-phase-review
   - ticket-review # ticket -> Code Review
   - compute-prediction-accuracy
