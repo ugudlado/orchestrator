@@ -790,8 +790,6 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
                          f"Expected is_resume=True+agent key (ORC-45), got: {action2!r}")
 
         # Step 4 — record terminal payload for step-inline-only
-        # step-inline-only contract has outputs: [result], no agent.
-        # Inline steps skip usage validation (record.py lines ~372-390).
         from orchestrator_next.record import record  # noqa: PLC0415
         import duckdb as _db_mod  # noqa: PLC0415
         db_conn = _db_mod.connect(self._metrics_db_path)
@@ -804,8 +802,9 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
                 "step_id": "step-inline-only",
                 "phase": "implement",
                 "status": "completed",
+                "agent": "developer",
                 "outputs": {"result": "done"},
-                "usage": {},
+                "usage": {"input_tokens": 100, "output_tokens": 50},
             }
             rec_result, rec_code = record(state_path, terminal_payload, db=db_conn)
         finally:

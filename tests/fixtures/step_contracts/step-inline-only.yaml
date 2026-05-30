@@ -1,12 +1,10 @@
 id: step-inline-only
-version: 1
-intent: An inline-only step with no run field.
+version: 2
+agent: developer
 instruction: |
   Do the inline work here.
 rules:
   - Keep it simple.
-verify:
-  - Output produced
 inputs: []
 outputs:
   - result
