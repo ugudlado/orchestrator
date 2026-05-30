@@ -371,7 +371,7 @@ def _parse_history_entry(raw: dict[str, Any]) -> StepHistoryEntry:
         step_id=raw.get("step_id", ""),
         phase=raw.get("phase", ""),
         status=raw.get("status", ""),
-        agent=raw.get("agent", "inline"),
+        agent=raw.get("agent"),
         attempt=raw.get("attempt"),
         started_at=raw.get("started_at"),
         ended_at=str(ended_at) if ended_at is not None else None,
