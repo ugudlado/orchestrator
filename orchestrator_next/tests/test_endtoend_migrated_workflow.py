@@ -198,7 +198,7 @@ class TestScriptContractDispatch:
             change_id="orc-smoke",
             worktree_artifact_dir=str(artifact_dir),
             phase="main",
-            nodes=[_node("expand-plan", agent="inline")],
+            nodes=[_node("expand-plan", agent=None)],
         )
 
         from orchestrator_next.dispatch import dispatch
@@ -353,9 +353,10 @@ class TestPostStepMissingTypedOutput:
             "step_id": "design-and-draft-artifacts",
             "phase": "main",
             "status": "completed",
-            "agent": "inline",
+            "agent": "architect",
             "outputs": {"design_direction": "approach-a"},
             "evidence": {},
+            "usage": {"input_tokens": 1, "output_tokens": 1},
         }
         result, code = record(sp, payload)
 
@@ -413,9 +414,10 @@ class TestPostStepMissingTypedOutput:
             "step_id": "design-and-draft-artifacts",
             "phase": "main",
             "status": "completed",
-            "agent": "inline",
+            "agent": "architect",
             "outputs": {"design_direction": "approach-a"},
             "evidence": {},
+            "usage": {"input_tokens": 1, "output_tokens": 1},
         }
         result, code = record(sp, payload)
 

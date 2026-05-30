@@ -81,7 +81,7 @@ def _make_state(tmp_path, tasks_yaml_content=None) -> tuple[str, str]:
                     {
                         "id": "expand-plan",
                         "status": "completed",
-                        "agent": "inline",
+                        "agent": None,
                         "goal": "Expand plan",
                         "inputs": [],
                         "outputs": [],

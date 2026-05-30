@@ -206,7 +206,7 @@ def test_legacy_active_plan_advances_to_successor(tmp_path):
             "step_id": "step-a",
             "phase": "implement",
             "status": "completed",
-            "agent": "inline",
+            "agent": None,
             "attempt": 1,
         }],
     }))

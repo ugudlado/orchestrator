@@ -120,13 +120,12 @@ class TestCheckBTightening:
         assert result.get("reason") == "agent_step_missing_usage"
 
     def test_inline_step_still_accepted_with_zero_tokens(self, tmp_path):
-        """Inline steps (agent='inline') are exempt from Check B — still accepted."""
+        """Script steps (no agent in payload) are exempt from Check B — still accepted."""
         state_path = _minimal_state(tmp_path)
         payload = {
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "agent": "inline",
             "outputs": {},
             "usage": {"input_tokens": 0, "output_tokens": 0},
         }

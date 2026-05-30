@@ -13,6 +13,5 @@ step_history:
   - step_id: step-inline-only
     phase: implement
     status: in_progress
-    agent: inline
     attempt: 1
     started_at: "2026-04-18T10:00:00Z"

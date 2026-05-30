@@ -81,7 +81,7 @@ def test_completed_writes_step_events_row(tmp_path, monkeypatch):
         "step_id": "step-a",
         "phase": "implement",
         "status": "completed",
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }
@@ -116,7 +116,7 @@ def test_recovered_writes_step_with_recovered_status(tmp_path, monkeypatch):
         "step_id": "last-step",
         "phase": "implement",
         "status": "recovered",
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }
@@ -160,7 +160,7 @@ def test_abandoned_sets_state_blocked(tmp_path, monkeypatch):
         "step_id": "step-a",
         "phase": "implement",
         "status": "abandoned",
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }
@@ -189,7 +189,7 @@ def test_abandoned_writes_step_with_abandoned_status(tmp_path, monkeypatch):
         "step_id": "step-a",
         "phase": "implement",
         "status": "abandoned",
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }
@@ -219,7 +219,7 @@ def test_abandoned_no_boundary_check_on_last_step(tmp_path, monkeypatch):
         "step_id": "last-step",
         "phase": "implement",
         "status": "abandoned",
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }
@@ -286,7 +286,7 @@ def test_missing_status_defaults_to_completed(tmp_path, monkeypatch):
         "step_id": "step-a",
         "phase": "implement",
         # No 'status' key
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }
@@ -319,7 +319,7 @@ def test_invalid_status_returns_exit_3(tmp_path, monkeypatch, bad_status):
         "step_id": "step-a",
         "phase": "implement",
         "status": bad_status,
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }

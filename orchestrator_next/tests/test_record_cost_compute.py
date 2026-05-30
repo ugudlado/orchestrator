@@ -36,6 +36,16 @@ from orchestrator_next.upsert import ensure_schema  # noqa: E402
 
 # Stub contract with NO repeat_until so we don't trip the repeat logic.
 # Must include `outputs: [task_execution_result]` to satisfy contract validation.
+_STUB_CONTRACT_SCRIPT = textwrap.dedent("""\
+    id: execute-next-task
+    inline: true
+    instruction: Execute the next task.
+    rules: []
+    inputs: []
+    outputs:
+      - task_execution_result
+""")
+
 _STUB_CONTRACT = textwrap.dedent("""\
     id: execute-next-task
     agent: developer
@@ -259,19 +269,22 @@ class TestRecordCostCompute:
             f"Expected model unchanged, got {usage.get('model')!r}"
         )
 
-    def test_skips_when_agent_unresolvable(self, tmp_path, in_memory_db):
+    def test_skips_when_agent_unresolvable(self, tmp_path, in_memory_db, monkeypatch):
         """Inline agent with no billable tokens — cost_usd stays unset, no exception.
 
-        Using agent=inline which is exempt from Check B (usage not required).
+        Script step (agent=None) is exempt from Check B (usage not required).
         cost_usd absent from the written entry is acceptable — fail-open behaviour.
         """
+        contracts_dir = tmp_path / "contracts_script"
+        contracts_dir.mkdir()
+        (contracts_dir / "execute-next-task.yaml").write_text(_STUB_CONTRACT_SCRIPT)
+        monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
         state_path = _write_state(tmp_path)
-        # inline agent is exempt from Check B (agent_step_missing_usage).
+        # script step is exempt from Check B (agent_step_missing_usage).
         payload = {
             "step_id": "execute-next-task",
             "phase": "implement",
             "status": "completed",
-            "agent": "inline",
             "outputs": {"task_execution_result": {"task_id": "T-1"}},
             "usage": {},
         }
@@ -280,19 +293,22 @@ class TestRecordCostCompute:
 
         usage = _get_recorded_usage(state_path)
         assert usage.get("cost_usd") is None, (
-            f"Expected cost_usd=None for inline agent, got {usage.get('cost_usd')!r}"
+            f"Expected cost_usd=None for script step (agent=None), got {usage.get('cost_usd')!r}"
         )
 
     def test_computes_cost_for_inline_when_tokens_use_default_pricing(
-        self, tmp_path, in_memory_db
+        self, tmp_path, in_memory_db, monkeypatch
     ):
-        """inline + input/output tokens → priced via __default__ row (no routes entry)."""
+        """script step + input/output tokens → priced via __default__ row (no routes entry)."""
+        contracts_dir = tmp_path / "contracts_script2"
+        contracts_dir.mkdir()
+        (contracts_dir / "execute-next-task.yaml").write_text(_STUB_CONTRACT_SCRIPT)
+        monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
         state_path = _write_state(tmp_path)
         payload = {
             "step_id": "execute-next-task",
             "phase": "implement",
             "status": "completed",
-            "agent": "inline",
             "outputs": {"task_execution_result": {"task_id": "T-1"}},
             "usage": {"input_tokens": 2000, "output_tokens": 1000, "duration_ms": 1},
         }

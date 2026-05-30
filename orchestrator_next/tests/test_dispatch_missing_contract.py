@@ -23,7 +23,7 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 from orchestrator_next.dispatch import dispatch  # noqa: E402
-from orchestrator_next.parser import load_state  # noqa: E402
+from orchestrator_next.parser import ContractDispatchError, load_state  # noqa: E402
 
 
 def _write_state(tmp_path: Path, *, deleted_step: str) -> Path:
@@ -53,8 +53,8 @@ def _write_state(tmp_path: Path, *, deleted_step: str) -> Path:
             {
                 "name": "complete",
                 "steps": [
-                    {"id": deleted_step, "agent": "inline", "goal": "deleted"},
-                    {"id": "remove-worktree", "agent": "inline", "goal": "ok"},
+                    {"id": deleted_step, "goal": "deleted"},
+                    {"id": "remove-worktree", "goal": "ok"},
                 ],
             }
         ]
@@ -63,13 +63,9 @@ def _write_state(tmp_path: Path, *, deleted_step: str) -> Path:
     return state_path
 
 
-def test_dispatch_falls_back_when_contract_missing(tmp_path):
-    """The orphan step path: contract YAML deleted after pre-dispatch init."""
+def test_dispatch_raises_when_contract_missing_and_stub_has_no_run(tmp_path):
+    """Orphan step: deleted contract falls back to agent=None, run=None stub → dispatch error."""
     state_path = _write_state(tmp_path, deleted_step="step-deleted-from-disk")
     state = load_state(str(state_path))
-    action, exit_code = dispatch(state, str(state_path))
-    assert exit_code == 0, f"expected exit 0, got {exit_code}"
-    assert action["step_id"] == "step-deleted-from-disk"
-    # Stub contract: agent defaults to "inline", run is None, no instruction.
-    assert action["agent"] == "inline"
-    assert action.get("run") is None
+    with pytest.raises(ContractDispatchError, match="step_contract_missing_run"):
+        dispatch(state, str(state_path))

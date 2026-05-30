@@ -5,7 +5,7 @@ Tests for dispatch.py resolved_allowed_tools injection.
 - Tools are documented in config/agents.yaml comments but not enforced at dispatch
   (resolver.load_agent_tools always returns None) → resolved_allowed_tools == [].
 - Role unresolvable → stderr warning, resolved_allowed_tools == [], no exception.
-- agent: inline with allowed_tools → stderr warning, resolved_allowed_tools == [].
+- script step (no agent) with allowed_tools → stderr warning, resolved_allowed_tools == [].
 """
 from __future__ import annotations
 
@@ -189,7 +189,7 @@ class TestResolvedAllowedToolsInjection:
         """run_inline (inline: true + run:) action dict has resolved_allowed_tools key."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_contract(steps_dir, "inline-run-step", {
-            "id": "inline-run-step", "agent": "inline",
+            "id": "inline-run-step",
             "inline": True, "run": "scripts/inline.sh",
             "instruction": "inline thing", "inputs": [], "outputs": [],
         })
@@ -198,7 +198,7 @@ class TestResolvedAllowedToolsInjection:
         state = _make_state(["inline-run-step"])
         action, code = dispatch(state, str(state_dir / "state.yaml"))
         # Under ORC-45: inline:true + run: contracts without a real agent go to run: path
-        # The test contract has agent="inline" which routes to agent path but resolved_allowed_tools=[]
+        # Script step (no agent) routes to run: path but resolved_allowed_tools=[]
         assert "resolved_allowed_tools" in action
 
     def test_resume_step_has_resolved_allowed_tools(self, steps_dir, agents_dir, state_dir, monkeypatch):
@@ -320,10 +320,11 @@ class TestGracefulDegradation:
         assert captured.err != ""  # some warning was emitted
 
     def test_inline_with_allowed_tools_warns_and_gives_empty_list(self, steps_dir, agents_dir, state_dir, monkeypatch, capsys):
-        """agent: inline with allowed_tools -> warning, resolved_allowed_tools == [], no exception (AC-6)."""
+        """script step (no agent) with allowed_tools -> warning, resolved_allowed_tools == [], no exception (AC-6)."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_contract(steps_dir, "inline-with-tools", {
-            "id": "inline-with-tools", "agent": "inline",
+            "id": "inline-with-tools",
+            "run": "scripts/inline-with-tools.sh",
             "instruction": "do thing", "inputs": [], "outputs": [],
             "allowed_tools": ["Read"],
         })

@@ -95,7 +95,7 @@ def _mcc_payload(status: str = "completed") -> dict:
         "step_id": "mark-change-completed",
         "phase": "complete",
         "status": status,
-        "agent": "inline",
+        "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }

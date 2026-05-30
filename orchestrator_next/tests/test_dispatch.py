@@ -452,7 +452,7 @@ def test_dispatch_resumes_task_node_with_step_contract(tmp_path, monkeypatch):
             "step_id": "task-T-1",
             "phase": "main",
             "status": "in_progress",
-            "agent": "inline",
+            "agent": "developer",
             "attempt": 1,
             "started_at": "2026-05-25T16:50:36Z",
         },

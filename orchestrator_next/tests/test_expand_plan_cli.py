@@ -48,7 +48,7 @@ def _make_state(tmp_path) -> str:
                     {"id": "design-and-draft-artifacts", "status": "completed",
                      "agent": "architect", "goal": "", "inputs": [], "outputs": [], "rules": []},
                     {"id": "expand-plan", "status": "completed",
-                     "agent": "inline", "goal": "", "inputs": [], "outputs": [], "rules": []},
+                     "agent": None, "goal": "", "inputs": [], "outputs": [], "rules": []},
                     {"id": "run-phase-review", "status": "pending",
                      "agent": "reviewer", "goal": "", "inputs": [],
                      "outputs": ["phase_review_report"], "rules": [],

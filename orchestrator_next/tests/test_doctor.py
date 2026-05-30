@@ -166,9 +166,12 @@ class TestCheckContracts:
 
     def test_check_contracts_pass(self, orch_home):
         """All contracts have id, inputs, outputs -> PASS."""
+        script = orch_home / "scripts" / "inline" / "good.sh"
+        script.write_text("#!/bin/bash\necho ok")
         _write_contract(orch_home / "config" / "steps", "good", {
-            "id": "good", "agent": "inline", "inputs": [], "outputs": [],
+            "id": "good", "inputs": [], "outputs": [],
             "instruction": "do thing",
+            "run": "scripts/inline/good.sh",
         })
         from orchestrator_next.doctor import check_contracts
         result = check_contracts(orch_home)
@@ -177,7 +180,7 @@ class TestCheckContracts:
     def test_check_contracts_missing_id_fails(self, orch_home):
         """Contract missing `id:` -> FAIL (AC-3, UC-3)."""
         _write_contract(orch_home / "config" / "steps", "no-id", {
-            "agent": "inline", "inputs": [], "outputs": [],
+            "inputs": [], "outputs": [],
         })
         from orchestrator_next.doctor import check_contracts
         result = check_contracts(orch_home)
@@ -263,13 +266,13 @@ class TestCheckAgentFiles:
         assert result.status == "PASS"
 
     def test_check_agent_files_inline_sentinel_skipped(self, orch_home, tmp_path, monkeypatch):
-        """Contract with agent: inline is not flagged (AC-7, UC-E3)."""
+        """Contract with no agent: field is not flagged (script / driver-inline step)."""
         home = tmp_path / "fake_home"
         home.mkdir()
         monkeypatch.setenv("HOME", str(home))
         repo_root = tmp_path / "repo"
         _write_contract(orch_home / "config" / "steps", "inline-step", {
-            "id": "inline-step", "agent": "inline",
+            "id": "inline-step",
             "inputs": [], "outputs": [],
         })
         from orchestrator_next.doctor import check_agent_files
@@ -513,7 +516,7 @@ class TestRunAllExitCodes:
         (home / ".workflows").mkdir()
         # Bad contract: missing id
         _write_contract(orch_home / "config" / "steps", "bad", {
-            "agent": "inline", "inputs": [], "outputs": [],
+            "agent": None, "inputs": [], "outputs": [],
         })
         db_path = tmp_path / "metrics.duckdb"
         monkeypatch.setenv("METRICS_DB", str(db_path))

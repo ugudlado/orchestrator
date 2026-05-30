@@ -1,7 +1,6 @@
 id: step-inline-only
 version: 1
 intent: An inline-only step with no run field.
-agent: inline
 instruction: |
   Do the inline work here.
 rules:

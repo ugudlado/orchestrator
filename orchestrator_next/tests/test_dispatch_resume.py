@@ -543,7 +543,6 @@ class TestResumeStepDriverContract(_unittest.TestCase):
               - step_id: step-inline-only
                 phase: implement
                 status: in_progress
-                agent: inline
                 attempt: 1
                 started_at: "2026-01-01T00:00:00Z"
             """,
@@ -552,7 +551,7 @@ class TestResumeStepDriverContract(_unittest.TestCase):
         with open(plan_path, "w") as f:
             f.write(_PLAN_YAML_ONE_STEP.format(
                 step_id="step-inline-only",
-                agent="inline",
+                agent="null",
             ))
 
         # Seed the DB in_progress row so reconcile does not strip the state.yaml entry.
@@ -567,7 +566,7 @@ class TestResumeStepDriverContract(_unittest.TestCase):
                 phase="implement",
                 step_id="step-inline-only",
                 attempt=1,
-                agent_name="inline",
+                agent_name="",
                 started_at="2026-01-01T00:00:00Z",
             )
         finally:
@@ -674,7 +673,7 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
         with open(plan_path, "w") as f:
             f.write(_PLAN_YAML_TWO_STEPS.format(
                 first_step_id="step-inline-only",
-                first_agent="inline",
+                first_agent="null",
                 second_step_id="step-with-run",
                 second_agent="discoverer",
             ))
@@ -767,7 +766,7 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
         with open(plan_path, "w") as f:
             f.write(_PLAN_YAML_TWO_STEPS.format(
                 first_step_id="step-inline-only",
-                first_agent="inline",
+                first_agent="null",
                 second_step_id="step-with-run",
                 second_agent="discoverer",
             ))
@@ -791,7 +790,7 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
                          f"Expected is_resume=True+agent key (ORC-45), got: {action2!r}")
 
         # Step 4 — record terminal payload for step-inline-only
-        # step-inline-only contract has outputs: [result], agent: inline.
+        # step-inline-only contract has outputs: [result], no agent.
         # Inline steps skip usage validation (record.py lines ~372-390).
         from orchestrator_next.record import record  # noqa: PLC0415
         import duckdb as _db_mod  # noqa: PLC0415
@@ -805,7 +804,6 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
                 "step_id": "step-inline-only",
                 "phase": "implement",
                 "status": "completed",
-                "agent": "inline",
                 "outputs": {"result": "done"},
                 "usage": {},
             }

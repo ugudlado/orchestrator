@@ -8,13 +8,13 @@ Test cases:
   1. basic_upsert — 2 terminal entries upserted; correct row count.
   2. idempotency — calling upsert twice yields same row count.
   3. otel_column_mapping — short names are mapped to OTel column names.
-  4. inline_agent_null_tokens — inline step produces row with agent_name='inline'
-     and NULL token columns.
+  4. inline_agent_null_tokens — script step with no agent produces row with
+     agent_name=NULL and NULL token columns.
   5. slug_guard_rejects_bad_change_id — invalid change_id raises ValueError.
   6. escalation_pk_two_rows — two entries at same (phase, step_id, attempt) with
      different status produce TWO rows (PK includes status).
   7. dimension_keys_non_null — every row has non-null repo_root, change_id,
-     phase, step_id, attempt, agent_name.
+     phase, step_id, attempt.
 """
 import os
 import sys
@@ -98,46 +98,46 @@ class TestStepEventsUpsert(unittest.TestCase):
         self.assertEqual(row[0], 2, "Idempotency failure: row count changed on second upsert")
 
     def test_otel_column_mapping(self):
-        """Short names (input_tokens, cost_usd, model) map to OTel column names."""
+        """Usage short names (input_tokens, cost_usd, model) are stored in step_events columns."""
         state = _load_fixture("state-upsert-basic.yaml")
         _upsert_all(self._db, state, os.path.join(_FIXTURES_DIR, "state-upsert-basic.yaml"))
         row = self._db.execute(
             """
-            SELECT gen_ai_usage_input_tokens,
-                   gen_ai_usage_output_tokens,
-                   gen_ai_usage_cache_read_input_tokens,
-                   gen_ai_usage_cost_usd,
-                   gen_ai_request_model
+            SELECT input_tokens,
+                   output_tokens,
+                   cache_read_input_tokens,
+                   cost_usd,
+                   model
             FROM step_events
             WHERE step_id = 'step-with-run'
             """
         ).fetchone()
         self.assertIsNotNone(row, "No row for step-with-run")
-        self.assertEqual(row[0], 12000, "gen_ai_usage_input_tokens mismatch")
-        self.assertEqual(row[1], 1800, "gen_ai_usage_output_tokens mismatch")
-        self.assertEqual(row[2], 8500, "gen_ai_usage_cache_read_input_tokens mismatch")
-        self.assertAlmostEqual(row[3], 0.47, places=5, msg="gen_ai_usage_cost_usd mismatch")
-        self.assertEqual(row[4], "claude-sonnet-4-5", "gen_ai_request_model mismatch")
+        self.assertEqual(row[0], 12000, "input_tokens mismatch")
+        self.assertEqual(row[1], 1800, "output_tokens mismatch")
+        self.assertEqual(row[2], 8500, "cache_read_input_tokens mismatch")
+        self.assertAlmostEqual(row[3], 0.47, places=5, msg="cost_usd mismatch")
+        self.assertEqual(row[4], "claude-sonnet-4-5", "model mismatch")
 
     def test_inline_agent_null_tokens(self):
-        """Inline step produces row with agent_name='inline' and NULL token columns."""
+        """Script step with no agent produces row with agent_name=NULL and NULL token columns."""
         state = _load_fixture("state-upsert-basic.yaml")
         _upsert_all(self._db, state, os.path.join(_FIXTURES_DIR, "state-upsert-basic.yaml"))
         row = self._db.execute(
             """
             SELECT agent_name,
-                   gen_ai_usage_input_tokens,
-                   gen_ai_usage_output_tokens,
-                   gen_ai_usage_cost_usd
+                   input_tokens,
+                   output_tokens,
+                   cost_usd
             FROM step_events
             WHERE step_id = 'step-inline-only'
             """
         ).fetchone()
         self.assertIsNotNone(row, "No row for step-inline-only")
-        self.assertEqual(row[0], "inline", "agent_name must be 'inline' for inline steps")
-        self.assertIsNone(row[1], "gen_ai_usage_input_tokens should be NULL for inline")
-        self.assertIsNone(row[2], "gen_ai_usage_output_tokens should be NULL for inline")
-        self.assertIsNone(row[3], "gen_ai_usage_cost_usd should be NULL for inline")
+        self.assertIsNone(row[0], "agent_name must be NULL for script steps with no agent")
+        self.assertIsNone(row[1], "input_tokens should be NULL for script steps with no agent")
+        self.assertIsNone(row[2], "output_tokens should be NULL for script steps with no agent")
+        self.assertIsNone(row[3], "cost_usd should be NULL for script steps with no agent")
 
     def test_slug_guard_rejects_bad_change_id(self):
         """change_id failing slug guard raises ValueError before any DB write."""
@@ -149,7 +149,7 @@ class TestStepEventsUpsert(unittest.TestCase):
             step_id="some-step",
             phase="implement",
             status="completed",
-            agent="inline",
+            agent=None,
             attempt=1,
             started_at="2026-04-18T10:00:00Z",
             ended_at="2026-04-18T10:30:00Z",
@@ -208,18 +208,18 @@ class TestStepEventsUpsert(unittest.TestCase):
         self.assertIn("completed", statuses)
 
     def test_dimension_keys_non_null(self):
-        """Every row has non-null repo_root, change_id, phase, step_id, attempt, agent_name."""
+        """Every row has non-null repo_root, change_id, phase, step_id, attempt."""
         state = _load_fixture("state-upsert-basic.yaml")
         _upsert_all(self._db, state, os.path.join(_FIXTURES_DIR, "state-upsert-basic.yaml"))
         rows = self._db.execute(
             """
-            SELECT repo_root, change_id, phase, step_id, attempt, agent_name
+            SELECT repo_root, change_id, phase, step_id, attempt
             FROM step_events
             """
         ).fetchall()
         self.assertGreater(len(rows), 0, "No rows found")
         for i, row in enumerate(rows):
-            for j, col in enumerate(["repo_root", "change_id", "phase", "step_id", "attempt", "agent_name"]):
+            for j, col in enumerate(["repo_root", "change_id", "phase", "step_id", "attempt"]):
                 self.assertIsNotNone(
                     row[j],
                     f"Row {i} column '{col}' is NULL — must be non-null per AC-4",

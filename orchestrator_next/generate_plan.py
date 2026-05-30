@@ -273,11 +273,11 @@ def _build_step_block(
     contract_raw = _load_step_contract_raw(step_id, state_yaml_path)
 
     # Defaults for missing contracts
-    agent = "inline"
+    agent = None
     inputs: list[str] = []
     outputs: list[str] = []
     if contract_raw is not None:
-        agent = contract_raw.get("agent", "inline")
+        agent = contract_raw.get("agent")
         raw_inputs = contract_raw.get("inputs") or []
         raw_outputs = contract_raw.get("outputs") or []
         inputs = [str(x) for x in raw_inputs]
@@ -308,6 +308,10 @@ def _build_step_block(
         block["repeat_until"] = repeat_until
 
     return block
+
+
+# Legacy name retained for design.md / task verify imports (ORC-77).
+_build_node_for_step = _build_step_block
 
 
 def _topo_sort(nodes: list[dict[str, Any]], filtered_ids: set[str]) -> None:

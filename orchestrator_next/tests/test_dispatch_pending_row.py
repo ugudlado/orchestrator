@@ -386,7 +386,6 @@ class TestDispatchPendingRow(unittest.TestCase):
               - step_id: step-inline-only
                 phase: implement
                 status: completed
-                agent: inline
                 attempt: 1
                 started_at: "2026-04-18T10:00:00Z"
                 ended_at: "2026-04-18T10:30:00Z"
@@ -439,7 +438,6 @@ class TestDispatchPendingRow(unittest.TestCase):
               - step_id: step-inline-only
                 phase: implement
                 status: completed
-                agent: inline
                 attempt: 1
                 started_at: "2026-04-18T10:00:00Z"
                 ended_at: "2026-04-18T10:30:00Z"

@@ -241,13 +241,12 @@ class TestCheckB:
         assert entry["evidence"]["outputs"] == {"design.md": "spec/changes/test/design.md"}
 
     def test_accepts_inline_step_without_usage(self, tmp_path):
-        """Inline step (agent='inline') with empty usage → records cleanly."""
+        """Script step (no agent in payload) with empty usage → records cleanly."""
         state_path = _minimal_state(tmp_path)
         payload = {
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "agent": "inline",
             "outputs": {"discovery_result": {"findings": []}},
             "usage": {},
         }
@@ -256,7 +255,7 @@ class TestCheckB:
         assert "step_id" in result  # recorded response contains step_id
 
     def test_accepts_default_agent_omitted_with_tokens(self, tmp_path):
-        """When 'agent' is omitted it defaults to 'inline' — no rejection even with empty usage."""
+        """When 'agent' is omitted — no Check B rejection even with empty usage."""
         state_path = _minimal_state(tmp_path)
         payload = {
             "step_id": "explore",
@@ -314,7 +313,6 @@ class TestCheckC:
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "agent": "inline",
             "outputs": {},
             "usage": {},
         }
@@ -334,7 +332,6 @@ class TestCheckC:
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "agent": "inline",
             "outputs": {},
             "usage": {},
         }
@@ -358,7 +355,6 @@ class TestOptionalPayloadFields:
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "agent": "inline",
             "outputs": {},
             "review_score": {"overall": 9, "dimensions": {"correctness": 10}},
         }
@@ -373,7 +369,6 @@ class TestOptionalPayloadFields:
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "agent": "inline",
             "outputs": {},
             "state_patch": {"retries": {"execute-next-task": 2}},
         }
@@ -386,7 +381,6 @@ class TestOptionalPayloadFields:
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "agent": "inline",
             "outputs": {},
             "state_patch": {"retries": {"execute-next-task": 3, "T-1": 1}},
         }
@@ -401,7 +395,6 @@ class TestOptionalPayloadFields:
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "agent": "inline",
             "outputs": {},
             "state_patch": {"unexpected_key": True},
         }
@@ -526,7 +519,7 @@ def _nodes_state(tmp_path, contracts_dir, nodes, phase="main"):
 
 def _write_outputs_contract(contracts_dir, step_id, outputs):
     (Path(contracts_dir) / f"{step_id}.yaml").write_text(yaml.safe_dump({
-        "id": step_id, "agent": "inline", "instruction": "x",
+        "id": step_id, "instruction": "x",
         "inputs": [], "outputs": outputs, "rules": [],
     }))
 
@@ -551,7 +544,7 @@ class TestOutputPostCheckUpgrade:
         ])
         result, code = record(sp, {
             "step_id": "s", "phase": "main", "status": "completed",
-            "agent": "inline", "outputs": {}, "usage": {},
+            "outputs": {}, "usage": {},
         })
         assert code == 3
         assert result["reason"] == "missing_outputs"
@@ -564,7 +557,7 @@ class TestOutputPostCheckUpgrade:
         ])
         result, code = record(sp, {
             "step_id": "s", "phase": "main", "status": "completed",
-            "agent": "inline", "outputs": {"discovery_result": None}, "usage": {},
+            "outputs": {"discovery_result": None}, "usage": {},
         })
         assert code == 3
         assert result["reason"] == "missing_outputs"
@@ -577,7 +570,7 @@ class TestOutputPostCheckUpgrade:
         ])
         result, code = record(sp, {
             "step_id": "s", "phase": "main", "status": "completed",
-            "agent": "inline", "outputs": {"discovery_result": ""}, "usage": {},
+            "outputs": {"discovery_result": ""}, "usage": {},
         })
         assert code == 3
         assert result["reason"] == "missing_outputs"
@@ -590,7 +583,6 @@ class TestOutputPostCheckUpgrade:
         ])
         result, code = record(sp, {
             "step_id": "s", "phase": "main", "status": "completed",
-            "agent": "inline",
             "outputs": {"spec/project.yaml": "spec/project.yaml"}, "usage": {},
         })
         assert code == 3
@@ -609,7 +601,6 @@ class TestOutputPostCheckUpgrade:
         ])
         result, code = record(sp, {
             "step_id": "s", "phase": "main", "status": "completed",
-            "agent": "inline",
             "outputs": {"discovery_result": {"findings": ["x"]},
                         "spec/project.yaml": "spec/project.yaml"},
             "usage": {},
@@ -637,7 +628,7 @@ class TestNodeStatusAndNextStep:
             {"id": "b", "status": "pending", "outputs": []},
         ])
         record(sp, {"step_id": "a", "phase": "main", "status": "completed",
-                    "agent": "inline", "outputs": {}, "usage": {}})
+                    "outputs": {}, "usage": {}})
         state = yaml.safe_load(open(sp))
         by_id = {n["id"]: n for n in state["workflow_plan"]["main"]["nodes"]}
         assert by_id["a"]["status"] == "completed"
@@ -651,6 +642,6 @@ class TestNodeStatusAndNextStep:
             {"id": "b", "status": "pending", "outputs": []},
         ])
         record(sp, {"step_id": "a", "phase": "main", "status": "completed",
-                    "agent": "inline", "outputs": {}, "usage": {}})
+                    "outputs": {}, "usage": {}})
         state = yaml.safe_load(open(sp))
         assert state["next_step"] == {"phase": "main", "step_id": "b"}

@@ -500,7 +500,7 @@ while true; do
     else "run_inline"
     end
   ')
-  AGENT=$(echo "$ACTION_JSON" | jq -r '.agent // "developer"')
+  AGENT=$(echo "$ACTION_JSON" | jq -r '.agent // ""')
   ATTEMPT=$(echo "$ACTION_JSON" | jq -r '.attempt // 1')
   STARTED_AT=$(echo "$ACTION_JSON" | jq -r '.started_at // empty')
 
@@ -510,7 +510,7 @@ while true; do
     KIND_LABEL="agent"
   fi
   AGENT_SUFFIX=""
-  if [ "$AGENT" != "inline" ]; then
+  if [ -n "$AGENT" ]; then
     AGENT_SUFFIX="  agent=$AGENT"
   fi
   echo "[$(_log_ts)] → $STEP_ID  phase=$PHASE  kind=$KIND_LABEL${AGENT_SUFFIX}  attempt=$ATTEMPT" >&2

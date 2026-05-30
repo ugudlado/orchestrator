@@ -224,7 +224,7 @@ def check_agent_files(repo_root: Path, orch_home: Path) -> CheckResult:
             with open(path) as f:
                 data = yaml.safe_load(f) or {}
             name = data.get("agent")
-            if not name or name == "inline":
+            if name is None:
                 continue
             resolved = _resolve_artifact("agents", name, repo_root, orch_home)
             global_ = Path.home() / ".claude" / "skills" / name / "SKILL.md"
