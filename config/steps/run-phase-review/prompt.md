@@ -13,10 +13,6 @@
 - `phase_review_report`
 - Artifact: `phase-review.md` written to `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/phase-review.md`.
 
-## Flags
-
-- `tdd_required` — Apply test_coverage metric only when true (via schema when: condition).
-
 ## Instructions
 
 1. Load scoring config from project.yaml quality_bar.scoring. Apply defaults
@@ -30,7 +26,8 @@
    Evaluate each assertion. All must be true.
 4. Check the phase's verify.metrics (from schema):
    Compare actual values against thresholds.
-   Apply `when:` conditions on metrics (e.g., test_coverage only when tdd_required).
+   Apply `when:` conditions on metrics (the `when:` mechanism filters any metric
+   whose gating flag is set in state.yaml).
 5. Score each dimension separately on 1-10 using the same caps and rubric:
    - Dimensions: spec_compliance, correctness, security, simplicity, code_quality
    - For each dimension:
@@ -119,7 +116,6 @@
 
 - Target score is quality_bar.min_phase_review_score from project.yaml — retry until met.
 - Maximum retries from quality_bar.max_retry_rounds — escalate to user if exhausted.
-- When flags.light is true: lower target review_score to 7 and max_retries to 4 — light mode trades quality bar for speed on tight-scope changes.
 - Run type-check + test + build commands at every phase boundary before scoring.
 - Capture concrete findings with fix direction — every finding must be actionable.
 - Issues found during verification become new tasks in the current phase. Never skip ahead with unresolved findings.

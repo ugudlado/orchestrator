@@ -42,9 +42,9 @@ Rules come from 5 sources, listed in precedence order (highest to lowest):
 
 **Named rules** (schema and project levels):
 ```yaml
-- id: tdd-default
-  when: tdd_required        # optional — omit for always-active
-  rule: Write failing test before implementation.
+- id: strict-types
+  when: strict_types        # optional — omit for always-active
+  rule: No untyped public APIs.
 ```
 
 **Plain string rules** (phase, step contract, and injected):
@@ -115,12 +115,12 @@ MERGE(flags, project, schema, phase, step_entry, step_contract):
 ### Example
 
 Given:
-- project.yaml: `[{id: evidence-based, rule: "Show output"}, {id: tdd, when: tdd_required, rule: "Write tests first"}]`
-- schema rules: `[{id: tdd, when: tdd_required, rule: "Write failing test before impl"}]`
+- project.yaml: `[{id: evidence-based, rule: "Show output"}, {id: typed, when: strict_types, rule: "No untyped APIs"}]`
+- schema rules: `[{id: typed, when: strict_types, rule: "No untyped public APIs"}]`
 - phase rules: `["Keep scope explicit"]`
 - step contract rules: `["Verify every criterion"]`
 - step entry extra_rules: `["Fix root cause"]`
-- flags: `{tdd_required: false}`
+- flags: `{strict_types: false}`
 
 Merge result:
 ```
@@ -130,7 +130,7 @@ Merge result:
 4. "Show output"                 # project named, id: evidence-based (source 5, no when → active)
 ```
 
-Note: `tdd` rule is REMOVED because `tdd_required` is false. Schema's version
+Note: the `typed` rule is REMOVED because `strict_types` is false. Schema's version
 overrode project's version (same id), but both are filtered out by the when-condition.
 
 ---
@@ -138,9 +138,10 @@ overrode project's version (same id), but both are filtered out by the when-cond
 ## Change Type Detection
 
 The orchestrator classifies each change as "code" or "config_docs" to adapt
-agent spawning, TDD applicability, and review behavior. This prevents false
-expectations (e.g., TDD for YAML-only changes) and allows efficient inline
-execution for non-code changes without violating flag contracts.
+agent spawning and review behavior, and to record `change_type` in state.yaml
+for telemetry. Test discipline itself is the developer agent's call (TDD for
+code, regression-first for bugfix, none for docs-only) — not a flag this step
+flips (see agents/developer.md § Test Discipline).
 
 ### Extension Classification
 
@@ -162,26 +163,14 @@ DETECT_CHANGE_TYPE(tasks_yaml):
   5. Write change_type to state.yaml
 ```
 
-### Flag Adaptation Rules
-
-When `change_type = "config_docs"`:
-
-| Flag | Adaptation | Rationale |
-|------|-----------|-----------|
-| `tdd_required` | Effective value becomes `false` regardless of flag setting. Tasks omit RED/GREEN/REFACTOR pattern. Log adaptation in state.yaml. | No code to test — TDD is meaningless. |
-| `auto_approve_phases` | No change — phases still need signoff per flag. | Signoff is about scope control, not code quality. |
-
-When `change_type = "code"`: No adaptations — all flags apply as-is.
-
 ### State Recording
 
-When change type causes flag adaptation, record it in state.yaml:
+Record the detected change type in state.yaml for telemetry:
 
 ```yaml
-change_type: config_docs
-flag_adaptations:
-  - flag: tdd_required
-    original: true
-    effective: false
-    reason: "config_docs change — no code to test"
+change_type: config_docs   # or: code
 ```
+
+A `config_docs` change naturally yields no test tasks (nothing to assert); a
+`code` change yields TDD or regression-first per the developer agent. No flag is
+flipped — the classification is informational.

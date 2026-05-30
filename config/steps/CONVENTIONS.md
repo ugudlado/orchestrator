@@ -241,12 +241,11 @@ Steps that change behavior based on runtime flags (from `state.yaml.flags`) decl
 them in a `## Flags` section in `prompt.md`, so the agent sees which flags shape its
 behavior (ORC-104 — formerly the `flags_read:` contract field, now prose).
 
-**Gating vs behavioral flags**: A few flags under `gates:` in `config/workflow.yaml`
-(currently just `phase_review`) control *whether* a listed step runs — seed-state
-pre-filters those steps out when the gate is false, so they never load. Otherwise the
-workflow file's step list is authoritative: a workflow that lists a step runs it
-(e.g. ux-design runs on feature, which lists it; not on autopilot, which omits it).
-Only flags that change *how* a step runs go in `## Flags`.
+**The steps list is the plan**: a workflow's `steps:` list declares exactly what
+runs — there is no flag-gating (ORC-108 removed the flag registry). To make a step
+optional, put it in a different workflow schema, not behind a flag (e.g. ux-design,
+run-ux-critique, run-phase-review run on feature, which lists them; autopilot omits
+them). Flags that change *how* a step runs still go in `## Flags`.
 
 ### Format
 
@@ -254,7 +253,6 @@ Only flags that change *how* a step runs go in `## Flags`.
 ## Flags
 
 - `auto_approve_phases` — Pick recommended approach automatically instead of asking user.
-- `tdd_required` — Require a test task before each implementation task.
 ```
 
 ### Rules
@@ -434,7 +432,7 @@ find data where they expect it.
 | `phase` | string | load-project-context, phase-signoff | Current phase name (lowercase, e.g., `specify`, `implement`, `complete`) |
 | `next_step` | object | phase-signoff, any step advancing flow | See `contracts/resume-token.md` |
 | `step_history` | list | All steps (append-only) | See § State Updates above |
-| `flags` | object | load-project-context | Resolved runtime flags (e.g., `{ tdd_required: true, ff: true }`) |
+| `flags` | object | load-project-context | Resolved runtime flags (e.g., `{ ff: true }`) |
 | `ticket_id` | string | create-linear-ticket, `ticket-state-update.sh` (shell loop) | Issue ID (e.g., `HL-123`, `task-42`). Also stored in `.spec.yaml`. |
 | `ticket_status` | string | `ticket-state-update.sh` (shell loop) | Last known lane from ticketing backend (e.g., `In Progress`, `Code Review`) |
 | `ticket_status_checked_at` | string | `ticket-state-update.sh` (shell loop) | ISO 8601 UTC when `ticket_status` was last polled |
