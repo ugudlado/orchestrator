@@ -38,5 +38,5 @@ spec/changes/*/plan.yaml
 
 *.lock
 
-# Python virtualenvs (e.g. scripts/dashboard/.venv)
+# Python virtualenvs (e.g. ui/dashboard/.venv)
 .venv/

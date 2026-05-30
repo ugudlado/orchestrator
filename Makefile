@@ -1,4 +1,4 @@
-.PHONY: setup install doctor stale help test lint-contracts dashboard dashboard-stop
+.PHONY: setup install install-cli doctor stale help test lint-contracts dashboard dashboard-stop
 
 # Default target
 .DEFAULT_GOAL := help
@@ -8,13 +8,19 @@ ORCHESTRATOR_HOME ?= $(HOME)/.config/orchestrator
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[32m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-setup: ## Run install.sh to wire per-tool symlinks
+setup: ## Full install: CLI on PATH (~/.local/bin), ORCHESTRATOR_HOME, agent symlinks
 	@bash ./install.sh
 
-install: setup ## Alias for setup
+install: setup ## Alias for setup (same as make setup)
+
+install-cli: ## Symlink orchestrator into ~/.local/bin only (no agent/skill wiring)
+	@mkdir -p "$(HOME)/.local/bin"
+	@ln -sf "$(CURDIR)/bin/orchestrator" "$(HOME)/.local/bin/orchestrator"
+	@echo "  linked $(HOME)/.local/bin/orchestrator -> $(CURDIR)/bin/orchestrator"
+	@echo "  ensure ~/.local/bin is on PATH (make install adds it to your shell profile)"
 
 doctor: ## Run unified orchestrator health check (orchestrator_next.doctor)
-	@PYTHONPATH="$(CURDIR)/config/scripts:$$PYTHONPATH" python3 -m orchestrator_next.doctor
+	@PYTHONPATH="$(CURDIR):$$PYTHONPATH" python3 -m orchestrator_next.doctor
 
 stale: ## Detect stale/abandoned workflow state directories
 	@echo "Scanning for stale workflow state..."
@@ -61,20 +67,17 @@ lint-contracts: ## HL-287 M2: every step contract must declare inputs: and outpu
 	fi
 
 
-m8-gates: ## HL-287 M8: run all rework-integrity gates
-	@bash scripts/m8-gates.sh
-
 dashboard: ## Launch live agent-progress dashboard on http://localhost:8765
-	@if [ ! -x scripts/dashboard/.venv/bin/uvicorn ]; then \
+	@if [ ! -x ui/dashboard/.venv/bin/uvicorn ]; then \
 		echo "Creating dashboard venv..."; \
-		python3 -m venv scripts/dashboard/.venv; \
-		scripts/dashboard/.venv/bin/pip install --quiet fastapi 'uvicorn[standard]' duckdb pyyaml; \
+		python3 -m venv ui/dashboard/.venv; \
+		ui/dashboard/.venv/bin/pip install --quiet fastapi 'uvicorn[standard]' duckdb pyyaml; \
 	fi
 	@if lsof -ti tcp:8765 >/dev/null 2>&1; then \
 		echo "Dashboard already running on :8765 (use 'make dashboard-stop' to stop)"; \
 	else \
 		echo "Starting dashboard on http://localhost:8765 ..."; \
-		nohup scripts/dashboard/run.sh > /tmp/orchestrator-dashboard.log 2>&1 & \
+		nohup ui/dashboard/run.sh > /tmp/orchestrator-dashboard.log 2>&1 & \
 		sleep 1; \
 		echo "  log: /tmp/orchestrator-dashboard.log"; \
 	fi

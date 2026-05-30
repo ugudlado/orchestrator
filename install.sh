@@ -3,14 +3,17 @@ set -euo pipefail
 
 # --- Constants ---
 ORCHESTRATOR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-${HOME}/.config/orchestrator}"
+ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-${XDG_CONFIG_HOME:-${HOME}/.config}/orchestrator}"
+ORCHESTRATOR_INSTALL_BIN="${ORCHESTRATOR_INSTALL_BIN:-${HOME}/.local/bin}"
 SHELL_PROFILE="${HOME}/.zshrc"
+if [ -n "${BASH_VERSION:-}" ] && [ -f "${HOME}/.bashrc" ]; then
+  SHELL_PROFILE="${HOME}/.bashrc"
+fi
 
 CLAUDE_DIR="${HOME}/.claude"
 CODEX_DIR="${CODEX_HOME:-${HOME}/.codex}"
+PI_DIR="${PI_CODING_AGENT_DIR:-${HOME}/.pi/agent}"
 ANTIGRAVITY_DIR="${HOME}/.gemini/antigravity"
-PI_AGENT_DIR="${HOME}/.pi/agent/agents"
-PI_SKILLS_DIR="${HOME}/.pi/agent/skills"
 
 # --- Helpers ---
 
@@ -34,13 +37,47 @@ safe_ln() {
 
 setup_env() {
   echo "Setting up environment..."
-  if ! grep -q 'ORCHESTRATOR_HOME' "$SHELL_PROFILE"; then
+  local marker="# Orchestrator workflow engine"
+  if ! grep -qF "$marker" "$SHELL_PROFILE" 2>/dev/null; then
     echo "" >> "$SHELL_PROFILE"
-    echo "# Orchestrator workflow engine" >> "$SHELL_PROFILE"
+    echo "$marker" >> "$SHELL_PROFILE"
     echo "export ORCHESTRATOR_HOME=\"$ORCHESTRATOR_HOME\"" >> "$SHELL_PROFILE"
-    echo "  Added ORCHESTRATOR_HOME to $SHELL_PROFILE"
+    # XDG / Debian pattern: prepend user bin dir only when it exists.
+    cat >> "$SHELL_PROFILE" <<EOF
+if [ -d "$ORCHESTRATOR_INSTALL_BIN" ] ; then
+  PATH="$ORCHESTRATOR_INSTALL_BIN:\$PATH"
+fi
+EOF
+    echo "  Added ORCHESTRATOR_HOME and PATH hook to $SHELL_PROFILE"
   else
-    echo "  ORCHESTRATOR_HOME already configured in $SHELL_PROFILE"
+    grep -q 'ORCHESTRATOR_HOME' "$SHELL_PROFILE" 2>/dev/null \
+      || echo "export ORCHESTRATOR_HOME=\"$ORCHESTRATOR_HOME\"" >> "$SHELL_PROFILE"
+    if ! grep -qF "$ORCHESTRATOR_INSTALL_BIN" "$SHELL_PROFILE" 2>/dev/null; then
+      cat >> "$SHELL_PROFILE" <<EOF
+if [ -d "$ORCHESTRATOR_INSTALL_BIN" ] ; then
+  PATH="$ORCHESTRATOR_INSTALL_BIN:\$PATH"
+fi
+EOF
+      echo "  Added $ORCHESTRATOR_INSTALL_BIN PATH hook to $SHELL_PROFILE"
+    else
+      echo "  ORCHESTRATOR_HOME / PATH already configured in $SHELL_PROFILE"
+    fi
+  fi
+}
+
+setup_cli() {
+  echo "Installing orchestrator CLI on PATH..."
+  local cli_src="$ORCHESTRATOR_DIR/bin/orchestrator"
+  local cli_dst="$ORCHESTRATOR_INSTALL_BIN/orchestrator"
+  mkdir -p "$ORCHESTRATOR_INSTALL_BIN"
+  [ -f "$cli_src" ] || { echo "  skipped: $cli_src not found"; return 0; }
+  chmod +x "$cli_src"
+  safe_ln "$cli_src" "$cli_dst"
+  echo "  orchestrator -> $cli_src"
+  if command -v orchestrator >/dev/null 2>&1; then
+    echo "  on PATH: $(command -v orchestrator)"
+  else
+    echo "  run: source $SHELL_PROFILE  (or open a new shell)"
   fi
 }
 
@@ -63,13 +100,22 @@ setup_core() {
   safe_ln "$ORCHESTRATOR_DIR/config" "$ORCHESTRATOR_HOME/config"
   echo "  Config: $ORCHESTRATOR_HOME/config -> $ORCHESTRATOR_DIR/config"
 
-  safe_ln "$ORCHESTRATOR_DIR/scripts" "$ORCHESTRATOR_HOME/scripts"
-  echo "  Scripts: $ORCHESTRATOR_HOME/scripts -> $ORCHESTRATOR_DIR/scripts"
-
   # ORC-106: orchestrator_next Python package moved to the repo root; expose it
   # under ORCHESTRATOR_HOME so $ORCHESTRATOR_HOME-based PYTHONPATH/sys.path still resolves.
   safe_ln "$ORCHESTRATOR_DIR/orchestrator_next" "$ORCHESTRATOR_HOME/orchestrator_next"
   echo "  Package: $ORCHESTRATOR_HOME/orchestrator_next -> $ORCHESTRATOR_DIR/orchestrator_next"
+
+  # Legacy: repo-root scripts/ retired; keep ORCHESTRATOR_HOME/scripts for callers
+  # that still use that path (now points at orchestrator_next/scripts).
+  if [ -L "$ORCHESTRATOR_HOME/scripts" ]; then
+    local scripts_target
+    scripts_target="$(readlink "$ORCHESTRATOR_HOME/scripts")"
+    case "$scripts_target" in
+      "$ORCHESTRATOR_DIR/scripts") rm "$ORCHESTRATOR_HOME/scripts"; echo "  removed legacy ${ORCHESTRATOR_HOME#$HOME/}/scripts symlink" ;;
+    esac
+  fi
+  safe_ln "$ORCHESTRATOR_DIR/orchestrator_next/scripts" "$ORCHESTRATOR_HOME/scripts"
+  echo "  Scripts: $ORCHESTRATOR_HOME/scripts -> $ORCHESTRATOR_DIR/orchestrator_next/scripts"
 }
 
 setup_metrics_db() {
@@ -121,48 +167,19 @@ setup_codex() {
   echo "  Codex: $skill_count skills linked"
 }
 
-setup_git_hooks() {
-  echo "Installing git pre-commit hook..."
-  local hook_src="$ORCHESTRATOR_DIR/scripts/pre-commit.sh"
-  local hook_dst="$ORCHESTRATOR_DIR/.git/hooks/pre-commit"
-  [ -f "$hook_src" ] || { echo "  skipped: $hook_src not found"; return 0; }
-  [ -d "$ORCHESTRATOR_DIR/.git/hooks" ] || { echo "  skipped: not a git repo"; return 0; }
-  safe_ln "$hook_src" "$hook_dst"
-}
-
 setup_pi() {
   echo "Syncing Pi coding agent..."
 
-  # ORC-105: pi overrides merged under the `pi:` key in config/agents.yaml;
-  # sync_pi_agents.py unwraps it. Legacy config/pi-agents.yaml fallback.
-  local pi_config="${ORCHESTRATOR_DIR}/config/agents.yaml"
-  [ -f "$pi_config" ] || pi_config="${ORCHESTRATOR_DIR}/config/pi-agents.yaml"
-  local project_pi_agents="${ORCHESTRATOR_DIR}/.pi/agents"
-
-  # Agents: generated Pi frontmatter (Claude JSON tools -> Pi comma-separated tools)
-  mkdir -p "$PI_AGENT_DIR"
-  [ -L "$PI_AGENT_DIR" ] && rm "$PI_AGENT_DIR" && mkdir -p "$PI_AGENT_DIR"
-  mkdir -p "$project_pi_agents"
-  PYTHONPATH="$ORCHESTRATOR_DIR" \
-    python3 "$ORCHESTRATOR_DIR/scripts/sync_pi_agents.py" \
-      --source "$ORCHESTRATOR_DIR/agents" \
-      --config "$pi_config" \
-      --out "$PI_AGENT_DIR" \
-      --out "$project_pi_agents"
-
   # Skills: directory-level symlinks for Pi skill discovery
-  mkdir -p "$PI_SKILLS_DIR"
-  [ -L "$PI_SKILLS_DIR" ] && rm "$PI_SKILLS_DIR" && mkdir -p "$PI_SKILLS_DIR"
+  mkdir -p "${PI_DIR}/skills"
+  [ -L "${PI_DIR}/skills" ] && rm "${PI_DIR}/skills" && mkdir -p "${PI_DIR}/skills"
   for d in "$ORCHESTRATOR_DIR/skills"/*/; do
-    [ -d "$d" ] || continue
-    safe_ln "${d%/}" "${PI_SKILLS_DIR}/$(basename "$d")"
+    safe_ln "${d%/}" "${PI_DIR}/skills/$(basename "$d")"
   done
 
-  local agent_count
-  agent_count=$(find "$PI_AGENT_DIR" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
   local skill_count
-  skill_count=$(find "$PI_SKILLS_DIR" -mindepth 1 -maxdepth 1 -type l 2>/dev/null | wc -l | tr -d ' ')
-  echo "  Pi: ${agent_count} agents, ${skill_count} skills linked"
+  skill_count=$(find "${PI_DIR}/skills" -mindepth 1 -maxdepth 1 -type l 2>/dev/null | wc -l | tr -d ' ')
+  echo "  Pi: $skill_count skills linked"
 }
 
 setup_global_hub() {
@@ -228,16 +245,17 @@ setup_tool_antigravity() {
 main() {
   echo "Installing orchestrator..."
   setup_python_deps
+  setup_cli
   setup_env
   setup_core
   setup_metrics_db || true
   setup_claude
   setup_codex
   setup_pi
-  setup_git_hooks
   setup_global_hub
   # setup_tool_antigravity
-  echo "Done. Run: source $SHELL_PROFILE"
+  echo "Done. Open a new shell or run: source $SHELL_PROFILE"
+  echo "Then: orchestrator --help"
 }
 
 main

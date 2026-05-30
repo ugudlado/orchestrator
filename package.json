@@ -1,0 +1,18 @@
+{
+  "name": "orchestrator",
+  "version": "0.1.0",
+  "description": "Config-driven LLM workflow engine. Optional npm shim: use npm link for dev clones; make install is the primary Unix setup.",
+  "private": true,
+  "license": "MIT",
+  "bin": {
+    "orchestrator": "bin/orchestrator"
+  },
+  "files": [
+    "bin/orchestrator",
+    "config",
+    "orchestrator_next",
+    "skills",
+    "agents",
+    "install.sh"
+  ]
+}
