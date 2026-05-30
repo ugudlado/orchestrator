@@ -1,8 +1,5 @@
 # QA failed — move ticket back to In Progress; feature branch and worktree stay.
 #
-# CLI: `orchestrator rework <change-id>` (dedicated driver, not `orchestrator run`).
-# Resolves state.yaml via resolve-state-yaml (live or archive, worktree-aware).
-#
-# Driver: orchestrator_next/scripts/orchestrator-rework.sh
+# CLI: `orchestrator rework <change-id>` — orchestrator-run.sh --schema rework
 steps:
   - ticket-rework

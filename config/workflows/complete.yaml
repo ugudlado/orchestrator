@@ -1,16 +1,16 @@
 # Complete-only workflow (ORC-108).
 #
-# CLI: `orchestrator complete <ticket-id>` — same as other workflow files under
-# config/workflows/*.yaml. Does not seed a new feature; requires existing
-# state.yaml from a prior `orchestrator feature|bugfix|autopilot` run.
+# CLI: `orchestrator complete <ticket-id>` — same driver as other workflows:
+# orchestrator-run.sh --schema complete → run-workflow.sh → post-merge hook.
 #
-# Driver: orchestrator_next/scripts/orchestrator-complete.sh
-#   1. prepare_complete_phase (trim plan to these steps)
-#   2. run-workflow.sh through complete-workflow (archive on branch)
-#   3. merge-to-main.sh (unconditional — invoking complete IS the merge signal)
-#   4. complete-feature-teardown.sh unless --no-teardown
+# Does not seed a new feature; requires existing state.yaml from a prior
+# `orchestrator feature|bugfix|autopilot` run.
 #
-# Flags: --repo PATH, --no-teardown, plus key=value overrides (persisted if re-seeding).
+# On success: complete-phase steps (through complete-workflow → archive), then
+# merge to default branch (unconditional — invoking complete IS the merge signal),
+# then worktree teardown unless --no-teardown.
+#
+# Flags: --repo PATH, --no-teardown, plus key=value overrides.
 steps:
   - compute-prediction-accuracy
   - run-learn-cycle

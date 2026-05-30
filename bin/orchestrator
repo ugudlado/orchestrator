@@ -138,11 +138,6 @@ def _run_verb(argv: list[str]) -> None:
     _shell_workflow_verb(argv, "orchestrator-run.sh")
 
 
-def _complete_verb(argv: list[str]) -> None:
-    """`orchestrator complete` — complete phase, merge, optional teardown."""
-    _shell_workflow_verb(argv, "orchestrator-complete.sh")
-
-
 def _append_in_progress_state_entry_if_absent(
     state_yaml_path: str,
     *,
@@ -296,16 +291,9 @@ def main() -> None:
         _shell_workflow_verb(args[1:], "orchestrator-workflow-learner.sh")
         return
 
-    # ORC-108: each config/workflows/<name>.yaml is a CLI subcommand.
-    # feature/bugfix/autopilot → orchestrator-run.sh (--schema preset).
-    # complete → orchestrator-complete.sh; rework → orchestrator-rework.sh.
+    # ORC-108: each config/workflows/<name>.yaml is a CLI subcommand → orchestrator-run.sh.
     if args[0] in _wf_subcommands:
-        if args[0] == "complete":
-            _complete_verb([args[1], *args[2:]])
-        elif args[0] == "rework":
-            _shell_workflow_verb([args[1], *args[2:]], "orchestrator-rework.sh")
-        else:
-            _run_verb([args[1], "--schema", args[0], *args[2:]])
+        _run_verb([args[1], "--schema", args[0], *args[2:]])
 
     if args[0] == "run":
         _run_verb(args[1:])

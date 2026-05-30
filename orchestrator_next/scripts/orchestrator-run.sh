@@ -28,11 +28,15 @@ SCHEMA="feature"
 REPO_ROOT_ARG=""
 ROUTES_OVERRIDE_ARG=""
 AGENTS_CONFIG_ARG=""
+RUN_TEARDOWN=true
 FLAG_OVERRIDES=()
 AGENT_ROUTE_FLAGS=()
 
+# Resume-only workflows: require existing state.yaml; never seed.
+RESUME_ONLY_SCHEMAS="complete approve-qa"
+
 usage() {
-  echo "Usage: orchestrator run <ticket-id> [--schema feature|bugfix] [--repo PATH] [--routes-override FILE] [--agents-config FILE] [flag=value ...]" >&2
+  echo "Usage: orchestrator run <ticket-id> [--schema feature|bugfix|complete|...] [--repo PATH] [--no-teardown] [--routes-override FILE] [--agents-config FILE] [flag=value ...]" >&2
   echo "  Examples:" >&2
   echo "    orchestrator run ORC-83" >&2
   echo "    orchestrator run HL-287 --schema bugfix" >&2
@@ -65,6 +69,14 @@ while [ $# -gt 0 ]; do
       [ $# -ge 2 ] || usage
       AGENTS_CONFIG_ARG="$2"
       shift 2
+      ;;
+    --no-teardown)
+      RUN_TEARDOWN=false
+      shift
+      ;;
+    --teardown)
+      echo "WARNING: --teardown is default; use --no-teardown to keep the worktree" >&2
+      shift
       ;;
     --help|-h)
       usage
@@ -129,6 +141,109 @@ WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}"
 WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-$HOME/code/feature_worktrees}"
 TICKET_SLUG="$(echo "$TICKET_ID" | tr '[:upper:]' '[:lower:]')"
 DEFAULT_STATE="$WORKFLOW_STATE_DIR/$TICKET_SLUG/state.yaml"
+_COMPLETE_DIR="$SCRIPT_DIR/complete"
+_TEARDOWN="$SCRIPT_DIR/complete-feature-teardown.sh"
+if [ -d "$_WORKTREE_ROOT/orchestrator_next/scripts/complete" ]; then
+  _COMPLETE_DIR="$_WORKTREE_ROOT/orchestrator_next/scripts/complete"
+  _TEARDOWN="$_WORKTREE_ROOT/orchestrator_next/scripts/complete-feature-teardown.sh"
+fi
+
+resolve_archived_state_yaml() {
+  local slug="$1"
+  local wt_archived="$WORKTREE_BASE_DIR/$slug/spec/changes/archive/$slug/state.yaml"
+  if [ -f "$wt_archived" ]; then
+    echo "$wt_archived"
+    return 0
+  fi
+  if [ -f "$WORKFLOW_STATE_DIR/archive/$slug/state.yaml" ]; then
+    echo "$WORKFLOW_STATE_DIR/archive/$slug/state.yaml"
+    return 0
+  fi
+  local dated
+  for dated in "$WORKFLOW_STATE_DIR/archive"/*"-$slug"/state.yaml; do
+    if [ -f "$dated" ]; then
+      echo "$dated"
+      return 0
+    fi
+  done
+  return 1
+}
+
+complete_post_merge() {
+  local repo_root="$1"
+  local ticket_slug="$2"
+  local run_teardown="${3:-true}"
+
+  local archived_state
+  archived_state="$(resolve_archived_state_yaml "$ticket_slug" 2>/dev/null || true)"
+  if [ -z "$archived_state" ] || [ ! -f "$archived_state" ]; then
+    echo "ERROR: archived state.yaml not found for $ticket_slug after complete-workflow" >&2
+    return 7
+  fi
+
+  local use_worktree branch change_id
+  use_worktree=$(python3 - "$archived_state" <<'PY'
+import sys, yaml
+raw = yaml.safe_load(open(sys.argv[1])) or {}
+print("true" if (raw.get("worktree_path") or "").strip() else "false")
+PY
+)
+  read -r branch change_id < <(python3 - "$archived_state" <<'PY'
+import sys, yaml
+raw = yaml.safe_load(open(sys.argv[1])) or {}
+print(raw.get("branch") or "")
+print(raw.get("change_id") or raw.get("slug") or "")
+PY
+)
+
+  if [ "$use_worktree" = true ]; then
+    local wt_dir="$WORKTREE_BASE_DIR/$ticket_slug"
+    local commit_helper="$_COMPLETE_DIR/commit-worktree-learn-updates.sh"
+    if [ -x "$commit_helper" ]; then
+      bash "$commit_helper" "$wt_dir" "$ticket_slug" "$branch" --require-clean
+    fi
+  fi
+
+  echo "Merging $ticket_slug branch to default..." >&2
+  local merge_out merge_rc
+  set +e
+  merge_out=$(REPO_ROOT="$repo_root" BRANCH="$branch" CHANGE_ID="$change_id" \
+    bash "$_COMPLETE_DIR/merge-to-main.sh" 2>&1)
+  merge_rc=$?
+  set -e
+  if [ "$merge_rc" -ne 0 ]; then
+    echo "$merge_out" >&2
+    echo "ERROR: merge failed; worktree kept for conflict resolution" >&2
+    return "$merge_rc"
+  fi
+  echo "$merge_out" | tail -1 >&2
+
+  if [ "$run_teardown" = true ] && [ "$use_worktree" = true ] && [ -x "$_TEARDOWN" ]; then
+    echo "Removing feature worktree..." >&2
+    bash "$_TEARDOWN" "$ticket_slug"
+  fi
+
+  return 0
+}
+
+if [ "$SCHEMA" = "rework" ]; then
+  if [ -f "$TICKET_ID" ]; then
+    STATE_YAML="$(cd "$(dirname "$TICKET_ID")" && pwd)/$(basename "$TICKET_ID")"
+  else
+    STATE_YAML="$(bash "$SCRIPT_DIR/metrics/resolve-state-yaml.sh" "$TICKET_SLUG" "$REPO_ROOT")" || {
+      echo "ERROR: cannot locate state.yaml for '$TICKET_ID'" >&2
+      exit 1
+    }
+  fi
+  if [ ! -f "$STATE_YAML" ]; then
+    echo "ERROR: state.yaml not found: $STATE_YAML" >&2
+    exit 1
+  fi
+  echo "Running rework: change=$TICKET_ID state=$STATE_YAML" >&2
+  PYTHONPATH="${_WORKTREE_ROOT}:${PYTHONPATH:-}" \
+    python3 -m orchestrator_next.rework "$STATE_YAML"
+  exit $?
+fi
 
 # state.yaml may live in repo_root (worktree=false) or under the feature worktree.
 resolve_state_yaml() {
@@ -166,6 +281,10 @@ if [ "$_ARCHIVE_ACTION" = "halt_complete" ] && [ ! -f "${STATE_YAML:-}" ]; then
 fi
 
 if [ ! -f "${STATE_YAML:-}" ]; then
+  if echo " $RESUME_ONLY_SCHEMAS " | grep -q " $SCHEMA "; then
+    echo "ERROR: no state.yaml for $TICKET_SLUG (start with orchestrator feature|bugfix|autopilot first)" >&2
+    exit 7
+  fi
   if [ ! -f "$SEED_STATE" ]; then
     echo "ERROR: no state.yaml for $TICKET_SLUG and seed-state.sh missing at $SEED_STATE" >&2
     exit 7
@@ -179,6 +298,19 @@ fi
 if [ ! -f "$STATE_YAML" ]; then
   echo "ERROR: state.yaml not found at $STATE_YAML after seed" >&2
   exit 7
+fi
+
+if [ "$SCHEMA" = "complete" ]; then
+  if [[ "$STATE_YAML" == *"/archive/"* ]]; then
+    echo "ERROR: $TICKET_SLUG is already archived at $STATE_YAML" >&2
+    exit 1
+  fi
+  _PREPARE=$(PYTHONPATH="${_WORKTREE_ROOT}:${PYTHONPATH:-}" \
+    python3 -m orchestrator_next.complete_phase "$STATE_YAML" 2>&1) || {
+    echo "$_PREPARE" >&2
+    exit 2
+  }
+  echo "$_PREPARE" | head -1 >&2
 fi
 
 if [ -n "$ROUTES_OVERRIDE_ARG" ]; then
@@ -205,5 +337,18 @@ if [ "${#AGENT_ROUTE_FLAGS[@]}" -gt 0 ]; then
   export ORCHESTRATOR_AGENT_ROUTE_OVERRIDES
 fi
 
-echo "Running shell workflow: ticket=$TICKET_ID state=$STATE_YAML" >&2
-exec bash "$RUN_WORKFLOW" "$STATE_YAML" "$TICKET_ID"
+echo "Running shell workflow: ticket=$TICKET_ID schema=$SCHEMA state=$STATE_YAML" >&2
+set +e
+bash "$RUN_WORKFLOW" "$STATE_YAML" "$TICKET_ID"
+_RC=$?
+set -e
+
+if [ "$SCHEMA" = "complete" ]; then
+  if [ "$_RC" -ne 1 ]; then
+    exit "$_RC"
+  fi
+  complete_post_merge "$REPO_ROOT" "$TICKET_SLUG" "$RUN_TEARDOWN" || exit $?
+  exit 1
+fi
+
+exit "$_RC"

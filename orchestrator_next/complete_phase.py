@@ -69,7 +69,9 @@ def prepare_complete_phase(state_yaml_path: str) -> dict[str, Any]:
     if not schema:
         raise ValueError("state.yaml missing schema")
 
-    complete_ids = set(complete_step_ids_for_schema(schema))
+    # The `complete` workflow file is the step list for `orchestrator complete`
+    # (not the parent feature/bugfix tail — same anchor, but complete.yaml is canonical).
+    complete_ids = set(complete_step_ids_for_schema("complete"))
     phase = str(state.get("phase") or "main")
     phase_plan = (state.get("workflow_plan") or {}).get(phase) or {}
     nodes = phase_plan.get("nodes")
@@ -108,7 +110,7 @@ def prepare_complete_phase(state_yaml_path: str) -> dict[str, Any]:
 
     # Point next_step at the first incomplete complete-phase node.
     next_id = None
-    for sid in complete_step_ids_for_schema(schema):
+    for sid in complete_step_ids_for_schema("complete"):
         for node in nodes:
             if str(node.get("id") or "") == sid:
                 if str(node.get("status") or "") != "completed":

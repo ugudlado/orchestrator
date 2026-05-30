@@ -51,7 +51,7 @@ The schema is chosen by the subcommand, not inferred from prose. The entry point
 - `orchestrator feature <id>` → schema `feature`
 - `orchestrator bugfix <id>` → schema `bugfix`
 - `orchestrator autopilot <id>` → schema `autopilot`
-- `orchestrator complete <id>` → complete phase only (`config/workflows/complete.yaml`); merge + teardown via `orchestrator-complete.sh`
+- `orchestrator complete <id>` → complete phase only (`config/workflows/complete.yaml`); same driver as other workflows (`orchestrator-run.sh --schema complete`), merge + teardown after archive
 
 `feature`, `bugfix`, and `autopilot` are `orchestrator run <id> --schema <name>` under the hood. `complete` uses the same workflow-file discovery but a different driver (no seed; requires existing state).
 There is no prose intent-inference step (ORC-108 removed select-workflow + the
