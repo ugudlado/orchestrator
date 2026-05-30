@@ -7,6 +7,12 @@ steps:
   - execute-tasks
   - run-phase-review
   - ticket-review # ticket -> Code Review
+  - ticket-qa # ticket -> QA Review
   - compute-prediction-accuracy
   - run-learn-cycle
-  - ticket-qa # ticket -> QA Review
+  - mark-change-completed
+  - compute-swe-metrics
+  - gather-learn-metrics
+  - cost-report
+  - archive-completed-change
+  - ticket-done
