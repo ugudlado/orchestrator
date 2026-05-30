@@ -104,11 +104,11 @@ When the reviewer rejects:
 4. Re-run full self-verify cycle (not just the changed parts)
 5. Note what changed in the resubmission
 
-## Schema-Specific Behavior
+## Test Discipline (your call, from what you're building)
 
-- **feature (not tdd_required)**: Implementation first. Tests optional but type-check + build required.
-- **bugfix**: Write regression test first (proves the bug exists), then fix (test turns green).
-- **feature (tdd_required)**: Strict red-green-refactor — write the failing test first, then make it pass.
+- **Code change (feature)**: Strict red-green-refactor — write the failing test first, then make it pass.
+- **bugfix**: Write the regression test first (proves the bug exists), then fix (test turns green).
+- **Docs/config-only change**: No test tasks — nothing to assert. Type-check + build still required where applicable.
 
 ## On Failure
 

@@ -104,29 +104,6 @@ def _iter_step_contract_paths(repo_root: Path, orch_home: Path) -> dict[str, Pat
     return found
 
 
-def _load_declared_flags(repo_root: Path, orch_home: Path) -> set[str]:
-    declared: set[str] = set()
-    # ORC-105: flags merged into config/workflow.yaml; legacy flags.yaml kept.
-    for path in (
-        repo_root / ".orchestrator" / "workflow.yaml",
-        repo_root / ".orchestrator" / "flags.yaml",
-        orch_home / "config" / "workflow.yaml",
-        orch_home / "config" / "flags.yaml",
-    ):
-        if not path.is_file():
-            continue
-        try:
-            with open(path) as f:
-                data = yaml.safe_load(f) or {}
-        except Exception:
-            continue
-        for section in ("gates", "behavioral"):
-            block = data.get(section) or {}
-            if isinstance(block, dict):
-                declared.update(block.keys())
-    return declared
-
-
 def _collect_symlinks(root: Path) -> list[Path]:
     links: list[Path] = []
     if not root.exists():
@@ -409,40 +386,7 @@ def check_schema_step_graph(repo_root: Path, orch_home: Path) -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
-# Check 11: contract → flag graph
-# ---------------------------------------------------------------------------
-
-def check_contract_flag_graph(repo_root: Path, orch_home: Path) -> CheckResult:
-    """FAIL when flags_read names are not declared in flags.yaml."""
-    declared = _load_declared_flags(repo_root, orch_home)
-    failures: list[str] = []
-    for step_id, path in sorted(_iter_step_contract_paths(repo_root, orch_home).items()):
-        try:
-            with open(path) as f:
-                data = yaml.safe_load(f) or {}
-        except Exception as exc:
-            failures.append(f"{step_id}: {exc}")
-            continue
-        for entry in data.get("flags_read") or []:
-            if isinstance(entry, dict):
-                flag_name = entry.get("name")
-            elif isinstance(entry, str):
-                flag_name = entry
-            else:
-                continue
-            if not flag_name:
-                continue
-            if flag_name not in declared:
-                failures.append(
-                    f"flag graph: {flag_name} in {step_id} contract not declared in flags registry"
-                )
-    if failures:
-        return CheckResult("contract flag graph", "FAIL", "; ".join(failures))
-    return CheckResult("contract flag graph", "PASS", "all flags_read entries declared")
-
-
-# ---------------------------------------------------------------------------
-# Check 12: contract → template graph
+# Check 11: contract → template graph
 # ---------------------------------------------------------------------------
 
 def check_contract_template_graph(repo_root: Path, orch_home: Path) -> CheckResult:
@@ -502,7 +446,6 @@ def run_all(args) -> int:
         check_symlinks(repo_root, orch_home),
         check_orchestrator_home(repo_root, orch_home),
         check_schema_step_graph(repo_root, orch_home),
-        check_contract_flag_graph(repo_root, orch_home),
         check_contract_template_graph(repo_root, orch_home),
     ]
     print(_format_table(results))

@@ -42,73 +42,46 @@ REPO_SCHEMA_OVERRIDE="$REPO_ROOT/.orchestrator/workflows/$SCHEMA.yaml"
 [[ -f "$REPO_SCHEMA_OVERRIDE" ]] && SCHEMA_YAML="$REPO_SCHEMA_OVERRIDE"
 [[ -f "$SCHEMA_YAML" ]] || { echo "error: schema '$SCHEMA' not found. Searched: $SCHEMA_YAML" >&2; exit 1; }
 
-# ORC-105: flags merged into config/workflow.yaml (gates/behavioral/cli keys
-# unchanged at top level); legacy config/flags.yaml fallback.
-FLAGS_YAML="$ORCHESTRATOR_HOME/config/workflow.yaml"
-[[ -f "$FLAGS_YAML" ]] || FLAGS_YAML="$ORCHESTRATOR_HOME/config/flags.yaml"
-[[ -f "$FLAGS_YAML" ]] || { echo "error: workflow.yaml/flags.yaml not found in $ORCHESTRATOR_HOME/config/" >&2; exit 1; }
-
 # ---------------------------------------------------------------------------
-# Single Python pass: parse overrides, resolve worktree flag, emit state.yaml
-# Outputs two lines to stdout: "worktree=<true|false>" then "state_yaml=<path>"
-# The state_yaml path is provisional (worktree_path patched in after git ops).
+# Single Python pass: parse overrides, emit state.yaml init JSON.
+# ORC-108: flag registry deleted — the schema's `steps:` list IS the plan
+# (no gate-filtering). key=value overrides are persisted to state.flags
+# as-is for any schema-specific behavioral reads.
 # ---------------------------------------------------------------------------
 
 INIT_JSON=$(python3 - \
     "$SLUG" "$SCHEMA" "$REPO_ROOT" \
-    "$SCHEMA_YAML" "$FLAGS_YAML" \
+    "$SCHEMA_YAML" \
     "$WORKTREE_BASE_DIR" \
     "$@" \
     <<'PYEOF'
 import sys, json
-from datetime import datetime, timezone
 from pathlib import Path
 import yaml
 
 slug, schema_name, repo_root = sys.argv[1], sys.argv[2], sys.argv[3]
-schema_yaml_path, flags_yaml_path = sys.argv[4], sys.argv[5]
-worktree_base_dir = sys.argv[6]
-raw_overrides = sys.argv[7:]
+schema_yaml_path = sys.argv[4]
+worktree_base_dir = sys.argv[5]
+raw_overrides = sys.argv[6:]
 
-# Parse key=value overrides
-overrides: dict = {}
+# Parse key=value overrides — persisted verbatim to state.flags.
+flags: dict = {}
 for arg in raw_overrides:
     if "=" not in arg:
         print(f"error: flag override '{arg}' must be in key=value format", file=sys.stderr)
         sys.exit(1)
     k, v = arg.split("=", 1)
-    overrides[k] = True if v.lower() == "true" else (False if v.lower() == "false" else v)
+    flags[k] = True if v.lower() == "true" else (False if v.lower() == "false" else v)
 
 schema = yaml.safe_load(Path(schema_yaml_path).read_text())
-flags_def = yaml.safe_load(Path(flags_yaml_path).read_text()) or {}
 
-# Merge flags: gate defaults + behavioral defaults + CLI overrides
-flags: dict = {}
-for section in ("gates", "behavioral"):
-    for fname, fdata in (flags_def.get(section) or {}).items():
-        flags[fname] = fdata.get("default", False)
-
-known = set(flags.keys())
-for k, v in overrides.items():
-    if k not in known:
-        print(f"error: unknown flag override '{k}' — not listed in flags.yaml", file=sys.stderr)
-        sys.exit(1)
-    flags[k] = v
-
-# Build workflow_plan via gate-flag filter
-gates = flags_def.get("gates") or {}
-active, filtered = [], []
-for step_entry in schema.get("steps", []):
-    step_id = step_entry.get("id", "") if isinstance(step_entry, dict) else str(step_entry)
-    blocking = [f for f, fd in gates.items() if step_id in (fd.get("steps") or [])]
-    if all(flags.get(f, False) for f in blocking):
-        active.append(step_id)
-    else:
-        reason = next(f for f in blocking if not flags.get(f, False))
-        filtered.append({"id": step_id, "reason": f"flag {reason}=false"})
-
+# The steps list IS the plan — no gate-filtering (ORC-108).
+active = [
+    (step_entry.get("id", "") if isinstance(step_entry, dict) else str(step_entry))
+    for step_entry in schema.get("steps", [])
+]
 if not active:
-    print("error: no active steps after gate-flag filtering", file=sys.stderr)
+    print(f"error: schema '{schema_name}' declares no steps", file=sys.stderr)
     sys.exit(1)
 
 # Emit JSON consumed by bash for the deferred state write.
@@ -119,7 +92,7 @@ print(json.dumps({
     "worktree_base_dir": worktree_base_dir,
     "flags": flags,
     "active": active,
-    "filtered": filtered,
+    "filtered": [],
 }))
 PYEOF
 ) || exit 1

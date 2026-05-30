@@ -38,16 +38,6 @@ def orch_home(tmp_path):
     (root / "config" / "templates" / "feature").mkdir(parents=True)
     (root / "agents").mkdir(parents=True)
     (root / "spec" / "changes" / "archive").mkdir(parents=True)
-    # flags registry required for flag-graph checks
-    (root / "config" / "flags.yaml").write_text(
-        yaml.dump({
-            "gates": {},
-            "behavioral": {
-                "auto": {"default": False, "description": "test"},
-                "tdd_required": {"default": True, "description": "test"},
-            },
-        })
-    )
     return root
 
 
@@ -148,38 +138,6 @@ class TestCheckSchemaStepGraph:
         assert "feature" in result.detail
         assert "ghost-step" in result.detail
         assert "contract" in result.detail.lower()
-
-
-# ---------------------------------------------------------------------------
-# Flag graph (AC-7)
-# ---------------------------------------------------------------------------
-
-class TestCheckContractFlagGraph:
-
-    def test_undeclared_flags_read_fails(self, repo_root, orch_home):
-        """flags_read entry not in schema defaults → FAIL names flag and step."""
-        _write_workflow(orch_home / "config" / "workflows", "feature", ["flaggy-step"])
-        _write_dir_contract(
-            orch_home / "config" / "steps",
-            "flaggy-step",
-            {
-                "id": "flaggy-step",
-                "version": 1,
-                "kind": "agent",
-                "agent": "developer",
-                "inputs": [],
-                "outputs": [],
-                "flags_read": [{"name": "not_a_real_flag", "effect": "test"}],
-            },
-        )
-        _write_agent(orch_home / "agents", "developer")
-
-        from orchestrator_next.doctor import check_contract_flag_graph
-
-        result = check_contract_flag_graph(repo_root, orch_home)
-        assert result.status == "FAIL"
-        assert "not_a_real_flag" in result.detail
-        assert "flaggy-step" in result.detail
 
 
 # ---------------------------------------------------------------------------
