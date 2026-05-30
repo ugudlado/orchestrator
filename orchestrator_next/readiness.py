@@ -69,6 +69,10 @@ def _step_completed_in_history(state: State, node_id: str) -> bool:
         if entry.phase != state.phase or entry.step_id != node_id:
             continue
         if entry.status in ("completed", "recovered"):
+            from orchestrator_next.record import _phase_review_verdict  # lazy: avoid cycle
+            verdict = _phase_review_verdict(entry.raw)
+            if verdict in ("needs_work", "incomplete_phase"):
+                continue
             return True
     return False
 
