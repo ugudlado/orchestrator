@@ -106,7 +106,7 @@ def test_fr6_agents_forbid_state_edits():
     """developer.md must contain `orchestrator done` and a prohibition phrase
     (NOT) near state.yaml edits.
     """
-    for agent_file in ("agents/developer.md",):
+    for agent_file in ("skills/developer/SKILL.md",):
         content = _read(agent_file)
 
         assert "orchestrator done" in content, (

@@ -5,7 +5,7 @@ T-1: RED tests — all must fail with ImportError/AttributeError before doctor.p
 T-3: CLI wiring tests for _doctor_main.
 
 Test isolation strategy:
-  - HOME is monkeypatched to tmp_path so ~/.workflows/ and ~/.claude/agents/ don't
+  - HOME is monkeypatched to tmp_path so ~/.workflows/ and ~/.claude/skills/ don't
     read real operator state.
   - ORCHESTRATOR_HOME is monkeypatched to a fixture orch_home tree.
   - DuckDB failure path: ensure_schema is monkeypatched to a no-op so the pre-seeded
@@ -37,7 +37,7 @@ def orch_home(tmp_path):
     """Create a minimal ORCHESTRATOR_HOME tree."""
     (tmp_path / "config" / "steps").mkdir(parents=True)
     (tmp_path / "spec" / "changes" / "archive").mkdir(parents=True)
-    (tmp_path / "agents").mkdir(parents=True)
+    (tmp_path / "skills").mkdir(parents=True)
     (tmp_path / "scripts" / "inline").mkdir(parents=True)
     return tmp_path
 
@@ -247,12 +247,13 @@ class TestCheckInlineScripts:
 class TestCheckAgentFiles:
 
     def test_check_agent_files_pass(self, orch_home, tmp_path, monkeypatch):
-        """Agent file exists in orch_home/agents/ -> PASS."""
+        """Agent skill file exists in orch_home/skills/ -> PASS."""
         home = tmp_path / "fake_home"
         home.mkdir()
         monkeypatch.setenv("HOME", str(home))
         repo_root = tmp_path / "repo"
-        (orch_home / "agents" / "my-agent.md").write_text("# my-agent")
+        (orch_home / "skills" / "my-agent").mkdir(parents=True, exist_ok=True)
+        (orch_home / "skills" / "my-agent" / "SKILL.md").write_text("# my-agent")
         _write_contract(orch_home / "config" / "steps", "uses-agent", {
             "id": "uses-agent", "agent": "my-agent",
             "inputs": [], "outputs": [],
@@ -281,7 +282,7 @@ class TestCheckAgentFiles:
         home.mkdir()
         monkeypatch.setenv("HOME", str(home))
         repo_root = tmp_path / "repo"
-        (home / ".claude" / "agents").mkdir(parents=True)
+        (home / ".claude" / "skills").mkdir(parents=True)
         _write_contract(orch_home / "config" / "steps", "ghost-step", {
             "id": "ghost-step", "agent": "ghost-agent",
             "inputs": [], "outputs": [],
@@ -309,7 +310,7 @@ class TestCheckAgentFiles:
         home = tmp_path / "fake_home"
         home.mkdir()
         monkeypatch.setenv("HOME", str(home))
-        (home / ".claude" / "agents").mkdir(parents=True)
+        (home / ".claude" / "skills").mkdir(parents=True)
         repo_root = tmp_path / "repo"
         _write_dir_contract(orch_home / "config" / "steps", "dir-step", {
             "id": "dir-step", "agent": "phantom-agent",
@@ -327,7 +328,8 @@ class TestCheckAgentFiles:
         home.mkdir()
         monkeypatch.setenv("HOME", str(home))
         repo_root = tmp_path / "repo"
-        (orch_home / "agents" / "real-agent.md").write_text("# real-agent")
+        (orch_home / "skills" / "real-agent").mkdir(parents=True, exist_ok=True)
+        (orch_home / "skills" / "real-agent" / "SKILL.md").write_text("# real-agent")
         _write_dir_contract(orch_home / "config" / "steps", "dir-step", {
             "id": "dir-step", "agent": "real-agent",
             "inputs": [], "outputs": [],
@@ -337,13 +339,13 @@ class TestCheckAgentFiles:
         assert result.status == "PASS"
 
     def test_check_agent_files_repo_override_resolves(self, orch_home, tmp_path, monkeypatch):
-        """Agent provided only via repo .orchestrator/agents override -> PASS."""
+        """Agent provided only via repo .orchestrator/skills override -> PASS."""
         home = tmp_path / "fake_home"
         home.mkdir()
         monkeypatch.setenv("HOME", str(home))
         repo_root = tmp_path / "repo"
-        (repo_root / ".orchestrator" / "agents").mkdir(parents=True)
-        (repo_root / ".orchestrator" / "agents" / "override-agent.md").write_text("# override")
+        (repo_root / ".orchestrator" / "skills" / "override-agent").mkdir(parents=True)
+        (repo_root / ".orchestrator" / "skills" / "override-agent" / "SKILL.md").write_text("# override")
         _write_dir_contract(orch_home / "config" / "steps", "ov-step", {
             "id": "ov-step", "agent": "override-agent",
             "inputs": [], "outputs": [],
