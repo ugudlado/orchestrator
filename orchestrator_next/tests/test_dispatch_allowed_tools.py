@@ -5,7 +5,7 @@ Tests for dispatch.py resolved_allowed_tools injection.
 - Tools are documented in config/agents.yaml comments but not enforced at dispatch
   (resolver.load_agent_tools always returns None) → resolved_allowed_tools == [].
 - Role unresolvable → stderr warning, resolved_allowed_tools == [], no exception.
-- agent: inline with allowed_tools → stderr warning, resolved_allowed_tools == [].
+- script step (no agent) with allowed_tools → stderr warning, resolved_allowed_tools == [].
 """
 from __future__ import annotations
 
@@ -320,10 +320,11 @@ class TestGracefulDegradation:
         assert captured.err != ""  # some warning was emitted
 
     def test_inline_with_allowed_tools_warns_and_gives_empty_list(self, steps_dir, agents_dir, state_dir, monkeypatch, capsys):
-        """agent: inline with allowed_tools -> warning, resolved_allowed_tools == [], no exception (AC-6)."""
+        """script step (no agent) with allowed_tools -> warning, resolved_allowed_tools == [], no exception (AC-6)."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_contract(steps_dir, "inline-with-tools", {
-            "id": "inline-with-tools", "agent": "inline",
+            "id": "inline-with-tools",
+            "run": "scripts/inline-with-tools.sh",
             "instruction": "do thing", "inputs": [], "outputs": [],
             "allowed_tools": ["Read"],
         })

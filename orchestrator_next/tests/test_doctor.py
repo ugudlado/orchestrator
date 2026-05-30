@@ -263,13 +263,13 @@ class TestCheckAgentFiles:
         assert result.status == "PASS"
 
     def test_check_agent_files_inline_sentinel_skipped(self, orch_home, tmp_path, monkeypatch):
-        """Contract with agent: inline is not flagged (AC-7, UC-E3)."""
+        """Contract with no agent: field is not flagged (script / driver-inline step)."""
         home = tmp_path / "fake_home"
         home.mkdir()
         monkeypatch.setenv("HOME", str(home))
         repo_root = tmp_path / "repo"
         _write_contract(orch_home / "config" / "steps", "inline-step", {
-            "id": "inline-step", "agent": "inline",
+            "id": "inline-step",
             "inputs": [], "outputs": [],
         })
         from orchestrator_next.doctor import check_agent_files

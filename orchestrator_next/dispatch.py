@@ -255,16 +255,16 @@ def _resolve_allowed_tools(contract: StepContract) -> list[str]:
     Compute the resolved tool list for a step contract.
 
     Logic (from design.md § Low-Level Design pseudocode):
-      - agent == "inline" + allowed_tools set → warn, return []
-      - agent == "inline" + no allowed_tools → return []
+      - agent is None + allowed_tools set → warn, return []
+      - agent is None + no allowed_tools → return []
       - role unresolvable (None) + allowed_tools set → warn, return []
       - role unresolvable (None) + no allowed_tools → return []
       - allowed_tools non-empty + widens role → ContractError
       - allowed_tools non-empty, no widening → sorted intersection
       - allowed_tools empty (absent/null/[]) → sorted full role list
     """
-    # For inline-script steps (no agent or agent="inline"), tools don't apply
-    if not contract.agent or contract.agent == "inline":
+    # For script steps (no agent), tools don't apply
+    if contract.agent is None:
         if contract.allowed_tools:
             print(
                 f"WARNING: allowed_tools on inline step {contract.id!r} ignored",
@@ -485,7 +485,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             # Fall back to inline-only contract with minimal data
             contract = StepContract(
                 id=step_id,
-                agent=last.agent or "inline",
+                agent=last.agent,
                 run=None,
                 instruction="",
                 rules=[],
@@ -551,7 +551,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         # Mirrors the resume_step branch above.
         contract = StepContract(
             id=next_step_id,
-            agent="inline",
+            agent=None,
             run=None,
             instruction="",
             rules=[],
