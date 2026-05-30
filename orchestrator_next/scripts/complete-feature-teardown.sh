@@ -30,7 +30,7 @@ else
   WT_BASE="${WORKTREE_BASE_DIR:-$HOME/code/feature_worktrees}"
   for candidate in \
     "$REPO_ROOT/spec/changes/archive/$SLUG/state.yaml" \
-    "$REPO_ROOT/spec/changes/archive"/*"-$SLUG"/state.yaml" \
+    "$REPO_ROOT/spec/changes/archive/"*"-$SLUG/state.yaml" \
     "$WT_BASE/$SLUG/spec/changes/archive/$SLUG/state.yaml" \
     "$WT_BASE/$SLUG/spec/changes/$SLUG/state.yaml" \
     "$REPO_ROOT/spec/changes/$SLUG/state.yaml"; do

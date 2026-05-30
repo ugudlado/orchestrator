@@ -54,12 +54,14 @@ fi
 
 # Stage ONLY learn's write targets. learn (workflow-learner agent) routes to:
 #   - config/steps/**         (global step contracts)
+#   - config/workflows/**     (workflow schemas — learn may add/adjust steps)
 #   - .orchestrator/**        (repo-specific contract overrides)
 #   - spec/project.yaml       (project learnings / quality bar)
+#   - orchestrator_next/tests (learn may update tests to match new rules)
 # Staging whole dirs would sweep in unrelated WIP, so we pathspec narrowly.
 # `git add` fails the whole invocation if a pathspec matches nothing, so add
 # each present path individually.
-for p in config/steps .orchestrator spec/project.yaml; do
+for p in config/steps config/workflows .orchestrator spec/project.yaml orchestrator_next/tests; do
   if [ -e "$REPO_DIR/$p" ]; then
     git -C "$REPO_DIR" add -A "$p" 2>/dev/null || true
   fi
