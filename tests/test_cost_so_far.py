@@ -17,11 +17,12 @@ import sys
 import tempfile
 import unittest
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_WORKTREE_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
-_FIXTURES_DIR = os.path.join(_HERE, "fixtures")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from conftest import ORCHESTRATOR_ROOT
+
+_FIXTURES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 _STEP_CONTRACTS_DIR = os.path.join(_FIXTURES_DIR, "step_contracts")
-_BIN_ORCHESTRATOR = os.path.join(_WORKTREE_ROOT, "bin", "orchestrator")
+_BIN_ORCHESTRATOR = os.path.join(ORCHESTRATOR_ROOT, "bin", "orchestrator")
 
 
 def _run_next(fixture_name: str, metrics_db_path: str | None) -> subprocess.CompletedProcess:
@@ -34,7 +35,7 @@ def _run_next(fixture_name: str, metrics_db_path: str | None) -> subprocess.Comp
     fixture_path = os.path.join(_FIXTURES_DIR, fixture_name)
     env = os.environ.copy()
     env["ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE"] = _STEP_CONTRACTS_DIR
-    env["PYTHONPATH"] = os.path.join(_WORKTREE_ROOT, "config", "scripts")
+    env["PYTHONPATH"] = os.path.join(ORCHESTRATOR_ROOT, "config", "scripts")
     env.pop("ORCHESTRATOR_HOME", None)
 
     if metrics_db_path is not None:

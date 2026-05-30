@@ -25,10 +25,11 @@ import sys
 import tempfile
 import unittest
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_WORKTREE_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
-_SCRIPTS_DIR = os.path.join(_WORKTREE_ROOT, "config", "scripts")
-_BIN_ORCHESTRATOR = os.path.join(_WORKTREE_ROOT, "bin", "orchestrator")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from conftest import ORCHESTRATOR_ROOT
+
+_SCRIPTS_DIR = os.path.join(ORCHESTRATOR_ROOT, "config", "scripts")
+_BIN_ORCHESTRATOR = os.path.join(ORCHESTRATOR_ROOT, "bin", "orchestrator")
 
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
@@ -195,7 +196,7 @@ def _run_cost(
         capture_output=True,
         text=True,
         env=env,
-        cwd=cwd or _WORKTREE_ROOT,
+        cwd=cwd or ORCHESTRATOR_ROOT,
     )
 
 

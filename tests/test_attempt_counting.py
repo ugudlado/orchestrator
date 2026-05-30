@@ -23,12 +23,13 @@ import sys
 import tempfile
 import unittest
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_WORKTREE_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
-_FIXTURES_DIR = os.path.join(_HERE, "fixtures")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from conftest import ORCHESTRATOR_ROOT
+
+_FIXTURES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 _STEP_CONTRACTS_DIR = os.path.join(_FIXTURES_DIR, "step_contracts")
-_BIN_ORCHESTRATOR = os.path.join(_WORKTREE_ROOT, "bin", "orchestrator")
-_SCRIPTS_DIR = os.path.join(_WORKTREE_ROOT, "config", "scripts")
+_BIN_ORCHESTRATOR = os.path.join(ORCHESTRATOR_ROOT, "bin", "orchestrator")
+_SCRIPTS_DIR = os.path.join(ORCHESTRATOR_ROOT, "config", "scripts")
 
 
 def _run_next(fixture_name: str, metrics_db_path: str) -> subprocess.CompletedProcess:

@@ -8,5 +8,11 @@ worktree_path: /tmp/test-workflow
 workflow_plan:
   implement:
     active:
-      - step-with-run
-step_history: []
+    - step-with-run
+step_history:
+- step_id: step-with-run
+  phase: implement
+  status: in_progress
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-05-30T21:52:19.281695+00:00'

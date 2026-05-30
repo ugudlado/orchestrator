@@ -332,3 +332,29 @@ rules:
       and outside the task loop — never fold them into a task's diff or treat them as
       silent ground-truth changes. The phase review verdict still reflects pre-cleanup
       state.
+  - id: fixture-corruption-from-dispatcher
+    learned: 2026-05-31
+    source: orc-107
+    rule: >
+      Test fixture YAML files under tests/fixtures/ that share a state.yaml-like
+      structure (step_history, next_step, etc.) are picked up and mutated by the
+      orchestrator dispatcher's step_start writer when the orchestrator runs from
+      the worktree root. This is not a code bug in the feature being developed —
+      it is a side effect of the dispatcher's glob pattern matching any YAML with
+      the expected shape. Reviewer: before scoring, run `git diff HEAD --
+      tests/fixtures/` and restore any mutated fixtures with `git checkout HEAD --
+      tests/fixtures/`. Do not count fixture dirt as a code finding against the
+      feature under review.
+  - id: file-metadata-not-propagated-to-evidence
+    learned: 2026-05-31
+    source: orc-107
+    rule: >
+      The execute-one-task contract requires `files_changed: [<list>]` in the
+      COMPLETION block, but the dispatcher does not record this field into
+      step_history[].evidence.outputs — it records only what the agent emits
+      under the named output handle (task_execution_result). As a result,
+      compute-prediction-accuracy always sees file_overlap_pct: 0.0 for
+      developer tasks. This is a dispatcher recording gap, not an agent miss.
+      Do not interpret file_overlap_pct: 0.0 as evidence that the developer
+      agent failed to list changed files; verify agent output directly from
+      session logs if file accuracy is needed.
