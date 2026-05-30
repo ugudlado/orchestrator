@@ -6,7 +6,7 @@ Public API: expand_plan(state_yaml_path: str) -> None
 Reads tasks.yaml from the worktree artifact dir, builds one task-node per task
 (id=`task-<task_id>`, agent: developer, step_contract: execute-one-task,
 depends_on mapped through `task-` prefix, task: payload), appends only ids not
-already present in workflow_plan[implement].nodes, rewires run-phase-review's
+already present in workflow_plan[implement].nodes, rewires execute-tasks'
 depends_on to the last task-node id.
 
 Uses generate_plan._topo_sort for cycle/unknown-id validation over the full
@@ -97,7 +97,7 @@ def expand_plan(state_yaml_path: str) -> None:
     """Read tasks.yaml, append task-nodes to workflow_plan[implement].nodes.
 
     Idempotent: nodes whose id is already present are skipped.
-    Rewires run-phase-review.depends_on to the last task-node id.
+    Rewires execute-tasks.depends_on to the last task-node id.
     Validates the full plan with _topo_sort before writing.
     Atomic write: restores pre-write bytes on YAML parse failure.
     """
@@ -152,17 +152,27 @@ def expand_plan(state_yaml_path: str) -> None:
 
     existing_ids = {str(n.get("id", "")) for n in nodes}
 
-    # Find the insertion point: just before run-phase-review (if present),
-    # otherwise at the end. Task nodes must precede run-phase-review in the
-    # declaration order so _topo_sort's implicit chaining doesn't mis-wire edges.
+    # Find the insertion point: just before execute-tasks (if present),
+    # otherwise before run-phase-review (legacy), otherwise at the end.
+    # Task nodes must precede the anchor in declaration order so _topo_sort's
+    # implicit chaining doesn't mis-wire edges.
+    execute_tasks_index = None
     rpr_index = None
     for i, n in enumerate(nodes):
-        if str(n.get("id", "")) == "run-phase-review":
+        node_id = str(n.get("id", ""))
+        if node_id == "execute-tasks":
+            execute_tasks_index = i
+        elif node_id == "run-phase-review":
             rpr_index = i
-            break
 
-    # Insert new task-nodes in order, each before run-phase-review.
-    insert_at = rpr_index if rpr_index is not None else len(nodes)
+    if execute_tasks_index is not None:
+        insert_at = execute_tasks_index
+    elif rpr_index is not None:
+        insert_at = rpr_index
+    else:
+        insert_at = len(nodes)
+
+    # Insert new task-nodes in order, each before the anchor.
     for task in tasks:
         node_id = f"task-{task['id']}"
         if node_id in existing_ids:
@@ -172,7 +182,8 @@ def expand_plan(state_yaml_path: str) -> None:
         existing_ids.add(node_id)
         insert_at += 1  # keep order; next insert goes after this one
 
-    # Rewire run-phase-review.depends_on to the last task-node id.
+    # Rewire anchor depends_on to the last task-node id: execute-tasks when
+    # present (schema anchor), else run-phase-review (legacy fallback).
     task_node_ids = [
         str(n.get("id", ""))
         for n in nodes
@@ -180,8 +191,13 @@ def expand_plan(state_yaml_path: str) -> None:
     ]
     if task_node_ids:
         last_task_node_id = task_node_ids[-1]
+        rewire_target = (
+            "execute-tasks"
+            if execute_tasks_index is not None
+            else "run-phase-review"
+        )
         for node in nodes:
-            if str(node.get("id", "")) == "run-phase-review":
+            if str(node.get("id", "")) == rewire_target:
                 node["depends_on"] = [last_task_node_id]
                 break
 
@@ -194,7 +210,7 @@ def expand_plan(state_yaml_path: str) -> None:
     nodes_copy = copy.deepcopy(nodes)
     _topo_sort(nodes_copy, filtered_ids)
 
-    # If nothing was appended and run-phase-review wasn't rewired, we can skip writing.
+    # If nothing was appended and execute-tasks wasn't rewired, we can skip writing.
     # But to keep logic simple, always write (yaml.safe_dump is deterministic for same input,
     # so idempotent second run will produce identical bytes only if ordering is preserved).
     # Write atomically.
