@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
-# preview-route.sh — wrap estimate-cost.sh, emit route_preview JSON on last
-# stdout line. Non-blocking: unavailability is a normal outcome.
+# preview-route — wrap metrics/estimate-cost.sh; emit route_preview JSON.
+# Non-blocking: unavailability is a normal outcome.
 #
-# Env inputs:  ORCHESTRATOR_WORKFLOW_DIR (or WORKFLOW_DIR), ORCHESTRATOR_HOME,
-#              ORCHESTRATOR_CHANGE_ID, REPO_ROOT
-# State lookup (when ORCHESTRATOR_CHANGE_ID is set): delegates to
-#   $REPO_ROOT/scripts/resolve-state-yaml.sh — order is live
-#   ($WORKFLOW_STATE_DIR/<id>/state.yaml) → main archive → worktree archive.
-#   Passes dirname(state.yaml) to the estimator, not the worktree root.
-# Outputs:     {route_preview: {...}} or {route_preview: {status: "estimate_unavailable", reason: "..."}}
+# Env: ORCHESTRATOR_WORKFLOW_DIR, ORCHESTRATOR_HOME, ORCHESTRATOR_CHANGE_ID, REPO_ROOT
+# State lookup: resolve-state-yaml.sh → dirname(state.yaml) passed to estimator.
 
 set -uo pipefail
 
 WORKFLOW_DIR="${ORCHESTRATOR_WORKFLOW_DIR:-${WORKFLOW_DIR:-}}"
 ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
-ESTIMATOR="$ORCHESTRATOR_HOME/scripts/estimate-cost.sh"
+_ORCH_HOME="${ORCHESTRATOR_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+ESTIMATOR=""
+for candidate in \
+  "$_ORCH_HOME/orchestrator_next/scripts/metrics/estimate-cost.sh" \
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../orchestrator_next/scripts/metrics" && pwd)/estimate-cost.sh"; do
+  if [ -f "$candidate" ]; then
+    ESTIMATOR="$candidate"
+    break
+  fi
+done
 
-if [ ! -x "$ESTIMATOR" ]; then
+if [ -z "$ESTIMATOR" ] || [ ! -f "$ESTIMATOR" ]; then
   printf '%s\n' "{\"route_preview\": {\"status\": \"estimate_unavailable\", \"reason\": \"estimator not found at $ESTIMATOR\"}}"
   exit 0
 fi
@@ -30,16 +34,16 @@ TMPOUT=$(mktemp "${TMPDIR:-/tmp}/preview-route-out.XXXXXX")
 TMPERR=$(mktemp "${TMPDIR:-/tmp}/preview-route-err.XXXXXX")
 
 if [ -n "${ORCHESTRATOR_CHANGE_ID:-}" ] && [ -n "${REPO_ROOT:-$(git -C "$WORKFLOW_DIR" rev-parse --show-toplevel 2>/dev/null)}" ]; then
-  RESOLVE_SCRIPT="$REPO_ROOT/scripts/resolve-state-yaml.sh"
-  if [ ! -f "$RESOLVE_SCRIPT" ]; then
-    _orch_root="${ORCHESTRATOR_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
-    if [ -f "$_orch_root/scripts/resolve-state-yaml.sh" ]; then
-      RESOLVE_SCRIPT="$_orch_root/scripts/resolve-state-yaml.sh"
-    elif [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/resolve-state-yaml.sh" ]; then
-      RESOLVE_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/resolve-state-yaml.sh"
+  RESOLVE_SCRIPT=""
+  for candidate in \
+    "$_ORCH_HOME/orchestrator_next/scripts/metrics/resolve-state-yaml.sh" \
+    "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../orchestrator_next/scripts/metrics" && pwd)/resolve-state-yaml.sh"; do
+    if [ -f "$candidate" ]; then
+      RESOLVE_SCRIPT="$candidate"
+      break
     fi
-  fi
-  if [ -f "$RESOLVE_SCRIPT" ]; then
+  done
+  if [ -n "$RESOLVE_SCRIPT" ]; then
     STATE_YAML="$(bash "$RESOLVE_SCRIPT" "$ORCHESTRATOR_CHANGE_ID" "$REPO_ROOT" 2>/dev/null)" || STATE_YAML=""
   else
     STATE_YAML=""
@@ -53,7 +57,7 @@ else
   ARG_DIR="$WORKFLOW_DIR"
 fi
 
-"$ESTIMATOR" "$ARG_DIR" > "$TMPOUT" 2> "$TMPERR"
+bash "$ESTIMATOR" "$ARG_DIR" > "$TMPOUT" 2> "$TMPERR"
 EXIT_CODE=$?
 
 if [ "$EXIT_CODE" -ne 0 ] || [ ! -s "$TMPOUT" ]; then

@@ -19,4 +19,5 @@ steps:
   - run-learn-cycle
   - mark-change-completed
   - compute-swe-metrics
+  - cost-report
   - complete-workflow

@@ -2,27 +2,20 @@
 # complete-workflow.sh — archive step for workflow completion.
 #
 # Sequences, inside ONE process:
-#   0. READ state.yaml-derived values into bash vars (before any mutation)
 #   1. ARCHIVE (unconditional) — mv active session dir to archive on the feature
-#      worktree when worktree=true, else in REPO_ROOT
+#      worktree when WORKTREE_ROOT is set, else in REPO_ROOT
 #
 # Merge and worktree removal run from `orchestrator complete` after the complete
 # phase succeeds: merge first (unconditional — invoking that verb is the signal), then teardown.
 #
-# Env inputs:  STATE_YAML_PATH, REPO_ROOT  (forwarded by bin/orchestrator)
+# Env (set by bin/orchestrator for inline steps): STATE_YAML_PATH, REPO_ROOT,
+#   CHANGE_ID, ARCHIVE_PATH, WORKTREE_ROOT (when worktree_path is set)
 # Outputs:     {"completion_record": {merge_record, archive_record, worktree_record}}
 
 set -uo pipefail
 
 _ORC_HOME="${ORCHESTRATOR_HOME:-${REPO_ROOT}}"
-_INLINE_DIR="${_ORC_HOME}/scripts/inline"
 _ARCHIVE_SCRIPT="${_ORC_HOME}/config/steps/archive-completed-change/script.sh"
-
-if [[ -n "${STATE_YAML_PATH:-}" && -f "${STATE_YAML_PATH:-}" ]]; then
-  # shellcheck source=scripts/inline/_read_state_env.sh
-  source "$_INLINE_DIR/_read_state_env.sh"
-  read_state_env "$STATE_YAML_PATH" REPO_ROOT
-fi
 
 REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 

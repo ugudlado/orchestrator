@@ -1,14 +1,8 @@
 #!/usr/bin/env bash
 # archive-completed-change.sh — move workflow state to archive + commit.
 #
-# Env inputs:  REPO_ROOT, CHANGE_ID, ARCHIVE_PATH
-#              (ARCHIVE_PATH is repo-relative, e.g. spec/changes/archive/orc-85/)
-#              WORKTREE_ROOT — feature worktree root (worktree=true runs);
-#                             falls back to ORCHESTRATOR_WORKFLOW_DIR. When set,
-#                             archive + git commit run in that worktree so the
-#                             feature branch owns the archive commit.
-#                             When empty (worktree=false), archive in REPO_ROOT.
-#                             Source is <root>/spec/changes/$CHANGE_ID/.
+# Env (set by bin/orchestrator): REPO_ROOT, CHANGE_ID, ARCHIVE_PATH,
+#   WORKTREE_ROOT (feature worktree root when worktree_path is set; else empty)
 # Outputs:     {archive_record: {archived_at, archive_path, commit_sha}}
 #   or        {archive_record: {skipped: true, reason}}
 
@@ -17,16 +11,7 @@ set -uo pipefail
 REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
 CHANGE_ID="${CHANGE_ID:-}"
 ARCHIVE_PATH="${ARCHIVE_PATH:-}"
-WORKTREE_ROOT="${WORKTREE_ROOT:-${ORCHESTRATOR_WORKFLOW_DIR:-}}"
-
-if [[ -n "${STATE_YAML_PATH:-}" && -f "$STATE_YAML_PATH" ]]; then
-  # shellcheck source=scripts/inline/_read_state_env.sh
-  _ORC_HOME="${ORCHESTRATOR_HOME:-${REPO_ROOT}}"
-  source "${_ORC_HOME}/scripts/inline/_read_state_env.sh"
-  read_state_env "$STATE_YAML_PATH" CHANGE_ID ARCHIVE_PATH WORKTREE_ROOT REPO_ROOT
-  REPO_ROOT="${REPO_ROOT:-}"
-  WORKTREE_ROOT="${WORKTREE_ROOT:-${ORCHESTRATOR_WORKFLOW_DIR:-}}"
-fi
+WORKTREE_ROOT="${WORKTREE_ROOT:-}"
 
 if [ -z "$CHANGE_ID" ] || [ -z "$ARCHIVE_PATH" ]; then
   printf '%s\n' '{"archive_record": {"skipped": true, "reason": "missing required env vars"}}'
@@ -65,11 +50,7 @@ fi
 
 ARCHIVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# Write cost-summary.md into the archive dir before committing.
-COST_REPORT_SCRIPT="$REPO_ROOT/scripts/cost-report.sh"
-if [ -f "$COST_REPORT_SCRIPT" ] && [ -n "${ORCHESTRATOR_HOME:-}" ]; then
-  bash "$COST_REPORT_SCRIPT" --change-id "$CHANGE_ID" > "$DST/cost-summary.md" 2>/dev/null || true
-fi
+# cost-summary.md is written by the cost-report workflow step before archive.
 
 cd "$GIT_ROOT"
 git add "$ARCHIVE_PATH" 2>/dev/null

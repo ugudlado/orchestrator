@@ -14,4 +14,5 @@ steps:
   - ticket-qa             # ticket -> QA Review
   - mark-change-completed
   - compute-swe-metrics
+  - cost-report
   - complete-workflow

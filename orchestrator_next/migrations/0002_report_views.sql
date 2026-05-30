@@ -1,7 +1,7 @@
 -- Phase 3 of workflow-engine-as-state-machine.
 -- Replaces metrics_report.aggregate_metrics() and cost_report._totals/_per_phase/_per_agent
--- with pure SQL views. Consumer scripts (compute-swe-metrics.sh,
--- read-sub-state-metrics.sh, cost-report.sh) read these via `duckdb -json -readonly`.
+-- with pure SQL views. Consumer scripts (compute-swe-metrics.sh, cost-report.sh)
+-- read these via `duckdb -json -readonly`.
 
 -- ---------------------------------------------------------------------------
 -- 1. feature_report — one row per (repo_root, change_id)

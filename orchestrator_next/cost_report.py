@@ -7,7 +7,7 @@ Public API:
 
 Note: Aggregation, rendering, and formatting functions were removed in T-12
 (report-views-retire-cli). The DuckDB views in views/ now handle all
-aggregation; scripts/cost-report.sh handles all rendering.
+aggregation; orchestrator_next/scripts/metrics/cost-report.sh handles rendering (via cost-report step).
 
 Design:
   - Anomaly detection degrades gracefully: missing file or bad YAML → None → skip.

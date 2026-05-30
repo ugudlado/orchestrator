@@ -48,6 +48,24 @@ _STATE_PATCH_KEYS = frozenset({
 
 _PHASE_REVIEW_VERDICTS = frozenset({"pass", "needs_work", "incomplete_phase"})
 
+
+def _resolve_append_retro_script(repo_root: str) -> str:
+    """Path to append-retro.sh for workflow_issues handling."""
+    candidates: list[str] = []
+    home = os.environ.get("ORCHESTRATOR_HOME", "")
+    if home:
+        candidates.append(
+            os.path.join(home, "orchestrator_next", "scripts", "complete", "append-retro.sh")
+        )
+    if repo_root:
+        candidates.append(
+            os.path.join(repo_root, "orchestrator_next", "scripts", "complete", "append-retro.sh")
+        )
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return ""
+
 # Task tool result text embeds the subagent JSONL stem on its own line.
 _AGENT_ID_FROM_TASK_RESULT_RE = re.compile(r"agentId:\s*([a-f0-9]{17})")
 
@@ -1871,15 +1889,8 @@ def record(
             try:
                 import os as _os
                 import subprocess as _sp
-                script = _os.path.join(
-                    state_raw.get("repo_root") or "",
-                    "config", "scripts", "inline", "append-retro.sh",
-                )
-                if not _os.path.isfile(script):
-                    home = _os.environ.get("ORCHESTRATOR_HOME", "")
-                    if home:
-                        script = _os.path.join(home, "config", "scripts", "inline", "append-retro.sh")
-                if _os.path.isfile(script):
+                script = _resolve_append_retro_script(str(state_raw.get("repo_root") or ""))
+                if script:
                     for issue in issues:
                         # per-issue phase/step fallback
                         issue.setdefault("surfaced_at", f"{phase}/{step_id}")
