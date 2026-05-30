@@ -541,7 +541,7 @@ def upsert_step_event(
         entry.phase,
         entry.step_id,
         attempt,
-        entry.agent,
+        entry.agent or "none",
         agent_id,
         entry.status,
         entry.started_at,
@@ -568,7 +568,7 @@ def upsert_step_event(
         phase=entry.phase,
         step_id=entry.step_id,
         attempt=attempt,
-        agent_name=entry.agent,
+        agent_name=entry.agent or "none",
         usage=entry.usage,
     )
 

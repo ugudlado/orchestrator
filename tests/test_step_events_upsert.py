@@ -134,7 +134,7 @@ class TestStepEventsUpsert(unittest.TestCase):
             """
         ).fetchone()
         self.assertIsNotNone(row, "No row for step-inline-only")
-        self.assertIsNone(row[0], "agent_name must be NULL for script steps with no agent")
+        self.assertEqual(row[0], "none", "agent_name must be 'none' sentinel for script steps with no agent")
         self.assertIsNone(row[1], "input_tokens should be NULL for script steps with no agent")
         self.assertIsNone(row[2], "output_tokens should be NULL for script steps with no agent")
         self.assertIsNone(row[3], "cost_usd should be NULL for script steps with no agent")
