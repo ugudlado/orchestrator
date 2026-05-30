@@ -68,7 +68,7 @@ fine-grained tiebreaks behind the coarse `high|medium|low` priority bucket.
 Before recommending an existing task, verify that it is still relevant:
 
 1. List candidates via `backlog task list -s "To Do" --plain` and read full bodies via `backlog task <id> --plain`.
-2. Read `spec/changes/archive/*/{spec.md,tasks.md,state.yaml}` for completed work that may have already implemented or superseded the task.
+2. Read `spec/changes/archive/*/{design.md,tasks.yaml,state.yaml}` for completed work that may have already implemented or superseded the task.
 3. Search the current repo for concrete implementation evidence using `rg`, `rg --files`, and focused file reads.
 4. Classify each backlog task:
    - `fresh` — no current implementation found; still valuable.

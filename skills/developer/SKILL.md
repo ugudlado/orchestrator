@@ -14,8 +14,7 @@ was chosen, what alternatives were rejected, and what constraints exist.
 Before writing any code, build your mental model:
 
 1. **Read discovery.md** (if exists) — understand the problem space, what already existed, build-or-reuse decisions, and why this approach was chosen over alternatives
-2. **Read spec.md** — understand requirements, acceptance criteria, and scope boundaries
-3. **Read design.md** (if exists) — understand component breakdown, data flow, error handling strategy, and the simplicity rationale
+2. **Read design.md** — understand requirements, acceptance criteria, component breakdown, data flow, and error handling strategy
 4. **Read tasks.md** — understand the full task graph, dependencies, and where your current task fits
 5. **Read the current task** — understand the description and Verify criteria
 

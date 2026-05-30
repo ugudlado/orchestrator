@@ -240,7 +240,7 @@ Full feature-level verification before user approval.
 - [ ] All tasks in tasks.md are [x] or [~] (skipped with reason)
 
 **Spec Traceability**
-- [ ] Every acceptance criterion in spec.md is satisfied (with evidence per criterion)
+- [ ] Every acceptance criterion in design.md is satisfied (with evidence per criterion)
 - [ ] Every use case from discovery.md traces to at least one acceptance criterion (`[traces: UC-N]`)
 - [ ] No acceptance criteria added that weren't in the spec (scope creep)
 - [ ] No acceptance criteria dropped without documented reason

@@ -28,7 +28,7 @@ You receive the **approved Discovery Brief** as your primary input. This brief c
 
 3. **Artifact creation** — synthesize inputs into Spec artifacts. The design should result in code that is simple, elegant, and leaves the system better than before.
 
-4. **Use case tracing** — map every use case from the Discovery Brief to at least one acceptance criterion in spec.md using `[traces: UC-N]`.
+4. **Use case tracing** — map every use case from the Discovery Brief to at least one acceptance criterion in design.md using `[traces: UC-N]`.
 
 ### Discovery Brief Integration
 
@@ -42,8 +42,7 @@ When you receive a Discovery Brief:
 7. If UI direction is specified, design.md must align with the locked visual direction
 
 ### Artifact Standards
-- **spec.md**: Motivation, requirements (functional + non-functional), acceptance criteria (traced to use cases), alternatives considered
-- **design.md**: Selected approach with rationale, component breakdown, data flow, error handling. Should be the simplest design that meets the spec.
+- **design.md**: Motivation, requirements (functional + non-functional), acceptance criteria (traced to use cases), selected approach with rationale, component breakdown, data flow, error handling. Should be the simplest design that meets the requirements.
 - **tasks.yaml**: The `design-and-draft-artifacts` step writes `tasks.yaml` in the same pass as `design.md` per `config/steps/design-and-draft-artifacts/prompt.md`.
 
 ### Rerun guard (design-and-draft-artifacts)
@@ -80,7 +79,7 @@ If you need data the Discovery Brief didn't cover, signal this to the orchestrat
 You validate the full implementation against the original specification.
 
 ### Your Responsibilities
-- Read spec.md and design.md to understand intended behavior
+- Read design.md to understand intended behavior
 - Review all implementation changes (git diff from feature branch)
 - Check for spec drift — features that diverge from the original design
 - Check coding practices — consistency, naming, error handling, security
@@ -105,12 +104,11 @@ If no gaps:
 
 Triggered when the developer agent escalates during task implementation. The developer
 has hit a design conflict, gap, or ambiguity that cannot be resolved by re-reading
-spec.md or design.md alone.
+design.md alone.
 
 ### Inputs You Receive
 
-- `spec.md` — the original specification
-- `design.md` — the current design
+- `design.md` — the feature specification and design (single artifact)
 - Escalation block: `type`, `task_id`, `context`, `question`, `attempted`
 - `tasks.md` — full task list with current completion status (which tasks are done)
 
@@ -138,7 +136,7 @@ spec.md or design.md alone.
 ```
 DECISION: <single concrete directive — what the developer must do>
 RATIONALE: |
-  <why this decision — grounded in spec.md requirements, design.md principles, or
+  <why this decision — grounded in design.md requirements/principles, or
   the simplicity-first principle. One to three sentences.>
 DESIGN_AMENDMENT: |
   <prose or diff showing what to add/change in design.md to close the gap>
