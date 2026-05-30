@@ -6,15 +6,10 @@ run-workflow loop (which would halt on archived/completed features).
 """
 from __future__ import annotations
 
-import os
-import subprocess
 import sys
 from pathlib import Path
 
-from orchestrator_next.operator_workflow import workflow_step_ids
-from orchestrator_next.parser import load_contract_for_step, load_state
-from orchestrator_next.step_env import inline_script_env
-from orchestrator_next.step_runner import run_step_subprocess
+from orchestrator_next.operator_workflow import run_script_step, workflow_step_ids
 
 _REWORK_STEP_ID = "ticket-rework"
 _REWORK_SCHEMA = "rework"
@@ -42,31 +37,13 @@ def run_rework(state_yaml_path: str) -> int:
         )
         return 3
 
-    state = load_state(str(path))
-    contract = load_contract_for_step(_REWORK_STEP_ID, str(path))
-    if not contract.run and not contract.main:
-        print(f"error: {_REWORK_STEP_ID} contract has no run: or main:", file=sys.stderr)
-        return 3
-
-    proc = run_step_subprocess(
-        _REWORK_STEP_ID,
-        contract,
-        inline_script_env(
-            state,
-            str(path),
-            action_env={
-                "ORCHESTRATOR_STEP_ID": _REWORK_STEP_ID,
-                "ORCHESTRATOR_ATTEMPT": "1",
-            },
-        ),
-    )
-    if proc.stderr:
-        sys.stderr.write(proc.stderr)
-        if not proc.stderr.endswith("\n"):
-            sys.stderr.write("\n")
-    if proc.stdout:
-        sys.stdout.write(proc.stdout)
-    return proc.returncode
+    env = {
+        "STATE_YAML_PATH": str(path),
+        "ORCHESTRATOR_STATE_YAML_PATH": str(path),
+        "ORCHESTRATOR_STEP_ID": _REWORK_STEP_ID,
+        "ORCHESTRATOR_ATTEMPT": "1",
+    }
+    return run_script_step(_REWORK_STEP_ID, env)
 
 
 def main(argv: list[str] | None = None) -> int:

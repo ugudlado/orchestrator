@@ -85,6 +85,7 @@ def test_run_rework_worktree_archive(tmp_path, monkeypatch):
                 "worktree_path": str(wt_base),
                 "branch": "feature/orc-fixture",
                 "ticket_id": "task-99",
+                "ticketing": "backlog",
             },
             sort_keys=False,
         ),

@@ -2,4 +2,6 @@ id: ticket-rework
 version: 1
 kind: script
 run: script.sh
-main: ticket_rework.py
+params:
+  TICKET_SYNC_STATUS: "In Progress"
+  TICKET_SYNC_LOG_PREFIX: ticket-rework
