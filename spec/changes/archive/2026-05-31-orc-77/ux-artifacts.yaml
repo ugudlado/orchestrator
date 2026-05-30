@@ -1,0 +1,7 @@
+prototype:
+  file: ux-prototype.html
+  description: "No UI — ORC-77 is a pure engine refactor with no user-facing interface changes"
+  options_considered: 0
+  selected_option: null
+  critique_status: skipped
+  critique_rounds: 0

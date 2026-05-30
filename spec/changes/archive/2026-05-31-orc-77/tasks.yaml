@@ -1,0 +1,227 @@
+version: 1
+tasks:
+  - id: T-1
+    title: Remove agent inline default from parser.py and generate_plan.py
+    files:
+      - orchestrator_next/parser.py
+      - orchestrator_next/generate_plan.py
+    why: AC-1, AC-5 — parser must produce None (not "inline") so dispatch truthiness check routes correctly; generate_plan must emit None in state nodes.
+    change: |
+      parser.py line 374: raw.get("agent", "inline") → raw.get("agent")
+      generate_plan.py line 276: agent = "inline" → agent = None
+      generate_plan.py line 280: contract_raw.get("agent", "inline") → contract_raw.get("agent")
+    verify:
+      - python -c "from orchestrator_next.parser import _parse_history_entry; e = _parse_history_entry({'step_id':'x','phase':'p','status':'completed'}); assert e.agent is None, f'expected None, got {e.agent!r}'"
+      - python -c "from orchestrator_next.generate_plan import _build_node_for_step; print('import ok')"
+    test_scenarios:
+      - A history entry with no agent field deserializes with agent=None
+      - A step contract with no agent field produces agent=None in the plan node
+
+  - id: T-2
+    title: Fix agent sentinel checks in dispatch.py and doctor.py
+    depends_on: [T-1]
+    files:
+      - orchestrator_next/dispatch.py
+      - orchestrator_next/doctor.py
+    why: AC-1, AC-2, AC-3, AC-5 — dispatch must route on None, not "inline"; doctor must skip None-agent steps.
+    change: |
+      dispatch.py line 267: `if not contract.agent or contract.agent == "inline":` → `if contract.agent is None:`
+      dispatch.py line 488: `agent=last.agent or "inline"` → `agent=last.agent` (None is the correct fallback for missing agent)
+      dispatch.py line 554: StepContract(agent="inline", ...) → StepContract(agent=None, ...)
+      doctor.py line 227: `if not name or name == "inline":` → `if name is None:`
+    verify:
+      - pytest orchestrator_next/tests/test_dispatch.py -q
+      - pytest orchestrator_next/tests/test_dispatch_allowed_tools.py -q
+      - pytest orchestrator_next/tests/test_doctor.py -q
+    test_scenarios:
+      - Script step (agent=None, run=script.sh) dispatches via run branch, not agent branch
+      - Named agent step (agent=developer) dispatches via agent branch, unaffected
+      - Step with neither agent nor run raises ContractDispatchError
+      - Doctor skips agent-file check for steps with agent=None
+
+  - id: T-3
+    title: Fix agent sentinel comparisons in record.py
+    depends_on: [T-1]
+    files:
+      - orchestrator_next/record.py
+    why: AC-4 — record must store None (→ NULL in DuckDB) for script steps; must not enter agent-token-required branch for None-agent steps.
+    change: |
+      line 1499: `contract_agent != "inline"` → `contract_agent is not None`
+      line 1516: `payload.get("agent", "inline")` → `payload.get("agent")`
+      line 1520: `agent != "inline"` → `agent is not None`
+      line 1648: `payload.get("agent", "inline")` → `payload.get("agent")`
+      Lines 1516 and 1520 MUST change together: if 1516 defaults to None but 1520 still compares != "inline", None != "inline" is True and script steps wrongly enter the token-required branch.
+    verify:
+      - pytest orchestrator_next/tests/test_record_agent_field.py -q
+      - pytest orchestrator_next/tests/test_record_validation.py -q
+      - pytest orchestrator_next/tests/test_record_check_b.py -q
+    test_scenarios:
+      - Script step done-payload with no agent field records agent=None in state history
+      - Agent step done-payload with agent=developer still triggers token-required validation
+      - record.py does not enter token-required branch for agent=None step
+
+  - id: T-4
+    title: Migrate test fixture contracts to omit agent field
+    depends_on: []
+    files:
+      - tests/fixtures/step_contracts/step-inline-only.yaml
+      - tests/fixtures/step_contracts/step-typed-io.yaml
+    why: "AC-6 — fixtures that carry agent: inline must be updated to omit the field, matching the new canonical shape."
+    change: |
+      step-inline-only.yaml: remove `agent: inline` line entirely
+      step-typed-io.yaml: remove `agent: inline` line entirely
+      Both contracts already have instruction: and no run:, so they represent the driver-inline (no-agent, no-script) shape correctly after removal.
+    verify:
+      - python -c "import yaml; d=yaml.safe_load(open('tests/fixtures/step_contracts/step-inline-only.yaml')); assert 'agent' not in d, 'agent field still present'"
+      - python -c "import yaml; d=yaml.safe_load(open('tests/fixtures/step_contracts/step-typed-io.yaml')); assert 'agent' not in d, 'agent field still present'"
+    test_scenarios:
+      - step-inline-only.yaml loads without agent field
+      - step-typed-io.yaml loads without agent field
+
+  - id: T-5
+    title: "Migrate state YAML fixtures to omit agent: inline entries"
+    depends_on: []
+    files:
+      - tests/fixtures/state-upsert-basic.yaml
+      - tests/fixtures/state-typed-io-resolved.yaml
+      - tests/fixtures/state-phase-done-needs-verify.yaml
+      - tests/fixtures/state-in-progress-no-ended.yaml
+      - tests/fixtures/state-crash-midstep.yaml
+      - tests/fixtures/state-cost-probe.yaml
+      - tests/fixtures/state-all-done.yaml
+      - tests/fixtures/state-after-retry-complete.yaml
+    why: "AC-6 — step_history entries in state fixtures must have agent field removed (absent → None via parser.py after T-1)."
+    change: |
+      In each YAML fixture: for every step_history entry with `agent: inline`, remove the `agent: inline` line entirely. The parser will produce agent=None from the absent field after T-1 is applied.
+    verify:
+      - "grep -rL 'agent: inline' tests/fixtures/state-*.yaml | wc -l || true; ! grep -rl 'agent: inline' tests/fixtures/state-*.yaml"
+    test_scenarios:
+      - No state fixture YAML contains the string "agent: inline" after migration
+      - State fixtures still load without parse errors
+
+  - id: T-6
+    title: Update baseline.duckdb.sql fixture to use NULL for script-step agent
+    depends_on: [T-3, T-5]
+    files:
+      - tests/__tests__/fixtures/baseline.duckdb.sql
+    why: AC-7 — DuckDB baseline fixture carries 8 INSERT rows with 'inline' in the agent column position; these must be replaced with NULL to match record.py's new output.
+    change: |
+      tests/__tests__/fixtures/baseline.duckdb.sql: For each of the 8 INSERT INTO main.step_events rows where the 6th positional value is 'inline', replace 'inline' with NULL.
+      The INSERT row format is: (repo_root, change_id, phase, step_id, attempt, agent, ...).
+      Sixth positional field = agent column.
+    verify:
+      - python -c "content=open('tests/__tests__/fixtures/baseline.duckdb.sql').read(); assert \",'inline',\" not in content and \"'inline',NULL\" not in content, 'inline still present in baseline fixture'"
+      - bash tests/__tests__/compute-swe-metrics.test.sh
+    test_scenarios:
+      - baseline.duckdb.sql contains no 'inline' string in agent column position
+      - compute-swe-metrics tests pass with NULL agent values
+
+  - id: T-7
+    title: Update test assertions referencing agent=="inline" in Python test files
+    depends_on: [T-1, T-2, T-3]
+    files:
+      - orchestrator_next/tests/test_record_agent_field.py
+      - orchestrator_next/tests/test_record_validation.py
+      - orchestrator_next/tests/test_dispatch.py
+      - orchestrator_next/tests/test_dispatch_resume.py
+      - orchestrator_next/tests/test_dispatch_missing_contract.py
+      - orchestrator_next/tests/test_dispatch_allowed_tools.py
+      - orchestrator_next/tests/test_generate_plan.py
+      - orchestrator_next/tests/test_doctor.py
+      - orchestrator_next/tests/test_record_check_b.py
+      - orchestrator_next/tests/test_record_cost_compute.py
+      - orchestrator_next/tests/test_complete_workflow_e2e.py
+      - orchestrator_next/tests/test_endtoend_migrated_workflow.py
+      - orchestrator_next/tests/test_phase_boundary_write.py
+      - orchestrator_next/tests/test_dispatch_pending_row.py
+      - orchestrator_next/tests/test_done_status_dispatch.py
+      - orchestrator_next/tests/test_dispatch_learnings.py
+      - orchestrator_next/tests/test_record_cleans_pending.py
+      - orchestrator_next/tests/test_rework_reentry.py
+      - orchestrator_next/tests/test_doctor_graph.py
+      - orchestrator_next/tests/test_repeat_until.py
+      - orchestrator_next/tests/test_readiness.py
+      - orchestrator_next/tests/test_expand_plan.py
+      - orchestrator_next/tests/test_expand_plan_cli.py
+      - orchestrator_next/tests/test_feature_metrics_trigger.py
+    why: AC-6 — 123 occurrences across 24 test files that either assert agent_name=="inline" or construct fixture dicts with "inline"; all must use None after engine migration.
+    change: |
+      For each test file: replace dict/fixture construction `"agent": "inline"` → `"agent": None` (or remove the key).
+      Replace assertion `agent_name == "inline"` → `agent_name is None`.
+      Replace assertion `assert result["agent"] == "inline"` → `assert result["agent"] is None`.
+      Do NOT change tests that reference the `inline: bool` field (HL-287 M3) — that field is unrelated.
+    verify:
+      - pytest orchestrator_next/tests/ -q
+    test_scenarios:
+      - All 24 affected test files pass with zero failures
+      - No test asserts agent_name == "inline" as a passing condition
+
+  - id: T-8
+    title: Update inline-steps-are-tokenless learning in spec/project.yaml
+    depends_on: [T-1, T-3]
+    files:
+      - spec/project.yaml
+    why: AC-6 (documentation) — the learning entry describes the old "inline" sentinel; it must be updated to describe the None/NULL pattern.
+    change: |
+      spec/project.yaml, learning entry id: inline-steps-are-tokenless (line ~86):
+      Update `rule:` text to say: script steps have agent=None (no sentinel string);
+      per-step token capture is not attempted for None-agent steps; DuckDB agent column
+      is NULL for script steps. Remove reference to the "inline" string sentinel.
+    verify:
+      - python -c "import yaml; p=yaml.safe_load(open('spec/project.yaml')); l=[x for x in p.get('learnings',[]) if x.get('id')=='inline-steps-are-tokenless'][0]; assert 'inline' not in l['rule'] or 'agent: inline' not in l['rule'], 'sentinel string still in learning rule'"
+    test_scenarios:
+      - inline-steps-are-tokenless learning no longer references the "inline" sentinel string
+      - project.yaml still loads as valid YAML
+
+  - id: fix-1
+    title: Allow NULL agent_name in upsert.py step_events schema and update tests
+    depends_on: [T-8]
+    files:
+      - orchestrator_next/upsert.py
+      - tests/test_step_events_upsert.py
+    why: >
+      AC-4 regression — T-5 removed agent: inline from state-upsert-basic.yaml so script
+      steps parse as agent=None, but upsert.py's CREATE TABLE has agent_name VARCHAR NOT NULL
+      which DuckDB rejects, causing 3 new test failures. tests/test_step_events_upsert.py
+      also asserts agent_name == 'inline' which must change to IS NULL after the migration.
+    change: |
+      upsert.py line 45: agent_name  VARCHAR NOT NULL → agent_name  VARCHAR
+      tests/test_step_events_upsert.py line 137:
+        self.assertEqual(row[0], "inline", ...) → self.assertIsNone(row[0], ...)
+      tests/test_step_events_upsert.py line 152:
+        agent="inline" → agent=None
+      tests/test_step_events_upsert.py lines 210-228 (test_dimension_keys_non_null):
+        Remove "agent_name" from the non-null assertion list (it is now nullable for
+        script steps); keep all other dimension key assertions.
+      tests/test_step_events_upsert.py docstring line 17:
+        Update "inline step produces row with agent_name='inline'" → "agent_name=NULL".
+    verify:
+      - pytest tests/test_step_events_upsert.py -q
+    test_scenarios:
+      - Script step with no agent field upserts with agent_name=NULL (no ConstraintException)
+      - test_inline_agent_null_tokens passes with agent_name IS NULL assertion
+      - test_dimension_keys_non_null passes (agent_name no longer required non-null)
+
+  - id: fix-2
+    title: Fix run-workflow.sh log display for script steps (agent display)
+    depends_on: [fix-1]
+    files:
+      - orchestrator_next/scripts/run-workflow.sh
+    why: >
+      Important cosmetic regression — run-workflow.sh line 503 sets
+      AGENT=$(jq '.agent // "developer"') but script steps no longer emit "agent" key
+      in the dispatch action JSON, so AGENT defaults to "developer" and the log
+      line shows "agent=developer" for script steps instead of no agent suffix.
+      Line 513 checks AGENT != "inline" (dead code) which never suppresses this.
+    change: |
+      run-workflow.sh line 503: Change fallback from "developer" to empty/null:
+        AGENT=$(echo "$ACTION_JSON" | jq -r '.agent // ""')
+      run-workflow.sh line 513: Change comparison to non-empty check:
+        if [ -n "$AGENT" ]; then
+      This restores correct behavior: script steps show no agent suffix in logs.
+    verify:
+      - grep -n 'AGENT=' orchestrator_next/scripts/run-workflow.sh
+      - grep -n 'AGENT_SUFFIX' orchestrator_next/scripts/run-workflow.sh
+    test_scenarios:
+      - Script step log line shows no agent suffix
+      - Named-agent step log line still shows agent=developer

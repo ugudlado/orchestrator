@@ -1,0 +1,1333 @@
+change_id: orc-77
+slug: orc-77
+schema: feature
+status: active
+repo_root: /Users/spidey/code/orchestrator
+flags: {}
+workflow_plan:
+  main:
+    nodes:
+    - id: explore
+      status: completed
+      agent: discoverer
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+    - id: ux-design
+      status: completed
+      agent: ideator
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - explore
+    - id: design-and-draft-artifacts
+      status: completed
+      agent: architect
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - ux-design
+    - id: expand-plan
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - design-and-draft-artifacts
+    - id: preview-route
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - expand-plan
+    - id: ticket-start
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - preview-route
+    - id: capture-test-baseline
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - ticket-start
+    - id: run-ux-critique
+      status: completed
+      agent: ux-reviewer
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - capture-test-baseline
+    - id: task-T-1
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Remove agent inline default from parser.py and generate_plan.py
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on: []
+      task:
+        id: T-1
+        title: Remove agent inline default from parser.py and generate_plan.py
+        files:
+        - orchestrator_next/parser.py
+        - orchestrator_next/generate_plan.py
+        why: "AC-1, AC-5 \u2014 parser must produce None (not \"inline\") so dispatch\
+          \ truthiness check routes correctly; generate_plan must emit None in state\
+          \ nodes."
+        change: "parser.py line 374: raw.get(\"agent\", \"inline\") \u2192 raw.get(\"\
+          agent\")\ngenerate_plan.py line 276: agent = \"inline\" \u2192 agent = None\n\
+          generate_plan.py line 280: contract_raw.get(\"agent\", \"inline\") \u2192\
+          \ contract_raw.get(\"agent\")\n"
+        verify:
+        - python -c "from orchestrator_next.parser import _parse_history_entry; e
+          = _parse_history_entry({'step_id':'x','phase':'p','status':'completed'});
+          assert e.agent is None, f'expected None, got {e.agent!r}'"
+        - python -c "from orchestrator_next.generate_plan import _build_node_for_step;
+          print('import ok')"
+        test_scenarios:
+        - A history entry with no agent field deserializes with agent=None
+        - A step contract with no agent field produces agent=None in the plan node
+    - id: task-T-2
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Fix agent sentinel checks in dispatch.py and doctor.py
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-1
+      task:
+        id: T-2
+        title: Fix agent sentinel checks in dispatch.py and doctor.py
+        depends_on:
+        - T-1
+        files:
+        - orchestrator_next/dispatch.py
+        - orchestrator_next/doctor.py
+        why: "AC-1, AC-2, AC-3, AC-5 \u2014 dispatch must route on None, not \"inline\"\
+          ; doctor must skip None-agent steps."
+        change: "dispatch.py line 267: `if not contract.agent or contract.agent ==\
+          \ \"inline\":` \u2192 `if contract.agent is None:`\ndispatch.py line 488:\
+          \ `agent=last.agent or \"inline\"` \u2192 `agent=last.agent` (None is the\
+          \ correct fallback for missing agent)\ndispatch.py line 554: StepContract(agent=\"\
+          inline\", ...) \u2192 StepContract(agent=None, ...)\ndoctor.py line 227:\
+          \ `if not name or name == \"inline\":` \u2192 `if name is None:`\n"
+        verify:
+        - pytest orchestrator_next/tests/test_dispatch.py -q
+        - pytest orchestrator_next/tests/test_dispatch_allowed_tools.py -q
+        - pytest orchestrator_next/tests/test_doctor.py -q
+        test_scenarios:
+        - Script step (agent=None, run=script.sh) dispatches via run branch, not agent
+          branch
+        - Named agent step (agent=developer) dispatches via agent branch, unaffected
+        - Step with neither agent nor run raises ContractDispatchError
+        - Doctor skips agent-file check for steps with agent=None
+    - id: task-T-3
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Fix agent sentinel comparisons in record.py
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-1
+      task:
+        id: T-3
+        title: Fix agent sentinel comparisons in record.py
+        depends_on:
+        - T-1
+        files:
+        - orchestrator_next/record.py
+        why: "AC-4 \u2014 record must store None (\u2192 NULL in DuckDB) for script\
+          \ steps; must not enter agent-token-required branch for None-agent steps."
+        change: "line 1499: `contract_agent != \"inline\"` \u2192 `contract_agent\
+          \ is not None`\nline 1516: `payload.get(\"agent\", \"inline\")` \u2192 `payload.get(\"\
+          agent\")`\nline 1520: `agent != \"inline\"` \u2192 `agent is not None`\n\
+          line 1648: `payload.get(\"agent\", \"inline\")` \u2192 `payload.get(\"agent\"\
+          )`\nLines 1516 and 1520 MUST change together: if 1516 defaults to None but\
+          \ 1520 still compares != \"inline\", None != \"inline\" is True and script\
+          \ steps wrongly enter the token-required branch.\n"
+        verify:
+        - pytest orchestrator_next/tests/test_record_agent_field.py -q
+        - pytest orchestrator_next/tests/test_record_validation.py -q
+        - pytest orchestrator_next/tests/test_record_check_b.py -q
+        test_scenarios:
+        - Script step done-payload with no agent field records agent=None in state
+          history
+        - Agent step done-payload with agent=developer still triggers token-required
+          validation
+        - record.py does not enter token-required branch for agent=None step
+    - id: task-T-4
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Migrate test fixture contracts to omit agent field
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on: []
+      task:
+        id: T-4
+        title: Migrate test fixture contracts to omit agent field
+        depends_on: []
+        files:
+        - tests/fixtures/step_contracts/step-inline-only.yaml
+        - tests/fixtures/step_contracts/step-typed-io.yaml
+        why: "AC-6 \u2014 fixtures that carry agent: inline must be updated to omit\
+          \ the field, matching the new canonical shape."
+        change: 'step-inline-only.yaml: remove `agent: inline` line entirely
+
+          step-typed-io.yaml: remove `agent: inline` line entirely
+
+          Both contracts already have instruction: and no run:, so they represent
+          the driver-inline (no-agent, no-script) shape correctly after removal.
+
+          '
+        verify:
+        - python -c "import yaml; d=yaml.safe_load(open('tests/fixtures/step_contracts/step-inline-only.yaml'));
+          assert 'agent' not in d, 'agent field still present'"
+        - python -c "import yaml; d=yaml.safe_load(open('tests/fixtures/step_contracts/step-typed-io.yaml'));
+          assert 'agent' not in d, 'agent field still present'"
+        test_scenarios:
+        - step-inline-only.yaml loads without agent field
+        - step-typed-io.yaml loads without agent field
+    - id: task-T-5
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: 'Migrate state YAML fixtures to omit agent: inline entries'
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on: []
+      task:
+        id: T-5
+        title: 'Migrate state YAML fixtures to omit agent: inline entries'
+        depends_on: []
+        files:
+        - tests/fixtures/state-upsert-basic.yaml
+        - tests/fixtures/state-typed-io-resolved.yaml
+        - tests/fixtures/state-phase-done-needs-verify.yaml
+        - tests/fixtures/state-in-progress-no-ended.yaml
+        - tests/fixtures/state-crash-midstep.yaml
+        - tests/fixtures/state-cost-probe.yaml
+        - tests/fixtures/state-all-done.yaml
+        - tests/fixtures/state-after-retry-complete.yaml
+        why: "AC-6 \u2014 step_history entries in state fixtures must have agent field\
+          \ removed (absent \u2192 None via parser.py after T-1)."
+        change: 'In each YAML fixture: for every step_history entry with `agent: inline`,
+          remove the `agent: inline` line entirely. The parser will produce agent=None
+          from the absent field after T-1 is applied.
+
+          '
+        verify:
+        - 'grep -rL ''agent: inline'' tests/fixtures/state-*.yaml | wc -l || true;
+          ! grep -rl ''agent: inline'' tests/fixtures/state-*.yaml'
+        test_scenarios:
+        - No state fixture YAML contains the string "agent: inline" after migration
+        - State fixtures still load without parse errors
+    - id: task-T-6
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Update baseline.duckdb.sql fixture to use NULL for script-step agent
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-3
+      - task-T-5
+      task:
+        id: T-6
+        title: Update baseline.duckdb.sql fixture to use NULL for script-step agent
+        depends_on:
+        - T-3
+        - T-5
+        files:
+        - tests/__tests__/fixtures/baseline.duckdb.sql
+        why: "AC-7 \u2014 DuckDB baseline fixture carries 8 INSERT rows with 'inline'\
+          \ in the agent column position; these must be replaced with NULL to match\
+          \ record.py's new output."
+        change: 'tests/__tests__/fixtures/baseline.duckdb.sql: For each of the 8 INSERT
+          INTO main.step_events rows where the 6th positional value is ''inline'',
+          replace ''inline'' with NULL.
+
+          The INSERT row format is: (repo_root, change_id, phase, step_id, attempt,
+          agent, ...).
+
+          Sixth positional field = agent column.
+
+          '
+        verify:
+        - python -c "content=open('tests/__tests__/fixtures/baseline.duckdb.sql').read();
+          assert \",'inline',\" not in content and \"'inline',NULL\" not in content,
+          'inline still present in baseline fixture'"
+        - bash tests/__tests__/compute-swe-metrics.test.sh
+        test_scenarios:
+        - baseline.duckdb.sql contains no 'inline' string in agent column position
+        - compute-swe-metrics tests pass with NULL agent values
+    - id: task-T-7
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Update test assertions referencing agent=="inline" in Python test files
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-1
+      - task-T-2
+      - task-T-3
+      task:
+        id: T-7
+        title: Update test assertions referencing agent=="inline" in Python test files
+        depends_on:
+        - T-1
+        - T-2
+        - T-3
+        files:
+        - orchestrator_next/tests/test_record_agent_field.py
+        - orchestrator_next/tests/test_record_validation.py
+        - orchestrator_next/tests/test_dispatch.py
+        - orchestrator_next/tests/test_dispatch_resume.py
+        - orchestrator_next/tests/test_dispatch_missing_contract.py
+        - orchestrator_next/tests/test_dispatch_allowed_tools.py
+        - orchestrator_next/tests/test_generate_plan.py
+        - orchestrator_next/tests/test_doctor.py
+        - orchestrator_next/tests/test_record_check_b.py
+        - orchestrator_next/tests/test_record_cost_compute.py
+        - orchestrator_next/tests/test_complete_workflow_e2e.py
+        - orchestrator_next/tests/test_endtoend_migrated_workflow.py
+        - orchestrator_next/tests/test_phase_boundary_write.py
+        - orchestrator_next/tests/test_dispatch_pending_row.py
+        - orchestrator_next/tests/test_done_status_dispatch.py
+        - orchestrator_next/tests/test_dispatch_learnings.py
+        - orchestrator_next/tests/test_record_cleans_pending.py
+        - orchestrator_next/tests/test_rework_reentry.py
+        - orchestrator_next/tests/test_doctor_graph.py
+        - orchestrator_next/tests/test_repeat_until.py
+        - orchestrator_next/tests/test_readiness.py
+        - orchestrator_next/tests/test_expand_plan.py
+        - orchestrator_next/tests/test_expand_plan_cli.py
+        - orchestrator_next/tests/test_feature_metrics_trigger.py
+        why: "AC-6 \u2014 123 occurrences across 24 test files that either assert\
+          \ agent_name==\"inline\" or construct fixture dicts with \"inline\"; all\
+          \ must use None after engine migration."
+        change: "For each test file: replace dict/fixture construction `\"agent\"\
+          : \"inline\"` \u2192 `\"agent\": None` (or remove the key).\nReplace assertion\
+          \ `agent_name == \"inline\"` \u2192 `agent_name is None`.\nReplace assertion\
+          \ `assert result[\"agent\"] == \"inline\"` \u2192 `assert result[\"agent\"\
+          ] is None`.\nDo NOT change tests that reference the `inline: bool` field\
+          \ (HL-287 M3) \u2014 that field is unrelated.\n"
+        verify:
+        - pytest orchestrator_next/tests/ -q
+        test_scenarios:
+        - All 24 affected test files pass with zero failures
+        - No test asserts agent_name == "inline" as a passing condition
+    - id: task-T-8
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Update inline-steps-are-tokenless learning in spec/project.yaml
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-1
+      - task-T-3
+      task:
+        id: T-8
+        title: Update inline-steps-are-tokenless learning in spec/project.yaml
+        depends_on:
+        - T-1
+        - T-3
+        files:
+        - spec/project.yaml
+        why: "AC-6 (documentation) \u2014 the learning entry describes the old \"\
+          inline\" sentinel; it must be updated to describe the None/NULL pattern."
+        change: 'spec/project.yaml, learning entry id: inline-steps-are-tokenless
+          (line ~86):
+
+          Update `rule:` text to say: script steps have agent=None (no sentinel string);
+
+          per-step token capture is not attempted for None-agent steps; DuckDB agent
+          column
+
+          is NULL for script steps. Remove reference to the "inline" string sentinel.
+
+          '
+        verify:
+        - ? python -c "import yaml; p=yaml.safe_load(open('spec/project.yaml')); l=[x
+            for x in p.get('learnings',[]) if x.get('id')=='inline-steps-are-tokenless'][0];
+            assert 'inline' not in l['rule'] or 'agent
+          : inline' not in l['rule'], 'sentinel string still in learning rule'"
+        test_scenarios:
+        - inline-steps-are-tokenless learning no longer references the "inline" sentinel
+          string
+        - project.yaml still loads as valid YAML
+    - id: task-fix-1
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Allow NULL agent_name in upsert.py step_events schema and update tests
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-T-8
+      task:
+        id: fix-1
+        title: Allow NULL agent_name in upsert.py step_events schema and update tests
+        depends_on:
+        - T-8
+        files:
+        - orchestrator_next/upsert.py
+        - tests/test_step_events_upsert.py
+        why: "AC-4 regression \u2014 T-5 removed agent: inline from state-upsert-basic.yaml\
+          \ so script steps parse as agent=None, but upsert.py's CREATE TABLE has\
+          \ agent_name VARCHAR NOT NULL which DuckDB rejects, causing 3 new test failures.\
+          \ tests/test_step_events_upsert.py also asserts agent_name == 'inline' which\
+          \ must change to IS NULL after the migration.\n"
+        change: "upsert.py line 45: agent_name  VARCHAR NOT NULL \u2192 agent_name\
+          \  VARCHAR\ntests/test_step_events_upsert.py line 137:\n  self.assertEqual(row[0],\
+          \ \"inline\", ...) \u2192 self.assertIsNone(row[0], ...)\ntests/test_step_events_upsert.py\
+          \ line 152:\n  agent=\"inline\" \u2192 agent=None\ntests/test_step_events_upsert.py\
+          \ lines 210-228 (test_dimension_keys_non_null):\n  Remove \"agent_name\"\
+          \ from the non-null assertion list (it is now nullable for\n  script steps);\
+          \ keep all other dimension key assertions.\ntests/test_step_events_upsert.py\
+          \ docstring line 17:\n  Update \"inline step produces row with agent_name='inline'\"\
+          \ \u2192 \"agent_name=NULL\".\n"
+        verify:
+        - pytest tests/test_step_events_upsert.py -q
+        test_scenarios:
+        - Script step with no agent field upserts with agent_name=NULL (no ConstraintException)
+        - test_inline_agent_null_tokens passes with agent_name IS NULL assertion
+        - test_dimension_keys_non_null passes (agent_name no longer required non-null)
+    - id: task-fix-2
+      status: completed
+      agent: developer
+      step_contract: execute-one-task
+      goal: Fix run-workflow.sh log display for script steps (agent display)
+      inputs: []
+      outputs:
+      - task_execution_result
+      rules: []
+      depends_on:
+      - task-fix-1
+      task:
+        id: fix-2
+        title: Fix run-workflow.sh log display for script steps (agent display)
+        depends_on:
+        - fix-1
+        files:
+        - orchestrator_next/scripts/run-workflow.sh
+        why: "Important cosmetic regression \u2014 run-workflow.sh line 503 sets AGENT=$(jq\
+          \ '.agent // \"developer\"') but script steps no longer emit \"agent\" key\
+          \ in the dispatch action JSON, so AGENT defaults to \"developer\" and the\
+          \ log line shows \"agent=developer\" for script steps instead of no agent\
+          \ suffix. Line 513 checks AGENT != \"inline\" (dead code) which never suppresses\
+          \ this.\n"
+        change: "run-workflow.sh line 503: Change fallback from \"developer\" to empty/null:\n\
+          \  AGENT=$(echo \"$ACTION_JSON\" | jq -r '.agent // \"\"')\nrun-workflow.sh\
+          \ line 513: Change comparison to non-empty check:\n  if [ -n \"$AGENT\"\
+          \ ]; then\nThis restores correct behavior: script steps show no agent suffix\
+          \ in logs.\n"
+        verify:
+        - grep -n 'AGENT=' orchestrator_next/scripts/run-workflow.sh
+        - grep -n 'AGENT_SUFFIX' orchestrator_next/scripts/run-workflow.sh
+        test_scenarios:
+        - Script step log line shows no agent suffix
+        - Named-agent step log line still shows agent=developer
+    - id: run-phase-review
+      status: completed
+      agent: reviewer
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - task-fix-2
+    - id: ticket-review
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - run-phase-review
+    - id: compute-prediction-accuracy
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - ticket-review
+    - id: run-learn-cycle
+      status: completed
+      agent: workflow-learner
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - compute-prediction-accuracy
+    - id: ticket-qa
+      status: completed
+      agent: inline
+      goal: ''
+      inputs: []
+      outputs: []
+      rules:
+      - Never claim completion without running verification. Show output.
+      - Keep changes scoped to the current task. No "while I'm here" improvements.
+      - Artifacts must exist before implementation begins.
+      - Update state.yaml after every step. This enables pause/resume.
+      - Max 3 retry attempts per step. After that, pause and report.
+      - User approval required at phase boundaries per signoff_policy.
+      - Schemas and step contracts must not reference any specific LLM tool. All tool-specific
+        wiring belongs in install.sh or per-tool config.
+      - "Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,\
+        \ follow-up sweeps) have no defined step in the feature workflow. When acted\
+        \ on, commit them as separate chore(<change_id>) commits after run-phase-review\
+        \ passes and outside the task loop \u2014 never fold them into a task's diff\
+        \ or treat them as silent ground-truth changes. The phase review verdict still\
+        \ reflects pre-cleanup state.\n"
+      depends_on:
+      - run-learn-cycle
+    filtered: []
+phase: main
+next_step:
+  phase: main
+  step_id: run-learn-cycle
+step_history:
+- step_id: explore
+  phase: main
+  status: completed
+  agent: discoverer
+  attempt: 1
+  started_at: '2026-05-30T16:13:14Z'
+  ended_at: '2026-05-30T16:13:14Z'
+  usage:
+    input_tokens: 21
+    output_tokens: 6626
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 708449
+    cache_creation_input_tokens: 127194
+    turns: 17
+    tool_calls:
+      Agent: 1
+      Read: 3
+      Glob: 5
+      Bash: 1
+      Write: 1
+    duration_ms: 194422
+    cost_usd: 0.7889652
+  evidence:
+    outputs:
+      discovery_result:
+        path: discovery.md
+  artifacts:
+  - discovery.md
+- step_id: ux-design
+  phase: main
+  status: completed
+  agent: ideator
+  attempt: 1
+  started_at: '2026-05-30T16:13:39Z'
+  ended_at: '2026-05-30T16:13:39Z'
+  usage:
+    input_tokens: 10
+    output_tokens: 1183
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 213475
+    cache_creation_input_tokens: 38492
+    turns: 6
+    tool_calls:
+      Read: 1
+      Write: 2
+    duration_ms: 17502
+    cost_usd: 0.2261625
+  evidence:
+    outputs:
+      ux_direction: "N/A \u2014 pure engine refactor with no user-facing interface\
+        \ changes"
+      ux_prototype: spec/changes/orc-77/ux-prototype.html
+      ux_artifacts: spec/changes/orc-77/ux-artifacts.yaml
+- step_id: design-and-draft-artifacts
+  phase: main
+  status: completed
+  agent: architect
+  attempt: 1
+  started_at: '2026-05-30T16:22:43Z'
+  ended_at: '2026-05-30T16:22:43Z'
+  usage:
+    input_tokens: 87
+    output_tokens: 31343
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 5302785
+    cache_creation_input_tokens: 164789
+    turns: 75
+    tool_calls:
+      Read: 27
+      Glob: 2
+      Grep: 11
+      Write: 2
+      Bash: 8
+      Edit: 5
+    duration_ms: 538173
+    cost_usd: 2.67920025
+  evidence:
+    outputs:
+      design.md: spec/changes/orc-77/design.md
+      tasks.yaml: spec/changes/orc-77/tasks.yaml
+      updated_artifact_set:
+      - spec/changes/orc-77/design.md
+      - spec/changes/orc-77/tasks.yaml
+      design_direction: None-replacement (hard removal)
+      complexity: M
+- step_id: expand-plan
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-30T16:22:44Z'
+  ended_at: '2026-05-30T16:22:44Z'
+  usage: {}
+  evidence:
+    outputs: {}
+    summary: inline script completed
+- step_id: preview-route
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-30T16:22:46Z'
+  ended_at: '2026-05-30T16:22:46Z'
+  usage: {}
+  evidence:
+    outputs:
+      route_preview:
+        schema: feature
+        generated_at: '2026-05-30T16:22:46Z'
+        agents:
+        - agent: architect
+          backend: opus
+          model: claude-opus-4-7
+          pricing:
+            input: 15.0
+            output: 75.0
+            cache_read: 1.5
+          share: 0.251297
+          tokens_estimate: 14333
+          cost_estimate_usd: 0.301
+        - agent: developer
+          backend: auto
+          model: auto
+          pricing:
+            input: 15.0
+            output: 75.0
+            cache_read: 1.5
+          share: 0.275762
+          tokens_estimate: 15729
+          cost_estimate_usd: 0.3303
+        - agent: discoverer
+          backend: sonnet
+          model: claude-sonnet-4-6
+          pricing:
+            input: 3.0
+            output: 15.0
+            cache_read: 0.3
+          share: 0.32101
+          tokens_estimate: 18310
+          cost_estimate_usd: 0.0769
+        - agent: haiku-agent
+          backend: haiku
+          model: claude-haiku-4-5
+          pricing:
+            input: 0.8
+            output: 4.0
+            cache_read: 0.08
+          share: 0
+          tokens_estimate: 0
+          cost_estimate_usd: 0.0
+        - agent: ideator
+          backend: opus
+          model: claude-opus-4-7
+          pricing:
+            input: 15.0
+            output: 75.0
+            cache_read: 1.5
+          share: 0
+          tokens_estimate: 0
+          cost_estimate_usd: 0.0
+        - agent: reviewer
+          backend: sonnet
+          model: claude-sonnet-4-6
+          pricing:
+            input: 3.0
+            output: 15.0
+            cache_read: 0.3
+          share: 0.235311
+          tokens_estimate: 13422
+          cost_estimate_usd: 0.0564
+        - agent: sonnet-agent
+          backend: sonnet
+          model: claude-sonnet-4-6
+          pricing:
+            input: 3.0
+            output: 15.0
+            cache_read: 0.3
+          share: 0
+          tokens_estimate: 0
+          cost_estimate_usd: 0.0
+        - agent: ux-reviewer
+          backend: sonnet
+          model: claude-sonnet-4-6
+          pricing:
+            input: 3.0
+            output: 15.0
+            cache_read: 0.3
+          share: 0
+          tokens_estimate: 0
+          cost_estimate_usd: 0.0
+        - agent: workflow-improver
+          backend: unrouted
+          model: unknown
+          pricing:
+            input: 15.0
+            output: 75.0
+            cache_read: 1.5
+          share: 0.115156
+          tokens_estimate: 6568
+          cost_estimate_usd: 0.1379
+        - agent: workflow-learner
+          backend: sonnet
+          model: claude-sonnet-4-6
+          pricing:
+            input: 3.0
+            output: 15.0
+            cache_read: 0.3
+          share: 0
+          tokens_estimate: 0
+          cost_estimate_usd: 0.0
+        estimate:
+          tokens: 68362
+          cost_usd: 0.9025
+          tasks_planned: 1
+          tokens_per_task_median: 57037.5
+          archive_sample_size: 6
+    summary: inline script completed
+- step_id: ticket-start
+  phase: main
+  status: failed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-30T16:22:47Z'
+  ended_at: '2026-05-30T16:22:47Z'
+  usage: {}
+  evidence:
+    summary: script exited 1
+    outputs: {}
+- step_id: ticket-start
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-05-30T16:30:17Z'
+  ended_at: '2026-05-30T16:30:17Z'
+  usage: {}
+  evidence:
+    outputs:
+      ticket_status_set: In Progress
+- step_id: capture-test-baseline
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-30T16:30:47Z'
+  ended_at: '2026-05-30T16:30:47Z'
+  usage: {}
+  evidence:
+    outputs:
+      baseline:
+        skipped: true
+        reason: unparseable
+        raw_tail: '
+
+          no tests ran in 0.00s
+
+          ERROR: file or directory not found: config/scripts/orchestrator_next/tests/
+
+          '
+        exit_code: 4
+    summary: inline script completed
+- step_id: run-ux-critique
+  phase: main
+  status: recovered
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-30T16:31:52Z'
+  ended_at: '2026-05-30T16:31:52Z'
+  usage: {}
+  evidence:
+    outputs:
+      critique_skipped: true
+      critique_score: null
+      critique_retries: 0
+- step_id: task-T-1
+  phase: main
+  status: recovered
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-30T16:33:47Z'
+  ended_at: '2026-05-30T16:33:47Z'
+  usage: {}
+  evidence:
+    outputs:
+      task_execution_result: completed
+      task_id: T-1
+      commit: 0860991
+- step_id: task-T-2
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T17:07:31Z'
+  ended_at: '2026-05-30T17:07:31Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 400
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88160
+    cache_creation_input_tokens: 33097
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 4756
+    cost_usd: 0.15658275
+  evidence:
+    outputs: {}
+- step_id: task-T-3
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T17:10:42Z'
+  ended_at: '2026-05-30T17:10:42Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 400
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88160
+    cache_creation_input_tokens: 33097
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 4756
+    cost_usd: 0.15658275
+  evidence:
+    outputs: {}
+- step_id: task-T-4
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T17:11:08Z'
+  ended_at: '2026-05-30T17:11:08Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 400
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88160
+    cache_creation_input_tokens: 33097
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 4756
+    cost_usd: 0.15658275
+  evidence:
+    outputs: {}
+- step_id: task-T-5
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T17:12:11Z'
+  ended_at: '2026-05-30T17:12:11Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 400
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88160
+    cache_creation_input_tokens: 33097
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 4756
+    cost_usd: 0.15658275
+  evidence:
+    outputs: {}
+- step_id: task-T-6
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T17:16:50Z'
+  ended_at: '2026-05-30T17:16:50Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 400
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88160
+    cache_creation_input_tokens: 33097
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 4756
+    cost_usd: 0.15658275
+  evidence:
+    outputs: {}
+- step_id: task-T-7
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T17:39:43Z'
+  ended_at: '2026-05-30T17:39:43Z'
+  usage:
+    input_tokens: 50000
+    output_tokens: 5000
+    model: auto
+    cost_usd: 1.125
+  evidence:
+    outputs:
+      task_execution_result: completed
+- step_id: task-T-8
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T17:40:30Z'
+  ended_at: '2026-05-30T17:40:30Z'
+  usage:
+    input_tokens: 7
+    output_tokens: 400
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 88160
+    cache_creation_input_tokens: 33097
+    turns: 3
+    tool_calls:
+      Bash: 1
+    duration_ms: 4756
+    cost_usd: 0.15658275
+  evidence:
+    outputs: {}
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: reviewer
+  attempt: 1
+  started_at: '2026-05-30T17:50:52Z'
+  ended_at: '2026-05-30T17:50:52Z'
+  usage:
+    input_tokens: 124
+    output_tokens: 27900
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 8517920
+    cache_creation_input_tokens: 194586
+    turns: 118
+    tool_calls:
+      Bash: 104
+      Read: 2
+      Edit: 1
+      Write: 1
+    duration_ms: 614549
+    cost_usd: 3.7039454999999997
+  evidence:
+    outputs:
+      phase_review_report:
+        verdict: needs_work
+  artifacts:
+  - phase-review.md
+  review_score:
+    overall: 7
+    dimensions:
+      spec_compliance: 7
+      correctness: 7
+      security: 9
+      simplicity: 9
+      code_quality: 9
+- step_id: task-fix-1
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T17:52:53Z'
+  ended_at: '2026-05-30T17:52:53Z'
+  usage:
+    input_tokens: 30000
+    output_tokens: 3000
+    model: auto
+    cost_usd: 0.675
+  evidence:
+    outputs:
+      task_execution_result: completed
+- step_id: task-fix-2
+  phase: main
+  status: completed
+  agent: developer
+  attempt: 1
+  started_at: '2026-05-30T17:53:22Z'
+  ended_at: '2026-05-30T17:53:22Z'
+  usage:
+    input_tokens: 124
+    output_tokens: 27900
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 8517920
+    cache_creation_input_tokens: 194586
+    turns: 118
+    tool_calls:
+      Bash: 104
+      Read: 2
+      Edit: 1
+      Write: 1
+    duration_ms: 614549
+    cost_usd: 3.7039454999999997
+  evidence:
+    outputs: {}
+- step_id: run-phase-review
+  phase: main
+  status: completed
+  agent: reviewer
+  attempt: 2
+  started_at: '2026-05-30T17:58:26Z'
+  ended_at: '2026-05-30T17:58:26Z'
+  usage:
+    input_tokens: 67
+    output_tokens: 20203
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 4285070
+    cache_creation_input_tokens: 212269
+    turns: 59
+    tool_calls:
+      Read: 4
+      Bash: 47
+      Write: 3
+    duration_ms: 296239
+    cost_usd: 2.3847757499999997
+  evidence:
+    outputs:
+      phase_review_report:
+        verdict: pass
+  artifacts:
+  - phase-review.md
+  review_score:
+    overall: 7
+    dimensions:
+      spec_compliance: 9
+      correctness: 9
+      security: 9
+      simplicity: 9
+      code_quality: 7
+- step_id: ticket-review
+  phase: main
+  status: failed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-30T17:58:28Z'
+  ended_at: '2026-05-30T17:58:28Z'
+  usage: {}
+  evidence:
+    summary: script exited 1
+    outputs: {}
+- step_id: ticket-review
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 2
+  started_at: '2026-05-30T19:24:18Z'
+  ended_at: '2026-05-30T19:24:18Z'
+  usage: {}
+  evidence:
+    outputs:
+      ticket_status_set: Code Review
+- step_id: compute-prediction-accuracy
+  phase: main
+  status: completed
+  agent: inline
+  attempt: 1
+  started_at: '2026-05-30T19:25:04Z'
+  ended_at: '2026-05-30T19:25:04Z'
+  usage: {}
+  evidence:
+    outputs:
+      prediction_accuracy:
+        computed_at: '2026-05-30T19:25:04Z'
+        predicted_tasks: 8
+        actual_tasks: 10
+        fix_task_count: 2
+        rework_rate: 0.2
+        task_delta: 2
+        task_accuracy_pct: 80.0
+        predicted_file_count: 9
+        actual_file_count: 0
+        file_delta: -9
+        file_overlap_pct: 0.0
+    summary: inline script completed
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: workflow-learner
+  attempt: 1
+  started_at: '2026-05-30T19:25:06.474714+00:00'
+  ended_at: '2026-05-31T07:25:30Z'
+  evidence:
+    outputs:
+      learn_result: completed
+      backlog_tickets_synced: []
+      rules_updated: 2
+      hits: 2
+      misses: 1
+      quality_bar_adjusted: false
+- step_id: run-learn-cycle
+  phase: main
+  status: completed
+  agent: workflow-learner
+  attempt: 2
+  started_at: '2026-05-30T19:33:52Z'
+  ended_at: '2026-05-30T19:33:52Z'
+  usage:
+    input_tokens: 157
+    output_tokens: 6013
+    model: claude-sonnet-4-6
+    cache_read_input_tokens: 1031514
+    cache_creation_input_tokens: 195733
+    turns: 20
+    tool_calls:
+      Read: 6
+      Glob: 1
+      Skill: 1
+      Bash: 1
+      Agent: 1
+      Edit: 2
+    duration_ms: 519635
+    cost_usd: 1.13411895
+  evidence:
+    outputs:
+      learn_result: completed
+      backlog_tickets_synced: []
+created_at: '2026-05-30T16:09:50Z'
+started_at: '2026-05-30T16:09:50Z'
+project_context_loaded: true
+worktree_path: /Users/spidey/code/feature_worktrees/orc-77
+branch: feature/orc-77
+ticketing: backlog
+ticket_id: ORC-77
+ticket_status: "\u25CB QA Review"
+ticket_status_checked_at: '2026-05-30T19:33:53Z'
+ticket_rework: false
+retries:
+  run-phase-review: 1
