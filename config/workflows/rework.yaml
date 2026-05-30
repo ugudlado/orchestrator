@@ -1,5 +1,0 @@
-# QA failed — move ticket back to In Progress; feature branch and worktree stay.
-#
-# CLI: `orchestrator rework <change-id>` — orchestrator-run.sh --schema rework
-steps:
-  - ticket-rework

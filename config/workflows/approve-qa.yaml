@@ -1,6 +1,0 @@
-steps:
-  - mark-change-completed
-  - compute-swe-metrics
-  - cost-report
-  - ticket-done
-  - archive-completed-change

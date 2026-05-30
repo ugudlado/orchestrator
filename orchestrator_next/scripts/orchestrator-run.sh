@@ -33,7 +33,7 @@ FLAG_OVERRIDES=()
 AGENT_ROUTE_FLAGS=()
 
 # Resume-only workflows: require existing state.yaml; never seed.
-RESUME_ONLY_SCHEMAS="complete approve-qa"
+RESUME_ONLY_SCHEMAS="complete"
 
 usage() {
   echo "Usage: orchestrator run <ticket-id> [--schema feature|bugfix|complete|...] [--repo PATH] [--no-teardown] [--routes-override FILE] [--agents-config FILE] [flag=value ...]" >&2
@@ -225,25 +225,6 @@ PY
 
   return 0
 }
-
-if [ "$SCHEMA" = "rework" ]; then
-  if [ -f "$TICKET_ID" ]; then
-    STATE_YAML="$(cd "$(dirname "$TICKET_ID")" && pwd)/$(basename "$TICKET_ID")"
-  else
-    STATE_YAML="$(bash "$SCRIPT_DIR/metrics/resolve-state-yaml.sh" "$TICKET_SLUG" "$REPO_ROOT")" || {
-      echo "ERROR: cannot locate state.yaml for '$TICKET_ID'" >&2
-      exit 1
-    }
-  fi
-  if [ ! -f "$STATE_YAML" ]; then
-    echo "ERROR: state.yaml not found: $STATE_YAML" >&2
-    exit 1
-  fi
-  echo "Running rework: change=$TICKET_ID state=$STATE_YAML" >&2
-  PYTHONPATH="${_WORKTREE_ROOT}:${PYTHONPATH:-}" \
-    python3 -m orchestrator_next.rework "$STATE_YAML"
-  exit $?
-fi
 
 # state.yaml may live in repo_root (worktree=false) or under the feature worktree.
 resolve_state_yaml() {

@@ -52,8 +52,7 @@ def _usage() -> None:
         "  orchestrator <workflow> <ticket-id> [--repo PATH] [flag=value ...]\n"
         "      Run a workflow by name (config/workflows/<workflow>.yaml), e.g.\n"
         "      `orchestrator feature ORC-1`, `orchestrator bugfix ORC-2`,\n"
-        "      `orchestrator complete ORC-3` (see config/workflows/complete.yaml),\n"
-        "      `orchestrator rework ORC-4` (see config/workflows/rework.yaml).\n"
+        "      `orchestrator complete ORC-3` (see config/workflows/complete.yaml).\n"
         "  orchestrator telemetry\n"
         "      Terminal metrics report (config/workflows/telemetry.yaml; params in step contract).\n"
         "  orchestrator dashboard\n"
@@ -506,7 +505,7 @@ def main() -> None:
             # already-final file.
             #
             # `archive-completed-change` is the terminal workflow step for
-            # feature/bugfix/autopilot/complete/approve-qa. Merge and worktree
+            # feature/bugfix/autopilot/complete. Merge and worktree
             # teardown run from `orchestrator complete` after the phase.
             #
             # Tradeoff: a state-mutating step records `completed` before its

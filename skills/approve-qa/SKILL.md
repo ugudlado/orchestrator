@@ -11,13 +11,14 @@ args:
 ## Execution
 
 1. Resolve the change ID from `$ARGUMENTS` or the current git branch name.
-2. Run `orchestrator approve-qa <change-id>` — runs the complete phase DAG
-   (mark-change-completed → compute-swe-metrics → cost-report → ticket-done →
-   archive-completed-change → merge → teardown).
+2. Run `orchestrator complete <change-id>` — the `complete` workflow
+   (`config/workflows/complete.yaml`): compute-prediction-accuracy → run-learn-cycle →
+   mark-change-completed → compute-swe-metrics → gather-learn-metrics → cost-report →
+   archive-completed-change → ticket-done → merge → teardown.
 3. Report: archived, merged to main, branch deleted (or any warnings).
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 CHANGE_ID="${ARGUMENTS:-$(git branch --show-current | sed 's|.*/||')}"
-cd "$REPO_ROOT" && orchestrator approve-qa "$CHANGE_ID"
+cd "$REPO_ROOT" && orchestrator complete "$CHANGE_ID"
 ```
