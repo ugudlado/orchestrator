@@ -80,8 +80,6 @@ def _usage() -> None:
         "      `orchestrator feature ORC-1`, `orchestrator bugfix ORC-2`.\n"
         "  orchestrator run <ticket-id> [--schema feature|bugfix] [--repo PATH] [flag=value ...]\n"
         "      Equivalent explicit form (workflow via --schema).\n"
-        "  orchestrator complete <ticket-id> [--repo PATH] [--no-teardown] [flag=value ...]\n"
-        "      Complete phase, then merge (if merge_to_main), then worktree teardown.\n"
         "  orchestrator next <state.yaml>\n"
         "  orchestrator done <state.yaml>   # JSON payload on stdin\n"
         "  orchestrator ready <state.yaml>  # JSON array of ready node ids\n"
@@ -109,10 +107,6 @@ def _run_verb(argv: list[str]) -> None:
     """`orchestrator run` — ticket-driven shell workflow (non-chat driver)."""
     _shell_workflow_verb(argv, "orchestrator-run.sh")
 
-
-def _complete_verb(argv: list[str]) -> None:
-    """`orchestrator complete` — complete phase only."""
-    _shell_workflow_verb(argv, "orchestrator-complete.sh")
 
 
 def _append_in_progress_state_entry_if_absent(
@@ -244,12 +238,11 @@ def main() -> None:
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
         "next", "done", "record", "ready", "graph", "doctor", "expand-plan", "run",
-        "complete",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
     if len(args) < 2 and args[0] in (
-        "next", "record", "done", "ready", "graph", "expand-plan", "run", "complete",
+        "next", "record", "done", "ready", "graph", "expand-plan", "run",
     ) or (len(args) < 2 and args[0] in _wf_subcommands):
         _usage()
 
@@ -260,9 +253,6 @@ def main() -> None:
 
     if args[0] == "run":
         _run_verb(args[1:])
-
-    if args[0] == "complete":
-        _complete_verb(args[1:])
 
     if args[0] == "doctor":
         from orchestrator_next.doctor import _doctor_main

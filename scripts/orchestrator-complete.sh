@@ -182,8 +182,7 @@ PY
 # (via /complete-feature, a user-triggered "finish/merge to main") IS the
 # deliberate merge signal. Autopilot does NOT come through here: it runs the
 # `autopilot` subcommand (orchestrator-run.sh), which loops, archives, and exits
-# at the boundary without merging. The standalone human merge path
-# (/approve-qa → qa-approve.sh) merges unconditionally too; this matches it.
+# at the boundary without merging.
 # Worktree-first learn-cycle: if learn-cycle modified global config/rules,
 # commit those changes on the feature branch before merging to main.
 if [ "$USE_WORKTREE" = true ]; then
