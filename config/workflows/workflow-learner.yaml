@@ -1,0 +1,10 @@
+# Operator workflow — learn metrics prep before workflow-learner agent.
+#
+# CLI: orchestrator learn <change-id>
+#      orchestrator workflow-learner <change-id>  (alias)
+# Driver: orchestrator_next/scripts/orchestrator-workflow-learner.sh
+# Params: config/steps/gather-learn-metrics/contract.yaml (override via env at invoke)
+#
+# Agent evaluation (run-learn-cycle) is spawned by the host after JSON prep on stdout.
+steps:
+  - gather-learn-metrics

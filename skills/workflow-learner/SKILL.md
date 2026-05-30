@@ -1,3 +1,8 @@
+---
+name: workflow-learner
+description: "Evaluate workflow compliance and route learnings to step contracts and project.yaml. Usually invoked after `orchestrator learn` metrics prep."
+user-invocable: true
+---
 
 ## Variables
 
@@ -68,7 +73,7 @@ Collect the evaluator's inputs from state.yaml:
 
 Before evaluating, scan archived state.yaml files across recent features to detect systemic retry patterns.
 
-1. **Collect archive data**: Run `config/scripts/metrics-query.sh retry-hotspots --fleet --limit 10`; if the helper exits non-zero or returns empty, fall back to listing `spec/changes/archive/*/state.yaml` sorted by modification time (most recent first, limit 10). For each record, extract:
+1. **Collect archive data**: Prefer `learn_metrics.retry_hotspots_csv` from `orchestrator learn` prep (stdout JSON). Else run `orchestrator_next/scripts/metrics/metrics-query.sh retry-hotspots --fleet --limit 10`; if that exits non-zero or returns empty, fall back to listing `spec/changes/archive/*/state.yaml` sorted by modification time (most recent first, limit 10). For each record, extract:
    - `feature_id`
    - `step_history[].retries` (retry count per step entry)
    - `step_history[].retry_reasons[]` (list of reason strings per retry)
@@ -251,7 +256,7 @@ After classification:
 - Apply the rule to the appropriate section of the target step contract
 - **IMPORTANT — Rule metadata**: When writing a learned rule, you MUST append the metadata comment inline on the same line as the rule text:
   `<!-- learned: YYYY-MM-DD, source: FEATURE-ID, cycle: N, repo: REPO_NAME -->`
-  Where: `YYYY-MM-DD` = today's date, `FEATURE-ID` = the feature being evaluated, `N` = current cycle count (run `config/scripts/metrics-query.sh cycle-count`; if it exits non-zero or is empty, fall back to `ls spec/changes/archive/*/state.yaml 2>/dev/null | wc -l`), `REPO_NAME` = `basename $(git rev-parse --show-toplevel)` (the repo that generated this rule).
+  Where: `YYYY-MM-DD` = today's date, `FEATURE-ID` = the feature being evaluated, `N` = current cycle count (use `learn_metrics.cycle_count_csv` from prep when present; else `orchestrator_next/scripts/metrics/metrics-query.sh cycle-count`; if that exits non-zero or is empty, fall back to `ls spec/changes/archive/*/state.yaml 2>/dev/null | wc -l`), `REPO_NAME` = `basename $(git rev-parse --show-toplevel)` (the repo that generated this rule).
   **Repo scoping**: Default to `repo: $REPO_NAME` (repo-scoped). Only use `repo: *` (universal) when the rule is about workflow mechanics itself (e.g., "always write next_step before spawn") and NOT about tech-stack, domain, or repo-specific patterns.
   Permanent (hand-written) rules already in the step contract MUST NOT receive a metadata comment.
 
@@ -291,7 +296,7 @@ This sub-step runs on every learn invocation. It updates hit/miss counters on
 learned rules based on the just-completed feature's step retry data.
 
 **Update counters**:
-1. Get recent completed features: run `config/scripts/metrics-query.sh recent-features --limit 10`; if it exits non-zero or returns empty, fall back to listing `spec/changes/archive/*/state.yaml`. Read the just-completed feature's `step_history[]` from the state.yaml.
+1. Get recent completed features: prefer `learn_metrics.recent_features_csv` from prep; else `orchestrator_next/scripts/metrics/metrics-query.sh recent-features --limit 10`; if that exits non-zero or returns empty, fall back to listing `spec/changes/archive/*/state.yaml`. Read the just-completed feature's `step_history[]` from the state.yaml.
 2. Build a map: `step_retries[step_id] = total retry count for that step`.
    A step with no retries has count 0.
 3. List all `$ORCHESTRATOR_HOME/config/steps/*.yaml` files.
@@ -310,7 +315,7 @@ This sub-step runs only when the current cycle count is a multiple of 5. It scan
 step contracts for ineffective learned rules and removes flagged rules.
 
 **Trigger check**:
-1. Count archived state.yaml files: run `config/scripts/metrics-query.sh cycle-count`; if it exits non-zero or returns empty, fall back to `ls spec/changes/archive/*/state.yaml 2>/dev/null | wc -l`. Use the result as cycle count K.
+1. Count archived state.yaml files: prefer `learn_metrics.cycle_count_csv` from prep; else `orchestrator_next/scripts/metrics/metrics-query.sh cycle-count`; if that exits non-zero or returns empty, fall back to `ls spec/changes/archive/*/state.yaml 2>/dev/null | wc -l`. Use the result as cycle count K.
 2. If `K % 5 != 0`: skip this sub-step entirely. Log: `[learn] Rule decay: skipped (cycle K, next at cycle M)`.
 3. If `K % 5 == 0`: proceed.
 
@@ -349,7 +354,7 @@ step contracts for ineffective learned rules and removes flagged rules.
 This sub-step runs after §5b on every learn invocation. It reads recent performance metrics and adjusts `quality_bar.scoring.green_base` in `spec/project.yaml` when trends warrant it.
 
 **Read metrics**:
-1. Run `config/scripts/metrics-query.sh quality-trend --limit 5`; if it exits non-zero or returns empty, fall back to reading the last 5 archived state.yaml files via `ls -t spec/changes/archive/*/state.yaml | head -5`.
+1. Prefer `learn_metrics.quality_trend_csv` from prep; else `orchestrator_next/scripts/metrics/metrics-query.sh quality-trend --limit 5`; if that exits non-zero or returns empty, fall back to reading the last 5 archived state.yaml files via `ls -t spec/changes/archive/*/state.yaml | head -5`.
 2. For each state.yaml, extract review score and retry rate from the `metrics:` block:
    - **Review score**: `metrics.review_score_avg` → fallback to omit entry
    - **Retry rate**: `metrics.retries.total / metrics.resolution.tasks_total` if both exist → fallback to `0`
@@ -388,7 +393,7 @@ If fewer than 2 valid entries exist: skip this sub-step entirely and log `[learn
 
 ## Commit edits (final act)
 
-Learn runs from two entry points — orchestrated (via `run-workflow.sh`, cwd is
+Learn runs from two entry points — orchestrated (via `orchestrator_next/scripts/run-workflow.sh`, cwd is
 the feature worktree) and standalone (`/learn` skill spawns this agent directly,
 cwd is usually the main checkout). Both converge here, so commit your edits as
 the **last action before returning**, on whatever branch is checked out. This
@@ -398,11 +403,11 @@ Run the shared helper against the repo the cwd lives in — the worktree when
 orchestrated, main when standalone. Resolve it from the current toplevel, NOT
 from the inherited `REPO_ROOT` (the orchestrator exports that pointing at main).
 Do NOT pass `--require-clean` — that guard is for the pre-merge worktree path
-only, which `orchestrator-complete.sh` handles:
+only (handled by the complete workflow):
 
 ```bash
 REPO_DIR="$(git -C "$(pwd)" rev-parse --show-toplevel)"
-HELPER="$ORCHESTRATOR_HOME/config/scripts/inline/commit-worktree-learn-updates.sh"
+HELPER="$ORCHESTRATOR_HOME/orchestrator_next/scripts/complete/commit-worktree-learn-updates.sh"
 [ -x "$HELPER" ] && bash "$HELPER" "$REPO_DIR" "$REPO_NAME" "" || true
 ```
 

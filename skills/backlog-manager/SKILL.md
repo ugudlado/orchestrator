@@ -126,7 +126,7 @@ are resolved and the task is fully specified.
 
 ## Workflow integration (orchestrator)
 
-**Shell loop (`scripts/run-workflow.sh`):** Ticket lane changes are **not** agent work.
+**Shell loop (`orchestrator_next/scripts/run-workflow.sh`):** Ticket lane changes are **not** agent work.
 Dedicated workflow steps (`ticket-start`, `ticket-review`, `ticket-qa`) push outbound
 lane changes via the backlog CLI, and `ticket-reconcile.sh` (inbound poll) updates
 `state.yaml` (`ticket_id`, `ticket_status`, `ticket_rework`, `flags.rework_from_review`).

@@ -51,8 +51,9 @@ The schema is chosen by the subcommand, not inferred from prose. The entry point
 - `orchestrator feature <id>` → schema `feature`
 - `orchestrator bugfix <id>` → schema `bugfix`
 - `orchestrator autopilot <id>` → schema `autopilot`
+- `orchestrator complete <id>` → complete phase only (`config/workflows/complete.yaml`); merge + teardown via `orchestrator-complete.sh`
 
-Each is `orchestrator run <id> --schema <name>` under the hood (bin/orchestrator).
+`feature`, `bugfix`, and `autopilot` are `orchestrator run <id> --schema <name>` under the hood. `complete` uses the same workflow-file discovery but a different driver (no seed; requires existing state).
 There is no prose intent-inference step (ORC-108 removed select-workflow + the
 flag registry).
 
@@ -131,12 +132,8 @@ step contract; duplication invites drift when step contracts update.
 
 ```
 LOOP:
-  # Driver-local: set manual_phase_advance_flag = true when patching phase or
-  # next_step outside orchestrator done (e.g. operator forces advance). Reset
-  # to false at the start of each loop iteration unless set again that iteration.
-  manual_phase_advance_flag = false
-
   # ORC-45 two-path dispatch protocol:
+  exit_code, stdout = orchestrator next $WORKFLOW_STATE_DIR/$CHANGE_ID/state.yaml
   #   exit 0 + JSON with `agent` key  → spawn agent
   #   exit 0 + no JSON                → inline script ran and recorded; loop again
   #   exit 1                          → workflow complete
@@ -146,12 +143,11 @@ LOOP:
 
   IF exit_code == 1:
       # Workflow complete — no JSON on stdout.
-      # Full cost report + one-line tail summary.
-      # Run both; include both in the final message to the user.
-      # If cost-report.sh exits non-zero, include script stderr verbatim — do not skip.
-      cost_report = run `scripts/cost-report.sh --change-id $CHANGE_ID`
-      cost_tail   = run `scripts/cost-report.sh --change-id $CHANGE_ID --tail`
-      STOP (workflow done) — include cost_tail as the headline, then cost_report stdout below it
+      # Cost report already ran as the `cost-report` workflow step (before complete-workflow).
+      # Read step_history for cost-report outputs (tail_summary, cost_summary_path) and
+      # include the markdown from cost-summary.md in the final message when present.
+      # If cost-report failed, surface its step_history evidence — do not skip.
+      STOP (workflow done)
 
   IF exit_code == 2:
       # Step blocked — no JSON on stdout. Read state.yaml for reason/escalation.
@@ -198,32 +194,27 @@ LOOP:
       #    Merge step_id, phase, agent from dispatch context; pass the raw Task tool
       #    result text as agent_task_result (record.py extracts agentId and loads
       #    billing-truth usage from subagent JSONL — do not parse usage or agentId).
-      # 3. Compute workflow_issues. Run scripts/lib/detect-workflow-issues.sh
-      #    with --phase, --step-id, --attempt (current attempt), and
-      #    --manual-phase-advance PHASE when manual_phase_advance_flag is set
-      #    this iteration. Merge the helper's stdout (JSON array) with any
-      #    COMPLETION.workflow_issues from the agent, verbatim. Clear the
-      #    manual-phase-advance flag after the helper consumes it.
+      # 3. Forward COMPLETION.workflow_issues from the agent verbatim when present.
+      #    Mechanics detection (retry-success, script-warning, etc.) is handled
+      #    by the shell driver (run-workflow.sh) — not this LLM loop.
       # 4. Pipe payload to orchestrator done (driver does not verify tasks/tests).
-      #    Attach workflow_issues only when the merged list is non-empty.
+      #    Attach workflow_issues only when the agent emitted a non-empty list.
 
       done_payload = {step_id, phase, status, agent, agent_task_result, outputs, evidence}
-      IF workflow_issues is non-empty:
-          done_payload.workflow_issues = workflow_issues
+      IF COMPLETION.workflow_issues is non-empty:
+          done_payload.workflow_issues = COMPLETION.workflow_issues
       done_exit = orchestrator done state.yaml <<< done_payload
 ```
 
 ### Workflow issues
 
 Workflow-mechanics issues (retry-success, script-warning, script-failed,
-tool-crashed, manual-phase-advance) are detected by
-`scripts/lib/detect-workflow-issues.sh`
-— the same helper the shell driver (`scripts/run-workflow.sh`) uses. Both
-drivers share this single source of detection logic; do not re-derive these
-categories in this prompt. Agent-emitted `workflow_issues:` in COMPLETION are
-forwarded verbatim into the done payload. Inline scripts that need to flag a
-workflow issue without aborting exit with code 10 (soft-fail); the driver
-synthesizes a `script-warning` entry from the script's stderr.
+tool-crashed, manual-phase-advance) are detected inside the shell driver
+(`orchestrator_next/scripts/run-workflow.sh` via
+`orchestrator_next/scripts/lib/detect-workflow-issues.sh`). This LLM loop does
+not invoke that helper — forward agent-emitted `workflow_issues:` in COMPLETION
+verbatim into the done payload when present. Do not re-derive mechanics
+categories in this prompt.
 
 Escalation (agent returns STATUS: escalate_to_architect): record a
 step_history entry with `status: escalate_to_architect` — `orchestrator

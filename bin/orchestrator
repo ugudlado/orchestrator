@@ -44,8 +44,8 @@ def _inline_script_env(state, state_yaml_path: str, action_env: dict) -> dict:
 
     Merge order: os.environ, then action_env from orchestrator next, then state.yaml
     fields when non-empty. State wins over ambient env for CHANGE_ID, BRANCH,
-    WORKTREE_PATH, WORKTREE_ROOT, ORCHESTRATOR_WORKFLOW_DIR, and ARCHIVE_PATH —
-    intentional so dispatch context is authoritative, not the caller's shell.
+    WORKTREE_PATH, WORKTREE_ROOT, ORCHESTRATOR_WORKFLOW_DIR, ARCHIVE_PATH, and
+    REPO_ROOT from state.yaml when set — dispatch context is authoritative.
     """
     raw = state.raw or {}
     env = {
@@ -68,7 +68,10 @@ def _inline_script_env(state, state_yaml_path: str, action_env: dict) -> dict:
         env["ORCHESTRATOR_WORKFLOW_DIR"] = worktree
     archive_path = raw.get("archive_path") or ""
     if archive_path:
-        env["ARCHIVE_PATH"] = archive_path
+        env["ARCHIVE_PATH"] = str(archive_path)
+    repo_root_raw = raw.get("repo_root") or ""
+    if repo_root_raw and not env.get("REPO_ROOT"):
+        env["REPO_ROOT"] = str(repo_root_raw)
     return env
 
 
@@ -77,9 +80,17 @@ def _usage() -> None:
         "Usage:\n"
         "  orchestrator <workflow> <ticket-id> [--repo PATH] [flag=value ...]\n"
         "      Run a workflow by name (config/workflows/<workflow>.yaml), e.g.\n"
-        "      `orchestrator feature ORC-1`, `orchestrator bugfix ORC-2`.\n"
+        "      `orchestrator feature ORC-1`, `orchestrator bugfix ORC-2`,\n"
+        "      `orchestrator complete ORC-3` (see config/workflows/complete.yaml),\n"
+        "      `orchestrator rework ORC-4` (see config/workflows/rework.yaml).\n"
+        "  orchestrator telemetry\n"
+        "      Terminal metrics report (config/workflows/telemetry.yaml; params in step contract).\n"
+        "  orchestrator dashboard\n"
+        "      Live web UI over metrics.duckdb (ui/dashboard/; also `make dashboard`).\n"
+        "  orchestrator learn <change-id>\n"
+        "  orchestrator workflow-learner <change-id>  # alias\n"
         "  orchestrator run <ticket-id> [--schema feature|bugfix] [--repo PATH] [flag=value ...]\n"
-        "      Equivalent explicit form (workflow via --schema).\n"
+        "      Explicit form when not using a workflow subcommand name.\n"
         "  orchestrator next <state.yaml>\n"
         "  orchestrator done <state.yaml>   # JSON payload on stdin\n"
         "  orchestrator ready <state.yaml>  # JSON array of ready node ids\n"
@@ -92,12 +103,31 @@ def _usage() -> None:
 
 
 def _shell_workflow_verb(argv: list[str], script_name: str) -> None:
-    """Delegate to a scripts/orchestrator-*.sh driver."""
+    """Delegate to an orchestrator_next/scripts/*.sh driver."""
     import subprocess as _sp
 
-    _sh = os.path.join(_WORKTREE_ROOT, "scripts", script_name)
+    _sh = os.path.join(_WORKTREE_ROOT, "orchestrator_next", "scripts", script_name)
     if not os.path.isfile(_sh):
         print(f"error: {script_name} not found at {_sh}", file=sys.stderr)
+        sys.exit(7)
+    _proc = _sp.run(["bash", _sh, *argv])
+    raise SystemExit(_proc.returncode)
+
+
+def _dashboard_verb(argv: list[str]) -> None:
+    """`orchestrator dashboard` — live FastAPI UI (ui/dashboard/)."""
+    import subprocess as _sp
+
+    _sh = os.path.join(_WORKTREE_ROOT, "ui", "dashboard", "run.sh")
+    if not os.path.isfile(_sh):
+        print(f"error: dashboard launcher not found at {_sh}", file=sys.stderr)
+        sys.exit(7)
+    _venv_uvicorn = os.path.join(_WORKTREE_ROOT, "ui", "dashboard", ".venv", "bin", "uvicorn")
+    if not os.path.isfile(_venv_uvicorn):
+        print(
+            "error: dashboard venv missing; run `make dashboard` once to create ui/dashboard/.venv",
+            file=sys.stderr,
+        )
         sys.exit(7)
     _proc = _sp.run(["bash", _sh, *argv])
     raise SystemExit(_proc.returncode)
@@ -107,6 +137,10 @@ def _run_verb(argv: list[str]) -> None:
     """`orchestrator run` — ticket-driven shell workflow (non-chat driver)."""
     _shell_workflow_verb(argv, "orchestrator-run.sh")
 
+
+def _complete_verb(argv: list[str]) -> None:
+    """`orchestrator complete` — complete phase, merge, optional teardown."""
+    _shell_workflow_verb(argv, "orchestrator-complete.sh")
 
 
 def _append_in_progress_state_entry_if_absent(
@@ -213,6 +247,10 @@ def _graph_verb(state_yaml_path: str) -> None:
     sys.exit(0)
 
 
+# Operator workflows: dedicated drivers (no ticket-id subcommand form).
+_OPERATOR_SCHEMAS = frozenset({"telemetry", "workflow-learner"})
+
+
 def _workflow_subcommands() -> set[str]:
     """ORC-108: each config/workflows/<name>.yaml is a CLI subcommand.
 
@@ -226,6 +264,7 @@ def _workflow_subcommands() -> set[str]:
         return {
             os.path.splitext(os.path.basename(p))[0]
             for p in glob.glob(os.path.join(wf_dir, "*.yaml"))
+            if os.path.splitext(os.path.basename(p))[0] not in _OPERATOR_SCHEMAS
         }
     except OSError:
         return set()
@@ -236,8 +275,10 @@ def main() -> None:
     # Stage C: ingest-driver and ingest-subagents removed from accepted verbs.
     # 'record' kept for silent backward-compat (one cycle) but absent from the banner.
     _wf_subcommands = _workflow_subcommands()
+    _operator_verbs = ("telemetry", "workflow-learner", "learn", "dashboard")
     _core_verbs = (
         "next", "done", "record", "ready", "graph", "doctor", "expand-plan", "run",
+        *_operator_verbs,
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
@@ -245,11 +286,26 @@ def main() -> None:
         "next", "record", "done", "ready", "graph", "expand-plan", "run",
     ) or (len(args) < 2 and args[0] in _wf_subcommands):
         _usage()
+    if args[0] == "telemetry":
+        _shell_workflow_verb(args[1:], "orchestrator-telemetry.sh")
+        return
+    if args[0] == "dashboard":
+        _dashboard_verb(args[1:])
+        return
+    if args[0] in ("workflow-learner", "learn"):
+        _shell_workflow_verb(args[1:], "orchestrator-workflow-learner.sh")
+        return
 
-    # ORC-108: workflow subcommand → run driver with --schema preset.
-    # `orchestrator feature <id> [flags]` == `orchestrator run <id> --schema feature [flags]`.
+    # ORC-108: each config/workflows/<name>.yaml is a CLI subcommand.
+    # feature/bugfix/autopilot → orchestrator-run.sh (--schema preset).
+    # complete → orchestrator-complete.sh; rework → orchestrator-rework.sh.
     if args[0] in _wf_subcommands:
-        _run_verb([args[1], "--schema", args[0], *args[2:]])
+        if args[0] == "complete":
+            _complete_verb([args[1], *args[2:]])
+        elif args[0] == "rework":
+            _shell_workflow_verb([args[1], *args[2:]], "orchestrator-rework.sh")
+        else:
+            _run_verb([args[1], "--schema", args[0], *args[2:]])
 
     if args[0] == "run":
         _run_verb(args[1:])

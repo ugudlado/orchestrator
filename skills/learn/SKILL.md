@@ -17,20 +17,35 @@ $ARGUMENTS
 
 ## Overview
 
-Delegates to the `workflow-learner` agent. Resolves the feature ID from
-$ARGUMENTS (or auto-detects the most recent completed feature), then spawns
-`workflow-learner` with the feature-id and --scope args passed through.
+1. **Metrics prep** — `orchestrator learn <change-id>` (operator workflow, step `gather-learn-metrics`).
+2. **Evaluation** — spawn the `workflow-learner` agent with the feature id, scope, and JSON metrics from step 1.
+
+Step defaults: `config/steps/gather-learn-metrics/contract.yaml`. Override scope via
+`LEARN_SCOPE` env before invoke.
 
 ## Execution
 
-1. Parse feature-id and --scope from $ARGUMENTS (same logic as §1 of the
-   workflow-learner agent — check for an explicit feature ID, else
-   auto-detect from $WORKFLOW_STATE_DIR/*/state.yaml most-recent completed).
+1. Resolve `change_id` from `$ARGUMENTS` (explicit feature id, else most recent completed under `spec/changes/` or archive).
+2. Parse `--scope` (default `all`) and export when not the contract default:
 
-2. Spawn `workflow-learner` agent with:
-   - feature_id: the resolved feature ID
-   - scope: the --scope value (default: all)
-   - state_dir: $WORKFLOW_STATE_DIR
-   - orchestrator_home: $ORCHESTRATOR_HOME
+```bash
+export LEARN_SCOPE="${SCOPE:-all}"
+```
 
-3. The agent runs the full evaluation and routing pipeline.
+3. Run metrics prep:
+
+```bash
+ORCHESTRATOR_CLI=${ORCHESTRATOR_CLI:-$(command -v orchestrator || echo "$(git rev-parse --show-toplevel)/bin/orchestrator")}
+"$ORCHESTRATOR_CLI" learn "$change_id"
+```
+
+Capture stdout JSON (`learn_metrics` object) for the agent prompt.
+
+4. Spawn `workflow-learner` with:
+   - `change_id`, `scope`, `state_yaml_path` (from stderr lines or resolve as in workflow-learner skill §1)
+   - `learn_metrics`: parsed JSON from step 3
+   - `orchestrator_home`: `$ORCHESTRATOR_HOME`
+
+5. The agent runs the full evaluation and routing pipeline (see `skills/workflow-learner/SKILL.md`).
+
+Do not call `metrics-query.sh` from this skill — use the CLI prep step or the agent fallbacks documented in workflow-learner.
