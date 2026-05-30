@@ -23,6 +23,7 @@ def test_complete_step_ids_feature_schema():
     assert steps[0] == "compute-prediction-accuracy"
     assert steps[-1] == "archive-completed-change"
     assert "cost-report" in steps
+    assert "ticket-done" in steps
     assert "archive-completed-change" in steps
 
 
@@ -37,6 +38,7 @@ def test_complete_step_ids_complete_workflow_schema(monkeypatch):
         "mark-change-completed",
         "compute-swe-metrics",
         "cost-report",
+        "ticket-done",
         "archive-completed-change",
     ]
 

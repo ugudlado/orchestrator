@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# archive-completed-change.sh — move workflow state to archive + commit.
+# archive-completed-change — move workflow state to archive + commit.
 #
 # Env (injected by orchestrator): REPO_ROOT, CHANGE_ID, ARCHIVE_PATH,
 #   WORKTREE_ROOT (when worktree_path is set; else empty)
@@ -47,21 +47,5 @@ if [ -z "${WORKTREE_ROOT:-}" ]; then
 fi
 git commit -m "archive: $CHANGE_ID — complete phase artifacts" 2>/dev/null
 SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
-
-if command -v backlog >/dev/null 2>&1 && [ -d "$REPO_ROOT/spec/changes/backlog" ]; then
-  TASK_ID=$(backlog task list --plain 2>/dev/null \
-            | grep -oE "ORC-[0-9]+" \
-            | while read -r tid; do
-                if backlog task "$tid" --plain 2>/dev/null \
-                   | grep -qE "^Labels:.*\bslug-${CHANGE_ID}\b"; then
-                  echo "$tid"; break
-                fi
-              done | head -1)
-  if [ -n "$TASK_ID" ]; then
-    backlog task edit "$TASK_ID" -s Done >/dev/null 2>&1 || true
-    git -C "$REPO_ROOT" add "spec/changes/backlog/tasks/" >/dev/null 2>&1 || true
-    git -C "$REPO_ROOT" commit -m "cleanup: mark $TASK_ID ($CHANGE_ID) Done" >/dev/null 2>&1 || true
-  fi
-fi
 
 printf '%s\n' "{\"archive_record\": {\"archived_at\": \"$ARCHIVED_AT\", \"archive_path\": \"$ARCHIVE_PATH\", \"commit_sha\": \"$SHA\"}}"

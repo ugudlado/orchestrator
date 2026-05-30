@@ -15,4 +15,5 @@ steps:
   - mark-change-completed
   - compute-swe-metrics
   - cost-report
+  - ticket-done              # ticket -> Done
   - archive-completed-change
