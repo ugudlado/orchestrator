@@ -24,7 +24,7 @@ WORKTREE_ARTIFACT_DIR="${WORKTREE_ARTIFACT_DIR:-${WORKTREE_ROOT:-$REPO_ROOT}/spe
 ## Workflow file resolution
 
 Every read of a workflow file (schema, step contract, template, included
-phase, guidelines) MUST use the resolver defined in
+phase) MUST use the resolver defined in
 `config/steps/contracts/workflow-override.md`:
 
 ```
@@ -48,22 +48,28 @@ contract listed above.
 
 ### 1. Select workflow
 
-Run the `select-workflow` step contract — `$ORCHESTRATOR_HOME/config/steps/select-workflow.yaml`. This is a pre-init step (state.yaml does not exist yet); follow its `instruction:` block in this conversation, treating its `outputs:` as the result.
+The schema is chosen by the subcommand, not inferred from prose. The entry points are:
 
-The contract owns the matching logic — trigger keywords, CLI-flag binding, resume detection, semantic fallback, halt-on-ambiguity. Do not duplicate it here.
+- `orchestrator feature <id>` → schema `feature`
+- `orchestrator bugfix <id>` → schema `bugfix`
+- `orchestrator autopilot <id>` → schema `autopilot`
 
-After the step emits `{schema, reason, confidence, considered}`:
+Each is `orchestrator run <id> --schema <name>` under the hood (bin/orchestrator).
+There is no prose intent-inference step (ORC-108 removed select-workflow + the
+flag registry).
 
-1. Read the schema YAML: `$ORCHESTRATOR_HOME/config/workflows/<schema>.yaml`. Workflow files declare `steps:` (and rarely `defaults:` overrides). They do NOT declare their own flags — flag definitions live in `$ORCHESTRATOR_HOME/config/workflow.yaml`.
-2. Resolve flags by merging in this order:
-   - `workflow.yaml.gates.<flag>.default` and `workflow.yaml.behavioral.<flag>.default` — global defaults.
-   - Workflow's `defaults:` block (if present) — overrides for this schema.
-   - User-supplied CLI flags resolved via `workflow.yaml.cli.<--name>.sets` — final override.
-3. Tell the user the schema, the reason it was selected, the confidence tier, and the resolved flags.
+Then:
+
+1. Read the schema YAML: `$ORCHESTRATOR_HOME/config/workflows/<schema>.yaml`. Workflow
+   files declare `steps:` (and rarely a `defaults:` override block). The `steps:` list
+   IS the plan — there is no flag-gating.
+2. Any `key=value` arguments passed on the command line are persisted verbatim to
+   `state.flags` for schema-specific behavioral reads. There is no global flag registry.
+3. Tell the user the schema and the resolved feature id.
 
 ### 2. Resume entry point
 
-If the select-workflow step emitted `confidence: resume`, it has already pointed at an active state.yaml. Read its `next_step` (phase + step_id), read its persisted `flags`, and enter the dispatch loop at that point. Tell the user: "Resuming <change_id> at <phase>/<step_id>."
+If an active state.yaml already exists for this id (the ticket is mid-flight), resume it: read its `next_step` (phase + step_id) and persisted `flags`, and enter the dispatch loop at that point. Tell the user: "Resuming <change_id> at <phase>/<step_id>." (orchestrator-run.sh already performs this resume detection via ticket-status-check.sh when driving from the CLI.)
 
 Otherwise this is a new workflow — proceed to sub-step 2.1 to initialize state before entering the dispatch loop. This applies equally to full workflow runs and phase-constrained wrapper calls such as `/specify` (`--phase specify`); artifact-producing steps must never run before init has created the worktree/artifact directory.
 
@@ -77,7 +83,7 @@ bash skills/orchestrate/scripts/seed-state.sh <slug> <schema> [flag=value ...]
 
 Arguments:
 - `<slug>` is the change_id / feature slug for this workflow (derived from the request or Linear ticket).
-- `<schema>` is the schema name emitted by the select-workflow step (e.g. `bugfix`, `feature`).
+- `<schema>` is the schema name from the subcommand (e.g. `bugfix`, `feature`, `autopilot`).
 - `[flag=value ...]` are any resolved CLI flag overrides (e.g. `tdd_required=false`).
 
 After the script exits 0, assert that state.yaml exists with a promoted
