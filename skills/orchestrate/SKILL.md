@@ -24,8 +24,7 @@ WORKTREE_ARTIFACT_DIR="${WORKTREE_ARTIFACT_DIR:-${WORKTREE_ROOT:-$REPO_ROOT}/spe
 ## Workflow file resolution
 
 Every read of a workflow file (schema, step contract, template, included
-phase) MUST use the resolver defined in
-`config/steps/contracts/workflow-override.md`:
+phase) MUST use this resolver:
 
 ```
 RESOLVE_WORKFLOW_FILE(relative_path):
@@ -35,10 +34,9 @@ RESOLVE_WORKFLOW_FILE(relative_path):
   RETURN $ORCHESTRATOR_HOME/config/<relative_path>
 ```
 
-Repo overrides **fully replace** the global file (no YAML merge). Protocol
-contracts under `steps/contracts/` (error-recovery, resume-token,
-rule-merge, metrics-schema, workflow-override itself) are universal and
-NOT subject to override — always read from `$ORCHESTRATOR_HOME/config/`.
+Repo overrides **fully replace** the global file (no YAML merge). The error
+recovery and override resolution protocols are universal and NOT subject to
+override — always read from `$ORCHESTRATOR_HOME/config/`.
 
 When reading any path written below as `$ORCHESTRATOR_HOME/config/<...>`,
 apply `RESOLVE_WORKFLOW_FILE(<...>)` unless it is a universal invariant
@@ -107,7 +105,7 @@ write per-step stamping prose.
 
 **Context-passthrough contract (single-file workflow state, ORC-63).**
 `orchestrator next` returns an action JSON that already contains the agent's
-full operational contract: `instruction`, `rules` (merged per rule-merge.md),
+full operational contract: `instruction`, `rules` (merged from schema + project.yaml),
 `step_context` (the `workflow_plan` node block with
 goal/inputs/outputs/agent/status/depends_on),
 `inputs`, `expected_outputs`, `resolved_allowed_tools`, `env`, plus (for
@@ -193,7 +191,7 @@ LOOP:
       # state.yaml is the single source.
 
       # 1. Collect agent result (wait for background task to complete).
-      # 2. Parse COMPLETION block from agent result (contracts/done-payload.md).
+      # 2. Parse COMPLETION block from agent result.
       #    Map fields verbatim — do NOT extract review_score, verdict, or artifact
       #    content from report prose. Agents write artifact files themselves;
       #    COMPLETION carries machine-readable fields only.
@@ -213,7 +211,6 @@ LOOP:
       IF workflow_issues is non-empty:
           done_payload.workflow_issues = workflow_issues
       done_exit = orchestrator done state.yaml <<< done_payload
-      # Full contract: config/steps/contracts/done-payload.md
 ```
 
 ### Workflow issues
@@ -226,15 +223,15 @@ drivers share this single source of detection logic; do not re-derive these
 categories in this prompt. Agent-emitted `workflow_issues:` in COMPLETION are
 forwarded verbatim into the done payload. Inline scripts that need to flag a
 workflow issue without aborting exit with code 10 (soft-fail); the driver
-synthesizes a `script-warning` entry from the script's stderr. Full payload
-schema, dedup_key conventions, category/severity values, and retro.md layout:
-`config/steps/contracts/workflow-issues.md`.
+synthesizes a `script-warning` entry from the script's stderr.
 
 Escalation (agent returns STATUS: escalate_to_architect): record a
 step_history entry with `status: escalate_to_architect` — `orchestrator
 next` on the following call exits 2 (blocked), which the loop surfaces.
-The architect escalation contract (steps/contracts/architect-escalation.md)
-defines how to spawn the architect and re-dispatch.
+Spawn architect agent with the escalation block (type, task_id, context,
+question, attempted) + design.md + tasks.yaml. Apply any DESIGN_AMENDMENT
+and TASK_CHANGES, record to state.yaml `escalation_events`, then re-spawn
+developer with the architect DECISION appended — same attempt, no retry charged.
 
 ### 4. Phase transitions
 
@@ -246,5 +243,5 @@ All schemas (feature, bugfix, autopilot) have a single `main` phase — no advan
 - **Always read the agent .md file before spawning** — the agent needs its full prompt
 - **State.yaml is the source of truth** — read it before each step to confirm position
 - **One step at a time** — complete and record each step before starting the next
-- **Follow Error Recovery Contract** (contracts/error-recovery.md) for all failures
-- **Follow Resume Token Format Contract** (contracts/resume-token.md) for next_step writes
+- **On failure**: failed step → increment retries, re-execute with RETRY_CONTEXT; blocked once → re-spawn with blocker context; blocked twice → treat as failure; retries exhausted → pause + surface to user (interactive) or create ticket (autopilot)
+- **Write `next_step`** as `{ step_id, phase, attempt }` after each phase advance

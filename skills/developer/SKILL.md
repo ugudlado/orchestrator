@@ -19,7 +19,7 @@ AGENT_HANDLE=${1:-@developer}
 
 ## Execution
 
-Glue skill: `/backlog-manager` for tickets, orchestrator for workflow, `agents/developer.md` for implementation. State updates follow `config/steps/contracts/done-payload.md` — driver calls `orchestrator done` after COMPLETION; agents MUST NOT edit `state.yaml`. Driver does not verify `tasks.yaml` or run verify commands; `/reviewer` does.
+Glue skill: `/backlog-manager` for tickets, orchestrator for workflow, `agents/developer.md` for implementation. Driver calls `orchestrator done` after COMPLETION; agents MUST NOT edit `state.yaml`. Driver does not verify `tasks.yaml` or run verify commands; `/reviewer` does.
 
 ### 1. Claim work via `/backlog-manager`
 

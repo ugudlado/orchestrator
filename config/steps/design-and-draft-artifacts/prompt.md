@@ -81,7 +81,7 @@ APPROACH:
    - Write tasks.yaml using the Tasks YAML Format Contract below.
    - When tdd_required: every implementation task has a preceding test task.
 
-8. Return COMPLETION per contracts/done-payload.md (driver calls orchestrator done).
+8. Return COMPLETION (driver calls orchestrator done).
    The COMPLETION `outputs:` block MUST carry all five declared outputs:
    - `design.md` and `tasks.yaml` — path-named artifacts; the value is the
      relative path the step wrote (e.g. `spec/changes/$CHANGE_ID/tasks.yaml`).

@@ -197,8 +197,9 @@ After classification:
 - `workflow_improvement` (global) → edit `$ORCHESTRATOR_HOME/config/steps/<step>.yaml`
   per the routing table below. Learned rule gets `<!-- learned: ... -->` metadata.
 - `workflow_improvement` (repo override) → edit `$REPO_ROOT/.orchestrator/<path>`;
-  copy global file first if the override doesn't exist. Read
-  `config/steps/contracts/workflow-override.md`.
+  copy global file first if the override doesn't exist. Override fully replaces
+  the global file — no YAML merge. Repo-override path: `$REPO_ROOT/.orchestrator/<relative_path>`;
+  fallback: `$ORCHESTRATOR_HOME/config/<relative_path>`.
 - `project_learning` → append to `spec/project.yaml` `learnings[]` with
   `id`, `learned`, and `rule` fields. Never modify global step contracts.
 
@@ -218,7 +219,7 @@ After classification:
   - Global → `$ORCHESTRATOR_HOME/config/steps/<step>.yaml`
   - Repo override → `$REPO_ROOT/.orchestrator/steps/<step>.yaml` (copy global first if missing)
 - Read `$ORCHESTRATOR_HOME/config/steps/CONVENTIONS.md` before editing any step contract.
-- For repo overrides, also read `$ORCHESTRATOR_HOME/config/steps/contracts/workflow-override.md` before writing under `.orchestrator/`.
+- For repo overrides, the override file fully replaces its global counterpart — copy the global file first if the override doesn't exist, then edit.
 - Apply the edit directly and stamp the rule with `<!-- learned: ... -->` metadata per § Rule metadata below.
 - Fix is applied immediately to disk — improves the next workflow execution.
 
@@ -411,7 +412,7 @@ The helper stages only learn's write targets (`config/steps/`, `.orchestrator/`,
 
 ## Output
 
-Return COMPLETION per contracts/done-payload.md:
+Return COMPLETION:
   status: completed (or abandoned if learn fails and is non-blocking)
   outputs:
     learn_result: {completed: true} or {skipped: true, reason: "..."}

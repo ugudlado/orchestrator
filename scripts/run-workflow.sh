@@ -244,10 +244,10 @@ build_prompt() {
   local ticket_context="${3:-}"
   local workflow_meta="${4:-}"
   if [ -n "$ticket_context" ]; then
-    printf '%s\n\n%s\n\nTicket / bug report (%s):\n%s\n\nStep context:\n%s\n\nYou MUST end stdout with a valid COMPLETION: YAML block (see config/steps/contracts/done-payload.md). Use indented YAML under COMPLETION: — do not wrap the block in markdown code fences.\n' \
+    printf '%s\n\n%s\n\nTicket / bug report (%s):\n%s\n\nStep context:\n%s\n\nYou MUST end stdout with a valid COMPLETION: YAML block. Use indented YAML under COMPLETION: — do not wrap the block in markdown code fences.\n' \
       "$instruction" "$workflow_meta" "$TICKET_ID" "$ticket_context" "$step_context"
   else
-    printf '%s\n\n%s\n\nStep context:\n%s\n\nYou MUST end stdout with a valid COMPLETION: YAML block (see config/steps/contracts/done-payload.md). Use indented YAML under COMPLETION: — do not wrap the block in markdown code fences.\n' \
+    printf '%s\n\n%s\n\nStep context:\n%s\n\nYou MUST end stdout with a valid COMPLETION: YAML block. Use indented YAML under COMPLETION: — do not wrap the block in markdown code fences.\n' \
       "$instruction" "$workflow_meta" "$step_context"
   fi
 }

@@ -73,8 +73,7 @@ If any check fails → fix the issue. Do not pass to reviewer with known failure
 ### 4. Return COMPLETION
 
 When all tasks are `[x]` (or the step contract says to stop early), return a
-COMPLETION block per `config/steps/contracts/done-payload.md`. The dispatch
-driver calls `orchestrator done` — you do not.
+COMPLETION block. The dispatch driver calls `orchestrator done` — you do not.
 
 Include self-verification evidence from the final task batch in COMPLETION.
 The **reviewer** independently re-verifies at `run-phase-review` and Code
@@ -114,8 +113,8 @@ When the reviewer rejects:
 
 - **Tests fail**: Use `systematic-debugging` skill — no guess-fixes
 - **Build fails**: Read error output, trace the issue, fix root cause
-- **Design conflict**: Escalate to architect — see `config/steps/contracts/architect-escalation.md` for when to escalate and the required output block. Do NOT guess or silently deviate from design.md.
-- **Retry / escalation on verification failure**: Follow `config/steps/contracts/error-recovery.md § Escalation Protocol` — do not restate the protocol inline.
+- **Design conflict**: Escalate to architect — return `STATUS: escalate_to_architect` with `type`, `task_id`, `context`, `question`, `attempted` fields. Does NOT count as a retry. Do NOT guess or silently deviate from design.md.
+- **Retry / escalation on verification failure**: If retries are exhausted, set `status: paused` in state.yaml and present failure summary to user (interactive schemas) or create a Linear ticket (autopilot).
 
 ## State Updates
 

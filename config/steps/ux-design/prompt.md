@@ -36,7 +36,7 @@
       - prototype.selected_option: which option was chosen
       - prototype.critique_status: passed|passed-with-fixes|skipped
       - prototype.critique_rounds: number of /critique iterations run
-8. Return COMPLETION per contracts/done-payload.md (driver calls orchestrator done).
+8. Return COMPLETION (driver calls orchestrator done).
 
 ### Rules (constraints on how)
 

@@ -36,8 +36,11 @@ step_context.task:
    from `title` and `test_scenarios` if `change` is absent).
 4. Cover all `test_scenarios` with tests.
 5. Run every command in `step_context.task.verify`. Fix until all pass.
-6. Commit per `contracts/auto-commit.md`:
-   `feat(<change-id>): <task-id> <task-title>`
+6. Commit after all verify commands pass:
+   - Message: `<prefix>(<change-id>): <task-id> <task-title>` where prefix is `feat` for feature, `fix` for bugfix, `chore` for config/docs-only.
+   - Stage only files changed by this task — do NOT `git add -A`.
+   - Skip the commit if `git status --porcelain` shows no changes.
+   - Include `Co-Authored-By: Claude <noreply@anthropic.com>` trailer.
 7. Return COMPLETION with `task_execution_result: completed`.
 
 ### Scope constraint
@@ -51,10 +54,35 @@ necessary file is missing from the list, add it to your COMPLETION's
 - Read step_context.task for the task to implement (id, title, files, verify, test_scenarios, change).
 - Implement only the files listed in step_context.task.files — do not touch other files.
 - Run every command in step_context.task.verify before returning COMPLETION.
-- Commit per contracts/auto-commit.md after all verify commands pass.
+- Commit after all verify commands pass — stage only task files, never `git add -A`.
 - Return one COMPLETION block — no loop, no next-task scanning.
+
+## Escalation
+
+Escalate to architect (`STATUS: escalate_to_architect`) only for:
+- **Design contradiction** — task instruction conflicts with design.md
+- **Missing design coverage** — task requires a decision design.md doesn't address
+- **Scope ambiguity** — unclear whether behavior is in/out of scope and wrong choice cascades
+- **Architectural dependency** — structural decision that affects other tasks
+
+Do NOT escalate for implementation details, test strategy, library usage, or retry failures.
+
+When escalating, return:
+```
+STATUS: escalate_to_architect
+type: <contradiction|missing_coverage|scope_ambiguity|architectural_dependency>
+task_id: T-<N>
+context: |
+  <what the task requires, what design.md says, why they conflict>
+question: |
+  <single concrete question the architect must answer>
+attempted: |
+  <what you already tried or considered>
+```
+
+Escalation does NOT count as a retry — the architect resolves the question, then you continue the same task at the same attempt.
 
 ## Verify
 
 - All commands in step_context.task.verify pass
-- Commit exists for this task per auto-commit.md
+- Commit exists for this task (staged only task files)

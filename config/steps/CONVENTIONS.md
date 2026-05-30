@@ -81,49 +81,17 @@ Plan) follow the standard sections, separated by `---`.
 > routing/decay. These are now prompt-prose responsibilities. See the ORC-104
 > ticket for the tracked follow-ups.
 
-## Contract Files
+## Format Contract Reference
 
-Detailed format contracts have been extracted into focused files under `contracts/`.
-Load only the contracts relevant to your step:
-
-| Contract | File | Used By |
-|----------|------|---------|
-| Discovery Brief Format Contract | `config/steps/explore/prompt.md` § Discovery Brief Format Contract | explore, design-and-draft-artifacts, run-phase-review |
-| Diagnosis Format Contract | `config/steps/diagnose/prompt.md` § Diagnosis Format Contract | diagnose, design-and-draft-artifacts, run-phase-review |
-| Design Format Contract | `config/steps/design-and-draft-artifacts/prompt.md` § Design Format Contract | design-and-draft-artifacts, run-phase-review |
-| Tasks YAML Format Contract | `config/steps/design-and-draft-artifacts/prompt.md` § Tasks YAML Format Contract | design-and-draft-artifacts, expand-plan, run-phase-review |
-| Fix Plan Format Contract | `config/steps/run-phase-review/prompt.md` § Fix Plan Format Contract | design-and-draft-artifacts, run-phase-review |
-| Error Recovery (state transitions, blocked protocol, escalation) | `contracts/error-recovery.md` | orchestrate skill, execute-one-task, run-phase-review, phase-signoff |
-| Rule Merge (evaluation, merge algorithm, change type detection) | `contracts/rule-merge.md` | orchestrate skill, /learn |
-| Resume Token | `contracts/resume-token.md` | orchestrate skill, workflow-state.sh, auto-continue.sh |
-| UX Artifacts | `contracts/ux-artifacts.md` | ux-design, design-and-draft-artifacts, execute-one-task |
-| Auto-Commit | `contracts/auto-commit.md` | execute-one-task |
-| Metrics Schema | `contracts/metrics-schema.md` | compute-swe-metrics, telemetry, learn, workflow-improver |
-| Step Dispatch (CLI interface, JSON schema, exit codes) | `contracts/step-dispatch.md` | orchestrate skill, adapter authors, callers of `orchestrator next` |
-| Done Payload (`orchestrator done` JSON stdin, COMPLETION block) | `contracts/done-payload.md` | orchestrate skill, developer skill, all agent-spawned steps |
-
-When step contracts reference `CONVENTIONS.md § <Section>`, check whether the
-section now lives in a contract file above. The `§` references in step contracts
-use short names that map to the contract files:
+Format contracts live in the step prompts that produce them. Reference by `§` section name:
 
 - `§ Discovery Brief Format Contract` → `config/steps/explore/prompt.md`
 - `§ Diagnosis Format Contract` → `config/steps/diagnose/prompt.md`
 - `§ Design Format Contract` → `config/steps/design-and-draft-artifacts/prompt.md`
 - `§ Tasks YAML Format Contract` → `config/steps/design-and-draft-artifacts/prompt.md`
 - `§ Fix Plan Format Contract` → `config/steps/run-phase-review/prompt.md`
-- `§ Error Recovery Contract` → `contracts/error-recovery.md`
-- `§ Fix Task Protocol` → `contracts/error-recovery.md`
-- `§ Agent Blocked Protocol` → `contracts/error-recovery.md`
-- `§ Escalation Protocol` → `contracts/error-recovery.md`
-- `§ Rules-When Evaluation` → `contracts/rule-merge.md`
-- `§ Rule Merge Contract` → `contracts/rule-merge.md`
-- `§ Change Type Detection` → `contracts/rule-merge.md`
-- `§ Resume Token Format Contract` → `contracts/resume-token.md`
-- `§ UX Artifact Contract` → `contracts/ux-artifacts.md`
-- `§ Auto-Commit Convention` → `contracts/auto-commit.md`
-- `§ Metrics Schema` → `contracts/metrics-schema.md`
 
-Sections that remain in this file are referenced directly (e.g., `CONVENTIONS.md § State Updates`).
+Protocol details are inlined into step prompts and skills where needed.
 
 ## Single Responsibility Principle
 
@@ -350,9 +318,9 @@ the artifact destination.
 ## State Updates
 
 **Agents MUST NOT edit `state.yaml` directly.** All writes go through
-`orchestrator done` with a JSON payload (see `contracts/done-payload.md`).
-The dispatch driver calls `orchestrator done` after each step; step agents
-return a COMPLETION block that the driver maps into the payload.
+`orchestrator done` with a JSON payload. The dispatch driver calls
+`orchestrator done` after each step; step agents return a COMPLETION block
+that the driver maps into the payload.
 
 The section below documents the **resulting** `step_history` entry shape —
 reference only, not an editing instruction.
@@ -404,8 +372,8 @@ Instead of "Update state.yaml with X completion status", reference:
 
 ```yaml
 instruction: |
-  N. Return a COMPLETION block per contracts/done-payload.md (driver calls
-     orchestrator done — agents MUST NOT edit state.yaml directly).
+  N. Return a COMPLETION block (driver calls orchestrator done —
+     agents MUST NOT edit state.yaml directly).
 ```
 
 This replaces all variants of "update state.yaml with discovery/design/artifact/task/
@@ -430,7 +398,7 @@ find data where they expect it.
 |------------|------|-----------|-----------------|
 | `status` | string | check-bootstrap-state, mark-change-completed, final-signoff | `active`, `paused`, `completed` |
 | `phase` | string | load-project-context, phase-signoff | Current phase name (lowercase, e.g., `specify`, `implement`, `complete`) |
-| `next_step` | object | phase-signoff, any step advancing flow | See `contracts/resume-token.md` |
+| `next_step` | object | phase-signoff, any step advancing flow | `{ step_id, phase, attempt }` |
 | `step_history` | list | All steps (append-only) | See § State Updates above |
 | `flags` | object | load-project-context | Resolved runtime flags (e.g., `{ ff: true }`) |
 | `ticket_id` | string | create-linear-ticket, `ticket-state-update.sh` (shell loop) | Issue ID (e.g., `HL-123`, `task-42`). Also stored in `.spec.yaml`. |
@@ -446,13 +414,13 @@ find data where they expect it.
 | `rejection` | object | phase-signoff, final-signoff | `{ phase: <name>, feedback: "...", fix_tasks_created: [T-N, ...] }` |
 | `retries` | object | run-phase-review, execute-one-task | `{ <step_id_or_task_id>: <count> }` — per-step/task retry counter |
 | `refresh_artifacts` | boolean | run-phase-review (on fail) | `true` when artifacts need regeneration |
-| `change_type` | string | design-and-draft-artifacts (after task creation) | `code` or `config_docs` — per `contracts/rule-merge.md` § Change Type Detection |
+| `change_type` | string | design-and-draft-artifacts (after task creation) | `code` or `config_docs` |
 | `flag_adaptations` | list | design-and-draft-artifacts (when change_type adapts flags) | `[{ flag, original, effective, reason }]` |
 | `task_checkpoint` | object | execute-one-task | NOT PERSISTED — `record.py` (`orchestrator done`) drops unknown keys silently; this field will never appear in state.yaml. Per-task completion is now tracked via step_history entries (one per task-node). This row is retained for historical reference only. <!-- learned: 2026-05-19, source: orc-59, cycle: 1, repo: orchestrator --> |
 | `workflow_plan` | object | load-project-context | `{ <phase>: { active: [...], filtered: [...] } }`. Includes resolved from schema. Dispatch loop MUST walk ALL phases/steps — workflow is not complete until every active step in every phase is dispatched. |
 | `step_history[].review_score` | object | run-phase-review | `{ overall: 9, dimensions: { spec_compliance: 9, correctness: 10, security: 9, simplicity: 9, code_quality: 9 } }` |
 | `step_history[].usage` | object | orchestrate skill (dispatch loop) | `{ input_tokens: N, output_tokens: N, cache_creation_input_tokens: N, cache_read_input_tokens: N, total_tokens: N, tool_uses: N, tool_calls: { ToolName: N, ... }, duration_ms: N }`. Only for steps with agent: field. `tool_calls:` is a per-tool-type breakdown where the sum of all values equals `tool_uses`. Omit `tool_calls:` or write `tool_calls: {}` when no tool calls were made. Compute-swe-metrics reads these fields for cost calculation and tool attribution. |
-| `escalation_events` | list | orchestrate skill (escalation routing) | See `contracts/architect-escalation.md` § State Recording. Each entry: `{ task_id, type, question, decision, design_amended, tasks_changed, timestamp }` |
+| `escalation_events` | list | orchestrate skill (escalation routing) | Each entry: `{ task_id, type, question, decision, design_amended, tasks_changed, timestamp }` |
 
 ### Rules
 
@@ -553,10 +521,10 @@ rules:
 | `repo:` | Repo name this rule applies to, or `*` for universal | No | `*` |
 
 **Repo scoping**: Learned rules are scoped to the repo that generated them. When `/learn`
-writes a rule, it includes `repo: $REPO_NAME` (e.g., `repo: shell`). The Rule Merge
-Contract (`contracts/rule-merge.md`) filters learned rules so only rules matching the
-current repo (or `repo: *` universal rules) are applied. This prevents rules learned in
-one repo from incorrectly constraining a different repo with a different tech stack.
+writes a rule, it includes `repo: $REPO_NAME` (e.g., `repo: shell`). The rule evaluator
+filters learned rules so only rules matching the current repo (or `repo: *` universal
+rules) are applied. This prevents rules learned in one repo from incorrectly constraining
+a different repo with a different tech stack.
 
 - **Repo-scoped** (`repo: <name>`): Default. Tech-stack or domain rules — apply only to the originating repo.
 - **Universal** (`repo: *`): Workflow mechanics — rules about the workflow system itself that apply everywhere. The evaluator must explicitly classify a rule as universal.
@@ -594,13 +562,7 @@ Decay evaluation runs every 5th `/learn` invocation (see `/learn` skill § Rule 
 ## Metrics Schema
 
 Every workflow that runs `compute-swe-metrics` produces a `metrics:` block in its
-archived `state.yaml`. The canonical definition of this block — field registry,
-per-schema field variants (required / null / omitted), and consumer contracts for
-null-skip and key-absence — is in `contracts/metrics-schema.md`.
-
-When writing or evaluating a step that reads or writes `metrics:` fields, load
-`contracts/metrics-schema.md` for the authoritative field list and the explicit-null
-vs omit contract. Key rules summarized:
+archived `state.yaml`. Key rules:
 
 - `resolution.*` fields are explicit YAML null (`~`) for spike; real values for feature/bugfix/chore.
 - `review_scores` is omitted entirely (no key) for spike.

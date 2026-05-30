@@ -41,7 +41,7 @@ Run the workflow learning pipeline for this completed change.
    continue with partial sync) and return success. Both learning and sync
    are best-effort and must not fail the complete phase.
 
-5. Return COMPLETION per contracts/done-payload.md.
+5. Return COMPLETION.
 
 ### Rules (constraints on how)
 

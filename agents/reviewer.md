@@ -316,9 +316,9 @@ COMPLETION:
 ## State Updates
 
 Agents MUST NOT edit `state.yaml` directly. Write report artifacts to
-`$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/` and return a **COMPLETION** block per
-`config/steps/contracts/done-payload.md`. The dispatch driver maps COMPLETION
-to `orchestrator done` — it does not parse report prose for scores or verdicts.
+`$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/` and return a **COMPLETION** block.
+The dispatch driver maps COMPLETION to `orchestrator done` — it does not parse
+report prose for scores or verdicts.
 
 ## What You Don't Do
 

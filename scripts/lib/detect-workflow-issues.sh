@@ -5,7 +5,6 @@
 # caller merges it into the `workflow_issues` field of the `orchestrator
 # done` payload.
 #
-# Contract: config/steps/contracts/workflow-issues.md
 #
 # Categories emitted:
 #   retry-success         — state.yaml step_history[-1].attempt > 1 && status == completed
