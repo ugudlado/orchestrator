@@ -8,27 +8,19 @@ worktree_path: /tmp/test-workflow
 workflow_plan:
   implement:
     active:
-      - step-inline-only
+    - step-inline-only
 step_history:
-  # attempt:1 completed, attempt:2 completed, then crash mid attempt:3
-  # _compute_attempt should return max(1,2) + 1 = 3
-  - step_id: step-inline-only
-    phase: implement
-    status: completed
-    attempt: 1
-    started_at: "2026-04-18T08:00:00Z"
-    ended_at: "2026-04-18T08:30:00Z"
-    usage: {}
-  - step_id: step-inline-only
-    phase: implement
-    status: failed
-    attempt: 2
-    started_at: "2026-04-18T09:00:00Z"
-    ended_at: "2026-04-18T09:30:00Z"
-    usage: {}
-  - step_id: step-inline-only
-    phase: implement
-    status: in_progress
-    attempt: 2
-    started_at: "2026-04-18T10:00:00Z"
-    # no ended_at — crashed mid-step
+- step_id: step-inline-only
+  phase: implement
+  status: completed
+  attempt: 1
+  started_at: '2026-04-18T08:00:00Z'
+  ended_at: '2026-04-18T08:30:00Z'
+  usage: {}
+- step_id: step-inline-only
+  phase: implement
+  status: failed
+  attempt: 2
+  started_at: '2026-04-18T09:00:00Z'
+  ended_at: '2026-04-18T09:30:00Z'
+  usage: {}
