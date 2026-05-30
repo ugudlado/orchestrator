@@ -358,3 +358,39 @@ rules:
       Do not interpret file_overlap_pct: 0.0 as evidence that the developer
       agent failed to list changed files; verify agent output directly from
       session logs if file accuracy is needed.
+  - id: xfail-cleanup-is-part-of-tdd-task
+    learned: 2026-05-31
+    source: orc-108
+    rule: >
+      In TDD workflows, RED-phase tests written with @pytest.mark.xfail(strict=False)
+      must have those markers removed as part of the final integration-gate task
+      (the GREEN-confirmation / phase-gate task), not left as a non-blocking
+      follow-up. xpassing tests with xfail markers still present are a correctness
+      signal that the test suite is harder to read and trust. Include the marker
+      removal in the task's file list and verify commands — the integration-gate task
+      is the natural home since it confirms full GREEN state.
+  - id: capture-test-baseline-path-must-match-project-yaml
+    learned: 2026-05-31
+    source: orc-108
+    rule: >
+      The capture-test-baseline inline script uses a hardcoded test path
+      (config/scripts/orchestrator_next/tests/) that diverges from the canonical
+      path in project.yaml verify_commands.test (orchestrator_next/tests/). When
+      the paths diverge, the baseline step silently fails with exit_code 4 ("file
+      or directory not found") and the baseline is recorded as skipped/unparseable.
+      The capture-test-baseline script should read the test path from project.yaml
+      verify_commands.test rather than hardcoding it, so the baseline is always
+      consistent with the project's canonical test runner.
+  - id: schema-static-complete-phase-steps
+    learned: 2026-05-31
+    source: orc-108
+    rule: >
+      Declare complete-phase steps (compute-prediction-accuracy through ticket-done)
+      statically in feature.yaml and bugfix.yaml schema tails rather than injecting
+      them at runtime from complete.yaml. Static declaration makes the full DAG
+      readable from the schema file, eliminates complete_phase.py's injection logic,
+      and lets the dispatcher walk the complete-phase chain without runtime surgery.
+      Complete-phase nodes are topologically unreachable until the implement-phase
+      chain finishes — the dispatcher won't pick them up prematurely. The
+      implement-completeness guard in orchestrator-run.sh remains the only check
+      that blocks premature `orchestrator complete` invocations.
