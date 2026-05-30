@@ -1484,19 +1484,19 @@ def record(
         if verdict_err is not None:
             return verdict_err
 
-    # Check B: usage required for agent (non-inline) steps on completion.
+    # Check B: usage required for agent steps on completion.
     # Root cause of ISSUE-10.1: empty usage means cost report is blank and
     # telemetry has no data for the step.
-    # Completed non-inline steps MUST have input_tokens > 0 OR output_tokens > 0,
+    # Completed agent steps (payload agent is not None) MUST have input_tokens > 0 OR output_tokens > 0,
     # unless agent_task_result is present with a parseable agentId — record.py
     # then pulls billing-truth tokens from the subagent JSONL (driver does not
     # parse usage blocks). Explicit agent_id alone does not bypass this check.
     #
     # ORC-48: if the contract declares an agent but the payload omits 'agent',
     # reject early so the driver knows it must include the field. Without this
-    # guard, record.py silently defaults to 'inline', corrupting DuckDB metrics.
+    # guard, record.py silently defaults agent in history, corrupting DuckDB metrics.
     contract_agent = contract.agent if contract is not None else None
-    if status == "completed" and contract_agent and contract_agent != "inline":
+    if status == "completed" and contract_agent is not None:
         if "agent" not in payload:
             return (
                 {
@@ -1513,11 +1513,11 @@ def record(
                 3,
             )
 
-    agent = payload.get("agent", "inline")
+    agent = payload.get("agent")
     payload_usage = payload.get("usage") or {}
     agent_task_result = payload.get("agent_task_result")
     resolved_agent_id = _resolve_agent_id(payload)
-    if status == "completed" and agent != "inline":
+    if status == "completed" and agent is not None:
         has_tokens = _usage_has_tokens(payload_usage)
         if not has_tokens:
             if agent_task_result and resolved_agent_id:
@@ -1645,7 +1645,7 @@ def record(
         "step_id": step_id,
         "phase": phase,
         "status": status,
-        "agent": payload.get("agent", "inline"),
+        "agent": payload.get("agent"),
         "attempt": payload.get("attempt", attempt),
         "started_at": payload.get("started_at", now),
         "ended_at": now,

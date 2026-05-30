@@ -285,7 +285,7 @@ class TestRecordAgentField:
     def test_inline_step_no_agent_required(self, tmp_path, contracts_dir):
         """
         GREEN: inline-script step (contract has inline: true, no agent:) with no
-        'agent' in payload succeeds, and state.yaml records agent='inline'.
+        'agent' in payload succeeds, and state.yaml records agent=None.
         """
         _write_contract(contracts_dir, "inline-setup", inline=True)
         # Inline steps typically have workflow_plan in a different phase;
@@ -326,6 +326,6 @@ class TestRecordAgentField:
             state_after = yaml.safe_load(f)
 
         last = state_after["step_history"][-1]
-        assert last["agent"] == "inline", (
-            f"Expected step_history[-1].agent='inline', got: {last['agent']!r}"
+        assert last.get("agent") is None, (
+            f"Expected step_history[-1].agent=None, got: {last.get('agent')!r}"
         )
