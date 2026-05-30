@@ -90,6 +90,17 @@ APPROACH:
    Omitting any of these makes `orchestrator done` reject the step with
    `missing_outputs` (exit 3).
 
+   ```
+   COMPLETION:
+     status: completed
+     outputs:
+       design.md: spec/changes/<change_id>/design.md
+       tasks.yaml: spec/changes/<change_id>/tasks.yaml
+       updated_artifact_set: [design.md, tasks.yaml]
+       design_direction: "<selected approach name>"
+       complexity: <XS|S|M|L|XL>
+   ```
+
 ## Part 3: Artifact Review (interactive schemas only)
 
 9. If state.yaml's `schema` is `autopilot`: skip this pause and return STATUS:

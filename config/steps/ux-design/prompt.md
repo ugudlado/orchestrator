@@ -36,7 +36,14 @@
       - prototype.selected_option: which option was chosen
       - prototype.critique_status: passed|passed-with-fixes|skipped
       - prototype.critique_rounds: number of /critique iterations run
-8. Return COMPLETION (driver calls orchestrator done).
+8. Return COMPLETION (driver calls orchestrator done):
+   ```
+   COMPLETION:
+     status: completed
+     outputs:
+       ux_direction: <one-line description of selected approach>
+     artifacts: [ux-prototype.html, ux-artifacts.yaml]
+   ```
 
 ### Rules (constraints on how)
 

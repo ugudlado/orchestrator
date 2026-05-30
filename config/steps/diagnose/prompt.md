@@ -55,8 +55,14 @@ the Diagnosis Format Contract below, containing:
 - **Proposed approach**: One-sentence fix direction (not implementation)
 - **Unresolved questions**: Anything that needs user input
 
-5. Return COMPLETION with
-   outputs.discovery_result: {path: "discovery.md"} and artifacts: [discovery.md].
+5. Return COMPLETION:
+   ```
+   COMPLETION:
+     status: completed
+     outputs:
+       discovery_result: {path: "discovery.md"}
+     artifacts: [discovery.md]
+   ```
    Do not return the diagnosis as chat prose — the file is the artifact.
 
 ### Rules (constraints on how)

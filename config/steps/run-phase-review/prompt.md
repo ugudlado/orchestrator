@@ -82,10 +82,17 @@
    - If any AC fails: treat as a critical finding in spec_compliance dimension.
 5a. Write the full human-readable report to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/phase-review.md.
 6. If overall >= phase verify.metrics.review_score.min and no critical findings: PASS.
-   Return COMPLETION with:
-     outputs.phase_review_report: {verdict: pass}
-     review_score: { overall: <N>, dimensions: { spec_compliance: <N>, correctness: <N>, security: <N>, simplicity: <N>, code_quality: <N> } }
+   Return COMPLETION:
+   ```
+   COMPLETION:
+     status: completed
+     outputs:
+       phase_review_report: {verdict: pass}
+     review_score:
+       overall: <N>
+       dimensions: {spec_compliance: <N>, correctness: <N>, security: <N>, simplicity: <N>, code_quality: <N>}
      artifacts: [phase-review.md]
+   ```
 7. If FAIL:
    a. Generate fix tasks: one fix task per finding, each with Finding, Scope, and Approach.
       Do NOT suggest refactoring or unrelated improvements.
@@ -100,11 +107,19 @@
       Run: `orchestrator expand-plan $STATE_YAML_PATH`
       This appends task-fix-N nodes to workflow_plan and rewires
       run-phase-review.depends_on to the last fix task-node.
-   d. Return COMPLETION with:
-      outputs.phase_review_report: {verdict: needs_work}
-      review_score: { overall: <N>, dimensions: {...} }
-      artifacts: [phase-review.md]
-      state_patch.retries increment for this step.
+   d. Return COMPLETION:
+   ```
+   COMPLETION:
+     status: completed
+     outputs:
+       phase_review_report: {verdict: needs_work}
+     review_score:
+       overall: <N>
+       dimensions: {spec_compliance: <N>, correctness: <N>, security: <N>, simplicity: <N>, code_quality: <N>}
+     artifacts: [phase-review.md]
+     state_patch:
+       retries: <incremented value>
+   ```
    e. If retries >= phase verify.max_retries (default 3): set status paused, surface
       failure summary to user. Otherwise: fix task-nodes are in the DAG; dispatcher
       schedules them before re-running this review step.

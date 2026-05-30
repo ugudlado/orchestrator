@@ -76,19 +76,24 @@ Include self-verification evidence from the final task batch in COMPLETION.
 The **reviewer** independently re-verifies at `run-phase-review` and Code
 Review; your evidence is for the record, not a substitute for review.
 
+The `status:` field is **required**. The driver rejects any COMPLETION block missing it.
+
 ```
-## Task [T-N]: [title]
-
-### Changes
-- [file]: [what changed and why]
-
-### Self-Verification Evidence
-- Type-check: [exit code, error count]
-- Tests: [pass/fail/coverage]
-- Build: [exit code]
-- Task-specific: [evidence]
-
-### Known concerns: [list anything you're unsure about, or "none"]
+COMPLETION:
+  status: completed
+  evidence:
+    counts:
+      tasks_marked: <N>
+    tasks:
+      - id: T-N
+        title: <title>
+        changes:
+          - <file>: <what changed and why>
+        verify:
+          type_check: <exit code / error count>
+          tests: <pass/fail/coverage>
+          task_specific: <evidence>
+        known_concerns: [<list or none>]
 ```
 
 ## Handling Review Feedback

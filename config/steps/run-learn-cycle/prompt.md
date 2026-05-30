@@ -42,7 +42,14 @@ Run the workflow learning pipeline for this completed change.
    continue with partial sync) and return success. Both learning and sync
    are best-effort and must not fail the complete phase.
 
-5. Return COMPLETION.
+5. Return COMPLETION:
+   ```
+   COMPLETION:
+     status: completed
+     outputs:
+       learn_result: <completed|skipped>
+       backlog_tickets_synced: [<list of ticket ids, or empty>]
+   ```
 
 ### Rules (constraints on how)
 

@@ -30,8 +30,14 @@ None. (Reads `spec/project.yaml` and codebase source for context.)
    Discovery Brief Format Contract below,
    using the template at $ORCHESTRATOR_HOME/config/steps/explore/templates/$SCHEMA/discovery.md as structural guide.
    All required sections must be populated (use "N/A" for irrelevant sections).
-6. Return COMPLETION with
-   outputs.discovery_result: {path: "discovery.md"} and artifacts: [discovery.md].
+6. Return COMPLETION:
+   ```
+   COMPLETION:
+     status: completed
+     outputs:
+       discovery_result: {path: "discovery.md"}
+     artifacts: [discovery.md]
+   ```
    Do not return the brief as chat prose — the file is the artifact.
 
 ### Rules (constraints on how)

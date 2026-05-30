@@ -59,3 +59,16 @@ None named. (Reads modified files in the phase and `quality_bar` from `spec/proj
 - If UI files modified: critique_score >= quality_bar.min_phase_review_score
 - If no UI files: step skipped (logged)
 - All verify_commands pass after fixes
+
+## Return COMPLETION
+
+After verify passes (or on skip), return:
+
+```
+COMPLETION:
+  status: completed
+  outputs:
+    critique_score: <N or null if skipped>
+    critique_skipped: <true if no UI files, false otherwise>
+    critique_retries: <N>
+```

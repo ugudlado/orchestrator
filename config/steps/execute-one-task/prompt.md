@@ -41,7 +41,16 @@ step_context.task:
    - Stage only files changed by this task — do NOT `git add -A`.
    - Skip the commit if `git status --porcelain` shows no changes.
    - Include `Co-Authored-By: Claude <noreply@anthropic.com>` trailer.
-7. Return COMPLETION with `task_execution_result: completed`.
+7. Return COMPLETION:
+   ```
+   COMPLETION:
+     status: completed
+     task_execution_result: completed
+     task_id: <id>
+     commit: <short sha>
+     files_changed: [<list>]
+     known_concerns: [<list or empty>]
+   ```
 
 ### Scope constraint
 
