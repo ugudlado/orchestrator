@@ -69,7 +69,7 @@ Then:
 
 ### 2. Resume entry point
 
-If an active state.yaml already exists for this id (the ticket is mid-flight), resume it: read its `next_step` (phase + step_id) and persisted `flags`, and enter the dispatch loop at that point. Tell the user: "Resuming <change_id> at <phase>/<step_id>." (orchestrator-run.sh already performs this resume detection via ticket-status-check.sh when driving from the CLI.)
+If an active state.yaml already exists for this id (the ticket is mid-flight), resume it: read its `next_step` (phase + step_id) and persisted `flags`, and enter the dispatch loop at that point. Tell the user: "Resuming <change_id> at <phase>/<step_id>." (orchestrator-run.sh already performs this resume detection — state.yaml presence drives init vs resume — when driving from the CLI.)
 
 Otherwise this is a new workflow — proceed to sub-step 2.1 to initialize state before entering the dispatch loop. This applies equally to full workflow runs and phase-constrained wrapper calls such as `/specify` (`--phase specify`); artifact-producing steps must never run before init has created the worktree/artifact directory.
 

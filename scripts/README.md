@@ -174,7 +174,6 @@ scripts/run-workflow.sh <state.yaml> TICKET-ID
 |------|---------|
 | `config/tools.yaml` | Per-tool invocation shape (binary + args template) |
 | `scripts/routes.yaml` | Agent role → model tier (`agents.<role>.model`) and shell-loop subprocess tool (`agents.<role>.subprocess`, e.g. `claude`, `pi`) |
-| `config/ticket-status-map.yaml` | Linear status → workflow action/phase mapping |
 
 To route `developer` through another tool, set `agents.<role>.subprocess` in
 `scripts/routes.yaml` (or repo copy under `.orchestrator/config/scripts/routes.yaml`).
@@ -268,27 +267,20 @@ identical to the global version; it replaces the global file entirely
 
 ### Ticket-driven entry
 
-When a ticket ID is passed, `run-workflow.sh` calls `scripts/ticket-status-check.sh`,
-which reads `ticketing:` from `spec/project.yaml` and fetches status from the
-matching backend:
+When a ticket ID is passed, `run-workflow.sh` fetches the current ticket status via
+`scripts/ticket-fetch-status.sh`, which reads `ticketing:` from `spec/project.yaml`
+and queries the matching backend:
 
 | `ticketing:` | Status source | Credential / tool |
 |--------------|---------------|-------------------|
 | `backlog` (default) | `backlog task view <id> --plain` | `backlog` CLI in `PATH` |
 | `linear` | Linear GraphQL API | `LINEAR_API_KEY` env var |
 
-Status names are mapped via `config/ticket-status-map.yaml` (Linear and Backlog.md
-lanes both listed). Common mappings:
+If the ticket is **Done** or **Cancelled**, the run halts immediately. Otherwise,
+routing is state-driven: if a `state.yaml` exists for the slug → resume; else → seed fresh.
 
-| Ticket status | Action |
-|---------------|--------|
-| Todo / To Do / Backlog / Ready | `init` — fresh workflow at `explore` |
-| In Progress | `resume` — matching local `state.yaml`, else setup checklist |
-| In Review / Code Review | `resume` — at `run-phase-review` phase |
-| Done / Cancelled | `halt` — print reason and stop |
-
-When the backend is unavailable (no API key, no `backlog` binary, lookup failure),
-the check returns `action: skip` and the loop proceeds with the existing `state.yaml`.
+When the backend is unavailable, the status fetch returns empty and the loop proceeds
+with the existing `state.yaml`.
 
 ### Outbound ticket sync (workflow → ticket)
 
@@ -297,10 +289,6 @@ Outbound lane changes are explicit **workflow steps** (ORC-107), not a per-step 
 after `run-phase-review`), `ticket-qa` (→ QA Review, before `mark-change-completed`).
 Each is a `kind: script` step that calls the backlog CLI. Agents do **not** need to
 call `/backlog-manager` for lane changes when using the shell loop.
-
-| Config | Direction | Mechanism |
-|--------|-----------|-----------|
-| `config/ticket-status-map.yaml` | ticket status → workflow entry (`init` / `resume` / `halt` + phase hint) | `ticket-status-check.sh` at start |
 
 Each `ticket-*` step bakes in its target status (per backend). Transports:
 

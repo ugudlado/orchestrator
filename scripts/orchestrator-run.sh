@@ -144,37 +144,16 @@ resolve_state_yaml() {
   return 1
 }
 
-TICKET_CHECK="$SCRIPT_DIR/ticket-status-check.sh"
-if [ ! -f "$TICKET_CHECK" ]; then
-  echo "ERROR: ticket-status-check.sh not found" >&2
-  exit 7
-fi
-
-TICKET_JSON=$(bash "$TICKET_CHECK" "$TICKET_ID" "$REPO_ROOT" 2>/dev/null || echo '{"action":"skip"}')
-TICKET_ACTION=$(echo "$TICKET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('action','skip'))" 2>/dev/null || echo "skip")
-
-case "$TICKET_ACTION" in
-  halt)
-    TICKET_REASON=$(echo "$TICKET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('reason',''))" 2>/dev/null || echo "")
-    echo "ERROR: Ticket check halted: $TICKET_REASON" >&2
-    echo "$TICKET_JSON" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-for item in d.get('checklist') or []:
-    print('  -', item)
-" 2>/dev/null || true
+# Halt guard: refuse to run tickets that are already terminal.
+_TICKET_STATUS=$(bash "$SCRIPT_DIR/ticket-fetch-status.sh" "$TICKET_ID" "$REPO_ROOT" 2>/dev/null || true)
+case "$_TICKET_STATUS" in
+  Done|Cancelled)
+    echo "ERROR: Ticket $TICKET_ID is $_TICKET_STATUS — refusing to run." >&2
     exit 6
     ;;
 esac
 
-STATE_YAML=""
-if [ "$TICKET_ACTION" = "resume" ]; then
-  STATE_YAML=$(echo "$TICKET_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('state_yaml',''))" 2>/dev/null || echo "")
-fi
-
-if [ -z "$STATE_YAML" ] || [ ! -f "$STATE_YAML" ]; then
-  STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG" 2>/dev/null || true)"
-fi
+STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG" 2>/dev/null || true)"
 
 # Completed feature already archived — do not seed a fresh rerun.
 _ARCHIVE_PROBE=$(PYTHONPATH="${_WORKTREE_ROOT}:${PYTHONPATH:-}" \

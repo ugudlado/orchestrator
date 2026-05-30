@@ -1,6 +1,6 @@
 version: 1
 
-ticketing: backlog  # backlog | linear — drives ticket-status-check.sh and /backlog-manager
+ticketing: backlog  # backlog | linear — drives ticket-fetch-status.sh and /backlog-manager
 
 project:
   name: orchestrator

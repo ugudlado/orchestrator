@@ -142,42 +142,17 @@ fi
 # Ticket-driven entry: if TICKET-ID given, check Linear status first
 # -----------------------------------------------------------------------
 if [ -n "$TICKET_ID" ]; then
-  TICKET_CHECK="$SCRIPT_DIR/ticket-status-check.sh"
-  if [ ! -f "$TICKET_CHECK" ]; then
-    echo "ERROR: ticket-status-check.sh not found at $TICKET_CHECK" >&2
-    exit 7
-  fi
-
-  TICKET_RESULT=$(bash "$TICKET_CHECK" "$TICKET_ID" "$REPO_ROOT" 2>&1)
-  TICKET_ACTION=$(echo "$TICKET_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('action','skip'))" 2>/dev/null || echo "skip")
-
-  case "$TICKET_ACTION" in
-    halt)
-      TICKET_REASON=$(echo "$TICKET_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('reason',''))" 2>/dev/null || echo "")
-      echo "ERROR: Ticket check halted: $TICKET_REASON" >&2
-      CHECKLIST=$(echo "$TICKET_RESULT" | python3 -c "
-import sys,json
-d=json.load(sys.stdin)
-cl=d.get('checklist',[])
-for item in cl: print('  -', item)
-" 2>/dev/null || echo "")
-      if [ -n "$CHECKLIST" ]; then
-        echo "Setup checklist:" >&2
-        echo "$CHECKLIST" >&2
-      fi
+  # Halt guard: refuse to run tickets that are already terminal.
+  _TICKET_STATUS=$(bash "$SCRIPT_DIR/ticket-fetch-status.sh" "$TICKET_ID" "$REPO_ROOT" 2>/dev/null || true)
+  case "$_TICKET_STATUS" in
+    Done|Cancelled)
+      echo "ERROR: Ticket $TICKET_ID is $_TICKET_STATUS — refusing to run." >&2
       exit 6
-      ;;
-    skip)
-      # No action needed — proceed with state.yaml
-      ;;
-    init|resume)
-      # Proceed — state.yaml-driven loop handles the rest
       ;;
   esac
 
   # Persist ticket id + status on state (shell loop owns ticket_* fields)
   _TICKET_BACKEND=$(ticket_read_backend "$REPO_ROOT")
-  _TICKET_STATUS=$(bash "$SCRIPT_DIR/ticket-fetch-status.sh" "$TICKET_ID" "$REPO_ROOT" 2>/dev/null || true)
   python3 - "$TICKET_ID" "$_TICKET_BACKEND" "$_TICKET_STATUS" <<'PY' | bash "$SCRIPT_DIR/ticket-state-update.sh" "$STATE_YAML" 2>/dev/null || true
 import json, sys
 p = {"ticket_id": sys.argv[1], "ticketing": sys.argv[2]}
