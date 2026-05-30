@@ -2,3 +2,6 @@ id: ticket-review
 version: 1
 kind: script
 run: script.sh
+params:
+  TICKET_SYNC_STATUS: "In Review"
+  TICKET_SYNC_LOG_PREFIX: ticket-review

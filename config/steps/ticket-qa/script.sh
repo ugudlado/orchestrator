@@ -1,34 +1,27 @@
 #!/usr/bin/env bash
-# ticket-qa — move the ticket to the QA-review status.
-# Replaces the ticket-step-sync.yaml outbound hook at mark-change-completed.
-# Non-blocking: a ticketing failure never fails the workflow.
-#
-# Env: ORCHESTRATOR_STATE_YAML_PATH, ORCHESTRATOR_REPO_ROOT
-set -uo pipefail
+# ticket-qa — backlog task status sync (params from contract.yaml).
+set -euo pipefail
 
-BACKLOG_STATUS="QA Review"
-LINEAR_STATUS="QA Review"
+: "${REPO_ROOT:?orchestrator: REPO_ROOT required}"
+: "${TICKET_SYNC_STATUS:?orchestrator: TICKET_SYNC_STATUS required}"
+: "${TICKET_SYNC_LOG_PREFIX:?orchestrator: TICKET_SYNC_LOG_PREFIX required}"
 
-STATE="${ORCHESTRATOR_STATE_YAML_PATH:-}"
-REPO_ROOT="${ORCHESTRATOR_REPO_ROOT:-$(pwd)}"
+STATE_YAML="${ORCHESTRATOR_STATE_YAML_PATH:-${STATE_YAML_PATH:?orchestrator: state yaml path required}}"
 
-read -r TICKET_ID TICKETING <<EOF
-$(python3 - "$STATE" <<'PY'
-import sys, yaml
-try:
-    with open(sys.argv[1]) as f:
-        d = yaml.safe_load(f) or {}
-except Exception:
-    d = {}
-print(d.get("ticket_id", ""), d.get("ticketing", ""))
-PY
-)
-EOF
+_read_state_field() {
+  local key="$1"
+  grep -E "^${key}:" "$STATE_YAML" 2>/dev/null | head -1 | sed -E 's/^[^:]+:[[:space:]]*//' | tr -d '"'"'"
+}
 
-if [ -n "$TICKET_ID" ] && [ "$TICKETING" = "backlog" ] && command -v backlog >/dev/null 2>&1; then
-  ( cd "$REPO_ROOT" && backlog task edit "$TICKET_ID" -s "$BACKLOG_STATUS" >/dev/null 2>&1 ) \
-    && echo "ticket-qa: $TICKET_ID -> $BACKLOG_STATUS" >&2 \
-    || echo "WARN ticket-qa: backlog edit failed for $TICKET_ID" >&2
+ticket_id="$(_read_state_field ticket_id)"
+ticketing="$(_read_state_field ticketing)"
+
+if [ -n "$ticket_id" ] && [ "$ticketing" = "backlog" ]; then
+  if (cd "$REPO_ROOT" && backlog task edit "$ticket_id" -s "$TICKET_SYNC_STATUS" >/dev/null 2>&1); then
+    echo "${TICKET_SYNC_LOG_PREFIX}: ${ticket_id} -> ${TICKET_SYNC_STATUS}" >&2
+  else
+    echo "WARN ${TICKET_SYNC_LOG_PREFIX}: backlog edit failed for ${ticket_id}" >&2
+  fi
 fi
 
-printf '%s\n' '{"status": "completed", "outputs": {"ticket_status_set": "'"$BACKLOG_STATUS"'"}}'
+printf '%s\n' "{\"status\": \"completed\", \"outputs\": {\"ticket_status_set\": \"${TICKET_SYNC_STATUS}\"}}"
