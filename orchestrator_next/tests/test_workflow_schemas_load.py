@@ -181,7 +181,8 @@ def test_real_schema_generates_plan(tmp_path, monkeypatch, schema_name):
 
 
 # ---------------------------------------------------------------------------
-# Terminal step is `archive-completed-change` (merge/teardown run from CLI).
+# Terminal steps — feature/bugfix pause at QA; complete/autopilot own their tails.
+# Merge/teardown run from `orchestrator complete` after archive-completed-change.
 # ---------------------------------------------------------------------------
 
 _OBSOLETE_TEARDOWN_STEPS = {
@@ -199,17 +200,32 @@ def _schema_step_ids(schema_name):
     ]
 
 
-@pytest.mark.parametrize("schema_name", ["feature", "bugfix", "autopilot"])
-def test_schema_ends_with_archive_completed_change(schema_name):
-    """Production schemas must end with the archive terminal step."""
+_SCHEMA_TERMINAL_STEP = {
+    "feature": "ticket-qa",
+    "bugfix": "ticket-qa",
+    "autopilot": "ticket-done",
+    "complete": "ticket-done",
+}
+
+
+@pytest.mark.parametrize("schema_name,terminal_step", list(_SCHEMA_TERMINAL_STEP.items()))
+def test_schema_ends_at_expected_terminal(schema_name, terminal_step):
+    """Each production schema ends at its workflow boundary step."""
     steps = _schema_step_ids(schema_name)
-    assert steps and steps[-1] == "archive-completed-change", (
-        f"{schema_name}.yaml steps must end with 'archive-completed-change', "
+    assert steps and steps[-1] == terminal_step, (
+        f"{schema_name}.yaml steps must end with {terminal_step!r}, "
         f"got tail {steps[-3:]}"
     )
 
 
-@pytest.mark.parametrize("schema_name", ["feature", "bugfix", "autopilot"])
+def test_complete_schema_includes_archive_before_ticket_done():
+    """Complete workflow archives before ticket sync and merge."""
+    steps = _schema_step_ids("complete")
+    assert "archive-completed-change" in steps
+    assert steps.index("archive-completed-change") < steps.index("ticket-done")
+
+
+@pytest.mark.parametrize("schema_name", ["feature", "bugfix", "autopilot", "complete"])
 def test_schema_drops_obsolete_teardown_steps(schema_name):
     """merge-to-main and remove-worktree must not appear in workflow YAML."""
     steps = set(_schema_step_ids(schema_name))

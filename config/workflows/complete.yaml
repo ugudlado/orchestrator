@@ -14,9 +14,9 @@
 steps:
   - compute-prediction-accuracy
   - run-learn-cycle
-  - ticket-qa             # ticket -> QA Review
   - mark-change-completed
   - compute-swe-metrics
+  - gather-learn-metrics
   - cost-report
-  - ticket-done
   - archive-completed-change
+  - ticket-done

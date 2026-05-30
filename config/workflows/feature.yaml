@@ -4,16 +4,11 @@ steps:
   - design-and-draft-artifacts
   - expand-plan
   - preview-route
-  - ticket-start          # ticket -> In Progress (implement entry; covers task-* case)
+  - ticket-start # ticket -> In Progress (implement entry; covers task-* case)
   - capture-test-baseline
   - run-ux-critique
   - run-phase-review
-  - ticket-review         # ticket -> Code Review
+  - ticket-review # ticket -> Code Review
   - compute-prediction-accuracy
   - run-learn-cycle
-  - ticket-qa             # ticket -> QA Review
-  - mark-change-completed
-  - compute-swe-metrics
-  - cost-report
-  - ticket-done              # ticket -> Done
-  - archive-completed-change
+  - ticket-qa # ticket -> QA Review
