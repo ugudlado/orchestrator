@@ -205,6 +205,27 @@ learnings:
       tree edits before starting the workflow, or include an explicit commit-it task as
       the first task after test tasks. Reviewer: verify `git diff HEAD -- <impl_file>`
       is empty for every file listed in tasks.yaml.files before scoring.
+  - id: sentinel-removal-check-dbl-schema-constraints
+    learned: 2026-05-31
+    source: orc-77
+    rule: >
+      When migrating a sentinel string value to None/NULL, check all DDL and schema
+      definitions (e.g. upsert.py CREATE TABLE, any VARCHAR NOT NULL columns) for the
+      affected field before finalising the task list. A task that changes code to emit
+      None (e.g. record.py) and a task that migrates fixtures to omit the sentinel field
+      must be accompanied by a task that drops NOT NULL constraints on the corresponding
+      DB column — or both belong in the same task's file list. Missing the DDL update
+      produces a ConstraintException at upsert time discovered only after phase review.
+  - id: sentinel-removal-grep-shell-fallbacks
+    learned: 2026-05-31
+    source: orc-77
+    rule: >
+      When removing a sentinel string from Python code, grep all shell scripts in the
+      repo for both the sentinel value AND any fallback/default expressions referencing
+      it (e.g. `jq '.agent // "inline"'`, `[ "$AGENT" != "inline" ]`). Shell scripts
+      that use the sentinel as a fallback or comparison silently misbehave after removal:
+      the fallback activates unconditionally and the comparison becomes dead code. Include
+      these shell files in the task's file list or add a separate task targeting them.
   - id: worktree-branch-sync
     learned: 2026-05-22
     source: orc-78

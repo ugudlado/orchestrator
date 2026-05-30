@@ -56,7 +56,7 @@ Run the workflow learning pipeline for this completed change.
 - Learning failure is non-blocking — if /learn fails, log a warning and return success.
 - Read state.yaml from the active change directory (this step runs before archive).
 - On autopilot runs, rule changes apply without user confirmation.
-- Never skip compute-prediction-accuracy or run-learn-cycle steps during autopilot — these feed the self-improving loop and must run on every autopilot run. A `skipped: true` outcome is only valid when a step is gated off (e.g. learn=false for run-learn-cycle) or simply not listed by the running workflow. Session token budget, time pressure, 'capture via retro', or any cost-based justification is NEVER a valid skip reason for feedback-loop steps. Budget pressure is a signal to stop earlier, not to skip learning. <!-- learned: 2026-04-05, source: HL-203, cycle: 6, hits: 21, misses: 1, repo: orchestrator -->
+- Never skip compute-prediction-accuracy or run-learn-cycle steps during autopilot — these feed the self-improving loop and must run on every autopilot run. A `skipped: true` outcome is only valid when a step is gated off (e.g. learn=false for run-learn-cycle) or simply not listed by the running workflow. Session token budget, time pressure, 'capture via retro', or any cost-based justification is NEVER a valid skip reason for feedback-loop steps. Budget pressure is a signal to stop earlier, not to skip learning. <!-- learned: 2026-04-05, source: HL-203, cycle: 6, hits: 22, misses: 1, repo: orchestrator -->
 
 ## Verify
 
