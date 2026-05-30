@@ -46,8 +46,9 @@ Check what else calls or depends on the buggy code:
 - Identify existing tests that cover this area (they may need updating)
 
 ### Step 4: Document
-Write a diagnosis document to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md per
-the Diagnosis Format Contract below, containing:
+Write a diagnosis document to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md using
+the template at $ORCHESTRATOR_HOME/config/steps/diagnose/templates/bugfix/discovery.md
+as structural guide, per the Diagnosis Format Contract below, containing:
 - **Symptom**: What the user sees (from the bug report)
 - **Reproduction**: Runnable command/script with expected vs actual output
 - **Root cause**: File, line, and explanation of why it's wrong
