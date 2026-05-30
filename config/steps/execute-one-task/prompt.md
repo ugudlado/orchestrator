@@ -65,7 +65,7 @@ necessary file is missing from the list, add it to your COMPLETION's
 - Run every command in step_context.task.verify before returning COMPLETION.
 - Commit after all verify commands pass — stage only task files, never `git add -A`.
 - Return one COMPLETION block — no loop, no next-task scanning.
-- When a task removes or renames a sentinel, type, or parameter, grep the same file for docstrings or inline comments that reference the old value and update them atomically — stale docstrings are an important finding at phase review and cap code_quality to 7. <!-- learned: 2026-05-31, source: orc-77, cycle: 79, hits: 0, misses: 0, repo: orchestrator -->
+- When a task removes or renames a sentinel, type, or parameter, grep the same file for docstrings or inline comments that reference the old value and update them atomically — stale docstrings are an important finding at phase review and cap code_quality to 7. <!-- learned: 2026-05-31, source: orc-77, cycle: 79, hits: 1, misses: 0, repo: orchestrator -->
 
 ## Escalation
 
