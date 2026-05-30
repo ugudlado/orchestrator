@@ -1,3 +1,7 @@
+---
+name: reviewer
+description: "Independent verification and code review — per-task review, implement-phase signoff, and PR review in the develop pipeline."
+---
 
 # Reviewer Agent — Independent Verification & Code Review
 

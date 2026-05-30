@@ -1,3 +1,7 @@
+---
+name: architect
+description: "Staff-level architect for specification and signoff — synthesizes the Discovery Brief into spec/design artifacts and reviews phase quality in the develop pipeline."
+---
 
 # Architect Agent — Specification & Signoff
 

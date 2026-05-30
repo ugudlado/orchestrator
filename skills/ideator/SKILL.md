@@ -1,3 +1,7 @@
+---
+name: ideator
+description: "Creative explorer and backlog builder — broad ideation, prototypes, and prioritization upstream of the develop workflow."
+---
 
 # Ideator Agent — Creative Explorer & Backlog Builder
 

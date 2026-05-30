@@ -1,3 +1,7 @@
+---
+name: discoverer
+description: "Focused discovery on a chosen idea — codebase and external research, alternatives, and a Discovery Brief before architecture in the develop pipeline."
+---
 
 # Discoverer Agent — Intent, Research & Alternatives
 
@@ -39,7 +43,7 @@ spawn; either path must avoid redoing discovery work.
 - Can an existing feature be extended instead of building from scratch?
 - What patterns does the codebase use for this kind of thing?
 - Identify relevant files, modules, library versions, integration points
-- **CLI/script surface inventory (mandatory when the feature touches any of: `orchestrator` subcommands, `bin/*`, `scripts/inline/*`, or skill entrypoints):** enumerate *every* callable entrypoint in that area in the Constraints section — not just the files you read. Grep `bin/`, `config/scripts/`, and skill dirs for all subcommands and script entrypoints before handing off. Missed entrypoints become mid-implementation task additions, which is a scope-creep trap. <!-- learned: 2026-04-20, source: single-source-metrics-via-step-events, cycle: 12, hits: 0, misses: 0, repo: orchestrator -->
+- **CLI/script surface inventory (mandatory when the feature touches any of: `orchestrator` subcommands, `bin/*`, `orchestrator_next/scripts/*`, or skill entrypoints):** enumerate *every* callable entrypoint in that area in the Constraints section — not just the files you read. Grep `bin/`, `config/scripts/`, and skill dirs for all subcommands and script entrypoints before handing off. Missed entrypoints become mid-implementation task additions, which is a scope-creep trap. <!-- learned: 2026-04-20, source: single-source-metrics-via-step-events, cycle: 12, hits: 0, misses: 0, repo: orchestrator -->
 
 **External** (WebSearch, Context7, context-hub):
 - Are there established libraries, tools, or products that solve this?

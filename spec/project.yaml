@@ -1,6 +1,6 @@
 version: 1
 
-ticketing: backlog  # backlog | linear — drives ticket-fetch-status.sh and /backlog-manager
+ticketing: backlog  # backlog | linear — drives orchestrator_next/scripts/tickets/ and /backlog-manager
 
 project:
   name: orchestrator
@@ -34,6 +34,7 @@ architecture:
     config/workflows: Workflow schemas (feature, bugfix, chore, spike, bootstrap)
     config/steps: Step contracts — YAML spec for each workflow step
     config/templates: Output templates per workflow type
+    ui/dashboard: Live metrics UI (FastAPI; `make dashboard` or `orchestrator dashboard`)
     agents: Agent definitions (developer, reviewer, architect, discoverer, etc.)
     skills: Skill definitions (orchestrate, specify, implement, learn, autopilot, etc.)
     install.sh: Per-tool symlink installer (Claude Code, Cursor, Codex CLI, etc.)
@@ -128,7 +129,7 @@ learnings:
     source: single-source-metrics-via-step-events
     rule: >
       For features that touch a CLI/script surface area (orchestrator
-      subcommands, scripts/inline, bin/), the discovery phase must enumerate
+      subcommands, orchestrator_next/scripts/, bin/), the discovery phase must enumerate
       existing callables before design begins; undiscovered entrypoints become
       fix tasks post-review. T-23/T-24 added mid-flight because discoverer
       missed that `orchestrator ingest-driver` already existed.
@@ -187,8 +188,8 @@ learnings:
       spec/changes/<change_id>/ inside the worktree, NOT at the worktree root.
       ORCHESTRATOR_WORKFLOW_DIR must be set to the state subdirectory
       (e.g. $WORKTREE_PATH/spec/changes/$CHANGE_ID), not the worktree root.
-      Passing the worktree root causes inline scripts like preview-route.sh
-      and estimate-cost.sh to fail with "state.yaml not found" — the estimator
+      Passing the worktree root causes the preview-route step (estimate-cost)
+      to fail with "state.yaml not found" — the estimator
       falls back to estimate_unavailable and the cost preview is silently lost.
       This affects any inline step that locates state.yaml via ORCHESTRATOR_WORKFLOW_DIR.
   - id: pre-staged-impl-must-commit-before-review

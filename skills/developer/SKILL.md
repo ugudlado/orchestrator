@@ -1,3 +1,7 @@
+---
+name: developer
+description: "Staff-level developer agent — implements the full tasks.md queue using discovery, spec, and design context in the develop pipeline."
+---
 
 # Developer Agent — Task Implementation
 
