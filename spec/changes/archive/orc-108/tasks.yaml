@@ -1,0 +1,157 @@
+version: 1
+tasks:
+  # Group 1: execute-tasks anchor in schemas + expand_plan.py refactor
+  - id: T-1
+    title: "Write tests for execute-tasks anchor in feature/bugfix schemas (RED)"
+    depends_on: []
+    files:
+      - orchestrator_next/tests/test_expand_plan.py
+    verify:
+      - pytest orchestrator_next/tests/test_expand_plan.py -v -k "execute_tasks" --tb=short
+    test_scenarios:
+      - "feature.yaml contains execute-tasks step between expand-plan and run-phase-review"
+      - "bugfix.yaml contains execute-tasks step between expand-plan and run-phase-review"
+      - "expand_plan.py injects task nodes under execute-tasks anchor (not before run-phase-review)"
+      - "expand_plan.py rewires execute-tasks.depends_on to [task-T-last] after injection"
+      - "run-phase-review.depends_on is not mutated by expand_plan.py"
+      - "expand-plan idempotency: re-running does not duplicate nodes"
+    why: "AC-1, AC-2 — schema declares execute-tasks anchor; expand_plan targets it"
+    change: "Append test functions to test_expand_plan.py asserting the anchor position in feature.yaml/bugfix.yaml and the new injection target; tests fail before T-2 because execute-tasks does not exist in schemas yet and expand_plan.py still targets run-phase-review."
+
+  - id: T-2
+    title: "Add execute-tasks anchor to feature.yaml and bugfix.yaml"
+    depends_on: [T-1]
+    files:
+      - config/workflows/feature.yaml
+      - config/workflows/bugfix.yaml
+    verify:
+      - grep -n "execute-tasks" config/workflows/feature.yaml
+      - grep -n "execute-tasks" config/workflows/bugfix.yaml
+      - pytest orchestrator_next/tests/test_expand_plan.py -v -k "execute_tasks" --tb=short
+    test_scenarios:
+      - "execute-tasks appears after expand-plan and before run-phase-review in both schemas"
+    why: "AC-1 — schema readability: maintainer sees execute-tasks in the declared step list"
+    change: "Edit config/workflows/feature.yaml and bugfix.yaml to insert 'execute-tasks' string entry between 'expand-plan' and 'run-phase-review' in the steps list."
+
+  - id: T-3
+    title: "Refactor expand_plan.py to target execute-tasks anchor (GREEN)"
+    depends_on: [T-2]
+    files:
+      - orchestrator_next/expand_plan.py
+      - config/steps/expand-plan/expand_plan.py
+    verify:
+      - pytest orchestrator_next/tests/test_expand_plan.py -v --tb=short
+      - pytest orchestrator_next/tests/ -v -k "expand" --tb=short
+    test_scenarios:
+      - "all T-1 tests pass"
+      - "existing expand_plan tests still pass"
+    why: "AC-2 — expand_plan targets execute-tasks anchor; run-phase-review depends_on unchanged"
+    change: "Edit orchestrator_next/expand_plan.py: change the anchor search from 'run-phase-review' to 'execute-tasks' (lines ~159 and ~182); rewire execute-tasks.depends_on=[task-T-last] instead of run-phase-review.depends_on. Update module docstring lines 8-10. Mirror changes to config/steps/expand-plan/expand_plan.py."
+
+  - id: T-4
+    title: "Review checkpoint — anchor + expand_plan group (phase gate)"
+    depends_on: [T-3]
+    files: []
+    verify:
+      - pytest orchestrator_next/tests/ -q --tb=short
+    test_scenarios:
+      - "full test suite green after anchor and expand_plan changes"
+    why: "phase gate — confirm schema + expand_plan changes integrate cleanly before complete-phase work"
+
+  # Group 2: complete-phase steps declared statically in feature/bugfix schemas
+  - id: T-5
+    title: "Write tests for complete-phase steps in feature/bugfix schema tails (RED)"
+    depends_on: [T-4]
+    files:
+      - orchestrator_next/tests/test_complete_workflow_contract.py
+    verify:
+      - pytest orchestrator_next/tests/test_complete_workflow_contract.py -v -k "complete_steps_in_schema" --tb=short
+    test_scenarios:
+      - "feature.yaml includes compute-prediction-accuracy through ticket-done after ticket-qa"
+      - "bugfix.yaml includes compute-prediction-accuracy through ticket-done after ticket-qa"
+      - "seeded feature state.yaml DAG contains complete-phase nodes as pending from day 1"
+    why: "AC-3, AC-5 — complete steps declared statically; no runtime injection from complete_phase.py"
+    change: "Append test functions to test_complete_workflow_contract.py asserting complete-phase step ids appear in feature.yaml and bugfix.yaml step lists after the implement-phase tail; tests fail before T-6 because the steps are not yet in the schemas."
+
+  - id: T-6
+    title: "Add complete-phase steps to feature.yaml and bugfix.yaml schema tails"
+    depends_on: [T-5]
+    files:
+      - config/workflows/feature.yaml
+      - config/workflows/bugfix.yaml
+    verify:
+      - grep -q "compute-prediction-accuracy" config/workflows/feature.yaml
+      - grep -q "archive-completed-change" config/workflows/feature.yaml
+      - grep -q "compute-prediction-accuracy" config/workflows/bugfix.yaml
+      - pytest orchestrator_next/tests/test_complete_workflow_contract.py -v -k "complete_steps_in_schema" --tb=short
+    test_scenarios:
+      - "complete-phase steps appear in feature.yaml and bugfix.yaml after ticket-qa"
+    why: "AC-5 — complete steps are declared in schema, not injected at runtime"
+    change: "Edit config/workflows/feature.yaml: append to steps list after ticket-qa: compute-prediction-accuracy, run-learn-cycle, mark-change-completed, compute-swe-metrics, gather-learn-metrics, cost-report, archive-completed-change, ticket-done. Mirror in bugfix.yaml (after run-learn-cycle which is its last current step)."
+
+  - id: T-7
+    title: "Write implement-completeness guard script and wire into orchestrator-run.sh (GREEN)"
+    depends_on: [T-6]
+    files:
+      - orchestrator_next/scripts/complete/check-implement-complete.py
+      - orchestrator_next/scripts/orchestrator-run.sh
+    verify:
+      - python3 orchestrator_next/scripts/complete/check-implement-complete.py --help 2>&1 | grep -q "state_yaml"
+      - pytest orchestrator_next/tests/test_complete_workflow_e2e.py -v --tb=short
+      - pytest orchestrator_next/tests/test_complete_workflow.py -v --tb=short
+    test_scenarios:
+      - "guard exits 0 when all task-T-* and implement-phase nodes are completed"
+      - "guard exits non-zero with error when task-T-* nodes are still pending"
+      - "orchestrator-run.sh calls guard instead of complete_phase.py"
+      - "existing e2e and contract tests pass"
+    why: "AC-3, AC-4 — implement-completeness guard preserves UC-E2 behavior; orchestrator-run.sh wired to new guard"
+    change: "Create orchestrator_next/scripts/complete/check-implement-complete.py: reads state.yaml, identifies complete-phase step ids from schema, checks all non-complete-phase nodes are completed/skipped, marks them as completed, advances next_step. ~30 lines. Edit orchestrator-run.sh lines 289-294: replace 'python3 -m orchestrator_next.complete_phase' with 'python3 orchestrator_next/scripts/complete/check-implement-complete.py'."
+
+  - id: T-8
+    title: "Delete complete_phase.py and test_complete_phase.py"
+    depends_on: [T-7]
+    files:
+      - orchestrator_next/complete_phase.py
+      - orchestrator_next/tests/test_complete_phase.py
+    verify:
+      - "! test -f orchestrator_next/complete_phase.py"
+      - "! test -f orchestrator_next/tests/test_complete_phase.py"
+      - pytest orchestrator_next/tests/ -q --ignore=orchestrator_next/tests/test_complete_phase.py --tb=short
+    test_scenarios:
+      - "complete_phase.py file does not exist"
+      - "test_complete_phase.py file does not exist"
+      - "remaining test suite passes without complete_phase.py"
+    why: "AC-6 (ticket AC #6) — complete_phase.py deleted; deletion is safe because T-7 replaced its functionality"
+    change: "Delete orchestrator_next/complete_phase.py and orchestrator_next/tests/test_complete_phase.py. Verify no other non-test file imports complete_phase (grep confirmed none in T-1 research)."
+
+  - id: T-9
+    title: "Update complete.yaml comment and expand_plan docstring"
+    depends_on: [T-8]
+    files:
+      - config/workflows/complete.yaml
+      - orchestrator_next/expand_plan.py
+      - config/steps/expand-plan/expand_plan.py
+    verify:
+      - grep -q "declared in feature/bugfix schemas" config/workflows/complete.yaml
+      - grep -q "execute-tasks" orchestrator_next/expand_plan.py
+    test_scenarios:
+      - "complete.yaml comment references new model (steps declared in feature/bugfix schemas)"
+      - "expand_plan.py docstring references execute-tasks anchor, not positional run-phase-review"
+    why: "AC-6 (ticket AC #3) — schema readability; maintainer reads accurate comments"
+    change: "Edit config/workflows/complete.yaml line 9: update comment from 'complete-phase steps through archive-completed-change' to describe that steps are declared in feature/bugfix schemas and seeded at feature init time. Edit orchestrator_next/expand_plan.py docstring lines 8-10: replace 'rewires run-phase-review' with 'rewires execute-tasks.depends_on to the last task-node id'."
+
+  - id: T-10
+    title: "Full integration review — verify all ACs (phase gate)"
+    depends_on: [T-9]
+    files: []
+    verify:
+      - pytest orchestrator_next/tests/ -q --tb=short
+      - python3 -c "import yaml; f=yaml.safe_load(open('config/workflows/feature.yaml')); steps=f['steps']; assert 'execute-tasks' in steps and 'compute-prediction-accuracy' in steps and 'archive-completed-change' in steps, 'schema incomplete'"
+      - python3 -c "import yaml; b=yaml.safe_load(open('config/workflows/bugfix.yaml')); steps=b['steps']; assert 'execute-tasks' in steps and 'compute-prediction-accuracy' in steps and 'archive-completed-change' in steps, 'schema incomplete'"
+      - "! test -f orchestrator_next/complete_phase.py"
+    test_scenarios:
+      - "full pytest suite passes (excluding deleted test_complete_phase.py)"
+      - "feature.yaml has execute-tasks and complete-phase steps"
+      - "bugfix.yaml has execute-tasks and complete-phase steps"
+      - "complete_phase.py does not exist"
+    why: "All ACs — final integration gate confirming the full refactor is coherent"
