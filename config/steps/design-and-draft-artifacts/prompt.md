@@ -2,7 +2,7 @@
 
 **Intent:** Generate design approaches, select one, then write all phase artifacts
 (design.md, tasks.yaml) in a single architect pass. Show artifacts to user for review
-when not in auto mode.
+on interactive schemas (feature/bugfix); autopilot runs straight through.
 
 ## Inputs
 
@@ -23,7 +23,6 @@ when not in auto mode.
 ## Flags
 
 - `tdd_required` — Every implementation task must have a preceding test task.
-- `auto` — Skip artifact review pause (Part 3); advance immediately after writing.
 
 ## Pre-Execute: approach statement required
 
@@ -92,16 +91,17 @@ APPROACH:
    Omitting any of these makes `orchestrator done` reject the step with
    `missing_outputs` (exit 3).
 
-## Part 3: Artifact Review (interactive mode only)
+## Part 3: Artifact Review (interactive schemas only)
 
-9. If auto=false:
+9. If state.yaml's `schema` is `autopilot`: skip this pause and return STATUS:
+   completed immediately — an autonomous run has no human to answer the prompt.
+   Otherwise (feature/bugfix):
    - Print a summary of each artifact written: file name, section count, task count.
    - Print the full contents of tasks.yaml so the user can review scope.
    - Pause and prompt: "Review design.md, tasks.yaml in
      $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/. Reply 'ok' to continue, or describe changes needed."
    - If the user requests changes: apply them to the relevant artifacts and re-present.
    - Once confirmed: proceed to next step.
-   If auto=true: skip this pause and return STATUS: completed immediately.
 
 ### Rules (constraints on how)
 

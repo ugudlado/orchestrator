@@ -22,13 +22,11 @@ gates:
 
 behavioral:
   tdd_required:  { default: true,  description: "Strict red-green-refactor in execute-next-task" }
-  auto:          { default: false, description: "Skip signoff gates" }
   light:         { default: false, description: "Lower review threshold to 7, skip tdd/phase_review" }
 
 # CLI flags. Each `sets:` flips one or more underlying flags.
 cli:
   --no-tdd:      { sets: { tdd_required: false } }
-  --auto:        { sets: { auto: true } }
 
   --light:
     sets:
@@ -37,13 +35,10 @@ cli:
       phase_review: false
     description: Tight-scope path. Reviewer lowers threshold to 7.
 
-  --autopilot:
-    sets:
-      auto: true
-    description: Full autonomy. Implicit when the autopilot skill dispatches; do not pause for signoff or flag confirmation. Autopilot ends at the boundary and does NOT merge — merging is a separate deliberate action (orchestrator complete / approve-qa).
-
   # --bugfix routes to the bugfix schema via select-workflow rather than
   # flipping flags on feature. select-workflow.yaml owns this routing.
+  # Autopilot is the `autopilot` schema (autonomous, no signoff pause); the
+  # design step keys its review pause off schema, not a flag.
 
 # ── Workflow selection guidelines ──────────────────────────────────
 # Read by config/steps/select-workflow.yaml at orchestrate-time. Trigger

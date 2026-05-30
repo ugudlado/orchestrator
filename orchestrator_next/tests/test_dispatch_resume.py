@@ -861,7 +861,7 @@ class TestResumeLogDriverContract(_unittest.TestCase):
     ship a minimal fixture script at tests/fixtures/resume_log_driver.py that
     implements exactly the log contract from SKILL.md. These tests invoke that
     fixture as a subprocess with a resume_step payload on stdin and assert the
-    log fires to stderr — including under flags.auto=true.
+    log fires to stderr — including on autopilot runs.
     """
 
     @classmethod
@@ -869,9 +869,9 @@ class TestResumeLogDriverContract(_unittest.TestCase):
         from pathlib import Path as _Path
         cls._FIXTURE = str(_Path(__file__).parent / "fixtures" / "resume_log_driver.py")
 
-    def _run_fixture(self, payload, auto=False):
+    def _run_fixture(self, payload, autopilot=False):
         env = os.environ.copy()
-        env["FLAGS_AUTO"] = "true" if auto else "false"
+        env["AUTOPILOT"] = "true" if autopilot else "false"
         return _subprocess.run(
             [sys.executable, self._FIXTURE],
             input=_json.dumps(payload),
@@ -894,11 +894,11 @@ class TestResumeLogDriverContract(_unittest.TestCase):
             msg=f"expected RESUMING log in stderr, got: {result.stderr!r}",
         )
 
-    def test_resume_step_log_fires_under_auto_flag(self):
-        """AC-9 explicit: the log MUST fire even when flags.auto=true."""
+    def test_resume_step_log_fires_on_autopilot(self):
+        """AC-9 explicit: the log MUST fire even on autopilot runs."""
         result = self._run_fixture(
             {"is_resume": True, "agent": "developer", "step_id": "execute-next-task", "attempt": 1},
-            auto=True,
+            autopilot=True,
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn("RESUMING step execute-next-task (attempt 1)", result.stderr)

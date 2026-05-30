@@ -87,9 +87,9 @@ When `retries.<key> >= max_retries`, execute the `on_max_retries` action:
 
 | Action Value | Behavior | When Used |
 |-------------|----------|-----------|
-| `escalate` | Set `status: paused` in state.yaml. Present failure summary to user with: failing assertions, retry count, suggested fix direction. Wait for user input. | Default. Used when `auto` flag is false. |
-| `ticket` | Create a Linear ticket with failure details. Set `status: paused`. Continue to next phase if possible, or stop. | Used when `auto` flag is true — autonomous mode cannot pause for user input. |
-| *(absent)* | Default to `escalate` if `auto` is false, `ticket` if `auto` is true. | When schema omits `on_max_retries`. |
+| `escalate` | Set `status: paused` in state.yaml. Present failure summary to user with: failing assertions, retry count, suggested fix direction. Wait for user input. | Default. Used on interactive schemas (feature/bugfix). |
+| `ticket` | Create a Linear ticket with failure details. Set `status: paused`. Continue to next phase if possible, or stop. | Used on autopilot — autonomous mode cannot pause for user input. |
+| *(absent)* | Default to `escalate` on interactive schemas (feature/bugfix), `ticket` on autopilot. | When schema omits `on_max_retries`. |
 
 ## Retry Context Contract
 
@@ -143,7 +143,7 @@ the feature is not paused. Instead:
    remain unexamined — `run-phase-review` reads `quarantine_events` and treats
    each as a critical finding that gates phase pass.
 
-Quarantine is inactive when `auto: false`. Under interactive mode, retry
+Quarantine is inactive on interactive schemas (feature/bugfix). There, retry
 exhaustion follows § Escalation Protocol as before.
 
 ## Missing STATUS Rule
