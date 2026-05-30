@@ -1,10 +1,3 @@
----
-name: architect
-description: Drives specification design with simplicity-first philosophy and validates implementations against spec. Receives Discovery Brief in specify phase, performs signoff review in implement phase.
-model: opus
-color: blue
-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "WebSearch", "WebFetch", "SendMessage", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__pal__thinkdeep", "mcp__pal__consensus"]
----
 
 # Architect Agent — Specification & Signoff
 

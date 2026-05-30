@@ -1,10 +1,3 @@
----
-name: workflow-learner
-description: Evaluates completed feature workflow compliance and routes learned rules to step contracts and project.yaml learnings. Runs the full learn pipeline — context gathering, cross-feature analysis, finding classification, rule routing, hit/miss updates, decay, and quality bar adjustment.
-model: claude-sonnet-4-6
-color: green
-tools: ["Read", "Write", "Edit", "Grep", "Glob", "Bash", "WebSearch", "mcp__plugin_claude-mem_mcp-search__search", "mcp__plugin_claude-mem_mcp-search__get_observations"]
----
 
 ## Variables
 
@@ -144,7 +137,7 @@ Evaluate the feature with:
 Classify each finding and route it to the right handler.
 
 **Routing targets:**
-- **Agent prompts** → `agents/<name>.md` (tighten instructions when the agent skipped something a contract already enforces)
+- **Agent prompts** → `skills/<name>/SKILL.md` (tighten instructions when the agent skipped something a contract already enforces)
 - **Workflow rules** → step contracts in `$ORCHESTRATOR_HOME/config/steps/` (deterministic, enforced at execution time, shared across repos) — or `.orchestrator/` override for repo-specific shape changes
 - **Project-specific learnings** → `spec/project.yaml` `learnings:` section (agent-agnostic, persists across sessions, repo-scoped)
 - **Never write to CLAUDE.md** — it's a pointer file only.
@@ -156,7 +149,7 @@ Every finding belongs to exactly one of three buckets. The axes are
 
 | Bucket               | Owner of the miss                                   | Target                                                  |
 |----------------------|-----------------------------------------------------|---------------------------------------------------------|
-| `agent_improvement`  | Agent ignored or skipped an existing contract rule  | `agents/<name>.md` — tighten prompt/instructions        |
+| `agent_improvement`  | Agent ignored or skipped an existing contract rule  | `skills/<name>/SKILL.md` — tighten prompt/instructions        |
 | `workflow_improvement` | Step/phase/gate is missing or wrong                | Step contract (global by default) or `.orchestrator/` override |
 | `project_learning`   | Tech-stack / command / domain / path fact needed    | `spec/project.yaml` `learnings[]` or `rules[]`          |
 
@@ -199,7 +192,7 @@ command, file path, or stack tool, it's bucket 2. Workflow files stay
 tool-agnostic.
 
 After classification:
-- `agent_improvement` → edit `agents/<name>.md` directly. No metadata
+- `agent_improvement` → edit `skills/<name>/SKILL.md` directly. No metadata
   comment, no `<!-- learned: -->` stamp. Agent prompts aren't subject to
   decay evaluation the way contract rules are.
 - `workflow_improvement` (global) → edit `$ORCHESTRATOR_HOME/config/steps/<step>.yaml`
@@ -217,7 +210,7 @@ After classification:
 - Identify which agent owned the skipped step (reviewer, developer,
   architect, etc.) — check `state.yaml` step_history for the agent
   assigned to the failing step.
-- Edit `agents/<name>.md` to make the existing requirement harder to
+- Edit `skills/<name>/SKILL.md` to make the existing requirement harder to
   skip: add an explicit checklist item, name the artifact to inspect,
   or move the check earlier in the prompt.
 - Do NOT add a rule to the step contract — the contract already has one.
@@ -240,7 +233,7 @@ After classification:
 - Apply the §4a classifier first. The bucket tells you WHERE to write;
   the routing table below (for `workflow_improvement` only) tells you
   WHICH step contract the rule belongs in.
-- `agent_improvement` → edit `agents/<name>.md` — skip this table entirely
+- `agent_improvement` → edit `skills/<name>/SKILL.md` — skip this table entirely
 - `workflow_improvement` (global) → `$ORCHESTRATOR_HOME/config/steps/<step>.yaml`
 - `workflow_improvement` (repo override) → `$REPO_ROOT/.orchestrator/steps/<step>.yaml`
 - `project_learning` → append to `spec/project.yaml` `learnings[]` — skip

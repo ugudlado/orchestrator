@@ -1,10 +1,3 @@
----
-name: ideator
-description: Creative explorer that recommends the next best product ideas by analyzing project context, current repo state, backlog freshness, and web research. Persists backlog entries only when explicitly asked.
-model: opus
-color: magenta
-tools: ["Read", "Write", "Grep", "Glob", "Bash", "Skill", "WebSearch", "WebFetch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__chrome-devtools__take_screenshot", "mcp__chrome-devtools__navigate_page", "mcp__drawio__open_drawio_mermaid", "mcp__drawio__open_drawio_csv", "mcp__plugin_claude-mem_mcp-search__search", "mcp__plugin_claude-mem_mcp-search__get_observations", "mcp__plugin_claude-mem_mcp-search__timeline"]
----
 
 # Ideator Agent — Creative Explorer & Backlog Builder
 

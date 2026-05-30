@@ -17,7 +17,7 @@ orchestrator/
 │   ├── scripts/                  # Workflow driver scripts
 │   ├── steps/                    # Step directories (contract.yaml + prompt.md or script.sh)
 │   └── workflows/*.yaml          # Workflow schemas
-├── agents/*.md                   # Agent definitions
+├── skills/*/SKILL.md             # Skills (includes agent definitions)
 ├── skills/*.md                   # Skill dispatchers (entry points)
 ├── spec/
 │   ├── project.yaml              # Repo-specific config
