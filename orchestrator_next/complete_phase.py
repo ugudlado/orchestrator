@@ -94,6 +94,24 @@ def prepare_complete_phase(state_yaml_path: str) -> dict[str, Any]:
             node["status"] = "completed"
             auto_completed.append(nid)
 
+    # Inject any complete-phase nodes missing from the DAG (e.g. mark-change-completed,
+    # cost-report, archive-completed-change are not in the feature workflow_plan).
+    existing_ids = {str(n.get("id") or "") for n in nodes if isinstance(n, dict)}
+    last_complete_node = None
+    for node in reversed(nodes):
+        if isinstance(node, dict) and str(node.get("id") or "") in complete_ids:
+            last_complete_node = node
+            break
+    prev_id = str(last_complete_node.get("id") or "") if last_complete_node else None
+    for sid in complete_steps:
+        if sid not in existing_ids:
+            new_node: dict[str, Any] = {"id": sid, "status": "pending", "agent": None,
+                                        "goal": "", "inputs": [], "outputs": [], "rules": []}
+            if prev_id is not None:
+                new_node["depends_on"] = [prev_id]
+            nodes.append(new_node)
+            prev_id = sid
+
     # Point next_step at the first incomplete complete-phase node.
     next_id = None
     for sid in complete_steps:
