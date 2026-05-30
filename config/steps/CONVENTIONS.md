@@ -241,10 +241,12 @@ Steps that change behavior based on runtime flags (from `state.yaml.flags`) decl
 them in a `## Flags` section in `prompt.md`, so the agent sees which flags shape its
 behavior (ORC-104 — formerly the `flags_read:` contract field, now prose).
 
-**Gating vs behavioral flags**: Flags that control *whether* a step runs (e.g.,
-`ux_design`, `linear`, `auto_approve_phases`) are handled by the schema via `if:`
-conditions — the orchestrator pre-filters steps before execution, so gated steps
-never load. Only flags that change *how* a step runs go in `## Flags`.
+**Gating vs behavioral flags**: A few flags under `gates:` in `config/workflow.yaml`
+(currently just `phase_review`) control *whether* a listed step runs — seed-state
+pre-filters those steps out when the gate is false, so they never load. Otherwise the
+workflow file's step list is authoritative: a workflow that lists a step runs it
+(e.g. ux-design runs on feature, which lists it; not on autopilot, which omits it).
+Only flags that change *how* a step runs go in `## Flags`.
 
 ### Format
 

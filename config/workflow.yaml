@@ -15,7 +15,10 @@
 
 gates:
   phase_review: { steps: [run-phase-review],           default: true  }
-  ux_design:    { steps: [ux-design, run-ux-critique], default: false } # <!-- learned: 2026-05-09, source: orc-39, cycle: 44, repo: orchestrator -->
+  # ORC-108: ux_design gate removed. The ux-design / run-ux-critique steps are
+  # no longer flag-gated — a workflow that lists them runs them (the step list is
+  # authoritative). feature.yaml keeps them; autopilot.yaml dropped them (an
+  # autonomous CLI run should not produce UX prototypes).
 
 behavioral:
   tdd_required:  { default: true,  description: "Strict red-green-refactor in execute-next-task" }

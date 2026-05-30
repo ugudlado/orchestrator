@@ -10,7 +10,6 @@
 # This is the same end state as feature/bugfix.
 steps:
   - explore
-  - ux-design
   - design-and-draft-artifacts
   - expand-plan
   - preview-route
