@@ -352,7 +352,13 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
                 data = yaml.safe_load(f)
             # Synthesize kind from presence of run:
             kind = "script" if data.get("run") else "agent"
-            run = data.get("run")
+            run_raw = data.get("run")
+            if run_raw and not os.path.isabs(run_raw):
+                # Legacy flat-file run: paths are relative to $ORCHESTRATOR_HOME/config/
+                home = os.environ.get("ORCHESTRATOR_HOME", "")
+                run = os.path.join(home, "config", run_raw) if home else run_raw
+            else:
+                run = run_raw
             instruction = data.get("instruction", "")
             return _parse_contract_fields(step_id, data, kind, run, instruction)
 
