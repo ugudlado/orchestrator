@@ -59,6 +59,7 @@ class StepContract:
     repeat_until: str | None = None  # ISSUE-16: predicate name gating advance
     # ORC-76: explicit kind; synthesized from run: presence for flat-file form
     kind: str = ""  # "agent" | "script" | "" (legacy/unset)
+    main: str | None = None  # Python entry under step dir (or config/steps/lib/)
 
     def typed_input_paths(self, state: "State") -> list[tuple[str, str]]:
         """Resolve typed inputs to (name, abs_path) pairs for the given state.
@@ -222,11 +223,12 @@ def _parse_contract_fields(
 
     # allowed_tools: absent or null -> []; explicit list -> list
     raw_allowed = data.get("allowed_tools", []) or []
-    allowed_tools = [str(x) if not isinstance(x, str) else x for x in raw_allowed]
+    allowed_tools = [str(x) for x in raw_allowed]
     return StepContract(
         id=data.get("id", step_id),
         agent=data.get("agent") or None,
         run=run,
+        main=(str(data["main"]).strip() if data.get("main") else None) or None,
         instruction=instruction,
         rules=data.get("rules", []),
         inputs=inputs,
@@ -313,19 +315,32 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
                 run = None
             else:  # kind == "script"
                 run_rel = data.get("run")
-                if not run_rel:
+                main_rel = data.get("main")
+                if not run_rel and not main_rel:
                     raise ContractError(
-                        f"script contract {step_id} missing run: field"
+                        f"script contract {step_id} requires run: or main:"
                     )
-                # Resolve relative paths against the contract directory
-                if os.path.isabs(run_rel):
-                    run = run_rel
+                if run_rel:
+                    if os.path.isabs(run_rel):
+                        run = run_rel
+                    else:
+                        run = os.path.join(contract_dir, run_rel)
+                    if not os.path.isfile(run):
+                        raise ContractDispatchError(
+                            f"script contract {step_id} missing script payload: {run}"
+                        )
                 else:
-                    run = os.path.join(contract_dir, run_rel)
-                if not os.path.isfile(run):
-                    raise ContractDispatchError(
-                        f"script contract {step_id} missing script payload: {run}"
+                    run = None
+                if main_rel and not str(main_rel).startswith(("lib/", "../lib/")):
+                    main_path = (
+                        main_rel
+                        if os.path.isabs(main_rel)
+                        else os.path.join(contract_dir, main_rel)
                     )
+                    if not os.path.isfile(main_path):
+                        raise ContractDispatchError(
+                            f"script contract {step_id} missing main payload: {main_path}"
+                        )
                 instruction = ""
 
             return _parse_contract_fields(step_id, data, kind, run, instruction)

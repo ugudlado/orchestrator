@@ -20,6 +20,8 @@ from typing import Any
 
 import yaml
 
+from orchestrator_next import readiness
+from orchestrator_next import resolver
 from orchestrator_next.parser import (
     ContractError,
     ContractDispatchError as ParserContractDispatchError,
@@ -29,6 +31,7 @@ from orchestrator_next.parser import (
     load_contract_for_step,
     phase_nodes,
 )
+from orchestrator_next.reconcile import _step_in_plan
 
 
 class ContractDispatchError(RuntimeError):
@@ -57,9 +60,7 @@ def _load_step_contract(step_id: str, state_yaml_path: str) -> StepContract:
         raise ContractDispatchError(
             f"Step contract not found: {step_id}. Run /doctor to diagnose."
         ) from e
-from orchestrator_next import resolver
-from orchestrator_next import readiness
-from orchestrator_next.reconcile import _step_in_plan
+
 
 # Blocking statuses: caller cannot proceed
 _BLOCKING_STATUSES = frozenset({"escalate_to_architect", "blocked"})
@@ -135,8 +136,7 @@ def _project_yaml_path(state_raw: dict[str, Any]) -> Path | None:
 def _max_spawn_failures(state_raw: dict[str, Any]) -> int:
     """Read `quality_bar.max_spawn_failures` from the repo's project.yaml (orc-85)."""
     candidate = _project_yaml_path(state_raw)
-
-    if candidate is not None and candidate.is_file():
+    if candidate is not None:
         try:
             data = yaml.safe_load(candidate.read_text()) or {}
             quality_bar = data.get("quality_bar") if isinstance(data, dict) else None
@@ -164,18 +164,9 @@ def _build_env(
     state_yaml_path: str = "",
 ) -> dict[str, str]:
     """Build the ORCHESTRATOR_* env block for the action response."""
-    env = {
-        "ORCHESTRATOR_CHANGE_ID": state.change_id,
-        "ORCHESTRATOR_PHASE": state.phase,
-        "ORCHESTRATOR_STEP_ID": step_id,
-        "ORCHESTRATOR_ATTEMPT": str(attempt),
-        "ORCHESTRATOR_WORKFLOW_DIR": state.workflow_dir,
-        "ORCHESTRATOR_REPO_ROOT": state.repo_root,
-        "ORCHESTRATOR_WORKTREE_ARTIFACT_DIR": state.worktree_artifact_dir,
-    }
-    if state_yaml_path:
-        env["ORCHESTRATOR_STATE_YAML_PATH"] = state_yaml_path
-    return env
+    from orchestrator_next.step_env import build_dispatch_env
+
+    return build_dispatch_env(state, step_id, attempt, state_yaml_path)
 
 
 def _get_last_entry(step_history: list[StepHistoryEntry]) -> StepHistoryEntry | None:
@@ -615,13 +606,14 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "env": env,
             "step_context": step_context,
         }
-    elif contract.run:
+    elif contract.run or contract.main:
         # Inline script executed synchronously by CLI — no JSON emitted, exit 0
         action: dict[str, Any] = {
             "step_id": next_step_id,
             "phase": state.phase,
             "attempt": attempt,
             "run": contract.run,
+            "main": contract.main,
             "instruction": contract.instruction,
             "rules": contract.rules,
             "inputs": inputs_resolved,
@@ -634,7 +626,14 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         # run to an absolute path. Expose the contract directory so
         # bin/orchestrator can resolve relative run: paths against it when
         # step_contract_dir is set (and for metadata inspection by callers).
-        if os.path.isabs(contract.run):
+        from orchestrator_next.step_runner import step_directory
+
+        orch_home = os.environ.get("ORCHESTRATOR_HOME", "")
+        if orch_home and (contract.main or contract.run):
+            action["step_contract_dir"] = str(
+                step_directory(next_step_id, contract, orch_home)
+            )
+        elif contract.run and os.path.isabs(contract.run):
             action["step_contract_dir"] = os.path.dirname(contract.run)
     else:
         raise ParserContractDispatchError(

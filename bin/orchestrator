@@ -40,39 +40,10 @@ _SLUG_RE_BIN = _re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 def _inline_script_env(state, state_yaml_path: str, action_env: dict) -> dict:
-    """Env for inline step scripts: always STATE_YAML_PATH/REPO_ROOT plus state fields.
+    """Env for inline step scripts — see orchestrator_next.step_env.inline_script_env."""
+    from orchestrator_next.step_env import inline_script_env
 
-    Merge order: os.environ, then action_env from orchestrator next, then state.yaml
-    fields when non-empty. State wins over ambient env for CHANGE_ID, BRANCH,
-    WORKTREE_PATH, WORKTREE_ROOT, ORCHESTRATOR_WORKFLOW_DIR, ARCHIVE_PATH, and
-    REPO_ROOT from state.yaml when set — dispatch context is authoritative.
-    """
-    raw = state.raw or {}
-    env = {
-        **os.environ,
-        **action_env,
-        "STATE_YAML_PATH": state_yaml_path,
-        "REPO_ROOT": state.repo_root,
-    }
-    change_id = state.change_id or raw.get("slug") or ""
-    if change_id:
-        env["CHANGE_ID"] = change_id
-    branch = raw.get("branch") or ""
-    if branch:
-        env["BRANCH"] = branch
-    worktree = raw.get("worktree_path") or ""
-    if worktree:
-        worktree = os.path.expanduser(str(worktree))
-        env["WORKTREE_PATH"] = worktree
-        env["WORKTREE_ROOT"] = worktree
-        env["ORCHESTRATOR_WORKFLOW_DIR"] = worktree
-    archive_path = raw.get("archive_path") or ""
-    if archive_path:
-        env["ARCHIVE_PATH"] = str(archive_path)
-    repo_root_raw = raw.get("repo_root") or ""
-    if repo_root_raw and not env.get("REPO_ROOT"):
-        env["REPO_ROOT"] = str(repo_root_raw)
-    return env
+    return inline_script_env(state, state_yaml_path, action_env=action_env)
 
 
 def _usage() -> None:
@@ -480,7 +451,7 @@ def main() -> None:
             sys.exit(0)  # finally block will close _db
 
         # --- Inline script path (exit 0 + no JSON) ---
-        if action.get("run"):
+        if action.get("run") or action.get("main"):
             import subprocess as _sp
             from orchestrator_next.record import record as _record
 
@@ -493,20 +464,26 @@ def main() -> None:
                     pass
                 _db = None
 
-            _run_path = action["run"]
-            # Resolve relative paths: prefer contract dir (ORC-76 AC-2), else
-            # fall back to $ORCHESTRATOR_HOME/config/ (legacy behavior).
-            if not os.path.isabs(_run_path):
-                _step_contract_dir = action.get("step_contract_dir")
-                if _step_contract_dir:
-                    _run_path = os.path.join(_step_contract_dir, _run_path)
-                else:
-                    _orchestrator_home = os.environ.get("ORCHESTRATOR_HOME") or _WORKTREE_ROOT
-                    _run_path = os.path.join(_orchestrator_home, "config", _run_path)
-
-            _script_env = _inline_script_env(state, state_yaml_path, action.get("env", {}))
+            from orchestrator_next.parser import load_contract_for_step as _load_step_contract
+            from orchestrator_next.step_runner import apply_step_paths as _apply_step_paths
+            from orchestrator_next.step_runner import build_step_command as _build_step_cmd
 
             _step_id = action["step_id"]
+            _contract = _load_step_contract(_step_id, state_yaml_path)
+            _script_env = _inline_script_env(state, state_yaml_path, action.get("env", {}))
+            _orch_home = _script_env.get("ORCHESTRATOR_HOME") or _WORKTREE_ROOT
+            _script_env = _apply_step_paths(
+                _script_env,
+                step_id=_step_id,
+                contract=_contract,
+                orchestrator_home=_orch_home,
+            )
+            try:
+                _run_cmd = _build_step_cmd(_step_id, _contract, _orch_home)
+            except (FileNotFoundError, ValueError) as _exc:
+                print(f"error: {_exc}", file=sys.stderr)
+                sys.exit(3)
+
             _phase = action["phase"]
             _attempt = action["attempt"]
 
@@ -517,7 +494,7 @@ def main() -> None:
             _stderr_step_log(
                 f"→ {_step_id}  phase={_phase}  kind=inline script  attempt={_attempt}"
             )
-            _stderr_step_log(f"  run: {_run_path}")
+            _stderr_step_log(f"  run: {' '.join(_run_cmd)}")
 
             # State-mutating inline steps move/delete state.yaml as their side
             # effect (complete-workflow's archive phase rm -rf's the state
@@ -564,7 +541,7 @@ def main() -> None:
                 )
 
             _proc = _sp.run(
-                ["bash", _run_path],
+                _run_cmd,
                 capture_output=True,
                 env=_script_env,
             )

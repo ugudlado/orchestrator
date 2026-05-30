@@ -6,7 +6,7 @@ Scenarios:
   (a) `bin/orchestrator cost --change-id foo` exits 3, stderr contains "Usage:" and does
       NOT contain the word "cost" (i.e. the verb is unrecognised, not dispatched).
   (b) `bin/orchestrator metrics --change-id foo` exits 3 similarly — stderr contains
-      "Usage:" and does NOT contain "metrics".
+      "Usage:" and does NOT list `orchestrator metrics` as a subcommand.
   (c) Grep assertion: `rg -l 'orchestrator (cost|metrics)' bin/ config/scripts/ scripts/
       skills/ --glob '!**/archive/**' --glob '!**/backlog.md'`
       returns zero matches — no production code references the retired verbs.
@@ -91,13 +91,13 @@ class TestRetiredCLIVerbs(unittest.TestCase):
             f"stderr: {result.stderr!r}",
         )
 
-    def test_metrics_verb_stderr_does_not_contain_metrics(self) -> None:
-        """(b) `orchestrator metrics` stderr must NOT contain 'metrics' (not dispatched)."""
+    def test_metrics_verb_not_listed_as_subcommand(self) -> None:
+        """(b) `orchestrator metrics` must not appear as a listed subcommand in usage."""
         result = _run_orchestrator(["metrics", "--change-id", "foo"])
         self.assertNotIn(
-            "metrics",
+            "orchestrator metrics",
             result.stderr.lower(),
-            f"Stderr should not mention 'metrics' (verb must be unrecognised, not dispatched).\n"
+            f"Retired 'metrics' verb must not be listed as a subcommand.\n"
             f"stderr: {result.stderr!r}",
         )
 

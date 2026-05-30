@@ -63,14 +63,6 @@ def _repeat_predicate_satisfied(state: State, node: dict[str, Any]) -> bool:
     return bool(predicate(state.raw))
 
 
-def _uses_legacy_active_plan(state: State) -> bool:
-    """True when the current phase uses pre-ORC-63 `active:[ids]` without `nodes:`."""
-    phase_plan = state.workflow_plan.get(state.phase, {})
-    if not isinstance(phase_plan, dict):
-        return False
-    return phase_plan.get("nodes") is None and phase_plan.get("active") is not None
-
-
 def _step_completed_in_history(state: State, node_id: str) -> bool:
     """Return True when step_history has a terminal completed entry for the node."""
     for entry in state.step_history:

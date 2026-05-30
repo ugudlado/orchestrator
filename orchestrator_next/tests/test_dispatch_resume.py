@@ -327,10 +327,10 @@ class TestResumeStepContractFields:
                     "ORCHESTRATOR_ATTEMPT", "ORCHESTRATOR_WORKFLOW_DIR", "ORCHESTRATOR_REPO_ROOT"):
             assert key in env, f"Missing env var: {key!r}"
 
-    def test_resume_step_resolved_allowed_tools_populated(
+    def test_resume_step_resolved_allowed_tools_present(
         self, steps_dir, agents_dir, state_dir, monkeypatch
     ):
-        """resolved_allowed_tools is populated from the agent role on resume_step."""
+        """resolved_allowed_tools key is present on resume_step (tools not enforced → [])."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read", "Grep", "Glob", "Bash"])
         _write_contract(steps_dir, "tools-step", {
@@ -343,8 +343,7 @@ class TestResumeStepContractFields:
         action, code = dispatch(state, state_yaml_path)
 
         assert action.get("is_resume") is True and "agent" in action  # ORC-45: no action field
-        assert "resolved_allowed_tools" in action
-        assert sorted(action["resolved_allowed_tools"]) == ["Bash", "Glob", "Grep", "Read"]
+        assert action.get("resolved_allowed_tools") == []
 
     def test_resume_step_env_reflects_preserved_attempt(
         self, steps_dir, agents_dir, state_dir, monkeypatch

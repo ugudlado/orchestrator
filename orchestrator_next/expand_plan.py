@@ -163,7 +163,6 @@ def expand_plan(state_yaml_path: str) -> None:
 
     # Insert new task-nodes in order, each before run-phase-review.
     insert_at = rpr_index if rpr_index is not None else len(nodes)
-    appended_any = False
     for task in tasks:
         node_id = f"task-{task['id']}"
         if node_id in existing_ids:
@@ -172,7 +171,6 @@ def expand_plan(state_yaml_path: str) -> None:
         nodes.insert(insert_at, node)
         existing_ids.add(node_id)
         insert_at += 1  # keep order; next insert goes after this one
-        appended_any = True
 
     # Rewire run-phase-review.depends_on to the last task-node id.
     task_node_ids = [

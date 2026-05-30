@@ -14,28 +14,13 @@ from typing import Any
 
 import yaml
 
+from orchestrator_next.operator_workflow import workflow_step_ids
+
 _COMPLETE_ANCHOR = "compute-prediction-accuracy"
 
 
-def _orchestrator_home() -> Path:
-    home = __import__("os").environ.get("ORCHESTRATOR_HOME", "")
-    if not home:
-        raise EnvironmentError("ORCHESTRATOR_HOME is not set")
-    return Path(home)
-
-
 def _load_schema_steps(schema_name: str) -> list[str]:
-    path = _orchestrator_home() / "config" / "workflows" / f"{schema_name}.yaml"
-    if not path.is_file():
-        raise FileNotFoundError(f"schema not found: {path}")
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    steps: list[str] = []
-    for entry in raw.get("steps") or []:
-        if isinstance(entry, dict):
-            steps.append(str(entry.get("id", "")))
-        else:
-            steps.append(str(entry))
-    return [s for s in steps if s]
+    return workflow_step_ids(schema_name)
 
 
 def complete_step_ids_for_schema(schema_name: str) -> list[str]:
@@ -71,7 +56,8 @@ def prepare_complete_phase(state_yaml_path: str) -> dict[str, Any]:
 
     # The `complete` workflow file is the step list for `orchestrator complete`
     # (not the parent feature/bugfix tail — same anchor, but complete.yaml is canonical).
-    complete_ids = set(complete_step_ids_for_schema("complete"))
+    complete_steps = complete_step_ids_for_schema("complete")
+    complete_ids = set(complete_steps)
     phase = str(state.get("phase") or "main")
     phase_plan = (state.get("workflow_plan") or {}).get(phase) or {}
     nodes = phase_plan.get("nodes")
@@ -110,7 +96,7 @@ def prepare_complete_phase(state_yaml_path: str) -> dict[str, Any]:
 
     # Point next_step at the first incomplete complete-phase node.
     next_id = None
-    for sid in complete_step_ids_for_schema("complete"):
+    for sid in complete_steps:
         for node in nodes:
             if str(node.get("id") or "") == sid:
                 if str(node.get("status") or "") != "completed":

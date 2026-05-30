@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # read-state-env.sh — load selected vars from state.yaml into the caller's shell.
 # Used by CLI drivers (orchestrator complete teardown) that resolve state.yaml
-# themselves. Workflow step scripts must use env injected by bin/orchestrator.
+# themselves. Workflow step scripts receive env from orchestrator_next.step_env
+# (inline_script_env / operator_script_env) — do not read state.yaml for those fields.
 #
 # RESOLVERS in the embedded Python is the single allowlist. Unknown var names
 # exit non-zero. Values are shlex.quote'd; the shell evals Python output as-is.

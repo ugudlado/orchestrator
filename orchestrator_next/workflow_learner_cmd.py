@@ -5,21 +5,12 @@ import os
 import sys
 from pathlib import Path
 
+from orchestrator_next.operator_workflow import ensure_orchestrator_home, load_step_params, run_script_workflow
 from orchestrator_next.parser import load_state
-from orchestrator_next.rework import inline_script_env
-
-
-def _ensure_orchestrator_home() -> None:
-    if os.environ.get("ORCHESTRATOR_HOME"):
-        return
-    here = Path(__file__).resolve().parent.parent
-    if (here / "config").is_dir():
-        os.environ["ORCHESTRATOR_HOME"] = str(here)
+from orchestrator_next.step_env import inline_script_env
 
 
 def main(argv: list[str] | None = None) -> int:
-    from orchestrator_next.operator_workflow import load_step_params, run_script_workflow
-
     args = argv if argv is not None else sys.argv[1:]
     if len(args) != 1:
         print("usage: orchestrator learn <state.yaml>", file=sys.stderr)
@@ -30,7 +21,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: state.yaml not found: {state_yaml}", file=sys.stderr)
         return 1
 
-    _ensure_orchestrator_home()
+    ensure_orchestrator_home()
     state = load_state(state_yaml)
     change_id = state.change_id or Path(state_yaml).parent.name
     params = load_step_params("gather-learn-metrics")

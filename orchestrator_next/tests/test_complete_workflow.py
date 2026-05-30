@@ -16,7 +16,6 @@ import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
-_SCRIPT = os.path.join(_REPO_ROOT, "config", "steps", "complete-workflow", "script.sh")
 
 
 # ---------------------------------------------------------------------------
@@ -100,21 +99,39 @@ def _build_repo_with_worktree(tmp_path, *, worktree,
     return str(state_path), str(repo), str(worktree_path), archive_path, branch
 
 
+_SCRIPT = os.path.join(_REPO_ROOT, "config", "steps", "complete-workflow", "script.sh")
+
+
 def _run_script(state_path, repo_root, *, change_id, archive_path, worktree_root):
-    """Run complete-workflow.sh with env from bin/orchestrator _inline_script_env."""
-    env = {
-        **os.environ,
-        "STATE_YAML_PATH": state_path,
-        "REPO_ROOT": repo_root,
-        "ORCHESTRATOR_HOME": _REPO_ROOT,
-        "CHANGE_ID": change_id,
-        "ARCHIVE_PATH": archive_path,
-        "WORKTREE_ROOT": worktree_root,
-    }
+    """Run complete-workflow script.sh with env from bin/orchestrator inline_script_env."""
+    from orchestrator_next.parser import load_contract_for_step, load_state
+    from orchestrator_next.step_env import inline_script_env
+    from orchestrator_next.step_runner import apply_step_paths, build_step_command
+
+    state = load_state(state_path)
+    contract = load_contract_for_step("complete-workflow", state_path)
+    env = inline_script_env(
+        state,
+        state_path,
+        action_env={"ORCHESTRATOR_STEP_ID": "complete-workflow", "ORCHESTRATOR_ATTEMPT": "1"},
+    )
+    env.update(
+        {
+            "CHANGE_ID": change_id,
+            "ARCHIVE_PATH": archive_path,
+            "WORKTREE_ROOT": worktree_root,
+        }
+    )
+    env = apply_step_paths(
+        env, step_id="complete-workflow", contract=contract, orchestrator_home=_REPO_ROOT
+    )
+    cmd = build_step_command("complete-workflow", contract, _REPO_ROOT)
     return subprocess.run(
-        ["bash", _SCRIPT, ],
+        cmd,
         cwd=os.path.dirname(state_path),
-        capture_output=True, text=True, env=env,
+        capture_output=True,
+        text=True,
+        env=env,
     )
 
 
@@ -142,7 +159,8 @@ def test_script_uses_dispatch_env_not_read_state_env():
     with open(_SCRIPT) as f:
         body = f.read()
     assert "read_state_env" not in body
-    assert "REPO_ROOT" in body
+    assert "ORCHESTRATOR_STEP_DIR" in body
+    assert "complete_workflow.py" in body
     assert "remove-worktree.sh" not in body, (
         "complete-workflow must not invoke remove-worktree; use complete-feature-teardown"
     )

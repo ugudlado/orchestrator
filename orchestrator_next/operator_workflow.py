@@ -12,7 +12,18 @@ from pathlib import Path
 
 import yaml
 
-from orchestrator_next.parser import load_contract_for_step
+from orchestrator_next.parser import load_contract_for_step, load_state
+from orchestrator_next.step_env import inline_script_env, operator_script_env
+from orchestrator_next.step_runner import apply_step_paths, build_step_command
+
+
+def ensure_orchestrator_home() -> None:
+    """Set ORCHESTRATOR_HOME from this package when unset."""
+    if os.environ.get("ORCHESTRATOR_HOME"):
+        return
+    here = Path(__file__).resolve().parent.parent
+    if (here / "config").is_dir():
+        os.environ["ORCHESTRATOR_HOME"] = str(here)
 
 
 def orchestrator_home() -> Path:
@@ -68,6 +79,36 @@ def merge_step_env(step_id: str, env: dict[str, str], workflow_params: dict[str,
     return merged
 
 
+def _script_subprocess_env(
+    step_id: str,
+    env: dict[str, str],
+    *,
+    workflow_params: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Merge contract params with orchestrator-built step env."""
+    state_yaml = (
+        env.get("STATE_YAML_PATH")
+        or env.get("ORCHESTRATOR_STATE_YAML_PATH")
+        or "/dev/null"
+    )
+    path = Path(state_yaml)
+    if path.is_file():
+        state = load_state(str(path))
+        base = inline_script_env(
+            state,
+            str(path),
+            action_env={**env, "ORCHESTRATOR_STEP_ID": step_id},
+        )
+    else:
+        repo = env.get("REPO_ROOT") or env.get("ORCHESTRATOR_REPO_ROOT") or ""
+        base = operator_script_env(
+            repo,
+            state_yaml_path=state_yaml,
+            step_id=step_id,
+        )
+    return merge_step_env(step_id, base, workflow_params)
+
+
 def run_script_step(
     step_id: str,
     env: dict[str, str],
@@ -83,19 +124,23 @@ def run_script_step(
             file=sys.stderr,
         )
         return 3
-    if not contract.run:
-        print(f"error: step {step_id!r} has no run: script", file=sys.stderr)
+    if not contract.run and not contract.main:
+        print(f"error: step {step_id!r} has no run: or main:", file=sys.stderr)
         return 3
-    run_path = contract.run
-    if not run_path or not os.path.isfile(run_path):
-        print(f"error: script not found: {run_path}", file=sys.stderr)
+    if contract.run and not os.path.isfile(contract.run):
+        print(f"error: script not found: {contract.run}", file=sys.stderr)
         return 3
 
-    step_env = merge_step_env(step_id, {**env, "ORCHESTRATOR_STEP_ID": step_id}, workflow_params)
+    step_env = _script_subprocess_env(step_id, env, workflow_params=workflow_params)
+    home = step_env.get("ORCHESTRATOR_HOME", "")
+    step_env = apply_step_paths(
+        step_env, step_id=step_id, contract=contract, orchestrator_home=home
+    )
+    cmd = build_step_command(step_id, contract, home)
 
     proc = subprocess.run(
-        ["bash", run_path],
-        env={**os.environ, **step_env},
+        cmd,
+        env=step_env,
         capture_output=True,
         text=True,
     )

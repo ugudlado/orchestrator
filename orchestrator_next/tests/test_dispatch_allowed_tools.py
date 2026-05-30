@@ -1,16 +1,11 @@
 """
 Tests for dispatch.py resolved_allowed_tools injection.
 
-T-3: RED tests — verify resolved_allowed_tools logic:
 - All 4 action-dict construction sites carry the resolved_allowed_tools key.
-- Intersection logic: non-empty allowed_tools subset → sorted intersection.
-- Absent/empty allowed_tools → sorted full role list.
-- Widening attempt → ContractError.
+- Tools are documented in config/agents.yaml comments but not enforced at dispatch
+  (resolver.load_agent_tools always returns None) → resolved_allowed_tools == [].
 - Role unresolvable → stderr warning, resolved_allowed_tools == [], no exception.
 - agent: inline with allowed_tools → stderr warning, resolved_allowed_tools == [].
-- AC-7: allowed_tools: [] identical to absent.
-
-These tests fail until T-4 injects resolved_allowed_tools into all branches.
 """
 from __future__ import annotations
 
@@ -223,13 +218,13 @@ class TestResolvedAllowedToolsInjection:
 
 
 # ---------------------------------------------------------------------------
-# T-3: resolved_allowed_tools intersection logic (AC-1, FR-6)
+# resolved_allowed_tools when tools are not enforced at dispatch
 # ---------------------------------------------------------------------------
 
 class TestResolvedAllowedToolsIntersection:
 
-    def test_allowed_tools_subset_gives_sorted_intersection(self, steps_dir, agents_dir, state_dir, monkeypatch):
-        """allowed_tools: [Read, Grep, Glob, Bash] against developer role -> sorted intersection."""
+    def test_allowed_tools_subset_gives_empty_list(self, steps_dir, agents_dir, state_dir, monkeypatch, capsys):
+        """allowed_tools declared but tools not enforced at dispatch → []."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read", "Grep", "Glob", "Bash", "Edit", "Write"])
         _write_contract(steps_dir, "subset-step", {
@@ -241,10 +236,11 @@ class TestResolvedAllowedToolsIntersection:
         from orchestrator_next.dispatch import dispatch
         state = _make_state(["subset-step"])
         action, code = dispatch(state, str(state_dir / "state.yaml"))
-        assert action["resolved_allowed_tools"] == ["Bash", "Glob", "Grep", "Read"]
+        assert action["resolved_allowed_tools"] == []
+        assert "not enforced" in capsys.readouterr().err
 
-    def test_no_allowed_tools_gives_sorted_full_role_list(self, steps_dir, agents_dir, state_dir, monkeypatch):
-        """No allowed_tools declared -> resolved_allowed_tools equals sorted full role list (AC-2, FR-7)."""
+    def test_no_allowed_tools_gives_empty_list(self, steps_dir, agents_dir, state_dir, monkeypatch):
+        """No allowed_tools declared → resolved_allowed_tools == [] (tools not enforced)."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read", "Bash", "Grep"])
         _write_contract(steps_dir, "no-tools-step", {
@@ -255,10 +251,10 @@ class TestResolvedAllowedToolsIntersection:
         from orchestrator_next.dispatch import dispatch
         state = _make_state(["no-tools-step"])
         action, code = dispatch(state, str(state_dir / "state.yaml"))
-        assert action["resolved_allowed_tools"] == ["Bash", "Grep", "Read"]
+        assert action["resolved_allowed_tools"] == []
 
     def test_empty_allowed_tools_identical_to_absent(self, steps_dir, agents_dir, state_dir, monkeypatch):
-        """allowed_tools: [] -> same as absent (backward-compat, AC-7, UC-E4)."""
+        """allowed_tools: [] → same as absent (both yield [])."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read", "Bash", "Grep"])
         _write_contract(steps_dir, "empty-tools-step", {
@@ -270,17 +266,19 @@ class TestResolvedAllowedToolsIntersection:
         from orchestrator_next.dispatch import dispatch
         state = _make_state(["empty-tools-step"])
         action, code = dispatch(state, str(state_dir / "state.yaml"))
-        assert action["resolved_allowed_tools"] == ["Bash", "Grep", "Read"]
+        assert action["resolved_allowed_tools"] == []
 
 
 # ---------------------------------------------------------------------------
-# T-3: widening guard (AC-4, FR-4)
+# widening guard skipped when tools are not enforced at dispatch
 # ---------------------------------------------------------------------------
 
 class TestWideningGuard:
 
-    def test_widening_raises_contract_error(self, steps_dir, agents_dir, monkeypatch):
-        """allowed_tools declares tool not in role -> ContractError with tool name (AC-4)."""
+    def test_widening_does_not_raise_when_tools_not_enforced(
+        self, steps_dir, agents_dir, monkeypatch, capsys,
+    ):
+        """allowed_tools widening is not checked when resolver returns None."""
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read", "Grep"])
         _write_contract(steps_dir, "widen-step", {
@@ -288,12 +286,11 @@ class TestWideningGuard:
             "instruction": "do thing", "inputs": [], "outputs": [],
             "allowed_tools": ["Read", "NewTool"],
         })
-        from orchestrator_next.dispatch import dispatch
-        from orchestrator_next.parser import ContractError
-        state = _make_state(["widen-step"])
-        with pytest.raises(ContractError) as exc_info:
-            dispatch(state, "")
-        assert "NewTool" in str(exc_info.value)
+        from orchestrator_next.dispatch import _resolve_allowed_tools
+        from orchestrator_next.parser import _load_contract
+        contract = _load_contract("widen-step", "")
+        assert _resolve_allowed_tools(contract) == []
+        assert "not enforced" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------
