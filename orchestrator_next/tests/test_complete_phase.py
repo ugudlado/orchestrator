@@ -21,10 +21,8 @@ from orchestrator_next.complete_phase import (  # noqa: E402
 def test_complete_step_ids_feature_schema():
     steps = complete_step_ids_for_schema("feature")
     assert steps[0] == "compute-prediction-accuracy"
-    assert steps[-1] == "archive-completed-change"
-    assert "cost-report" in steps
-    assert "ticket-done" in steps
-    assert "archive-completed-change" in steps
+    assert steps[-1] == "ticket-qa"
+    assert "run-learn-cycle" in steps
 
 
 def test_complete_step_ids_complete_workflow_schema(monkeypatch):
@@ -34,12 +32,12 @@ def test_complete_step_ids_complete_workflow_schema(monkeypatch):
     assert steps == [
         "compute-prediction-accuracy",
         "run-learn-cycle",
-        "ticket-qa",
         "mark-change-completed",
         "compute-swe-metrics",
+        "gather-learn-metrics",
         "cost-report",
-        "ticket-done",
         "archive-completed-change",
+        "ticket-done",
     ]
 
 
