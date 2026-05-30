@@ -477,6 +477,10 @@ def main() -> None:
                 contract=_contract,
                 orchestrator_home=_orch_home,
             )
+            # Merge contract params: lower priority than env vars already set
+            from orchestrator_next.operator_workflow import load_step_params as _load_step_params
+            for _k, _v in _load_step_params(_step_id).items():
+                _script_env.setdefault(_k, _v)
             try:
                 _run_cmd = _build_step_cmd(_step_id, _contract, _orch_home)
             except (FileNotFoundError, ValueError) as _exc:
