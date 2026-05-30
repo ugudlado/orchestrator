@@ -415,7 +415,7 @@ _WORKTREE_ROOT_SUB = _os.path.abspath(_os.path.join(_HERE_SUB, "..", ".."))
 _SCRIPTS_DIR_SUB = _os.path.join(_WORKTREE_ROOT_SUB, "config", "scripts")
 _BIN_ORCHESTRATOR_SUB = _os.path.join(_os.path.expanduser("~"), ".local", "bin", "orchestrator")
 _STEP_CONTRACTS_DIR_SUB = _os.path.join(
-    _WORKTREE_ROOT_SUB, "config", "scripts", "tests", "fixtures", "step_contracts"
+    _HERE_SUB, "..", "..", "tests", "fixtures", "step_contracts"
 )
 
 # Minimal plan.yaml template (two steps so T-14 successor test can advance).
@@ -796,6 +796,8 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
         from orchestrator_next.record import record  # noqa: PLC0415
         import duckdb as _db_mod  # noqa: PLC0415
         db_conn = _db_mod.connect(self._metrics_db_path)
+        _prev_override = _os.environ.get("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE")
+        _os.environ["ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE"] = _STEP_CONTRACTS_DIR_SUB
         try:
             from orchestrator_next.upsert import ensure_schema  # noqa: PLC0415
             ensure_schema(db_conn)
@@ -810,6 +812,10 @@ class TestCrashAndResumeCycle(_unittest.TestCase):
             rec_result, rec_code = record(state_path, terminal_payload, db=db_conn)
         finally:
             db_conn.close()
+            if _prev_override is None:
+                _os.environ.pop("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", None)
+            else:
+                _os.environ["ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE"] = _prev_override
 
         self.assertEqual(
             rec_code, 0,

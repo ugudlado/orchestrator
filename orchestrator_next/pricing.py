@@ -245,7 +245,7 @@ def _compute_cost_usd(
             model_id = "__default__"
 
         if not model_id:
-            if not route_entry:
+            if not route_entry and agent not in ("inline", None):
                 sys.stderr.write(
                     f"[record] cost_usd: agent {agent!r} not in routes.yaml and "
                     f"usage.model not set; skipping cost computation\n"
