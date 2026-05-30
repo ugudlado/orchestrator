@@ -1,13 +1,11 @@
-"""Tests for scripts/parse-completion.py.
-
-These tests must FAIL until T-5 (the implementation) lands.
-"""
+"""Tests for orchestrator_next/scripts/workflow/parse-completion.py."""
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-SCRIPT = Path(__file__).parent.parent.parent / "scripts" / "parse-completion.py"
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+SCRIPT = _REPO_ROOT / "orchestrator_next" / "scripts" / "workflow" / "parse-completion.py"
 
 
 def run_parse(input_text: str, *, extra_args: list[str] | None = None) -> subprocess.CompletedProcess:

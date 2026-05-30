@@ -11,8 +11,8 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-SCRIPT="$REPO_ROOT/scripts/register-repo.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+SCRIPT="$REPO_ROOT/orchestrator_next/scripts/metrics/register-repo.sh"
 
 pass=0
 fail=0

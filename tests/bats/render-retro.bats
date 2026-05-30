@@ -1,13 +1,9 @@
 #!/usr/bin/env bats
 bats_require_minimum_version 1.5.0
-# Contract tests for scripts/render-retro.sh (orc-90).
-#
-# RED (T-1): script absent — _assert_red_missing_script records the expected
-#   "scripts/render-retro.sh: No such file or directory" failure; GREEN
-#   assertions run once scripts/render-retro.sh exists (T-2).
+# Contract tests for orchestrator_next/scripts/workflow/render-retro.sh (orc-90).
 
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
-RENDER_SCRIPT="$REPO_ROOT/scripts/render-retro.sh"
+RENDER_SCRIPT="$REPO_ROOT/orchestrator_next/scripts/workflow/render-retro.sh"
 FIXTURES_DIR="$BATS_TEST_DIRNAME/fixtures"
 FIXTURE_POPULATED="$FIXTURES_DIR/retro-populated.md"
 FIXTURE_HEADER_ONLY="$FIXTURES_DIR/retro-header-only.md"
@@ -24,19 +20,8 @@ teardown() {
   rm -rf "$FAKE_ROOT"
 }
 
-_assert_red_missing_script() {
-  run -127 env WORKTREE_ROOT="$WORKTREE_ROOT" REPO_ROOT="$REPO_ROOT" \
-    bash "$RENDER_SCRIPT" "orc-red-check"
-  [ "$status" -eq 127 ]
-  [[ "$output" == *"scripts/render-retro.sh: No such file or directory"* ]]
-}
-
 _require_renderer() {
-  if [[ -f "$RENDER_SCRIPT" ]]; then
-    return 0
-  fi
-  _assert_red_missing_script
-  return 1
+  [[ -f "$RENDER_SCRIPT" ]]
 }
 
 _install_archived_retro() {
@@ -179,30 +164,34 @@ PY
 # --- _emit_feature_rollup integration (run-workflow.sh) ---
 
 _emit_rollup_helpers() {
-  local run_workflow="$BATS_TEST_DIRNAME/../../scripts/run-workflow.sh"
-  export SCRIPT_DIR="$REPO_ROOT/scripts"
-  # Extract the rollup helpers by name (not line range) so upstream edits to
-  # run-workflow.sh don't silently shift the source window. Each helper is a
-  # top-level `name() {` ... `}` block.
+  local run_workflow="$BATS_TEST_DIRNAME/../../orchestrator_next/scripts/run-workflow.sh"
+  export ORCH_SCRIPTS_DIR="$(cd "$BATS_TEST_DIRNAME/../../orchestrator_next/scripts" && pwd)"
+  export STATE_INSPECT="${STATE_INSPECT:-$ORCH_SCRIPTS_DIR/lib/state_inspect.py}"
   # shellcheck disable=SC1090
   source <(awk '/^(_log_ts|_log_step_usage|_emit_feature_rollup)\(\) \{/,/^\}/' "$run_workflow")
 }
 
-_install_rollup_scripts() {
-  mkdir -p "$REPO_ROOT/scripts"
-  cp "$RENDER_SCRIPT" "$REPO_ROOT/scripts/render-retro.sh"
-  cat > "$REPO_ROOT/scripts/cost-report.sh" <<'STUB'
-#!/usr/bin/env bash
-echo "orc-rollup-fixture: \$0.42 · 1m · 2 steps · 1x median"
-STUB
-  chmod +x "$REPO_ROOT/scripts/cost-report.sh"
+_install_rollup_state() {
+  local change_id="$1"
+  local tail="${2:-orc-rollup-fixture: \$0.42 · 1m · 2 steps · 1x median}"
+  export STATE_YAML="$FAKE_ROOT/state.yaml"
+  cat > "$STATE_YAML" <<YAML
+change_id: $change_id
+step_history:
+  - step_id: cost-report
+    phase: main
+    status: completed
+    evidence:
+      outputs:
+        tail_summary: "$tail"
+YAML
 }
 
 @test "_emit_feature_rollup prints cost line then issues table on stderr" {
   _require_renderer || return 0
 
   printf 'version: 1\n' > "$FAKE_ROOT/spec/project.yaml"
-  _install_rollup_scripts
+  _install_rollup_state "orc-rollup-integration"
   _install_archived_retro "orc-rollup-integration" "$FIXTURE_POPULATED"
 
   local rollup_stderr
@@ -231,7 +220,7 @@ STUB
   _require_renderer || return 0
 
   printf 'version: 1\n' > "$FAKE_ROOT/spec/project.yaml"
-  _install_rollup_scripts
+  _install_rollup_state "orc-no-retro-archive"
 
   local rollup_stderr
   rollup_stderr=$(
@@ -255,7 +244,6 @@ STUB
   cp "$FIXTURE_POPULATED" "$wt_root/spec/changes/archive/orc-wt-feature/retro.md"
 
   printf 'version: 1\n' > "$FAKE_ROOT/spec/project.yaml"
-  _install_rollup_scripts
 
   # Stub STATE_INSPECT: emit worktree_path for workflow-meta, swallow the rest.
   local stub="$FAKE_ROOT/state_inspect_stub.py"
@@ -265,8 +253,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "workflow-meta":
     print("worktree_path=$wt_root")
 STUB
   export STATE_INSPECT="$stub"
-  export STATE_YAML="$FAKE_ROOT/state.yaml"
-  printf 'change_id: orc-wt-feature\n' > "$STATE_YAML"
+  _install_rollup_state "orc-wt-feature"
 
   local rollup_stderr
   rollup_stderr=$(

@@ -2,8 +2,8 @@
 # End-to-end tests for qa-rework.sh against worktree-completed features.
 # RED until T-6 wires qa-rework.sh through resolve-state-yaml.sh.
 
-ORCHESTRATOR_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
-QA_REWORK="$ORCHESTRATOR_ROOT/scripts/qa-rework.sh"
+ORCHESTRATOR_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+ORCH_REWORK="$ORCHESTRATOR_ROOT/bin/orchestrator"
 CHANGE_ID="orc-fixture"
 BRANCH="feature/orc-fixture"
 TICKET_ID="task-99"
@@ -80,7 +80,7 @@ YAML
 
 run_qa_rework() {
   local id="${1:-$CHANGE_ID}"
-  run bash "$QA_REWORK" "$id" "$TEST_REPO"
+  run bash "$ORCH_REWORK" rework "$id" --repo "$TEST_REPO"
 }
 
 @test "worktree-completed feature: qa-rework resolves archive state and syncs In Progress" {

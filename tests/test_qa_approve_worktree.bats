@@ -17,7 +17,8 @@ setup() {
   MERGE_STUB_LOG="$BATS_TMPDIR/merge-stub-$$.log"
   REMOVE_STUB_LOG="$BATS_TMPDIR/remove-stub-$$.log"
 
-  mkdir -p "$STUB_BIN" "$FAKE_HOME" "$FAKE_ORCH/scripts/inline"
+  mkdir -p "$STUB_BIN" "$FAKE_HOME" "$FAKE_ORCH/orchestrator_next/scripts/complete" \
+    "$FAKE_ORCH/orchestrator_next/scripts/lib"
   : >"$MERGE_STUB_LOG"
   : >"$REMOVE_STUB_LOG"
 
@@ -53,17 +54,17 @@ STUB
 }
 
 write_inline_stubs() {
-  cp "$ORCHESTRATOR_ROOT/scripts/inline/_read_state_env.sh" \
-    "$FAKE_ORCH/scripts/inline/_read_state_env.sh"
+  cp "$ORCHESTRATOR_ROOT/orchestrator_next/scripts/lib/read-state-env.sh" \
+    "$FAKE_ORCH/orchestrator_next/scripts/lib/read-state-env.sh"
 
-  cat >"$FAKE_ORCH/scripts/inline/merge-to-main.sh" <<'STUB'
+  cat >"$FAKE_ORCH/orchestrator_next/scripts/complete/merge-to-main.sh" <<'STUB'
 #!/usr/bin/env bash
 printf 'STATE_YAML_PATH=%s\n' "${STATE_YAML_PATH:-}" >> "${MERGE_STUB_LOG:?}"
 printf '%s\n' '{"merge_record": {"merged": true, "skipped": false, "branch": "feature/orc-fixture", "default_branch": "main", "merge_sha": "deadbeef"}}'
 STUB
-  chmod +x "$FAKE_ORCH/scripts/inline/merge-to-main.sh"
+  chmod +x "$FAKE_ORCH/orchestrator_next/scripts/complete/merge-to-main.sh"
 
-  cat >"$FAKE_ORCH/scripts/inline/remove-worktree.sh" <<'STUB'
+  cat >"$FAKE_ORCH/orchestrator_next/scripts/complete/remove-worktree.sh" <<'STUB'
 #!/usr/bin/env bash
 printf 'remove-worktree called STATE_YAML_PATH=%s\n' "${STATE_YAML_PATH:-}" >> "${REMOVE_STUB_LOG:?}"
 # shellcheck source=./_read_state_env.sh
@@ -75,7 +76,7 @@ if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
 fi
 printf '%s\n' '{"removed": true, "worktree_path": "'"$WORKTREE_PATH"'", "branch": "'"$BRANCH"'"}'
 STUB
-  chmod +x "$FAKE_ORCH/scripts/inline/remove-worktree.sh"
+  chmod +x "$FAKE_ORCH/orchestrator_next/scripts/complete/remove-worktree.sh"
 }
 
 setup_repo_and_worktree() {

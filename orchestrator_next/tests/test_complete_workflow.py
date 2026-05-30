@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 
 import yaml
@@ -101,13 +100,16 @@ def _build_repo_with_worktree(tmp_path, *, worktree,
     return str(state_path), str(repo), str(worktree_path), archive_path, branch
 
 
-def _run_script(state_path, repo_root):
-    """Run complete-workflow.sh with the production inline-script env."""
+def _run_script(state_path, repo_root, *, change_id, archive_path, worktree_root):
+    """Run complete-workflow.sh with env from bin/orchestrator _inline_script_env."""
     env = {
         **os.environ,
         "STATE_YAML_PATH": state_path,
         "REPO_ROOT": repo_root,
         "ORCHESTRATOR_HOME": _REPO_ROOT,
+        "CHANGE_ID": change_id,
+        "ARCHIVE_PATH": archive_path,
+        "WORKTREE_ROOT": worktree_root,
     }
     return subprocess.run(
         ["bash", _SCRIPT, ],
@@ -135,30 +137,12 @@ def _parse_completion(stdout):
 # AC-3: body ordering
 # ---------------------------------------------------------------------------
 
-def test_body_state_reads_precede_archive_and_no_remove_worktree():
-    """All state-read statements precede the archive invocation; worktree removal
-    is not invoked from this script."""
+def test_script_uses_dispatch_env_not_read_state_env():
+    """Step relies on orchestrator-injected env; does not re-read state.yaml."""
     with open(_SCRIPT) as f:
         body = f.read()
-    raw_lines = body.splitlines()
-    lines = ["" if ln.lstrip().startswith("#") else ln for ln in raw_lines]
-
-    def first_line(pat):
-        rx = re.compile(pat)
-        for i, ln in enumerate(lines):
-            if rx.search(ln):
-                return i
-        return None
-
-    archive_line = first_line(r'bash\b.*(?:archive-completed-change|_ARCHIVE_SCRIPT)')
-    assert archive_line is not None, "no archive-completed-change script invocation"
-
-    read_lines = [i for i, ln in enumerate(lines) if "read_state_env" in ln]
-    assert read_lines, "no read_state_env call in complete-workflow.sh"
-    assert max(read_lines) < archive_line, (
-        "a read_state_env call appears at or after the archive invocation "
-        f"(reads at {read_lines}, archive at {archive_line})"
-    )
+    assert "read_state_env" not in body
+    assert "REPO_ROOT" in body
     assert "remove-worktree.sh" not in body, (
         "complete-workflow must not invoke remove-worktree; use complete-feature-teardown"
     )
@@ -181,7 +165,12 @@ def test_archive_on_worktree(tmp_path):
     state, repo, wt, archive_path, _branch = _build_repo_with_worktree(
         tmp_path, worktree=True
     )
-    result = _run_script(state, repo)
+    result = _run_script(
+        state, repo,
+        change_id="cw-test",
+        archive_path=archive_path,
+        worktree_root=wt,
+    )
     assert result.returncode == 0, f"stderr:\n{result.stderr}"
 
     cr = _parse_completion(result.stdout)

@@ -108,14 +108,12 @@ class TestNoProductionReferencesToRetiredVerbs(unittest.TestCase):
     def test_no_orchestrator_cost_or_metrics_references(self) -> None:
         """rg finds zero matches for 'orchestrator (cost|metrics)' in production directories.
 
-        Scans: bin/, config/scripts/, scripts/, skills/
+        Scans: bin/, orchestrator_next/, config/steps/, skills/
         Excludes: archive/, backlog.md, and test directories.
 
         Test directories (tests/, __tests__/) are excluded because:
         - test_retired_cli.py (this file) legitimately documents the retired verbs in
           docstrings and string literals — that's its purpose.
-        - config/scripts/__tests__/read-sub-state-metrics.test.sh has historical-context
-          comments that describe the pre-rewrite behavior; they don't invoke the CLI.
         - test_cost_cli.py (deleted in T-12) tests the verb directly — excluded here
           and removed at source in T-12.
 
@@ -132,7 +130,6 @@ class TestNoProductionReferencesToRetiredVerbs(unittest.TestCase):
                 "bin/",
                 "orchestrator_next/",
                 "config/steps/",
-                "scripts/",
                 "skills/",
                 "--glob",
                 "!**/archive/**",

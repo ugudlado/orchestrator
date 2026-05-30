@@ -56,8 +56,9 @@ _HERE = Path(__file__).parent.resolve()
 # parents[0] = <repo_root>/orchestrator_next
 # parents[1] = <repo_root>
 _REPO_ROOT = _HERE.parents[1]             # repo root
-_SCRIPTS_DIR = _REPO_ROOT / "scripts"  # ORC-106: estimate-cost.sh moved here
-_ESTIMATE_COST_SH = _SCRIPTS_DIR / "estimate-cost.sh"
+_ESTIMATE_COST_SH = (
+    _REPO_ROOT / "orchestrator_next" / "scripts" / "metrics" / "estimate-cost.sh"
+)
 _ROUTES_YAML = _REPO_ROOT / "config" / "agents.yaml"  # ORC-105: merged from scripts/routes.yaml
 _FIXTURE = _HERE / "fixtures" / "estimate_cost_before.txt"
 
@@ -149,7 +150,7 @@ def _base_env(state_dir: Path, db_path: str | None = None) -> dict[str, str]:
 
     Overrides:
     - REPO_ROOT / ORCHESTRATOR_HOME → repo root (so routes.yaml is found)
-    - ROUTES_FILE → repo's own scripts/routes.yaml
+    - ROUTES_FILE → repo's config/agents.yaml
     - ARCHIVE_GLOB → nonexistent path (forces cold-start / no_history)
     - METRICS_DB → db_path if given
     """

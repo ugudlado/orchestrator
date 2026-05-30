@@ -22,7 +22,23 @@ def test_complete_step_ids_feature_schema():
     steps = complete_step_ids_for_schema("feature")
     assert steps[0] == "compute-prediction-accuracy"
     assert steps[-1] == "complete-workflow"
+    assert "cost-report" in steps
     assert "mark-change-completed" in steps
+
+
+def test_complete_step_ids_complete_workflow_schema(monkeypatch):
+    """config/workflows/complete.yaml is the CLI complete subcommand step list."""
+    monkeypatch.setenv("ORCHESTRATOR_HOME", _REPO_ROOT)
+    steps = complete_step_ids_for_schema("complete")
+    assert steps == [
+        "compute-prediction-accuracy",
+        "run-learn-cycle",
+        "ticket-qa",
+        "mark-change-completed",
+        "compute-swe-metrics",
+        "cost-report",
+        "complete-workflow",
+    ]
 
 
 def test_prepare_blocks_incomplete_task(tmp_path, monkeypatch):

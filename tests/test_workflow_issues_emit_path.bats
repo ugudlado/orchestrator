@@ -2,9 +2,9 @@
 # End-to-end: detect-workflow-issues.sh → append-retro.sh (orc-89 refactor path).
 # Replaces sentinel/record-issue.sh as the live emit proof for AC-6.
 
-REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
-HELPER="$REPO_ROOT/scripts/lib/detect-workflow-issues.sh"
-APPEND_RETRO="$REPO_ROOT/scripts/inline/append-retro.sh"
+REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+HELPER="$REPO_ROOT/orchestrator_next/scripts/lib/detect-workflow-issues.sh"
+APPEND_RETRO="$REPO_ROOT/orchestrator_next/scripts/complete/append-retro.sh"
 CHANGE_ID="orc-89-emit-path-bats"
 
 setup() {

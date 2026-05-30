@@ -2,8 +2,8 @@
 # detect-workflow-issues.sh — shared detection helper for workflow-mechanics
 # issues. Contract: config/steps/contracts/workflow-issues.md.
 
-REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
-HELPER="$REPO_ROOT/scripts/lib/detect-workflow-issues.sh"
+REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+HELPER="$REPO_ROOT/orchestrator_next/scripts/lib/detect-workflow-issues.sh"
 
 setup() {
   SANDBOX="$BATS_TMPDIR/detect-wfi-$$-$RANDOM"

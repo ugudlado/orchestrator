@@ -2,7 +2,7 @@
 # orchestrator run <ticket-id> — CLI entry for shell workflow loop
 
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
-ORCH_RUN="$REPO_ROOT/scripts/orchestrator-run.sh"
+ORCH_RUN="$REPO_ROOT/orchestrator_next/scripts/orchestrator-run.sh"
 BIN_ORCH="$REPO_ROOT/bin/orchestrator"
 
 @test "orchestrator-run.sh prints usage without ticket" {

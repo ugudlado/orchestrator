@@ -3,8 +3,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$HERE/../.." && pwd)"
-SCRIPT="$REPO_ROOT/scripts/inline/merge-to-main.sh"
+REPO_ROOT="$(cd "$HERE/.." && pwd)"
+SCRIPT="$REPO_ROOT/orchestrator_next/scripts/complete/merge-to-main.sh"
 PASS=0
 FAIL=0
 
@@ -48,7 +48,7 @@ repo_root: $MAIN_REPO
 archive_path: spec/changes/archive/2099-01-01-demo-slug/
 EOF
 
-OUTPUT="$(STATE_YAML_PATH="$STATE_DIR/state.yaml" REPO_ROOT="$MAIN_REPO" bash "$SCRIPT")"
+OUTPUT="$(REPO_ROOT="$MAIN_REPO" BRANCH="$BRANCH" CHANGE_ID=demo-slug bash "$SCRIPT")"
 check "merge script exits 0" test $? -eq 0
 echo "$OUTPUT" | grep -q '"merged": true'
 check "reports merged" test $? -eq 0

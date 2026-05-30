@@ -3,7 +3,7 @@
 # Expect dedup failures until append-retro.sh gains skip logic (T-4).
 
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
-APPEND_RETRO="$REPO_ROOT/scripts/inline/append-retro.sh"
+APPEND_RETRO="$REPO_ROOT/orchestrator_next/scripts/complete/append-retro.sh"
 CHANGE_ID="orc-89-dedup-bats"
 
 setup() {

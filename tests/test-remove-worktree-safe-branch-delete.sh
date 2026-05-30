@@ -4,7 +4,7 @@
 # Regression guard: scripts/inline/remove-worktree.sh previously used
 # `git branch -D` which force-deletes branches regardless of merge status,
 # silently destroying unmerged commits. `-d` (safe delete) is required.
-# remove-worktree.sh is invoked by scripts/complete-feature-teardown.sh
+# remove-worktree.sh is invoked by orchestrator_next/complete-feature-teardown.sh
 # (its standalone step contract was removed in ORC-79).
 #
 # This test sets up a repo with an UNMERGED branch, invokes remove-worktree.sh,
@@ -13,7 +13,7 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-SCRIPT="$REPO_ROOT/scripts/inline/remove-worktree.sh"
+SCRIPT="$REPO_ROOT/orchestrator_next/scripts/complete/remove-worktree.sh"
 
 pass=0
 fail=0

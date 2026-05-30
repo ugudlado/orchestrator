@@ -1,13 +1,13 @@
 #!/usr/bin/env bats
-# Tests for scripts/run-workflow.sh dispatch loop.
+# Tests for orchestrator_next/scripts/run-workflow.sh dispatch loop.
 # Tests must FAIL until T-9 lands (script doesn't exist yet).
 #
 # Strategy: stub orchestrator, tool binaries, and parse-completion.py via PATH override.
 # Each test controls what orchestrator next/done returns.
 
-SCRIPT_UNDER_TEST="$BATS_TEST_DIRNAME/../../scripts/run-workflow.sh"
-PARSE_COMPLETION="$BATS_TEST_DIRNAME/../../scripts/parse-completion.py"
-REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+SCRIPT_UNDER_TEST="$BATS_TEST_DIRNAME/../orchestrator_next/scripts/run-workflow.sh"
+PARSE_COMPLETION="$BATS_TEST_DIRNAME/../orchestrator_next/scripts/workflow/parse-completion.py"
+REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 STUB_DIR="$BATS_TMPDIR/stubs"
 TMP_STATE_DIR="$REPO_ROOT/spec/changes/.bats-run-workflow"
 TMP_STATE="$TMP_STATE_DIR/state.yaml"
@@ -211,12 +211,11 @@ STUB
 @test "Agent run_inline step: routing resolves developer->cursor, COMPLETION parsed, done called" {
   write_cursor_stub
   # Repo overrides: distinct tool name so PATH cannot resolve to Cursor.app.
-  mkdir -p "$REPO_ROOT/.orchestrator/config/scripts"
-  cp "$REPO_ROOT/config/tools.yaml" "$REPO_ROOT/.orchestrator/config/tools.yaml"
-  cp "$REPO_ROOT/scripts/routes.yaml" "$REPO_ROOT/.orchestrator/config/scripts/routes.yaml"
-  yq -i ".tools.\"cursor-stub\".binary = \"$STUB_DIR/cursor-agent-stub\"" "$REPO_ROOT/.orchestrator/config/tools.yaml"
-  yq -i '.tools."cursor-stub".args_template = ["{prompt}"]' "$REPO_ROOT/.orchestrator/config/tools.yaml"
-  yq -i '.agents.developer.subprocess = "cursor-stub"' "$REPO_ROOT/.orchestrator/config/scripts/routes.yaml"
+  mkdir -p "$REPO_ROOT/.orchestrator/config"
+  cp "$REPO_ROOT/config/agents.yaml" "$REPO_ROOT/.orchestrator/config/agents.yaml"
+  yq -i ".tools.\"cursor-stub\".binary = \"$STUB_DIR/cursor-agent-stub\"" "$REPO_ROOT/.orchestrator/config/agents.yaml"
+  yq -i '.tools."cursor-stub".args_template = ["{prompt}"]' "$REPO_ROOT/.orchestrator/config/agents.yaml"
+  yq -i '.agents.developer.subprocess = "cursor-stub"' "$REPO_ROOT/.orchestrator/config/agents.yaml"
 
   local call_count_file="$BATS_TMPDIR/call_count"
   echo 0 > "$call_count_file"
@@ -275,11 +274,11 @@ STUB
   chmod +x "$STUB_DIR/pi"
 
   local fake_repo="$BATS_TMPDIR/repo_root"
-  mkdir -p "$fake_repo/spec" "$fake_repo/.orchestrator/config/scripts"
+  mkdir -p "$fake_repo/spec" "$fake_repo/.orchestrator/config"
   printf 'version: 1\n' > "$fake_repo/spec/project.yaml"
-  cp "$REPO_ROOT/config/tools.yaml" "$fake_repo/.orchestrator/config/tools.yaml"
+  cp "$REPO_ROOT/config/agents.yaml" "$fake_repo/.orchestrator/config/agents.yaml"
   # Absolute binary path — mise exec prepends real tool bins before PATH stubs.
-  yq -i ".tools.pi.binary = \"$STUB_DIR/pi\"" "$fake_repo/.orchestrator/config/tools.yaml"
+  yq -i ".tools.pi.binary = \"$STUB_DIR/pi\"" "$fake_repo/.orchestrator/config/agents.yaml"
 
   local call_count_file="$BATS_TMPDIR/call_count"
   echo 0 > "$call_count_file"
@@ -307,10 +306,8 @@ esac
 STUB
   chmod +x "$STUB_DIR/orchestrator"
 
-  cat > "$fake_repo/.orchestrator/config/scripts/routes.yaml" <<'YAML'
-agents:
-  developer: { model: sonnet, subprocess: pi }
-YAML
+  yq -i '.agents.developer.subprocess = "pi"' "$fake_repo/.orchestrator/config/agents.yaml"
+  yq -i '.agents.developer.model = "sonnet"' "$fake_repo/.orchestrator/config/agents.yaml"
 
   cat > "$STUB_DIR/pi" <<'STUB'
 #!/bin/sh
@@ -378,12 +375,11 @@ echo "Tool failed"
 exit 2
 STUB
   chmod +x "$STUB_DIR/cursor-agent-stub"
-  mkdir -p "$REPO_ROOT/.orchestrator/config/scripts"
-  cp "$REPO_ROOT/config/tools.yaml" "$REPO_ROOT/.orchestrator/config/tools.yaml"
-  cp "$REPO_ROOT/scripts/routes.yaml" "$REPO_ROOT/.orchestrator/config/scripts/routes.yaml"
-  yq -i ".tools.\"cursor-stub\".binary = \"$STUB_DIR/cursor-agent-stub\"" "$REPO_ROOT/.orchestrator/config/tools.yaml"
-  yq -i '.tools."cursor-stub".args_template = ["{prompt}"]' "$REPO_ROOT/.orchestrator/config/tools.yaml"
-  yq -i '.agents.developer.subprocess = "cursor-stub"' "$REPO_ROOT/.orchestrator/config/scripts/routes.yaml"
+  mkdir -p "$REPO_ROOT/.orchestrator/config"
+  cp "$REPO_ROOT/config/agents.yaml" "$REPO_ROOT/.orchestrator/config/agents.yaml"
+  yq -i ".tools.\"cursor-stub\".binary = \"$STUB_DIR/cursor-agent-stub\"" "$REPO_ROOT/.orchestrator/config/agents.yaml"
+  yq -i '.tools."cursor-stub".args_template = ["{prompt}"]' "$REPO_ROOT/.orchestrator/config/agents.yaml"
+  yq -i '.agents.developer.subprocess = "cursor-stub"' "$REPO_ROOT/.orchestrator/config/agents.yaml"
 
   local done_payload_file="$BATS_TMPDIR/done_payload"
   local call_count_file="$BATS_TMPDIR/call_count"
@@ -429,12 +425,11 @@ STUB
 echo "no completion block here"
 STUB
   chmod +x "$STUB_DIR/cursor-agent-stub"
-  mkdir -p "$REPO_ROOT/.orchestrator/config/scripts"
-  cp "$REPO_ROOT/config/tools.yaml" "$REPO_ROOT/.orchestrator/config/tools.yaml"
-  cp "$REPO_ROOT/scripts/routes.yaml" "$REPO_ROOT/.orchestrator/config/scripts/routes.yaml"
-  yq -i ".tools.\"cursor-stub\".binary = \"$STUB_DIR/cursor-agent-stub\"" "$REPO_ROOT/.orchestrator/config/tools.yaml"
-  yq -i '.tools."cursor-stub".args_template = ["{prompt}"]' "$REPO_ROOT/.orchestrator/config/tools.yaml"
-  yq -i '.agents.developer.subprocess = "cursor-stub"' "$REPO_ROOT/.orchestrator/config/scripts/routes.yaml"
+  mkdir -p "$REPO_ROOT/.orchestrator/config"
+  cp "$REPO_ROOT/config/agents.yaml" "$REPO_ROOT/.orchestrator/config/agents.yaml"
+  yq -i ".tools.\"cursor-stub\".binary = \"$STUB_DIR/cursor-agent-stub\"" "$REPO_ROOT/.orchestrator/config/agents.yaml"
+  yq -i '.tools."cursor-stub".args_template = ["{prompt}"]' "$REPO_ROOT/.orchestrator/config/agents.yaml"
+  yq -i '.agents.developer.subprocess = "cursor-stub"' "$REPO_ROOT/.orchestrator/config/agents.yaml"
 
   cat > "$STUB_DIR/orchestrator" <<'STUB'
 #!/bin/sh
@@ -523,7 +518,24 @@ STUB
 # --- Test: complete_workflow path prints cost report ---
 
 @test "complete_workflow path emits cost report summary" {
-  # Stub orchestrator next to immediately return exit 1 (complete_workflow)
+  # ticket_id must be set (non-empty) or archive_completion matches every archive.
+  cat > "$TMP_STATE" <<YAML
+schema: feature
+flags: {}
+status: active
+phase: main
+repo_root: $REPO_ROOT
+change_id: bats-cost-rollup
+ticket_id: bats-cost-rollup-ticket
+step_history:
+  - step_id: cost-report
+    phase: main
+    status: completed
+    evidence:
+      outputs:
+        tail_summary: "bats-cost-rollup: \$1.23 · 1m · 2 steps · 1.0x median"
+YAML
+
   cat > "$STUB_DIR/orchestrator" <<'STUB'
 #!/bin/sh
 case "$1" in
@@ -537,16 +549,8 @@ esac
 STUB
   chmod +x "$STUB_DIR/orchestrator"
 
-  # Stub cost-report.sh to emit a known string
-  mkdir -p "$STUB_DIR/../scripts"
-  cat > "$STUB_DIR/cost-report.sh" <<'STUB'
-#!/bin/sh
-echo "COST REPORT: total=$0.00"
-STUB
-  chmod +x "$STUB_DIR/cost-report.sh"
-
   run_workflow
   [ "$status" -eq 1 ]
-  # Output should contain something indicating completion
-  [[ "$output" =~ "complete" ]] || [[ "$output" =~ "COST" ]] || [[ "$output" =~ "workflow" ]]
+  [[ "$output" =~ "feature complete:" ]]
+  [[ "$output" =~ "bats-cost-rollup" ]]
 }

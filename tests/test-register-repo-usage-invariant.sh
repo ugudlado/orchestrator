@@ -11,8 +11,8 @@
 
 set -uo pipefail
 
-REPO_ROOT_MAIN="$(cd "$(dirname "$0")/../.." && pwd)"
-SCRIPT="$REPO_ROOT_MAIN/scripts/register-repo.sh"
+REPO_ROOT_MAIN="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT="$REPO_ROOT_MAIN/orchestrator_next/scripts/metrics/register-repo.sh"
 
 # ── Test infrastructure ──────────────────────────────────────────────────
 PASS=0

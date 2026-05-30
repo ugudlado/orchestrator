@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-UPDATE="$BATS_TEST_DIRNAME/../../scripts/ticket-state-update.sh"
+UPDATE="$BATS_TEST_DIRNAME/../orchestrator_next/scripts/tickets/ticket-state-update.sh"
 TEST_REPO="$BATS_TMPDIR/test-repo"
 
 setup() {

@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
-# Unit tests for scripts/resolve-state-yaml.sh (TDD RED in T-1, GREEN in T-2).
+# Unit tests for orchestrator_next/scripts/metrics/resolve-state-yaml.sh
 
-ORCHESTRATOR_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
-RESOLVER="$ORCHESTRATOR_ROOT/scripts/resolve-state-yaml.sh"
+ORCHESTRATOR_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+RESOLVER="$ORCHESTRATOR_ROOT/orchestrator_next/scripts/metrics/resolve-state-yaml.sh"
 CHANGE_ID="orc-fixture"
 
 setup() {

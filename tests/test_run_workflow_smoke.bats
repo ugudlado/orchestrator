@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Smoke test: full workflow via scripts/run-workflow.sh on a 2-step fixture.
+# Smoke test: full workflow via orchestrator_next/scripts/run-workflow.sh on a 2-step fixture.
 #
 # Tests T-8 bats must all pass before this test can run.
 # This test exercises end-to-end dispatch with:
@@ -8,7 +8,7 @@
 #
 # The orchestrator is stubbed to serve these two steps, then emit complete_workflow.
 
-SCRIPT_UNDER_TEST="$BATS_TEST_DIRNAME/../../scripts/run-workflow.sh"
+SCRIPT_UNDER_TEST="$BATS_TEST_DIRNAME/../../orchestrator_next/scripts/run-workflow.sh"
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 STUB_DIR="$BATS_TMPDIR/stubs"
 TMP_STATE="$BATS_TMPDIR/state.yaml"

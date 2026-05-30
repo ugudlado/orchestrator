@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 
-RECONCILE="$BATS_TEST_DIRNAME/../../scripts/ticket-reconcile.sh"
-ORCHESTRATOR_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+RECONCILE="$BATS_TEST_DIRNAME/../orchestrator_next/scripts/tickets/ticket-reconcile.sh"
+ORCHESTRATOR_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 TEST_REPO="$BATS_TMPDIR/test-repo"
 STUB_DIR="$BATS_TMPDIR/stubs"
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env bats
 # Driver-level halt when spawn_failure_cap is exhausted (orc-85 AC-6 / UC-E1).
 #
-# Uses real bin/orchestrator + scripts/run-workflow.sh; stubs only the tool
+# Uses real bin/orchestrator + orchestrator_next/scripts/run-workflow.sh; stubs only the tool
 # binary (claude) via PATH. Fake repo_root avoids archive_completion matching
 # unrelated completed features in this checkout.
 
-SCRIPT_UNDER_TEST="$BATS_TEST_DIRNAME/../../scripts/run-workflow.sh"
+SCRIPT_UNDER_TEST="$BATS_TEST_DIRNAME/../../orchestrator_next/scripts/run-workflow.sh"
 REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
 STUB_DIR="$BATS_TMPDIR/stubs"
 FIXTURE_ROOT="$BATS_TMPDIR/fake_repo"

@@ -4,7 +4,7 @@
 # Worktree layout mirrors dispatch: ORCHESTRATOR_WORKFLOW_DIR is the worktree
 # root; state.yaml lives at <wt>/spec/changes/<id>/state.yaml.
 
-ORCHESTRATOR_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+ORCHESTRATOR_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 PREVIEW_ROUTE="$ORCHESTRATOR_ROOT/config/steps/preview-route/script.sh"
 CHANGE_ID="orc-fixture"
 
@@ -16,7 +16,7 @@ setup() {
   FAKE_ORCH="$BATS_TMPDIR/fake-orch-$$"
   ESTIMATOR_CALLS_LOG="$BATS_TMPDIR/estimator_calls-$$.log"
 
-  mkdir -p "$TEST_REPO/spec/changes" "$FAKE_ORCH/scripts"
+  mkdir -p "$TEST_REPO/spec/changes" "$FAKE_ORCH/orchestrator_next/scripts/metrics"
   : >"$ESTIMATOR_CALLS_LOG"
 
   export TEST_REPO WT_BASE STATE_DIR NON_WT_STATE_DIR FAKE_ORCH ESTIMATOR_CALLS_LOG
@@ -32,7 +32,7 @@ teardown() {
 }
 
 write_estimator_stub() {
-  cat >"$FAKE_ORCH/scripts/estimate-cost.sh" <<'STUB'
+  cat >"$FAKE_ORCH/orchestrator_next/scripts/metrics/estimate-cost.sh" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$@" >> "${ESTIMATOR_CALLS_LOG:?}"
 # Mirror estimate-cost.sh: require a state-dir (…/spec/changes/<id>), not the worktree root.
@@ -49,7 +49,7 @@ route_preview:
 YAML
 exit 0
 STUB
-  chmod +x "$FAKE_ORCH/scripts/estimate-cost.sh"
+  chmod +x "$FAKE_ORCH/orchestrator_next/scripts/metrics/estimate-cost.sh"
 }
 
 write_live_state() {
