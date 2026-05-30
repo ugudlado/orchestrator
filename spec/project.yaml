@@ -87,10 +87,9 @@ learnings:
     learned: 2026-04-18
     source: subprocess-per-step-observability
     rule: >
-      Do not attempt per-step token capture for inline-executed steps in a
-      Claude Code session — the parent-context token counter is not exposed to
-      the running conversation. Per-step attribution requires subprocess-per-step
-      execution.
+      Script steps have agent=None (no sentinel string). Per-step token capture
+      is not attempted for None-agent steps; the DuckDB agent column is NULL for
+      script steps. Per-step token attribution requires subprocess-per-step execution.
   - id: cross-artifact-drift-requires-atomic-edits
     learned: 2026-04-18
     source: subprocess-per-step-observability
