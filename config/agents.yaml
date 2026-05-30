@@ -76,7 +76,7 @@ tools:
   claude:
     binary: claude
     # {prompt} is substituted with the full prompt text
-    args_template: ["-p", "{prompt}"]
+    args_template: ["--model", "{model_tier}", "-p", "{prompt}"]
     stdin: none
     capture: stdout
 

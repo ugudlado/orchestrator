@@ -95,16 +95,31 @@ import sys
 path = sys.argv[1]
 text = open(path, encoding="utf-8").read()
 
-bullet_re = re.compile(r"^- \*\*(\w+)\*\*:\s*(.*)$", re.MULTILINE)
+field_re = re.compile(r"^(?:- )?\*\*(\w+)\*\*:\s*(.*)$", re.MULTILINE)
 issue_heading_re = re.compile(r"^## ISSUE-\d+", re.MULTILINE)
 
 blocks = issue_heading_re.split(text)
-# split keeps preamble in blocks[0]; each subsequent chunk is issue body
 issues = []
 for block in blocks[1:]:
     fields = {}
-    for m in bullet_re.finditer(block):
-        fields[m.group(1)] = m.group(2).strip()
+    lines = block.splitlines()
+    i = 0
+    while i < len(lines):
+        m = field_re.match(lines[i])
+        if m:
+            key, val = m.group(1), m.group(2).strip()
+            # collect indented continuation lines (multi-line values)
+            j = i + 1
+            while j < len(lines) and lines[j].startswith("  "):
+                val = (val + " " + lines[j].strip()).strip()
+                j += 1
+            # strip YAML block scalar marker
+            if val.startswith(">"):
+                val = val[1:].strip()
+            fields[key] = val
+            i = j
+        else:
+            i += 1
     issues.append(fields)
 
 if not issues:
@@ -130,7 +145,7 @@ emit("|---|---|---|---|\n")
 for fields in issues:
     severity = cell(fields.get("severity", ""))
     category = cell(fields.get("category", ""))
-    detail = cell(fields.get("detail", ""), truncate=True)
+    detail = cell(fields.get("detail") or fields.get("title", ""), truncate=True)
     fix_direction = cell(fields.get("fix_direction", ""), truncate=True)
     emit(f"| {severity} | {category} | {detail} | {fix_direction} |\n")
 PY
