@@ -14,7 +14,6 @@ step_history:
   - step_id: step-producer
     phase: implement
     status: completed
-    agent: inline
     attempt: 1
     started_at: 2026-04-18T10:00:00Z
     ended_at: 2026-04-18T10:00:05Z
