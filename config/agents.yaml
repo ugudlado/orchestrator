@@ -2,8 +2,8 @@
 # to a model, which subprocess tool runs it, how that tool is invoked, and the
 # Pi-specific overrides applied at install time.
 #
-# NOTE: agent *identity* (system prompt + tools) stays in agents/<name>.md.
-# This file is the *execution* config only.
+# NOTE: agent *identity* (system prompt) stays in skills/<name>/SKILL.md.
+# This file owns execution config: model, subprocess, and tools.
 #
 # Consumers:
 #   - config/scripts/orchestrator_next/pricing.py        (agents, models)
@@ -17,15 +17,50 @@
 # model:      in-process sub-agent model tier (used by Claude Code host)
 # subprocess: tool binary for shell loop (run-workflow.sh) — see tools: below
 agents:
+  # tools: Read Write Edit Grep Glob Bash WebSearch WebFetch SendMessage
+  #        mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
+  #        mcp__pal__thinkdeep mcp__pal__consensus
   architect:         { model: opus,   subprocess: claude }
+
+  # tools: Read Write Grep Glob Bash Skill WebSearch WebFetch
+  #        mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
+  #        mcp__chrome-devtools__take_screenshot mcp__chrome-devtools__navigate_page
+  #        mcp__drawio__open_drawio_mermaid mcp__drawio__open_drawio_csv
+  #        mcp__plugin_claude-mem_mcp-search__search mcp__plugin_claude-mem_mcp-search__get_observations
+  #        mcp__plugin_claude-mem_mcp-search__timeline
   ideator:           { model: opus,   subprocess: claude }
+
+  # tools: Read Write Edit Grep Glob Bash
+  #        mcp__chrome-devtools__take_screenshot mcp__chrome-devtools__navigate_page
+  #        mcp__chrome-devtools__get_console_message mcp__chrome-devtools__list_console_messages
+  #        mcp__chrome-devtools__evaluate_script mcp__pal__codereview mcp__pal__consensus
   reviewer:          { model: sonnet, subprocess: claude }
+
   # subprocess: cursor agent CLI; model=auto → cursor agent --model auto
   # Override per run: orchestrator run <id> agent.developer.subprocess=pi
-  developer:         { model: auto, subprocess: cursor }
+  # tools: Read Write Edit Grep Glob Bash WebSearch WebFetch
+  #        mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
+  #        mcp__chrome-devtools__take_screenshot mcp__chrome-devtools__navigate_page
+  #        mcp__chrome-devtools__get_console_message mcp__chrome-devtools__evaluate_script
+  #        mcp__plugin_claude-mem_mcp-search__search mcp__plugin_claude-mem_mcp-search__get_observations
+  developer:         { model: auto,   subprocess: cursor }
+
+  # tools: Read Write Grep Glob Bash WebSearch WebFetch
+  #        mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
+  #        mcp__plugin_claude-mem_mcp-search__search mcp__plugin_claude-mem_mcp-search__get_observations
   discoverer:        { model: sonnet, subprocess: claude }
+
+  # tools: Read Write Edit Grep Glob Bash WebSearch
+  #        mcp__plugin_claude-mem_mcp-search__search mcp__plugin_claude-mem_mcp-search__get_observations
   workflow-learner:  { model: sonnet, subprocess: claude }
+
+  # tools: Read Grep Glob
+  #        mcp__chrome-devtools__take_screenshot mcp__chrome-devtools__navigate_page
+  #        mcp__chrome-devtools__get_console_message mcp__chrome-devtools__list_console_messages
+  #        mcp__chrome-devtools__evaluate_script mcp__chrome-devtools__emulate
+  #        mcp__chrome-devtools__resize_page mcp__chrome-devtools__lighthouse_audit
   ux-reviewer:       { model: sonnet, subprocess: claude }
+
   sonnet-agent:      { model: sonnet, subprocess: claude }
   haiku-agent:       { model: haiku,  subprocess: claude }
 
@@ -70,7 +105,7 @@ tools:
     capture: stdout
 
 # ── Pi subagent overrides (applied by sync_pi_agents.py at install) ─
-# Source of truth for prompts remains agents/*.md (Claude/Cursor format).
+# Source of truth for prompts remains skills/<name>/SKILL.md (Claude/Cursor format).
 pi:
   defaults:
     systemPromptMode: replace

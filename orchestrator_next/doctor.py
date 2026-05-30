@@ -56,11 +56,10 @@ def _resolve_artifact(
                 return path
         return None
     if kind == "agents":
-        agent_name = name if name.endswith(".md") else f"{name}.md"
-        override = repo_root / ".orchestrator" / "agents" / agent_name
+        override = repo_root / ".orchestrator" / "skills" / name / "SKILL.md"
         if override.is_file():
             return override
-        canonical = orch_home / "agents" / agent_name
+        canonical = orch_home / "skills" / name / "SKILL.md"
         if canonical.is_file():
             return canonical
         return None
@@ -216,7 +215,7 @@ def check_agent_files(repo_root: Path, orch_home: Path) -> CheckResult:
     Covers both dir-form (steps/<id>/contract.yaml) and flat-form
     (steps/<id>.yaml) contracts, plus repo .orchestrator overrides, via
     _iter_step_contract_paths. Agent resolution is override-aware
-    (.orchestrator/agents -> orch_home/agents) with a ~/.claude/agents global
+    (.orchestrator/skills -> orch_home/skills) with a ~/.claude/skills global
     fallback.
     """
     missing = []
@@ -228,7 +227,7 @@ def check_agent_files(repo_root: Path, orch_home: Path) -> CheckResult:
             if not name or name == "inline":
                 continue
             resolved = _resolve_artifact("agents", name, repo_root, orch_home)
-            global_ = Path.home() / ".claude" / "agents" / f"{name}.md"
+            global_ = Path.home() / ".claude" / "skills" / name / "SKILL.md"
             if resolved is None and not global_.exists():
                 missing.append(f"{name} (in {step_id})")
         except Exception as exc:

@@ -177,7 +177,7 @@ LOOP:
           # Resume: always log to stderr — even on autopilot runs — so operators see resume events.
           print(f"RESUMING step {action.step_id} (attempt {action.attempt})", file=sys.stderr)
 
-      # Agent spawn. Load agent .md from $ORCHESTRATOR_HOME/agents/<action.agent>.md.
+      # Agent spawn. Load skill from $ORCHESTRATOR_HOME/skills/<action.agent>/SKILL.md.
       # Spawn with run_in_background: true as the default.
       # Exceptions: ideator and reviewer spawns are short-running and may be foreground.
       spawn agent(action.agent) with prompt=action.instruction, rules=action.rules,

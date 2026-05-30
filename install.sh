@@ -96,34 +96,19 @@ db.close()
 setup_claude() {
   echo "Syncing Claude Code..."
 
-  # Agents: file-level symlinks
-  mkdir -p "${CLAUDE_DIR}/agents"
-  [ -L "${CLAUDE_DIR}/agents" ] && rm "${CLAUDE_DIR}/agents" && mkdir -p "${CLAUDE_DIR}/agents"
-  for f in "$ORCHESTRATOR_DIR/agents"/*.md; do
-    safe_ln "$f" "${CLAUDE_DIR}/agents/$(basename "$f")"
-  done
-
-  # Skills: directory-level symlinks
+  # Skills: directory-level symlinks (agents are now skills)
   mkdir -p "${CLAUDE_DIR}/skills"
   [ -L "${CLAUDE_DIR}/skills" ] && rm "${CLAUDE_DIR}/skills" && mkdir -p "${CLAUDE_DIR}/skills"
   for d in "$ORCHESTRATOR_DIR/skills"/*/; do
     safe_ln "${d%/}" "${CLAUDE_DIR}/skills/$(basename "$d")"
   done
 
-  local agent_count=$(ls "${CLAUDE_DIR}/agents"/*.md 2>/dev/null | wc -l | tr -d ' ')
   local skill_count=$(ls -d "${CLAUDE_DIR}/skills"/*/ 2>/dev/null | wc -l | tr -d ' ')
-  echo "  Claude: $agent_count agents, $skill_count skills linked"
+  echo "  Claude: $skill_count skills linked"
 }
 
 setup_codex() {
   echo "Syncing Codex..."
-
-  # Agents: file-level symlinks
-  mkdir -p "${CODEX_DIR}/agents"
-  [ -L "${CODEX_DIR}/agents" ] && rm "${CODEX_DIR}/agents" && mkdir -p "${CODEX_DIR}/agents"
-  for f in "$ORCHESTRATOR_DIR/agents"/*.md; do
-    safe_ln "$f" "${CODEX_DIR}/agents/$(basename "$f")"
-  done
 
   # Skills: directory-level symlinks while preserving Codex-owned entries like .system.
   mkdir -p "${CODEX_DIR}/skills"
@@ -132,9 +117,8 @@ setup_codex() {
     safe_ln "${d%/}" "${CODEX_DIR}/skills/$(basename "$d")"
   done
 
-  local agent_count=$(ls "${CODEX_DIR}/agents"/*.md 2>/dev/null | wc -l | tr -d ' ')
   local skill_count=$(find "${CODEX_DIR}/skills" -mindepth 1 -maxdepth 1 -type l 2>/dev/null | wc -l | tr -d ' ')
-  echo "  Codex: $agent_count agents, $skill_count skills linked"
+  echo "  Codex: $skill_count skills linked"
 }
 
 setup_git_hooks() {
@@ -194,11 +178,6 @@ setup_global_hub() {
   if [ -d "${HOME}/.agents/skills" ] && [ ! -L "${HOME}/.agents/skills" ]; then
     echo "  backing up existing ~/.agents/skills to ~/.agents/skills.bak"
     mv "${HOME}/.agents/skills" "${HOME}/.agents/skills.bak"
-  fi
-
-  if [ ! -L "${HOME}/.agents/rules" ] || [ "$(readlink "${HOME}/.agents/rules")" != "$ORCHESTRATOR_DIR/agents" ]; then
-    ln -sf "$ORCHESTRATOR_DIR/agents" "${HOME}/.agents/rules"
-    echo "  linked ~/.agents/rules -> agents"
   fi
 
   if [ ! -L "${HOME}/.agents/skills" ] || [ "$(readlink "${HOME}/.agents/skills")" != "$ORCHESTRATOR_DIR/skills" ]; then

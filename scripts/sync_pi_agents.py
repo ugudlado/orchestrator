@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Pi-compatible subagent files from orchestrator agents/*.md."""
+"""Generate Pi-compatible subagent files from orchestrator skills/*/SKILL.md."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ PI_KNOWN_FIELDS = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, required=True, help="agents/*.md source dir")
+    parser.add_argument("--source", type=Path, required=True, help="skills/ source dir (reads <name>/SKILL.md)")
     parser.add_argument("--config", type=Path, required=True, help="config/pi-agents.yaml")
     parser.add_argument(
         "--out",
@@ -166,6 +166,7 @@ def build_pi_frontmatter(
     source: dict[str, Any],
     config: dict[str, Any],
     agent_name: str,
+    agent_tools: list[str],
 ) -> dict[str, Any]:
     defaults = config.get("defaults", {})
     agent_overrides = config.get("agents", {}).get(agent_name, {})
@@ -178,7 +179,7 @@ def build_pi_frontmatter(
         raise ValueError(f"{agent_name}: missing description")
 
     tools = convert_tools(
-        normalize_tools(source.get("tools")),
+        agent_tools,
         tool_map=tool_map,
         skip_tools=skip_tools,
         mcp_tool_map=mcp_tool_map,
@@ -209,15 +210,15 @@ def build_pi_frontmatter(
     return pi_frontmatter
 
 
-def sync_agent(source_path: Path, config: dict[str, Any], out_dirs: list[Path]) -> None:
+def sync_agent(source_path: Path, config: dict[str, Any], agent_tools: list[str], out_dirs: list[Path]) -> None:
     source_frontmatter, body = split_markdown(source_path)
-    agent_name = str(source_frontmatter.get("name") or source_path.stem)
-    pi_frontmatter = build_pi_frontmatter(source_frontmatter, config, agent_name)
+    agent_name = str(source_frontmatter.get("name") or source_path.parent.name)
+    pi_frontmatter = build_pi_frontmatter(source_frontmatter, config, agent_name, agent_tools)
     rendered = render_pi_agent(pi_frontmatter, body)
 
     for out_dir in out_dirs:
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / source_path.name
+        out_path = out_dir / f"{agent_name}.md"
         if out_path.is_symlink() or out_path.exists():
             out_path.unlink()
         out_path.write_text(rendered, encoding="utf-8")
@@ -225,18 +226,23 @@ def sync_agent(source_path: Path, config: dict[str, Any], out_dirs: list[Path]) 
 
 def main() -> int:
     args = parse_args()
-    config = yaml.safe_load(args.config.read_text(encoding="utf-8")) or {}
+    full_config = yaml.safe_load(args.config.read_text(encoding="utf-8")) or {}
     # ORC-105: pi overrides now live under a `pi:` key in the merged
     # config/agents.yaml. Unwrap it; fall back to the flat top-level shape
     # for the legacy standalone config/pi-agents.yaml.
-    config = config.get("pi", config)
-    sources = sorted(args.source.glob("*.md"))
+    config = full_config.get("pi", full_config)
+    # tools live under agents.<name>.tools in the top-level agents: section
+    agents_config = full_config.get("agents", {})
+    sources = sorted(args.source.glob("*/SKILL.md"))
     if not sources:
-        print(f"error: no agent files found in {args.source}", file=sys.stderr)
+        print(f"error: no skill files found in {args.source}/*/SKILL.md", file=sys.stderr)
         return 1
 
     for source_path in sources:
-        sync_agent(source_path, config, args.out)
+        agent_name = source_path.parent.name
+        agent_entry = agents_config.get(agent_name, {})
+        agent_tools = normalize_tools(agent_entry.get("tools") if isinstance(agent_entry, dict) else None)
+        sync_agent(source_path, config, agent_tools, args.out)
 
     print(f"  generated {len(sources)} Pi agent file(s) -> {', '.join(str(p) for p in args.out)}")
     return 0
