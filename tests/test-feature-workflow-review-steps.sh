@@ -5,7 +5,7 @@
 #   - Contain exactly one 'run-implement-review' entry
 #   - Contain zero 'run-simplify' entries
 #   - Contain zero 'run-feature-verification' entries
-#   - Keep 'run-ux-critique' as a conditional step (if ux_design)
+#   - Keep 'run-ux-critique' as a step (now unconditional — ORC-108 removed the gate)
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -68,13 +68,10 @@ check "implement phase contains zero run-simplify entries" $?
 [[ "$COUNT_VERIFICATION" -eq 0 ]]
 check "implement phase contains zero run-feature-verification entries" $?
 
-# run-ux-critique must be conditional (should contain 'if ux_design')
-UX_CONDITIONAL=$(echo "$IMPLEMENT_SECTION" | grep 'run-ux-critique' | grep -c 'if ux_design' || true)
+# ORC-108: run-ux-critique is unconditional in feature.yaml (the ux_design gate
+# was removed; a workflow that lists the step runs it).
 [[ "$COUNT_UX" -ge 1 ]]
 check "implement phase contains run-ux-critique step" $?
-
-[[ "$UX_CONDITIONAL" -ge 1 ]]
-check "run-ux-critique is conditional on ux_design flag" $?
 
 echo ""
 echo "Results: $pass passed, $fail failed"

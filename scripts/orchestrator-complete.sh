@@ -6,7 +6,7 @@
 #
 # Order on success:
 #   1. Complete-phase steps (through complete-workflow → archive on feature branch)
-#   2. Merge to default branch (when flags.merge_to_main) — failure stops here
+#   2. Merge to default branch (unconditional — invoking this verb is the signal) — failure stops here
 #   3. Remove feature worktree (default; --no-teardown to keep)
 #
 # Exit codes: same as run-workflow.sh (1=complete, 2=blocked, 3–7 errors);
@@ -169,52 +169,50 @@ if [ -z "$ARCHIVED_STATE" ] || [ ! -f "$ARCHIVED_STATE" ]; then
   exit 7
 fi
 
-MERGE_TO_MAIN=$(python3 - "$ARCHIVED_STATE" <<'PY'
-import sys, yaml
-raw = yaml.safe_load(open(sys.argv[1])) or {}
-flags = raw.get("flags") or {}
-print("true" if flags.get("merge_to_main") else "false")
-PY
-)
+# ORC-108: worktree is unconditional — its presence is keyed off worktree_path
+# in state, not a flag (which no longer exists).
 USE_WORKTREE=$(python3 - "$ARCHIVED_STATE" <<'PY'
 import sys, yaml
 raw = yaml.safe_load(open(sys.argv[1])) or {}
-flags = raw.get("flags") or {}
-print("true" if flags.get("worktree") else "false")
+print("true" if (raw.get("worktree_path") or "").strip() else "false")
 PY
 )
 
-if [ "$MERGE_TO_MAIN" = true ]; then
-  # Worktree-first learn-cycle: if learn-cycle modified global config/rules,
-  # commit those changes on the feature branch before merging to main.
-  if [ "$USE_WORKTREE" = true ]; then
-    WT_DIR="$WORKTREE_BASE_DIR/$TICKET_SLUG"
-    BRANCH="$(python3 - "$ARCHIVED_STATE" <<'PY'
+# ORC-108: `orchestrator complete` merges UNCONDITIONALLY — invoking this verb
+# (via /complete-feature, a user-triggered "finish/merge to main") IS the
+# deliberate merge signal. Autopilot does NOT come through here: it runs the
+# `autopilot` subcommand (orchestrator-run.sh), which loops, archives, and exits
+# at the boundary without merging. The standalone human merge path
+# (/approve-qa → qa-approve.sh) merges unconditionally too; this matches it.
+# Worktree-first learn-cycle: if learn-cycle modified global config/rules,
+# commit those changes on the feature branch before merging to main.
+if [ "$USE_WORKTREE" = true ]; then
+  WT_DIR="$WORKTREE_BASE_DIR/$TICKET_SLUG"
+  BRANCH="$(python3 - "$ARCHIVED_STATE" <<'PY'
 import sys, yaml
 raw = yaml.safe_load(open(sys.argv[1])) or {}
 print(raw.get("branch") or "")
 PY
 )"
-    COMMIT_HELPER="$_INLINE_DIR/commit-worktree-learn-updates.sh"
-    if [ -x "$COMMIT_HELPER" ]; then
-      # --require-clean: a dirty worktree must not be merged to main.
-      bash "$COMMIT_HELPER" "$WT_DIR" "$TICKET_SLUG" "$BRANCH" --require-clean
-    fi
+  COMMIT_HELPER="$_INLINE_DIR/commit-worktree-learn-updates.sh"
+  if [ -x "$COMMIT_HELPER" ]; then
+    # --require-clean: a dirty worktree must not be merged to main.
+    bash "$COMMIT_HELPER" "$WT_DIR" "$TICKET_SLUG" "$BRANCH" --require-clean
   fi
-
-  echo "Merging $TICKET_SLUG branch to default..." >&2
-  set +e
-  _MERGE_OUT=$(STATE_YAML_PATH="$ARCHIVED_STATE" REPO_ROOT="$REPO_ROOT" \
-    bash "$_INLINE_DIR/merge-to-main.sh" 2>&1)
-  _MERGE_RC=$?
-  set -e
-  if [ "$_MERGE_RC" -ne 0 ]; then
-    echo "$_MERGE_OUT" >&2
-    echo "ERROR: merge failed; worktree kept for conflict resolution" >&2
-    exit "$_MERGE_RC"
-  fi
-  echo "$_MERGE_OUT" | tail -1 >&2
 fi
+
+echo "Merging $TICKET_SLUG branch to default..." >&2
+set +e
+_MERGE_OUT=$(STATE_YAML_PATH="$ARCHIVED_STATE" REPO_ROOT="$REPO_ROOT" \
+  bash "$_INLINE_DIR/merge-to-main.sh" 2>&1)
+_MERGE_RC=$?
+set -e
+if [ "$_MERGE_RC" -ne 0 ]; then
+  echo "$_MERGE_OUT" >&2
+  echo "ERROR: merge failed; worktree kept for conflict resolution" >&2
+  exit "$_MERGE_RC"
+fi
+echo "$_MERGE_OUT" | tail -1 >&2
 
 if [ "$RUN_TEARDOWN" = true ] && [ "$USE_WORKTREE" = true ]; then
   if [ -x "$TEARDOWN" ]; then

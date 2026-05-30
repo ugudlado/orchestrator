@@ -185,9 +185,10 @@ def _get_last_entry(step_history: list[StepHistoryEntry]) -> StepHistoryEntry | 
 def _typed_input_base_dir(state: State) -> str:
     """Repo or worktree root for path templates like spec/changes/<slug>/file.md.
 
-    Typed I/O paths are relative to this root. When flags.worktree=true, seed-state
-    sets worktree_path but not worktree_artifact_dir in state.yaml; parser derives
-    worktree_artifact_dir as <root>/spec/changes for legacy evidence only.
+    Typed I/O paths are relative to this root. seed-state sets worktree_path
+    (every run is isolated in a worktree) but not worktree_artifact_dir in
+    state.yaml; parser derives worktree_artifact_dir as <root>/spec/changes for
+    legacy evidence only.
     """
     worktree_path = str(state.raw.get("worktree_path") or "").strip()
     if worktree_path:

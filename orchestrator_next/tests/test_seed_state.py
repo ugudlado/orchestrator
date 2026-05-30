@@ -65,12 +65,29 @@ def _write_project_yaml(repo_root: Path) -> None:
     (spec_dir / "project.yaml").write_text(yaml.safe_dump(project, sort_keys=False))
 
 
+def _init_git_repo(repo_root: Path) -> None:
+    """Make repo_root a committed git repo so `git worktree add` succeeds.
+
+    ORC-108: seed-state.sh creates a worktree unconditionally, which requires a
+    real repo with at least one commit.
+    """
+    repo_root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "-C", str(repo_root), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(repo_root), "config", "user.email", "t@t.com"], check=True)
+    subprocess.run(["git", "-C", str(repo_root), "config", "user.name", "t"], check=True)
+
+
+def _commit_all(repo_root: Path) -> None:
+    subprocess.run(["git", "-C", str(repo_root), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(repo_root), "commit", "-qm", "init"], check=True)
+
+
 def _run_seed(
     slug: str,
     schema: str,
     *,
     repo_root: Path,
-    state_dir: Path,
+    worktree_base: Path,
     flag_overrides: list[str] | None = None,
     extra_env: dict | None = None,
 ) -> subprocess.CompletedProcess:
@@ -79,10 +96,13 @@ def _run_seed(
     PYTHONPATH is set to the real config/scripts directory so the subprocess
     can import orchestrator_next regardless of where repo_root (the fake test
     repo) points.  The script respects an existing PYTHONPATH by prepending.
+
+    WORKTREE_BASE_DIR is pinned to a tmp path so the unconditional worktree
+    creation (ORC-108) never touches the developer's real worktree directory.
     """
     env = os.environ.copy()
     env["REPO_ROOT"] = str(repo_root)
-    env["WORKFLOW_STATE_DIR"] = str(state_dir)
+    env["WORKTREE_BASE_DIR"] = str(worktree_base)
     env["ORCHESTRATOR_HOME"] = _ORCHESTRATOR_HOME
     # Ensure orchestrator_next is importable inside the subprocess:
     # _HERE.parents[1] == config/scripts/ (parent of orchestrator_next package)
@@ -120,15 +140,16 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
     slug = "orc-27-test"
     schema = "bugfix"
     fake_repo = tmp_path / "repo"
-    state_dir = tmp_path / "state"
+    worktree_base = tmp_path / "wt"
+    _init_git_repo(fake_repo)
     _write_project_yaml(fake_repo)
+    _commit_all(fake_repo)
 
     result = _run_seed(
         slug,
         schema,
         repo_root=fake_repo,
-        state_dir=state_dir,
-        flag_overrides=["worktree=false"],
+        worktree_base=worktree_base,
     )
     assert result.returncode == 0, (
         f"seed-state.sh exited {result.returncode}\n"
@@ -136,10 +157,13 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
         f"stderr: {result.stderr}"
     )
 
-    state_yaml_path = state_dir / slug / "state.yaml"
-    assert state_yaml_path.exists(), "seed-state.sh did not write state.yaml"
+    # ORC-108: state always lives inside the per-run worktree.
+    worktree_path = worktree_base / slug
+    assert worktree_path.is_dir(), "seed-state.sh did not create the worktree"
+    state_yaml_path = worktree_path / "spec" / "changes" / slug / "state.yaml"
+    assert state_yaml_path.exists(), "seed-state.sh did not write state.yaml in the worktree"
     # ORC-63: no separate plan file — workflow_plan is promoted inside state.yaml.
-    assert not (state_dir / slug / "plan.yaml").exists(), (
+    assert not (state_yaml_path.parent / "plan.yaml").exists(), (
         "seed-state.sh should not produce a separate plan file (ORC-63)"
     )
 
@@ -172,7 +196,9 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
         f"started_at ({state_raw.get('started_at')!r}) != created_at ({state_raw.get('created_at')!r})"
     )
     assert state_raw.get("project_context_loaded") is True
-    assert "worktree_path" not in state_raw
+    # ORC-108: worktree is unconditional — state records its path and branch.
+    assert state_raw.get("worktree_path") == str(worktree_path)
+    assert state_raw.get("branch") == f"{schema}/{slug}"
 
 
 # ---------------------------------------------------------------------------
@@ -193,31 +219,31 @@ def test_seed_state_is_idempotent(tmp_path):
     slug = "orc-27-idempotent"
     schema = "bugfix"
     fake_repo = tmp_path / "repo"
-    state_dir = tmp_path / "state"
+    worktree_base = tmp_path / "wt"
+    _init_git_repo(fake_repo)
     _write_project_yaml(fake_repo)
+    _commit_all(fake_repo)
 
     # First run — creates state.yaml
     r1 = _run_seed(
         slug,
         schema,
         repo_root=fake_repo,
-        state_dir=state_dir,
-        flag_overrides=["worktree=false"],
+        worktree_base=worktree_base,
     )
     assert r1.returncode == 0, f"First seed failed: {r1.stderr}"
 
-    state_yaml_path = state_dir / slug / "state.yaml"
+    state_yaml_path = worktree_base / slug / "spec" / "changes" / slug / "state.yaml"
     assert state_yaml_path.exists()
     content_before = state_yaml_path.read_text()
     mtime_before = state_yaml_path.stat().st_mtime
 
-    # Second run — must not overwrite
+    # Second run — worktree + state already exist, must not overwrite
     r2 = _run_seed(
         slug,
         schema,
         repo_root=fake_repo,
-        state_dir=state_dir,
-        flag_overrides=["worktree=false"],
+        worktree_base=worktree_base,
     )
     assert r2.returncode == 0, f"Second (idempotent) seed failed: {r2.stderr}"
 
@@ -255,7 +281,7 @@ def test_seed_state_fails_without_project_yaml(tmp_path):
     slug = "orc-27-no-project"
     schema = "bugfix"
     fake_repo = tmp_path / "repo-no-project"
-    state_dir = tmp_path / "state"
+    worktree_base = tmp_path / "wt"
     fake_repo.mkdir(parents=True)
     # Deliberately do NOT write spec/project.yaml
 
@@ -263,8 +289,7 @@ def test_seed_state_fails_without_project_yaml(tmp_path):
         slug,
         schema,
         repo_root=fake_repo,
-        state_dir=state_dir,
-        flag_overrides=["worktree=false"],
+        worktree_base=worktree_base,
     )
 
     assert result.returncode != 0, (

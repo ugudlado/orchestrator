@@ -46,16 +46,12 @@ fi
 
 WORKTREE_PATH=""
 BRANCH=""
-WORKTREE=""
 # shellcheck source=scripts/inline/_read_state_env.sh
 source "$INLINE_DIR/_read_state_env.sh"
-read_state_env "$STATE_YAML" WORKTREE_PATH BRANCH WORKTREE REPO_ROOT
+read_state_env "$STATE_YAML" WORKTREE_PATH BRANCH REPO_ROOT
 
-if [[ "$WORKTREE" != "true" && "$WORKTREE" != "True" ]]; then
-  echo '{"removed": false, "reason": "worktree flag false"}'
-  exit 0
-fi
-
+# ORC-108: worktree is unconditional, so worktree_path presence — not a flag —
+# is the signal that there is a worktree to remove.
 if [ -z "$WORKTREE_PATH" ]; then
   echo '{"removed": false, "reason": "no worktree_path in state"}'
   exit 0

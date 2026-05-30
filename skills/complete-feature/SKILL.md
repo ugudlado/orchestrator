@@ -14,4 +14,4 @@ args:
 orchestrator complete <change-id>
 ```
 
-On success: archive on the feature branch (complete phase), then merge when `flags.merge_to_main`, then remove the worktree by default. If merge fails, the worktree is kept. Pass `--no-teardown` to keep the checkout after a successful merge.
+On success: archive on the feature branch (complete phase), then merge to the default branch (unconditional — invoking `orchestrator complete` IS the deliberate merge signal), then remove the worktree by default. If merge fails, the worktree is kept. Pass `--no-teardown` to keep the checkout after a successful merge.

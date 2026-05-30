@@ -36,7 +36,8 @@ prototype:
 
 ## Graceful Degradation
 
-When `ux_design=false` or the ux-design step was filtered out:
+When the running workflow does not list the `ux-design` step (e.g. autopilot,
+which omits it — only feature includes it):
 - `ux-artifacts.yaml` does not exist
 - Downstream steps MUST check for `ux-artifacts.yaml` existence before reading
 - Missing UX artifacts is a normal condition, not an error

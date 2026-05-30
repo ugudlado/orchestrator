@@ -168,8 +168,6 @@ When `change_type = "config_docs"`:
 
 | Flag | Adaptation | Rationale |
 |------|-----------|-----------|
-| `agents` | Steps with `agent: developer` MAY execute inline instead of spawning. Log `agent: inline (config_docs)` in step_history. | No benefit to spawning a developer agent for YAML/markdown edits. |
-| `agents` | Steps with `agent: reviewer` MAY execute inline instead of spawning. Log `agent: inline (config_docs)` in step_history. | Structural review is faster inline for non-code. |
 | `tdd_required` | Effective value becomes `false` regardless of flag setting. Tasks omit RED/GREEN/REFACTOR pattern. Log adaptation in state.yaml. | No code to test — TDD is meaningless. |
 | `auto_approve_phases` | No change — phases still need signoff per flag. | Signoff is about scope control, not code quality. |
 
@@ -186,8 +184,4 @@ flag_adaptations:
     original: true
     effective: false
     reason: "config_docs change — no code to test"
-  - flag: agents
-    original: true
-    effective: true
-    note: "agents flag honored but developer/reviewer steps may execute inline"
 ```

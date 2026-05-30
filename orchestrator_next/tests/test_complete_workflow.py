@@ -30,7 +30,7 @@ def _git(cwd, *args):
     )
 
 
-def _build_repo_with_worktree(tmp_path, *, merge_to_main, worktree,
+def _build_repo_with_worktree(tmp_path, *, worktree,
                               worktree_exists=True, branch_unmerged=False):
     """Build a temp git repo + a feature worktree + a state.yaml fixture.
 
@@ -78,10 +78,9 @@ def _build_repo_with_worktree(tmp_path, *, merge_to_main, worktree,
         "worktree_path": str(worktree_path),
         "branch": branch,
         "archive_path": archive_path,
-        "flags": {
-            "merge_to_main": merge_to_main,
-            "worktree": worktree,
-        },
+        # ORC-108: this script archives only — it never merges, so no merge
+        # property is involved.
+        "flags": {},
         "workflow_plan": {
             "main": {
                 "nodes": [{"id": "complete-workflow", "status": "pending"}],
@@ -180,7 +179,7 @@ def test_no_llm_tool_references():
 def test_archive_on_worktree(tmp_path):
     """worktree=true → archive lands on feature worktree; merge/teardown deferred."""
     state, repo, wt, archive_path, _branch = _build_repo_with_worktree(
-        tmp_path, merge_to_main=True, worktree=True
+        tmp_path, worktree=True
     )
     result = _run_script(state, repo)
     assert result.returncode == 0, f"stderr:\n{result.stderr}"

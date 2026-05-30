@@ -1,6 +1,6 @@
 ---
 name: autopilot
-description: "Run one fully-autonomous development iteration. Picks a ticket (from --focus or backlog via ideator), then dispatches /orchestrate with --autopilot. This skill should be used when the user says 'autopilot', 'autonomous', 'self-improve'."
+description: "Run one fully-autonomous development iteration. Picks a ticket (from --focus or backlog via ideator), then runs the `orchestrator autopilot <slug>` workflow subcommand. This skill should be used when the user says 'autopilot', 'autonomous', 'self-improve'."
 user-invocable: true
 args:
   - name: focus
@@ -20,7 +20,7 @@ $ARGUMENTS
 - If `$ARGUMENTS` looks like a ticket/slug (matches `^[A-Z]+-\d+$` or `^[a-z][a-z0-9-]*$`) → use it directly.
 - Otherwise treat it as a focus hint → invoke `ideate --next --focus "<hint>"`.
 
-Then dispatch `/orchestrate <slug> --autopilot` and let it run to completion. No iteration loop, no session state, no checkpoints — those concepts were removed.
+Then run `orchestrator autopilot <slug>` and let it run to completion. No iteration loop, no session state, no checkpoints — those concepts were removed.
 
 ## Execution
 
@@ -48,22 +48,24 @@ IF SLUG is empty or unparseable:
     HALT — print: "Autopilot: ideator returned no actionable item. Run /ideate manually to seed the backlog."
 ```
 
-### 2. Dispatch orchestrate with full autonomy
+### 2. Run the autopilot workflow to completion
 
 ```
-Skill({ skill: "orchestrate", args: "$SLUG --autopilot" })
+orchestrator autopilot $SLUG
 ```
 
-`--autopilot` is defined in `config/flags.yaml` and flips `auto=true`, `agents=true`, and `merge_to_main=true`. The orchestrate skill runs the full feature workflow (specify → implement → complete) without signoff prompts and spawns specialist agents instead of running inline. The complete phase ends with `complete-workflow` (archive on the feature worktree). Merge and worktree removal run from `orchestrator complete` in order: merge when `merge_to_main`, then teardown (merge failure keeps the worktree). Do not pause for confirmation.
+The `autopilot` subcommand resolves `config/workflows/autopilot.yaml` directly (each workflow file is a CLI subcommand: `orchestrator autopilot <slug>` == `orchestrator run <slug> --schema autopilot`). It seeds `schema=autopilot`, runs the produce → implement → complete spine straight through with no review gates, and drives the loop to completion via `run-workflow.sh`.
+
+Autopilot **ends at the boundary — it does NOT merge.** The loop archives the change on the feature worktree (`complete-workflow`) and exits; the worktree and branch are left intact. Merging is a deliberate, separate action — `orchestrator complete <slug>` (`/complete-feature`) or `/approve-qa` — both of which merge unconditionally. Do not pause for confirmation during the autopilot run itself.
 
 ## What This Skill Does NOT Do
 
 - No iteration loop. One run, one feature.
 - No session files, checkpoints, or rollups.
-- Does not duplicate orchestrate logic — orchestrate handles preflight, pre-dispatch init, dispatch, and complete.
+- Does not duplicate workflow logic — the `orchestrator autopilot` subcommand handles seeding, the dispatch loop, and complete.
 - Does not pick the ticket itself — defers to ideator (or accepts an explicit slug).
 
 ## Failure modes
 
 - **No actionable item** — ideator returns nothing parseable: halt with the message above. User runs `/ideate` to seed backlog.
-- **Orchestrate fails mid-run** — surfaces inside orchestrate; this skill exits with whatever orchestrate returns. No retry, no fallback.
+- **Workflow fails mid-run** — surfaces inside `orchestrator autopilot`; this skill exits with whatever the subcommand returns. No retry, no fallback.
