@@ -2,3 +2,4 @@ id: ticket-rework
 version: 1
 kind: script
 run: script.sh
+main: ticket_rework.py

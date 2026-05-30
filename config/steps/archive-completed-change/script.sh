@@ -1,29 +1,19 @@
 #!/usr/bin/env bash
 # archive-completed-change.sh — move workflow state to archive + commit.
 #
-# Env (set by bin/orchestrator): REPO_ROOT, CHANGE_ID, ARCHIVE_PATH,
-#   WORKTREE_ROOT (feature worktree root when worktree_path is set; else empty)
-# Outputs:     {archive_record: {archived_at, archive_path, commit_sha}}
-#   or        {archive_record: {skipped: true, reason}}
+# Env (injected by orchestrator): REPO_ROOT, CHANGE_ID, ARCHIVE_PATH,
+#   WORKTREE_ROOT (when worktree_path is set; else empty)
+# Outputs: {archive_record: ...} or {archive_record: {skipped: true, reason}}
 
 set -uo pipefail
 
-REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null)}"
-CHANGE_ID="${CHANGE_ID:-}"
-ARCHIVE_PATH="${ARCHIVE_PATH:-}"
-WORKTREE_ROOT="${WORKTREE_ROOT:-}"
+: "${REPO_ROOT:?orchestrator: REPO_ROOT required}"
+: "${CHANGE_ID:?orchestrator: CHANGE_ID required}"
+: "${ARCHIVE_PATH:?orchestrator: ARCHIVE_PATH required}"
 
-if [ -z "$CHANGE_ID" ] || [ -z "$ARCHIVE_PATH" ]; then
-  printf '%s\n' '{"archive_record": {"skipped": true, "reason": "missing required env vars"}}'
-  exit 0
-fi
-
-# Strip trailing slash for consistent mv/git paths.
 ARCHIVE_PATH="${ARCHIVE_PATH%/}"
 
-# The state dir lives under the worktree on a worktree=true run, or in-place
-# under the repo on a worktree=false run.
-if [ -n "$WORKTREE_ROOT" ]; then
+if [ -n "${WORKTREE_ROOT:-}" ]; then
   SRC="${WORKTREE_ROOT}/spec/changes/${CHANGE_ID}"
   GIT_ROOT="$WORKTREE_ROOT"
 else
@@ -50,11 +40,9 @@ fi
 
 ARCHIVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-# cost-summary.md is written by the cost-report workflow step before archive.
-
 cd "$GIT_ROOT"
 git add "$ARCHIVE_PATH" 2>/dev/null
-if [ -z "$WORKTREE_ROOT" ]; then
+if [ -z "${WORKTREE_ROOT:-}" ]; then
   git add "spec/changes/${CHANGE_ID}" 2>/dev/null || true
 fi
 git commit -m "archive: $CHANGE_ID — complete phase artifacts" 2>/dev/null

@@ -2,4 +2,5 @@ id: complete-workflow
 version: 1
 kind: script
 run: script.sh
+main: complete_workflow.py
 # Env from bin/orchestrator: STATE_YAML_PATH, REPO_ROOT, CHANGE_ID, ARCHIVE_PATH, WORKTREE_ROOT
