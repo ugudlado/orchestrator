@@ -88,6 +88,37 @@ def _resolve_agent_id(payload: dict[str, Any]) -> str | None:
     )
 
 
+def _payload_uses_chat_driver_jsonl(payload: dict[str, Any]) -> bool:
+    """True when the done payload carries chat-driver (Task tool) JSONL signals."""
+    if payload.get("agent_task_result"):
+        return True
+    if payload.get("agent_id"):
+        return True
+    usage = payload.get("usage") or {}
+    return bool(usage.get("agent_id"))
+
+
+def _state_uses_chat_driver_jsonl(state_raw: dict[str, Any], payload: dict[str, Any]) -> bool:
+    """True when chat-driver JSONL branches should run for this record() call.
+
+    Shell-driver payloads carry adapter usage only — no agent_task_result or
+    agent_id — and must not trigger ~/.claude JSONL reads. Prior step_history
+    entries enriched with agent_id, or ORCHESTRATOR_DRIVER_SESSION_ID, keep the
+    chat-driver path active for inline final steps.
+    """
+    if _payload_uses_chat_driver_jsonl(payload):
+        return True
+    if os.environ.get("ORCHESTRATOR_DRIVER_SESSION_ID"):
+        return True
+    for entry in state_raw.get("step_history") or []:
+        if not isinstance(entry, dict):
+            continue
+        usage = entry.get("usage") or {}
+        if usage.get("agent_id"):
+            return True
+    return False
+
+
 def _usage_has_tokens(usage: dict[str, Any]) -> bool:
     return (
         (isinstance(usage.get("input_tokens"), (int, float)) and usage["input_tokens"] > 0)
@@ -1595,12 +1626,13 @@ def record(
     # Work on a local copy so we never mutate the caller's dict.
     usage: dict[str, Any] = dict(payload.get("usage") or {})
 
-    # JSONL enrichment (telemetry-unify): when agent_id is known (explicit or
+    # JSONL enrichment (chat-driver only): when agent_id is known (explicit or
     # parsed from agent_task_result), pull billing-truth usage from the subagent
-    # JSONL. JSONL wins for input/output/cache_* and model; we keep caller-
-    # provided tool_calls and duration_ms only if JSONL lacks them.
+    # JSONL. Shell-driver payloads lack agent_task_result/agent_id and skip this.
+    # JSONL wins for input/output/cache_* and model; we keep caller-provided
+    # tool_calls and duration_ms only if JSONL lacks them.
     agent_id = resolved_agent_id
-    if agent_id:
+    if agent_id and _payload_uses_chat_driver_jsonl(payload):
         try:
             from orchestrator_next.jsonl_usage import (
                 extract_agent_usage,
@@ -1835,8 +1867,12 @@ def record(
                 # Boundary path: JSONL parsing runs BEFORE BEGIN to keep tx window short.
                 subagent_rows: list[dict] = []
                 session: dict = {}
-                if boundary == BoundaryKind.FEATURE:
-                    # _resolve_driver_session and _resolve_subagent_rows run OUTSIDE BEGIN.
+                if boundary == BoundaryKind.FEATURE and _state_uses_chat_driver_jsonl(
+                    state_raw, payload
+                ):
+                    # Chat-driver only: _resolve_driver_session and
+                    # _resolve_subagent_rows run OUTSIDE BEGIN. Shell-driver
+                    # payloads skip JSONL reads (orc-111 AC-7).
                     try:
                         session = _resolve_driver_session(state_raw, change_id_val, db=db)
                     except Exception as _exc:
@@ -1862,8 +1898,10 @@ def record(
                         db, repo_root_val, change_id_val, phase, entry["attempt"]
                     )
                     if boundary == BoundaryKind.FEATURE:
-                        _write_driver_session(db, repo_root_val, change_id_val, session)
-                        _write_subagent_events(db, repo_root_val, change_id_val, subagent_rows)
+                        if session:
+                            _write_driver_session(db, repo_root_val, change_id_val, session)
+                        if subagent_rows:
+                            _write_subagent_events(db, repo_root_val, change_id_val, subagent_rows)
                     db.execute("COMMIT")
                 except Exception as _exc:
                     db.execute("ROLLBACK")
