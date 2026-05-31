@@ -19,7 +19,11 @@ change_id="${CHANGE_ID:-$(_read_state_field change_id)}"
 synced=""
 
 if [ -n "$ticket_id" ] && [ "$ticketing" = "backlog" ]; then
-  if (cd "$REPO_ROOT" && backlog task edit "$ticket_id" -s "$TICKET_SYNC_STATUS" >/dev/null 2>&1); then
+  _current_status=$(cd "$REPO_ROOT" && backlog task "$ticket_id" --plain 2>/dev/null | grep -E "^Status:" | sed 's/^Status:[[:space:]]*//' || true)
+  if [ "$_current_status" = "$TICKET_SYNC_STATUS" ]; then
+    echo "${TICKET_SYNC_LOG_PREFIX}: ${ticket_id} already ${TICKET_SYNC_STATUS} — skipping" >&2
+    synced="$ticket_id"
+  elif (cd "$REPO_ROOT" && backlog task edit "$ticket_id" -s "$TICKET_SYNC_STATUS" >/dev/null 2>&1); then
     echo "${TICKET_SYNC_LOG_PREFIX}: ${ticket_id} -> ${TICKET_SYNC_STATUS}" >&2
     synced="$ticket_id"
   else

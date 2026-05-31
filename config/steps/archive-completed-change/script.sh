@@ -29,7 +29,7 @@ fi
 
 if [ -e "$DST" ]; then
   printf '%s\n' "{\"archive_record\": {\"skipped\": true, \"reason\": \"archive destination already exists: $DST\"}}"
-  exit 1
+  exit 0
 fi
 
 mkdir -p "$(dirname "$DST")"

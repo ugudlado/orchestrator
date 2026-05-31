@@ -257,8 +257,19 @@ _ARCHIVE_PROBE=$(PYTHONPATH="${_WORKTREE_ROOT}:${PYTHONPATH:-}" \
   python3 -m orchestrator_next.archive_completion probe "$REPO_ROOT" "$TICKET_SLUG" "$TICKET_ID" 2>/dev/null | tail -1)
 _ARCHIVE_ACTION=$(echo "$_ARCHIVE_PROBE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('action','continue'))" 2>/dev/null || echo "continue")
 if [ "$_ARCHIVE_ACTION" = "halt_complete" ] && [ ! -f "${STATE_YAML:-}" ]; then
-  echo "$_ARCHIVE_PROBE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','Feature already completed.'))" >&2
-  exit 1
+  if [ "$SCHEMA" = "complete" ]; then
+    # Feature is archived but complete was re-invoked — resolve archived state.yaml
+    # so idempotent steps (ticket-done, archive-completed-change) can skip gracefully.
+    STATE_YAML="$(resolve_archived_state_yaml "$TICKET_SLUG" 2>/dev/null || true)"
+    if [ ! -f "${STATE_YAML:-}" ]; then
+      echo "$_ARCHIVE_PROBE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','Feature already completed.'))" >&2
+      exit 1
+    fi
+    echo "Resuming complete on archived state: $STATE_YAML" >&2
+  else
+    echo "$_ARCHIVE_PROBE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','Feature already completed.'))" >&2
+    exit 1
+  fi
 fi
 
 if [ ! -f "${STATE_YAML:-}" ]; then
@@ -282,10 +293,6 @@ if [ ! -f "$STATE_YAML" ]; then
 fi
 
 if [ "$SCHEMA" = "complete" ]; then
-  if [[ "$STATE_YAML" == *"/archive/"* ]]; then
-    echo "ERROR: $TICKET_SLUG is already archived at $STATE_YAML" >&2
-    exit 1
-  fi
   _PREPARE=$(PYTHONPATH="${_WORKTREE_ROOT}:${PYTHONPATH:-}" \
     python3 "${_WORKTREE_ROOT}/orchestrator_next/scripts/complete/check-implement-complete.py" \
     "$STATE_YAML" 2>&1) || {
