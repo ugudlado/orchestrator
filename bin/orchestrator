@@ -546,7 +546,7 @@ def main() -> None:
                     )
                 # Surface script failure via stderr; exit 3 signals script error
                 _stderr_step_log(f"✗ {_step_id}  failed  script_exit={_proc.returncode}")
-                print(f"error: inline script failed (exit {_proc.returncode}): {_run_path}", file=sys.stderr)
+                print(f"error: inline script failed (exit {_proc.returncode}): {' '.join(_run_cmd)}", file=sys.stderr)
                 sys.exit(3)  # finally block will close _db
             else:
                 # State-mutating steps already recorded pre-script.

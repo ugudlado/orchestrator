@@ -1519,7 +1519,7 @@ def record(
     resolved_agent_id = _resolve_agent_id(payload)
     if status == "completed" and agent is not None:
         has_tokens = _usage_has_tokens(payload_usage)
-        if not has_tokens:
+        if not has_tokens and not os.environ.get("ORCHESTRATOR_SKIP_USAGE_CHECK"):
             if agent_task_result and resolved_agent_id:
                 pass  # subagent JSONL enrichment below supplies billing-truth usage
             elif agent_task_result:
