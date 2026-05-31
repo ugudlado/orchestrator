@@ -479,8 +479,7 @@ while true; do
     else
       echo "[$(_log_ts)]   orchestrator next returned no action; continuing loop" >&2
     fi
-    # archive-completed-change moves state.yaml; the next `orchestrator next` would
-    # exit 3 with "state.yaml not found". Treat missing state as success.
+    # If state.yaml is still missing after archive relocation, the workflow is done.
     if [ ! -f "$STATE_YAML" ]; then
       echo "Workflow complete (state archived)." >&2
       if [ -n "$WORKFLOW_CHANGE_ID" ]; then
@@ -572,6 +571,27 @@ while true; do
         _log_step_usage "$STEP_ID" "$PHASE"
         if [ "$STATUS" = "completed" ]; then
           sync_ticket_after_step "$STEP_ID"
+        fi
+      fi
+
+      # archive-completed-change moves state.yaml to the archive path.
+      # Update STATE_YAML so subsequent steps (merge-to-main, remove-worktree)
+      # dispatch against the archived location.
+      if [ "$STEP_ID" = "archive-completed-change" ] && [ "$STATUS" = "completed" ]; then
+        _archive_path=$(python3 -c "
+import sys, json
+try:
+    d = json.load(open('$TMP_DIR/script_stdout'))
+    print(d.get('archive_record', {}).get('archive_path') or '')
+except Exception:
+    print('')
+" 2>/dev/null || true)
+        if [ -n "$_archive_path" ]; then
+          _new_state="${REPO_ROOT}/${_archive_path}/state.yaml"
+          if [ -f "$_new_state" ]; then
+            STATE_YAML="$_new_state"
+            echo "[$(_log_ts)]   state relocated: $STATE_YAML" >&2
+          fi
         fi
       fi
       ;;

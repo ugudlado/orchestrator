@@ -162,61 +162,6 @@ resolve_archived_state_yaml() {
   return 1
 }
 
-complete_post_merge() {
-  local repo_root="$1"
-  local ticket_slug="$2"
-
-  local archived_state
-  archived_state="$(resolve_archived_state_yaml "$ticket_slug" 2>/dev/null || true)"
-  if [ -z "$archived_state" ] || [ ! -f "$archived_state" ]; then
-    echo "ERROR: archived state.yaml not found for $ticket_slug after archive-completed-change" >&2
-    return 7
-  fi
-
-  local use_worktree branch change_id
-  use_worktree=$(python3 - "$archived_state" <<'PY'
-import sys, yaml
-raw = yaml.safe_load(open(sys.argv[1])) or {}
-print("true" if (raw.get("worktree_path") or "").strip() else "false")
-PY
-)
-  read -r branch change_id < <(python3 - "$archived_state" <<'PY'
-import sys, yaml
-raw = yaml.safe_load(open(sys.argv[1])) or {}
-print(raw.get("branch") or "")
-print(raw.get("change_id") or raw.get("slug") or "")
-PY
-)
-
-  if [ "$use_worktree" = true ]; then
-    local wt_dir="$WORKTREE_BASE_DIR/$ticket_slug"
-    local commit_helper="$_COMPLETE_DIR/commit-worktree-learn-updates.sh"
-    if [ -x "$commit_helper" ]; then
-      bash "$commit_helper" "$wt_dir" "$ticket_slug" "$branch" --require-clean
-    fi
-  fi
-
-  echo "Merging $ticket_slug branch to default..." >&2
-  local merge_out merge_rc
-  set +e
-  merge_out=$(REPO_ROOT="$repo_root" BRANCH="$branch" CHANGE_ID="$change_id" \
-    bash "$_COMPLETE_DIR/merge-to-main.sh" 2>&1)
-  merge_rc=$?
-  set -e
-  if [ "$merge_rc" -ne 0 ]; then
-    echo "$merge_out" >&2
-    echo "ERROR: merge failed; worktree kept for conflict resolution" >&2
-    return "$merge_rc"
-  fi
-  echo "$merge_out" | tail -1 >&2
-
-  if [ "$use_worktree" = true ] && [ -x "$_TEARDOWN" ]; then
-    echo "Removing feature worktree..." >&2
-    bash "$_TEARDOWN" "$ticket_slug"
-  fi
-
-  return 0
-}
 
 # state.yaml may live in repo_root (worktree=false) or under the feature worktree.
 resolve_state_yaml() {
@@ -323,13 +268,5 @@ set +e
 bash "$RUN_WORKFLOW" "$STATE_YAML" "$TICKET_ID"
 _RC=$?
 set -e
-
-if [ "$SCHEMA" = "complete" ]; then
-  if [ "$_RC" -ne 1 ]; then
-    exit "$_RC"
-  fi
-  complete_post_merge "$REPO_ROOT" "$TICKET_SLUG" || exit $?
-  exit 1
-fi
 
 exit "$_RC"

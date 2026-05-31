@@ -20,3 +20,5 @@ steps:
   - cost-report
   - ticket-done
   - archive-completed-change
+  - merge-to-main
+  - remove-worktree

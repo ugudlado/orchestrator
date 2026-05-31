@@ -182,13 +182,7 @@ def test_real_schema_generates_plan(tmp_path, monkeypatch, schema_name):
 
 # ---------------------------------------------------------------------------
 # Terminal steps — feature/bugfix pause at QA; complete/autopilot own their tails.
-# Merge/teardown run from `orchestrator complete` after archive-completed-change.
 # ---------------------------------------------------------------------------
-
-_OBSOLETE_TEARDOWN_STEPS = {
-    "merge-to-main",
-    "remove-worktree",
-}
 
 
 def _schema_step_ids(schema_name):
@@ -204,7 +198,7 @@ _SCHEMA_TERMINAL_STEP = {
     "feature": "ticket-qa",
     "bugfix": "ticket-qa",
     "autopilot": "ticket-done",
-    "complete": "archive-completed-change",
+    "complete": "remove-worktree",
 }
 
 
@@ -225,14 +219,13 @@ def test_complete_schema_includes_ticket_done_before_archive():
     assert steps.index("ticket-done") < steps.index("archive-completed-change")
 
 
-@pytest.mark.parametrize("schema_name", ["feature", "bugfix", "autopilot", "complete"])
-def test_schema_drops_obsolete_teardown_steps(schema_name):
-    """merge-to-main and remove-worktree must not appear in workflow YAML."""
-    steps = set(_schema_step_ids(schema_name))
-    leftover = steps & _OBSOLETE_TEARDOWN_STEPS
-    assert not leftover, (
-        f"{schema_name}.yaml still lists removed step(s) {leftover} — "
-        f"merge/teardown run from orchestrator complete"
+def test_complete_schema_merge_teardown_order():
+    """complete.yaml: ticket-done → archive → merge-to-main → remove-worktree."""
+    steps = _schema_step_ids("complete")
+    order = ["ticket-done", "archive-completed-change", "merge-to-main", "remove-worktree"]
+    indices = [steps.index(s) for s in order]
+    assert indices == sorted(indices), (
+        f"complete.yaml steps out of order: {list(zip(order, indices))}"
     )
 
 
