@@ -203,6 +203,7 @@ if [ "$_ARCHIVE_ACTION" = "halt_complete" ] && [ ! -f "${STATE_YAML:-}" ]; then
       exit 1
     fi
     echo "Resuming complete on archived state: $STATE_YAML" >&2
+    export ORCHESTRATOR_COMPLETE_RESUME=1
   else
     echo "$_ARCHIVE_PROBE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','Feature already completed.'))" >&2
     exit 1
@@ -230,6 +231,7 @@ if [ ! -f "$STATE_YAML" ]; then
 fi
 
 if [ "$SCHEMA" = "complete" ]; then
+  export ORCHESTRATOR_COMPLETE_RESUME=1
   _PREPARE=$(PYTHONPATH="${_WORKTREE_ROOT}:${PYTHONPATH:-}" \
     python3 "${_WORKTREE_ROOT}/orchestrator_next/scripts/complete/check-implement-complete.py" \
     "$STATE_YAML" 2>&1) || {

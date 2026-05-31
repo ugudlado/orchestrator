@@ -396,7 +396,11 @@ _archive_completion_handle() {
 _ARCHIVE_HANDLE=$(_archive_completion_handle 2>/dev/null | tail -1)
 _ARCHIVE_HANDLE_ACTION=$(echo "$_ARCHIVE_HANDLE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('action','continue'))" 2>/dev/null || echo "continue")
 if [ "$_ARCHIVE_HANDLE_ACTION" = "halt_complete" ]; then
-  echo "$_ARCHIVE_HANDLE" | python3 -c "
+  # Skip halt when orchestrator-run.sh is resuming an archived state to finish
+  # pending steps (e.g. merge-to-main, remove-worktree). The resume path sets
+  # ORCHESTRATOR_COMPLETE_RESUME so the loop can proceed to dispatch them.
+  if [ "${ORCHESTRATOR_COMPLETE_RESUME:-}" != "1" ]; then
+    echo "$_ARCHIVE_HANDLE" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 print(d.get('message', 'Feature already completed.'))
@@ -404,7 +408,8 @@ fb = d.get('flagged_by')
 if fb:
     print(f'(flagged_by: {fb})', file=sys.stderr)
 " >&2
-  exit 1
+    exit 1
+  fi
 fi
 if [ "$_ARCHIVE_HANDLE_ACTION" = "error" ]; then
   echo "WARN: archive_completion handle failed (continuing workflow)" >&2
