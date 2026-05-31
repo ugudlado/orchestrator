@@ -19,5 +19,5 @@ steps:
   - compute-swe-metrics
   - gather-learn-metrics
   - cost-report
-  - archive-completed-change
   - ticket-done
+  - archive-completed-change

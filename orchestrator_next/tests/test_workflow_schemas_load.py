@@ -201,10 +201,10 @@ def _schema_step_ids(schema_name):
 
 
 _SCHEMA_TERMINAL_STEP = {
-    "feature": "ticket-done",
-    "bugfix": "ticket-done",
+    "feature": "ticket-qa",
+    "bugfix": "ticket-qa",
     "autopilot": "ticket-done",
-    "complete": "ticket-done",
+    "complete": "archive-completed-change",
 }
 
 
@@ -218,11 +218,11 @@ def test_schema_ends_at_expected_terminal(schema_name, terminal_step):
     )
 
 
-def test_complete_schema_includes_archive_before_ticket_done():
-    """Complete workflow archives before ticket sync and merge."""
+def test_complete_schema_includes_ticket_done_before_archive():
+    """Complete workflow syncs ticket before archiving (archive moves state.yaml, making it the terminal step)."""
     steps = _schema_step_ids("complete")
-    assert "archive-completed-change" in steps
-    assert steps.index("archive-completed-change") < steps.index("ticket-done")
+    assert "ticket-done" in steps
+    assert steps.index("ticket-done") < steps.index("archive-completed-change")
 
 
 @pytest.mark.parametrize("schema_name", ["feature", "bugfix", "autopilot", "complete"])
