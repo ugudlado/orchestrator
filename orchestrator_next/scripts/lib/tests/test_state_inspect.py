@@ -17,12 +17,6 @@ import state_inspect  # noqa: E402
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
-_RED_XFAIL = pytest.mark.xfail(
-    reason="T-5 RED: --usage-file / JSONL fallback removal not yet in state_inspect.py (T-6 GREEN)",
-    strict=False,
-)
-
-
 def _write_state(tmp_path: Path, data: dict) -> Path:
     p = tmp_path / "state.yaml"
     p.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
@@ -347,7 +341,6 @@ class TestBuildPayload:
         payload = json.loads(out)
         assert "agentId: a6e7ca188209d1f47" in payload["agent_task_result"]
 
-    @_RED_XFAIL
     def test_agent_kind_merges_usage_file_over_empty_usage(self, tmp_path, capsys):
         """Adapter usage JSON from --usage-file wins over _EMPTY_USAGE (ORC-111 AC-6)."""
         adapter_usage = {
@@ -388,19 +381,10 @@ class TestBuildPayload:
         assert payload["usage"]["model"] == "claude-opus-4-8"
         assert payload["usage"]["cost_usd"] == 0.1958375
 
-    @_RED_XFAIL
     def test_agent_kind_no_jsonl_usage_fallback_when_tokenless(
         self, tmp_path, capsys, monkeypatch
     ):
         """Shell path must not read ~/.claude JSONL when COMPLETION has no tokens (AC-6)."""
-        jsonl_calls: list[str] = []
-
-        def _spy(cwd: str) -> dict:
-            jsonl_calls.append(cwd)
-            return {"input_tokens": 10, "output_tokens": 20, "model": "claude-opus-4-7"}
-
-        monkeypatch.setattr(state_inspect, "_usage_from_newest_driver_jsonl", _spy)
-
         home = tmp_path / "home"
         monkeypatch.setenv("HOME", str(home))
         repo = home / "code" / "feature_worktrees" / "orc-111"
@@ -453,7 +437,6 @@ class TestBuildPayload:
         )
         payload = json.loads(out)
         assert "agent_task_result" not in payload
-        assert jsonl_calls == []
         assert payload["usage"] == {"input_tokens": 0, "output_tokens": 0, "model": "none"}
 
 

@@ -199,36 +199,15 @@ def _extract_agent_id_from_stdout(text: str | None) -> str | None:
     return match.group(1) if match else None
 
 
-def _usage_has_tokens(usage: dict[str, Any]) -> bool:
-    return (
-        (isinstance(usage.get("input_tokens"), (int, float)) and usage["input_tokens"] > 0)
-        or (isinstance(usage.get("output_tokens"), (int, float)) and usage["output_tokens"] > 0)
-    )
-
-
-def _orchestrator_scripts_dir() -> Path:
-    return Path(__file__).resolve().parents[2] / "config" / "scripts"
-
-
-def _usage_from_newest_driver_jsonl(cwd: str) -> dict[str, Any]:
-    """Billing-truth usage from the newest Claude Code session JSONL for cwd."""
-    if not cwd:
+def _load_usage_file(path: str) -> dict[str, Any]:
+    if not path or not os.path.isfile(path):
         return {}
-    scripts_dir = str(_orchestrator_scripts_dir())
-    if scripts_dir not in sys.path:
-        sys.path.insert(0, scripts_dir)
     try:
-        from orchestrator_next.jsonl_usage import _aggregate, _projects_root, _repo_slug
-    except ImportError:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
         return {}
-    slug_dir = _projects_root() / _repo_slug(cwd)
-    if not slug_dir.is_dir():
-        return {}
-    jsonls = list(slug_dir.glob("*.jsonl"))
-    if not jsonls:
-        return {}
-    newest = max(jsonls, key=lambda p: p.stat().st_mtime)
-    return _aggregate(newest) or {}
+    return data if isinstance(data, dict) else {}
 
 
 def cmd_build_payload(args: argparse.Namespace) -> int:
@@ -273,12 +252,10 @@ def cmd_build_payload(args: argparse.Namespace) -> int:
                 stdout_text = f.read()
         if stdout_text and _extract_agent_id_from_stdout(stdout_text):
             payload["agent_task_result"] = stdout_text
-        usage = payload.get("usage") or {}
-        if not _usage_has_tokens(usage) and getattr(args, "cwd", ""):
-            jsonl_usage = _usage_from_newest_driver_jsonl(args.cwd)
-            if jsonl_usage:
-                usage = {**dict(_EMPTY_USAGE), **usage, **jsonl_usage}
-                payload["usage"] = usage
+        if getattr(args, "usage_file", ""):
+            file_usage = _load_usage_file(args.usage_file)
+            if file_usage:
+                payload["usage"] = {**dict(_EMPTY_USAGE), **file_usage}
         if not payload.get("usage"):
             payload["usage"] = dict(_EMPTY_USAGE)
         if args.started_at:
@@ -356,9 +333,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--exit-code", type=int, default=0, help="failed-kind only")
     p.add_argument("--stdout-file", default="", help="agent-kind only")
     p.add_argument(
+        "--usage-file",
+        default="",
+        help="agent-kind: JSON file with adapter-normalized usage from invoke_tool",
+    )
+    p.add_argument(
         "--cwd",
         default="",
-        help="agent-kind: tool working directory for driver JSONL usage fallback",
+        help="agent-kind: tool working directory (legacy; unused for usage)",
     )
     p.add_argument("--started-at", default="")
     p.set_defaults(func=cmd_build_payload)
