@@ -28,7 +28,7 @@ SCHEMA="feature"
 REPO_ROOT_ARG=""
 ROUTES_OVERRIDE_ARG=""
 AGENTS_CONFIG_ARG=""
-RUN_TEARDOWN=true
+
 FLAG_OVERRIDES=()
 AGENT_ROUTE_FLAGS=()
 
@@ -36,7 +36,7 @@ AGENT_ROUTE_FLAGS=()
 RESUME_ONLY_SCHEMAS="complete"
 
 usage() {
-  echo "Usage: orchestrator run <ticket-id> [--schema feature|bugfix|complete|...] [--repo PATH] [--no-teardown] [--routes-override FILE] [--agents-config FILE] [flag=value ...]" >&2
+  echo "Usage: orchestrator run <ticket-id> [--schema feature|bugfix|complete|...] [--repo PATH] [--routes-override FILE] [--agents-config FILE] [flag=value ...]" >&2
   echo "  Examples:" >&2
   echo "    orchestrator run ORC-83" >&2
   echo "    orchestrator run HL-287 --schema bugfix" >&2
@@ -70,14 +70,7 @@ while [ $# -gt 0 ]; do
       AGENTS_CONFIG_ARG="$2"
       shift 2
       ;;
-    --no-teardown)
-      RUN_TEARDOWN=false
-      shift
-      ;;
-    --teardown)
-      echo "WARNING: --teardown is default; use --no-teardown to keep the worktree" >&2
-      shift
-      ;;
+
     --help|-h)
       usage
       ;;
@@ -172,7 +165,6 @@ resolve_archived_state_yaml() {
 complete_post_merge() {
   local repo_root="$1"
   local ticket_slug="$2"
-  local run_teardown="${3:-true}"
 
   local archived_state
   archived_state="$(resolve_archived_state_yaml "$ticket_slug" 2>/dev/null || true)"
@@ -218,7 +210,7 @@ PY
   fi
   echo "$merge_out" | tail -1 >&2
 
-  if [ "$run_teardown" = true ] && [ "$use_worktree" = true ] && [ -x "$_TEARDOWN" ]; then
+  if [ "$use_worktree" = true ] && [ -x "$_TEARDOWN" ]; then
     echo "Removing feature worktree..." >&2
     bash "$_TEARDOWN" "$ticket_slug"
   fi
@@ -336,7 +328,7 @@ if [ "$SCHEMA" = "complete" ]; then
   if [ "$_RC" -ne 1 ]; then
     exit "$_RC"
   fi
-  complete_post_merge "$REPO_ROOT" "$TICKET_SLUG" "$RUN_TEARDOWN" || exit $?
+  complete_post_merge "$REPO_ROOT" "$TICKET_SLUG" || exit $?
   exit 1
 fi
 

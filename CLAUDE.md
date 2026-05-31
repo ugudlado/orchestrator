@@ -39,7 +39,7 @@ orchestrator run HL-287 --schema feature
 orchestrator run HL-287 --repo /path/to/repo
 
 # Complete phase only (after implementation)
-orchestrator complete HL-287 --no-teardown
+orchestrator complete HL-287
 ```
 
 #### State Management
