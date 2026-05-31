@@ -5,14 +5,6 @@ steps:
   - ticket-start # ticket -> In Progress (implement entry; covers task-* case)
   - capture-test-baseline
   - execute-tasks
-  - run-phase-review
   - ticket-review # ticket -> Code Review
+  - run-phase-review
   - ticket-qa # ticket -> QA Review
-  - compute-prediction-accuracy
-  - run-learn-cycle
-  - mark-change-completed
-  - compute-swe-metrics
-  - gather-learn-metrics
-  - cost-report
-  - archive-completed-change
-  - ticket-done

@@ -201,8 +201,8 @@ def _schema_step_ids(schema_name):
 
 
 _SCHEMA_TERMINAL_STEP = {
-    "feature": "ticket-qa",
-    "bugfix": "ticket-qa",
+    "feature": "ticket-done",
+    "bugfix": "ticket-done",
     "autopilot": "ticket-done",
     "complete": "ticket-done",
 }
