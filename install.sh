@@ -240,6 +240,44 @@ setup_tool_antigravity() {
   done
 }
 
+# install_config <dest>
+# Copy config/ to <dest> and point ORCHESTRATOR_HOME there.
+# <dest> can be a path inside a repo (repo-local) or ~/.config/orchestrator (global).
+install_config() {
+  local dest="${1:-}"
+  if [ -z "$dest" ]; then
+    echo "Usage: $0 install-config <dest-dir>"
+    echo "  Copies config/ to <dest-dir> and sets ORCHESTRATOR_HOME to that path."
+    echo "  Examples:"
+    echo "    $0 install-config /path/to/myrepo/.orchestrator   # repo-local"
+    echo "    $0 install-config ~/.config/orchestrator          # global (default install)"
+    exit 1
+  fi
+
+  local abs_dest
+  abs_dest="$(mkdir -p "$dest" && cd "$dest" && pwd)"
+
+  echo "Copying config to $abs_dest ..."
+  cp -r "$ORCHESTRATOR_DIR/config/." "$abs_dest/config"
+  echo "  config/ -> $abs_dest/config"
+
+  # Write ORCHESTRATOR_HOME into the shell profile if not already pointing there.
+  local marker="# Orchestrator workflow engine"
+  if ! grep -qF "ORCHESTRATOR_HOME=\"$abs_dest\"" "$SHELL_PROFILE" 2>/dev/null; then
+    echo "" >> "$SHELL_PROFILE"
+    echo "$marker" >> "$SHELL_PROFILE"
+    echo "export ORCHESTRATOR_HOME=\"$abs_dest\"" >> "$SHELL_PROFILE"
+    echo "  Set ORCHESTRATOR_HOME=$abs_dest in $SHELL_PROFILE"
+  else
+    echo "  ORCHESTRATOR_HOME already set to $abs_dest in $SHELL_PROFILE"
+  fi
+
+  echo "Done. Run: source $SHELL_PROFILE"
+  echo "Config lives at: $abs_dest/config"
+  echo "Edit workflows: $abs_dest/config/workflows/"
+  echo "Edit steps:     $abs_dest/config/steps/"
+}
+
 # --- Main ---
 
 main() {
@@ -258,4 +296,7 @@ main() {
   echo "Then: orchestrator --help"
 }
 
-main
+case "${1:-}" in
+  install-config) install_config "${2:-}" ;;
+  *)              main ;;
+esac

@@ -1,4 +1,4 @@
-.PHONY: setup install install-cli doctor stale help test lint-contracts dashboard dashboard-stop
+.PHONY: setup install install-cli use-local doctor stale help test lint-contracts dashboard dashboard-stop
 
 # Default target
 .DEFAULT_GOAL := help
@@ -12,6 +12,19 @@ setup: ## Full install: CLI on PATH (~/.local/bin), ORCHESTRATOR_HOME, agent sym
 	@bash ./install.sh
 
 install: setup ## Alias for setup (same as make setup)
+
+use-local: ## Point ORCHESTRATOR_HOME at this repo (run from any repo with a config/ dir)
+	@PROFILE=$${SHELL_PROFILE:-$(HOME)/.zshrc}; \
+	MARKER="export ORCHESTRATOR_HOME="; \
+	if grep -qF "$$MARKER" "$$PROFILE" 2>/dev/null; then \
+		sed -i.bak "s|^export ORCHESTRATOR_HOME=.*|export ORCHESTRATOR_HOME=\"$(CURDIR)\"|" "$$PROFILE"; \
+		echo "  Updated ORCHESTRATOR_HOME=$(CURDIR) in $$PROFILE"; \
+	else \
+		echo "" >> "$$PROFILE"; \
+		echo "export ORCHESTRATOR_HOME=\"$(CURDIR)\"" >> "$$PROFILE"; \
+		echo "  Added ORCHESTRATOR_HOME=$(CURDIR) to $$PROFILE"; \
+	fi; \
+	echo "  Run: source $$PROFILE"
 
 install-cli: ## Symlink orchestrator into ~/.local/bin only (no agent/skill wiring)
 	@mkdir -p "$(HOME)/.local/bin"
