@@ -1,0 +1,14 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 6627,
+  "result": "COMPLETION:\n  status: completed\n  outputs:\n    task_execution_result: done",
+  "model": null,
+  "usage": {
+    "inputTokens": 24527,
+    "outputTokens": 65,
+    "cacheReadTokens": 5312,
+    "cacheWriteTokens": 0
+  }
+}
