@@ -1,8 +1,7 @@
-"""T-3 RED: assert config/agents.yaml tool wiring for vendor-agnostic usage capture.
+"""Assert config/agents.yaml tool wiring for vendor-agnostic usage capture.
 
 Loads config/agents.yaml via PyYAML and pins the four tool-config corrections
-required by ORC-111 (cursor binary, JSON stdout flags, omp entry). These tests
-fail against current config until T-4 updates agents.yaml (GREEN).
+required by ORC-111 (cursor binary, JSON stdout flags, omp entry).
 """
 from __future__ import annotations
 
@@ -14,12 +13,6 @@ import yaml
 _HERE = Path(__file__).parent.resolve()
 _REPO_ROOT = _HERE.parents[1]
 _AGENTS_YAML = _REPO_ROOT / "config" / "agents.yaml"
-
-_RED_XFAIL = pytest.mark.xfail(
-    reason="T-3 RED: agents.yaml tool wiring not yet corrected (T-4 GREEN)",
-    strict=False,
-)
-
 
 @pytest.fixture(scope="module")
 def tools() -> dict:
@@ -46,7 +39,6 @@ def _contains_subsequence(haystack: list[str], needle: list[str]) -> bool:
 class TestAgentsYamlToolWiring:
     """Pin shell-driver tool entries for structured stdout usage capture."""
 
-    @_RED_XFAIL
     def test_cursor_uses_cursor_agent_with_json_output(self, tools: dict) -> None:
         cursor = tools["cursor"]
         assert cursor["binary"] == "cursor-agent"
@@ -54,18 +46,15 @@ class TestAgentsYamlToolWiring:
         assert "-p" in args
         assert _contains_subsequence(args, ["--output-format", "json"])
 
-    @_RED_XFAIL
     def test_claude_args_include_json_output_format(self, tools: dict) -> None:
         args = _args(tools, "claude")
         assert _contains_subsequence(args, ["--output-format", "json"])
 
-    @_RED_XFAIL
     def test_codex_exec_with_json_flag(self, tools: dict) -> None:
         args = _args(tools, "codex")
         assert args[0] == "exec"
         assert "--json" in args
 
-    @_RED_XFAIL
     def test_omp_tool_entry_with_model(self, tools: dict) -> None:
         assert "omp" in tools
         omp = tools["omp"]

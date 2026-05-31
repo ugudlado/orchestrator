@@ -5,8 +5,6 @@ Pins ORC-111 AC-7 behaviour for shell-driver done payloads:
   2. Shell payload (no agent_task_result / agentId) → no JSONL enrichment or
      ~/.claude/projects reads (including at FEATURE boundary)
   3. Tool-reported cost_usd (claude/omp) preserved; _compute_cost_usd not invoked
-
-Test 2 is xfail until T-8 guards/removes shell-path JSONL branches.
 """
 from __future__ import annotations
 
@@ -29,11 +27,6 @@ if _REPO_ROOT not in sys.path:
 import orchestrator_next.record as record_mod
 from orchestrator_next.record import record  # noqa: E402
 from orchestrator_next.upsert import ensure_schema  # noqa: E402
-
-_RED_XFAIL = pytest.mark.xfail(
-    reason="T-7 RED: shell path still invokes JSONL branches at FEATURE boundary (T-8 GREEN)",
-    strict=False,
-)
 
 _STUB_CONTRACT = textwrap.dedent("""\
     id: execute-step
@@ -149,7 +142,6 @@ class TestShellPathTokensOnlyCosting:
 class TestShellPathJsonlInertness:
     """Shell payloads must not touch ~/.claude or JSONL enrichment helpers."""
 
-    @_RED_XFAIL
     def test_feature_boundary_shell_payload_no_jsonl_reads(
         self, tmp_path, in_memory_db, contracts_dir, monkeypatch
     ):
