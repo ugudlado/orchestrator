@@ -241,12 +241,33 @@ build_prompt() {
   local step_context="$2"
   local ticket_context="${3:-}"
   local workflow_meta="${4:-}"
+  local completion_contract
+  completion_contract=$(cat <<'BLOCK'
+
+---
+You MUST end your stdout with a COMPLETION: block. Fields must be indented under COMPLETION: with two spaces — do NOT write them at column 0 and do NOT wrap in code fences.
+
+Success form:
+COMPLETION:
+  step_id: <this-step-id>
+  status: completed
+  outputs:
+    key: value
+
+Failure/skip form:
+COMPLETION:
+  step_id: <this-step-id>
+  status: abandoned
+  outputs:
+    reason: <why this step could not complete>
+BLOCK
+)
   if [ -n "$ticket_context" ]; then
-    printf '%s\n\n%s\n\nTicket / bug report (%s):\n%s\n\nStep context:\n%s\n\nYou MUST end stdout with a valid COMPLETION: YAML block. Use indented YAML under COMPLETION: — do not wrap the block in markdown code fences.\n' \
-      "$instruction" "$workflow_meta" "$TICKET_ID" "$ticket_context" "$step_context"
+    printf '%s\n\n%s\n\nTicket / bug report (%s):\n%s\n\nStep context:\n%s\n%s\n' \
+      "$instruction" "$workflow_meta" "$TICKET_ID" "$ticket_context" "$step_context" "$completion_contract"
   else
-    printf '%s\n\n%s\n\nStep context:\n%s\n\nYou MUST end stdout with a valid COMPLETION: YAML block. Use indented YAML under COMPLETION: — do not wrap the block in markdown code fences.\n' \
-      "$instruction" "$workflow_meta" "$step_context"
+    printf '%s\n\n%s\n\nStep context:\n%s\n%s\n' \
+      "$instruction" "$workflow_meta" "$step_context" "$completion_contract"
   fi
 }
 
