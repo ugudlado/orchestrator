@@ -23,9 +23,10 @@ def test_step_directory_uses_step_id_when_no_run():
         kind="script",
         main="capture_test_baseline.py",
     )
-    home = "/opt/orchestrator"
-    step_dir = step_directory("capture-test-baseline", contract, home)
-    assert str(step_dir) == os.path.join(home, "config", "steps", "capture-test-baseline")
+    # param is now the config root (the config/ dir), joins steps/ directly.
+    config_root = "/opt/orchestrator/config"
+    step_dir = step_directory("capture-test-baseline", contract, config_root)
+    assert str(step_dir) == os.path.join(config_root, "steps", "capture-test-baseline")
 
 
 def test_step_directory_uses_run_dir(tmp_path):
@@ -78,7 +79,7 @@ def test_build_step_command_python_when_no_run(tmp_path):
         kind="script",
         main="demo.py",
     )
-    cmd = build_step_command("demo", contract, str(home))
+    cmd = build_step_command("demo", contract, str(home / "config"))
     assert cmd[1] == str(main_py.resolve())
 
 
@@ -99,7 +100,7 @@ def test_apply_step_paths_sets_step_dir(tmp_path):
         {"ORCHESTRATOR_HOME": str(home)},
         step_id="demo",
         contract=contract,
-        orchestrator_home=str(home),
+        config_root=str(home / "config"),
     )
     assert env["ORCHESTRATOR_STEP_DIR"] == str(steps)
 

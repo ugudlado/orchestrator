@@ -33,60 +33,12 @@ def _repo_root_from_env(orch_home: Path) -> Path:
     return orch_home.resolve()
 
 
-def _resolve_artifact(
-    kind: str, name: str, repo_root: Path, orch_home: Path
-) -> Path | None:
-    """Repo override first, then ORCHESTRATOR_HOME/config/<kind>/<name>."""
-    roots = (repo_root / ".orchestrator", orch_home / "config")
-    if kind == "steps":
-        step_id = name
-        for root in roots:
-            dir_contract = root / "steps" / step_id / "contract.yaml"
-            if dir_contract.is_file():
-                return dir_contract
-            flat = root / "steps" / f"{step_id}.yaml"
-            if flat.is_file():
-                return flat
-        return None
-    if kind == "workflows":
-        wf_name = name if name.endswith(".yaml") else f"{name}.yaml"
-        for root in roots:
-            path = root / "workflows" / wf_name
-            if path.is_file():
-                return path
-        return None
-    if kind == "agents":
-        override = repo_root / ".orchestrator" / "skills" / name / "SKILL.md"
-        if override.is_file():
-            return override
-        canonical = orch_home / "skills" / name / "SKILL.md"
-        if canonical.is_file():
-            return canonical
-        return None
-    for root in roots:
-        path = root / kind / name
-        if path.exists():
-            return path
-    return None
-
-
 def _normalize_workflow_step_ref(item: object) -> str:
     if isinstance(item, dict):
         return str(item.get("id", "")).strip()
     if isinstance(item, str) and " if " in item:
         return item.split(" if ")[0].strip()
     return str(item).strip() if item else ""
-
-
-def _workflow_schema_paths(repo_root: Path, orch_home: Path) -> dict[str, Path]:
-    """Schema name -> authoritative workflow path (override wins)."""
-    paths: dict[str, Path] = {}
-    for root in (orch_home / "config" / "workflows", repo_root / ".orchestrator" / "workflows"):
-        if not root.is_dir():
-            continue
-        for path in sorted(root.glob("*.yaml")):
-            paths[path.stem] = path
-    return paths
 
 
 def _iter_step_contract_paths(repo_root: Path, orch_home: Path) -> dict[str, Path]:
@@ -159,28 +111,6 @@ def check_active_vs_archive(orch_home: Path) -> CheckResult:
 # Check 3: contract invariants
 # ---------------------------------------------------------------------------
 
-def check_contracts(orch_home: Path) -> CheckResult:
-    """FAIL if any contract is missing id.
-
-    ORC-104: contracts are pure routing (id/version/kind/agent|run). inputs and
-    outputs are optional and default to [] — instruction and I/O-path content
-    lives in prompt.md. Only `id` remains structurally required.
-    """
-    failures = []
-    for path in glob.glob(str(orch_home / "config" / "steps" / "*.yaml")):
-        try:
-            with open(path) as f:
-                data = yaml.safe_load(f)
-            missing = [k for k in ("id",) if k not in data]
-            if missing:
-                failures.append(f"{os.path.basename(path)}: missing {', '.join(missing)}")
-        except Exception as exc:
-            failures.append(f"{os.path.basename(path)}: {exc}")
-    if failures:
-        return CheckResult("contract invariants", "FAIL", "; ".join(failures))
-    return CheckResult("contract invariants", "PASS", "all contracts valid")
-
-
 # ---------------------------------------------------------------------------
 # Check 4: inline scripts exist
 # ---------------------------------------------------------------------------
@@ -203,38 +133,6 @@ def check_inline_scripts(orch_home: Path) -> CheckResult:
     if failures:
         return CheckResult("inline scripts exist", "FAIL", "; ".join(failures))
     return CheckResult("inline scripts exist", "PASS", "all inline scripts present")
-
-
-# ---------------------------------------------------------------------------
-# Check 5: agent files exist
-# ---------------------------------------------------------------------------
-
-def check_agent_files(repo_root: Path, orch_home: Path) -> CheckResult:
-    """WARN if any contract's agent file is missing in all search locations.
-
-    Covers both dir-form (steps/<id>/contract.yaml) and flat-form
-    (steps/<id>.yaml) contracts, plus repo .orchestrator overrides, via
-    _iter_step_contract_paths. Agent resolution is override-aware
-    (.orchestrator/skills -> orch_home/skills) with a ~/.claude/skills global
-    fallback.
-    """
-    missing = []
-    for step_id, path in _iter_step_contract_paths(repo_root, orch_home).items():
-        try:
-            with open(path) as f:
-                data = yaml.safe_load(f) or {}
-            name = data.get("agent")
-            if name is None:
-                continue
-            resolved = _resolve_artifact("agents", name, repo_root, orch_home)
-            global_ = Path.home() / ".claude" / "skills" / name / "SKILL.md"
-            if resolved is None and not global_.exists():
-                missing.append(f"{name} (in {step_id})")
-        except Exception as exc:
-            missing.append(f"{path}: {exc}")
-    if missing:
-        return CheckResult("agent files exist", "WARN", "; ".join(missing))
-    return CheckResult("agent files exist", "PASS", "all agent files found")
 
 
 # ---------------------------------------------------------------------------
@@ -319,69 +217,151 @@ def check_symlinks(repo_root: Path, orch_home: Path) -> CheckResult:
 # Check 9: ORCHESTRATOR_HOME vs install symlink
 # ---------------------------------------------------------------------------
 
-def check_orchestrator_home(repo_root: Path, orch_home: Path) -> CheckResult:
-    """FAIL when ORCHESTRATOR_HOME env does not match ~/.config/orchestrator target."""
-    del repo_root, orch_home  # reserved for future repo-specific install layouts
-    current = os.environ.get("ORCHESTRATOR_HOME", "").strip()
-    if not current:
-        return CheckResult("ORCHESTRATOR_HOME", "FAIL", "ORCHESTRATOR_HOME is not set")
-    install_link = Path.home() / ".config" / "orchestrator"
-    try:
-        if not install_link.exists():
-            return CheckResult(
-                "ORCHESTRATOR_HOME",
-                "WARN",
-                f"install symlink missing: {install_link}",
-            )
-        expected = install_link.resolve()
-    except OSError as exc:
+def check_config_root(config_root: Path) -> CheckResult:
+    """FAIL when the resolved config root is missing or lacks the required layout.
+
+    The config root (ORCHESTRATOR_CONFIG, else ORCHESTRATOR_HOME/config, else
+    <cwd>/config — see paths.config_root) must exist and hold workflows/,
+    steps/, and agents.yaml. This is the prerequisite for every config-content
+    check below: if the root is wrong, those checks have nothing to validate.
+    """
+    if not config_root.is_dir():
         return CheckResult(
-            "ORCHESTRATOR_HOME",
-            "WARN",
-            f"cannot resolve install symlink {install_link}: {exc}",
+            "config root", "FAIL", f"config root does not exist: {config_root}"
         )
-    current_path = Path(current).expanduser().resolve()
-    if current_path != expected:
+    missing = [
+        name
+        for name, is_dir in (("workflows", True), ("steps", True), ("agents.yaml", False))
+        if not ((config_root / name).is_dir() if is_dir else (config_root / name).is_file())
+    ]
+    if missing:
         return CheckResult(
-            "ORCHESTRATOR_HOME",
+            "config root",
             "FAIL",
-            f"ORCHESTRATOR_HOME points to {current_path}, expected {expected}",
+            f"{config_root} missing: {', '.join(missing)}",
+        )
+    return CheckResult("config root", "PASS", f"valid config root: {config_root}")
+
+
+# ---------------------------------------------------------------------------
+# Config-folder validation (the 4 portability rules), anchored on config_root().
+# These honor ORCHESTRATOR_CONFIG; they do NOT read .orchestrator/ overrides.
+# ---------------------------------------------------------------------------
+
+def _iter_config_contracts(config_root: Path) -> dict[str, Path]:
+    """Step id -> contract path under <config_root>/steps/ (dir or flat form)."""
+    found: dict[str, Path] = {}
+    steps_root = config_root / "steps"
+    if not steps_root.is_dir():
+        return found
+    for child in sorted(steps_root.iterdir()):
+        if child.is_dir() and (child / "contract.yaml").is_file():
+            found[child.name] = child / "contract.yaml"
+        elif child.is_file() and child.suffix == ".yaml":
+            found[child.stem] = child
+    return found
+
+
+def check_workflow_steps_resolve(config_root: Path) -> CheckResult:
+    """RULE 1: every step referenced by a workflow has a contract under steps/."""
+    contracts = set(_iter_config_contracts(config_root))
+    wf_root = config_root / "workflows"
+    failures: list[str] = []
+    if wf_root.is_dir():
+        for wf_path in sorted(wf_root.glob("*.yaml")):
+            try:
+                data = yaml.safe_load(wf_path.read_text()) or {}
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"{wf_path.name}: {exc}")
+                continue
+            for item in data.get("steps") or []:
+                step_id = _normalize_workflow_step_ref(item)
+                if step_id and step_id not in contracts:
+                    failures.append(f"{wf_path.stem}.yaml → {step_id} (no contract)")
+    if failures:
+        return CheckResult("workflow steps resolve", "FAIL", "; ".join(failures))
+    return CheckResult("workflow steps resolve", "PASS", "all workflow steps have contracts")
+
+
+def check_step_dispatch_kind(config_root: Path) -> CheckResult:
+    """RULE 2: every step contract is dispatchable — has at least one of
+    agent:/run:/main:. (run+main legitimately coexist: a bash wrapper that
+    execs a python main; so this is 'at least one', NOT exactly one.)"""
+    failures: list[str] = []
+    for step_id, path in _iter_config_contracts(config_root).items():
+        try:
+            data = yaml.safe_load(path.read_text()) or {}
+        except Exception as exc:  # noqa: BLE001
+            failures.append(f"{step_id}: {exc}")
+            continue
+        if not (data.get("agent") or data.get("run") or data.get("main")):
+            failures.append(f"{step_id}: no agent:/run:/main:")
+    if failures:
+        return CheckResult("step dispatch kind", "FAIL", "; ".join(failures))
+    return CheckResult("step dispatch kind", "PASS", "all steps are agent- or script-driven")
+
+
+def _skill_search_roots() -> list[Path]:
+    """Where agent skills may be installed (per-coding-agent + repo)."""
+    roots = [Path(__file__).resolve().parent.parent / "skills"]  # repo skills/
+    roots.append(Path.home() / ".claude" / "skills")
+    return roots
+
+
+def check_agents_have_skills(config_root: Path) -> CheckResult:
+    """RULE 3 (WARN): every agent in agents.yaml has a matching skill SKILL.md.
+
+    WARN, not FAIL: skills install per-coding-agent (outside the config folder),
+    so a missing skill is install-state, not config-integrity.
+    """
+    agents_yaml = config_root / "agents.yaml"
+    if not agents_yaml.is_file():
+        return CheckResult("agents have skills", "WARN", "agents.yaml not found")
+    try:
+        data = yaml.safe_load(agents_yaml.read_text()) or {}
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult("agents have skills", "WARN", f"agents.yaml parse: {exc}")
+    roots = _skill_search_roots()
+    missing = [
+        name
+        for name in (data.get("agents") or {})
+        if not any((root / name / "SKILL.md").is_file() for root in roots)
+    ]
+    if missing:
+        return CheckResult(
+            "agents have skills", "WARN", f"no SKILL.md for: {', '.join(sorted(missing))}"
+        )
+    return CheckResult("agents have skills", "PASS", "all agents have a skill")
+
+
+def check_subprocesses_available(config_root: Path) -> CheckResult:
+    """RULE 4 (WARN): every distinct subprocess: in agents.yaml is on PATH.
+
+    WARN, not FAIL: a config is valid even if a backend (e.g. cursor) is not
+    installed on this machine — that's machine state, not config integrity.
+    """
+    import shutil
+
+    agents_yaml = config_root / "agents.yaml"
+    if not agents_yaml.is_file():
+        return CheckResult("subprocesses available", "WARN", "agents.yaml not found")
+    try:
+        data = yaml.safe_load(agents_yaml.read_text()) or {}
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult("subprocesses available", "WARN", f"agents.yaml parse: {exc}")
+    subs = {
+        entry.get("subprocess")
+        for entry in (data.get("agents") or {}).values()
+        if isinstance(entry, dict) and entry.get("subprocess")
+    }
+    missing = sorted(s for s in subs if not shutil.which(s))
+    if missing:
+        return CheckResult(
+            "subprocesses available", "WARN", f"not on PATH: {', '.join(missing)}"
         )
     return CheckResult(
-        "ORCHESTRATOR_HOME",
-        "PASS",
-        f"matches install symlink ({expected})",
+        "subprocesses available", "PASS", f"all {len(subs)} subprocess backends on PATH"
     )
-
-
-# ---------------------------------------------------------------------------
-# Check 10: schema → step graph
-# ---------------------------------------------------------------------------
-
-def check_schema_step_graph(repo_root: Path, orch_home: Path) -> CheckResult:
-    """FAIL when a workflow step id has no resolvable contract (override-aware)."""
-    failures: list[str] = []
-    for schema, wf_path in sorted(_workflow_schema_paths(repo_root, orch_home).items()):
-        try:
-            with open(wf_path) as f:
-                data = yaml.safe_load(f) or {}
-        except Exception as exc:
-            failures.append(f"{schema}.yaml: {exc}")
-            continue
-        steps = data.get("steps") or []
-        if not isinstance(steps, list):
-            continue
-        for item in steps:
-            step_id = _normalize_workflow_step_ref(item)
-            if not step_id:
-                continue
-            if _resolve_artifact("steps", step_id, repo_root, orch_home) is None:
-                failures.append(
-                    f"schema graph: {schema}.yaml references {step_id} which has no contract"
-                )
-    if failures:
-        return CheckResult("schema step graph", "FAIL", "; ".join(failures))
-    return CheckResult("schema step graph", "PASS", "all workflow steps resolve")
 
 
 # ---------------------------------------------------------------------------
@@ -431,20 +411,30 @@ def _format_table(results: list) -> str:
 def run_all(args) -> int:
     """Run all checks and return exit code 0 (pass/warn) or 2 (any failure)."""
     del args
-    orch_home = Path(os.environ["ORCHESTRATOR_HOME"])
+    from orchestrator_next.paths import config_root as _config_root, metrics_db_path
+
+    # config_root() honors ORCHESTRATOR_CONFIG → ORCHESTRATOR_HOME/config → cwd/config.
+    # ORCHESTRATOR_HOME is optional under the portable model; legacy checks below
+    # take an orch_home param (the config root's parent) but must not require the
+    # env var. repo_root falls back to cwd when neither REPO_ROOT nor HOME is set.
+    config_root = _config_root()
+    orch_home = config_root.parent
     repo_root = _repo_root_from_env(orch_home)
-    db_path = Path(os.environ.get("METRICS_DB") or str(orch_home / "metrics.duckdb"))
+    db_path = metrics_db_path()
     results = [
+        # Config-folder validation (the 4 portability rules) — anchored on config_root().
+        check_config_root(config_root),
+        check_workflow_steps_resolve(config_root),  # rule 1
+        check_step_dispatch_kind(config_root),      # rule 2
+        check_agents_have_skills(config_root),      # rule 3 (WARN)
+        check_subprocesses_available(config_root),  # rule 4 (WARN)
+        # Engine/state health (legacy anchor: orch_home = config_root.parent).
         check_state_valid(),
         check_active_vs_archive(orch_home),
-        check_contracts(orch_home),
         check_inline_scripts(orch_home),
-        check_agent_files(repo_root, orch_home),
         check_duckdb_schema(db_path),
         check_workflow_plans(orch_home),
         check_symlinks(repo_root, orch_home),
-        check_orchestrator_home(repo_root, orch_home),
-        check_schema_step_graph(repo_root, orch_home),
         check_contract_template_graph(repo_root, orch_home),
     ]
     print(_format_table(results))
@@ -454,13 +444,14 @@ def run_all(args) -> int:
 
 
 def _doctor_main(argv: list) -> int:
-    """Entry point for `orchestrator doctor`. Validates env, then runs all checks."""
+    """Entry point for `orchestrator doctor`. Runs all checks.
+
+    No ORCHESTRATOR_HOME guard: the config root resolves via paths.config_root
+    (ORCHESTRATOR_CONFIG → ORCHESTRATOR_HOME/config → cwd/config). A wrong or
+    missing config root surfaces as the `config root` FAIL check, not a crash.
+    """
     ap = argparse.ArgumentParser(prog="orchestrator doctor")
     ap.parse_args(argv)  # --help handled here; no flags in this iteration
-
-    if not os.environ.get("ORCHESTRATOR_HOME"):
-        print("error: ORCHESTRATOR_HOME is not set", file=sys.stderr)
-        return 3
     return run_all(argv)
 
 

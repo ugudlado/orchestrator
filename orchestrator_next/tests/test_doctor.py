@@ -34,8 +34,15 @@ if _SCRIPTS_DIR not in sys.path:
 
 @pytest.fixture()
 def orch_home(tmp_path):
-    """Create a minimal ORCHESTRATOR_HOME tree."""
+    """Create a minimal ORCHESTRATOR_HOME tree.
+
+    config/ holds the three things a valid config root needs (workflows/,
+    steps/, agents.yaml) so check_config_root PASSes; individual tests add
+    bad contracts on top to exercise FAIL paths.
+    """
     (tmp_path / "config" / "steps").mkdir(parents=True)
+    (tmp_path / "config" / "workflows").mkdir(parents=True)
+    (tmp_path / "config" / "agents.yaml").write_text("agents: {}\n")
     (tmp_path / "spec" / "changes" / "archive").mkdir(parents=True)
     (tmp_path / "skills").mkdir(parents=True)
     (tmp_path / "scripts" / "inline").mkdir(parents=True)
@@ -159,50 +166,6 @@ class TestCheckActiveVsArchive:
 
 
 # ---------------------------------------------------------------------------
-# T-1: check_contracts
-# ---------------------------------------------------------------------------
-
-class TestCheckContracts:
-
-    def test_check_contracts_pass(self, orch_home):
-        """All contracts have id, inputs, outputs -> PASS."""
-        script = orch_home / "scripts" / "inline" / "good.sh"
-        script.write_text("#!/bin/bash\necho ok")
-        _write_contract(orch_home / "config" / "steps", "good", {
-            "id": "good", "inputs": [], "outputs": [],
-            "instruction": "do thing",
-            "run": "scripts/inline/good.sh",
-        })
-        from orchestrator_next.doctor import check_contracts
-        result = check_contracts(orch_home)
-        assert result.status == "PASS"
-
-    def test_check_contracts_missing_id_fails(self, orch_home):
-        """Contract missing `id:` -> FAIL (AC-3, UC-3)."""
-        _write_contract(orch_home / "config" / "steps", "no-id", {
-            "inputs": [], "outputs": [],
-        })
-        from orchestrator_next.doctor import check_contracts
-        result = check_contracts(orch_home)
-        assert result.status == "FAIL"
-        assert "id" in result.detail
-
-    def test_check_contracts_missing_inputs_passes(self, orch_home):
-        """ORC-104: missing `inputs:` is now valid (optional, defaults to [])."""
-        _write_contract(orch_home / "config" / "steps", "no-inputs", {
-            "id": "no-inputs", "outputs": [],
-        })
-        from orchestrator_next.doctor import check_contracts
-        result = check_contracts(orch_home)
-        assert result.status == "PASS"
-
-    def test_check_contracts_no_contracts_pass(self, orch_home):
-        """No contracts in steps dir -> PASS (nothing to validate)."""
-        from orchestrator_next.doctor import check_contracts
-        result = check_contracts(orch_home)
-        assert result.status == "PASS"
-
-
 # ---------------------------------------------------------------------------
 # T-1: check_inline_scripts
 # ---------------------------------------------------------------------------
@@ -242,120 +205,6 @@ class TestCheckInlineScripts:
         result = check_inline_scripts(orch_home)
         assert result.status == "PASS"
 
-
-# ---------------------------------------------------------------------------
-# T-1: check_agent_files
-# ---------------------------------------------------------------------------
-
-class TestCheckAgentFiles:
-
-    def test_check_agent_files_pass(self, orch_home, tmp_path, monkeypatch):
-        """Agent skill file exists in orch_home/skills/ -> PASS."""
-        home = tmp_path / "fake_home"
-        home.mkdir()
-        monkeypatch.setenv("HOME", str(home))
-        repo_root = tmp_path / "repo"
-        (orch_home / "skills" / "my-agent").mkdir(parents=True, exist_ok=True)
-        (orch_home / "skills" / "my-agent" / "SKILL.md").write_text("# my-agent")
-        _write_contract(orch_home / "config" / "steps", "uses-agent", {
-            "id": "uses-agent", "agent": "my-agent",
-            "inputs": [], "outputs": [],
-        })
-        from orchestrator_next.doctor import check_agent_files
-        result = check_agent_files(repo_root, orch_home)
-        assert result.status == "PASS"
-
-    def test_check_agent_files_inline_sentinel_skipped(self, orch_home, tmp_path, monkeypatch):
-        """Contract with no agent: field is not flagged (script / driver-inline step)."""
-        home = tmp_path / "fake_home"
-        home.mkdir()
-        monkeypatch.setenv("HOME", str(home))
-        repo_root = tmp_path / "repo"
-        _write_contract(orch_home / "config" / "steps", "inline-step", {
-            "id": "inline-step",
-            "inputs": [], "outputs": [],
-        })
-        from orchestrator_next.doctor import check_agent_files
-        result = check_agent_files(repo_root, orch_home)
-        assert result.status == "PASS"
-
-    def test_check_agent_files_missing_agent_warns(self, orch_home, tmp_path, monkeypatch):
-        """Agent file missing in all locations -> WARN."""
-        home = tmp_path / "fake_home"
-        home.mkdir()
-        monkeypatch.setenv("HOME", str(home))
-        repo_root = tmp_path / "repo"
-        (home / ".claude" / "skills").mkdir(parents=True)
-        _write_contract(orch_home / "config" / "steps", "ghost-step", {
-            "id": "ghost-step", "agent": "ghost-agent",
-            "inputs": [], "outputs": [],
-        })
-        from orchestrator_next.doctor import check_agent_files
-        result = check_agent_files(repo_root, orch_home)
-        assert result.status == "WARN"
-        assert "ghost-agent" in result.detail
-
-    def test_check_agent_files_no_agent_field_skipped(self, orch_home, tmp_path, monkeypatch):
-        """Contract with no agent: field -> PASS (skipped)."""
-        home = tmp_path / "fake_home"
-        home.mkdir()
-        monkeypatch.setenv("HOME", str(home))
-        repo_root = tmp_path / "repo"
-        _write_contract(orch_home / "config" / "steps", "no-agent", {
-            "id": "no-agent", "inputs": [], "outputs": [],
-        })
-        from orchestrator_next.doctor import check_agent_files
-        result = check_agent_files(repo_root, orch_home)
-        assert result.status == "PASS"
-
-    def test_check_agent_files_dir_form_missing_agent_warns(self, orch_home, tmp_path, monkeypatch):
-        """UC-4: dir-form (steps/<id>/contract.yaml) agent refs are validated too."""
-        home = tmp_path / "fake_home"
-        home.mkdir()
-        monkeypatch.setenv("HOME", str(home))
-        (home / ".claude" / "skills").mkdir(parents=True)
-        repo_root = tmp_path / "repo"
-        _write_dir_contract(orch_home / "config" / "steps", "dir-step", {
-            "id": "dir-step", "agent": "phantom-agent",
-            "inputs": [], "outputs": [],
-        })
-        from orchestrator_next.doctor import check_agent_files
-        result = check_agent_files(repo_root, orch_home)
-        assert result.status == "WARN"
-        assert "phantom-agent" in result.detail
-        assert "dir-step" in result.detail
-
-    def test_check_agent_files_dir_form_present_passes(self, orch_home, tmp_path, monkeypatch):
-        """Dir-form contract whose agent .md exists -> PASS."""
-        home = tmp_path / "fake_home"
-        home.mkdir()
-        monkeypatch.setenv("HOME", str(home))
-        repo_root = tmp_path / "repo"
-        (orch_home / "skills" / "real-agent").mkdir(parents=True, exist_ok=True)
-        (orch_home / "skills" / "real-agent" / "SKILL.md").write_text("# real-agent")
-        _write_dir_contract(orch_home / "config" / "steps", "dir-step", {
-            "id": "dir-step", "agent": "real-agent",
-            "inputs": [], "outputs": [],
-        })
-        from orchestrator_next.doctor import check_agent_files
-        result = check_agent_files(repo_root, orch_home)
-        assert result.status == "PASS"
-
-    def test_check_agent_files_repo_override_resolves(self, orch_home, tmp_path, monkeypatch):
-        """Agent provided only via repo .orchestrator/skills override -> PASS."""
-        home = tmp_path / "fake_home"
-        home.mkdir()
-        monkeypatch.setenv("HOME", str(home))
-        repo_root = tmp_path / "repo"
-        (repo_root / ".orchestrator" / "skills" / "override-agent").mkdir(parents=True)
-        (repo_root / ".orchestrator" / "skills" / "override-agent" / "SKILL.md").write_text("# override")
-        _write_dir_contract(orch_home / "config" / "steps", "ov-step", {
-            "id": "ov-step", "agent": "override-agent",
-            "inputs": [], "outputs": [],
-        })
-        from orchestrator_next.doctor import check_agent_files
-        result = check_agent_files(repo_root, orch_home)
-        assert result.status == "PASS"
 
 
 # ---------------------------------------------------------------------------
@@ -531,14 +380,22 @@ class TestRunAllExitCodes:
 
 class TestDoctorMain:
 
-    def test_doctor_main_without_orchestrator_home_errors(self, monkeypatch, capsys):
-        """Unset ORCHESTRATOR_HOME -> non-zero return, stderr has ORCHESTRATOR_HOME (AC-8, UC-E4)."""
+    def test_doctor_main_without_orchestrator_home_uses_config_var(
+        self, orch_home, tmp_path, monkeypatch
+    ):
+        """ORCHESTRATOR_HOME unset is NOT an error under the portable model:
+        the config root resolves via ORCHESTRATOR_CONFIG and doctor runs."""
+        home = tmp_path / "fake_home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        (home / ".workflows").mkdir()
         monkeypatch.delenv("ORCHESTRATOR_HOME", raising=False)
+        monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(orch_home / "config"))
+        monkeypatch.setenv("METRICS_DB", str(tmp_path / "metrics.duckdb"))
         from orchestrator_next.doctor import _doctor_main
         code = _doctor_main([])
-        assert code != 0
-        captured = capsys.readouterr()
-        assert "ORCHESTRATOR_HOME" in captured.err
+        # Runs to completion (0/2), does not crash or error on missing HOME.
+        assert code in (0, 2)
 
     def test_doctor_main_with_valid_env_returns_int(self, orch_home, tmp_path, monkeypatch):
         """Valid env -> returns integer 0, 1, or 2."""

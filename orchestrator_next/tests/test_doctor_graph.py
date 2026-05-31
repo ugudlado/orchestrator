@@ -36,6 +36,7 @@ def orch_home(tmp_path):
     (root / "config" / "workflows").mkdir(parents=True)
     (root / "config" / "steps").mkdir(parents=True)
     (root / "config" / "templates" / "feature").mkdir(parents=True)
+    (root / "config" / "agents.yaml").write_text("agents: {}\n")
     (root / "agents").mkdir(parents=True)
     (root / "spec" / "changes" / "archive").mkdir(parents=True)
     return root
@@ -75,69 +76,65 @@ class TestCheckSymlinks:
 
 
 # ---------------------------------------------------------------------------
-# ORCHESTRATOR_HOME (AC-3)
+# Config root validation (replaces the old ORCHESTRATOR_HOME == ~/.config check)
 # ---------------------------------------------------------------------------
 
-class TestCheckOrchestratorHome:
+class TestCheckConfigRoot:
 
-    def test_worktree_env_mismatch_fails(self, repo_root, orch_home, tmp_path, monkeypatch):
-        """ORCHESTRATOR_HOME set to worktree while install symlink points at main → FAIL."""
-        main_install = tmp_path / "main_orchestrator"
-        main_install.mkdir()
-        worktree = tmp_path / "feature_worktree"
-        worktree.mkdir()
+    def test_valid_config_root_passes(self, tmp_path):
+        """A config dir with workflows/, steps/, agents.yaml → PASS."""
+        cfg = tmp_path / "config"
+        (cfg / "workflows").mkdir(parents=True)
+        (cfg / "steps").mkdir()
+        (cfg / "agents.yaml").write_text("agents: {}\n")
 
-        fake_home = tmp_path / "home"
-        fake_home.mkdir()
-        config_dir = fake_home / ".config" / "orchestrator"
-        config_dir.parent.mkdir(parents=True)
-        config_dir.symlink_to(main_install)
+        from orchestrator_next.doctor import check_config_root
 
-        monkeypatch.setenv("HOME", str(fake_home))
-        monkeypatch.setenv("ORCHESTRATOR_HOME", str(worktree))
+        result = check_config_root(cfg)
+        assert result.status == "PASS"
 
-        from orchestrator_next.doctor import check_orchestrator_home
+    def test_missing_entry_fails(self, tmp_path):
+        """A config dir missing agents.yaml → FAIL naming the missing entry."""
+        cfg = tmp_path / "config"
+        (cfg / "workflows").mkdir(parents=True)
+        (cfg / "steps").mkdir()
+        # no agents.yaml
 
-        result = check_orchestrator_home(repo_root, orch_home)
+        from orchestrator_next.doctor import check_config_root
+
+        result = check_config_root(cfg)
         assert result.status == "FAIL"
-        assert str(worktree) in result.detail
-        assert str(main_install) in result.detail or "expected" in result.detail.lower()
+        assert "agents.yaml" in result.detail
+
+    def test_nonexistent_root_fails(self, tmp_path):
+        from orchestrator_next.doctor import check_config_root
+
+        result = check_config_root(tmp_path / "nope")
+        assert result.status == "FAIL"
 
 
 # ---------------------------------------------------------------------------
-# Schema → step graph (AC-5)
+# Rule 1: workflow steps resolve to contracts (config_root-anchored)
 # ---------------------------------------------------------------------------
 
-class TestCheckSchemaStepGraph:
+class TestCheckWorkflowStepsResolve:
 
-    def test_missing_step_contract_fails(self, repo_root, orch_home):
-        """Workflow references step with no contract → FAIL names schema and step."""
-        _write_workflow(
-            orch_home / "config" / "workflows",
-            "feature",
-            ["present-step", "ghost-step"],
-        )
+    def test_missing_step_contract_fails(self, orch_home):
+        """Workflow references a step with no contract under steps/ → FAIL."""
+        config_root = orch_home / "config"
+        _write_workflow(config_root / "workflows", "feature", ["present-step", "ghost-step"])
         _write_dir_contract(
-            orch_home / "config" / "steps",
+            config_root / "steps",
             "present-step",
-            {
-                "id": "present-step",
-                "version": 1,
-                "kind": "agent",
-                "agent": "developer",
-                "inputs": [],
-                "outputs": [],
-            },
+            {"id": "present-step", "version": 1, "kind": "agent", "agent": "developer"},
         )
-        _write_agent(orch_home / "agents", "developer")
 
-        from orchestrator_next.doctor import check_schema_step_graph
+        from orchestrator_next.doctor import check_workflow_steps_resolve
 
-        result = check_schema_step_graph(repo_root, orch_home)
+        result = check_workflow_steps_resolve(config_root)
         assert result.status == "FAIL"
         assert "feature" in result.detail
         assert "ghost-step" in result.detail
-        assert "contract" in result.detail.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -171,39 +168,6 @@ class TestCheckContractTemplateGraph:
         assert result.status == "FAIL"
         assert "tmpl-step" in result.detail
         assert "missing-template.md" in result.detail
-
-
-# ---------------------------------------------------------------------------
-# Override resolution (AC-12)
-# ---------------------------------------------------------------------------
-
-class TestOverrideResolution:
-
-    def test_repo_override_resolves_before_global(self, repo_root, orch_home):
-        """Step contract only under .orchestrator/ → schema graph PASS (override wins)."""
-        (repo_root / ".orchestrator" / "workflows").mkdir(parents=True, exist_ok=True)
-        _write_workflow(repo_root / ".orchestrator" / "workflows", "feature", ["override-only"])
-
-        _write_workflow(orch_home / "config" / "workflows", "feature", ["override-only"])
-        # Global orch_home has workflow ref but NO global contract — override supplies it.
-        _write_dir_contract(
-            repo_root / ".orchestrator" / "steps",
-            "override-only",
-            {
-                "id": "override-only",
-                "version": 1,
-                "kind": "agent",
-                "agent": "developer",
-                "inputs": [],
-                "outputs": [],
-            },
-        )
-        _write_agent(orch_home / "agents", "developer")
-
-        from orchestrator_next.doctor import check_schema_step_graph
-
-        result = check_schema_step_graph(repo_root, orch_home)
-        assert result.status == "PASS"
 
 
 # ---------------------------------------------------------------------------
@@ -244,11 +208,10 @@ class TestRunAllExitCodes:
         monkeypatch.setenv("HOME", str(home))
         monkeypatch.setenv("ORCHESTRATOR_HOME", str(orch_home))
         (home / ".workflows").mkdir()
-        # Flat legacy contract missing id → FAIL from check_contracts
+        # Contract with no agent/run/main → FAIL from check_step_dispatch_kind (rule 2)
         (orch_home / "config" / "steps" / "bad.yaml").write_text(yaml.dump({
+            "id": "bad",
             "agent": None,
-            "inputs": [],
-            "outputs": [],
         }))
         db_path = tmp_path / "metrics.duckdb"
         monkeypatch.setenv("METRICS_DB", str(db_path))
