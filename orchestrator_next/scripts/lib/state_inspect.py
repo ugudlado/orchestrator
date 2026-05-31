@@ -47,6 +47,46 @@ def cmd_state_field(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_artifact_dir(
+    cid: str, repo: str, wt: str, schema: str
+) -> tuple[str, str]:
+    """Return (artifact_dir, workflow_state_dir) for a given run.
+
+    Priority:
+    1. workflow YAML `artifact_dir:` template (relative paths resolved from repo_root).
+       Supports {change_id}, {repo_root}, {worktree_path} substitutions.
+    2. Default: spec/changes/<change_id> under worktree_path (if set) or repo_root.
+    """
+    # Try to read artifact_dir from the workflow YAML.
+    if schema and repo:
+        wf_yaml = Path(repo) / "config" / "workflows" / f"{schema}.yaml"
+        if wf_yaml.is_file():
+            try:
+                import yaml as _yaml
+
+                wf = _yaml.safe_load(wf_yaml.read_text()) or {}
+                tmpl = wf.get("artifact_dir", "")
+                if tmpl:
+                    rendered = (
+                        str(tmpl)
+                        .replace("{change_id}", cid)
+                        .replace("{repo_root}", repo)
+                        .replace("{worktree_path}", wt or repo)
+                    )
+                    # Resolve relative paths against repo_root.
+                    resolved = Path(rendered)
+                    if not resolved.is_absolute():
+                        resolved = Path(repo) / resolved
+                    base = str(resolved.parent)
+                    return str(resolved), base
+            except Exception:  # noqa: BLE001
+                pass  # fall through to default
+
+    # Default convention: spec/changes/<change_id> under worktree or repo.
+    base_root = wt if wt else repo
+    return f"{base_root}/spec/changes/{cid}", f"{base_root}/spec/changes"
+
+
 def cmd_workflow_meta(args: argparse.Namespace) -> int:
     raw = _load_state(args.state_yaml) or {}
     p = Path(args.state_yaml)
@@ -55,15 +95,14 @@ def cmd_workflow_meta(args: argparse.Namespace) -> int:
     schema = raw.get("schema") or ""
     repo = raw.get("repo_root") or ""
 
+    artifact_dir, workflow_state_dir = _resolve_artifact_dir(cid, repo, wt, schema)
+
     print(f"Workflow: change_id={cid} schema={schema} repo_root={repo}")
     print(f"state_yaml_path={p}")
     if wt:
         print(f"worktree_path={wt}")
-        print(f"artifact_dir={wt}/spec/changes/{cid}")
-        print(f"workflow_state_dir={wt}/spec/changes")
-    else:
-        print(f"artifact_dir={repo}/spec/changes/{cid}")
-        print(f"workflow_state_dir={repo}/spec/changes")
+    print(f"artifact_dir={artifact_dir}")
+    print(f"workflow_state_dir={workflow_state_dir}")
     return 0
 
 
