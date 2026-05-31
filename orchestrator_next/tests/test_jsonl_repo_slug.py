@@ -1,4 +1,9 @@
-"""Claude Code project slug must match ~/.claude/projects/<slug>/ on disk."""
+"""Chat-driver slug helper: must match ~/.claude/projects/<slug>/ on disk.
+
+``jsonl_usage._repo_slug`` is chat-driver-only (orc-111). The dashboard mirrors
+the same normalization in ``ui/dashboard/server.py::_repo_slug`` without importing
+this module — update both if the rules change.
+"""
 from __future__ import annotations
 
 from orchestrator_next.jsonl_usage import _repo_slug
