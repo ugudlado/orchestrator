@@ -38,18 +38,14 @@ def check_implement_complete(state_yaml: str) -> dict[str, Any]:
     if not isinstance(state, dict):
         raise ValueError("state.yaml must be a mapping")
     if state.get("status") == "completed":
-        # Allow re-entry when complete-phase steps are still pending (e.g. archived
-        # state where merge-to-main / remove-worktree never ran).
-        schema_check = str(state.get("schema") or "")
+        # Allow re-entry when DAG nodes are still pending (e.g. archived state where
+        # merge-to-main / remove-worktree never ran). Check the actual nodes rather
+        # than cross-referencing the current schema — the seeded DAG may predate
+        # schema changes (e.g. ORC-108 removed complete-phase steps from feature.yaml).
         phase_check = str(state.get("phase") or "main")
         nodes_check = (state.get("workflow_plan") or {}).get(phase_check, {}).get("nodes") or []
-        try:
-            complete_ids_check = set(_complete_step_ids(schema_check)) if schema_check else set()
-        except ValueError:
-            complete_ids_check = set()
         has_pending = any(
             isinstance(n, dict)
-            and str(n.get("id") or "") in complete_ids_check
             and str(n.get("status") or "pending") not in ("completed", "skipped")
             for n in nodes_check
         )
@@ -60,11 +56,22 @@ def check_implement_complete(state_yaml: str) -> dict[str, Any]:
     if not schema:
         raise ValueError("state.yaml missing schema")
 
-    complete_ids = set(_complete_step_ids(schema))
     phase = str(state.get("phase") or "main")
     nodes = (state.get("workflow_plan") or {}).get(phase, {}).get("nodes")
     if not isinstance(nodes, list) or not nodes:
         raise ValueError(f"workflow_plan.{phase}.nodes is missing or empty")
+
+    # Derive complete-phase step ids from the schema if available; fall back to
+    # scanning the DAG for the anchor when the schema has drifted (e.g. feature.yaml
+    # no longer carries complete-phase steps after ORC-108).
+    try:
+        complete_steps_ordered = _complete_step_ids(schema)
+    except ValueError:
+        node_ids = [str(n.get("id") or "") for n in nodes if isinstance(n, dict)]
+        if _COMPLETE_ANCHOR not in node_ids:
+            raise
+        complete_steps_ordered = node_ids[node_ids.index(_COMPLETE_ANCHOR):]
+    complete_ids = set(complete_steps_ordered)
 
     blocked: list[str] = []
     auto_completed: list[str] = []
@@ -97,7 +104,7 @@ def check_implement_complete(state_yaml: str) -> dict[str, Any]:
             auto_completed.append(nid)
 
     next_id = None
-    for sid in _complete_step_ids(schema):
+    for sid in complete_steps_ordered:
         for node in nodes:
             if isinstance(node, dict) and str(node.get("id") or "") == sid:
                 if str(node.get("status") or "") != "completed":
