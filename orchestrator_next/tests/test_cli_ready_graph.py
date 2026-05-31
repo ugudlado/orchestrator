@@ -63,21 +63,6 @@ def _env(contracts):
     }
 
 
-def test_ready_prints_json_array_of_ready_node_ids(tmp_path):
-    """`orchestrator ready <state.yaml>` prints a JSON array of ready node ids
-    and exits 0."""
-    nodes = [
-        {"id": "a", "status": "completed"},
-        {"id": "b", "status": "pending"},
-        {"id": "c", "status": "pending"},
-    ]
-    sp, contracts = _write_state(tmp_path, nodes)
-    result = _run(["ready", sp], env=_env(contracts))
-    assert result.returncode == 0, f"stderr: {result.stderr}"
-    parsed = json.loads(result.stdout)
-    assert parsed == ["b"], f"expected ['b'], got {parsed!r}"
-
-
 def test_graph_prints_mermaid_flowchart(tmp_path):
     """`orchestrator graph <state.yaml>` prints a Mermaid flowchart TD with one
     entry per node labelled by status and exits 0."""
@@ -94,16 +79,14 @@ def test_graph_prints_mermaid_flowchart(tmp_path):
     assert "completed" in out and "pending" in out
 
 
-def test_ready_and_graph_leave_state_byte_unchanged(tmp_path):
-    """Both verbs are read-only — state.yaml is byte-identical afterward."""
+def test_graph_leaves_state_byte_unchanged(tmp_path):
+    """`graph` is read-only — state.yaml is byte-identical afterward."""
     nodes = [
         {"id": "a", "status": "completed"},
         {"id": "b", "status": "pending"},
     ]
     sp, contracts = _write_state(tmp_path, nodes)
     before = open(sp, "rb").read()
-    _run(["ready", sp], env=_env(contracts))
-    assert open(sp, "rb").read() == before, "`ready` mutated state.yaml"
     _run(["graph", sp], env=_env(contracts))
     assert open(sp, "rb").read() == before, "`graph` mutated state.yaml"
 

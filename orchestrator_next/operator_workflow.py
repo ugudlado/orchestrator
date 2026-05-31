@@ -1,6 +1,6 @@
 """Run operator workflows (script-only steps).
 
-Used by `orchestrator telemetry` and `orchestrator learn` / `orchestrator workflow-learner`.
+Used by `orchestrator telemetry`.
 The CLI is a thin driver; step `params` in contract.yaml supply defaults (overridable via env).
 """
 from __future__ import annotations
@@ -132,11 +132,12 @@ def run_script_step(
         return 3
 
     step_env = _script_subprocess_env(step_id, env, workflow_params=workflow_params)
-    home = step_env.get("ORCHESTRATOR_HOME", "")
+    from orchestrator_next.paths import config_root as _config_root
+    croot = str(_config_root())
     step_env = apply_step_paths(
-        step_env, step_id=step_id, contract=contract, orchestrator_home=home
+        step_env, step_id=step_id, contract=contract, config_root=croot
     )
-    cmd = build_step_command(step_id, contract, home)
+    cmd = build_step_command(step_id, contract, croot)
 
     proc = subprocess.run(
         cmd,

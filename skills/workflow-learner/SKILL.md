@@ -1,6 +1,6 @@
 ---
 name: workflow-learner
-description: "Evaluate workflow compliance and route learnings to step contracts and project.yaml. Usually invoked after `orchestrator learn` metrics prep."
+description: "Evaluate workflow compliance and route learnings to step contracts and project.yaml. Invoked by the run-learn-cycle step in the complete/autopilot workflows."
 user-invocable: true
 ---
 
@@ -73,7 +73,7 @@ Collect the evaluator's inputs from state.yaml:
 
 Before evaluating, scan archived state.yaml files across recent features to detect systemic retry patterns.
 
-1. **Collect archive data**: Prefer `learn_metrics.retry_hotspots_csv` from `orchestrator learn` prep (stdout JSON). Else run `orchestrator_next/scripts/metrics/metrics-query.sh retry-hotspots --fleet --limit 10`; if that exits non-zero or returns empty, fall back to listing `spec/changes/archive/*/state.yaml` sorted by modification time (most recent first, limit 10). For each record, extract:
+1. **Collect archive data**: Prefer `learn_metrics.retry_hotspots_csv` when the run-learn-cycle step supplied it (stdout JSON). Else run `orchestrator_next/scripts/metrics/metrics-query.sh retry-hotspots --fleet --limit 10`; if that exits non-zero or returns empty, fall back to listing `spec/changes/archive/*/state.yaml` sorted by modification time (most recent first, limit 10). For each record, extract:
    - `feature_id`
    - `step_history[].retries` (retry count per step entry)
    - `step_history[].retry_reasons[]` (list of reason strings per retry)

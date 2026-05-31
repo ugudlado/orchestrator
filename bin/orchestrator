@@ -61,13 +61,10 @@ def _usage() -> None:
         "      Terminal metrics report (config/workflows/telemetry.yaml; params in step contract).\n"
         "  orchestrator dashboard\n"
         "      Live web UI over metrics.duckdb (ui/dashboard/; also `make dashboard`).\n"
-        "  orchestrator learn <change-id>\n"
-        "  orchestrator workflow-learner <change-id>  # alias\n"
         "  orchestrator run <ticket-id> [--schema feature|bugfix] [--repo PATH] [flag=value ...]\n"
         "      Explicit form when not using a workflow subcommand name.\n"
         "  orchestrator next <state.yaml>\n"
         "  orchestrator done <state.yaml>   # JSON payload on stdin\n"
-        "  orchestrator ready <state.yaml>  # JSON array of ready node ids\n"
         "  orchestrator graph <state.yaml>  # Mermaid flowchart of the phase DAG\n"
         "  orchestrator expand-plan <state.yaml>  # append task-nodes from tasks.yaml\n"
         "  orchestrator doctor",
@@ -183,23 +180,6 @@ def _append_in_progress_state_entry_if_absent(
             _f.write(_pre_write_bytes)
 
 
-def _ready_verb(state_yaml_path: str) -> None:
-    """`orchestrator ready` — print a JSON array of all ready node ids, exit 0.
-
-    Read-only: no state.yaml write, no DuckDB.
-    """
-    import json as _json
-    from orchestrator_next.parser import load_state
-    from orchestrator_next import readiness
-    try:
-        state = load_state(state_yaml_path)
-    except (FileNotFoundError, ValueError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        sys.exit(3)
-    print(_json.dumps(readiness.ready_nodes(state), sort_keys=True, indent=2))
-    sys.exit(0)
-
-
 def _graph_verb(state_yaml_path: str) -> None:
     """`orchestrator graph` — print a Mermaid flowchart of the phase DAG, exit 0.
 
@@ -217,7 +197,7 @@ def _graph_verb(state_yaml_path: str) -> None:
 
 
 # Operator workflows: dedicated drivers (no ticket-id subcommand form).
-_OPERATOR_SCHEMAS = frozenset({"telemetry", "workflow-learner"})
+_OPERATOR_SCHEMAS = frozenset({"telemetry"})
 
 
 def _workflow_subcommands() -> set[str]:
@@ -245,15 +225,15 @@ def main() -> None:
     # Stage C: ingest-driver and ingest-subagents removed from accepted verbs.
     # 'record' kept for silent backward-compat (one cycle) but absent from the banner.
     _wf_subcommands = _workflow_subcommands()
-    _operator_verbs = ("telemetry", "workflow-learner", "learn", "dashboard")
+    _operator_verbs = ("telemetry", "dashboard")
     _core_verbs = (
-        "next", "done", "record", "ready", "graph", "doctor", "expand-plan", "run",
+        "next", "done", "record", "graph", "doctor", "expand-plan", "run",
         *_operator_verbs,
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
     if len(args) < 2 and args[0] in (
-        "next", "record", "done", "ready", "graph", "expand-plan", "run",
+        "next", "record", "done", "graph", "expand-plan", "run",
     ) or (len(args) < 2 and args[0] in _wf_subcommands):
         _usage()
     if args[0] == "telemetry":
@@ -261,9 +241,6 @@ def main() -> None:
         return
     if args[0] == "dashboard":
         _dashboard_verb(args[1:])
-        return
-    if args[0] in ("workflow-learner", "learn"):
-        _shell_workflow_verb(args[1:], "orchestrator-workflow-learner.sh")
         return
 
     # ORC-108: each config/workflows/<name>.yaml is a CLI subcommand → orchestrator-run.sh.
@@ -281,9 +258,7 @@ def main() -> None:
         from orchestrator_next.record import main as record_main
         sys.exit(record_main(sys.argv[1:]))
 
-    # ORC-63: read-only DAG-visibility verbs — no state.yaml write, no DuckDB.
-    if args[0] == "ready":
-        _ready_verb(args[1])
+    # ORC-63: read-only DAG-visibility verb — no state.yaml write, no DuckDB.
     if args[0] == "graph":
         _graph_verb(args[1])
 

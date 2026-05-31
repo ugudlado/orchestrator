@@ -141,7 +141,6 @@ quality_bar:
 | `orchestrator next <state.yaml>` | Dispatch next step |
 | `orchestrator done <state.yaml>` | Append step event (JSON on stdin) |
 | `orchestrator graph <state.yaml>` | Render Mermaid DAG |
-| `orchestrator ready <state.yaml>` | List ready node IDs |
 | `orchestrator expand-plan` | Append task-nodes to plan |
 | `orchestrator doctor` | Run diagnostics |
 
