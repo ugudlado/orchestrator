@@ -46,10 +46,10 @@ def _load_routes() -> dict:
     ORC-105: merged from scripts/routes.yaml into config/agents.yaml. Falls
     back to the legacy path so older installs / worktrees still resolve.
     """
-    home = _orchestrator_home()
-    path = home / "config" / "agents.yaml"
+    from orchestrator_next.paths import config_root
+    path = config_root() / "agents.yaml"
     if not path.is_file():
-        path = home / "scripts" / "routes.yaml"  # legacy fallback
+        path = _orchestrator_home() / "scripts" / "routes.yaml"  # legacy fallback
     try:
         with open(path) as f:
             return yaml.safe_load(f) or {}
@@ -304,7 +304,7 @@ def main(argv: "list[str] | None" = None) -> int:
     """CLI entry point: price a caller-supplied list of agents.
 
     Parses `--agents <name> …` (required, non-empty). Resolves the metrics DB
-    via $METRICS_DB else $ORCHESTRATOR_HOME/metrics.duckdb. Prints a JSON array
+    via $METRICS_DB else the CLI install location. Prints a JSON array
     of one object per agent to stdout, with keys: agent, backend, model,
     input_usd, output_usd, cache_read_usd, cache_creation_usd.
 
@@ -330,11 +330,10 @@ def main(argv: "list[str] | None" = None) -> int:
     # argparse exits 2 with a usage error on stderr for a missing/empty --agents.
     args = parser.parse_args(argv)
 
-    # Resolve the metrics DB path — same convention as record.py main().
-    db_path_str = os.environ.get("METRICS_DB")
-    if not db_path_str:
-        db_path_str = str(_orchestrator_home() / "metrics.duckdb")
-    db_path = Path(db_path_str)
+    # Resolve the metrics DB path — engine state, pinned to the CLI location
+    # (METRICS_DB override), independent of where the workflow config lives.
+    from orchestrator_next.paths import metrics_db_path
+    db_path = metrics_db_path()
 
     # D-2: DB absent → fail loud. No fabricated rates, no stdout.
     if not db_path.exists():

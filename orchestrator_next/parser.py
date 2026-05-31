@@ -127,10 +127,10 @@ def _contract_search_dirs(state_yaml_path: str) -> list[str]:
     if workflow_dir:
         dirs.append(os.path.join(workflow_dir, "config", "steps"))
 
-    # Canonical: $ORCHESTRATOR_HOME/config/steps/
-    home = os.environ.get("ORCHESTRATOR_HOME", "")
-    if home:
-        dirs.append(os.path.join(home, "config", "steps"))
+    # Canonical: the config root's steps/ dir (ORCHESTRATOR_CONFIG, else
+    # ORCHESTRATOR_HOME/config, else <cwd>/config — see paths.config_root).
+    from orchestrator_next.paths import config_root
+    dirs.append(str(config_root() / "steps"))
 
     return dirs
 
@@ -354,9 +354,9 @@ def _load_contract(step_id: str, state_yaml_path: str) -> StepContract:
             kind = "script" if data.get("run") else "agent"
             run_raw = data.get("run")
             if run_raw and not os.path.isabs(run_raw):
-                # Legacy flat-file run: paths are relative to $ORCHESTRATOR_HOME/config/
-                home = os.environ.get("ORCHESTRATOR_HOME", "")
-                run = os.path.join(home, "config", run_raw) if home else run_raw
+                # Legacy flat-file run: paths are relative to the config root.
+                from orchestrator_next.paths import config_root
+                run = str(config_root() / run_raw)
             else:
                 run = run_raw
             instruction = data.get("instruction", "")

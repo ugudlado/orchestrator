@@ -39,11 +39,11 @@ def _apply_home_paths(env: dict[str, str]) -> None:
         if default:
             home = default
             env["ORCHESTRATOR_HOME"] = home
+    # Metrics is engine state, pinned to the CLI location — resolved
+    # independently of `home` (the config var). See paths.metrics_db_path.
+    from orchestrator_next.paths import metrics_db_path
+    env.setdefault("METRICS_DB", os.environ.get("METRICS_DB") or str(metrics_db_path()))
     if home:
-        env.setdefault(
-            "METRICS_DB",
-            os.environ.get("METRICS_DB") or str(Path(home) / "metrics.duckdb"),
-        )
         env["ORCHESTRATOR_SCRIPTS_DIR"] = str(Path(home) / "orchestrator_next" / "scripts")
 
 

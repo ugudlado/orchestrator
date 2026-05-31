@@ -30,6 +30,10 @@ _WORKTREE_ROOT = os.path.dirname(_BIN_DIR)
 # ORC-106: orchestrator_next package lives at the repo root (was config/scripts/).
 _SCRIPTS_DIR = _WORKTREE_ROOT
 
+# Config root: ORCHESTRATOR_HOME when set (portable install); fall back to the
+# repo root so the dev checkout works without any env var.
+_ORCH_HOME = os.environ.get("ORCHESTRATOR_HOME") or _WORKTREE_ROOT
+
 # Insert at position 0 so project modules take precedence over any installed packages.
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
@@ -76,7 +80,7 @@ def _shell_workflow_verb(argv: list[str], script_name: str) -> None:
     """Delegate to an orchestrator_next/scripts/*.sh driver."""
     import subprocess as _sp
 
-    _sh = os.path.join(_WORKTREE_ROOT, "orchestrator_next", "scripts", script_name)
+    _sh = os.path.join(_ORCH_HOME, "orchestrator_next", "scripts", script_name)
     if not os.path.isfile(_sh):
         print(f"error: {script_name} not found at {_sh}", file=sys.stderr)
         sys.exit(7)
@@ -224,7 +228,8 @@ def _workflow_subcommands() -> set[str]:
     code change. Falls back to the empty set if the dir is unreadable.
     """
     import glob
-    wf_dir = os.path.join(_WORKTREE_ROOT, "config", "workflows")
+    from orchestrator_next.paths import config_root
+    wf_dir = str(config_root() / "workflows")
     try:
         return {
             os.path.splitext(os.path.basename(p))[0]
@@ -315,13 +320,11 @@ def main() -> None:
 
     # Upsert terminal step_history entries into metrics.duckdb and reconcile
     # in_progress state against DB truth before dispatch.
-    # DB path: METRICS_DB env var, falling back to $ORCHESTRATOR_HOME/metrics.duckdb.
-    # Skip silently if ORCHESTRATOR_HOME is not set (test/offline mode).
-    _metrics_db_path = os.environ.get("METRICS_DB") or (
-        os.path.join(os.environ["ORCHESTRATOR_HOME"], "metrics.duckdb")
-        if os.environ.get("ORCHESTRATOR_HOME")
-        else None
-    )
+    # Metrics is engine state, pinned to the CLI install location (METRICS_DB
+    # override) — resolved independently of the config var so telemetry never
+    # goes dark just because ORCHESTRATOR_CONFIG/_HOME is unset.
+    from orchestrator_next.paths import metrics_db_path as _metrics_db_path_fn
+    _metrics_db_path = str(_metrics_db_path_fn())
     _cost_so_far = 0.0
     _db = None
     try:
@@ -470,19 +473,20 @@ def main() -> None:
             _step_id = action["step_id"]
             _contract = _load_step_contract(_step_id, state_yaml_path)
             _script_env = _inline_script_env(state, state_yaml_path, action.get("env", {}))
-            _orch_home = _script_env.get("ORCHESTRATOR_HOME") or _WORKTREE_ROOT
+            from orchestrator_next.paths import config_root as _config_root
+            _croot = str(_config_root())
             _script_env = _apply_step_paths(
                 _script_env,
                 step_id=_step_id,
                 contract=_contract,
-                orchestrator_home=_orch_home,
+                config_root=_croot,
             )
             # Merge contract params: lower priority than env vars already set
             from orchestrator_next.operator_workflow import load_step_params as _load_step_params
             for _k, _v in _load_step_params(_step_id).items():
                 _script_env.setdefault(_k, _v)
             try:
-                _run_cmd = _build_step_cmd(_step_id, _contract, _orch_home)
+                _run_cmd = _build_step_cmd(_step_id, _contract, _croot)
             except (FileNotFoundError, ValueError) as _exc:
                 print(f"error: {_exc}", file=sys.stderr)
                 sys.exit(3)

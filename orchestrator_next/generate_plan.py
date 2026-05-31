@@ -28,18 +28,10 @@ from orchestrator_next import parser as _parser
 # ---------------------------------------------------------------------------
 
 
-def _orchestrator_home() -> Path:
-    """Return ORCHESTRATOR_HOME as a Path, or raise if unset."""
-    home = os.environ.get("ORCHESTRATOR_HOME", "")
-    if not home:
-        raise EnvironmentError("ORCHESTRATOR_HOME is not set")
-    return Path(home)
-
-
 def _load_schema(schema_name: str) -> dict[str, Any]:
     """Load a workflow schema YAML by name."""
-    home = _orchestrator_home()
-    path = home / "config" / "workflows" / f"{schema_name}.yaml"
+    from orchestrator_next.paths import config_root
+    path = config_root() / "workflows" / f"{schema_name}.yaml"
     if not path.is_file():
         raise FileNotFoundError(f"Schema file not found: {path}")
     with open(path, "r", encoding="utf-8") as f:

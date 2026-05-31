@@ -1933,11 +1933,10 @@ def main(argv: list[str]) -> int:
         print(f"error: invalid JSON payload — {exc}", file=sys.stderr)
         return 3
 
-    # Resolve the metrics DB path: METRICS_DB env var, else $ORCHESTRATOR_HOME/metrics.duckdb.
-    db_path_str = os.environ.get("METRICS_DB")
-    if not db_path_str:
-        db_path_str = str(_orchestrator_home() / "metrics.duckdb")
-    db_path = Path(db_path_str)
+    # Resolve the metrics DB path — engine state pinned to the CLI location
+    # (METRICS_DB override), independent of where the workflow config lives.
+    from orchestrator_next.paths import metrics_db_path
+    db_path = metrics_db_path()
 
     db = None
     if db_path.exists():
