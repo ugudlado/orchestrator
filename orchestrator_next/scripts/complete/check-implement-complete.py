@@ -38,7 +38,23 @@ def check_implement_complete(state_yaml: str) -> dict[str, Any]:
     if not isinstance(state, dict):
         raise ValueError("state.yaml must be a mapping")
     if state.get("status") == "completed":
-        raise ValueError("workflow already completed")
+        # Allow re-entry when complete-phase steps are still pending (e.g. archived
+        # state where merge-to-main / remove-worktree never ran).
+        schema_check = str(state.get("schema") or "")
+        phase_check = str(state.get("phase") or "main")
+        nodes_check = (state.get("workflow_plan") or {}).get(phase_check, {}).get("nodes") or []
+        try:
+            complete_ids_check = set(_complete_step_ids(schema_check)) if schema_check else set()
+        except ValueError:
+            complete_ids_check = set()
+        has_pending = any(
+            isinstance(n, dict)
+            and str(n.get("id") or "") in complete_ids_check
+            and str(n.get("status") or "pending") not in ("completed", "skipped")
+            for n in nodes_check
+        )
+        if not has_pending:
+            raise ValueError("workflow already completed")
 
     schema = str(state.get("schema") or "")
     if not schema:
