@@ -2,4 +2,3 @@ id: mark-change-completed
 version: 2
 kind: script
 run: script.sh
-main: mark_change_completed.py

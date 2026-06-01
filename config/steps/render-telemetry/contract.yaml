@@ -2,7 +2,6 @@ id: render-telemetry
 version: 1
 kind: script
 run: script.sh
-main: render_telemetry.py
 params:
   TELEMETRY_SCOPE: recent
   TELEMETRY_FLEET: ""

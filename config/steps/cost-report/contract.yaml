@@ -2,4 +2,3 @@ id: cost-report
 version: 1
 kind: script
 run: script.sh
-main: cost_report_step.py

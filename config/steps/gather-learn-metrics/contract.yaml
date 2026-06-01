@@ -2,7 +2,6 @@ id: gather-learn-metrics
 version: 1
 kind: script
 run: script.sh
-main: gather_learn_metrics.py
 params:
   LEARN_SCOPE: all
   LEARN_RETRY_HOTSPOTS_LIMIT: "10"

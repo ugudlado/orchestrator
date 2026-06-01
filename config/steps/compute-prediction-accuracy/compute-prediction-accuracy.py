@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """compute-prediction-accuracy.py — compute planning-accuracy metrics.
 
-Port of the prose in config/steps/compute-prediction-accuracy.yaml.
-
 Env inputs:
   STATE_YAML_PATH  — path to the workflow's state.yaml (required)
   REPO_ROOT        — repo root for git diff (required)
