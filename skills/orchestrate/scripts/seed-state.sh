@@ -98,8 +98,7 @@ PYEOF
 ) || exit 1
 
 # ---------------------------------------------------------------------------
-# Worktree creation (before any file writes so STATE_DIR resolves correctly).
-# ORC-108: every run is isolated in its own worktree — unconditional.
+# Worktree creation — isolated branch for implementation artifacts.
 # ---------------------------------------------------------------------------
 
 BRANCH="$SCHEMA/$SLUG"
@@ -117,10 +116,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Resolve STATE_DIR and write state.yaml — state always lives in the worktree.
+# Resolve STATE_DIR — state lives in ~/.config/orchestrator/<repo>/<slug>/,
+# independent of the worktree so the engine can always find it.
 # ---------------------------------------------------------------------------
 
-STATE_DIR="$WORKTREE_PATH/spec/changes/$SLUG"
+REPO_NAME=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null \
+    | sed 's/.*[:/]\([^/]*\)\.git$/\1/' \
+    | sed 's/.*[:/]\([^/]*\)$/\1/' \
+    || basename "$REPO_ROOT")
+STATE_DIR="$HOME/.config/orchestrator/$REPO_NAME/$SLUG"
 STATE_YAML="$STATE_DIR/state.yaml"
 
 if [[ -f "$STATE_YAML" ]]; then

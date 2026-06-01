@@ -13,7 +13,32 @@ spans every repo the CLI drives — the cross-repo dashboard depends on that.
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 from pathlib import Path
+
+
+def _remote_origin_slug(repo_root: str) -> str:
+    """Derive a short repo name from git remote origin.
+
+    Handles both SSH (git@github.com:org/repo.git) and HTTPS
+    (https://github.com/org/repo.git) remote URLs. Falls back to the
+    basename of repo_root when no remote is configured.
+    """
+    try:
+        url = subprocess.check_output(
+            ["git", "-C", repo_root, "remote", "get-url", "origin"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        # Strip .git suffix, then take the last path component.
+        name = re.sub(r"\.git$", "", url)
+        name = name.split("/")[-1].split(":")[-1]
+        if name:
+            return name
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return os.path.basename(repo_root.rstrip("/"))
 
 
 def _cli_root() -> Path:
@@ -38,6 +63,17 @@ def metrics_db_path() -> Path:
     if override:
         return Path(override)
     return _cli_root() / "metrics.duckdb"
+
+
+def state_dir(repo_root: str, slug: str) -> Path:
+    """Canonical state directory: ~/.config/orchestrator/<repo-name>/<slug>/
+
+    repo-name is derived from git remote origin (last path component, no .git).
+    Falls back to basename of repo_root when no remote is configured.
+    This is the only place that owns this convention.
+    """
+    repo_name = _remote_origin_slug(repo_root)
+    return Path("~/.config/orchestrator").expanduser() / repo_name / slug
 
 
 def config_root() -> Path:
