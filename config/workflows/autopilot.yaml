@@ -16,7 +16,9 @@ steps:
   - ticket-start # ticket -> In Progress
   - capture-test-baseline
   - implement-tasks
+  - ticket-review # ticket -> Code Review
   - run-phase-review # automated — loops on needs_work, abandons on retry exhaustion (no human gate)
+  - ticket-qa # ticket -> QA Review
   - run-learn-cycle
   - mark-change-completed
   - archive-completed-change
