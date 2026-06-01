@@ -9,7 +9,6 @@
 ## Outputs
 
 - `learn_result`
-- `backlog_tickets_synced`
 
 ## Instructions
 
@@ -26,29 +25,15 @@ Run the workflow learning pipeline for this completed change.
    update, decay evaluation, and quality bar adjustment per the workflow-learner
    agent pipeline.
 
-3. Sync retro.md to backlog. Read `<state_dir>/retro.md` if present and parse
-   each `## ISSUE-N` block. For each issue whose `fix_direction` is non-empty
-   and not already addressed, invoke the `backlog-manager` skill to triage —
-   hand it the issue's title, category, severity, surfaced_at, detail,
-   fix_direction, and dedup_key. The skill owns dedup-against-existing
-   tickets (by dedup_key as a stable suffix or by title match), priority
-   assignment, and selecting the active backend (Linear vs Backlog.md). Do
-   not shell out to `backlog`/Linear CLIs directly — let the skill handle
-   backend routing. Collect the ticket ids the skill returns into
-   `backlog_tickets_synced` for the COMPLETION outputs. If retro.md is
-   absent or empty, set `backlog_tickets_synced: []` and continue.
+3. If learning fails for any reason: log learn_skipped: true and return success.
+   Learning is best-effort and must not fail the complete phase.
 
-4. If learning or sync fails for any reason: log learn_skipped: true (or
-   continue with partial sync) and return success. Both learning and sync
-   are best-effort and must not fail the complete phase.
-
-5. Return COMPLETION:
+4. Return COMPLETION:
    ```
    COMPLETION:
      status: completed
      outputs:
        learn_result: <completed|skipped>
-       backlog_tickets_synced: [<list of ticket ids, or empty>]
    ```
 
 ### Rules (constraints on how)
@@ -63,4 +48,3 @@ Run the workflow learning pipeline for this completed change.
 - Step completed (either learn_completed or learn_skipped recorded)
 - If learn_completed: /learn produced output (check for cycle metrics or rule updates)
 - If learn_skipped: learn_error contains a meaningful reason
-- retro.md issues with non-empty fix_direction have a corresponding entry in backlog_tickets_synced (or backlog_tickets_synced is [] when retro.md is absent)

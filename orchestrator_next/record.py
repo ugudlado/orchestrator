@@ -49,23 +49,6 @@ _STATE_PATCH_KEYS = frozenset({
 _PHASE_REVIEW_VERDICTS = frozenset({"pass", "needs_work", "incomplete_phase"})
 
 
-def _resolve_append_retro_script(repo_root: str) -> str:
-    """Path to append-retro.sh for workflow_issues handling."""
-    candidates: list[str] = []
-    home = os.environ.get("ORCHESTRATOR_HOME", "")
-    if home:
-        candidates.append(
-            os.path.join(home, "orchestrator_next", "scripts", "complete", "append-retro.sh")
-        )
-    if repo_root:
-        candidates.append(
-            os.path.join(repo_root, "orchestrator_next", "scripts", "complete", "append-retro.sh")
-        )
-    for path in candidates:
-        if os.path.isfile(path):
-            return path
-    return ""
-
 # Task tool result text embeds the subagent JSONL stem on its own line.
 _AGENT_ID_FROM_TASK_RESULT_RE = re.compile(r"agentId:\s*([a-f0-9]{17})")
 
@@ -1752,6 +1735,28 @@ def record(
     if next_step:
         state_raw["next_step"] = next_step
 
+    # Accumulate workflow_issues from this step's payload into state.yaml.
+    # Dedup by dedup_key when present; stamp surfaced_at from phase/step_id.
+    _incoming_issues = payload.get("workflow_issues")
+    if isinstance(_incoming_issues, list) and _incoming_issues:
+        _existing = state_raw.get("workflow_issues")
+        if not isinstance(_existing, list):
+            _existing = []
+        _seen_dedup_keys = {
+            i.get("dedup_key") for i in _existing if isinstance(i, dict) and i.get("dedup_key")
+        }
+        for _issue in _incoming_issues:
+            if not isinstance(_issue, dict):
+                continue
+            _dk = (_issue.get("dedup_key") or "").strip()
+            if _dk and _dk in _seen_dedup_keys:
+                continue
+            _issue.setdefault("surfaced_at", f"{phase}/{step_id}")
+            _existing.append(_issue)
+            if _dk:
+                _seen_dedup_keys.add(_dk)
+        state_raw["workflow_issues"] = _existing
+
     with open(path, "w") as f:
         yaml.safe_dump(state_raw, f, sort_keys=False, default_flow_style=False)
 
@@ -1917,45 +1922,14 @@ def record(
                         5,
                     )  # fatal non-zero exit
 
-    # Workflow-issue retro: if the payload carries workflow_issues, append
-    # each one to spec/changes/<change_id>/retro.md. Best-effort — any
-    # failure here never blocks the record.
-    _retro_appended = 0
-    issues = payload.get("workflow_issues")
-    if isinstance(issues, list) and issues:
-        worktree = state_raw.get("worktree_path") or state_raw.get("repo_root") or ""
-        change_id = state_raw.get("change_id") or state_raw.get("slug") or ""
-        if worktree and change_id:
-            try:
-                import os as _os
-                import subprocess as _sp
-                script = _resolve_append_retro_script(str(state_raw.get("repo_root") or ""))
-                if script:
-                    for issue in issues:
-                        # per-issue phase/step fallback
-                        issue.setdefault("surfaced_at", f"{phase}/{step_id}")
-                    env = {
-                        **_os.environ,
-                        "WORKTREE_PATH": _os.path.expanduser(str(worktree)),
-                        "CHANGE_ID": str(change_id),
-                        "ISSUES_JSON": json.dumps(issues),
-                    }
-                    result = _sp.run(["bash", script], env=env, capture_output=True, text=True)
-                    if result.returncode == 0 and result.stdout.strip():
-                        try:
-                            _retro_appended = int(json.loads(result.stdout.strip()).get("appended", 0))
-                        except Exception:
-                            _retro_appended = 0
-            except Exception as exc:  # noqa: BLE001 — retro logging is best-effort
-                sys.stderr.write(f"[record] retro append failed: {exc}\n")
-
     response: dict[str, Any] = {
         "step_id": step_id,
         "attempt": entry["attempt"],
         "next_step": next_step,
     }
-    if _retro_appended:
-        response["retro_appended"] = _retro_appended
+    _issues_recorded = len(state_raw.get("workflow_issues") or [])
+    if _issues_recorded:
+        response["issues_recorded"] = _issues_recorded
     return (response, 0)
 
 
