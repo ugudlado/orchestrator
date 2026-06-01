@@ -13,10 +13,8 @@ steps:
   - explore
   - design-and-draft-artifacts
   - id: design-review
-    on_success: preview-route
     on_failure: design-and-draft-artifacts
     max_retries: 3
-  - preview-route
   - ticket-start # ticket -> In Progress
   - capture-test-baseline
   - implement-tasks

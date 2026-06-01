@@ -30,29 +30,6 @@ def _read(rel_path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# FR-3: preview-route.yaml outputs uses bareword `route_preview`, not prose phrase
-# ---------------------------------------------------------------------------
-
-def test_fr3_preview_route_script_path():
-    """config/steps/preview-route/contract.yaml run: must point to the step script.
-
-    Must NOT contain the literal phrase 'state.yaml route_preview block'.
-    In the directory form, run: is 'script.sh' (relative to the contract dir).
-    """
-    content = _read("config/steps/preview-route/contract.yaml")
-
-    # Must NOT contain the prose phrase
-    assert "state.yaml route_preview block" not in content, (
-        "config/steps/preview-route/contract.yaml still contains 'state.yaml route_preview block'. "
-    )
-
-    # In the directory form run: is 'script.sh' (the step's own script file).
-    assert "run: script.sh" in content, (
-        "config/steps/preview-route/contract.yaml run: must be 'script.sh' (directory form)."
-    )
-
-
-# ---------------------------------------------------------------------------
 # FR-4: spec/project.yaml verify_commands.test starts with pytest
 # ---------------------------------------------------------------------------
 

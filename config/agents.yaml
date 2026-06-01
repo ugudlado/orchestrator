@@ -7,7 +7,6 @@
 #
 # Consumers:
 #   - orchestrator_next/pricing.py                       (agents, models)
-#   - orchestrator_next/scripts/metrics/estimate-cost.sh (preview-route step)
 #   - ui/dashboard/server.py                             (agents, models)
 #   - orchestrator_next/scripts/lib/agent-routes.sh       (agents)
 #   - orchestrator_next/scripts/run-workflow.sh          (agents, tools)
