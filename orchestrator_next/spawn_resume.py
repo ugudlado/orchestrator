@@ -22,7 +22,7 @@ from orchestrator_next.dispatch import (
     _is_spawn_failure,
     _max_spawn_failures,
 )
-from orchestrator_next.parser import _parse_history_entry, load_state
+from orchestrator_next.parser import _parse_history_entry
 
 
 def _resume_step_id(state) -> str | None:

@@ -14,14 +14,10 @@ from collections import namedtuple
 from pathlib import Path
 
 import yaml
-import duckdb
 
 from orchestrator_next import parser as _parser
-from orchestrator_next import upsert as _upsert
 
 CheckResult = namedtuple("CheckResult", "name status detail")
-
-EXPECTED_TABLES = ("step_events", "tool_calls")
 
 
 def _repo_root_from_env(orch_home: Path) -> Path:
@@ -133,32 +129,6 @@ def check_inline_scripts(orch_home: Path) -> CheckResult:
     if failures:
         return CheckResult("inline scripts exist", "FAIL", "; ".join(failures))
     return CheckResult("inline scripts exist", "PASS", "all inline scripts present")
-
-
-# ---------------------------------------------------------------------------
-# Check 6: DuckDB schema
-# ---------------------------------------------------------------------------
-
-def check_duckdb_schema(db_path: Path) -> CheckResult:
-    """FAIL if step_events or tool_calls tables are missing in metrics DB."""
-    conn = None
-    try:
-        conn = duckdb.connect(str(db_path))
-        _upsert.ensure_schema(conn)
-        rows = conn.execute(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
-        ).fetchall()
-        present = {r[0] for r in rows}
-        missing = [t for t in EXPECTED_TABLES if t not in present]
-        if missing:
-            hint = "run `orchestrator next` once or call `ensure_schema()`"
-            return CheckResult("duckdb schema", "FAIL", f"missing tables: {', '.join(missing)}; {hint}")
-        return CheckResult("duckdb schema", "PASS", "schema OK")
-    except Exception as exc:
-        return CheckResult("duckdb schema", "FAIL", str(exc))
-    finally:
-        if conn is not None:
-            conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -411,16 +381,11 @@ def _format_table(results: list) -> str:
 def run_all(args) -> int:
     """Run all checks and return exit code 0 (pass/warn) or 2 (any failure)."""
     del args
-    from orchestrator_next.paths import config_root as _config_root, metrics_db_path
+    from orchestrator_next.paths import config_root as _config_root
 
-    # config_root() honors ORCHESTRATOR_CONFIG → ORCHESTRATOR_HOME/config → cwd/config.
-    # ORCHESTRATOR_HOME is optional under the portable model; legacy checks below
-    # take an orch_home param (the config root's parent) but must not require the
-    # env var. repo_root falls back to cwd when neither REPO_ROOT nor HOME is set.
     config_root = _config_root()
     orch_home = config_root.parent
     repo_root = _repo_root_from_env(orch_home)
-    db_path = metrics_db_path()
     results = [
         # Config-folder validation (the 4 portability rules) — anchored on config_root().
         check_config_root(config_root),
@@ -432,7 +397,6 @@ def run_all(args) -> int:
         check_state_valid(),
         check_active_vs_archive(orch_home),
         check_inline_scripts(orch_home),
-        check_duckdb_schema(db_path),
         check_workflow_plans(orch_home),
         check_symlinks(repo_root, orch_home),
         check_contract_template_graph(repo_root, orch_home),

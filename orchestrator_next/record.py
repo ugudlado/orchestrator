@@ -18,7 +18,7 @@ from typing import Any
 
 import yaml
 
-from orchestrator_next.parser import ContractError, State, load_contract_for_step, load_state
+from orchestrator_next.parser import ContractError, State, load_contract_for_step
 from orchestrator_next import readiness
 
 
@@ -80,26 +80,6 @@ def _payload_uses_chat_driver_jsonl(payload: dict[str, Any]) -> bool:
     return bool(usage.get("agent_id"))
 
 
-def _state_uses_chat_driver_jsonl(state_raw: dict[str, Any], payload: dict[str, Any]) -> bool:
-    """True when chat-driver JSONL branches should run for this record() call.
-
-    Shell-driver payloads carry adapter usage only — no agent_task_result or
-    agent_id — and must not trigger ~/.claude JSONL reads. Prior step_history
-    entries enriched with agent_id, or ORCHESTRATOR_DRIVER_SESSION_ID, keep the
-    chat-driver path active for inline final steps.
-    """
-    if _payload_uses_chat_driver_jsonl(payload):
-        return True
-    if os.environ.get("ORCHESTRATOR_DRIVER_SESSION_ID"):
-        return True
-    for entry in state_raw.get("step_history") or []:
-        if not isinstance(entry, dict):
-            continue
-        usage = entry.get("usage") or {}
-        if usage.get("agent_id"):
-            return True
-    return False
-
 
 def _usage_has_tokens(usage: dict[str, Any]) -> bool:
     return (
@@ -141,10 +121,6 @@ def _validate_phase_review_output(
 # ---------------------------------------------------------------------------
 # orc-67: run-phase-review needs_work rework loop
 # ---------------------------------------------------------------------------
-
-# Verdicts that trigger the rework loop — inject fix task-nodes via expand-plan
-# and re-run run-phase-review. `pass` is excluded — it advances linearly.
-_REWORK_VERDICTS = frozenset({"needs_work", "incomplete_phase"})
 
 # Fallback when project.yaml omits quality_bar.max_retry_rounds. Matches the
 # historical verify_block.max_retries default; the repo's own project.yaml
@@ -320,48 +296,6 @@ def _merge_evidence_block(
         return {"outputs": outputs, "commands": raw_evidence}
     return {"outputs": outputs, "detail": raw_evidence}
 
-
-def _payload_phase_review_verdict(payload: dict[str, Any]) -> str | None:
-    """Extract the phase-review verdict from a `done` payload (orc-67).
-
-    Reads `payload.outputs.phase_review_report.verdict` directly (payload-time
-    shape — record nests these under `evidence.outputs` only after appending).
-    Returns None for any non-`run-phase-review` step or absent/malformed report.
-
-    Distinct from `_phase_review_verdict(entry)`, which reads a step_history
-    entry for `extract_review_scores`.
-    """
-    if payload.get("step_id") != "run-phase-review":
-        return None
-    outputs = payload.get("outputs")
-    if not isinstance(outputs, dict):
-        return None
-    report = outputs.get("phase_review_report")
-    if not isinstance(report, dict):
-        return None
-    verdict = report.get("verdict")
-    return verdict if isinstance(verdict, str) else None
-
-
-def _rework_loop_active(
-    verdict: str | None, retries: Any, max_retries: int
-) -> str | None:
-    """Decide the rework-loop action for a run-phase-review verdict (orc-67).
-
-    Returns:
-      - "retry"    — verdict needs rework and retry count < max_retries.
-      - "escalate" — verdict needs rework and retry count >= max_retries.
-      - None       — `pass` / non-rework verdict (advance linearly).
-
-    `retries` is the `state_raw["retries"]` mapping (or anything). A missing
-    key, None, or non-dict is treated as count 0 — never raises.
-    """
-    if verdict not in _REWORK_VERDICTS:
-        return None
-    count = retries.get("run-phase-review", 0) if isinstance(retries, dict) else 0
-    if not isinstance(count, int):
-        count = 0
-    return "retry" if count < max_retries else "escalate"
 
 
 def _max_retry_rounds(state_raw: dict[str, Any]) -> int:
@@ -623,14 +557,7 @@ def _resolve_driver_session(state: dict, change_id: str) -> dict:
     }
 
 
-from orchestrator_next.pricing import (  # noqa: E402,F401
-    _orchestrator_home,
-    _load_routes,
-    _DATED_MODEL_SUFFIX_RE,
-    _lookup_price,
-    _billable_token_units,
-    _compute_cost_usd,
-)
+from orchestrator_next.pricing import _compute_cost_usd  # noqa: E402
 
 
 def _utcnow_iso() -> str:
@@ -638,36 +565,6 @@ def _utcnow_iso() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Phase 5: six computation functions lifted verbatim from
-# scripts/inline/ingest-feature-metrics.py (FR-1).
-# Signatures and logic are byte-equivalent; _SLUG_RE is dropped because
-# upsert_feature_metrics already enforces the slug guard (design.md Component 1).
-# ---------------------------------------------------------------------------
-
-def parse_tasks(tasks_md: Path) -> dict:
-    """Count [x], [ ], and [~] task markers.
-
-    Deprecated: ORC-65 T-13 replaced this with compute_task_counts() which reads
-    from step_history and workflow_plan instead of tasks.md checkboxes.
-    Kept as a shim for any external caller; not used by _resolve_feature_metrics.
-
-    Returns:
-        tasks_total, tasks_completed, tasks_failed, resolve_rate
-    """
-    text = tasks_md.read_text()
-    total = len(re.findall(r"^\s*-\s*\[", text, re.MULTILINE))
-    completed = len(re.findall(r"^\s*-\s*\[x\]", text, re.MULTILINE | re.IGNORECASE))
-    skipped = len(re.findall(r"^\s*-\s*\[~\]", text, re.MULTILINE))
-    failed = total - completed - skipped
-    resolve_rate = completed / total if total > 0 else 0.0
-    return {
-        "tasks_total": total,
-        "tasks_planned": total,
-        "tasks_added": 0,
-        "tasks_completed": completed,
-        "tasks_failed": max(failed, 0),
-        "resolve_rate": round(resolve_rate, 6),
-    }
 
 
 def compute_task_counts(tasks_yaml_path: "Path | None") -> dict:
