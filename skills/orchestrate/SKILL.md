@@ -69,38 +69,12 @@ Then:
 
 If an active state.yaml already exists for this id (the ticket is mid-flight), resume it: read its `next_step` (phase + step_id) and persisted `flags`, and enter the dispatch loop at that point. Tell the user: "Resuming <change_id> at <phase>/<step_id>." (orchestrator-run.sh already performs this resume detection — state.yaml presence drives init vs resume — when driving from the CLI.)
 
-Otherwise this is a new workflow — proceed to sub-step 2.1 to initialize state before entering the dispatch loop. This applies equally to full workflow runs and phase-constrained wrapper calls such as `/specify` (`--phase specify`); artifact-producing steps must never run before init has created the worktree/artifact directory.
-
-#### 2.1 Initialize new workflows
-
-Call the init script:
-
-```
-bash skills/orchestrate/scripts/seed-state.sh <slug> <schema> [flag=value ...]
-```
-
-Arguments:
-- `<slug>` is the change_id / feature slug for this workflow (derived from the request or Linear ticket).
-- `<schema>` is the schema name from the subcommand (e.g. `bugfix`, `feature`, `autopilot`).
-- `[flag=value ...]` are any resolved CLI flag overrides (e.g. `tdd_required=false`).
-
-After the script exits 0, assert that state.yaml exists with a promoted
-workflow plan before proceeding:
-- `$WORKFLOW_STATE_DIR/<slug>/state.yaml` exists, and its
-  `workflow_plan.main.nodes` is a non-empty list.
-
-`generate_plan` promotes the seeded workflow plan into the `nodes` shape in
-place inside state.yaml — there is no separate plan file (ORC-63).
-
-If state.yaml is absent or its workflow plan is unpromoted, the seeder printed an error to stderr — surface it to the user and halt. Do NOT proceed to the dispatch loop with a missing state.yaml (that is the exact bug this step was added to prevent).
-
-The script is the executable init contract. Do not duplicate its workflow-plan, worktree, artifact-dir, or state-stamping logic in this prompt or in wrapper skills. It is idempotent: re-running it when state.yaml already exists exits 0 without overwriting.
+Otherwise this is a new workflow. Shell out to the CLI — `orchestrator-run.sh` seeds state automatically when none exists (idempotent), then drives every step to completion via `run-workflow.sh`. No manual init step needed.
 
 ### 3. Run workflow via shell driver
 
-After init (§2.1) or when resuming with existing state, shell out to the CLI and
-let `orchestrator-run.sh` + `run-workflow.sh` drive every step to completion.
-No in-chat dispatch loop — the shell driver spawns agent subprocesses, records
+Shell out to the CLI and let `orchestrator-run.sh` + `run-workflow.sh` drive every step to completion.
+No in-chat dispatch loop — the shell driver seeds state when needed, spawns agent subprocesses, records
 steps, and handles retries.
 
 ```

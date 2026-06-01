@@ -16,11 +16,7 @@ _WORKTREE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUN_WORKFLOW="$SCRIPT_DIR/run-workflow.sh"
 # shellcheck source=lib/agent-routes.sh
 source "$SCRIPT_DIR/lib/agent-routes.sh"
-SEED_STATE="${ORCHESTRATOR_HOME:-}/skills/orchestrate/scripts/seed-state.sh"
-# When invoked from a dev checkout, prefer repo-local seed + scripts
-if [ -f "$_WORKTREE_ROOT/skills/orchestrate/scripts/seed-state.sh" ]; then
-  SEED_STATE="$_WORKTREE_ROOT/skills/orchestrate/scripts/seed-state.sh"
-fi
+SEED_STATE="$SCRIPT_DIR/seed-state.sh"
 
 TICKET_ID=""
 SCHEMA="feature"
