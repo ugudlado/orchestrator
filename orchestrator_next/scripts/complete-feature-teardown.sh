@@ -12,8 +12,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${REPO_ROOT:-$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)}"
-COMPLETE_DIR="${ORCHESTRATOR_HOME:+$ORCHESTRATOR_HOME/orchestrator_next/scripts/complete}"
-COMPLETE_DIR="${COMPLETE_DIR:-$SCRIPT_DIR/complete}"
 READ_STATE_ENV="$SCRIPT_DIR/lib/read-state-env.sh"
 ARG="${1:-}"
 
@@ -60,5 +58,15 @@ if [ -z "$WORKTREE_PATH" ]; then
 fi
 
 WORKTREE_PATH="${WORKTREE_PATH/#\~/$HOME}"
-export REPO_ROOT WORKTREE_PATH BRANCH
-exec bash "$COMPLETE_DIR/remove-worktree.sh"
+
+if [ ! -d "$WORKTREE_PATH" ]; then
+  printf '%s\n' "{\"removed\": false, \"reason\": \"worktree path missing: $WORKTREE_PATH\"}"
+  exit 0
+fi
+
+git -C "$REPO_ROOT" worktree remove "$WORKTREE_PATH" --force 2>/dev/null || {
+  printf '%s\n' "{\"removed\": false, \"reason\": \"git worktree remove failed\"}"
+  exit 0
+}
+
+printf '%s\n' "{\"removed\": true, \"worktree_path\": \"$WORKTREE_PATH\", \"branch\": \"$BRANCH\", \"branch_deleted\": false}"
