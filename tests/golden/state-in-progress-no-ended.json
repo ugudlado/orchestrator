@@ -1,27 +1,28 @@
 {
-  "action": "resume_step",
-  "agent": "inline",
+  "agent": "developer",
   "attempt": 1,
-  "cost_so_far": 0.0,
   "env": {
     "ORCHESTRATOR_ATTEMPT": "1",
     "ORCHESTRATOR_CHANGE_ID": "test-in-progress",
     "ORCHESTRATOR_PHASE": "implement",
     "ORCHESTRATOR_REPO_ROOT": "",
+    "ORCHESTRATOR_STATE_YAML_PATH": "tests/fixtures/state-in-progress-no-ended.yaml",
     "ORCHESTRATOR_STEP_ID": "step-inline-only",
-    "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow"
+    "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow",
+    "ORCHESTRATOR_WORKTREE_ARTIFACT_DIR": "/tmp/test-workflow/spec/changes"
   },
-  "expected_outputs": [
-    "result"
-  ],
+  "expected_outputs": [],
   "inputs": {},
-  "instruction": "Do the inline work here.\n",
+  "instruction": "",
   "is_resume": true,
+  "learnings": [],
   "phase": "implement",
-  "rules": [
-    "Keep it simple."
-  ],
-  "run": null,
-  "started_at": "2026-04-18T10:00:00Z",
+  "resolved_allowed_tools": [],
+  "rules": [],
+  "started_at": "2026-05-30T21:52:19.110113+00:00",
+  "step_context": {
+    "id": "step-inline-only",
+    "status": "pending"
+  },
   "step_id": "step-inline-only"
 }

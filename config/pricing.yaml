@@ -1,0 +1,76 @@
+# Pricing table — USD per million tokens.
+# Fields: model_id, input_usd, output_usd, cache_read_usd, cache_creation_usd, effective_from
+# is_local: true means the model runs locally (zero cost).
+# __default__ is the fallback when no specific row matches.
+
+models:
+  - model_id: __default__
+    input_usd: 15.0
+    output_usd: 75.0
+    cache_read_usd: 1.5
+    cache_creation_usd: 18.75
+    effective_from: "2025-01-01T00:00:00"
+
+  - model_id: claude-haiku-4-5
+    input_usd: 0.8
+    output_usd: 4.0
+    cache_read_usd: 0.08
+    cache_creation_usd: 1.0
+    effective_from: "2025-01-01T00:00:00"
+
+  - model_id: claude-haiku-4-5-20251001
+    input_usd: 0.8
+    output_usd: 4.0
+    cache_read_usd: 0.08
+    cache_creation_usd: 1.0
+    effective_from: "2025-01-01T00:00:00"
+
+  - model_id: claude-opus-4-5
+    input_usd: 15.0
+    output_usd: 75.0
+    cache_read_usd: 1.5
+    cache_creation_usd: 18.75
+    effective_from: "2025-01-01T00:00:00"
+
+  - model_id: claude-opus-4-6
+    input_usd: 15.0
+    output_usd: 75.0
+    cache_read_usd: 1.5
+    cache_creation_usd: 18.75
+    effective_from: "2025-01-01T00:00:00"
+
+  - model_id: claude-opus-4-7
+    input_usd: 15.0
+    output_usd: 75.0
+    cache_read_usd: 1.5
+    cache_creation_usd: 18.75
+    effective_from: "2025-01-01T00:00:00"
+
+  - model_id: claude-sonnet-4-5
+    input_usd: 3.0
+    output_usd: 15.0
+    cache_read_usd: 0.3
+    cache_creation_usd: 3.75
+    effective_from: "2025-01-01T00:00:00"
+
+  - model_id: claude-sonnet-4-6
+    input_usd: 3.0
+    output_usd: 15.0
+    cache_read_usd: 0.3
+    cache_creation_usd: 3.75
+    effective_from: "2025-01-01T00:00:00"
+
+  - model_id: coder
+    input_usd: 0.0
+    output_usd: 0.0
+    cache_read_usd: 0.0
+    cache_creation_usd: 0.0
+    is_local: true
+    effective_from: "2025-01-01T00:00:00"
+
+  - model_id: qwen/qwen3-coder-30b-a3b-instruct
+    input_usd: 0.25
+    output_usd: 1.0
+    cache_read_usd: 0.25
+    cache_creation_usd: 0.0
+    effective_from: "2025-01-01T00:00:00"

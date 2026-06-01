@@ -1,5 +1,4 @@
 {
-  "action": "run_step",
   "agent": "discoverer",
   "attempt": 1,
   "env": {
@@ -7,20 +6,21 @@
     "ORCHESTRATOR_CHANGE_ID": "test-run-pending",
     "ORCHESTRATOR_PHASE": "implement",
     "ORCHESTRATOR_REPO_ROOT": "",
+    "ORCHESTRATOR_STATE_YAML_PATH": "tests/fixtures/state-pending-runfield.yaml",
     "ORCHESTRATOR_STEP_ID": "step-with-run",
-    "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow"
+    "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow",
+    "ORCHESTRATOR_WORKTREE_ARTIFACT_DIR": "/tmp/test-workflow/spec/changes"
   },
-  "cost_so_far": 0.0,
-  "expected_outputs": [
-    "discovery_result"
-  ],
+  "expected_outputs": [],
   "inputs": {},
-  "instruction": "Run the discoverer adapter.\n",
+  "instruction": "",
+  "learnings": [],
   "phase": "implement",
-  "rules": [
-    "Use the run field.",
-    "Report tokens."
-  ],
-  "run": "config/scripts/adapters/discoverer.py",
+  "resolved_allowed_tools": [],
+  "rules": [],
+  "step_context": {
+    "id": "step-with-run",
+    "status": "pending"
+  },
   "step_id": "step-with-run"
 }

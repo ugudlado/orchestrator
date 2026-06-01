@@ -1,24 +1,26 @@
 {
-  "action": "run_inline",
-  "agent": "inline",
+  "agent": "developer",
   "attempt": 1,
   "env": {
     "ORCHESTRATOR_ATTEMPT": "1",
     "ORCHESTRATOR_CHANGE_ID": "test-inline-pending",
     "ORCHESTRATOR_PHASE": "implement",
     "ORCHESTRATOR_REPO_ROOT": "",
+    "ORCHESTRATOR_STATE_YAML_PATH": "tests/fixtures/state-pending-inline.yaml",
     "ORCHESTRATOR_STEP_ID": "step-inline-only",
-    "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow"
+    "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow",
+    "ORCHESTRATOR_WORKTREE_ARTIFACT_DIR": "/tmp/test-workflow/spec/changes"
   },
-  "cost_so_far": 0.0,
-  "expected_outputs": [
-    "result"
-  ],
+  "expected_outputs": [],
   "inputs": {},
-  "instruction": "Do the inline work here.\n",
+  "instruction": "",
+  "learnings": [],
   "phase": "implement",
-  "rules": [
-    "Keep it simple."
-  ],
+  "resolved_allowed_tools": [],
+  "rules": [],
+  "step_context": {
+    "id": "step-inline-only",
+    "status": "pending"
+  },
   "step_id": "step-inline-only"
 }

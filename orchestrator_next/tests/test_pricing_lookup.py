@@ -1,230 +1,154 @@
-"""T-5 RED: tests for _lookup_price and DuckDB-backed cost compute.
-
-Six scenarios:
-  1. Exact model hit → returns correct rate tuple for claude-sonnet-4-6
-  2. Unknown model → __default__ fallback rates
-  3. Two effective_from rows for same model → latest <= now wins
-  4. Both model and __default__ absent → returns None, emits stderr warning
-  5. db=None → returns None, emits stderr warning (offline/test path)
-  6. Micro-benchmark: 1000 calls on warmed-up connection < 50 ms (NFR-1)
-"""
+"""Tests for file-based pricing lookup (config/pricing.yaml)."""
 from __future__ import annotations
 
 import datetime
 import sys
-import time
+import textwrap
 from io import StringIO
+from pathlib import Path
+from unittest import mock
 
-import duckdb
 import pytest
 
-import os
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
-if _SCRIPTS_DIR not in sys.path:
-    sys.path.insert(0, _SCRIPTS_DIR)
+from orchestrator_next import pricing as _pricing_mod
+from orchestrator_next.pricing import _lookup_price, _compute_cost_usd, _load_pricing_table
 
-import orchestrator_next.record as _record_mod
-from orchestrator_next.record import _lookup_price  # noqa: E402
-from orchestrator_next.upsert import ensure_schema   # noqa: E402
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
 def clear_pricing_cache():
-    """Clear the module-level _pricing_cache before each test.
-
-    _pricing_cache is keyed by id(db). CPython can reuse the same memory
-    address for a new connection after a previous one is GC'd, which would
-    return stale rows from a prior test's connection. Clearing between tests
-    prevents this latent flake.
-    """
-    _record_mod._pricing_cache.clear()
+    _pricing_mod._load_pricing_table.cache_clear()
     yield
-    _record_mod._pricing_cache.clear()
+    _pricing_mod._load_pricing_table.cache_clear()
 
 
-@pytest.fixture()
-def in_memory_db():
-    """In-memory DuckDB with full schema (runs migrations, seeds pricing)."""
-    db = duckdb.connect(":memory:")
-    ensure_schema(db)
-    yield db
-    db.close()
+def _make_pricing_yaml(tmp_path: Path, content: str) -> Path:
+    p = tmp_path / "pricing.yaml"
+    p.write_text(textwrap.dedent(content))
+    return p
 
 
 # ---------------------------------------------------------------------------
-# Reference data (from migration 0001_seed_pricing.sql)
+# _lookup_price
 # ---------------------------------------------------------------------------
 
-_EPOCH = datetime.datetime(2025, 1, 1, 0, 0, 0)  # effective_from for seeded rows
-_NOW = datetime.datetime(2026, 4, 20, 12, 0, 0)   # well after _EPOCH
-
-_SONNET_RATES = {
-    "input": 3.00,
-    "output": 15.00,
-    "cache_read": 0.30,
-    "cache_creation": 3.75,
-}
-
-_DEFAULT_RATES = {
-    "input": 15.00,
-    "output": 75.00,
-    "cache_read": 1.50,
-    "cache_creation": 18.75,
-}
-
-
-# ---------------------------------------------------------------------------
-# Scenario 1: Exact model hit
-# ---------------------------------------------------------------------------
-
-class TestExactModelHit:
-
-    def test_returns_dict_for_known_model(self, in_memory_db):
-        """_lookup_price with a seeded model returns a non-None dict."""
-        result = _lookup_price(in_memory_db, "claude-sonnet-4-6", _NOW)
-        assert result is not None, "_lookup_price returned None for a seeded model"
-
-    def test_returns_correct_input_rate(self, in_memory_db):
-        """input rate matches pricing migration for claude-sonnet-4-6."""
-        result = _lookup_price(in_memory_db, "claude-sonnet-4-6", _NOW)
-        assert result["input"] == pytest.approx(3.00, rel=1e-9)
-
-    def test_returns_correct_output_rate(self, in_memory_db):
-        """output rate matches pricing migration for claude-sonnet-4-6."""
-        result = _lookup_price(in_memory_db, "claude-sonnet-4-6", _NOW)
-        assert result["output"] == pytest.approx(15.00, rel=1e-9)
-
-    def test_returns_correct_cache_read_rate(self, in_memory_db):
-        """cache_read rate matches pricing migration for claude-sonnet-4-6."""
-        result = _lookup_price(in_memory_db, "claude-sonnet-4-6", _NOW)
-        assert result["cache_read"] == pytest.approx(0.30, rel=1e-9)
-
-    def test_returns_correct_cache_creation_rate(self, in_memory_db):
-        """cache_creation rate matches pricing migration for claude-sonnet-4-6."""
-        result = _lookup_price(in_memory_db, "claude-sonnet-4-6", _NOW)
-        assert result["cache_creation"] == pytest.approx(3.75, rel=1e-9)
+def test_exact_model_hit(tmp_path, monkeypatch):
+    _make_pricing_yaml(tmp_path, """
+        models:
+          - model_id: claude-sonnet-4-6
+            input_usd: 3.0
+            output_usd: 15.0
+            cache_read_usd: 0.3
+            cache_creation_usd: 3.75
+            effective_from: "2025-01-01T00:00:00"
+    """)
+    monkeypatch.setattr("orchestrator_next.paths.config_root", lambda: tmp_path)
+    now = datetime.datetime(2026, 1, 1)
+    result = _lookup_price("claude-sonnet-4-6", now)
+    assert result is not None
+    assert result["input"] == 3.0
+    assert result["output"] == 15.0
 
 
-# ---------------------------------------------------------------------------
-# Scenario 2: Unknown model → __default__ fallback
-# ---------------------------------------------------------------------------
+def test_default_fallback(tmp_path, monkeypatch):
+    _make_pricing_yaml(tmp_path, """
+        models:
+          - model_id: __default__
+            input_usd: 15.0
+            output_usd: 75.0
+            cache_read_usd: 1.5
+            cache_creation_usd: 18.75
+            effective_from: "2025-01-01T00:00:00"
+    """)
+    monkeypatch.setattr("orchestrator_next.paths.config_root", lambda: tmp_path)
+    now = datetime.datetime(2026, 1, 1)
+    result = _lookup_price("unknown-model", now)
+    assert result is not None
+    assert result["input"] == 15.0
 
-class TestDefaultFallback:
 
-    def test_unknown_model_returns_default_rates(self, in_memory_db):
-        """An unknown model falls back to __default__ row."""
-        result = _lookup_price(in_memory_db, "does-not-exist", _NOW)
-        assert result is not None, "_lookup_price returned None; expected __default__ fallback"
-        assert result["input"] == pytest.approx(15.00, rel=1e-9)
-        assert result["output"] == pytest.approx(75.00, rel=1e-9)
-        assert result["cache_read"] == pytest.approx(1.50, rel=1e-9)
-        assert result["cache_creation"] == pytest.approx(18.75, rel=1e-9)
+def test_effective_from_selects_latest_row(tmp_path, monkeypatch):
+    _make_pricing_yaml(tmp_path, """
+        models:
+          - model_id: test-model
+            input_usd: 1.0
+            output_usd: 5.0
+            cache_read_usd: 0.1
+            cache_creation_usd: 1.0
+            effective_from: "2025-01-01T00:00:00"
+          - model_id: test-model
+            input_usd: 2.0
+            output_usd: 10.0
+            cache_read_usd: 0.2
+            cache_creation_usd: 2.0
+            effective_from: "2026-01-01T00:00:00"
+    """)
+    monkeypatch.setattr("orchestrator_next.paths.config_root", lambda: tmp_path)
+    # Before second row is effective — returns first row
+    result = _lookup_price("test-model", datetime.datetime(2025, 6, 1))
+    assert result["input"] == 1.0
+    # After second row is effective — returns second row
+    result2 = _lookup_price("test-model", datetime.datetime(2026, 6, 1))
+    assert result2["input"] == 2.0
 
 
-# ---------------------------------------------------------------------------
-# Scenario 3: Two effective_from rows → latest <= now wins
-# ---------------------------------------------------------------------------
+def test_no_match_returns_none_with_warning(tmp_path, monkeypatch, capsys):
+    _make_pricing_yaml(tmp_path, """
+        models:
+          - model_id: other-model
+            input_usd: 1.0
+            output_usd: 5.0
+            cache_read_usd: 0.1
+            cache_creation_usd: 1.0
+            effective_from: "2025-01-01T00:00:00"
+    """)
+    monkeypatch.setattr("orchestrator_next.paths.config_root", lambda: tmp_path)
+    result = _lookup_price("no-such-model", datetime.datetime(2026, 1, 1))
+    assert result is None
+    captured = capsys.readouterr()
+    assert "no price entry" in captured.err
 
-class TestEffectiveFromOrdering:
 
-    def test_returns_newer_rates_after_effective_date(self, in_memory_db):
-        """When a second (newer) row exists, query at that time returns new rates."""
-        new_effective = datetime.datetime(2026, 1, 1, 0, 0, 0)
-        in_memory_db.execute(
-            "INSERT OR REPLACE INTO pricing "
-            "(model_id, input_usd, output_usd, cache_read_usd, cache_creation_usd, "
-            "is_local, effective_from) VALUES (?, ?, ?, ?, ?, FALSE, ?)",
-            ["claude-sonnet-4-6", 5.00, 25.00, 0.50, 6.25, new_effective],
-        )
-
-        query_time = datetime.datetime(2026, 2, 1, 0, 0, 0)  # after new_effective
-        result = _lookup_price(in_memory_db, "claude-sonnet-4-6", query_time)
-        assert result is not None
-        assert result["input"] == pytest.approx(5.00, rel=1e-9), (
-            f"Expected new rate 5.00, got {result['input']}"
-        )
-
-    def test_returns_older_rates_before_effective_date(self, in_memory_db):
-        """Before the newer row's effective_from, original rates are returned."""
-        new_effective = datetime.datetime(2026, 1, 1, 0, 0, 0)
-        in_memory_db.execute(
-            "INSERT OR REPLACE INTO pricing "
-            "(model_id, input_usd, output_usd, cache_read_usd, cache_creation_usd, "
-            "is_local, effective_from) VALUES (?, ?, ?, ?, ?, FALSE, ?)",
-            ["claude-sonnet-4-6", 5.00, 25.00, 0.50, 6.25, new_effective],
-        )
-
-        query_time = datetime.datetime(2025, 6, 1, 0, 0, 0)  # before new_effective
-        result = _lookup_price(in_memory_db, "claude-sonnet-4-6", query_time)
-        assert result is not None
-        assert result["input"] == pytest.approx(3.00, rel=1e-9), (
-            f"Expected original rate 3.00, got {result['input']}"
-        )
+def test_missing_pricing_yaml_returns_none(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("orchestrator_next.paths.config_root", lambda: tmp_path)
+    result = _lookup_price("any-model", datetime.datetime(2026, 1, 1))
+    assert result is None
+    captured = capsys.readouterr()
+    assert "pricing.yaml not found" in captured.err
 
 
 # ---------------------------------------------------------------------------
-# Scenario 4: Both model and __default__ absent → None + stderr warning
+# _compute_cost_usd
 # ---------------------------------------------------------------------------
 
-class TestBothAbsent:
-
-    def test_returns_none_when_no_rows(self, in_memory_db):
-        """Returns None when both model and __default__ are absent."""
-        in_memory_db.execute("DELETE FROM pricing")
-
-        result = _lookup_price(in_memory_db, "x", _NOW)
-        assert result is None, f"Expected None when pricing is empty, got {result}"
-
-    def test_emits_stderr_warning_when_no_rows(self, in_memory_db, capsys):
-        """Emits a stderr warning when both model and __default__ are absent."""
-        in_memory_db.execute("DELETE FROM pricing")
-
-        _lookup_price(in_memory_db, "x", _NOW)
-        captured = capsys.readouterr()
-        assert captured.err, "Expected a stderr warning when pricing rows are absent"
-
-
-# ---------------------------------------------------------------------------
-# Scenario 5: db=None → None + stderr warning (offline/test path)
-# ---------------------------------------------------------------------------
-
-class TestDbNone:
-
-    def test_returns_none_when_db_is_none(self, capsys):
-        """_lookup_price(None, ...) returns None (offline path)."""
-        result = _lookup_price(None, "claude-sonnet-4-6", _NOW)
-        assert result is None, f"Expected None for db=None, got {result}"
-
-    def test_emits_stderr_warning_when_db_is_none(self, capsys):
-        """_lookup_price(None, ...) emits a stderr warning."""
-        _lookup_price(None, "claude-sonnet-4-6", _NOW)
-        captured = capsys.readouterr()
-        assert captured.err, "Expected a stderr warning for db=None"
+def test_compute_cost_usd_with_usage(tmp_path, monkeypatch):
+    _make_pricing_yaml(tmp_path, """
+        models:
+          - model_id: __default__
+            input_usd: 3.0
+            output_usd: 15.0
+            cache_read_usd: 0.3
+            cache_creation_usd: 3.75
+            effective_from: "2025-01-01T00:00:00"
+    """)
+    monkeypatch.setattr("orchestrator_next.paths.config_root", lambda: tmp_path)
+    usage = {"input_tokens": 1_000_000, "output_tokens": 0, "model": "__default__"}
+    model_id, cost = _compute_cost_usd("some-agent", usage)
+    assert model_id == "__default__"
+    assert cost == pytest.approx(3.0)
 
 
-# ---------------------------------------------------------------------------
-# Scenario 6: Micro-benchmark (NFR-1) — 1000 calls < 50 ms on warmed connection
-# ---------------------------------------------------------------------------
-
-class TestMicroBenchmark:
-
-    def test_1000_calls_under_50ms(self, in_memory_db):
-        """1000 _lookup_price calls on a warmed connection complete in < 50 ms."""
-        # Warm-up: 10 primer calls outside the timed window
-        for _ in range(10):
-            _lookup_price(in_memory_db, "claude-sonnet-4-6", _NOW)
-
-        start = time.perf_counter()
-        for _ in range(1000):
-            _lookup_price(in_memory_db, "claude-sonnet-4-6", _NOW)
-        elapsed_ms = (time.perf_counter() - start) * 1000
-
-        assert elapsed_ms < 50, (
-            f"1000 _lookup_price calls took {elapsed_ms:.1f} ms (budget: 50 ms). "
-            "Consider adding a SELECT-plan cache or reducing query overhead."
-        )
+def test_compute_cost_usd_no_tokens(tmp_path, monkeypatch):
+    _make_pricing_yaml(tmp_path, """
+        models:
+          - model_id: __default__
+            input_usd: 3.0
+            output_usd: 15.0
+            cache_read_usd: 0.3
+            cache_creation_usd: 3.75
+            effective_from: "2025-01-01T00:00:00"
+    """)
+    monkeypatch.setattr("orchestrator_next.paths.config_root", lambda: tmp_path)
+    usage: dict = {}
+    model_id, cost = _compute_cost_usd("unknown-agent", usage)
+    assert model_id is None
+    assert cost is None

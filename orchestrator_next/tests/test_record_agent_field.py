@@ -137,7 +137,7 @@ class TestRecordAgentField:
             "usage": {"input_tokens": 74514, "output_tokens": 3210},
             # 'agent' key ABSENT — bug: driver follows SKILL.md template which omits it
         }
-        result, exit_code = record(state_path, payload, db=None)
+        result, exit_code = record(state_path, payload)
 
         assert exit_code == 3, (
             f"Expected exit_code=3, got {exit_code}. "
@@ -172,7 +172,7 @@ class TestRecordAgentField:
             "outputs": {"discovery_result": "discovery.md"},
             "usage": {"input_tokens": 5000, "output_tokens": 1000},
         }
-        result, exit_code = record(state_path, payload, db=None)
+        result, exit_code = record(state_path, payload)
 
         assert exit_code == 0, f"Expected exit_code=0, got {exit_code}: {result}"
 
@@ -226,7 +226,7 @@ class TestRecordAgentField:
             # Pass non-zero input_tokens so Check B (tokens check) doesn't reject
             "usage": {"input_tokens": 74514, "output_tokens": 0},
         }
-        result, exit_code = record(state_path, payload, db=None)
+        result, exit_code = record(state_path, payload)
 
         assert exit_code == 0, f"Expected exit_code=0, got {exit_code}: {result}"
 
@@ -267,7 +267,7 @@ class TestRecordAgentField:
                 "agentId: a6e7ca188209d1f47 (internal ID)"
             ),
         }
-        result, exit_code = record(state_path, payload, db=None)
+        result, exit_code = record(state_path, payload)
 
         assert exit_code == 0, f"Expected exit_code=0, got {exit_code}: {result}"
 
@@ -316,7 +316,7 @@ class TestRecordAgentField:
             "usage": {},
             # 'agent' ABSENT — inline step should not require it
         }
-        result, exit_code = record(state_path, payload, db=None)
+        result, exit_code = record(state_path, payload)
 
         assert exit_code == 0, (
             f"Expected exit_code=0 for inline step, got {exit_code}: {result}"

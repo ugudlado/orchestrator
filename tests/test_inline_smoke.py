@@ -77,7 +77,6 @@ class TestInlineContractSmoke(unittest.TestCase):
 
     def setUp(self):
         self._tmpdir = tempfile.mkdtemp(prefix="orch_inline_smoke_")
-        self._metrics_db = os.path.join(self._tmpdir, "test.duckdb")
 
     def tearDown(self):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
@@ -90,8 +89,6 @@ class TestInlineContractSmoke(unittest.TestCase):
             f.write(state_content)
 
         env = os.environ.copy()
-        # Point upsert at the isolated per-test DB.
-        env["METRICS_DB"] = self._metrics_db
         # ORCHESTRATOR_HOME points at the orchestrator root so parser finds real contracts.
         env["ORCHESTRATOR_HOME"] = ORCHESTRATOR_ROOT
         # Remove the test override so the real steps directory is used.

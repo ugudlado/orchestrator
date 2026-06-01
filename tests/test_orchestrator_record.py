@@ -13,7 +13,6 @@ _CONTRACTS = os.path.join(_FIXTURES_DIR, "step_contracts")
 
 def _run_record(state_path: str, payload: dict) -> subprocess.CompletedProcess:
     env = os.environ.copy()
-    env["METRICS_DB"] = "/tmp/test-record.duckdb"
     env["ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE"] = _CONTRACTS
     return subprocess.run(
         [sys.executable, _BIN, "record", state_path],

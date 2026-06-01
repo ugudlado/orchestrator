@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# requires: pyyaml, duckdb
+# requires: pyyaml
 # orchestrator — dispatcher CLI for the orchestrator workflow engine.
 #
 # Usage:
@@ -57,8 +57,6 @@ def _usage() -> None:
         "      Run a workflow by name (config/workflows/<workflow>.yaml), e.g.\n"
         "      `orchestrator feature ORC-1`, `orchestrator bugfix ORC-2`,\n"
         "      `orchestrator complete ORC-3` (see config/workflows/complete.yaml).\n"
-        "  orchestrator dashboard\n"
-        "      Live web UI over metrics.duckdb (ui/dashboard/; also `make dashboard`).\n"
         "  orchestrator run <ticket-id> [--schema feature|bugfix] [--repo PATH] [flag=value ...]\n"
         "      Explicit form when not using a workflow subcommand name.\n"
         "  orchestrator next <state.yaml>\n"
@@ -82,24 +80,6 @@ def _shell_workflow_verb(argv: list[str], script_name: str) -> None:
     _proc = _sp.run(["bash", _sh, *argv])
     raise SystemExit(_proc.returncode)
 
-
-def _dashboard_verb(argv: list[str]) -> None:
-    """`orchestrator dashboard` — live FastAPI UI (ui/dashboard/)."""
-    import subprocess as _sp
-
-    _sh = os.path.join(_WORKTREE_ROOT, "ui", "dashboard", "run.sh")
-    if not os.path.isfile(_sh):
-        print(f"error: dashboard launcher not found at {_sh}", file=sys.stderr)
-        sys.exit(7)
-    _venv_uvicorn = os.path.join(_WORKTREE_ROOT, "ui", "dashboard", ".venv", "bin", "uvicorn")
-    if not os.path.isfile(_venv_uvicorn):
-        print(
-            "error: dashboard venv missing; run `make dashboard` once to create ui/dashboard/.venv",
-            file=sys.stderr,
-        )
-        sys.exit(7)
-    _proc = _sp.run(["bash", _sh, *argv])
-    raise SystemExit(_proc.returncode)
 
 
 def _run_verb(argv: list[str]) -> None:
@@ -220,7 +200,6 @@ def main() -> None:
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
         "next", "done", "record", "graph", "doctor", "expand-plan", "reset-step", "run",
-        "dashboard",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
@@ -228,10 +207,6 @@ def main() -> None:
         "next", "record", "done", "graph", "expand-plan", "reset-step", "run",
     ) or (len(args) < 2 and args[0] in _wf_subcommands):
         _usage()
-    if args[0] == "dashboard":
-        _dashboard_verb(args[1:])
-        return
-
     # ORC-108: each config/workflows/<name>.yaml is a CLI subcommand → orchestrator-run.sh.
     if args[0] in _wf_subcommands:
         _run_verb([args[1], "--schema", args[0], *args[2:]])
@@ -295,217 +270,129 @@ def main() -> None:
         print(f"error: failed to parse state.yaml — {exc}", file=sys.stderr)
         sys.exit(3)
 
-    # Upsert terminal step_history entries into metrics.duckdb and reconcile
-    # in_progress state against DB truth before dispatch.
-    # Metrics is engine state, pinned to the CLI install location (METRICS_DB
-    # override) — resolved independently of the config var so telemetry never
-    # goes dark just because ORCHESTRATOR_CONFIG/_HOME is unset.
-    from orchestrator_next.paths import metrics_db_path as _metrics_db_path_fn
-    _metrics_db_path = str(_metrics_db_path_fn())
-    _cost_so_far = 0.0
-    _db = None
     try:
-        if _metrics_db_path:
-            import duckdb
-            from orchestrator_next.upsert import (
-                ensure_schema, upsert_step_event, sum_cost_usd,
-                upsert_pending_step_event,
-            )
-            from orchestrator_next.reconcile import reconcile_in_progress
+        action, exit_code = dispatch(state, state_yaml_path)
+    except FileNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(3)
+    except ContractDispatchError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(3)
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: dispatch failed — {exc}", file=sys.stderr)
+        sys.exit(3)
 
-            _terminal_statuses = {"completed", "failed", "blocked", "escalate_to_architect"}
-            _db = duckdb.connect(_metrics_db_path)
-            ensure_schema(_db)
-            _context = {"repo_root": state.repo_root, "change_id": state.change_id}
-            for _entry in state.step_history:
-                if _entry.status in _terminal_statuses:
-                    try:
-                        upsert_step_event(_db, _entry, _context)
-                    except ValueError as _ve:
-                        print(f"warning: upsert skipped — {_ve}", file=sys.stderr)
-            try:
-                _cost_so_far = sum_cost_usd(_db, _context)
-            except Exception as _ce:  # noqa: BLE001 — cost query must not block dispatch
-                print(f"warning: cost sum failed — {_ce}", file=sys.stderr)
+    if exit_code in (1, 2):
+        sys.exit(exit_code)
 
-            # Reconcile state.step_history against DB in_progress truth (DB wins).
-            try:
-                _pre_sig = tuple(
-                    (e.phase, e.step_id, e.attempt, e.status)
-                    for e in state.step_history
-                )
-                reconcile_in_progress(state, _db, _context)
-                _post_sig = tuple(
-                    (e.phase, e.step_id, e.attempt, e.status)
-                    for e in state.step_history
-                )
-                if _post_sig != _pre_sig:
-                    try:
-                        import yaml as _yaml
-                        from pathlib import Path as _Path
-
-                        _path = _Path(state_yaml_path)
-                        with open(_path, "rb") as _f:
-                            _pre_bytes = _f.read()
-                        _state_raw = _yaml.safe_load(_pre_bytes.decode("utf-8")) or {}
-                        _state_raw["step_history"] = [e.raw for e in state.step_history]
-                        with open(_path, "w", encoding="utf-8") as _f:
-                            _yaml.safe_dump(
-                                _state_raw,
-                                _f,
-                                sort_keys=False,
-                                default_flow_style=False,
-                                allow_unicode=True,
-                            )
-                        try:
-                            with open(_path, "r", encoding="utf-8") as _f:
-                                _yaml.safe_load(_f)
-                        except _yaml.YAMLError:
-                            with open(_path, "wb") as _f:
-                                _f.write(_pre_bytes)
-                    except Exception as _pe:  # noqa: BLE001
-                        print(
-                            f"warning: reconcile persistence failed — {_pe}",
-                            file=sys.stderr,
-                        )
-            except Exception as _rce:  # noqa: BLE001 — reconcile must not block dispatch
-                print(f"warning: reconcile failed — {_rce}", file=sys.stderr)
-    except Exception as exc:  # noqa: BLE001 — DB errors must not block dispatch
-        print(f"warning: step_events upsert/reconcile failed — {exc}", file=sys.stderr)
-
-    # Outer try/finally guarantees _db.close() fires on both happy path and
-    # dispatch exceptions. _db may be None if DB path was unavailable.
-    try:
+    # --- Agent path (exit 0 + JSON with agent key) ---
+    if action.get("agent"):
+        from datetime import datetime, timezone
+        _started_at = action.get("started_at") or datetime.now(timezone.utc).isoformat()
         try:
-            action, exit_code = dispatch(state, state_yaml_path)
-        except FileNotFoundError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            sys.exit(3)
-        except ContractDispatchError as exc:
-            # step has neither agent: nor run: — exit 3 with diagnostic
-            print(str(exc), file=sys.stderr)
-            sys.exit(3)
-        except Exception as exc:  # noqa: BLE001 — dispatch errors should be surfaced
-            print(f"error: dispatch failed — {exc}", file=sys.stderr)
-            sys.exit(3)
-
-        # Exit 1 (complete) or exit 2 (blocked) — no JSON, just close DB and exit.
-        if exit_code in (1, 2):
-            sys.exit(exit_code)  # finally block will close _db
-
-        # --- Agent path (exit 0 + JSON with agent key) ---
-        if action.get("agent"):
-            # Post-dispatch pending write — agent step entering in_progress.
-            if _db is not None:
-                from datetime import datetime, timezone
-                _started_at = action.get("started_at") or datetime.now(timezone.utc).isoformat()
-                try:
-                    upsert_pending_step_event(
-                        _db,
-                        repo_root=state.repo_root,
-                        change_id=state.change_id,
-                        phase=action["phase"],
-                        step_id=action["step_id"],
-                        attempt=int(action["attempt"]),
-                        agent_name=action["agent"],
-                        started_at=_started_at,
-                    )
-                except Exception as _upe:  # noqa: BLE001 — pending upsert must not block action emit
-                    print(f"warning: pending upsert failed — {_upe}", file=sys.stderr)
-                try:
-                    _append_in_progress_state_entry_if_absent(
-                        state_yaml_path,
-                        step_id=action["step_id"],
-                        phase=action["phase"],
-                        attempt=int(action["attempt"]),
-                        agent=action["agent"],
-                        started_at=_started_at,
-                    )
-                except Exception as _ape:  # noqa: BLE001 — state.yaml append must not block action emit
-                    print(f"warning: state.yaml pending append failed — {_ape}", file=sys.stderr)
-
-            # Emit JSON with cost_so_far; driver spawns Agent tool.
-            action["cost_so_far"] = _cost_so_far
-            print(emit_json(action), end="")
-            sys.exit(0)  # finally block will close _db
-
-        # --- Inline script path (exit 0 + no JSON) ---
-        if action.get("run"):
-            import subprocess as _sp
-            from orchestrator_next.record import record as _record
-
-            # Close DB before running inline script — the script may need read-only
-            # access (e.g. compute-swe-metrics) and DuckDB blocks concurrent access.
-            if _db is not None:
-                try:
-                    _db.close()
-                except Exception:  # noqa: BLE001
-                    pass
-                _db = None
-
-            from orchestrator_next.parser import load_contract_for_step as _load_step_contract
-            from orchestrator_next.step_runner import apply_step_paths as _apply_step_paths
-            from orchestrator_next.step_runner import build_step_command as _build_step_cmd
-
-            _step_id = action["step_id"]
-            _contract = _load_step_contract(_step_id, state_yaml_path)
-            _script_env = _inline_script_env(state, state_yaml_path, action.get("env", {}))
-            from orchestrator_next.paths import config_root as _config_root
-            _croot = str(_config_root())
-            _script_env = _apply_step_paths(
-                _script_env,
-                step_id=_step_id,
-                contract=_contract,
-                config_root=_croot,
+            _append_in_progress_state_entry_if_absent(
+                state_yaml_path,
+                step_id=action["step_id"],
+                phase=action["phase"],
+                attempt=int(action["attempt"]),
+                agent=action["agent"],
+                started_at=_started_at,
             )
-            # Merge contract params: lower priority than env vars already set
-            from orchestrator_next.operator_workflow import load_step_params as _load_step_params
-            for _k, _v in _load_step_params(_step_id).items():
-                _script_env.setdefault(_k, _v)
-            try:
-                _run_cmd = _build_step_cmd(_step_id, _contract, _croot)
-            except (FileNotFoundError, ValueError) as _exc:
-                print(f"error: {_exc}", file=sys.stderr)
-                sys.exit(3)
+        except Exception as _ape:  # noqa: BLE001
+            print(f"warning: state.yaml pending append failed — {_ape}", file=sys.stderr)
 
-            _phase = action["phase"]
-            _attempt = action["attempt"]
+        print(emit_json(action), end="")
+        sys.exit(0)
 
-            def _stderr_step_log(msg: str) -> None:
-                from datetime import datetime
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr)
+    # --- Inline script path (exit 0 + no JSON) ---
+    if action.get("run"):
+        import subprocess as _sp
+        from orchestrator_next.record import record as _record
+        from orchestrator_next.parser import load_contract_for_step as _load_step_contract
+        from orchestrator_next.step_runner import apply_step_paths as _apply_step_paths
+        from orchestrator_next.step_runner import build_step_command as _build_step_cmd
 
-            _stderr_step_log(
-                f"→ {_step_id}  phase={_phase}  kind=inline script  attempt={_attempt}"
+        _step_id = action["step_id"]
+        _contract = _load_step_contract(_step_id, state_yaml_path)
+        _script_env = _inline_script_env(state, state_yaml_path, action.get("env", {}))
+        from orchestrator_next.paths import config_root as _config_root
+        _croot = str(_config_root())
+        _script_env = _apply_step_paths(
+            _script_env,
+            step_id=_step_id,
+            contract=_contract,
+            config_root=_croot,
+        )
+        from orchestrator_next.operator_workflow import load_step_params as _load_step_params
+        for _k, _v in _load_step_params(_step_id).items():
+            _script_env.setdefault(_k, _v)
+        try:
+            _run_cmd = _build_step_cmd(_step_id, _contract, _croot)
+        except (FileNotFoundError, ValueError) as _exc:
+            print(f"error: {_exc}", file=sys.stderr)
+            sys.exit(3)
+
+        _phase = action["phase"]
+        _attempt = action["attempt"]
+
+        def _stderr_step_log(msg: str) -> None:
+            from datetime import datetime
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr)
+
+        _stderr_step_log(
+            f"→ {_step_id}  phase={_phase}  kind=inline script  attempt={_attempt}"
+        )
+        _stderr_step_log(f"  run: {' '.join(_run_cmd)}")
+
+        # archive-completed-change moves state.yaml; record it completed BEFORE running
+        # so the entry is durable at its current location before the script moves the file.
+        _STATE_MUTATING_INLINE_STEPS = {"archive-completed-change"}
+        _state_mutating = _step_id in _STATE_MUTATING_INLINE_STEPS
+
+        if _state_mutating:
+            _record(
+                state_yaml_path,
+                {
+                    "step_id": _step_id,
+                    "phase": _phase,
+                    "attempt": _attempt,
+                    "status": "completed",
+                    "outputs": {},
+                    "evidence": {"summary": "recorded pre-script (state-mutating inline step)"},
+                },
             )
-            _stderr_step_log(f"  run: {' '.join(_run_cmd)}")
 
-            # State-mutating inline steps move/delete state.yaml as their side
-            # effect (archive-completed-change mv's the change dir out of the
-            # active path). record() re-opens state_yaml_path to read pre-write
-            # bytes — if the script has already moved the file, that raises
-            # FileNotFoundError. Fix: record these steps as completed BEFORE
-            # running the script, so the step_history entry is durable in
-            # state.yaml at its current location; the script then moves the
-            # already-final file.
-            #
-            # `archive-completed-change` is the terminal workflow step for
-            # feature/bugfix/autopilot/complete. Merge and worktree
-            # teardown run from `orchestrator complete` after the phase.
-            #
-            # Tradeoff: a state-mutating step records `completed` before its
-            # script's exit code is known. The archive script's hardened
-            # `mv ... || exit 1` ensures a failed move exits non-zero BEFORE
-            # any destructive cleanup, so the source dir (with the optimistic
-            # entry) stays intact and the driver halts on exit 3 — recoverable,
-            # not catastrophic. The script's own outputs (commit_sha etc.) are
-            # not threaded into step_history; that is the accepted cost.
-            _STATE_MUTATING_INLINE_STEPS = {
-                "archive-completed-change",
-            }
-            _state_mutating = _step_id in _STATE_MUTATING_INLINE_STEPS
+        _proc = _sp.run(_run_cmd, capture_output=True, env=_script_env)
+        if _proc.stderr:
+            sys.stderr.buffer.write(_proc.stderr)
+            sys.stderr.buffer.flush()
 
-            if _state_mutating:
+        if _proc.returncode != 0:
+            if not _state_mutating:
+                _record(
+                    state_yaml_path,
+                    {
+                        "step_id": _step_id,
+                        "phase": _phase,
+                        "attempt": _attempt,
+                        "status": "failed",
+                        "outputs": {},
+                        "evidence": {"summary": f"script exited {_proc.returncode}"},
+                    },
+                )
+            _stderr_step_log(f"✗ {_step_id}  failed  script_exit={_proc.returncode}")
+            print(f"error: inline script failed (exit {_proc.returncode}): {' '.join(_run_cmd)}", file=sys.stderr)
+            sys.exit(3)
+        else:
+            if not _state_mutating:
+                _stdout_lines = _proc.stdout.decode(errors="replace").strip().splitlines()
+                _outputs = {}
+                if _stdout_lines:
+                    try:
+                        import json as _json
+                        _outputs = _json.loads(_stdout_lines[-1])
+                    except (_json.JSONDecodeError, ValueError):
+                        pass
                 _record(
                     state_yaml_path,
                     {
@@ -513,76 +400,13 @@ def main() -> None:
                         "phase": _phase,
                         "attempt": _attempt,
                         "status": "completed",
-                        "outputs": {},
-                        "evidence": {"summary": "recorded pre-script (state-mutating inline step)"},
+                        "outputs": _outputs,
+                        "evidence": {"outputs": _outputs, "summary": "inline script completed"},
                     },
-                    db=_db,
                 )
+            _stderr_step_log(f"✓ {_step_id}  done  status=completed")
+            sys.exit(0)
 
-            _proc = _sp.run(
-                _run_cmd,
-                capture_output=True,
-                env=_script_env,
-            )
-            # Forward script stderr to our stderr so operator can see it
-            if _proc.stderr:
-                sys.stderr.buffer.write(_proc.stderr)
-                sys.stderr.buffer.flush()
-
-            if _proc.returncode != 0:
-                # State-mutating steps already recorded above; do not re-record
-                # (record.py appends, it does not replace — a second entry would
-                # leave completed+failed in history and race the node flip).
-                if not _state_mutating:
-                    _record(
-                        state_yaml_path,
-                        {
-                            "step_id": _step_id,
-                            "phase": _phase,
-                            "attempt": _attempt,
-                            "status": "failed",
-                            "outputs": {},
-                            "evidence": {"summary": f"script exited {_proc.returncode}"},
-                        },
-                        db=_db,
-                    )
-                # Surface script failure via stderr; exit 3 signals script error
-                _stderr_step_log(f"✗ {_step_id}  failed  script_exit={_proc.returncode}")
-                print(f"error: inline script failed (exit {_proc.returncode}): {' '.join(_run_cmd)}", file=sys.stderr)
-                sys.exit(3)  # finally block will close _db
-            else:
-                # State-mutating steps already recorded pre-script.
-                if not _state_mutating:
-                    _stdout_lines = _proc.stdout.decode(errors="replace").strip().splitlines()
-                    _outputs = {}
-                    if _stdout_lines:
-                        try:
-                            import json as _json
-                            _outputs = _json.loads(_stdout_lines[-1])
-                        except (_json.JSONDecodeError, ValueError):
-                            pass
-                    _record(
-                        state_yaml_path,
-                        {
-                            "step_id": _step_id,
-                            "phase": _phase,
-                            "attempt": _attempt,
-                            "status": "completed",
-                            "outputs": _outputs,
-                            "evidence": {"outputs": _outputs, "summary": "inline script completed"},
-                        },
-                        db=_db,
-                    )
-                _stderr_step_log(f"✓ {_step_id}  done  status=completed")
-                # No JSON on stdout — driver loops by calling orchestrator next again
-                sys.exit(0)  # finally block will close _db
-
-    finally:
-        if _db is not None:
-            try:
-                _db.close()
-            except Exception:  # noqa: BLE001 — close failure must not mask dispatch result
-                pass
     sys.exit(exit_code)
 
 

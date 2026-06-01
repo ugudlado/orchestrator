@@ -56,7 +56,6 @@ phases:
 """)
 
         env = os.environ.copy()
-        env["METRICS_DB"] = os.path.join(self._tmpdir, "test.duckdb")
         env["ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE"] = _CONTRACTS
         result = subprocess.run(
             [sys.executable, _BIN, "next", state_yaml],

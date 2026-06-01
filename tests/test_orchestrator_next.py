@@ -28,22 +28,14 @@ _BIN_ORCHESTRATOR = os.path.join(ORCHESTRATOR_ROOT, "bin", "orchestrator")
 _STEP_CONTRACTS_DIR = os.path.join(_FIXTURES_DIR, "step_contracts")
 
 
-def _run_next(fixture_name: str, metrics_db_path: str) -> subprocess.CompletedProcess:
-    """Run `bin/orchestrator next <fixture>` and capture result.
-
-    metrics_db_path must be a per-test temp path so dispatcher tests do not
-    create a side-effect metrics.duckdb in the worktree root.
-    ORCHESTRATOR_HOME is intentionally omitted — tests use METRICS_DB directly.
-    """
+def _run_next(fixture_name: str) -> subprocess.CompletedProcess:
+    """Run `bin/orchestrator next <fixture>` and capture result."""
     fixture_path = os.path.join(_FIXTURES_DIR, fixture_name)
     env = os.environ.copy()
-    # Point upsert at an isolated per-test DB (not the worktree root).
-    env["METRICS_DB"] = metrics_db_path
     env["ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE"] = _STEP_CONTRACTS_DIR
-    # Ensure the worktree scripts are on the path
     env["PYTHONPATH"] = os.path.join(ORCHESTRATOR_ROOT, "config", "scripts")
-    # Remove ORCHESTRATOR_HOME so the fallback path is never used.
     env.pop("ORCHESTRATOR_HOME", None)
+    env.pop("METRICS_DB", None)
     return subprocess.run(
         [sys.executable, _BIN_ORCHESTRATOR, "next", fixture_path],
         capture_output=True,
@@ -63,16 +55,13 @@ class TestOrchestratorNextDispatcher(unittest.TestCase):
     """6 fixture-driven dispatcher tests for orchestrator next."""
 
     def setUp(self):
-        # Isolated tempdir per test — metrics.duckdb goes here, not the worktree root.
         self._tmpdir = tempfile.mkdtemp(prefix="orch_dispatcher_test_")
-        self._metrics_db = os.path.join(self._tmpdir, "test.duckdb")
 
     def tearDown(self):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def _run(self, fixture_name: str) -> subprocess.CompletedProcess:
-        """Convenience wrapper that passes the per-test metrics DB path."""
-        return _run_next(fixture_name, self._metrics_db)
+        return _run_next(fixture_name)
 
     def _assert_json_matches_golden(self, stdout: str, golden_name: str) -> None:
         """Parse stdout as JSON and compare to golden (key-sorted, indented)."""

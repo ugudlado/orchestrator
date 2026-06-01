@@ -10,7 +10,7 @@ when a value exists):
   STATE_YAML_PATH, ORCHESTRATOR_STATE_YAML_PATH
   REPO_ROOT, ORCHESTRATOR_REPO_ROOT
   CHANGE_ID, ORCHESTRATOR_CHANGE_ID
-  ORCHESTRATOR_HOME, ORCHESTRATOR_SCRIPTS_DIR, METRICS_DB
+  ORCHESTRATOR_HOME, ORCHESTRATOR_SCRIPTS_DIR
   ORCHESTRATOR_STEP_DIR (set by step_runner; each script.sh resolves its own payload)
   ORCHESTRATOR_PHASE, ORCHESTRATOR_STEP_ID, ORCHESTRATOR_ATTEMPT
   ORCHESTRATOR_WORKFLOW_DIR, ORCHESTRATOR_WORKTREE_ARTIFACT_DIR
@@ -39,10 +39,6 @@ def _apply_home_paths(env: dict[str, str]) -> None:
         if default:
             home = default
             env["ORCHESTRATOR_HOME"] = home
-    # Metrics is engine state, pinned to the CLI location — resolved
-    # independently of `home` (the config var). See paths.metrics_db_path.
-    from orchestrator_next.paths import metrics_db_path
-    env.setdefault("METRICS_DB", os.environ.get("METRICS_DB") or str(metrics_db_path()))
     if home:
         env["ORCHESTRATOR_SCRIPTS_DIR"] = str(Path(home) / "orchestrator_next" / "scripts")
 

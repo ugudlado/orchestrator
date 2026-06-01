@@ -30,7 +30,9 @@ from orchestrator_next.parser import (
     load_contract_for_step,
     phase_nodes,
 )
-from orchestrator_next.reconcile import _step_in_plan
+def _step_in_plan(state, phase: str, step_id: str) -> bool:
+    """True when step_id is a node in workflow_plan for this phase."""
+    return any(str(n.get("id", "")) == step_id for n in phase_nodes(state, phase))
 
 
 class ContractDispatchError(RuntimeError):
@@ -429,7 +431,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
     if last is not None and last.phase == state.phase and last.status in _BLOCKING_STATUSES:
         return {}, 2
 
-    # --- Check: last entry is in_progress → resume (post-reconcile, this is the DB truth)
+    # --- Check: last entry is in_progress → resume
     if (
         last is not None
         and last.phase == state.phase
@@ -440,8 +442,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             print(
                 f"ERROR: refusing to resume step {last.step_id!r} — "
                 f"not in workflow_plan[{state.phase!r}].nodes "
-                f"(likely ghost from prior schema; "
-                f"check metrics.duckdb step_events for stale rows).",
+                f"(likely ghost from prior schema or stale state.yaml entry).",
                 file=sys.stderr,
             )
             return {}, 3

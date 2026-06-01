@@ -20,7 +20,6 @@ import yaml
 
 from orchestrator_next.parser import ContractError, State, load_contract_for_step, load_state
 from orchestrator_next import readiness
-from orchestrator_next.upsert import upsert_step_event
 
 
 # Optional fields copied from done payload into step_history[-1].
@@ -568,61 +567,10 @@ def _detect_boundary(
 
 
 # ---------------------------------------------------------------------------
-# Phase boundary write helper (FR-5)
-# ---------------------------------------------------------------------------
-
-_INSERT_PHASE_EVENT = """
-INSERT OR REPLACE INTO phase_events (
-  repo_root, change_id, phase, attempt,
-  step_count, cost_usd, input_tokens, output_tokens,
-  cache_read_input_tokens, cache_creation_input_tokens,
-  duration_ms, started_at, ended_at
-)
-SELECT
-  ? AS repo_root,
-  ? AS change_id,
-  ? AS phase,
-  ? AS attempt,
-  COUNT(*)                                      AS step_count,
-  COALESCE(SUM(cost_usd), 0.0)                 AS cost_usd,
-  COALESCE(SUM(input_tokens), 0)               AS input_tokens,
-  COALESCE(SUM(output_tokens), 0)              AS output_tokens,
-  COALESCE(SUM(cache_read_input_tokens), 0)    AS cache_read_input_tokens,
-  COALESCE(SUM(cache_creation_input_tokens), 0) AS cache_creation_input_tokens,
-  COALESCE(SUM(duration_ms), 0)                AS duration_ms,
-  MIN(started_at)                               AS started_at,
-  MAX(ended_at)                                 AS ended_at
-FROM step_events
-WHERE repo_root = ? AND change_id = ? AND phase = ?
-"""
-
-
-def _write_phase_event(db, repo_root: str, change_id: str, phase: str, attempt: int) -> None:
-    """Insert a phase_events row aggregated from step_events.
-
-    Caller is responsible for transaction control (BEGIN/COMMIT/ROLLBACK).
-    All SQL uses parameterised execution (NFR-5).
-    """
-    db.execute(_INSERT_PHASE_EVENT, [
-        repo_root, change_id, phase, attempt,
-        repo_root, change_id, phase,
-    ])
-
-
-# ---------------------------------------------------------------------------
 # Driver session resolution helpers (FR-6)
 # ---------------------------------------------------------------------------
 
-_INSERT_DRIVER_SESSION = """
-INSERT OR REPLACE INTO driver_sessions (
-  repo_root, change_id, session_id, model,
-  total_tokens, input_tokens, output_tokens, cost_usd,
-  started_at, ended_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-"""
-
-
-def _resolve_driver_session(state: dict, change_id: str, db=None) -> dict:
+def _resolve_driver_session(state: dict, change_id: str) -> dict:
     """Resolve the driver session and return its usage dict.
 
     Resolution order:
@@ -630,28 +578,15 @@ def _resolve_driver_session(state: dict, change_id: str, db=None) -> dict:
       2. Scan ~/.claude/projects/<repo-slug>/ for most recent *.jsonl by mtime.
 
     Raises RuntimeError if session_id cannot be resolved.
-
-    Args:
-        state: parsed state dict (needs 'repo_root').
-        change_id: feature change_id for logging.
-        db: optional open DuckDB connection for cost computation.
-
-    Returns:
-        dict with keys: session_id, model, total_tokens, input_tokens,
-        output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
-        cost_usd, started_at, ended_at.
     """
     from orchestrator_next.jsonl_usage import extract_driver_usage
 
     repo_root = state.get("repo_root") or ""
 
-    # Step 1: env var
     session_id = os.environ.get("ORCHESTRATOR_DRIVER_SESSION_ID") or ""
 
-    # Step 2: scan for most recent JSONL by mtime
     if not session_id:
         from pathlib import Path as _Path
-
         from orchestrator_next.jsonl_usage import _repo_slug
 
         slug_dir = _Path.home() / ".claude" / "projects" / _repo_slug(repo_root)
@@ -672,14 +607,6 @@ def _resolve_driver_session(state: dict, change_id: str, db=None) -> dict:
     if not usage:
         usage = {}
 
-    # Compute cost_usd if a DB is available
-    if db is not None and usage:
-        model, cost = _compute_cost_usd(db, "driver-loop", usage)
-        if cost is not None:
-            usage["cost_usd"] = cost
-        if model and not usage.get("model"):
-            usage["model"] = model
-
     input_tok = usage.get("input_tokens") or 0
     output_tok = usage.get("output_tokens") or 0
     return {
@@ -691,188 +618,18 @@ def _resolve_driver_session(state: dict, change_id: str, db=None) -> dict:
         "cache_read_input_tokens": usage.get("cache_read_input_tokens") or 0,
         "cache_creation_input_tokens": usage.get("cache_creation_input_tokens") or 0,
         "cost_usd": usage.get("cost_usd"),
-        "started_at": None,  # JSONL aggregate doesn't expose session start/end directly
+        "started_at": None,
         "ended_at": None,
     }
 
 
-def _write_driver_session(db, repo_root: str, change_id: str, session: dict) -> None:
-    """Insert a driver_sessions row. Caller controls transaction.
-
-    Args:
-        db: open DuckDB connection (transaction open, caller controls).
-        repo_root: absolute path to the repo root.
-        change_id: feature identifier.
-        session: dict returned by _resolve_driver_session.
-    """
-    db.execute(_INSERT_DRIVER_SESSION, [
-        repo_root,
-        change_id,
-        session["session_id"],
-        session.get("model"),
-        session.get("total_tokens") or 0,
-        session.get("input_tokens") or 0,
-        session.get("output_tokens") or 0,
-        session.get("cost_usd") or 0.0,  # NOT NULL — default to 0.0 when unresolved
-        session.get("started_at"),
-        session.get("ended_at"),
-    ])
-
-
-# ---------------------------------------------------------------------------
-# Subagent absorption helpers (FR-6a)
-# ---------------------------------------------------------------------------
-
-def _resolve_subagent_rows(
-    repo_root: str,
-    change_id: str,
-    session_id: str,
-) -> list[dict]:
-    """Discover sub-agent JSONLs and parse usage. Pure parsing — no DB operations.
-
-    Returns a list of dicts:
-        {"agent_id", "agent_name", "step_id", "phase", "usage"}
-
-    Per-row failures:
-      - Missing or malformed meta.json → agent_name='subagent-unknown', row still emitted.
-      - JSONL with no usable turns → row skipped (logged to stderr).
-      - Other parse errors → row skipped (logged to stderr).
-
-    Runs OUTSIDE the boundary transaction (keeps BEGIN/COMMIT window short).
-    """
-    from orchestrator_next.jsonl_usage import (
-        discover_subagents,
-        extract_agent_usage,
-        locate_subagent_jsonl_path,
-    )
-
-    agent_ids = discover_subagents(repo_root, session_id)
-    result = []
-
-    for agent_id in agent_ids:
-        step_id = f"subagent-{agent_id}"
-        agent_name = "subagent-unknown"
-
-        # Read agentType from meta.json sidecar (fail-soft: fallback to unknown)
-        try:
-            jsonl_path = locate_subagent_jsonl_path(
-                repo_root, agent_id, driver_session_hint=session_id
-            )
-            if jsonl_path is not None:
-                meta_path = jsonl_path.parent / f"agent-{agent_id}.meta.json"
-                if meta_path.exists():
-                    import json as _json
-                    meta = _json.loads(meta_path.read_text())
-                    agent_type = meta.get("agentType") or ""
-                    if agent_type:
-                        agent_name = agent_type
-        except Exception as exc:  # noqa: BLE001 — meta parse is best-effort
-            sys.stderr.write(
-                f"[done] subagent meta read failed for agent_id={agent_id!r}: {exc}\n"
-            )
-            # agent_name stays "subagent-unknown"
-
-        # Extract usage from JSONL — skip row if no usable turns
-        try:
-            usage = extract_agent_usage(
-                repo_root, agent_id, driver_session_hint=session_id
-            )
-            if not usage:
-                sys.stderr.write(
-                    f"[done] subagent {agent_id!r}: no usable JSONL turns, skipping row\n"
-                )
-                continue
-        except Exception as exc:  # noqa: BLE001 — JSONL parse is best-effort
-            sys.stderr.write(
-                f"[done] subagent JSONL parse failed for agent_id={agent_id!r}: {exc}\n"
-            )
-            continue
-
-        result.append({
-            "agent_id": agent_id,
-            "agent_name": agent_name,
-            "step_id": step_id,
-            "phase": "meta",
-            "usage": usage,
-        })
-
-    return result
-
-
-def _write_subagent_events(
-    db,
-    repo_root: str,
-    change_id: str,
-    rows: list[dict],
-) -> None:
-    """Insert one synthetic step_events row per subagent tuple via upsert_synthetic_event.
-
-    Honors the legacy idempotency check: skip if a row already exists for
-    (repo_root, change_id, phase='meta', step_id, attempt=1) with non-zero input_tokens.
-
-    Computes cost_usd via _compute_cost_usd per row when the DB has pricing rows.
-
-    Per-row insert errors are logged to stderr but do not raise (fail-soft per row,
-    consistent with the discovery pass).
-
-    Caller controls the transaction (BEGIN/COMMIT/ROLLBACK).
-    """
-    from orchestrator_next.upsert import upsert_synthetic_event as _upsert_syn
-
-    for row in rows:
-        agent_id = row["agent_id"]
-        agent_name = row["agent_name"]
-        step_id = row["step_id"]
-        phase = row["phase"]
-        usage = dict(row["usage"])  # copy — we may mutate it
-
-        try:
-            # Idempotency check: skip if row already exists with non-zero input_tokens
-            existing = db.execute(
-                "SELECT input_tokens FROM step_events "
-                "WHERE repo_root=? AND change_id=? AND phase=? AND step_id=? AND attempt=1",
-                [repo_root, change_id, phase, step_id],
-            ).fetchone()
-            if existing is not None and existing[0] is not None and existing[0] > 0:
-                continue
-
-            # Compute cost_usd via pricing DB
-            model, cost = _compute_cost_usd(db, agent_name, usage)
-            if cost is not None:
-                usage["cost_usd"] = cost
-            if model and not usage.get("model"):
-                usage["model"] = model
-
-            _upsert_syn(
-                db,
-                {"repo_root": repo_root, "change_id": change_id},
-                agent_name=agent_name,
-                step_id=step_id,
-                phase=phase,
-                usage=usage,
-            )
-        except Exception as exc:  # noqa: BLE001 — per-row fail-soft
-            sys.stderr.write(
-                f"[done] subagent write failed for agent_id={agent_id!r}: {exc}\n"
-            )
-
-
-# ---------------------------------------------------------------------------
-# Cost computation helpers (ISSUE-17)
-# ---------------------------------------------------------------------------
-# Extracted to orchestrator_next.pricing (ORC-71). Re-exported here by reference
-# so existing call sites and test fixtures (`_record_mod._pricing_cache.clear()`,
-# `_load_routes.cache_clear()`) keep acting on the live objects the production
-# path uses — Python imports bind the same object.
 from orchestrator_next.pricing import (  # noqa: E402,F401
     _orchestrator_home,
     _load_routes,
-    _ensure_pricing_cache,
     _DATED_MODEL_SUFFIX_RE,
     _lookup_price,
     _billable_token_units,
     _compute_cost_usd,
-    _pricing_cache,
 )
 
 
@@ -1256,17 +1013,13 @@ def _resolve_feature_metrics_tasks_path(state: dict) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Phase 5: _resolve_feature_metrics and _write_feature_metrics (FR-1, FR-2)
+# Feature metrics computation
 # ---------------------------------------------------------------------------
 
 def _resolve_feature_metrics(state: dict, change_id: str) -> dict:
-    """Pure compute. Returns kwargs dict for upsert_feature_metrics.
+    """Compute feature metrics from state and tasks.yaml. Pure — no DB writes.
 
-    Task counts are read from tasks.yaml status fields — the single authority
-    written by implement-tasks after each per-task commit.
-
-    Raises:
-        RuntimeError: started_at or completed_at missing on feature/bugfix.
+    Raises RuntimeError if started_at/completed_at missing on feature/bugfix.
     """
     schema = str(state.get("schema") or "feature")
     worktree = str(state.get("worktree_path") or state.get("repo_root") or "")
@@ -1304,12 +1057,6 @@ def _resolve_feature_metrics(state: dict, change_id: str) -> dict:
         "wall_clock_minutes": wc,
         "source": f"done@{_utcnow_iso()}",
     }
-
-
-def _write_feature_metrics(db, repo_root: str, change_id: str, data: dict) -> None:
-    """Calls upsert_feature_metrics. Caller controls transaction. Exceptions propagate."""
-    from orchestrator_next.upsert import upsert_feature_metrics as _upsert_fm
-    _upsert_fm(db, repo_root=repo_root, change_id=change_id, **data)
 
 
 def _resolve_tasks_md(state_raw: dict[str, Any]) -> Path | None:
@@ -1470,19 +1217,9 @@ def _compute_next_step(
 
 
 def record(
-    state_yaml_path: str, payload: dict[str, Any], *, db=None
+    state_yaml_path: str, payload: dict[str, Any],
 ) -> tuple[dict[str, Any], int]:
-    """Apply a record operation to state.yaml. Returns (result, exit_code).
-
-    Validation: payload.outputs must cover every name in
-    contract.expected_outputs (from the contract `outputs:` field).
-
-    Args:
-        state_yaml_path: path to the state.yaml file to update.
-        payload: the record payload dict.
-        db: open DuckDB connection for pricing lookups, or None for the
-            offline/test path (cost computation is skipped with a warning).
-    """
+    """Apply a record operation to state.yaml. Returns (result, exit_code)."""
     required = {"step_id", "phase", "outputs"}
     missing = required - payload.keys()
     if missing:
@@ -1555,8 +1292,7 @@ def record(
     # parse usage blocks). Explicit agent_id alone does not bypass this check.
     #
     # ORC-48: if the contract declares an agent but the payload omits 'agent',
-    # reject early so the driver knows it must include the field. Without this
-    # guard, record.py silently defaults agent in history, corrupting DuckDB metrics.
+    # reject early so the driver knows it must include the field.
     contract_agent = contract.agent if contract is not None else None
     if status == "completed" and contract_agent is not None:
         if "agent" not in payload:
@@ -1687,19 +1423,17 @@ def record(
                 usage["duration_ms"] = jsonl_usage["duration_ms"]
             if not usage.get("tool_calls") and jsonl_usage.get("tool_calls"):
                 usage["tool_calls"] = jsonl_usage["tool_calls"]
-            # Per-tool-call detail (name + wall-clock duration per invocation).
-            # upsert.py writes one tool_calls row per entry with duration_ms populated.
             jsonl_path = locate_subagent_jsonl_path(repo_root, agent_id)
             if jsonl_path is not None:
                 detail = extract_tool_calls(jsonl_path)
                 if detail:
                     usage["tool_calls_detail"] = detail
-            usage["agent_id"] = agent_id  # persist it so upsert writes the column
+            usage["agent_id"] = agent_id
         except Exception as exc:  # noqa: BLE001 — enrichment is best-effort
             sys.stderr.write(f"[record] jsonl enrichment failed for agent_id={agent_id}: {exc}\n")
 
-    if db is not None and not usage.get("cost_usd"):
-        resolved_model, computed_cost = _compute_cost_usd(db, agent, usage)
+    if not usage.get("cost_usd"):
+        resolved_model, computed_cost = _compute_cost_usd(agent, usage)
         if resolved_model is not None and computed_cost is not None:
             usage["model"] = resolved_model
             usage["cost_usd"] = computed_cost
@@ -1831,147 +1565,6 @@ def record(
             4,
         )
 
-    # T-11 / FR-7: Delete the in_progress DB row now that state.yaml is durably
-    # written. This runs after the post-write YAML parse check so that if the
-    # write or parse fails (and the file is restored) we do NOT delete the DB row
-    # — the next reconcile will then materialise from DB, preserving crash safety.
-    # Best-effort: a DELETE failure must not block the caller.
-    if db is not None:
-        try:
-            change_id_val = state_raw.get("change_id") or ""
-            repo_root_val = state_raw.get("repo_root") or ""
-            db.execute(
-                "DELETE FROM step_events"
-                " WHERE repo_root = ?"
-                " AND change_id = ?"
-                " AND phase = ?"
-                " AND step_id = ?"
-                " AND status = 'in_progress'",
-                [repo_root_val, change_id_val, phase, step_id],
-            )
-        except Exception as exc:  # noqa: BLE001 — DB cleanup is best-effort
-            sys.stderr.write(
-                f"[record] warning: failed to delete in_progress DB row for "
-                f"{step_id!r} phase={phase!r}: {exc}\n"
-            )
-
-    # FR-2/FR-5/FR-6/FR-6a/Phase-5: step_events upsert + boundary writes.
-    # Non-boundary calls: fail-soft (preserves current record.py behavior).
-    # Boundary calls: fatal-on-failure (BEGIN/COMMIT/ROLLBACK).
-    # Subagent JSONL parsing runs OUTSIDE the transaction to keep the
-    # BEGIN/COMMIT window short (design.md Trade-offs).
-    if db is not None:
-        from orchestrator_next.parser import _parse_history_entry
-
-        change_id_val = state_raw.get("change_id") or ""
-        repo_root_val = state_raw.get("repo_root") or ""
-        ctx = {"repo_root": repo_root_val, "change_id": change_id_val}
-        workflow_plan = state_raw.get("workflow_plan") or {}
-
-        # Build a StepHistoryEntry from the entry dict for upsert_step_event
-        _step_entry = _parse_history_entry(entry)
-
-        # Phase 5 (FR-3): absorbed feature_metrics write.
-        # Fires when step_id == "mark-change-completed" AND status == "completed".
-        # Resolve runs OUTSIDE BEGIN (git-log + tasks.md parsing — keeps tx window short).
-        if step_id == "mark-change-completed" and status == "completed":
-            try:
-                fm_data = _resolve_feature_metrics(state_raw, change_id_val)
-            except Exception as exc:
-                sys.stderr.write(f"[done] feature_metrics resolution failed: {exc}\n")
-                return (
-                    {
-                        "reason": "feature_metrics_resolution_failed",
-                        "detail": str(exc),
-                    },
-                    5,
-                )
-            db.execute("BEGIN")
-            try:
-                upsert_step_event(db, _step_entry, ctx)
-                _write_feature_metrics(db, repo_root_val, change_id_val, fm_data)
-                db.execute("COMMIT")
-            except Exception as exc:
-                db.execute("ROLLBACK")
-                sys.stderr.write(f"[done] feature_metrics write failed: {exc}\n")
-                return (
-                    {
-                        "reason": "feature_metrics_write_failed",
-                        "detail": str(exc),
-                    },
-                    5,
-                )
-            _phase5_handled = True
-        else:
-            _phase5_handled = False
-
-        if _phase5_handled:
-            # Phase 5 path handled the step write — skip the Phase 4 boundary path.
-            # mark-change-completed triggers a fatal transactional write for that one
-            # step; _detect_boundary would have returned NONE for it anyway.
-            pass
-        else:
-            boundary = _detect_boundary(workflow_plan, phase, step_id, status)
-            if boundary == BoundaryKind.NONE:
-                # Non-boundary: fail-soft step write
-                try:
-                    upsert_step_event(db, _step_entry, ctx)
-                except Exception as exc:  # noqa: BLE001 — non-boundary is fail-soft
-                    sys.stderr.write(f"[done] step write failed: {exc}\n")
-            else:
-                # Boundary path: JSONL parsing runs BEFORE BEGIN to keep tx window short.
-                subagent_rows: list[dict] = []
-                session: dict = {}
-                if boundary == BoundaryKind.FEATURE and _state_uses_chat_driver_jsonl(
-                    state_raw, payload
-                ):
-                    # Chat-driver only: _resolve_driver_session and
-                    # _resolve_subagent_rows run OUTSIDE BEGIN. Shell-driver
-                    # payloads skip JSONL reads (orc-111 AC-7).
-                    try:
-                        session = _resolve_driver_session(state_raw, change_id_val, db=db)
-                    except Exception as _exc:
-                        sys.stderr.write(
-                            f"[done] driver session resolution failed: {_exc}\n"
-                        )
-                        return (
-                            {
-                                "reason": "driver_session_resolution_failed",
-                                "detail": str(_exc),
-                            },
-                            5,
-                        )
-                    subagent_rows = _resolve_subagent_rows(
-                        repo_root_val, change_id_val, session.get("session_id", "")
-                    )
-
-                # Atomic boundary write — fatal on failure (NFR-2, NFR-3, OQ-2).
-                db.execute("BEGIN")
-                try:
-                    upsert_step_event(db, _step_entry, ctx)
-                    _write_phase_event(
-                        db, repo_root_val, change_id_val, phase, entry["attempt"]
-                    )
-                    if boundary == BoundaryKind.FEATURE:
-                        if session:
-                            _write_driver_session(db, repo_root_val, change_id_val, session)
-                        if subagent_rows:
-                            _write_subagent_events(db, repo_root_val, change_id_val, subagent_rows)
-                    db.execute("COMMIT")
-                except Exception as _exc:
-                    db.execute("ROLLBACK")
-                    sys.stderr.write(
-                        f"[done] boundary write failed ({boundary.value}): {_exc}\n"
-                    )
-                    return (
-                        {
-                            "reason": "boundary_write_failed",
-                            "boundary": boundary.value,
-                            "detail": str(_exc),
-                        },
-                        5,
-                    )  # fatal non-zero exit
-
     response: dict[str, Any] = {
         "step_id": step_id,
         "attempt": entry["attempt"],
@@ -1995,44 +1588,7 @@ def main(argv: list[str]) -> int:
         print(f"error: invalid JSON payload — {exc}", file=sys.stderr)
         return 3
 
-    # Resolve the metrics DB path — engine state pinned to the CLI location
-    # (METRICS_DB override), independent of where the workflow config lives.
-    from orchestrator_next.paths import metrics_db_path
-    db_path = metrics_db_path()
-
-    db = None
-    if db_path.exists():
-        try:
-            import duckdb as _duckdb
-            from orchestrator_next.upsert import ensure_schema as _ensure_schema
-            db = _duckdb.connect(str(db_path))
-            _ensure_schema(db)
-        except Exception as exc:
-            sys.stderr.write(
-                f"[record] warning: failed to open metrics DB {db_path}: {exc}; "
-                f"cost computation will be skipped\n"
-            )
-            if db is not None:
-                try:
-                    db.close()
-                except Exception:
-                    pass
-            db = None
-    else:
-        sys.stderr.write(
-            f"[record] warning: metrics DB not found at {db_path}; "
-            f"cost computation will be skipped\n"
-        )
-
-    try:
-        result, code = record(state_yaml_path, payload, db=db)
-    finally:
-        if db is not None:
-            try:
-                db.close()
-            except Exception:
-                pass
-
+    result, code = record(state_yaml_path, payload)
     print(json.dumps(result, sort_keys=True, indent=2))
     return code
 

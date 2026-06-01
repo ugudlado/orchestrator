@@ -62,12 +62,11 @@ def _write_contract_yaml(steps_dir: str, step_id: str, content: str) -> str:
 
 
 def _run_next(state_yaml_path: str, steps_dir: str, tmp_dir: str) -> subprocess.CompletedProcess:
-    metrics_db = os.path.join(tmp_dir, "metrics.duckdb")
     env = {
         **os.environ,
         "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE": steps_dir,
-        "METRICS_DB": metrics_db,
     }
+    env.pop("METRICS_DB", None)
     return subprocess.run(
         [_BIN_ORCHESTRATOR, "next", state_yaml_path],
         capture_output=True,
