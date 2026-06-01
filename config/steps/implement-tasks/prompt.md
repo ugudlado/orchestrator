@@ -80,6 +80,7 @@ COMPLETION:
   atomically — stale docstrings cap `code_quality` to 7 at phase review.
 - `verify` commands are repo-root-relative — run them from `$REPO_ROOT`.
 - Never `git add -A` — stage only task files.
+- If git commit commands cannot be executed (shell rejected, permission error, or any failure that prevents the commit from landing in HEAD), do NOT return `implementation_result: completed` — record the failure in `known_concerns` AND stop implementation. A task is only complete when its commit is confirmed in `git log`. Returning completed with uncommitted work causes the phase reviewer to flag a critical finding (CF) that blocks the phase. <!-- learned: 2026-06-02, source: orc-87, cycle: 76, hits: 0, misses: 0, repo: orchestrator -->
 
 ## Escalation
 
