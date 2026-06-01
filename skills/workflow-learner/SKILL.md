@@ -393,26 +393,18 @@ If fewer than 2 valid entries exist: skip this sub-step entirely and log `[learn
 
 ## Commit edits (final act)
 
-Learn runs from two entry points — orchestrated (via `orchestrator_next/scripts/run-workflow.sh`, cwd is
-the feature worktree) and standalone (`/learn` skill spawns this agent directly,
-cwd is usually the main checkout). Both converge here, so commit your edits as
-the **last action before returning**, on whatever branch is checked out. This
-keeps `main` (and the worktree) free of an uncommitted learn diff.
-
-Run the shared helper against the repo the cwd lives in — the worktree when
-orchestrated, main when standalone. Resolve it from the current toplevel, NOT
-from the inherited `REPO_ROOT` (the orchestrator exports that pointing at main).
-Do NOT pass `--require-clean` — that guard is for the pre-merge worktree path
-only (handled by the complete workflow):
+Commit your edits as the **last action before returning**, on whatever branch is
+checked out. Stage only learn's write targets — never whole dirs — so unrelated
+WIP is left untouched:
 
 ```bash
-REPO_DIR="$(git -C "$(pwd)" rev-parse --show-toplevel)"
-HELPER="$ORCHESTRATOR_HOME/orchestrator_next/scripts/complete/commit-worktree-learn-updates.sh"
-[ -x "$HELPER" ] && bash "$HELPER" "$REPO_DIR" "$REPO_NAME" "" || true
+for p in config/steps config/workflows .orchestrator spec/project.yaml orchestrator_next/tests; do
+  [ -e "$p" ] && git add -A "$p" 2>/dev/null || true
+done
+git diff --cached --quiet || git commit -m "chore(${CHANGE_ID}): learn-cycle rule updates"
 ```
 
-The helper stages only learn's write targets (`config/steps/`, `.orchestrator/`,
-`spec/project.yaml`) — never whole dirs — so unrelated WIP is left untouched.
+If there is nothing to commit, skip silently. Never fail the learn step over a commit error.
 
 ## Output
 
