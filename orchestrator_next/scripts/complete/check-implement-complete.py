@@ -21,13 +21,18 @@ _COMPLETE_ANCHOR = "run-learn-cycle"
 
 
 def _complete_step_ids(schema_name: str) -> list[str]:
-    steps = workflow_step_ids(schema_name)
+    # Always read complete-phase steps from complete.yaml — the feature/bugfix
+    # schema no longer carries the complete tail (removed in ORC-108).
+    steps = workflow_step_ids("complete")
     if _COMPLETE_ANCHOR not in steps:
-        raise ValueError(
-            f"schema {schema_name!r} has no {_COMPLETE_ANCHOR!r} step; "
-            "cannot run complete phase"
-        )
-    return steps[steps.index(_COMPLETE_ANCHOR) :]
+        # Fallback: try the originating schema (legacy runs seeded before ORC-108).
+        steps = workflow_step_ids(schema_name)
+        if _COMPLETE_ANCHOR not in steps:
+            raise ValueError(
+                f"schema {schema_name!r} has no {_COMPLETE_ANCHOR!r} step; "
+                "cannot run complete phase"
+            )
+    return steps[steps.index(_COMPLETE_ANCHOR):]
 
 
 def check_implement_complete(state_yaml: str) -> dict[str, Any]:
@@ -67,6 +72,7 @@ def check_implement_complete(state_yaml: str) -> dict[str, Any]:
     try:
         complete_steps_ordered = _complete_step_ids(schema)
     except ValueError:
+        # Last resort: anchor in the seeded DAG nodes (pre-ORC-108 runs).
         node_ids = [str(n.get("id") or "") for n in nodes if isinstance(n, dict)]
         if _COMPLETE_ANCHOR not in node_ids:
             raise
