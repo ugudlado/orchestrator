@@ -8,7 +8,6 @@ steps:
     on_failure: design-and-draft-artifacts
     max_retries: 3
   - ticket-start # ticket -> In Progress (implement entry)
-  - capture-test-baseline
   - implement-tasks
   - ticket-review # ticket -> Code Review
   - id: run-phase-review
