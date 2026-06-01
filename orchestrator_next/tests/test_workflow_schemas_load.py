@@ -197,8 +197,8 @@ def _schema_step_ids(schema_name):
 _SCHEMA_TERMINAL_STEP = {
     "feature": "ticket-qa",
     "bugfix": "ticket-qa",
-    "autopilot": "ticket-done",
-    "complete": "ticket-done",
+    "autopilot": "workflow-report",
+    "complete": "workflow-report",
 }
 
 
@@ -213,22 +213,16 @@ def test_schema_ends_at_expected_terminal(schema_name, terminal_step):
 
 
 def test_complete_schema_includes_ticket_done():
-    """Complete workflow syncs the ticket to Done as its terminal step.
-
-    archive-completed-change moves state.yaml to the archive path mid-workflow;
-    run-workflow.sh then re-points STATE_YAML to the archived location, so the
-    teardown tail (merge-to-main → remove-worktree → ticket-done) dispatches
-    correctly against the moved state. ticket-done runs last.
-    """
+    """Complete workflow syncs the ticket to Done before the terminal report."""
     steps = _schema_step_ids("complete")
     assert "ticket-done" in steps
     assert steps.index("archive-completed-change") < steps.index("ticket-done")
 
 
 def test_complete_schema_merge_teardown_order():
-    """complete.yaml: archive → merge-to-main → remove-worktree → ticket-done."""
+    """complete.yaml: archive → merge-to-main → remove-worktree → ticket-done → workflow-report."""
     steps = _schema_step_ids("complete")
-    order = ["archive-completed-change", "merge-to-main", "remove-worktree", "ticket-done"]
+    order = ["archive-completed-change", "merge-to-main", "remove-worktree", "ticket-done", "workflow-report"]
     indices = [steps.index(s) for s in order]
     assert indices == sorted(indices), (
         f"complete.yaml steps out of order: {list(zip(order, indices))}"

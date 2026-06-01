@@ -1,8 +1,8 @@
-"""Tests for config/steps/compute-swe-metrics/compute_swe_metrics.py.
+"""Tests for config/steps/workflow-report/_swe_metrics.py.
 
 Covers:
   (a) _rows_to_metrics maps DuckDB row dict to correct YAML output shape.
-  (b) compute_swe_metrics.py main() runs against a live in-memory DB via
+  (b) _swe_metrics.py main() runs against a live in-memory DB via
       the current schema (ensure_schema) and emits valid metrics YAML.
   (c) COMPUTE_SWE_SOURCE_TS override makes output deterministic.
 """
@@ -22,10 +22,10 @@ import yaml
 
 _HERE = Path(__file__).parent
 _REPO = _HERE.parent.parent
-_SCRIPT = _REPO / "config" / "steps" / "compute-swe-metrics" / "compute_swe_metrics.py"
+_SCRIPT = _REPO / "config" / "steps" / "workflow-report" / "_swe_metrics.py"
 
 # Load the module under test directly (not installed as a package).
-_spec = importlib.util.spec_from_file_location("compute_swe_metrics", _SCRIPT)
+_spec = importlib.util.spec_from_file_location("_swe_metrics", _SCRIPT)
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
 

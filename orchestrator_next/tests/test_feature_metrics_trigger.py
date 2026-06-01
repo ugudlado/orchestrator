@@ -62,7 +62,7 @@ def _make_state_yaml(tmp_path: Path, change_id: str = "my-feature",
         "complete": {
             "active": [
                 "mark-change-completed",
-                "compute-swe-metrics",
+                "workflow-report",
                 "archive-completed-change",
                 "remove-worktree",
             ],

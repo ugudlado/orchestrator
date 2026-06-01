@@ -373,18 +373,37 @@ _log_step_usage() {
 }
 
 _emit_feature_rollup() {
+  # workflow-report step already printed cost + workflow_issues during the run.
+  # This hook only fires if the workflow exits before workflow-report ran (e.g.
+  # state already archived). In that case, emit whatever tail_summary we can find.
   local change_id="$1"
   local tail_line
-  tail_line=$(python3 - "$STATE_YAML" <<'PY'
-import sys, yaml
-with open(sys.argv[1]) as f:
-    s = yaml.safe_load(f) or {}
+  tail_line=$(python3 - "$STATE_YAML" "$REPO_ROOT" "$change_id" <<'PY' 2>/dev/null || true
+import sys, yaml, glob, os
+
+def load_state(path):
+    try:
+        with open(path) as f:
+            return yaml.safe_load(f) or {}
+    except OSError:
+        return None
+
+s = load_state(sys.argv[1])
+if s is None:
+    for p in sorted(glob.glob(os.path.join(sys.argv[2], "spec", "changes", "archive", f"*{sys.argv[3]}", "state.yaml"))):
+        s = load_state(p)
+        if s is not None:
+            break
+if not s:
+    sys.exit(0)
+
 for e in reversed(s.get("step_history") or []):
-    if e.get("step_id") != "cost-report" or e.get("status") != "completed":
+    if e.get("step_id") not in ("workflow-report", "cost-report"):
+        continue
+    if e.get("status") != "completed":
         continue
     ev = e.get("evidence") or {}
-    outputs = ev.get("outputs") or e.get("outputs") or {}
-    tail = outputs.get("tail_summary") or ""
+    tail = (ev.get("outputs") or e.get("outputs") or {}).get("tail_summary") or ""
     if tail:
         print(tail)
     break
@@ -392,20 +411,6 @@ PY
 )
   if [ -n "$tail_line" ]; then
     echo "[$(_log_ts)] feature complete: $tail_line" >&2
-  fi
-  local render_sh="$ORCH_SCRIPTS_DIR/workflow/render-retro.sh"
-  if [ -f "$render_sh" ]; then
-    # Resolve the worktree root so the renderer finds the archived retro.md in
-    # worktree=true runs (archive lives under $worktree_path, not $REPO_ROOT).
-    # Falls back to REPO_ROOT for non-worktree runs.
-    local wt_root="$REPO_ROOT"
-    local wt_path
-    wt_path=$(python3 "$STATE_INSPECT" workflow-meta "$STATE_YAML" 2>/dev/null \
-      | sed -n 's/^worktree_path=//p' | head -1 || true)
-    if [ -n "$wt_path" ] && [ -d "$wt_path" ]; then
-      wt_root="$wt_path"
-    fi
-    WORKTREE_ROOT="$wt_root" REPO_ROOT="$REPO_ROOT" bash "$render_sh" "$change_id" >&2 || true
   fi
 }
 

@@ -1,4 +1,4 @@
-"""Tests for operator workflow step contracts and gather-learn-metrics."""
+"""Tests for operator workflow step contracts and workflow-report."""
 from __future__ import annotations
 
 import json
@@ -33,45 +33,12 @@ def test_merge_step_env_os_environ_overrides_contract(monkeypatch):
     assert merged["TELEMETRY_FEATURES_LIMIT"] == "5"
 
 
-def test_gather_learn_metrics_step_contract(monkeypatch):
+def test_workflow_report_step_contract(monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_HOME", _REPO_ROOT)
-    params = load_step_params("gather-learn-metrics")
-    assert params  # contract defines operator defaults
-
-
-def test_gather_learn_metrics_emits_json(monkeypatch, tmp_path):
-    monkeypatch.setenv("ORCHESTRATOR_HOME", _REPO_ROOT)
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / "spec").mkdir()
-    (repo / "spec" / "project.yaml").write_text("version: 1\n", encoding="utf-8")
-
-    env = {
-        "REPO_ROOT": str(repo),
-        "ORCHESTRATOR_REPO_ROOT": str(repo),
-        "ORCHESTRATOR_STATE_YAML_PATH": "/dev/null",
-        "STATE_YAML_PATH": "/dev/null",
-    }
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import os, sys; "
-            "sys.path.insert(0, os.environ['REPO']); "
-            "from orchestrator_next.operator_workflow import run_script_step; "
-            "raise SystemExit(run_script_step('gather-learn-metrics', "
-            "{k: os.environ[k] for k in "
-            "('REPO_ROOT','ORCHESTRATOR_REPO_ROOT',"
-            "'ORCHESTRATOR_STATE_YAML_PATH','STATE_YAML_PATH')}))",
-        ],
-        env={**os.environ, "REPO": _REPO_ROOT, **env},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stderr
-    payload = json.loads(proc.stdout.strip().splitlines()[-1])
-    assert "learn_metrics" in payload
-    assert payload["learn_metrics"]["scope"] == "all"
+    # workflow-report has no params in contract.yaml (defaults live in the script)
+    from pathlib import Path
+    contract = Path(_REPO_ROOT) / "config" / "steps" / "workflow-report" / "contract.yaml"
+    assert contract.is_file()
+    assert "run: script.sh" in contract.read_text()
 
 

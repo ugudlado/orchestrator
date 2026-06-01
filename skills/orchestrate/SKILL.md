@@ -143,10 +143,10 @@ LOOP:
 
   IF exit_code == 1:
       # Workflow complete — no JSON on stdout.
-      # Cost report already ran as the `cost-report` workflow step (before archive-completed-change).
-      # Read step_history for cost-report outputs (tail_summary, cost_summary_path) and
+      # workflow-report already ran before archive-completed-change.
+      # Read step_history for workflow-report outputs (tail_summary, cost_summary_path) and
       # include the markdown from cost-summary.md in the final message when present.
-      # If cost-report failed, surface its step_history evidence — do not skip.
+      # If workflow-report failed, surface its step_history evidence — do not skip.
       STOP (workflow done)
 
   IF exit_code == 2:

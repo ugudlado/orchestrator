@@ -159,15 +159,15 @@ def test_fr9_skill_passes_agent_task_result():
 
 
 # ---------------------------------------------------------------------------
-# FR-10: compute-swe-metrics.yaml uses the /inline/ path
+# FR-10: workflow-report contract uses the directory script form
 # ---------------------------------------------------------------------------
 
-def test_fr10_compute_swe_metrics_path():
-    """config/steps/compute-swe-metrics/contract.yaml run: must point to the step script."""
-    content = _read("config/steps/compute-swe-metrics/contract.yaml")
+def test_fr10_workflow_report_path():
+    """config/steps/workflow-report/contract.yaml run: must point to the step script."""
+    content = _read("config/steps/workflow-report/contract.yaml")
 
     assert "run: script.sh" in content, (
-        "config/steps/compute-swe-metrics/contract.yaml run: must be 'script.sh' (directory form)."
+        "config/steps/workflow-report/contract.yaml run: must be 'script.sh' (directory form)."
     )
 
 

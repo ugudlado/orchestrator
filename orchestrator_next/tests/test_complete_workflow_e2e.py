@@ -95,7 +95,7 @@ def _build(tmp_path, *, branch_unmerged=False):
                 "nodes": [
                     {"id": "execute-next-task", "status": "completed",
                      "agent": "developer"},
-                    {"id": "compute-swe-metrics", "status": "completed",
+                    {"id": "workflow-report", "status": "completed",
                      "agent": None},
                     {"id": "archive-completed-change", "status": "pending",
                      "agent": None},
@@ -108,7 +108,7 @@ def _build(tmp_path, *, branch_unmerged=False):
         "step_history": [
             {"step_id": "execute-next-task", "phase": "main",
              "status": "completed", "agent": "developer", "attempt": 1},
-            {"step_id": "compute-swe-metrics", "phase": "main",
+            {"step_id": "workflow-report", "phase": "main",
              "status": "completed", "agent": None, "attempt": 1},
         ],
     }
@@ -156,7 +156,7 @@ def _build_no_worktree(tmp_path):
                 "nodes": [
                     {"id": "execute-next-task", "status": "completed",
                      "agent": "developer"},
-                    {"id": "compute-swe-metrics", "status": "completed",
+                    {"id": "workflow-report", "status": "completed",
                      "agent": None},
                     {"id": "archive-completed-change", "status": "pending",
                      "agent": None},
@@ -169,7 +169,7 @@ def _build_no_worktree(tmp_path):
         "step_history": [
             {"step_id": "execute-next-task", "phase": "main",
              "status": "completed", "agent": "developer", "attempt": 1},
-            {"step_id": "compute-swe-metrics", "phase": "main",
+            {"step_id": "workflow-report", "phase": "main",
              "status": "completed", "agent": None, "attempt": 1},
         ],
     }
@@ -247,7 +247,7 @@ def test_e2e_complete_workflow_worktree_false(tmp_path):
     history = final_state.get("step_history") or []
     ent_counts = {
         sid: sum(1 for h in history if h.get("step_id") == sid)
-        for sid in ("execute-next-task", "compute-swe-metrics",
+        for sid in ("execute-next-task", "workflow-report",
                     "archive-completed-change")
     }
     assert all(c == 1 for c in ent_counts.values()), (
@@ -307,7 +307,7 @@ def test_e2e_complete_workflow_archive_keeps_worktree(tmp_path):
     history = final_state.get("step_history") or []
     ent_counts = {
         sid: sum(1 for h in history if h.get("step_id") == sid)
-        for sid in ("execute-next-task", "compute-swe-metrics",
+        for sid in ("execute-next-task", "workflow-report",
                     "archive-completed-change")
     }
     assert all(c == 1 for c in ent_counts.values()), (
