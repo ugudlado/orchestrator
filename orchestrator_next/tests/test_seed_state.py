@@ -165,13 +165,12 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
         f"stderr: {result.stderr}"
     )
 
-    # Worktree is still created for implementation artifacts.
-    worktree_path = worktree_base / slug
-    assert worktree_path.is_dir(), "seed-state.sh did not create the worktree"
-    # State lives in $HOME/.config/orchestrator/<repo-name>/<slug>/<ts>_<schema>_state.yaml.
-    # The fake repo has no remote, so repo-name falls back to basename of fake_repo.
-    repo_name = fake_repo.name
-    state_dir = fake_home / ".config" / "orchestrator" / repo_name / slug
+    # ORC-116: worktree creation moved to create-worktree step — seed does NOT create it.
+    assert not (worktree_base / slug).exists(), (
+        "seed-state.sh must NOT create the worktree (ORC-116: create-worktree step handles this)"
+    )
+    # State lives in $REPO_ROOT/.orchestrator/<slug>/<ts>_<schema>_state.yaml.
+    state_dir = fake_repo / ".orchestrator" / slug
     matches = sorted(state_dir.glob(f"*_{schema}_state.yaml"))
     assert matches, f"no *_{schema}_state.yaml found under {state_dir}"
     state_yaml_path = matches[-1]
@@ -209,9 +208,13 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
         f"started_at ({state_raw.get('started_at')!r}) != created_at ({state_raw.get('created_at')!r})"
     )
     assert state_raw.get("project_context_loaded") is True
-    # ORC-108: worktree is unconditional — state records its path and branch.
-    assert state_raw.get("worktree_path") == str(worktree_path)
-    assert state_raw.get("branch") == f"{schema}/{slug}"
+    # ORC-116: worktree_path and branch are NOT written by seed — create-worktree step does it.
+    assert "worktree_path" not in state_raw, (
+        "seed-state.sh must NOT write worktree_path (ORC-116)"
+    )
+    assert "branch" not in state_raw, (
+        "seed-state.sh must NOT write branch (ORC-116)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -248,8 +251,7 @@ def test_seed_state_is_idempotent(tmp_path):
     )
     assert r1.returncode == 0, f"First seed failed: {r1.stderr}"
 
-    repo_name = fake_repo.name
-    state_dir = fake_home / ".config" / "orchestrator" / repo_name / slug
+    state_dir = fake_repo / ".orchestrator" / slug
     matches = sorted(state_dir.glob(f"*_{schema}_state.yaml"))
     assert matches, f"no *_{schema}_state.yaml found after first seed"
     state_yaml_path = matches[-1]

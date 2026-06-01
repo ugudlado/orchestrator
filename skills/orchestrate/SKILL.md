@@ -14,10 +14,9 @@ args:
 
 ```
 REPO_ROOT=${REPO_ROOT:-$(git rev-parse --show-toplevel)}
-REPO_NAME=${REPO_NAME:-$(git remote get-url origin 2>/dev/null | sed 's/.*[:/]\([^/]*\)\.git$/\1/' | sed 's/.*[:/]\([^/]*\)$/\1/' || basename "$REPO_ROOT")}
 ORCHESTRATOR_HOME=${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}
 REPO_WORKFLOW_DIR=${REPO_WORKFLOW_DIR:-$REPO_ROOT/.orchestrator}
-WORKFLOW_STATE_DIR=${WORKFLOW_STATE_DIR:-$HOME/.config/orchestrator/$REPO_NAME}
+WORKFLOW_STATE_DIR=${WORKFLOW_STATE_DIR:-$REPO_ROOT/.orchestrator}
 WORKTREE_ARTIFACT_DIR="${WORKTREE_ARTIFACT_DIR:-${WORKTREE_ROOT:-$REPO_ROOT}/spec/changes}"
 ```
 

@@ -127,10 +127,8 @@ if [ -d "$_WORKTREE_ROOT/config" ]; then
   export ORCHESTRATOR_HOME="$_WORKTREE_ROOT"
 fi
 
-WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}"
-WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-$HOME/code/feature_worktrees}"
+WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/.orchestrator}"
 TICKET_SLUG="$(echo "$TICKET_ID" | tr '[:upper:]' '[:lower:]')"
-DEFAULT_STATE="$WORKFLOW_STATE_DIR/$TICKET_SLUG/state.yaml"
 _COMPLETE_DIR="$SCRIPT_DIR/complete"
 if [ -d "$_WORKTREE_ROOT/orchestrator_next/scripts/complete" ]; then
   _COMPLETE_DIR="$_WORKTREE_ROOT/orchestrator_next/scripts/complete"
@@ -138,17 +136,13 @@ fi
 
 resolve_archived_state_yaml() {
   local slug="$1"
-  local wt_archived="$WORKTREE_BASE_DIR/$slug/spec/changes/archive/$slug/state.yaml"
-  if [ -f "$wt_archived" ]; then
-    echo "$wt_archived"
-    return 0
-  fi
-  if [ -f "$WORKFLOW_STATE_DIR/archive/$slug/state.yaml" ]; then
-    echo "$WORKFLOW_STATE_DIR/archive/$slug/state.yaml"
+  # Archived state lives in spec/changes/archive/ (gitted artifacts).
+  if [ -f "$REPO_ROOT/spec/changes/archive/$slug/state.yaml" ]; then
+    echo "$REPO_ROOT/spec/changes/archive/$slug/state.yaml"
     return 0
   fi
   local dated
-  for dated in "$WORKFLOW_STATE_DIR/archive"/*"-$slug"/state.yaml; do
+  for dated in "$REPO_ROOT/spec/changes/archive"/*"-$slug"/state.yaml; do
     if [ -f "$dated" ]; then
       echo "$dated"
       return 0
@@ -158,16 +152,13 @@ resolve_archived_state_yaml() {
 }
 
 
-# state.yaml may live in repo_root (worktree=false) or under the feature worktree.
+# Active state lives in $REPO_ROOT/.orchestrator/<slug>/ as <ts>_<schema>_state.yaml.
 resolve_state_yaml() {
   local slug="$1"
-  if [ -f "$WORKFLOW_STATE_DIR/$slug/state.yaml" ]; then
-    echo "$WORKFLOW_STATE_DIR/$slug/state.yaml"
-    return 0
-  fi
-  local wt_state="$WORKTREE_BASE_DIR/$slug/spec/changes/$slug/state.yaml"
-  if [ -f "$wt_state" ]; then
-    echo "$wt_state"
+  local match
+  match=$(ls "$WORKFLOW_STATE_DIR/$slug/"*_state.yaml 2>/dev/null | sort | tail -1 || true)
+  if [ -f "$match" ]; then
+    echo "$match"
     return 0
   fi
   return 1

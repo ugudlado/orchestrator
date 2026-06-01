@@ -3,17 +3,14 @@
 #
 # Usage: seed-state.sh <slug> <schema> [flag=value ...]
 #
-# State file: ~/.config/orchestrator/<repo>/<slug>/<timestamp>_<schema>_state.yaml
+# State file: $REPO_ROOT/.orchestrator/<slug>/<timestamp>_<schema>_state.yaml
 # Idempotent: exits 0 if a *_<schema>_state.yaml already exists for this slug.
-# Context seeding: copies worktree_path, branch, repo_root, change_id, slug
-# from the most recent *_state.yaml in the slug dir (any schema), so successive
-# workflows (feature → complete) share the same worktree automatically.
+# Worktree creation is NOT done here — the create-worktree step handles it.
 # generate_plan promotes the seeded workflow_plan into the nodes shape
 # in place — there is no separate plan file (ORC-63).
 #
 # Required environment:
 #   REPO_ROOT            — root of the target git repo (default: git rev-parse --show-toplevel)
-#   WORKTREE_BASE_DIR    — parent dir for worktrees (default: $HOME/code/feature_worktrees)
 #   ORCHESTRATOR_HOME    — path to orchestrator config (default: $HOME/.config/orchestrator)
 #
 # Exit codes:
@@ -34,7 +31,6 @@ REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || echo "")}
 [[ -n "$REPO_ROOT" ]] || { echo "error: cannot locate repo root" >&2; exit 1; }
 
 ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
-WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-$HOME/code/feature_worktrees}"
 
 PROJECT_YAML="$REPO_ROOT/spec/project.yaml"
 [[ -f "$PROJECT_YAML" ]] || { echo "error: spec/project.yaml not found at $PROJECT_YAML" >&2; exit 1; }
@@ -54,7 +50,6 @@ REPO_SCHEMA_OVERRIDE="$REPO_ROOT/.orchestrator/workflows/$SCHEMA.yaml"
 INIT_JSON=$(python3 - \
     "$SLUG" "$SCHEMA" "$REPO_ROOT" \
     "$SCHEMA_YAML" \
-    "$WORKTREE_BASE_DIR" \
     "$@" \
     <<'PYEOF'
 import sys, json
@@ -63,8 +58,7 @@ import yaml
 
 slug, schema_name, repo_root = sys.argv[1], sys.argv[2], sys.argv[3]
 schema_yaml_path = sys.argv[4]
-worktree_base_dir = sys.argv[5]
-raw_overrides = sys.argv[6:]
+raw_overrides = sys.argv[5:]
 
 # Parse key=value overrides — persisted verbatim to state.flags.
 flags: dict = {}
@@ -91,7 +85,6 @@ print(json.dumps({
     "slug": slug,
     "schema_name": schema_name,
     "repo_root": repo_root,
-    "worktree_base_dir": worktree_base_dir,
     "flags": flags,
     "active": active,
     "filtered": [],
@@ -100,33 +93,10 @@ PYEOF
 ) || exit 1
 
 # ---------------------------------------------------------------------------
-# Worktree creation — isolated branch for implementation artifacts.
+# Resolve STATE_DIR — active state lives in $REPO_ROOT/.orchestrator/<slug>/
 # ---------------------------------------------------------------------------
 
-BRANCH="$SCHEMA/$SLUG"
-WORKTREE_PATH="$WORKTREE_BASE_DIR/$SLUG"
-mkdir -p "$WORKTREE_BASE_DIR"
-
-if git -C "$REPO_ROOT" worktree list --porcelain | grep -q "worktree $WORKTREE_PATH"; then
-    echo "worktree already exists at $WORKTREE_PATH" >&2
-else
-    git -C "$REPO_ROOT" worktree add -b "$BRANCH" "$WORKTREE_PATH" HEAD 2>&1 >&2 || {
-        git -C "$REPO_ROOT" worktree add "$WORKTREE_PATH" "$BRANCH" 2>&1 >&2 || {
-            echo "error: git worktree add failed" >&2; exit 1
-        }
-    }
-fi
-
-# ---------------------------------------------------------------------------
-# Resolve STATE_DIR — state lives in ~/.config/orchestrator/<repo>/<slug>/,
-# independent of the worktree so the engine can always find it.
-# ---------------------------------------------------------------------------
-
-REPO_NAME=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null \
-    | sed 's/.*[:/]\([^/]*\)\.git$/\1/' \
-    | sed 's/.*[:/]\([^/]*\)$/\1/' \
-    || basename "$REPO_ROOT")
-STATE_DIR="$HOME/.config/orchestrator/$REPO_NAME/$SLUG"
+STATE_DIR="$REPO_ROOT/.orchestrator/$SLUG"
 
 # Idempotency: if a *_<schema>_state.yaml already exists, re-use it.
 EXISTING=$(ls "$STATE_DIR"/*_"${SCHEMA}"_state.yaml 2>/dev/null | sort | tail -1 || true)
@@ -144,17 +114,18 @@ STATE_YAML="$STATE_DIR/${TIMESTAMP}_${SCHEMA}_state.yaml"
 # successive workflows share worktree_path, branch, repo_root, etc.
 PRIOR=$(ls "$STATE_DIR"/*_state.yaml 2>/dev/null | sort | tail -1 || true)
 
-python3 - "$STATE_YAML" "$WORKTREE_PATH" "$BRANCH" "$INIT_JSON" "$PRIOR" <<'PYEOF'
+python3 - "$STATE_YAML" "$INIT_JSON" "$PRIOR" <<'PYEOF'
 import sys, json
 from datetime import datetime, timezone
 from pathlib import Path
 import yaml
 
-state_yaml_path, worktree_path, branch = sys.argv[1], sys.argv[2] or None, sys.argv[3] or None
-d = json.loads(sys.argv[4])
-prior_path = sys.argv[5] if len(sys.argv) > 5 else ""
+state_yaml_path = sys.argv[1]
+d = json.loads(sys.argv[2])
+prior_path = sys.argv[3] if len(sys.argv) > 3 else ""
 
 # Copy identity fields from the most recent prior workflow state if available.
+# Worktree creation is handled by create-worktree step; we inherit only if prior has it.
 prior_context: dict = {}
 if prior_path:
     try:
@@ -181,13 +152,11 @@ state = {
     "started_at": now,
     "project_context_loaded": True,
 }
-# worktree_path and branch: prior wins, then current run's values.
-resolved_worktree = prior_context.get("worktree_path") or worktree_path
-resolved_branch = prior_context.get("branch") or branch
-if resolved_worktree:
-    state["worktree_path"] = resolved_worktree
-if resolved_branch:
-    state["branch"] = resolved_branch
+# Inherit worktree_path and branch from prior run when present (successive schemas).
+if prior_context.get("worktree_path"):
+    state["worktree_path"] = prior_context["worktree_path"]
+if prior_context.get("branch"):
+    state["branch"] = prior_context["branch"]
 
 Path(state_yaml_path).write_text(yaml.safe_dump(state, sort_keys=False, allow_unicode=True))
 print(f"seeded: {state_yaml_path}", file=sys.stderr)

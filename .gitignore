@@ -19,7 +19,10 @@ pytest-of-*/
 .state/
 !.state/.gitkeep
 
-# Per-change workflow state (ephemeral)
+# Active workflow state (ephemeral — archive stays in spec/changes/archive/)
+.orchestrator/
+
+# Legacy per-change state location (kept so in-flight runs don't break)
 spec/changes/*/state.yaml
 spec/changes/*/plan.yaml
 

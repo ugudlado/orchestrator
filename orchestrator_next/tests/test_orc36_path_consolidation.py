@@ -264,11 +264,11 @@ def test_archive_contains_artifact_files(tmp_path):
 
 def test_seed_state_writes_to_spec_changes(tmp_path):
     """
-    seed-state.sh writes state.yaml under ~/.config/orchestrator/<repo-name>/<slug>/,
+    seed-state.sh writes state.yaml under $REPO_ROOT/.orchestrator/<slug>/,
     independent of the worktree. Artifacts still live in the worktree under
     spec/changes/<slug>/. No .state/ directory is created anywhere.
 
-    orc-36 failure mode #4 (path shape) + new canonical state location.
+    orc-36 failure mode #4 (path shape) + canonical state location (ORC-114).
     """
     assert _SEED_SCRIPT.exists(), (
         f"seed-state.sh not found at {_SEED_SCRIPT}. "
@@ -300,10 +300,8 @@ def test_seed_state_writes_to_spec_changes(tmp_path):
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
 
-    # State written to $HOME/.config/orchestrator/<repo-name>/<slug>/<ts>_<schema>_state.yaml.
-    # The fake repo has no remote, so repo-name falls back to basename of fake_repo.
-    repo_name = fake_repo.name
-    state_dir = fake_home / ".config" / "orchestrator" / repo_name / slug
+    # State written to $REPO_ROOT/.orchestrator/<slug>/<ts>_<schema>_state.yaml (ORC-114).
+    state_dir = fake_repo / ".orchestrator" / slug
     matches = sorted(state_dir.glob(f"*_{schema}_state.yaml"))
     assert matches, (
         f"no *_{schema}_state.yaml found under {state_dir}\n"
