@@ -3,6 +3,7 @@ steps:
   - explore
   - ux-design
   - design-and-draft-artifacts
+  - design-review
   - preview-route
   - ticket-start # ticket -> In Progress (implement entry)
   - capture-test-baseline

@@ -2,6 +2,7 @@ steps:
   - check-rerun # halt if this fix is already archived (workflow's own decision)
   - diagnose
   - design-and-draft-artifacts
+  - design-review
   - ticket-start # ticket -> In Progress (implement entry)
   - capture-test-baseline
   - implement-tasks

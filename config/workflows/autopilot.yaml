@@ -1,7 +1,7 @@
 # Autopilot workflow — fully autonomous, NO review steps (ORC-108).
 # Autopilot is not a mode/flag bundle: it is just this step list. It runs the
 # produce → implement → complete spine straight through, with no
-# run-phase-review / run-ux-critique gate and no Code-Review/QA ticket lanes.
+# run-ux-critique gate and no Code-Review/QA ticket lanes for humans.
 #
 # Autopilot ENDS AT THE BOUNDARY — it does NOT merge. The run loop archives the
 # change on the feature worktree (archive-completed-change) and exits; the worktree and
@@ -12,6 +12,7 @@ steps:
   - check-rerun # halt if this change is already archived (workflow's own decision)
   - explore
   - design-and-draft-artifacts
+  - design-review # automated — resets to design-and-draft-artifacts on needs_work
   - preview-route
   - ticket-start # ticket -> In Progress
   - capture-test-baseline
@@ -22,5 +23,4 @@ steps:
   - run-learn-cycle
   - mark-change-completed
   - archive-completed-change
-  - ticket-done
   - workflow-report
