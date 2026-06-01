@@ -24,7 +24,7 @@ orchestrator/
 │   └── changes/<slug>/**         # Active feature artifacts
 │       └── archive/              # Completed features
 ├── tests/                        # Workflow validation tests
-└── metrics.duckdb                # Metrics store (optional)
+└── config/pricing.yaml           # Model pricing rates (USD/MTok)
 ```
 
 ### Quick Start
@@ -87,10 +87,9 @@ step_history:  # Terminal steps recorded in metrics
 
 ### Metrics & Cost Tracking
 
-- Metrics stored in `metrics.duckdb` (path from `METRICS_DB` env var)
-- Tracks token cost, duration, agent/tool usage per step
-- DuckDB schema includes wide `features` table with typed columns
-- Avoids `read_json_auto` to prevent type drift across versions
+- Step duration, tokens, and cost recorded in `step_history[].usage` in state.yaml
+- Cost computed at record time using `config/pricing.yaml` (static YAML, no DB required)
+- Pricing rates: USD per million tokens by model_id with `effective_from` dating
 
 ### Key Learnings
 
