@@ -299,6 +299,13 @@ def _build_step_block(
     if repeat_until:
         block["repeat_until"] = repeat_until
 
+    # Statechart routing edges: on_success / on_failure / max_retries.
+    # Values are step ids, or the keyword "halt". Absent = default behavior.
+    for edge_key in ("on_success", "on_failure", "max_retries"):
+        val = step_entry.get(edge_key)
+        if val is not None:
+            block[edge_key] = val
+
     return block
 
 

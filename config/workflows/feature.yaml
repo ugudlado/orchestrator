@@ -3,12 +3,18 @@ steps:
   - explore
   - ux-design
   - design-and-draft-artifacts
-  - design-review
+  - id: design-review
+    on_success: preview-route
+    on_failure: design-and-draft-artifacts
+    max_retries: 3
   - preview-route
   - ticket-start # ticket -> In Progress (implement entry)
   - capture-test-baseline
   - run-ux-critique
   - implement-tasks
   - ticket-review # ticket -> Code Review
-  - run-phase-review
+  - id: run-phase-review
+    on_success: ticket-qa
+    on_failure: implement-tasks
+    max_retries: 8
   - ticket-qa # ticket -> QA Review

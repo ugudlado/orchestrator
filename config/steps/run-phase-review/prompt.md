@@ -105,26 +105,19 @@
         current last task id.
       - Each new task MUST have `status: pending`.
       - Write tasks.yaml back to disk.
-   c. Return COMPLETION:
+   c. Return COMPLETION with `status: failed` — the engine routes back via the
+      workflow's `on_failure` edge. Do NOT implement retry counting here; the
+      engine enforces `max_retries` on the node.
    ```
    COMPLETION:
-     status: completed
+     status: failed
      outputs:
        phase_review_report: {verdict: needs_work}
      review_score:
        overall: <N>
        dimensions: {spec_compliance: <N>, correctness: <N>, security: <N>, simplicity: <N>, code_quality: <N>}
      artifacts: [phase-review.md]
-     state_patch:
-       retries: <incremented value>
    ```
-   d. If retries >= phase verify.max_retries (default 3):
-      - If state.yaml `schema` is `autopilot`: return COMPLETION with
-        `status: abandoned` and `reason: max_retries_exhausted`. The workflow
-        records the failure and continues to the next step — no human gate.
-      - Otherwise: set status paused, surface failure summary to user.
-      - If not exhausted: the dispatcher re-runs implement-tasks, which picks up
-        pending fix tasks from tasks.yaml.
 
 ### Rules (constraints on how)
 

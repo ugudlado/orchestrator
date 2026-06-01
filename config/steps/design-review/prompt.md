@@ -57,18 +57,13 @@ COMPLETION:
 ### 4b. On needs_work
 
 Write `design-review.md` with scores, each finding, and specific guidance for the architect.
+Set `refresh_artifacts: true` so the architect re-reads the findings on next run.
 
-Reset back to `design-and-draft-artifacts` so it can address the findings:
-
-```bash
-orchestrator reset-step design-and-draft-artifacts $STATE_YAML_PATH
-```
-
-Then return:
+Return:
 
 ```
 COMPLETION:
-  status: completed
+  status: failed
   outputs:
     design_review_result: needs_work
   review_score:
@@ -76,19 +71,17 @@ COMPLETION:
     dimensions: {completeness: <N>, ac_coverage: <N>, task_quality: <N>, feasibility: <N>, scope_control: <N>}
   artifacts: [design-review.md]
   state_patch:
-    retries: <incremented value>
     refresh_artifacts: true
 ```
 
-The dispatcher will re-run `design-and-draft-artifacts` next. `design-review.md`
-remains so the architect can read the findings.
+The engine routes `failed` via the workflow's `on_failure` edge — the architect step
+is re-queued automatically. Do NOT call `orchestrator reset-step` manually.
 
 ## Rules
 
 - Do not edit `design.md` or `tasks.yaml` — findings only, no fixes.
-- Run `orchestrator reset-step` BEFORE returning COMPLETION on needs_work — order matters.
-- If retries >= 3: return COMPLETION with `design_review_result: needs_work` but do NOT
-  reset — surface the failure for human review instead.
+- Emit `status: failed` (not `status: completed`) when verdict is `needs_work` — the engine handles rerouting.
+- The retry cap is enforced by the engine (`max_retries` on the workflow node). Do not implement retry counting here.
 - Findings must be specific and actionable: name the AC, task id, or section at fault.
 - Do not flag style preferences or subjective improvements — only structural gaps that
   would cause implementation to fail or miss acceptance criteria.
@@ -96,5 +89,4 @@ remains so the architect can read the findings.
 ## Verify
 
 - `design-review.md` written with scores and findings
-- `orchestrator reset-step` called before COMPLETION when verdict is `needs_work`
-  (and retries < 3)
+- `status: failed` returned when verdict is `needs_work`, `status: completed` when pass

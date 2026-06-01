@@ -71,10 +71,10 @@ class TestRunPhaseReviewYamlNeedsWork:
             "(for appending fix tasks on needs_work)"
         )
 
-    def test_run_phase_review_mentions_expand_plan(self):
-        """run-phase-review instruction must mention expand-plan (or orchestrator expand-plan)."""
+    def test_run_phase_review_mentions_status_failed(self):
+        """run-phase-review instruction must tell agents to emit status: failed on needs_work."""
         content = _run_phase_review_content()
-        assert "expand-plan" in content, (
-            "run-phase-review instruction must mention 'expand-plan' "
-            "(invoked on needs_work to inject fix task-nodes)"
+        assert "status: failed" in content, (
+            "run-phase-review prompt must instruct agents to return status: failed "
+            "(not status: completed) on needs_work — engine routes via on_failure edge"
         )

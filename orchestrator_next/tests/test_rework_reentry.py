@@ -169,31 +169,36 @@ def _review_node(state) -> dict:
 # ---------------------------------------------------------------------------
 
 
-class TestEffectiveNodeStatusVerdictAware:
+class TestEffectiveNodeStatus:
+    """Node status is authoritative — no verdict-skipping logic."""
 
-    def test_needs_work_completed_history_on_in_progress_node_returns_in_progress(
-        self, tmp_path, monkeypatch,
-    ):
-        """AC-4 live bug: needs_work history must not override in_progress re-arm."""
+    def test_in_progress_node_returns_in_progress(self, tmp_path, monkeypatch):
+        """Node with status=in_progress is in_progress regardless of history."""
         state_raw = _rework_dag_state(
             tmp_path,
             review_status="in_progress",
-            step_history=[_phase_review_history_entry(verdict="needs_work")],
+            step_history=[],
         )
         state_path = _setup(tmp_path, monkeypatch, state_raw)
         state = load_state(state_path)
+        assert readiness._effective_node_status(state, _review_node(state)) == "in_progress"
 
-        assert readiness._effective_node_status(state, _review_node(state)) == (
-            "in_progress"
-        )
-
-    def test_recovered_history_on_in_progress_node_returns_completed(
-        self, tmp_path, monkeypatch,
-    ):
-        """AC-4 crash-resume: recovered entry still terminates (ORC-85 preserved)."""
+    def test_completed_node_returns_completed(self, tmp_path, monkeypatch):
+        """Node with status=completed is completed."""
         state_raw = _rework_dag_state(
             tmp_path,
-            review_status="in_progress",
+            review_status="completed",
+            step_history=[_phase_review_history_entry(verdict="pass")],
+        )
+        state_path = _setup(tmp_path, monkeypatch, state_raw)
+        state = load_state(state_path)
+        assert readiness._effective_node_status(state, _review_node(state)) == "completed"
+
+    def test_recovered_history_infers_completed(self, tmp_path, monkeypatch):
+        """A recovered entry in history infers completed status."""
+        state_raw = _rework_dag_state(
+            tmp_path,
+            review_status="pending",
             step_history=[
                 {
                     "step_id": "run-phase-review",
@@ -208,72 +213,7 @@ class TestEffectiveNodeStatusVerdictAware:
         )
         state_path = _setup(tmp_path, monkeypatch, state_raw)
         state = load_state(state_path)
-
-        assert readiness._effective_node_status(state, _review_node(state)) == (
-            "completed"
-        )
-
-    def test_incomplete_phase_completed_history_is_non_terminal(
-        self, tmp_path, monkeypatch,
-    ):
-        """AC-4: incomplete_phase behaves like needs_work."""
-        state_raw = _rework_dag_state(
-            tmp_path,
-            review_status="in_progress",
-            step_history=[_phase_review_history_entry(verdict="incomplete_phase")],
-        )
-        state_path = _setup(tmp_path, monkeypatch, state_raw)
-        state = load_state(state_path)
-
-        assert readiness._effective_node_status(state, _review_node(state)) == (
-            "in_progress"
-        )
-
-    def test_pass_completed_history_is_terminal(self, tmp_path, monkeypatch):
-        """AC-4: pass verdict terminates the node."""
-        state_raw = _rework_dag_state(
-            tmp_path,
-            review_status="completed",
-            step_history=[_phase_review_history_entry(verdict="pass")],
-        )
-        state_path = _setup(tmp_path, monkeypatch, state_raw)
-        state = load_state(state_path)
-
-        assert readiness._effective_node_status(state, _review_node(state)) == (
-            "completed"
-        )
-
-    def test_multi_round_history_trailing_pass_wins(self, tmp_path, monkeypatch):
-        """Earlier needs_work entries non-terminal; trailing pass terminates."""
-        state_raw = _rework_dag_state(
-            tmp_path,
-            review_status="completed",
-            step_history=[
-                _phase_review_history_entry(verdict="needs_work", attempt=1),
-                _phase_review_history_entry(verdict="needs_work", attempt=2),
-                _phase_review_history_entry(verdict="pass", attempt=3),
-            ],
-        )
-        state_path = _setup(tmp_path, monkeypatch, state_raw)
-        state = load_state(state_path)
-
-        assert readiness._effective_node_status(state, _review_node(state)) == (
-            "completed"
-        )
-
-    def test_malformed_evidence_treated_as_terminal(self, tmp_path, monkeypatch):
-        """Fail-safe: unreadable verdict → terminal (do not block forever)."""
-        state_raw = _rework_dag_state(
-            tmp_path,
-            review_status="in_progress",
-            step_history=[_malformed_review_history_entry()],
-        )
-        state_path = _setup(tmp_path, monkeypatch, state_raw)
-        state = load_state(state_path)
-
-        assert readiness._effective_node_status(state, _review_node(state)) == (
-            "completed"
-        )
+        assert readiness._effective_node_status(state, _review_node(state)) == "completed"
 
 
 # ---------------------------------------------------------------------------
@@ -286,12 +226,12 @@ class TestNextReadyNodeReworkReentry:
     def test_after_fix_task_next_ready_is_run_phase_review_not_compute(
         self, tmp_path, monkeypatch,
     ):
-        """AC-1: re-armed review with needs_work history re-enters review, not compute."""
+        """Re-armed review (in_progress node) is picked before downstream compute."""
         state_raw = _rework_dag_state(
             tmp_path,
             review_status="in_progress",
             review_depends_on=["task-fix-1"],
-            step_history=[_phase_review_history_entry(verdict="needs_work")],
+            step_history=[],
         )
         state_path = _setup(tmp_path, monkeypatch, state_raw)
         state = load_state(state_path)
@@ -321,9 +261,13 @@ class TestNextReadyNodeReworkReentry:
 # ---------------------------------------------------------------------------
 
 
-def _nodes_state_with_compute(tmp_path) -> dict:
+def _nodes_state_with_compute(tmp_path, max_retries: int = 8) -> dict:
     """_nodes_state plus downstream compute node (for dispatch non-advance checks)."""
     state = _nodes_state(tmp_path)
+    # Override max_retries on run-phase-review so tests can control the cap.
+    for node in state["workflow_plan"]["implement"]["nodes"]:
+        if node["id"] == "run-phase-review":
+            node["max_retries"] = max_retries
     state["workflow_plan"]["implement"]["nodes"].append(
         {
             "id": "run-learn-cycle",
@@ -352,11 +296,9 @@ def _node_status(state_path: str, node_id: str) -> str:
 
 
 class TestReworkRecordCounterClimb:
-    """AC-1: engine increments retries — payloads must not supply state_patch.retries."""
+    """Engine increments retries on each on_failure routing."""
 
-    def test_needs_work_counter_climbs_from_engine_not_payload(
-        self, tmp_path, monkeypatch,
-    ):
+    def test_needs_work_counter_climbs(self, tmp_path, monkeypatch):
         state_path = _record_setup(
             tmp_path, monkeypatch, _nodes_state(tmp_path), max_retry_rounds=8
         )
@@ -366,8 +308,8 @@ class TestReworkRecordCounterClimb:
             record.record(state_path, _review_payload("needs_work"))
             assert _state_retries(state_path) == expected
 
-    def test_below_cap_does_not_block_or_pause(self, tmp_path, monkeypatch):
-        """AC-3: retries below max + needs_work → completed entry, in_progress node, active."""
+    def test_below_cap_does_not_block(self, tmp_path, monkeypatch):
+        """Retries below max: failed entry recorded, on_failure target reset, state stays active."""
         state_path = _record_setup(
             tmp_path, monkeypatch, _nodes_state(tmp_path), max_retry_rounds=8
         )
@@ -376,43 +318,43 @@ class TestReworkRecordCounterClimb:
         raw = yaml.safe_load(open(state_path).read())
         last = raw["step_history"][-1]
         assert last["step_id"] == "run-phase-review"
-        assert last["status"] == "completed"
-        assert raw.get("status") != "paused"
-        assert _node_status(state_path, "run-phase-review") == "in_progress"
+        assert last["status"] == "failed"
+        assert raw.get("status") != "blocked"
+        # on_failure target (execute-next-task) is reset to pending
+        assert _node_status(state_path, "execute-next-task") == "pending"
 
 
 class TestReworkRecordExhaustion:
-    """AC-3: cap exhaustion blocks, pauses, and dispatch exits 2."""
+    """Cap exhaustion: state.status=blocked, dispatch exits 2."""
 
-    def test_max_retries_exhaustion_blocks_pauses_dispatch_exits_2(
+    def test_max_retries_exhaustion_blocks_dispatch_exits_2(
         self, tmp_path, monkeypatch,
     ):
         max_rounds = 3
         state_path = _record_setup(
             tmp_path,
             monkeypatch,
-            _nodes_state_with_compute(tmp_path),
+            _nodes_state_with_compute(tmp_path, max_retries=max_rounds),
             max_retry_rounds=max_rounds,
         )
 
+        # First max_rounds failures each route to on_failure (retries < max_rounds)
         for round_idx in range(1, max_rounds + 1):
             record.record(state_path, _review_payload("needs_work"))
             raw = yaml.safe_load(open(state_path).read())
-            assert raw.get("status") != "paused"
+            assert raw.get("status") != "blocked", f"should not block at round {round_idx}"
             assert _state_retries(state_path) == round_idx
-            assert raw["step_history"][-1]["status"] == "completed"
+            assert raw["step_history"][-1]["status"] == "failed"
 
         assert _state_retries(state_path) == max_rounds
 
+        # One more failure: retries[step_id] == max_rounds → cap hit → halt
         record.record(state_path, _review_payload("needs_work"))
 
         raw = yaml.safe_load(open(state_path).read())
-        last = raw["step_history"][-1]
-        assert last["step_id"] == "run-phase-review"
-        assert last["status"] == "blocked"
-        assert raw.get("status") == "paused"
+        assert raw.get("status") == "blocked"
 
-        # End-to-end: blocked last entry halts dispatch (no spawn of compute).
+        # End-to-end: blocked state halts dispatch.
         state = load_state(state_path)
         action, exit_code = dispatch.dispatch(state, state_path)
         assert exit_code == 2
@@ -425,12 +367,12 @@ class TestReworkRecordExhaustion:
 
 
 class TestReworkRecordComposition:
-    """F-1: real record()-produced needs_work entry via next_ready_node (orc-96 surface)."""
+    """End-to-end: on_failure routing then pass advances to downstream compute."""
 
-    def test_real_needs_work_record_reenters_then_pass_advances(
+    def test_real_needs_work_record_routes_to_on_failure_then_pass_advances(
         self, tmp_path, monkeypatch,
     ):
-        """record() needs_work → re-entry at review; pass → advance to compute."""
+        """record() failed → on_failure target becomes next_ready; pass → advance to compute."""
         state_path = _record_setup(
             tmp_path,
             monkeypatch,
@@ -438,10 +380,21 @@ class TestReworkRecordComposition:
             max_retry_rounds=8,
         )
 
+        # needs_work → on_failure routes to execute-next-task
         record.record(state_path, _review_payload("needs_work"))
         state = load_state(state_path)
-        assert readiness.next_ready_node(state) == "run-phase-review"
+        assert readiness.next_ready_node(state) == "execute-next-task"
         assert readiness.next_ready_node(state) != "run-learn-cycle"
+
+        # Simulate re-running execute-next-task + run-phase-review with pass
+        _node_status_raw = yaml.safe_load(open(state_path).read())
+        for node in _node_status_raw["workflow_plan"]["implement"]["nodes"]:
+            if node["id"] == "execute-next-task":
+                node["status"] = "completed"
+            if node["id"] == "run-phase-review":
+                node["status"] = "in_progress"
+        import yaml as _yaml
+        open(state_path, "w").write(_yaml.safe_dump(_node_status_raw, sort_keys=False))
 
         record.record(state_path, _review_payload("pass"))
         state = load_state(state_path)

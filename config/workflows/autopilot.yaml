@@ -12,13 +12,19 @@ steps:
   - check-rerun # halt if this change is already archived (workflow's own decision)
   - explore
   - design-and-draft-artifacts
-  - design-review # automated — resets to design-and-draft-artifacts on needs_work
+  - id: design-review
+    on_success: preview-route
+    on_failure: design-and-draft-artifacts
+    max_retries: 3
   - preview-route
   - ticket-start # ticket -> In Progress
   - capture-test-baseline
   - implement-tasks
   - ticket-review # ticket -> Code Review
-  - run-phase-review # automated — loops on needs_work, abandons on retry exhaustion (no human gate)
+  - id: run-phase-review
+    on_success: ticket-qa
+    on_failure: implement-tasks
+    max_retries: 8
   - ticket-qa # ticket -> QA Review
   - run-learn-cycle
   - mark-change-completed

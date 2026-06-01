@@ -160,7 +160,7 @@ _STATUS_TO_STATE_STATUS: dict[str, str | None] = {
     "completed": None,
     "recovered": None,
     "abandoned": "blocked",
-    "failed": "blocked",
+    "failed": None,           # routing handles failure; _resolve_routing sets blocked when halting
     "blocked": "blocked",
     "escalate_to_architect": "blocked",
 }
@@ -433,6 +433,82 @@ def _apply_state_patch(state_raw: dict[str, Any], patch: dict[str, Any]) -> None
     for key in ("baseline", "refresh_artifacts", "change_type", "flag_adaptations"):
         if key in patch:
             state_raw[key] = patch[key]
+
+
+# ---------------------------------------------------------------------------
+# Statechart routing (on_success / on_failure edges)
+# ---------------------------------------------------------------------------
+
+_SUCCESS_STATUSES = frozenset({"completed", "recovered"})
+_HALT_KEYWORD = "halt"
+
+
+def _find_workflow_node(state_raw: dict[str, Any], phase: str, step_id: str) -> dict[str, Any] | None:
+    """Return the node dict for step_id in workflow_plan[phase].nodes, or None."""
+    phase_block = (state_raw.get("workflow_plan") or {}).get(phase)
+    if not isinstance(phase_block, dict):
+        return None
+    for node in phase_block.get("nodes") or []:
+        if isinstance(node, dict) and str(node.get("id", "")) == step_id:
+            return node
+    return None
+
+
+_HALT_CAP_EXCEEDED = "halt_cap_exceeded"  # sentinel: cap exhaustion (entry status → blocked)
+
+
+def _resolve_routing(
+    step_id: str,
+    status: str,
+    state_raw: dict[str, Any],
+    phase: str,
+) -> str:
+    """Determine where the workflow goes after a step completes.
+
+    Returns one of:
+      - "advance"          — mark node completed, let next_ready_node() pick the next
+      - "halt"             — mark node completed, set state.status = blocked (keep entry status)
+      - "halt_cap_exceeded"— cap exhaustion: halt AND rewrite entry status to blocked
+      - "<step_id>"        — activate that node (mark it pending), loop back
+
+    Decision order:
+      1. on_success / on_failure edge declared in the workflow node.
+      2. Retry cap: if on_failure points to an earlier step and retries are
+         exhausted, escalate to halt_cap_exceeded.
+      3. Default: "advance" on success, "halt" on failure.
+    """
+    success = status in _SUCCESS_STATUSES
+    node = _find_workflow_node(state_raw, phase, step_id)
+    edge_key = "on_success" if success else "on_failure"
+    target = (node or {}).get(edge_key)  # None = no explicit edge
+
+    if target is None:
+        return "advance" if success else _HALT_KEYWORD
+
+    if str(target) == _HALT_KEYWORD:
+        return _HALT_KEYWORD
+
+    target = str(target)
+
+    # Loop target (on_failure pointing back) — enforce retry cap.
+    if not success:
+        max_r = int((node or {}).get("max_retries") or _max_retry_rounds(state_raw))
+        retries_map = state_raw.setdefault("retries", {})
+        if not isinstance(retries_map, dict):
+            retries_map = {}
+            state_raw["retries"] = retries_map
+        count = retries_map.get(step_id, 0)
+        if not isinstance(count, int):
+            count = 0
+        if count >= max_r:
+            sys.stderr.write(
+                f"[record] {step_id}: on_failure retry cap reached "
+                f"({count}/{max_r}), escalating to halt\n"
+            )
+            return _HALT_CAP_EXCEEDED
+        retries_map[step_id] = count + 1
+
+    return target
 
 
 # ---------------------------------------------------------------------------
@@ -1681,26 +1757,28 @@ def record(
     #   "escalate" — retries exhausted: mark the node completed, downgrade this
     #                step_history entry to `blocked` (so the next `orchestrator
     #                next` exits 2 and the driver halts) and pause the workflow.
-    if status in ("completed", "recovered", "abandoned"):
-        rework: str | None = None
-        if status in ("completed", "recovered") and step_id == "run-phase-review":
-            rework = _rework_loop_active(
-                _payload_phase_review_verdict(payload),
-                state_raw.get("retries"),
-                _max_retry_rounds(state_raw),
-            )
-        if rework == "retry":
-            readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
-            retries_map = state_raw.setdefault("retries", {})
-            retries_map["run-phase-review"] = retries_map.get("run-phase-review", 0) + 1
-        elif rework == "escalate":
-            readiness.mark_node_status(state_raw, phase, step_id, "completed")
-            entry["status"] = "blocked"
-            state_raw["status"] = "paused"
-        elif status in ("completed", "recovered") and _repeat_until_pending(step_id, state_yaml_path, state_raw):
+    if status in ("completed", "recovered", "abandoned", "failed"):
+        if status in ("completed", "recovered") and _repeat_until_pending(step_id, state_yaml_path, state_raw):
+            # repeat_until predicate not yet satisfied — keep node in_progress for re-dispatch.
             readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
         else:
-            readiness.mark_node_status(state_raw, phase, step_id, "completed")
+            routing = _resolve_routing(step_id, status, state_raw, phase)
+            if routing == _HALT_CAP_EXCEEDED:
+                # Retry cap exhausted — rewrite entry to blocked so dispatch exits 2.
+                readiness.mark_node_status(state_raw, phase, step_id, "completed")
+                entry["status"] = "blocked"
+                state_raw["status"] = "blocked"
+            elif routing == _HALT_KEYWORD:
+                # No on_failure edge or explicit halt — preserve original entry status.
+                readiness.mark_node_status(state_raw, phase, step_id, "completed")
+                state_raw["status"] = "blocked"
+            elif routing == "advance":
+                readiness.mark_node_status(state_raw, phase, step_id, "completed")
+            else:
+                # routing is a target step_id — loop back: mark self completed,
+                # reset target to pending so next_ready_node() picks it up.
+                readiness.mark_node_status(state_raw, phase, step_id, "completed")
+                readiness.mark_node_status(state_raw, phase, routing, "pending")
 
     # Advance next_step (DAG-walk over the just-mutated node statuses).
     next_step = _compute_next_step(state_raw, step_id, state_yaml_path)
