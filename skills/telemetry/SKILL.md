@@ -45,6 +45,6 @@ export TELEMETRY_SCOPE="${SCOPE:-recent}"
 "$ORCHESTRATOR_CLI" telemetry
 ```
 
-4. If exit code is non-zero, report the error. If output says no archived metrics, explain that completing a feature workflow populates DuckDB (or run `orchestrator_next/scripts/metrics/register-repo.sh` to backfill from archives).
+4. If exit code is non-zero, report the error. If output says no archived metrics, explain that completing a feature workflow populates metrics.
 
 Do not invoke `metrics-query.sh` directly — the step owns metrics queries.

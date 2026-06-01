@@ -84,7 +84,7 @@ dashboard: ## Launch live agent-progress dashboard on http://localhost:8765
 	@if [ ! -x ui/dashboard/.venv/bin/uvicorn ]; then \
 		echo "Creating dashboard venv..."; \
 		python3 -m venv ui/dashboard/.venv; \
-		ui/dashboard/.venv/bin/pip install --quiet fastapi 'uvicorn[standard]' duckdb pyyaml; \
+		ui/dashboard/.venv/bin/pip install --quiet fastapi 'uvicorn[standard]' pyyaml; \
 	fi
 	@if lsof -ti tcp:8765 >/dev/null 2>&1; then \
 		echo "Dashboard already running on :8765 (use 'make dashboard-stop' to stop)"; \

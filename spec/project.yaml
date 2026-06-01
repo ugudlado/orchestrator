@@ -263,7 +263,7 @@ learnings:
       numbers.
 
 context:
-  tech_stack: [bash, zsh, yaml, duckdb, yq, python]
+  tech_stack: [bash, zsh, yaml, yq, python]
   conventions:
     - Minimal diffs.
     - Spec-first workflow.

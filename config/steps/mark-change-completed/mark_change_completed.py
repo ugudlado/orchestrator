@@ -35,34 +35,6 @@ def _stamp_state(state_path: Path) -> dict:
     }
 
 
-def _upsert_complexity(state_path: Path) -> None:
-    orch_home = os.environ.get("ORCHESTRATOR_HOME", "")
-    metrics_db = os.environ.get("METRICS_DB") or (
-        os.path.join(orch_home, "metrics.duckdb") if orch_home else ""
-    )
-    if not orch_home or not metrics_db:
-        return
-    sys.path.insert(0, orch_home)
-    import duckdb
-
-    from orchestrator_next.upsert import ensure_schema, upsert_feature_complexity
-
-    with state_path.open(encoding="utf-8") as f:
-        state = yaml.safe_load(f) or {}
-    conn = duckdb.connect(metrics_db)
-    ensure_schema(conn)
-    upsert_feature_complexity(
-        conn,
-        repo_root=str(state.get("repo_root") or ""),
-        change_id=str(state.get("change_id") or ""),
-        complexity=state.get("complexity"),
-        schema_name=str(state.get("schema") or ""),
-        started_at=state.get("created_at"),
-        completed_at=state.get("completed_at"),
-    )
-    conn.close()
-
-
 def main() -> int:
     state_path = os.environ.get("STATE_YAML_PATH", "")
     if not state_path or not Path(state_path).is_file():
@@ -75,10 +47,6 @@ def main() -> int:
     path = Path(state_path)
     result = _stamp_state(path)
     print(json.dumps(result))
-    try:
-        _upsert_complexity(path)
-    except Exception:
-        pass
     return 0
 
 

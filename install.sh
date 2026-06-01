@@ -118,26 +118,6 @@ setup_core() {
   echo "  Scripts: $ORCHESTRATOR_HOME/scripts -> $ORCHESTRATOR_DIR/orchestrator_next/scripts"
 }
 
-setup_metrics_db() {
-  echo "Initializing metrics DB..."
-  local db_path="$ORCHESTRATOR_HOME/metrics.duckdb"
-
-  # Idempotent: ensure_schema uses CREATE TABLE IF NOT EXISTS, so
-  # re-running on a populated DB is a no-op.
-  PYTHONPATH="$ORCHESTRATOR_DIR" \
-    python3 -c "
-import duckdb
-from orchestrator_next.upsert import ensure_schema
-db = duckdb.connect('$db_path')
-ensure_schema(db)
-db.close()
-" || {
-    echo "  warning: failed to initialize metrics.duckdb at $db_path" >&2
-    return 1
-  }
-
-  echo "  Metrics DB: $db_path (schema initialized)"
-}
 
 setup_claude() {
   echo "Syncing Claude Code..."
@@ -211,9 +191,9 @@ setup_python_deps() {
   fi
 
   # Gate: only install if any of the three packages is missing.
-  if ! python3 -c "import yaml, duckdb, ruamel.yaml" 2>/dev/null; then
-    echo "Installing Python dependencies (pyyaml duckdb ruamel.yaml)..."
-    pip install --user pyyaml duckdb ruamel.yaml
+  if ! python3 -c "import yaml, ruamel.yaml" 2>/dev/null; then
+    echo "Installing Python dependencies (pyyaml ruamel.yaml)..."
+    pip install --user pyyaml ruamel.yaml
   fi
 }
 
@@ -286,7 +266,6 @@ main() {
   setup_cli
   setup_env
   setup_core
-  setup_metrics_db || true
   setup_claude
   setup_codex
   setup_pi
