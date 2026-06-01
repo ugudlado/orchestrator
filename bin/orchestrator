@@ -428,7 +428,7 @@ def main() -> None:
             sys.exit(0)  # finally block will close _db
 
         # --- Inline script path (exit 0 + no JSON) ---
-        if action.get("run") or action.get("main"):
+        if action.get("run"):
             import subprocess as _sp
             from orchestrator_next.record import record as _record
 

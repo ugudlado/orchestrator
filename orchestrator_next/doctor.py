@@ -284,9 +284,9 @@ def check_workflow_steps_resolve(config_root: Path) -> CheckResult:
 
 
 def check_step_dispatch_kind(config_root: Path) -> CheckResult:
-    """RULE 2: every step contract is dispatchable — has at least one of
-    agent:/run:/main:. (run+main legitimately coexist: a bash wrapper that
-    execs a python main; so this is 'at least one', NOT exactly one.)"""
+    """RULE 2: every step contract is dispatchable — declares agent: (spawn)
+    or run: (script). Script steps point run: at a script.sh that execs their
+    own payload (e.g. a python file)."""
     failures: list[str] = []
     for step_id, path in _iter_config_contracts(config_root).items():
         try:
@@ -294,8 +294,8 @@ def check_step_dispatch_kind(config_root: Path) -> CheckResult:
         except Exception as exc:  # noqa: BLE001
             failures.append(f"{step_id}: {exc}")
             continue
-        if not (data.get("agent") or data.get("run") or data.get("main")):
-            failures.append(f"{step_id}: no agent:/run:/main:")
+        if not (data.get("agent") or data.get("run")):
+            failures.append(f"{step_id}: no agent:/run:")
     if failures:
         return CheckResult("step dispatch kind", "FAIL", "; ".join(failures))
     return CheckResult("step dispatch kind", "PASS", "all steps are agent- or script-driven")

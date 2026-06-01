@@ -124,8 +124,8 @@ def run_script_step(
             file=sys.stderr,
         )
         return 3
-    if not contract.run and not contract.main:
-        print(f"error: step {step_id!r} has no run: or main:", file=sys.stderr)
+    if not contract.run:
+        print(f"error: step {step_id!r} has no run:", file=sys.stderr)
         return 3
     if contract.run and not os.path.isfile(contract.run):
         print(f"error: script not found: {contract.run}", file=sys.stderr)

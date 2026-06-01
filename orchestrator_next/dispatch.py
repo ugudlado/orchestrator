@@ -606,14 +606,13 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "env": env,
             "step_context": step_context,
         }
-    elif contract.run or contract.main:
+    elif contract.run:
         # Inline script executed synchronously by CLI — no JSON emitted, exit 0
         action: dict[str, Any] = {
             "step_id": next_step_id,
             "phase": state.phase,
             "attempt": attempt,
             "run": contract.run,
-            "main": contract.main,
             "instruction": contract.instruction,
             "rules": contract.rules,
             "inputs": inputs_resolved,
@@ -629,7 +628,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         from orchestrator_next.step_runner import step_directory
 
         orch_home = os.environ.get("ORCHESTRATOR_HOME", "")
-        if orch_home and (contract.main or contract.run):
+        if orch_home and contract.run:
             action["step_contract_dir"] = str(
                 step_directory(next_step_id, contract, orch_home)
             )

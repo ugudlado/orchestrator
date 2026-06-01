@@ -21,7 +21,6 @@ def test_step_directory_uses_step_id_when_no_run():
         instruction="",
         rules=[],
         kind="script",
-        main="capture_test_baseline.py",
     )
     # param is now the config root (the config/ dir), joins steps/ directly.
     config_root = "/opt/orchestrator/config"
@@ -40,18 +39,16 @@ def test_step_directory_uses_run_dir(tmp_path):
         instruction="",
         rules=[],
         kind="script",
-        main="demo.py",
     )
     assert step_directory("demo", contract, str(tmp_path)) == script.parent
 
 
-def test_build_step_command_prefers_bash_run(tmp_path):
+def test_build_step_command_returns_bash_run(tmp_path):
     home = tmp_path / "orch"
     steps = home / "config" / "steps" / "demo"
     steps.mkdir(parents=True)
     script = steps / "script.sh"
     script.write_text("#!/bin/bash\n", encoding="utf-8")
-    (steps / "demo.py").write_text("", encoding="utf-8")
     contract = StepContract(
         id="demo",
         agent=None,
@@ -59,28 +56,8 @@ def test_build_step_command_prefers_bash_run(tmp_path):
         instruction="",
         rules=[],
         kind="script",
-        main="demo.py",
     )
     assert build_step_command("demo", contract, str(home)) == ["bash", str(script.resolve())]
-
-
-def test_build_step_command_python_when_no_run(tmp_path):
-    home = tmp_path / "orch"
-    steps = home / "config" / "steps" / "demo"
-    steps.mkdir(parents=True)
-    main_py = steps / "demo.py"
-    main_py.write_text("raise SystemExit(0)\n", encoding="utf-8")
-    contract = StepContract(
-        id="demo",
-        agent=None,
-        run=None,
-        instruction="",
-        rules=[],
-        kind="script",
-        main="demo.py",
-    )
-    cmd = build_step_command("demo", contract, str(home / "config"))
-    assert cmd[1] == str(main_py.resolve())
 
 
 def test_apply_step_paths_sets_step_dir(tmp_path):
@@ -94,7 +71,6 @@ def test_apply_step_paths_sets_step_dir(tmp_path):
         instruction="",
         rules=[],
         kind="script",
-        main="demo.py",
     )
     env = apply_step_paths(
         {"ORCHESTRATOR_HOME": str(home)},

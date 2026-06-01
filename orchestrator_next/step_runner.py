@@ -1,9 +1,8 @@
-"""Resolve and execute workflow step entrypoints (Python main: or bash run:)."""
+"""Resolve and execute workflow step entrypoints (bash run:)."""
 from __future__ import annotations
 
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 from orchestrator_next.parser import StepContract
@@ -22,17 +21,6 @@ def step_directory(step_id: str, contract: StepContract, config_root: str) -> Pa
     return Path(config_root) / "steps" / step_id
 
 
-def resolve_main_path(step_dir: Path, main: str, config_root: str) -> Path:
-    """Resolve contract ``main:`` to an executable Python file path."""
-    raw = Path(main)
-    if raw.is_absolute():
-        return raw
-    if main.startswith("lib/") or main.startswith("../lib/"):
-        steps_root = Path(config_root) / "steps"
-        return (steps_root / main).resolve()
-    return (step_dir / main).resolve()
-
-
 def apply_step_paths(
     env: dict[str, str],
     *,
@@ -40,7 +28,7 @@ def apply_step_paths(
     contract: StepContract,
     config_root: str,
 ) -> dict[str, str]:
-    """Set ORCHESTRATOR_STEP_DIR (step scripts resolve their own main: locally)."""
+    """Set ORCHESTRATOR_STEP_DIR (step scripts resolve their own payload locally)."""
     out = {**env}
     out["ORCHESTRATOR_STEP_DIR"] = str(step_directory(step_id, contract, config_root))
     return out
@@ -51,18 +39,12 @@ def build_step_command(
     contract: StepContract,
     config_root: str,
 ) -> list[str]:
-    """Argv for subprocess: ``run: script.sh`` (calls Python via env) or direct ``main:``."""
+    """Argv for subprocess: ``run: script.sh`` (the script calls Python via env)."""
     if contract.run:
         if not os.path.isfile(contract.run):
             raise FileNotFoundError(f"step script not found: {contract.run}")
         return ["bash", contract.run]
-    if contract.main:
-        step_dir = step_directory(step_id, contract, config_root)
-        main_path = resolve_main_path(step_dir, contract.main, config_root)
-        if not main_path.is_file():
-            raise FileNotFoundError(f"step main not found: {main_path}")
-        return [sys.executable, str(main_path)]
-    raise ValueError(f"step {step_id!r}: contract has neither main: nor run:")
+    raise ValueError(f"step {step_id!r}: contract has no run:")
 
 
 def run_step_subprocess(
