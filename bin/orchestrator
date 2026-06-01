@@ -57,8 +57,6 @@ def _usage() -> None:
         "      Run a workflow by name (config/workflows/<workflow>.yaml), e.g.\n"
         "      `orchestrator feature ORC-1`, `orchestrator bugfix ORC-2`,\n"
         "      `orchestrator complete ORC-3` (see config/workflows/complete.yaml).\n"
-        "  orchestrator telemetry\n"
-        "      Terminal metrics report (config/workflows/telemetry.yaml; params in step contract).\n"
         "  orchestrator dashboard\n"
         "      Live web UI over metrics.duckdb (ui/dashboard/; also `make dashboard`).\n"
         "  orchestrator run <ticket-id> [--schema feature|bugfix] [--repo PATH] [flag=value ...]\n"
@@ -196,10 +194,6 @@ def _graph_verb(state_yaml_path: str) -> None:
     sys.exit(0)
 
 
-# Operator workflows: dedicated drivers (no ticket-id subcommand form).
-_OPERATOR_SCHEMAS = frozenset({"telemetry"})
-
-
 def _workflow_subcommands() -> set[str]:
     """ORC-108: each config/workflows/<name>.yaml is a CLI subcommand.
 
@@ -214,7 +208,6 @@ def _workflow_subcommands() -> set[str]:
         return {
             os.path.splitext(os.path.basename(p))[0]
             for p in glob.glob(os.path.join(wf_dir, "*.yaml"))
-            if os.path.splitext(os.path.basename(p))[0] not in _OPERATOR_SCHEMAS
         }
     except OSError:
         return set()
@@ -225,10 +218,9 @@ def main() -> None:
     # Stage C: ingest-driver and ingest-subagents removed from accepted verbs.
     # 'record' kept for silent backward-compat (one cycle) but absent from the banner.
     _wf_subcommands = _workflow_subcommands()
-    _operator_verbs = ("telemetry", "dashboard")
     _core_verbs = (
         "next", "done", "record", "graph", "doctor", "expand-plan", "run",
-        *_operator_verbs,
+        "dashboard",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
@@ -236,9 +228,6 @@ def main() -> None:
         "next", "record", "done", "graph", "expand-plan", "run",
     ) or (len(args) < 2 and args[0] in _wf_subcommands):
         _usage()
-    if args[0] == "telemetry":
-        _shell_workflow_verb(args[1:], "orchestrator-telemetry.sh")
-        return
     if args[0] == "dashboard":
         _dashboard_verb(args[1:])
         return

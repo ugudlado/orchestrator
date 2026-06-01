@@ -1,4 +1,4 @@
-"""Tests for telemetry and workflow-learner operator workflows."""
+"""Tests for operator workflow step contracts and gather-learn-metrics."""
 from __future__ import annotations
 
 import json
@@ -16,11 +16,6 @@ from orchestrator_next.operator_workflow import (  # noqa: E402
     merge_step_env,
     workflow_step_ids,
 )
-
-
-def test_telemetry_workflow_step_list(monkeypatch):
-    monkeypatch.setenv("ORCHESTRATOR_HOME", _REPO_ROOT)
-    assert workflow_step_ids("telemetry") == ["render-telemetry"]
 
 
 def test_step_params_from_contract(monkeypatch):
@@ -80,28 +75,3 @@ def test_gather_learn_metrics_emits_json(monkeypatch, tmp_path):
     assert payload["learn_metrics"]["scope"] == "all"
 
 
-def test_cli_telemetry_no_args(monkeypatch):
-    orch = os.path.join(_REPO_ROOT, "bin", "orchestrator")
-    proc = subprocess.run(
-        [orch, "telemetry"],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=_REPO_ROOT,
-        env={**os.environ, "ORCHESTRATOR_HOME": _REPO_ROOT},
-    )
-    assert proc.returncode != 3
-    assert "unknown argument" not in proc.stderr.lower()
-
-
-def test_cli_telemetry_rejects_flags():
-    orch = os.path.join(_REPO_ROOT, "bin", "orchestrator")
-    proc = subprocess.run(
-        [orch, "telemetry", "--scope", "recent"],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=_REPO_ROOT,
-        env={**os.environ, "ORCHESTRATOR_HOME": _REPO_ROOT},
-    )
-    assert proc.returncode == 7
