@@ -54,7 +54,6 @@ ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}"
 # Resolve script directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ORCH_SCRIPTS_DIR="$SCRIPT_DIR"
-TICKETS_DIR="$SCRIPT_DIR/tickets"
 STATE_INSPECT="$ORCH_SCRIPTS_DIR/lib/state_inspect.py"
 DETECT_WORKFLOW_ISSUES="$ORCH_SCRIPTS_DIR/lib/detect-workflow-issues.sh"
 
@@ -78,8 +77,6 @@ _merge_workflow_issues() {
     printf '%s' "$payload"
   fi
 }
-# shellcheck source=tickets/ticket-common.sh
-source "$TICKETS_DIR/ticket-common.sh"
 # shellcheck source=lib/agent-routes.sh
 source "$ORCH_SCRIPTS_DIR/lib/agent-routes.sh"
 
@@ -138,52 +135,13 @@ if [ -n "${ORCHESTRATOR_AGENT_ROUTE_OVERRIDES:-}" ] && [ "${ORCHESTRATOR_AGENT_R
 fi
 
 # -----------------------------------------------------------------------
-# Ticket-driven entry: if TICKET-ID given, check Linear status first
-# -----------------------------------------------------------------------
-if [ -n "$TICKET_ID" ]; then
-  # Halt guard: refuse to run tickets that are already terminal.
-  _TICKET_STATUS=$(bash "$TICKETS_DIR/ticket-fetch-status.sh" "$TICKET_ID" "$REPO_ROOT" 2>/dev/null || true)
-  case "$_TICKET_STATUS" in
-    Done|Cancelled)
-      echo "ERROR: Ticket $TICKET_ID is $_TICKET_STATUS — refusing to run." >&2
-      exit 6
-      ;;
-  esac
-
-  # Persist ticket id + status on state (shell loop owns ticket_* fields)
-  _TICKET_BACKEND=$(ticket_read_backend "$REPO_ROOT")
-  python3 - "$TICKET_ID" "$_TICKET_BACKEND" "$_TICKET_STATUS" <<'PY' | bash "$TICKETS_DIR/ticket-state-update.sh" "$STATE_YAML" 2>/dev/null || true
-import json, sys
-p = {"ticket_id": sys.argv[1], "ticketing": sys.argv[2]}
-if sys.argv[3]:
-    p["ticket_status"] = sys.argv[3]
-print(json.dumps(p))
-PY
-fi
-
-# -----------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------
 
-sync_ticket_after_step() {
-  # ORC-107: outbound ticket sync is now explicit workflow steps
-  # (ticket-start / ticket-review / ticket-qa, kind: script, call the backlog CLI).
-  # The per-step loop hook + ticket-step-sync.yaml table are retired; this is a
-  # no-op kept so existing call sites stay inert without touching loop control flow.
-  :
-}
-
-reconcile_ticket_before_next() {
-  local reconcile_script="$TICKETS_DIR/ticket-reconcile.sh"
-  if [ ! -f "$reconcile_script" ]; then
-    return 0
-  fi
-  local result
-  result=$(bash "$reconcile_script" "$STATE_YAML" 2>/dev/null || echo '{"action":"skip"}')
-  local action
-  action=$(echo "$result" | python3 -c "import sys,json; print(json.load(sys.stdin).get('action','skip'))" 2>/dev/null || echo "skip")
-  if [ "$action" = "rework" ]; then
-    echo "ticket-reconcile: review rework detected — ticket returned to In Progress; flags.rework_from_review set on state.yaml" >&2
+run_pre_step_hook() {
+  local hook="$REPO_ROOT/.orchestrator/hooks/pre-step.sh"
+  if [ -f "$hook" ]; then
+    bash "$hook" "$STATE_YAML" 2>/dev/null || true
   fi
 }
 
@@ -222,11 +180,12 @@ resolve_tool() {
   echo "$binary"
 }
 
-# Fetch ticket body for agent steps (backlog plain view or future linear API).
+# Fetch ticket body for agent steps. Pending AC-3 (ticket.md replacement),
+# reads backend from spec/project.yaml directly (ticket-common.sh removed).
 fetch_ticket_context() {
   local ticket_id="$1"
   local backend
-  backend=$(ticket_read_backend "$REPO_ROOT")
+  backend=$(grep -E '^ticketing:' "$REPO_ROOT/spec/project.yaml" 2>/dev/null | head -1 | awk '{print $2}' | tr -d '"' || echo "backlog")
   case "$backend" in
     backlog)
       if command -v backlog >/dev/null 2>&1; then
@@ -424,8 +383,8 @@ PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}" \
   python3 -m orchestrator_next.spawn_resume "$STATE_YAML" || true
 
 while true; do
-  # Poll ticket lane before each dispatch (reviewer may have moved ticket back)
-  reconcile_ticket_before_next
+  # Run pre-step hook if present (e.g. ticket reconcile, custom checks)
+  run_pre_step_hook
 
   # Call orchestrator next
   ACTION_JSON=$(orchestrator next "$STATE_YAML" 2>/tmp/orch_next_stderr) || {
@@ -480,7 +439,6 @@ while true; do
       fi
       _log_step_usage "$INLINE_STEP_ID" "$INLINE_PHASE"
       if [ "$INLINE_STATUS" = "completed" ] || [ "$INLINE_STATUS" = "recovered" ]; then
-        sync_ticket_after_step "$INLINE_STEP_ID"
       fi
     else
       echo "[$(_log_ts)]   orchestrator next returned no action; continuing loop" >&2
@@ -576,8 +534,7 @@ while true; do
         echo "[$(_log_ts)] ✓ $STEP_ID  done  status=$STATUS" >&2
         _log_step_usage "$STEP_ID" "$PHASE"
         if [ "$STATUS" = "completed" ]; then
-          sync_ticket_after_step "$STEP_ID"
-        fi
+          fi
       fi
 
       # archive-completed-change moves state.yaml to the archive path.
@@ -747,8 +704,7 @@ PY
         echo "[$(_log_ts)] ✓ $STEP_ID  done  status=$DONE_STATUS" >&2
         _log_step_usage "$STEP_ID" "$PHASE"
         if [ "$DONE_STATUS" = "completed" ] || [ "$DONE_STATUS" = "recovered" ]; then
-          sync_ticket_after_step "$STEP_ID"
-        fi
+          fi
       else
         DONE_EXIT=$?
         echo "ERROR: orchestrator done exited $DONE_EXIT" >&2

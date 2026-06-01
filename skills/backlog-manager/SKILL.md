@@ -128,8 +128,9 @@ are resolved and the task is fully specified.
 
 **Shell loop (`orchestrator_next/scripts/run-workflow.sh`):** Ticket lane changes are **not** agent work.
 Dedicated workflow steps (`ticket-start`, `ticket-review`, `ticket-qa`) push outbound
-lane changes via the backlog CLI, and `ticket-reconcile.sh` (inbound poll) updates
-`state.yaml` (`ticket_id`, `ticket_status`, `ticket_rework`, `flags.rework_from_review`).
+lane changes via the backlog CLI. Inbound rework detection (`ticket-reconcile.sh`) is
+available as a pre-step hook at `$REPO_ROOT/.orchestrator/hooks/pre-step.sh`
+(see `skills/lib/tickets/ticket-reconcile.sh` for the reference implementation).
 Do not call this skill for status transitions when the shell loop is driving the workflow.
 
 **LLM dispatch (`skills/orchestrate/SKILL.md`) or queue skills (`/developer`, `/reviewer`):**

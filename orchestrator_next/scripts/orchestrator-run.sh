@@ -13,7 +13,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _WORKTREE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-TICKETS_DIR="$SCRIPT_DIR/tickets"
 RUN_WORKFLOW="$SCRIPT_DIR/run-workflow.sh"
 # shellcheck source=lib/agent-routes.sh
 source "$SCRIPT_DIR/lib/agent-routes.sh"
@@ -173,15 +172,6 @@ resolve_state_yaml() {
   fi
   return 1
 }
-
-# Halt guard: refuse to run tickets that are already terminal.
-_TICKET_STATUS=$(bash "$TICKETS_DIR/ticket-fetch-status.sh" "$TICKET_ID" "$REPO_ROOT" 2>/dev/null || true)
-case "$_TICKET_STATUS" in
-  Done|Cancelled)
-    echo "ERROR: Ticket $TICKET_ID is $_TICKET_STATUS — refusing to run." >&2
-    exit 6
-    ;;
-esac
 
 STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG" 2>/dev/null || true)"
 

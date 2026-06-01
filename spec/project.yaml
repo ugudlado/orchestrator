@@ -1,6 +1,6 @@
 version: 1
 
-ticketing: backlog  # backlog | linear — drives orchestrator_next/scripts/tickets/ and /backlog-manager
+ticketing: backlog  # backlog | linear — drives skills/lib/tickets/ and /backlog-manager
 
 project:
   name: orchestrator
