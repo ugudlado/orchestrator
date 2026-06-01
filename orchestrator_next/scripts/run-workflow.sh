@@ -438,8 +438,6 @@ while true; do
         echo "[$(_log_ts)] ✓ $INLINE_STEP_ID  done  status=$INLINE_STATUS" >&2
       fi
       _log_step_usage "$INLINE_STEP_ID" "$INLINE_PHASE"
-      if [ "$INLINE_STATUS" = "completed" ] || [ "$INLINE_STATUS" = "recovered" ]; then
-      fi
     else
       echo "[$(_log_ts)]   orchestrator next returned no action; continuing loop" >&2
     fi
@@ -533,8 +531,6 @@ while true; do
       if echo "$DONE_PAYLOAD" | orchestrator done "$STATE_YAML"; then
         echo "[$(_log_ts)] ✓ $STEP_ID  done  status=$STATUS" >&2
         _log_step_usage "$STEP_ID" "$PHASE"
-        if [ "$STATUS" = "completed" ]; then
-          fi
       fi
 
       # archive-completed-change moves state.yaml to the archive path.
@@ -703,8 +699,6 @@ PY
         DONE_STATUS=$(echo "$DONE_PAYLOAD" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','completed'))" 2>/dev/null || echo "completed")
         echo "[$(_log_ts)] ✓ $STEP_ID  done  status=$DONE_STATUS" >&2
         _log_step_usage "$STEP_ID" "$PHASE"
-        if [ "$DONE_STATUS" = "completed" ] || [ "$DONE_STATUS" = "recovered" ]; then
-          fi
       else
         DONE_EXIT=$?
         echo "ERROR: orchestrator done exited $DONE_EXIT" >&2
