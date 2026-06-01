@@ -1,0 +1,5 @@
+id: step-inline-with-script
+version: 2
+run: script.sh
+outputs:
+  - result

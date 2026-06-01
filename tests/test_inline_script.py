@@ -17,43 +17,25 @@ class TestInlineScript(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
-    def test_inline_true_with_run_path_executes_and_records(self):
-        # Create a minimal script that emits the required output JSON
-        scripts_dir = os.path.join(self._tmpdir, "scripts", "inline")
-        os.makedirs(scripts_dir)
-        script_path = os.path.join(scripts_dir, "step-inline-with-script.sh")
-        with open(script_path, "w") as f:
-            f.write('#!/usr/bin/env bash\necho \'{"result": "ok"}\'\n')
-        os.chmod(script_path, 0o755)
+    def test_inline_script_executes_and_records_to_state_yaml(self):
+        """Run step with run: contract — script executes, step recorded in state.yaml, exit 0."""
+        import yaml as _yaml
 
-        # Write a state.yaml pointing at the tmpdir as repo_root
         state_yaml = os.path.join(self._tmpdir, "state.yaml")
         with open(state_yaml, "w") as f:
-            f.write(f"""\
-change_id: test-inline-with-script
-schema: feature
-version: 1
-status: active
-phase: implement
-repo_root: {self._tmpdir}
-worktree_path: {self._tmpdir}
-workflow_plan:
-  implement:
-    active:
-      - step-inline-with-script
-step_history: []
-""")
-
-        # Write a minimal plan.yaml (required by dispatch)
-        plan_yaml = os.path.join(self._tmpdir, "plan.yaml")
-        with open(plan_yaml, "w") as f:
-            f.write("""\
-phases:
-  - name: implement
-    steps:
-      - id: step-inline-with-script
-        goal: test inline script execution
-""")
+            _yaml.safe_dump({
+                "change_id": "test-inline-with-script",
+                "schema": "feature",
+                "version": 1,
+                "status": "active",
+                "phase": "implement",
+                "repo_root": self._tmpdir,
+                "worktree_path": self._tmpdir,
+                "workflow_plan": {"implement": {"nodes": [
+                    {"id": "step-inline-with-script", "status": "pending"},
+                ]}},
+                "step_history": [],
+            }, f)
 
         env = os.environ.copy()
         env["ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE"] = _CONTRACTS
@@ -62,10 +44,15 @@ phases:
             capture_output=True, text=True, env=env,
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
-        action = json.loads(result.stdout)
-        self.assertEqual(action["action"], "recorded")
-        self.assertEqual(action["step_id"], "step-inline-with-script")
-        self.assertEqual(action["outputs"], {"result": "ok"})
+        # Inline steps exit 0 with no JSON — the driver loops to call next again
+        self.assertEqual(result.stdout.strip(), "", "inline script path must emit no JSON")
+        # State.yaml was written with the completed step
+        with open(state_yaml) as f:
+            state = _yaml.safe_load(f)
+        history = state.get("step_history") or []
+        self.assertEqual(len(history), 1, "expected one step_history entry")
+        self.assertEqual(history[0]["step_id"], "step-inline-with-script")
+        self.assertEqual(history[0]["status"], "completed")
 
 
 if __name__ == "__main__":

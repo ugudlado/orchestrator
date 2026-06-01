@@ -1,3 +1,5 @@
 id: step-inline-only
 version: 2
 agent: developer
+outputs:
+  - result

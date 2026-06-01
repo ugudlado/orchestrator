@@ -6,14 +6,15 @@
     "ORCHESTRATOR_CHANGE_ID": "test-inline-pending",
     "ORCHESTRATOR_PHASE": "implement",
     "ORCHESTRATOR_REPO_ROOT": "",
-    "ORCHESTRATOR_STATE_YAML_PATH": "tests/fixtures/state-pending-inline.yaml",
     "ORCHESTRATOR_STEP_ID": "step-inline-only",
-    "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow",
-    "ORCHESTRATOR_WORKTREE_ARTIFACT_DIR": "/tmp/test-workflow/spec/changes"
+    "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow"
   },
-  "expected_outputs": [],
+  "expected_outputs": [
+    "result"
+  ],
   "inputs": {},
   "instruction": "",
+  "is_resume": true,
   "learnings": [],
   "phase": "implement",
   "resolved_allowed_tools": [],

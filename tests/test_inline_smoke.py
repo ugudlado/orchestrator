@@ -32,7 +32,7 @@ _BIN_ORCHESTRATOR = os.path.join(ORCHESTRATOR_ROOT, "bin", "orchestrator")
 _STEPS_DIR = os.path.join(ORCHESTRATOR_ROOT, "config", "steps")
 _SCRIPTS_DIR = os.path.join(ORCHESTRATOR_ROOT, "config", "scripts")
 
-# Minimal state.yaml template for a pending inline step.
+# Minimal state.yaml template for a pending agent step.
 _STATE_TEMPLATE = """\
 change_id: smoke-test-inline
 schema: feature
@@ -43,32 +43,32 @@ repo: test-repo
 worktree_path: /tmp/smoke-test-workflow
 workflow_plan:
   implement:
-    active:
-      - {step_id}
+    nodes:
+      - id: {step_id}
+        status: pending
 step_history: []
 """
 
 
 def _find_inline_step_ids() -> list[tuple[str, str]]:
-    """
-    Return a list of (step_id, yaml_path) for all steps without a `run:` field
-    in config/steps/*.yaml.
-    """
+    """Return (step_id, contract_path) for agent steps (no run: field) in config/steps/."""
     inline = []
-    for fname in sorted(os.listdir(_STEPS_DIR)):
-        if not fname.endswith(".yaml"):
+    for entry in sorted(os.scandir(_STEPS_DIR), key=lambda e: e.name):
+        if not entry.is_dir():
             continue
-        fpath = os.path.join(_STEPS_DIR, fname)
-        with open(fpath, "r") as f:
+        contract = os.path.join(entry.path, "contract.yaml")
+        if not os.path.isfile(contract):
+            continue
+        with open(contract) as f:
             try:
                 data = yaml.safe_load(f)
             except yaml.YAMLError:
                 continue
         if not isinstance(data, dict):
             continue
-        if "run" not in data:
-            step_id = data.get("id", fname[:-5])  # strip .yaml if no id field
-            inline.append((step_id, fpath))
+        if "run" not in data and "agent" in data:
+            step_id = data.get("id", entry.name)
+            inline.append((step_id, contract))
     return inline
 
 
@@ -103,21 +103,16 @@ class TestInlineContractSmoke(unittest.TestCase):
             env=env,
         )
 
-    def test_all_inline_steps_return_run_inline(self):
-        """
-        Every inline-only step contract must produce action: run_inline with exit 0.
-
-        Loops over all config/steps/*.yaml files without a `run:` field.
-        Reports all failures at once rather than stopping at the first.
-        """
-        inline_steps = _find_inline_step_ids()
+    def test_all_agent_steps_dispatch_with_agent_field(self):
+        """Every agent step contract must dispatch to exit 0 with an 'agent' field in JSON."""
+        agent_steps = _find_inline_step_ids()
         self.assertGreater(
-            len(inline_steps), 0,
-            "No inline-only step contracts found — check _STEPS_DIR path"
+            len(agent_steps), 0,
+            "No agent step contracts found — check _STEPS_DIR path"
         )
 
         failures = []
-        for step_id, _yaml_path in inline_steps:
+        for step_id, _yaml_path in agent_steps:
             result = self._run_for_step(step_id)
             if result.returncode != 0:
                 failures.append(
@@ -132,15 +127,15 @@ class TestInlineContractSmoke(unittest.TestCase):
                     f"  step={step_id}: non-JSON stdout: {result.stdout[:80]}"
                 )
                 continue
-            if actual.get("action") != "run_inline":
+            if not actual.get("agent"):
                 failures.append(
-                    f"  step={step_id}: expected action=run_inline, "
-                    f"got action={actual.get('action')!r}"
+                    f"  step={step_id}: expected 'agent' field in dispatch JSON, "
+                    f"got: {list(actual.keys())}"
                 )
 
         if failures:
             self.fail(
-                f"{len(failures)} inline step(s) did not return run_inline:\n"
+                f"{len(failures)} agent step(s) did not dispatch correctly:\n"
                 + "\n".join(failures)
             )
 

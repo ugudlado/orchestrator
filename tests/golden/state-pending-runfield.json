@@ -6,14 +6,13 @@
     "ORCHESTRATOR_CHANGE_ID": "test-run-pending",
     "ORCHESTRATOR_PHASE": "implement",
     "ORCHESTRATOR_REPO_ROOT": "",
-    "ORCHESTRATOR_STATE_YAML_PATH": "tests/fixtures/state-pending-runfield.yaml",
     "ORCHESTRATOR_STEP_ID": "step-with-run",
-    "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow",
-    "ORCHESTRATOR_WORKTREE_ARTIFACT_DIR": "/tmp/test-workflow/spec/changes"
+    "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow"
   },
   "expected_outputs": [],
   "inputs": {},
   "instruction": "",
+  "is_resume": true,
   "learnings": [],
   "phase": "implement",
   "resolved_allowed_tools": [],

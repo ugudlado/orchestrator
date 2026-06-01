@@ -32,7 +32,9 @@ class TestOrchestratorRecord(unittest.TestCase):
                 "status": "active",
                 "phase": "implement",
                 "worktree_path": "/tmp/w",
-                "workflow_plan": {"implement": {"active": ["step-inline-only"]}},
+                "workflow_plan": {"implement": {"nodes": [
+                    {"id": "step-inline-only", "status": "pending"},
+                ]}},
                 "step_history": [],
             }, f)
 
@@ -45,14 +47,15 @@ class TestOrchestratorRecord(unittest.TestCase):
             "step_id": "step-inline-only",
             "phase": "implement",
             "status": "completed",
+            "agent": "developer",
             "outputs": {"result": "ok"},
-            "usage": {"tool_uses": 2, "duration_ms": 100},
+            "usage": {"input_tokens": 10, "output_tokens": 5},
         }
         r = _run_record(self.state_path, payload)
         self.assertEqual(r.returncode, 0, msg=r.stderr)
         response = json.loads(r.stdout)
-        self.assertEqual(response["action"], "recorded")
         self.assertEqual(response["step_id"], "step-inline-only")
+        self.assertIn("attempt", response)
         # Next step should be None (phase exhausted)
         self.assertIsNone(response["next_step"])
         # State mutated
@@ -62,18 +65,19 @@ class TestOrchestratorRecord(unittest.TestCase):
         self.assertEqual(state["step_history"][0]["evidence"]["outputs"], {"result": "ok"})
 
     def test_missing_required_output_is_validation_error(self):
-        """Contract declares outputs: [result]; payload missing it → validation_error."""
+        """Contract declares outputs: [result]; payload missing it → exit 3."""
         payload = {
             "step_id": "step-inline-only",
             "phase": "implement",
             "status": "completed",
+            "agent": "developer",
             "outputs": {},  # missing 'result'
-            "usage": {},
+            "usage": {"input_tokens": 10, "output_tokens": 5},
         }
         r = _run_record(self.state_path, payload)
         self.assertEqual(r.returncode, 3, msg=r.stderr)
         response = json.loads(r.stdout)
-        self.assertEqual(response["action"], "validation_error")
+        self.assertEqual(response["reason"], "missing_outputs")
         self.assertIn("result", response["missing_outputs"])
 
     def test_phase_transition_when_active_exhausted(self):
@@ -87,8 +91,9 @@ class TestOrchestratorRecord(unittest.TestCase):
                 "status": "active",
                 "phase": "implement",
                 "worktree_path": "/tmp/w",
-                "workflow_plan": {"implement": {"active": [
-                    "step-inline-only", "step-inline-only", "step-inline-with-script",
+                "workflow_plan": {"implement": {"nodes": [
+                    {"id": "step-inline-only", "status": "pending"},
+                    {"id": "step-inline-with-script", "status": "pending"},
                 ]}},
                 "step_history": [],
             }, f)
@@ -96,18 +101,16 @@ class TestOrchestratorRecord(unittest.TestCase):
             "step_id": "step-inline-only",
             "phase": "implement",
             "status": "completed",
+            "agent": "developer",
             "outputs": {"result": "ok"},
+            "usage": {"input_tokens": 10, "output_tokens": 5},
         }
         r = _run_record(self.state_path, payload)
         self.assertEqual(r.returncode, 0, msg=r.stderr)
         resp = json.loads(r.stdout)
-        # Since two instances of step-inline-only exist, completing one still
-        # leaves step-inline-only as the "next pending" because the matcher
-        # deduplicates by (phase, step_id). This documents the current limit
-        # of the record advance — truly duplicate step_ids in one phase need
-        # M2.5+ normalization to be meaningful. For this test, just confirm
-        # we get *some* next_step without error.
+        # After completing step-inline-only, next pending is step-inline-with-script
         self.assertIsNotNone(resp["next_step"])
+        self.assertEqual(resp["next_step"]["step_id"], "step-inline-with-script")
 
 
 if __name__ == "__main__":
