@@ -67,7 +67,27 @@ Run every verification step and capture output. Do not claim "it works" — prov
 
 If any check fails → fix the issue. Do not pass to reviewer with known failures.
 
-### 4. Return COMPLETION
+### 4. Commit (required — do not skip)
+
+After a task's code change is complete and self-verified, **commit it before
+moving on**. This is mandatory and backend-independent — do not leave changes
+in the working tree for someone else to commit. Uncommitted task work is lost
+when the worktree is cleaned up.
+
+- Stage and commit this task's changes:
+  `git add -A && git commit -m "feat(<change_id>): <task-id> <short summary>"`
+- One commit per task (or per task-fix item). Keep the commit scoped to that
+  task — no unrelated files.
+- Commit **before** returning COMPLETION. After committing, confirm a clean
+  tree for your scope: `git status --short` shows nothing for the files you
+  touched.
+- If a task produced no code change (e.g. a no-op or already-satisfied), say so
+  in COMPLETION rather than committing an empty change.
+
+This applies on every backend (claude, cursor-agent, codex, omp). Some agents
+commit by default; the obligation does not depend on that — commit explicitly.
+
+### 5. Return COMPLETION
 
 When all tasks are `[x]` (or the step contract says to stop early), return a
 COMPLETION block. The dispatch driver calls `orchestrator done` — you do not.
