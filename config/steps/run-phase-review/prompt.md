@@ -101,13 +101,10 @@
       - Find the current last task id (e.g., T-3 or fix-2) for depends_on.
       - Append new entries with ids like fix-1, fix-2, ... (sequential,
         based on existing fix-N entries) with depends_on pointing to the
-        current last task-node id (NOT prefixed with task-).
+        current last task id.
+      - Each new task MUST have `status: pending`.
       - Write tasks.yaml back to disk.
-   c. Invoke expand-plan to inject the fix task-nodes into the workflow plan:
-      Run: `orchestrator expand-plan $STATE_YAML_PATH`
-      This appends task-fix-N nodes to workflow_plan and rewires
-      run-phase-review.depends_on to the last fix task-node.
-   d. Return COMPLETION:
+   c. Return COMPLETION:
    ```
    COMPLETION:
      status: completed
@@ -120,9 +117,9 @@
      state_patch:
        retries: <incremented value>
    ```
-   e. If retries >= phase verify.max_retries (default 3): set status paused, surface
-      failure summary to user. Otherwise: fix task-nodes are in the DAG; dispatcher
-      schedules them before re-running this review step.
+   d. If retries >= phase verify.max_retries (default 3): set status paused, surface
+      failure summary to user. Otherwise: the dispatcher re-runs implement-tasks, which
+      picks up the pending fix tasks from tasks.yaml.
 
 ### Rules (constraints on how)
 
@@ -139,7 +136,7 @@
 - Artifact structural compliance with format contracts (see Format contract reference in prompt.md) is a review criterion.
 - When a finding requires a new requirement, the fix MUST update design.md (AC + design) and tasks.yaml atomically — partial updates that sync only one artifact leave the feature in an inconsistent state and will fail re-review. <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb, cycle: 11, hits: 16, misses: 9, repo: orchestrator -->
 - For tasks that spec describes as a rewrite, projection, or byte-compatible replacement of an existing producer, AC verification MUST include a value/shape parity check against at least one real payload from the prior implementation — key-presence alone is insufficient. Reviewer must run both the old producer and the new one on a real archived fixture and diff the top-level output keys; any key reduction is an important finding. <!-- learned: 2026-04-20, source: single-source-metrics-via-step-events, cycle: 12, hits: 15, misses: 5, repo: orchestrator -->
-- Before scoring the phase, check if any task-nodes (step_id starting with 'task-') in the workflow_plan are still pending. If any task-nodes are pending and not explicitly quarantined in state.yaml, write phase-review.md with verdict incomplete_phase listing the pending task IDs — return COMPLETION with outputs.phase_review_report: {verdict: incomplete_phase} and do NOT include review_score. This guards against dispatcher bugs or manual advances that reach run-phase-review before all tasks are complete. <!-- learned: 2026-05-08, source: hl-303, cycle: 38, hits: 15, misses: 3, repo: orchestrator --> <!-- updated: 2026-05-25, source: orc-76, cycle: 1, repo: orchestrator -->
+- Before scoring the phase, read tasks.yaml and check if any tasks still have `status: pending`. If any pending tasks exist and are not explicitly quarantined in state.yaml, write phase-review.md with verdict incomplete_phase listing the pending task IDs — return COMPLETION with outputs.phase_review_report: {verdict: incomplete_phase} and do NOT include review_score. This guards against dispatcher bugs or manual advances that reach run-phase-review before all tasks are complete. <!-- learned: 2026-05-08, source: hl-303, cycle: 38, hits: 15, misses: 3, repo: orchestrator --> <!-- updated: 2026-05-25, source: orc-76, cycle: 1, repo: orchestrator -->
 
 ## Verify
 

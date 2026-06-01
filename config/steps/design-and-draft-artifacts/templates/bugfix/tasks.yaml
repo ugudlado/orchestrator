@@ -7,6 +7,7 @@ version: 1
 tasks:
   - id: T-1
     title: "Write regression test that captures the bug (RED)"
+    status: pending
     depends_on: []
     files:
       - tests/test_{slug}.py
@@ -20,6 +21,7 @@ tasks:
 
   - id: T-2
     title: "Implement fix targeting root cause: {description} (GREEN)"
+    status: pending
     depends_on: [T-1]
     files:
       - src/{file}.py
@@ -34,6 +36,7 @@ tasks:
 
   - id: T-3
     title: "Review checkpoint (phase gate)"
+    status: pending
     depends_on: [T-2]
     files: []
     verify:

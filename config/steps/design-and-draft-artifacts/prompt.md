@@ -282,8 +282,8 @@ linear-ticket: HL-XXX
 ## Tasks YAML Format Contract
 
 The `tasks.yaml` file is a machine-readable structural contract between
-`design-and-draft-artifacts` (producer) and `expand-plan` (consumer). Both
-steps MUST use this exact format.
+`design-and-draft-artifacts` (producer) and `implement-tasks` (consumer).
+Both steps MUST use this exact format.
 
 The authoritative template is `$ORCHESTRATOR_HOME/config/steps/design-and-draft-artifacts/templates/$SCHEMA/tasks.yaml`
 — read it in step 6 and use it as the structural skeleton for generation.
@@ -302,12 +302,16 @@ The authoritative template is `$ORCHESTRATOR_HOME/config/steps/design-and-draft-
 | test_scenarios | No | List of human-readable test cases |
 | why | No | Which design.md AC this task serves |
 | change | No | The mechanism — what edit, at which file:line |
+| status | No | `pending` (default) or `completed`; updated by `implement-tasks` after each commit |
+| tokens_in | No | Input tokens used for this task; written by `implement-tasks` on completion |
+| tokens_out | No | Output tokens used for this task; written by `implement-tasks` on completion |
+| duration_s | No | Wall-clock seconds for this task; written by `implement-tasks` on completion |
 
 ### Validation rules
 
 - `id` values must be unique within the file (no duplicates).
 - `depends_on` references must resolve to another task `id` in the same file.
-- No dependency cycles (validated via `expand-plan`'s topo-sort).
+- No dependency cycles.
 - Missing required fields (`id`, `title`, `files`, `verify`) are rejected by
   `validate-tasks-yaml.sh`.
 - `verify` commands must be repo-root-relative — no absolute paths, no `cd /...` prefix.
@@ -321,6 +325,5 @@ on a well-formed file, exits non-zero with a diagnostic message otherwise.
 
 ### Consumers
 
-- `expand-plan` — reads this file to build task-nodes in `workflow_plan[implement].nodes`
-- `run-phase-review` (needs_work branch) — appends fix tasks to this file before
-  invoking `expand-plan`
+- `implement-tasks` — reads this file, executes pending tasks in order, sets `status: completed` per task
+- `run-phase-review` (needs_work branch) — appends fix tasks with `status: pending` before re-dispatch

@@ -7,6 +7,7 @@ version: 1
 tasks:
   - id: T-1
     title: "Write tests for {component} (RED — tests must fail)"
+    status: pending
     depends_on: []
     files:
       - tests/test_{component}.py
@@ -20,6 +21,7 @@ tasks:
 
   - id: T-2
     title: "Implement {component} (GREEN — make tests pass)"
+    status: pending
     depends_on: [T-1]
     files:
       - src/{component}.py
@@ -33,6 +35,7 @@ tasks:
 
   - id: T-3
     title: "Review checkpoint — {group} (phase gate)"
+    status: pending
     depends_on: [T-2]
     files: []
     verify:
