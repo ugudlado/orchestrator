@@ -168,12 +168,14 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
     # Worktree is still created for implementation artifacts.
     worktree_path = worktree_base / slug
     assert worktree_path.is_dir(), "seed-state.sh did not create the worktree"
-    # State lives in $HOME/.config/orchestrator/<repo-name>/<slug>/ — independent of worktree.
+    # State lives in $HOME/.config/orchestrator/<repo-name>/<slug>/<ts>_<schema>_state.yaml.
     # The fake repo has no remote, so repo-name falls back to basename of fake_repo.
     repo_name = fake_repo.name
-    state_yaml_path = fake_home / ".config" / "orchestrator" / repo_name / slug / "state.yaml"
-    assert state_yaml_path.exists(), f"seed-state.sh did not write state.yaml at {state_yaml_path}"
-    # ORC-63: no separate plan file — workflow_plan is promoted inside state.yaml.
+    state_dir = fake_home / ".config" / "orchestrator" / repo_name / slug
+    matches = sorted(state_dir.glob(f"*_{schema}_state.yaml"))
+    assert matches, f"no *_{schema}_state.yaml found under {state_dir}"
+    state_yaml_path = matches[-1]
+    # ORC-63: no separate plan file — workflow_plan is promoted inside state file.
     assert not (state_yaml_path.parent / "plan.yaml").exists(), (
         "seed-state.sh should not produce a separate plan file (ORC-63)"
     )
@@ -236,7 +238,7 @@ def test_seed_state_is_idempotent(tmp_path):
     _write_project_yaml(fake_repo)
     _commit_all(fake_repo)
 
-    # First run — creates state.yaml
+    # First run — creates <ts>_<schema>_state.yaml
     r1 = _run_seed(
         slug,
         schema,
@@ -247,12 +249,15 @@ def test_seed_state_is_idempotent(tmp_path):
     assert r1.returncode == 0, f"First seed failed: {r1.stderr}"
 
     repo_name = fake_repo.name
-    state_yaml_path = fake_home / ".config" / "orchestrator" / repo_name / slug / "state.yaml"
-    assert state_yaml_path.exists()
+    state_dir = fake_home / ".config" / "orchestrator" / repo_name / slug
+    matches = sorted(state_dir.glob(f"*_{schema}_state.yaml"))
+    assert matches, f"no *_{schema}_state.yaml found after first seed"
+    state_yaml_path = matches[-1]
     content_before = state_yaml_path.read_text()
     mtime_before = state_yaml_path.stat().st_mtime
+    count_before = len(matches)
 
-    # Second run — worktree + state already exist, must not overwrite
+    # Second run — schema state already exists, must not create a new file
     r2 = _run_seed(
         slug,
         schema,
@@ -262,14 +267,18 @@ def test_seed_state_is_idempotent(tmp_path):
     )
     assert r2.returncode == 0, f"Second (idempotent) seed failed: {r2.stderr}"
 
+    matches_after = sorted(state_dir.glob(f"*_{schema}_state.yaml"))
+    assert len(matches_after) == count_before, (
+        f"idempotent run created a new state file (count {count_before} → {len(matches_after)})"
+    )
     content_after = state_yaml_path.read_text()
     mtime_after = state_yaml_path.stat().st_mtime
 
     assert content_before == content_after, (
-        "state.yaml was modified on the second seed run — idempotency violated"
+        "state file was modified on the second seed run — idempotency violated"
     )
     assert mtime_before == mtime_after, (
-        "state.yaml mtime changed on the second seed run — file was touched"
+        "state file mtime changed on the second seed run — file was touched"
     )
 
     # The second run must print a skip notice to stderr

@@ -299,13 +299,13 @@ def test_seed_state_writes_to_spec_changes(tmp_path):
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
 
-    # State written to $HOME/.config/orchestrator/<repo-name>/<slug>/state.yaml.
+    # State written to $HOME/.config/orchestrator/<repo-name>/<slug>/<ts>_<schema>_state.yaml.
     # The fake repo has no remote, so repo-name falls back to basename of fake_repo.
     repo_name = fake_repo.name
-    expected_state = fake_home / ".config" / "orchestrator" / repo_name / slug / "state.yaml"
-    assert expected_state.exists(), (
-        f"state.yaml not found at expected path:\n"
-        f"  {expected_state}\n"
+    state_dir = fake_home / ".config" / "orchestrator" / repo_name / slug
+    matches = sorted(state_dir.glob(f"*_{schema}_state.yaml"))
+    assert matches, (
+        f"no *_{schema}_state.yaml found under {state_dir}\n"
         f"seed-state.sh stdout: {result.stdout!r}\n"
         f"seed-state.sh stderr: {result.stderr!r}"
     )

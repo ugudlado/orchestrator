@@ -3,11 +3,13 @@
 #
 # Usage: seed-state.sh <slug> <schema> [flag=value ...]
 #
-# ORC-108: every run is isolated in its own worktree. Creates the git worktree
-# first, then writes state.yaml under $WORKTREE_PATH/spec/changes/<slug>/.
-# Idempotent: exits 0 without overwriting an existing state.yaml.
+# State file: ~/.config/orchestrator/<repo>/<slug>/<timestamp>_<schema>_state.yaml
+# Idempotent: exits 0 if a *_<schema>_state.yaml already exists for this slug.
+# Context seeding: copies worktree_path, branch, repo_root, change_id, slug
+# from the most recent *_state.yaml in the slug dir (any schema), so successive
+# workflows (feature → complete) share the same worktree automatically.
 # generate_plan promotes the seeded workflow_plan into the nodes shape
-# in place inside state.yaml — there is no separate plan file (ORC-63).
+# in place — there is no separate plan file (ORC-63).
 #
 # Required environment:
 #   REPO_ROOT            — root of the target git repo (default: git rev-parse --show-toplevel)
@@ -15,7 +17,7 @@
 #   ORCHESTRATOR_HOME    — path to orchestrator config (default: $HOME/.config/orchestrator)
 #
 # Exit codes:
-#   0 — state.yaml exists with a promoted workflow_plan in the resolved state dir
+#   0 — <timestamp>_<schema>_state.yaml exists with a promoted workflow_plan
 #   1 — pre-condition failure
 #   2 — generate_plan failed
 #
@@ -125,16 +127,24 @@ REPO_NAME=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null \
     | sed 's/.*[:/]\([^/]*\)$/\1/' \
     || basename "$REPO_ROOT")
 STATE_DIR="$HOME/.config/orchestrator/$REPO_NAME/$SLUG"
-STATE_YAML="$STATE_DIR/state.yaml"
 
-if [[ -f "$STATE_YAML" ]]; then
-    echo "state.yaml exists at $STATE_YAML; not overwriting (idempotent skip)" >&2
+# Idempotency: if a *_<schema>_state.yaml already exists, re-use it.
+EXISTING=$(ls "$STATE_DIR"/*_"${SCHEMA}"_state.yaml 2>/dev/null | sort | tail -1 || true)
+if [[ -n "$EXISTING" ]]; then
+    echo "state file exists at $EXISTING; not overwriting (idempotent skip)" >&2
+    echo "$EXISTING"
     exit 0
 fi
 
 mkdir -p "$STATE_DIR"
+TIMESTAMP=$(date -u +%Y%m%dT%H%M%S)
+STATE_YAML="$STATE_DIR/${TIMESTAMP}_${SCHEMA}_state.yaml"
 
-python3 - "$STATE_YAML" "$WORKTREE_PATH" "$BRANCH" "$INIT_JSON" <<'PYEOF'
+# Seed context from the most recent prior *_state.yaml (any schema), so
+# successive workflows share worktree_path, branch, repo_root, etc.
+PRIOR=$(ls "$STATE_DIR"/*_state.yaml 2>/dev/null | sort | tail -1 || true)
+
+python3 - "$STATE_YAML" "$WORKTREE_PATH" "$BRANCH" "$INIT_JSON" "$PRIOR" <<'PYEOF'
 import sys, json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -142,20 +152,42 @@ import yaml
 
 state_yaml_path, worktree_path, branch = sys.argv[1], sys.argv[2] or None, sys.argv[3] or None
 d = json.loads(sys.argv[4])
+prior_path = sys.argv[5] if len(sys.argv) > 5 else ""
+
+# Copy identity fields from the most recent prior workflow state if available.
+prior_context: dict = {}
+if prior_path:
+    try:
+        prior_raw = yaml.safe_load(Path(prior_path).read_text()) or {}
+        for key in ("worktree_path", "branch", "repo_root", "change_id", "slug"):
+            if prior_raw.get(key):
+                prior_context[key] = prior_raw[key]
+    except (OSError, yaml.YAMLError):
+        pass  # prior unreadable — start fresh
 
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 state = {
-    "change_id": d["slug"], "slug": d["slug"], "schema": d["schema_name"],
-    "status": "active", "repo_root": d["repo_root"], "flags": d["flags"],
+    "change_id": prior_context.get("change_id") or d["slug"],
+    "slug": prior_context.get("slug") or d["slug"],
+    "schema": d["schema_name"],
+    "status": "active",
+    "repo_root": prior_context.get("repo_root") or d["repo_root"],
+    "flags": d["flags"],
     "workflow_plan": {"main": {"active": d["active"], "filtered": d["filtered"]}},
-    "phase": "main", "next_step": {"phase": "main", "step_id": d["active"][0]},
-    "step_history": [], "created_at": now, "started_at": now,
+    "phase": "main",
+    "next_step": {"phase": "main", "step_id": d["active"][0]},
+    "step_history": [],
+    "created_at": now,
+    "started_at": now,
     "project_context_loaded": True,
 }
-if worktree_path:
-    state["worktree_path"] = worktree_path
-if branch:
-    state["branch"] = branch
+# worktree_path and branch: prior wins, then current run's values.
+resolved_worktree = prior_context.get("worktree_path") or worktree_path
+resolved_branch = prior_context.get("branch") or branch
+if resolved_worktree:
+    state["worktree_path"] = resolved_worktree
+if resolved_branch:
+    state["branch"] = resolved_branch
 
 Path(state_yaml_path).write_text(yaml.safe_dump(state, sort_keys=False, allow_unicode=True))
 print(f"seeded: {state_yaml_path}", file=sys.stderr)
@@ -165,7 +197,7 @@ PYEOF
 
 # ---------------------------------------------------------------------------
 # generate_plan — promotes the seeded workflow_plan into the nodes shape
-# in place inside state.yaml (no separate file is written).
+# in place inside the state file (no separate file is written).
 # ---------------------------------------------------------------------------
 
 PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$REPO_ROOT" \
@@ -173,7 +205,7 @@ PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$REPO_ROOT" \
 GENPLAN_EXIT=$?
 
 if [[ $GENPLAN_EXIT -ne 0 ]]; then
-    echo "error: generate_plan failed (exit $GENPLAN_EXIT) — removing partial state.yaml" >&2
+    echo "error: generate_plan failed (exit $GENPLAN_EXIT) — removing partial state file" >&2
     rm -f "$STATE_YAML"; exit 2
 fi
 
@@ -190,4 +222,6 @@ if [[ "$NODES_OK" != "yes" ]]; then
     rm -f "$STATE_YAML"; exit 2
 fi
 
-echo "init-workflow: $SLUG ($SCHEMA) ready at $STATE_DIR" >&2
+echo "init-workflow: $SLUG ($SCHEMA) ready at $STATE_YAML" >&2
+# Print the resolved path so callers can capture it.
+echo "$STATE_YAML"

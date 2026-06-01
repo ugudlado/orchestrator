@@ -76,6 +76,41 @@ def state_dir(repo_root: str, slug: str) -> Path:
     return Path("~/.config/orchestrator").expanduser() / repo_name / slug
 
 
+def state_file_path(repo_root: str, slug: str, schema: str, timestamp: str) -> Path:
+    """Return the path for a new state file: <state_dir>/<timestamp>_<schema>_state.yaml
+
+    timestamp should be UTC in %Y%m%dT%H%M%S format. Callers generate it so
+    this function stays pure and testable without mocking time.
+    """
+    return state_dir(repo_root, slug) / f"{timestamp}_{schema}_state.yaml"
+
+
+def latest_state_file(repo_root: str, slug: str) -> Path | None:
+    """Return the most recent *_state.yaml in the slug dir, or None if empty.
+
+    Files sort lexicographically by timestamp prefix (%Y%m%dT%H%M%S), so the
+    last entry is the most recent run regardless of schema.
+    """
+    d = state_dir(repo_root, slug)
+    if not d.is_dir():
+        return None
+    files = sorted(d.glob("*_state.yaml"))
+    return files[-1] if files else None
+
+
+def existing_schema_state_file(repo_root: str, slug: str, schema: str) -> Path | None:
+    """Return the existing state file for this schema if one already exists, else None.
+
+    Used for idempotency: if a *_<schema>_state.yaml already exists in the slug
+    dir, seeding is skipped and this path is returned to the caller.
+    """
+    d = state_dir(repo_root, slug)
+    if not d.is_dir():
+        return None
+    matches = sorted(d.glob(f"*_{schema}_state.yaml"))
+    return matches[-1] if matches else None
+
+
 def config_root() -> Path:
     """Resolve the workflow-config root: the directory holding workflows/,
     steps/, and agents.yaml.
