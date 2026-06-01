@@ -50,37 +50,27 @@ _STATE_PATCH_KEYS = frozenset({
 _PHASE_REVIEW_VERDICTS = frozenset({"pass", "needs_work", "incomplete_phase"})
 
 
-# Task tool result text embeds the subagent JSONL stem on its own line.
-_AGENT_ID_FROM_TASK_RESULT_RE = re.compile(r"agentId:\s*([a-f0-9]{17})")
-
-
-def _extract_agent_id_from_task_result(text: str | None) -> str | None:
-    """Parse agentId from raw Task tool result text (transient done payload field)."""
-    if not text:
-        return None
-    match = _AGENT_ID_FROM_TASK_RESULT_RE.search(text)
-    return match.group(1) if match else None
-
+def _resolve_append_retro_script(repo_root: str) -> str:
+    """Path to append-retro.sh for workflow_issues handling."""
+    candidates: list[str] = []
+    home = os.environ.get("ORCHESTRATOR_HOME", "")
+    if home:
+        candidates.append(
+            os.path.join(home, "orchestrator_next", "scripts", "complete", "append-retro.sh")
+        )
+    if repo_root:
+        candidates.append(
+            os.path.join(repo_root, "orchestrator_next", "scripts", "complete", "append-retro.sh")
+        )
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return ""
 
 def _resolve_agent_id(payload: dict[str, Any]) -> str | None:
-    """agent_id from explicit payload fields or agent_task_result text."""
+    """agent_id from explicit payload fields (shell-driver done payloads)."""
     usage = payload.get("usage") or {}
-    return (
-        payload.get("agent_id")
-        or usage.get("agent_id")
-        or _extract_agent_id_from_task_result(payload.get("agent_task_result"))
-    )
-
-
-def _payload_uses_chat_driver_jsonl(payload: dict[str, Any]) -> bool:
-    """True when the done payload carries chat-driver (Task tool) JSONL signals."""
-    if payload.get("agent_task_result"):
-        return True
-    if payload.get("agent_id"):
-        return True
-    usage = payload.get("usage") or {}
-    return bool(usage.get("agent_id"))
-
+    return payload.get("agent_id") or usage.get("agent_id")
 
 
 def _usage_has_tokens(usage: dict[str, Any]) -> bool:
@@ -488,63 +478,19 @@ def _detect_boundary(
 
 
 # ---------------------------------------------------------------------------
-# Driver session resolution helpers (FR-6)
+# Cost computation helpers (ISSUE-17)
 # ---------------------------------------------------------------------------
-
-def _resolve_driver_session(state: dict, change_id: str) -> dict:
-    """Resolve the driver session and return its usage dict.
-
-    Resolution order:
-      1. $ORCHESTRATOR_DRIVER_SESSION_ID env var.
-      2. Scan ~/.claude/projects/<repo-slug>/ for most recent *.jsonl by mtime.
-
-    Raises RuntimeError if session_id cannot be resolved.
-    """
-    from orchestrator_next.jsonl_usage import extract_driver_usage
-
-    repo_root = state.get("repo_root") or ""
-
-    session_id = os.environ.get("ORCHESTRATOR_DRIVER_SESSION_ID") or ""
-
-    if not session_id:
-        from pathlib import Path as _Path
-        from orchestrator_next.jsonl_usage import _repo_slug
-
-        slug_dir = _Path.home() / ".claude" / "projects" / _repo_slug(repo_root)
-        if slug_dir.exists():
-            jsonl_files = list(slug_dir.glob("*.jsonl"))
-            if jsonl_files:
-                newest = max(jsonl_files, key=lambda p: p.stat().st_mtime)
-                session_id = newest.stem
-
-    if not session_id:
-        raise RuntimeError(
-            f"[done] driver session_id not resolvable for change_id={change_id!r}: "
-            f"set $ORCHESTRATOR_DRIVER_SESSION_ID or ensure a JSONL exists under "
-            f"~/.claude/projects/<repo-slug>/"
-        )
-
-    usage = extract_driver_usage(repo_root, session_id)
-    if not usage:
-        usage = {}
-
-    input_tok = usage.get("input_tokens") or 0
-    output_tok = usage.get("output_tokens") or 0
-    return {
-        "session_id": session_id,
-        "model": usage.get("model"),
-        "total_tokens": input_tok + output_tok,
-        "input_tokens": input_tok,
-        "output_tokens": output_tok,
-        "cache_read_input_tokens": usage.get("cache_read_input_tokens") or 0,
-        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens") or 0,
-        "cost_usd": usage.get("cost_usd"),
-        "started_at": None,
-        "ended_at": None,
-    }
-
-
-from orchestrator_next.pricing import _compute_cost_usd  # noqa: E402
+# Extracted to orchestrator_next.pricing (ORC-71). Re-exported here by reference
+# so existing call sites and test fixtures (`_record_mod._pricing_cache.clear()`,
+# `_load_routes.cache_clear()`) keep acting on the live objects the production
+# path uses — Python imports bind the same object.
+from orchestrator_next.pricing import (  # noqa: E402,F401
+    _orchestrator_home,
+    _load_routes,
+    _lookup_price,
+    _billable_token_units,
+    _compute_cost_usd,
+)
 
 
 def _utcnow_iso() -> str:
@@ -1170,10 +1116,8 @@ def record(
     # Check B: usage required for agent steps on completion.
     # Root cause of ISSUE-10.1: empty usage means cost report is blank and
     # telemetry has no data for the step.
-    # Completed agent steps (payload agent is not None) MUST have input_tokens > 0 OR output_tokens > 0,
-    # unless agent_task_result is present with a parseable agentId — record.py
-    # then pulls billing-truth tokens from the subagent JSONL (driver does not
-    # parse usage blocks). Explicit agent_id alone does not bypass this check.
+    # Completed agent steps (payload agent is not None) MUST have input_tokens > 0
+    # OR output_tokens > 0 (shell driver supplies usage via usage_adapters).
     #
     # ORC-48: if the contract declares an agent but the payload omits 'agent',
     # reject early so the driver knows it must include the field.
@@ -1188,8 +1132,7 @@ def record(
                     "hint": (
                         "step contract declares agent: %s but payload omitted "
                         "the 'agent' field. The driver must include agent and "
-                        "agent_task_result (raw Task tool result text) in the "
-                        "done payload. See skills/orchestrate/SKILL.md."
+                        "usage (input_tokens/output_tokens) in the done payload."
                     ) % contract_agent,
                 },
                 3,
@@ -1197,40 +1140,21 @@ def record(
 
     agent = payload.get("agent")
     payload_usage = payload.get("usage") or {}
-    agent_task_result = payload.get("agent_task_result")
-    resolved_agent_id = _resolve_agent_id(payload)
     if status == "completed" and agent is not None:
         has_tokens = _usage_has_tokens(payload_usage)
         if not has_tokens and not os.environ.get("ORCHESTRATOR_SKIP_USAGE_CHECK"):
-            if agent_task_result and resolved_agent_id:
-                pass  # subagent JSONL enrichment below supplies billing-truth usage
-            elif agent_task_result:
-                return (
-                    {
-                        "reason": "agent_step_missing_usage",
-                        "step_id": step_id,
-                        "agent": agent,
-                        "hint": (
-                            "agent_task_result present but no agentId: <17hex> line found; "
-                            "cannot load subagent JSONL for usage"
-                        ),
-                    },
-                    3,
-                )
-            else:
-                return (
-                    {
-                        "reason": "agent_step_missing_usage",
-                        "step_id": step_id,
-                        "agent": agent,
-                        "hint": (
-                            "agent steps must self-report usage in the done payload: "
-                            "set usage.input_tokens / usage.output_tokens, or pass "
-                            "agent_task_result with an agentId line for subagent JSONL enrichment"
-                        ),
-                    },
-                    3,
-                )
+            return (
+                {
+                    "reason": "agent_step_missing_usage",
+                    "step_id": step_id,
+                    "agent": agent,
+                    "hint": (
+                        "agent steps must self-report usage in the done payload: "
+                        "set usage.input_tokens / usage.output_tokens"
+                    ),
+                },
+                3,
+            )
 
     path = Path(state_yaml_path)
 
@@ -1276,45 +1200,9 @@ def record(
     # ISSUE-17: compute cost_usd live when absent from the payload.
     # Work on a local copy so we never mutate the caller's dict.
     usage: dict[str, Any] = dict(payload.get("usage") or {})
-
-    # JSONL enrichment (chat-driver only): when agent_id is known (explicit or
-    # parsed from agent_task_result), pull billing-truth usage from the subagent
-    # JSONL. Shell-driver payloads lack agent_task_result/agent_id and skip this.
-    # JSONL wins for input/output/cache_* and model; we keep caller-provided
-    # tool_calls and duration_ms only if JSONL lacks them.
-    agent_id = resolved_agent_id
-    if agent_id and _payload_uses_chat_driver_jsonl(payload):
-        try:
-            from orchestrator_next.jsonl_usage import (
-                extract_agent_usage,
-                extract_tool_calls,
-                locate_subagent_jsonl_path,
-            )
-            repo_root = state_raw.get("repo_root") or ""
-            jsonl_usage = extract_agent_usage(repo_root, agent_id)
-            for key in (
-                "input_tokens",
-                "output_tokens",
-                "cache_read_input_tokens",
-                "cache_creation_input_tokens",
-                "model",
-                "turns",
-            ):
-                if jsonl_usage.get(key) is not None:
-                    usage[key] = jsonl_usage[key]
-            # duration_ms / tool_calls only if caller didn't supply them.
-            if usage.get("duration_ms") is None and jsonl_usage.get("duration_ms") is not None:
-                usage["duration_ms"] = jsonl_usage["duration_ms"]
-            if not usage.get("tool_calls") and jsonl_usage.get("tool_calls"):
-                usage["tool_calls"] = jsonl_usage["tool_calls"]
-            jsonl_path = locate_subagent_jsonl_path(repo_root, agent_id)
-            if jsonl_path is not None:
-                detail = extract_tool_calls(jsonl_path)
-                if detail:
-                    usage["tool_calls_detail"] = detail
-            usage["agent_id"] = agent_id
-        except Exception as exc:  # noqa: BLE001 — enrichment is best-effort
-            sys.stderr.write(f"[record] jsonl enrichment failed for agent_id={agent_id}: {exc}\n")
+    agent_id = _resolve_agent_id(payload)
+    if agent_id:
+        usage["agent_id"] = agent_id
 
     if not usage.get("cost_usd"):
         resolved_model, computed_cost = _compute_cost_usd(agent, usage)
@@ -1448,6 +1336,38 @@ def record(
             },
             4,
         )
+
+    # Workflow-issue retro: if the payload carries workflow_issues, append
+    # each one to spec/changes/<change_id>/retro.md. Best-effort — any
+    # failure here never blocks the record.
+    _retro_appended = 0
+    issues = payload.get("workflow_issues")
+    if isinstance(issues, list) and issues:
+        worktree = state_raw.get("worktree_path") or state_raw.get("repo_root") or ""
+        change_id = state_raw.get("change_id") or state_raw.get("slug") or ""
+        if worktree and change_id:
+            try:
+                import os as _os
+                import subprocess as _sp
+                script = _resolve_append_retro_script(str(state_raw.get("repo_root") or ""))
+                if script:
+                    for issue in issues:
+                        # per-issue phase/step fallback
+                        issue.setdefault("surfaced_at", f"{phase}/{step_id}")
+                    env = {
+                        **_os.environ,
+                        "WORKTREE_PATH": _os.path.expanduser(str(worktree)),
+                        "CHANGE_ID": str(change_id),
+                        "ISSUES_JSON": json.dumps(issues),
+                    }
+                    result = _sp.run(["bash", script], env=env, capture_output=True, text=True)
+                    if result.returncode == 0 and result.stdout.strip():
+                        try:
+                            _retro_appended = int(json.loads(result.stdout.strip()).get("appended", 0))
+                        except Exception:
+                            _retro_appended = 0
+            except Exception as exc:  # noqa: BLE001 — retro logging is best-effort
+                sys.stderr.write(f"[record] retro append failed: {exc}\n")
 
     response: dict[str, Any] = {
         "step_id": step_id,
