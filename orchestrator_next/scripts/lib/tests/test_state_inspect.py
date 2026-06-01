@@ -15,6 +15,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import state_inspect  # noqa: E402
 
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 def _write_state(tmp_path: Path, data: dict) -> Path:
     p = tmp_path / "state.yaml"
@@ -340,12 +341,56 @@ class TestBuildPayload:
         payload = json.loads(out)
         assert "agentId: a6e7ca188209d1f47" in payload["agent_task_result"]
 
-    def test_agent_kind_jsonl_usage_fallback_from_cwd(self, tmp_path, capsys, monkeypatch):
+    def test_agent_kind_merges_usage_file_over_empty_usage(self, tmp_path, capsys):
+        """Adapter usage JSON from --usage-file wins over _EMPTY_USAGE (ORC-111 AC-6)."""
+        adapter_usage = {
+            "input_tokens": 5290,
+            "output_tokens": 31,
+            "cache_read_input_tokens": 100,
+            "cache_creation_input_tokens": 200,
+            "model": "claude-opus-4-8",
+            "cost_usd": 0.1958375,
+        }
+        usage_file = tmp_path / "tool_usage.json"
+        usage_file.write_text(json.dumps(adapter_usage), encoding="utf-8")
+        stdout_file = tmp_path / "stdout.txt"
+        stdout_file.write_text("COMPLETION only\n", encoding="utf-8")
+        _, out, _ = _run(
+            capsys,
+            [
+                "build-payload",
+                "agent",
+                "--step-id",
+                "explore",
+                "--phase",
+                "main",
+                "--agent",
+                "developer",
+                "--stdout-file",
+                str(stdout_file),
+                "--usage-file",
+                str(usage_file),
+            ],
+            stdin=json.dumps({"status": "completed", "outputs": {}}),
+        )
+        payload = json.loads(out)
+        assert payload["usage"]["input_tokens"] == 5290
+        assert payload["usage"]["output_tokens"] == 31
+        assert payload["usage"]["cache_read_input_tokens"] == 100
+        assert payload["usage"]["cache_creation_input_tokens"] == 200
+        assert payload["usage"]["model"] == "claude-opus-4-8"
+        assert payload["usage"]["cost_usd"] == 0.1958375
+
+    def test_agent_kind_no_jsonl_usage_fallback_when_tokenless(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        """Shell path must not read ~/.claude JSONL when COMPLETION has no tokens (AC-6)."""
         home = tmp_path / "home"
         monkeypatch.setenv("HOME", str(home))
-        repo = home / "code" / "feature_worktrees" / "orc-86"
+        repo = home / "code" / "feature_worktrees" / "orc-111"
         repo.mkdir(parents=True)
-        sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "config" / "scripts"))
+        if str(_REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(_REPO_ROOT))
         from orchestrator_next.jsonl_usage import _repo_slug
 
         projects = home / ".claude" / "projects" / _repo_slug(str(repo))
@@ -382,7 +427,7 @@ class TestBuildPayload:
                 "--phase",
                 "main",
                 "--agent",
-                "discoverer",
+                "developer",
                 "--stdout-file",
                 str(stdout_file),
                 "--cwd",
@@ -392,8 +437,7 @@ class TestBuildPayload:
         )
         payload = json.loads(out)
         assert "agent_task_result" not in payload
-        assert payload["usage"]["input_tokens"] == 10
-        assert payload["usage"]["output_tokens"] == 20
+        assert payload["usage"] == {"input_tokens": 0, "output_tokens": 0, "model": "none"}
 
 
 class TestLastTerminalStep:

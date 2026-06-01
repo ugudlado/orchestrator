@@ -722,25 +722,49 @@ except Exception:
         continue
       fi
 
-      # Parse COMPLETION block from tool stdout
+      # Split structured stdout into assistant text + normalized usage (ORC-111).
+      TOOL_TEXT="$TMP_DIR/tool_text_${STEP_ID}.txt"
+      TOOL_USAGE="$TMP_DIR/tool_usage_${STEP_ID}.json"
+      ADAPTER_TOOL="$TOOL_NAME"
+      if [ "$TOOL_NAME" = "cursor" ]; then
+        ADAPTER_TOOL="cursor-agent"
+      fi
+      PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}" \
+        python3 - "$ADAPTER_TOOL" "$TOOL_STDOUT" "$TOOL_TEXT" "$TOOL_USAGE" "$MODEL_TIER" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+from orchestrator_next.usage_adapters import split_stdout
+
+tool, stdout_path, text_path, usage_path, route_model = sys.argv[1:6]
+route = route_model if route_model else None
+result = split_stdout(tool, stdout_path, route_model=route)
+Path(text_path).write_text(result.get("assistant_text") or "", encoding="utf-8")
+usage = {k: v for k, v in result.items() if k != "assistant_text"}
+Path(usage_path).write_text(json.dumps(usage), encoding="utf-8")
+PY
+
+      # Parse COMPLETION block from extracted assistant text (not raw JSON stdout).
       PARSE_SCRIPT="$ORCH_SCRIPTS_DIR/workflow/parse-completion.py"
       COMPLETION_JSON=""
       PARSE_EXIT=0
-      COMPLETION_JSON=$(python3 "$PARSE_SCRIPT" "$TOOL_STDOUT" 2>"$TMP_DIR/parse_stderr") || PARSE_EXIT=$?
+      COMPLETION_JSON=$(python3 "$PARSE_SCRIPT" "$TOOL_TEXT" 2>"$TMP_DIR/parse_stderr") || PARSE_EXIT=$?
 
       if [ "$PARSE_EXIT" -ne 0 ]; then
         echo "ERROR: Malformed COMPLETION block from tool '$TOOL_BINARY'" >&2
         echo "--- parse-completion.py stderr ---" >&2
         cat "$TMP_DIR/parse_stderr" >&2
-        echo "--- Last 50 lines of tool stdout ---" >&2
-        tail -50 "$TOOL_STDOUT" >&2
+        echo "--- Last 50 lines of tool assistant text ---" >&2
+        tail -50 "$TOOL_TEXT" >&2
         exit 5
       fi
 
       # Build done payload from COMPLETION JSON + dispatch context
       DONE_PAYLOAD=$(python3 "$STATE_INSPECT" build-payload agent \
         --step-id "$STEP_ID" --phase "$PHASE" --agent "$AGENT" \
-        --stdout-file "$TOOL_STDOUT" --cwd "$AGENT_WORK_DIR" \
+        --stdout-file "$TOOL_STDOUT" --usage-file "$TOOL_USAGE" \
+        --cwd "$AGENT_WORK_DIR" \
         --started-at "$STARTED_AT" <<<"$COMPLETION_JSON")
 
       # Workflow-issues detection (retry-success when this attempt > 1).

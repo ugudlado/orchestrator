@@ -317,6 +317,8 @@ def test_atomic_commit_feature_boundary(tmp_path, monkeypatch):
         "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5},
+        # Chat-driver signal: FEATURE-boundary JSONL resolution (orc-111 T-8).
+        "agent_task_result": "COMPLETION:\n  status: completed\n",
     }
 
     # Mock _resolve_driver_session to return a canned session
@@ -381,6 +383,8 @@ def test_subagent_parse_before_begin(tmp_path, monkeypatch):
         "agent": "developer",
         "outputs": {},
         "usage": {"input_tokens": 10, "output_tokens": 5},
+        # Chat-driver signal: FEATURE-boundary JSONL resolution (orc-111 T-8).
+        "agent_task_result": "COMPLETION:\n  status: completed\n",
     }
 
     resolve_calls = []

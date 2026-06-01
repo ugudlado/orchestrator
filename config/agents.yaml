@@ -35,7 +35,7 @@ agents:
   #        mcp__chrome-devtools__evaluate_script mcp__pal__codereview mcp__pal__consensus
   reviewer:          { model: sonnet, subprocess: claude }
 
-  # subprocess: cursor agent CLI; model=auto → cursor agent --model auto
+  # subprocess: cursor-agent CLI; model=auto → cursor-agent -p --model auto
   # Override per run: orchestrator run <id> agent.developer.subprocess=pi
   # tools: Read Write Edit Grep Glob Bash WebSearch WebFetch
   #        mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
@@ -76,7 +76,7 @@ tools:
   claude:
     binary: claude
     # {prompt} is substituted with the full prompt text
-    args_template: ["--model", "{model_tier}", "-p", "{prompt}"]
+    args_template: ["--model", "{model_tier}", "-p", "--output-format", "json", "{prompt}"]
     stdin: none
     capture: stdout
 
@@ -90,16 +90,23 @@ tools:
   codex:
     binary: codex
     # {prompt} is substituted with the full prompt text
-    args_template: ["exec", "--prompt", "{prompt}"]
+    args_template: ["exec", "--json", "--prompt", "{prompt}"]
     stdin: none
     capture: stdout
 
   cursor:
-    binary: cursor
-    # Cursor Agent CLI (non-interactive). Requires `cursor agent` on PATH.
+    binary: cursor-agent
+    # Cursor Agent CLI (non-interactive). Requires `cursor-agent` on PATH.
     # {model_tier} comes from agents.<role>.model (e.g. auto).
     # Agent must emit a COMPLETION: YAML block on stdout for parse-completion.py.
-    args_template: ["agent", "--print", "--force", "--output-format", "text", "--model", "{model_tier}", "{prompt}"]
+    args_template: ["-p", "--output-format", "json", "--model", "{model_tier}", "{prompt}"]
+    stdin: none
+    capture: stdout
+
+  omp:
+    binary: omp
+    # {prompt} is substituted with the full prompt text
+    args_template: ["--mode=json", "--model", "gemini-2.0-flash", "{prompt}"]
     stdin: none
     capture: stdout
 

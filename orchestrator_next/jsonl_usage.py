@@ -1,13 +1,25 @@
 """
-Parse Claude Code session JSONL files to extract billing-truth usage.
+Chat-driver only: parse Claude Code session JSONL for billing-truth usage.
+
+The shell driver (run-workflow.sh) reads usage from agent CLI stdout via
+``orchestrator_next.usage_adapters`` and never imports this module (orc-111).
+
+Remaining importers (chat / Task-tool driver via skills/orchestrate):
+  - ``record.py`` — ``_resolve_driver_session``, ``_resolve_subagent_rows``,
+    and per-``agent_id`` JSONL enrichment when ``agent_task_result`` is present.
+
+Not imported by:
+  - ``ui/dashboard/server.py`` (defines its own ``_repo_slug`` mirror)
+  - ``orchestrator_next/scripts/metrics/estimate-cost.sh`` (DuckDB pricing only)
+  - ``orchestrator_next/scripts/lib/state_inspect.py`` (uses ``--usage-file``)
 
 Claude Code writes every assistant turn to a JSONL file with the full usage
 block exactly as returned by the Anthropic API. This module aggregates those
-entries into a single dict suitable for `orchestrator record` payloads.
+entries into a single dict suitable for ``orchestrator record`` payloads.
 
-Two entry points:
-  - extract_agent_usage(agent_id): one sub-agent's full usage from its JSONL.
-  - extract_driver_usage(session_id): the driver (parent) session's usage.
+Entry points:
+  - ``extract_agent_usage(agent_id)`` — one sub-agent's usage from its JSONL.
+  - ``extract_driver_usage(session_id)`` — the driver (parent) session's usage.
 
 Both return a dict with keys: input_tokens, output_tokens,
 cache_read_input_tokens, cache_creation_input_tokens, duration_ms, model,
@@ -19,7 +31,9 @@ JSONL layout (observed on macOS, Claude Code 2026-04):
 
 The repo-slug is the absolute repo path with '/' replaced by '-'. Claude Code
 picks this path deterministically so consumers can construct it from
-os.getcwd() or `git rev-parse --show-toplevel`.
+os.getcwd() or ``git rev-parse --show-toplevel``. The dashboard mirrors
+``_repo_slug`` locally for live activity reads — keep both in sync if the
+normalization rules change.
 """
 from __future__ import annotations
 

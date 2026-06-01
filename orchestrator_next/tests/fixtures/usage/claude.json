@@ -1,0 +1,23 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 1736,
+  "result": "Task complete.\n\nCOMPLETION:\n  status: completed\n  outputs:\n    task_execution_result: done",
+  "total_cost_usd": 0.1958375,
+  "usage": {
+    "input_tokens": 5290,
+    "output_tokens": 31,
+    "cache_creation_input_tokens": 26978,
+    "cache_read_input_tokens": 0
+  },
+  "modelUsage": {
+    "claude-opus-4-8": {
+      "inputTokens": 5290,
+      "outputTokens": 31,
+      "cacheReadInputTokens": 0,
+      "cacheCreationInputTokens": 26978,
+      "costUSD": 0.1958375
+    }
+  }
+}
