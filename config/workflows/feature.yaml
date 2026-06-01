@@ -1,4 +1,5 @@
 steps:
+  - check-rerun # halt if this feature is already archived (workflow's own decision)
   - explore
   - ux-design
   - design-and-draft-artifacts

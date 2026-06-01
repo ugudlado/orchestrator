@@ -1,0 +1,4 @@
+id: check-rerun
+version: 1
+kind: script
+run: script.sh

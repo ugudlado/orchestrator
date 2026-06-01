@@ -189,24 +189,19 @@ esac
 
 STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG" 2>/dev/null || true)"
 
-# Completed feature already archived — do not seed a fresh rerun.
-_ARCHIVE_PROBE=$(PYTHONPATH="${_WORKTREE_ROOT}:${PYTHONPATH:-}" \
-  python3 -m orchestrator_next.archive_completion probe "$REPO_ROOT" "$TICKET_SLUG" "$TICKET_ID" 2>/dev/null | tail -1)
-_ARCHIVE_ACTION=$(echo "$_ARCHIVE_PROBE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('action','continue'))" 2>/dev/null || echo "continue")
-if [ "$_ARCHIVE_ACTION" = "halt_complete" ] && [ ! -f "${STATE_YAML:-}" ]; then
-  if [ "$SCHEMA" = "complete" ]; then
-    # Feature is archived but complete was re-invoked — resolve archived state.yaml
-    # so idempotent steps (ticket-done, archive-completed-change) can skip gracefully.
-    STATE_YAML="$(resolve_archived_state_yaml "$TICKET_SLUG" 2>/dev/null || true)"
-    if [ ! -f "${STATE_YAML:-}" ]; then
-      echo "$_ARCHIVE_PROBE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','Feature already completed.'))" >&2
-      exit 1
-    fi
+# Rerun refusal is NOT decided here — it's the workflow's own decision, made by
+# the optional `check-rerun` step (schemas that want it list it first). The
+# engine/driver carries no archive knowledge.
+#
+# `complete` on an already-archived feature is different: the user explicitly
+# invoked teardown, and the active state.yaml is gone because it was archived.
+# Locate the archived state so merge-to-main / remove-worktree can finish. This
+# is state resolution for an explicit op, not a rerun policy decision.
+if [ "$SCHEMA" = "complete" ] && [ ! -f "${STATE_YAML:-}" ]; then
+  STATE_YAML="$(resolve_archived_state_yaml "$TICKET_SLUG" 2>/dev/null || true)"
+  if [ -f "${STATE_YAML:-}" ]; then
     echo "Resuming complete on archived state: $STATE_YAML" >&2
     export ORCHESTRATOR_COMPLETE_RESUME=1
-  else
-    echo "$_ARCHIVE_PROBE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('message','Feature already completed.'))" >&2
-    exit 1
   fi
 fi
 

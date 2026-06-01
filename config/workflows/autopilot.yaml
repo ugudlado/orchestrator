@@ -9,6 +9,7 @@
 # action: `orchestrator complete <slug>` (/complete-feature or /approve-qa).
 # This is the same end state as feature/bugfix.
 steps:
+  - check-rerun # halt if this change is already archived (workflow's own decision)
   - explore
   - design-and-draft-artifacts
   - expand-plan

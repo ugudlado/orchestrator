@@ -1,4 +1,5 @@
 steps:
+  - check-rerun # halt if this fix is already archived (workflow's own decision)
   - diagnose
   - design-and-draft-artifacts
   - expand-plan

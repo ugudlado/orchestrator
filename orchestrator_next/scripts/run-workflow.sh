@@ -409,34 +409,8 @@ PY
   fi
 }
 
-# Rerun of an already-archived feature: flag via discoverer/architect metadata and exit.
-_archive_completion_handle() {
-  PYTHONPATH="${REPO_ROOT}:${PYTHONPATH:-}" \
-    python3 -m orchestrator_next.archive_completion handle "$STATE_YAML" 2>&1
-}
-
-_ARCHIVE_HANDLE=$(_archive_completion_handle 2>/dev/null | tail -1)
-_ARCHIVE_HANDLE_ACTION=$(echo "$_ARCHIVE_HANDLE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('action','continue'))" 2>/dev/null || echo "continue")
-if [ "$_ARCHIVE_HANDLE_ACTION" = "halt_complete" ]; then
-  # Skip halt when orchestrator-run.sh is resuming an archived state to finish
-  # pending steps (e.g. merge-to-main, remove-worktree). The resume path sets
-  # ORCHESTRATOR_COMPLETE_RESUME so the loop can proceed to dispatch them.
-  if [ "${ORCHESTRATOR_COMPLETE_RESUME:-}" != "1" ]; then
-    echo "$_ARCHIVE_HANDLE" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-print(d.get('message', 'Feature already completed.'))
-fb = d.get('flagged_by')
-if fb:
-    print(f'(flagged_by: {fb})', file=sys.stderr)
-" >&2
-    exit 1
-  fi
-fi
-if [ "$_ARCHIVE_HANDLE_ACTION" = "error" ]; then
-  echo "WARN: archive_completion handle failed (continuing workflow)" >&2
-  echo "$_ARCHIVE_HANDLE" >&2
-fi
+# Already-archived reruns are refused upstream by orchestrator-run.sh's probe
+# gate (before this script is reached), so no archive check is needed here.
 
 WORKFLOW_CHANGE_ID=$(python3 "$STATE_INSPECT" state-field "$STATE_YAML" change_id --fallback slug 2>/dev/null || echo "")
 
@@ -669,17 +643,6 @@ except Exception:
         echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)${PI_SUFFIX}" >&2
       else
         echo "[$(_log_ts)]   invoking $TOOL_NAME ($TOOL_BINARY)" >&2
-      fi
-
-      # Do not respawn discoverer/architect when this feature is already archived.
-      # The startup probe ran archive_completion handle once; reuse its result
-      # since the archive can't appear mid-loop (this process owns the only
-      # archive-completed-change step). The cached _ARCHIVE_HANDLE_ACTION is "continue"
-      # by the time we reach here (halt_complete would have exited at startup).
-      if [ "$_ARCHIVE_HANDLE_ACTION" = "halt_complete" ] && \
-         { [ "$STEP_ID" = "explore" ] || [ "$STEP_ID" = "design-and-draft-artifacts" ]; }; then
-        echo "$_ARCHIVE_HANDLE" | jq -r '.message // "Feature already completed."' >&2
-        exit 1
       fi
 
       # Build the prompt (ticket body + change_id so diagnose/implement agents have a target)
