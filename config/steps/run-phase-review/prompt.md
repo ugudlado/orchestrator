@@ -56,9 +56,10 @@
      `T-<N> (reason: <category>, attempts: <K>): <last_detail>`
    - Caps correctness dimension score at scoring.critical_cap until each
      quarantined task either:
-       a. Has a fix task appended to tasks.yaml (and injected via expand-plan), OR
+       a. Has a fix task appended to tasks.yaml with `status: pending`, OR
        b. Is explicitly accepted by the user (state.yaml contains
-          `quarantine_accepted: ["T-<N>", ...]` — an interactive signoff).
+          `quarantine_accepted: ["T-<N>", ...]`); for `autopilot` schema,
+          quarantined tasks are treated as accepted automatically — no human gate.
 
 5c. AC verification with evidence (implement phase only):
    - If current phase is not implement: skip this step.
@@ -117,9 +118,13 @@
      state_patch:
        retries: <incremented value>
    ```
-   d. If retries >= phase verify.max_retries (default 3): set status paused, surface
-      failure summary to user. Otherwise: the dispatcher re-runs implement-tasks, which
-      picks up the pending fix tasks from tasks.yaml.
+   d. If retries >= phase verify.max_retries (default 3):
+      - If state.yaml `schema` is `autopilot`: return COMPLETION with
+        `status: abandoned` and `reason: max_retries_exhausted`. The workflow
+        records the failure and continues to the next step — no human gate.
+      - Otherwise: set status paused, surface failure summary to user.
+      - If not exhausted: the dispatcher re-runs implement-tasks, which picks up
+        pending fix tasks from tasks.yaml.
 
 ### Rules (constraints on how)
 
