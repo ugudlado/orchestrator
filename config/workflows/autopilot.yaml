@@ -18,8 +18,6 @@ steps:
   - capture-test-baseline
   - run-learn-cycle
   - mark-change-completed
-  - compute-swe-metrics
-  - gather-learn-metrics
-  - cost-report
   - archive-completed-change
   - ticket-done
+  - workflow-report

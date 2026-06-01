@@ -14,10 +14,8 @@
 steps:
   - run-learn-cycle
   - mark-change-completed
-  - compute-swe-metrics
-  - gather-learn-metrics
-  - cost-report
   - archive-completed-change
   - merge-to-main
   - remove-worktree
   - ticket-done
+  - workflow-report

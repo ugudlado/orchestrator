@@ -1,9 +1,0 @@
-id: gather-learn-metrics
-version: 1
-kind: script
-run: script.sh
-params:
-  LEARN_SCOPE: all
-  LEARN_RETRY_HOTSPOTS_LIMIT: "10"
-  LEARN_RECENT_FEATURES_LIMIT: "10"
-  LEARN_QUALITY_TREND_LIMIT: "5"
