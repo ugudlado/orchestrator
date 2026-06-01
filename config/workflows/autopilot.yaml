@@ -12,10 +12,10 @@ steps:
   - check-rerun # halt if this change is already archived (workflow's own decision)
   - explore
   - design-and-draft-artifacts
-  - expand-plan
   - preview-route
   - ticket-start # ticket -> In Progress
   - capture-test-baseline
+  - implement-tasks
   - run-learn-cycle
   - mark-change-completed
   - archive-completed-change

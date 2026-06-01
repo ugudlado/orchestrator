@@ -3,12 +3,11 @@ steps:
   - explore
   - ux-design
   - design-and-draft-artifacts
-  - expand-plan
   - preview-route
-  - ticket-start # ticket -> In Progress (implement entry; covers task-* case)
+  - ticket-start # ticket -> In Progress (implement entry)
   - capture-test-baseline
   - run-ux-critique
-  - execute-tasks
+  - implement-tasks
   - ticket-review # ticket -> Code Review
   - run-phase-review
   - ticket-qa # ticket -> QA Review
