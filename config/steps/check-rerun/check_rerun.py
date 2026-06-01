@@ -29,7 +29,6 @@ from typing import Any
 import yaml
 
 _DATE_SLUG_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})-(.+)$")
-_STEP_ID = "check-rerun"
 
 
 def _norm(s: str | None) -> str:
@@ -81,15 +80,6 @@ def _finalize_completed(state: dict[str, Any], archive_path: str) -> None:
     state.pop("next_step", None)
 
 
-def _complete_self_only(state: dict[str, Any]) -> None:
-    """Mark just this step's node completed so the DAG advances to the next."""
-    phase = str(state.get("phase") or "main")
-    phase_plan = (state.get("workflow_plan") or {}).get(phase) or {}
-    for node in phase_plan.get("nodes") or []:
-        if isinstance(node, dict) and node.get("id") == _STEP_ID:
-            node["status"] = "completed"
-
-
 def main() -> int:
     state_path = os.environ.get("STATE_YAML_PATH", "")
     if not state_path or not Path(state_path).is_file():
@@ -113,8 +103,9 @@ def main() -> int:
         }))
         return 0
 
-    _complete_self_only(state)
-    path.write_text(yaml.safe_dump(state, sort_keys=False, default_flow_style=False), encoding="utf-8")
+    # No archive → nothing to do here. The engine marks this inline node
+    # completed on exit 0 (bin/orchestrator records it), so the DAG advances
+    # to the next step on its own — no state write needed.
     print(json.dumps({"rerun": "proceed"}))
     return 0
 

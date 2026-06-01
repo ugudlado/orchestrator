@@ -126,7 +126,10 @@ class TestHaltMechanism:
                 for n in raw["workflow_plan"][phase]["nodes"]
             ), f"phase {phase} has an incomplete node — engine would still dispatch it"
 
-    def test_proceed_when_no_archive(self, tmp_path, monkeypatch):
+    def test_proceed_when_no_archive_leaves_state_untouched(self, tmp_path, monkeypatch):
+        """Proceed path writes NOTHING to state — the engine marks the inline
+        node completed on exit 0 (bin/orchestrator records it). The script must
+        not flip status or any node itself."""
         repo = tmp_path / "repo"; repo.mkdir()  # no archive dir
         state_path = _seed_state(tmp_path, repo, slug="orc-7", phases={
             "main": {"nodes": [
@@ -134,13 +137,10 @@ class TestHaltMechanism:
                 {"id": "explore", "status": "pending"},
             ], "filtered": []},
         })
+        before = state_path.read_text()
         monkeypatch.setenv("STATE_YAML_PATH", str(state_path))
         monkeypatch.setenv("REPO_ROOT", str(repo))
         monkeypatch.setenv("CHANGE_ID", "orc-7")
 
         assert check_rerun.main() == 0
-        raw = yaml.safe_load(state_path.read_text())
-        assert raw["status"] == "active"  # NOT completed
-        nodes = {n["id"]: n["status"] for n in raw["workflow_plan"]["main"]["nodes"]}
-        assert nodes["check-rerun"] == "completed"  # self done
-        assert nodes["explore"] == "pending"  # DAG proceeds to it
+        assert state_path.read_text() == before, "proceed path must not write state.yaml"
