@@ -180,9 +180,9 @@ class TestScriptKindContractLoad:
         """
         step_dir = _write_dir_contract(
             steps_dir,
-            "expand-plan",
+            "inline-step",
             {
-                "id": "expand-plan",
+                "id": "inline-step",
                 "version": 1,
                 "kind": "script",
                 "run": "script.sh",
@@ -195,7 +195,7 @@ class TestScriptKindContractLoad:
         expected_run = str(step_dir / "script.sh")
 
         from orchestrator_next.parser import _load_contract
-        contract = _load_contract("expand-plan", "")
+        contract = _load_contract("inline-step", "")
         assert contract.kind == "script"
         assert contract.run == expected_run
 

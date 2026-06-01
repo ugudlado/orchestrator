@@ -62,7 +62,6 @@ def _usage() -> None:
         "  orchestrator next <state.yaml>\n"
         "  orchestrator done <state.yaml>   # JSON payload on stdin\n"
         "  orchestrator graph <state.yaml>  # Mermaid flowchart of the phase DAG\n"
-        "  orchestrator expand-plan <state.yaml>  # append task-nodes from tasks.yaml\n"
         "  orchestrator doctor",
         file=sys.stderr,
     )
@@ -199,12 +198,12 @@ def main() -> None:
     # 'record' kept for silent backward-compat (one cycle) but absent from the banner.
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
-        "next", "done", "record", "graph", "doctor", "expand-plan", "reset-step", "run",
+        "next", "done", "record", "graph", "doctor", "reset-step", "run",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
     if len(args) < 2 and args[0] in (
-        "next", "record", "done", "graph", "expand-plan", "reset-step", "run",
+        "next", "record", "done", "graph", "reset-step", "run",
     ) or (len(args) < 2 and args[0] in _wf_subcommands):
         _usage()
     # ORC-108: each config/workflows/<name>.yaml is a CLI subcommand → orchestrator-run.sh.
@@ -235,19 +234,6 @@ def main() -> None:
         try:
             _reset_step(args[1], args[2])
         except (ValueError, FileNotFoundError) as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            sys.exit(1)
-        sys.exit(0)
-
-    # ORC-65: expand-plan verb — read tasks.yaml, append task-nodes to plan.
-    if args[0] == "expand-plan":
-        from orchestrator_next.expand_plan import expand_plan as _expand_plan
-        try:
-            _expand_plan(args[1])
-        except FileNotFoundError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            sys.exit(1)
-        except (ValueError, Exception) as exc:  # noqa: BLE001
             print(f"error: {exc}", file=sys.stderr)
             sys.exit(1)
         sys.exit(0)

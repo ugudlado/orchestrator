@@ -182,8 +182,8 @@ class TestScriptContractDispatch:
         state_dir = tmp_path / "state"
         state_dir.mkdir()
 
-        _write_script_contract(steps_dir, "expand-plan", {
-            "id": "expand-plan",
+        _write_script_contract(steps_dir, "inline-step", {
+            "id": "inline-step",
             "version": 1,
             "kind": "script",
             "inputs": [],
@@ -198,7 +198,7 @@ class TestScriptContractDispatch:
             change_id="orc-smoke",
             worktree_artifact_dir=str(artifact_dir),
             phase="main",
-            nodes=[_node("expand-plan", agent=None)],
+            nodes=[_node("inline-step", agent=None)],
         )
 
         from orchestrator_next.dispatch import dispatch
@@ -215,8 +215,8 @@ class TestScriptContractDispatch:
         assert run_path.endswith("script.sh"), (
             f"Expected run path to end in 'script.sh', got {run_path!r}"
         )
-        assert "expand-plan" in run_path, (
-            f"Expected run path inside expand-plan/ dir, got {run_path!r}"
+        assert "inline-step" in run_path, (
+            f"Expected run path inside inline-step/ dir, got {run_path!r}"
         )
 
 

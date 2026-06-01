@@ -1,4 +1,0 @@
-id: expand-plan
-version: 1
-kind: script
-run: script.sh
