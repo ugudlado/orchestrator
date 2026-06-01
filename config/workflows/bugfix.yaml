@@ -15,3 +15,4 @@ steps:
     on_failure: implement-tasks
     max_retries: 8
   - ticket-qa # ticket -> QA Review
+  - run-learn-cycle

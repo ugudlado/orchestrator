@@ -32,8 +32,6 @@ AGENTS_CONFIG_ARG=""
 FLAG_OVERRIDES=()
 AGENT_ROUTE_FLAGS=()
 
-# Resume-only workflows: require existing state.yaml; never seed.
-RESUME_ONLY_SCHEMAS="complete"
 
 usage() {
   echo "Usage: orchestrator run <ticket-id> [--schema feature|bugfix|complete|...] [--repo PATH] [--routes-override FILE] [--agents-config FILE] [flag=value ...]" >&2
@@ -135,10 +133,8 @@ WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-$HOME/code/feature_worktrees}"
 TICKET_SLUG="$(echo "$TICKET_ID" | tr '[:upper:]' '[:lower:]')"
 DEFAULT_STATE="$WORKFLOW_STATE_DIR/$TICKET_SLUG/state.yaml"
 _COMPLETE_DIR="$SCRIPT_DIR/complete"
-_TEARDOWN="$SCRIPT_DIR/complete-feature-teardown.sh"
 if [ -d "$_WORKTREE_ROOT/orchestrator_next/scripts/complete" ]; then
   _COMPLETE_DIR="$_WORKTREE_ROOT/orchestrator_next/scripts/complete"
-  _TEARDOWN="$_WORKTREE_ROOT/orchestrator_next/scripts/complete-feature-teardown.sh"
 fi
 
 resolve_archived_state_yaml() {
@@ -201,15 +197,10 @@ if [ "$SCHEMA" = "complete" ] && [ ! -f "${STATE_YAML:-}" ]; then
   STATE_YAML="$(resolve_archived_state_yaml "$TICKET_SLUG" 2>/dev/null || true)"
   if [ -f "${STATE_YAML:-}" ]; then
     echo "Resuming complete on archived state: $STATE_YAML" >&2
-    export ORCHESTRATOR_COMPLETE_RESUME=1
   fi
 fi
 
 if [ ! -f "${STATE_YAML:-}" ]; then
-  if echo " $RESUME_ONLY_SCHEMAS " | grep -q " $SCHEMA "; then
-    echo "ERROR: no state.yaml for $TICKET_SLUG (start with orchestrator feature|bugfix|autopilot first)" >&2
-    exit 7
-  fi
   if [ ! -f "$SEED_STATE" ]; then
     echo "ERROR: no state.yaml for $TICKET_SLUG and seed-state.sh missing at $SEED_STATE" >&2
     exit 7
@@ -225,16 +216,6 @@ if [ ! -f "$STATE_YAML" ]; then
   exit 7
 fi
 
-if [ "$SCHEMA" = "complete" ]; then
-  export ORCHESTRATOR_COMPLETE_RESUME=1
-  _PREPARE=$(PYTHONPATH="${_WORKTREE_ROOT}:${PYTHONPATH:-}" \
-    python3 "${_WORKTREE_ROOT}/orchestrator_next/scripts/complete/check-implement-complete.py" \
-    "$STATE_YAML" 2>&1) || {
-    echo "$_PREPARE" >&2
-    exit 2
-  }
-  echo "$_PREPARE" | head -1 >&2
-fi
 
 if [ -n "$ROUTES_OVERRIDE_ARG" ]; then
   if [ ! -f "$ROUTES_OVERRIDE_ARG" ]; then

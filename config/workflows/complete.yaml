@@ -12,7 +12,6 @@
 #
 # Flags: --repo PATH, plus key=value overrides.
 steps:
-  - run-learn-cycle
   - mark-change-completed
   - archive-completed-change
   - merge-to-main
