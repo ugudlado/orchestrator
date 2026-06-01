@@ -15,7 +15,6 @@ steps:
   - preview-route
   - ticket-start # ticket -> In Progress
   - capture-test-baseline
-  - compute-prediction-accuracy
   - run-learn-cycle
   - mark-change-completed
   - compute-swe-metrics

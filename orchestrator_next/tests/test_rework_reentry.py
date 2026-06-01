@@ -121,7 +121,7 @@ def _rework_dag_state(
     step_history: list[dict],
     phase: str = "implement",
 ) -> dict:
-    """DAG: execute-next-task → task-fix-1 → run-phase-review → compute-prediction-accuracy."""
+    """DAG: execute-next-task → task-fix-1 → run-phase-review → run-learn-cycle."""
     return {
         "change_id": "orc-103-fixture",
         "phase": phase,
@@ -145,7 +145,7 @@ def _rework_dag_state(
                         outputs=["phase_review_report"],
                     ),
                     _plain_node(
-                        "compute-prediction-accuracy",
+                        "run-learn-cycle",
                         status="pending",
                         depends_on=["run-phase-review"],
                         agent=None,
@@ -297,10 +297,10 @@ class TestNextReadyNodeReworkReentry:
         state = load_state(state_path)
 
         assert readiness.next_ready_node(state) == "run-phase-review"
-        assert readiness.next_ready_node(state) != "compute-prediction-accuracy"
+        assert readiness.next_ready_node(state) != "run-learn-cycle"
 
     def test_after_pass_review_next_ready_is_compute(self, tmp_path, monkeypatch):
-        """AC-2: pass verdict advances to compute-prediction-accuracy."""
+        """AC-2: pass verdict advances to run-learn-cycle."""
         state_raw = _rework_dag_state(
             tmp_path,
             review_status="completed",
@@ -313,7 +313,7 @@ class TestNextReadyNodeReworkReentry:
         state_path = _setup(tmp_path, monkeypatch, state_raw)
         state = load_state(state_path)
 
-        assert readiness.next_ready_node(state) == "compute-prediction-accuracy"
+        assert readiness.next_ready_node(state) == "run-learn-cycle"
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +326,7 @@ def _nodes_state_with_compute(tmp_path) -> dict:
     state = _nodes_state(tmp_path)
     state["workflow_plan"]["implement"]["nodes"].append(
         {
-            "id": "compute-prediction-accuracy",
+            "id": "run-learn-cycle",
             "status": "pending",
             "depends_on": ["run-phase-review"],
             "agent": None,
@@ -441,8 +441,8 @@ class TestReworkRecordComposition:
         record.record(state_path, _review_payload("needs_work"))
         state = load_state(state_path)
         assert readiness.next_ready_node(state) == "run-phase-review"
-        assert readiness.next_ready_node(state) != "compute-prediction-accuracy"
+        assert readiness.next_ready_node(state) != "run-learn-cycle"
 
         record.record(state_path, _review_payload("pass"))
         state = load_state(state_path)
-        assert readiness.next_ready_node(state) == "compute-prediction-accuracy"
+        assert readiness.next_ready_node(state) == "run-learn-cycle"

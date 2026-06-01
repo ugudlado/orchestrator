@@ -31,9 +31,8 @@ if _REPO_ROOT not in sys.path:
 
 from orchestrator_next.generate_plan import generate_plan  # noqa: E402
 
-# complete.yaml tail: compute-prediction-accuracy through ticket-done (ORC-108 AC-3/AC-5)
+# complete.yaml tail: run-learn-cycle through ticket-done (ORC-108 AC-3/AC-5)
 _COMPLETE_PHASE_TAIL = [
-    "compute-prediction-accuracy",
     "run-learn-cycle",
     "mark-change-completed",
     "compute-swe-metrics",

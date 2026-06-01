@@ -12,13 +12,12 @@
 #
 # Flags: --repo PATH, plus key=value overrides.
 steps:
-  - compute-prediction-accuracy
   - run-learn-cycle
   - mark-change-completed
   - compute-swe-metrics
   - gather-learn-metrics
   - cost-report
-  - ticket-done
   - archive-completed-change
   - merge-to-main
   - remove-worktree
+  - ticket-done

@@ -17,7 +17,7 @@ import yaml
 
 from orchestrator_next.operator_workflow import ensure_orchestrator_home, workflow_step_ids
 
-_COMPLETE_ANCHOR = "compute-prediction-accuracy"
+_COMPLETE_ANCHOR = "run-learn-cycle"
 
 
 def _complete_step_ids(schema_name: str) -> list[str]:

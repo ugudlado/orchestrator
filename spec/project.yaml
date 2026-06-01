@@ -136,10 +136,10 @@ learnings:
     learned: 2026-04-20
     source: single-source-metrics-via-step-events
     rule: >
-      Autopilot must never skip compute-prediction-accuracy, run-learn-cycle,
-      or retro steps for 'session budget' reasons. These feed the
-      self-improving loop; skipping them defeats autopilot's purpose. Budget
-      pressure is a signal to stop earlier, not to skip learning.
+      Autopilot must never skip run-learn-cycle or retro steps for 'session
+      budget' reasons. These feed the self-improving loop; skipping them
+      defeats autopilot's purpose. Budget pressure is a signal to stop
+      earlier, not to skip learning.
   - id: shell-script-env-vars-match-python-canonical
     learned: 2026-04-20
     source: pricing-table-in-duckdb
@@ -345,19 +345,6 @@ rules:
       tests/fixtures/` and restore any mutated fixtures with `git checkout HEAD --
       tests/fixtures/`. Do not count fixture dirt as a code finding against the
       feature under review.
-  - id: file-metadata-not-propagated-to-evidence
-    learned: 2026-05-31
-    source: orc-107
-    rule: >
-      The execute-one-task contract requires `files_changed: [<list>]` in the
-      COMPLETION block, but the dispatcher does not record this field into
-      step_history[].evidence.outputs — it records only what the agent emits
-      under the named output handle (task_execution_result). As a result,
-      compute-prediction-accuracy always sees file_overlap_pct: 0.0 for
-      developer tasks. This is a dispatcher recording gap, not an agent miss.
-      Do not interpret file_overlap_pct: 0.0 as evidence that the developer
-      agent failed to list changed files; verify agent output directly from
-      session logs if file accuracy is needed.
   - id: xfail-cleanup-is-part-of-tdd-task
     learned: 2026-05-31
     source: orc-108
@@ -385,7 +372,7 @@ rules:
     learned: 2026-05-31
     source: orc-108
     rule: >
-      Declare complete-phase steps (compute-prediction-accuracy through ticket-done)
+      Declare complete-phase steps (run-learn-cycle through ticket-done)
       statically in feature.yaml and bugfix.yaml schema tails rather than injecting
       them at runtime from complete.yaml. Static declaration makes the full DAG
       readable from the schema file, eliminates complete_phase.py's injection logic,
