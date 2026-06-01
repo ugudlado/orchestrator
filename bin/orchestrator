@@ -219,13 +219,13 @@ def main() -> None:
     # 'record' kept for silent backward-compat (one cycle) but absent from the banner.
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
-        "next", "done", "record", "graph", "doctor", "expand-plan", "run",
+        "next", "done", "record", "graph", "doctor", "expand-plan", "reset-step", "run",
         "dashboard",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
     if len(args) < 2 and args[0] in (
-        "next", "record", "done", "graph", "expand-plan", "run",
+        "next", "record", "done", "graph", "expand-plan", "reset-step", "run",
     ) or (len(args) < 2 and args[0] in _wf_subcommands):
         _usage()
     if args[0] == "dashboard":
@@ -250,6 +250,19 @@ def main() -> None:
     # ORC-63: read-only DAG-visibility verb — no state.yaml write, no DuckDB.
     if args[0] == "graph":
         _graph_verb(args[1])
+
+    # reset-step verb — reset a step and all subsequent steps to pending.
+    if args[0] == "reset-step":
+        if len(args) < 3:
+            print("usage: orchestrator reset-step <step-id> <state.yaml>", file=sys.stderr)
+            sys.exit(1)
+        from orchestrator_next.reset_step import reset_step as _reset_step
+        try:
+            _reset_step(args[1], args[2])
+        except (ValueError, FileNotFoundError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
 
     # ORC-65: expand-plan verb — read tasks.yaml, append task-nodes to plan.
     if args[0] == "expand-plan":
