@@ -102,8 +102,8 @@ def _load_patched_state(state_path: Path, tasks_path: Path) -> dict:
         if history and isinstance(history[0], dict):
             state["started_at"] = history[0].get("started_at")
 
-    # Set tasks_path to the fixture's tasks.md (archive has no .state/<slug>/ dir)
-    state["tasks_path"] = str(tasks_path)
+    # tasks_path (legacy .md) is intentionally not set — _resolve_feature_metrics
+    # now reads tasks.yaml from the canonical artifact directory.
 
     return state
 

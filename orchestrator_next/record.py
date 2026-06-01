@@ -837,58 +837,50 @@ def parse_tasks(tasks_md: Path) -> dict:
     }
 
 
-def compute_task_counts(
-    step_history: list,
-    workflow_plan: dict,
-    implement_phase: str = "implement",
-) -> dict:
-    """Derive task counts from step_history and workflow_plan.
+def compute_task_counts(tasks_yaml_path: "Path | None") -> dict:
+    """Derive task counts from tasks.yaml status fields.
 
-    ORC-65 T-13: replaces parse_tasks() as the source of truth for task metrics.
-    Task-nodes are identified by step_id starting with 'task-'. Fix nodes (added
-    by expand-plan on needs_work) are identified by 'task-fix-' prefix.
+    Reads tasks.yaml directly — the single authority on task completion since
+    implement-tasks writes status: completed per task after each commit.
+    Fix tasks have ids starting with 'fix-'.
 
     Returns a dict with:
-        tasks_total     — number of task-* nodes in workflow_plan[implement].nodes
-        tasks_planned   — initial plan count (total minus fix nodes)
-        tasks_added     — number of fix nodes (task-fix-*)
-        tasks_completed — step_history entries with step_id task-* and status in
-                          (completed, recovered)
-        tasks_failed    — step_history entries with step_id task-* and status failed
+        tasks_total     — total number of tasks in tasks.yaml
+        tasks_planned   — tasks whose id does not start with 'fix-'
+        tasks_added     — tasks whose id starts with 'fix-' (rework additions)
+        tasks_completed — tasks with status: completed
+        tasks_failed    — tasks neither completed nor skipped
         resolve_rate    — tasks_completed / tasks_total (0.0 when total is 0)
 
-    Returns None values when no task-nodes exist in the plan (spike path).
+    Returns None values when tasks.yaml is absent or has no tasks (spike path).
     """
-    impl = (workflow_plan or {}).get(implement_phase, {})
-    nodes = impl.get("nodes") or []
-    task_node_ids = {n["id"] for n in nodes if n.get("id", "").startswith("task-")}
+    import yaml as _yaml
 
-    if not task_node_ids:
-        return {
-            "tasks_total": None,
-            "tasks_planned": None,
-            "tasks_added": None,
-            "tasks_completed": None,
-            "tasks_failed": None,
-            "resolve_rate": None,
-        }
+    _null = {
+        "tasks_total": None,
+        "tasks_planned": None,
+        "tasks_added": None,
+        "tasks_completed": None,
+        "tasks_failed": None,
+        "resolve_rate": None,
+    }
 
-    total = len(task_node_ids)
-    fix_count = sum(1 for nid in task_node_ids if "fix-" in nid)
+    if tasks_yaml_path is None or not tasks_yaml_path.is_file():
+        return _null
+
+    try:
+        doc = _yaml.safe_load(tasks_yaml_path.read_text(encoding="utf-8")) or {}
+    except (_yaml.YAMLError, OSError):
+        return _null
+
+    tasks = doc.get("tasks") if isinstance(doc, dict) else None
+    if not isinstance(tasks, list) or not tasks:
+        return _null
+
+    total = len(tasks)
+    fix_count = sum(1 for t in tasks if str(t.get("id", "")).startswith("fix-"))
     planned = total - fix_count
-
-    # Count completed task-nodes by taking the most-recent entry per step_id.
-    # A task can fail once and then complete (retry); in that case we count it as
-    # completed, not failed. tasks_failed = tasks not yet completed (per metrics-schema.md).
-    # Relies on Python 3.7+ dict insertion order: each key assignment overwrites
-    # the previous value, so the last history entry for a given step_id wins.
-    _terminal_completed = {"completed", "recovered"}
-    latest_by_step: dict[str, str] = {}
-    for e in (step_history or []):
-        sid = e.get("step_id", "")
-        if sid.startswith("task-") and sid in task_node_ids and e.get("status") != "in_progress":
-            latest_by_step[sid] = e.get("status", "")
-    completed = sum(1 for st in latest_by_step.values() if st in _terminal_completed)
+    completed = sum(1 for t in tasks if t.get("status") == "completed")
     failed = total - completed
     resolve_rate = completed / total if total > 0 else 0.0
 
@@ -1194,9 +1186,8 @@ def _resolve_feature_metrics_tasks_path(state: dict) -> Path:
 def _resolve_feature_metrics(state: dict, change_id: str) -> dict:
     """Pure compute. Returns kwargs dict for upsert_feature_metrics.
 
-    ORC-65 T-13: task counts are now derived from step_history + workflow_plan
-    (compute_task_counts). Falls back to parse_tasks(tasks.md) for legacy runs
-    that have no task-nodes in workflow_plan.
+    Task counts are read from tasks.yaml status fields — the single authority
+    written by implement-tasks after each per-task commit.
 
     Raises:
         RuntimeError: started_at or completed_at missing on feature/bugfix.
@@ -1211,27 +1202,8 @@ def _resolve_feature_metrics(state: dict, change_id: str) -> dict:
                 f"for schema={schema}"
             )
 
-    # Prefer step_history-based counts (ORC-65 flat task-nodes).
-    # Fall back to tasks.md checkbox counting for legacy runs.
-    task_counts = compute_task_counts(
-        step_history=state.get("step_history") or [],
-        workflow_plan=state.get("workflow_plan") or {},
-    )
-    if task_counts.get("tasks_total") is None:
-        # Legacy path: no task-nodes in plan — try tasks.md.
-        tasks_md = _resolve_feature_metrics_tasks_path(state)
-        if schema in ("feature", "bugfix") and not tasks_md.is_file():
-            raise FileNotFoundError(
-                f"_resolve_feature_metrics: no task-nodes in workflow_plan and "
-                f"tasks.md not found at {tasks_md} (required for schema={schema})"
-            )
-        if tasks_md.is_file():
-            task_counts = parse_tasks(tasks_md)
-        else:
-            task_counts = {
-                "tasks_total": None, "tasks_planned": None, "tasks_added": None,
-                "tasks_completed": None, "tasks_failed": None, "resolve_rate": None,
-            }
+    tasks_yaml = _resolve_workflow_artifact_path(state, "tasks.yaml")
+    task_counts = compute_task_counts(tasks_yaml)
 
     retries = compute_retries(state)
     resolution = compute_resolution(

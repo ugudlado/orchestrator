@@ -171,11 +171,12 @@ def test_resolve_feature_metrics_no_raise(tmp_path):
     spec_dir = repo / "spec" / "changes" / "demo-feature"
     spec_dir.mkdir(parents=True)
 
-    # Write tasks.md ONLY in spec/changes — no .state/ copy, no tasks_path override.
-    (spec_dir / "tasks.md").write_text(
-        "- [x] T-1: Write regression test\n"
-        "- [ ] T-2: Apply the fix\n"
-    )
+    # Write tasks.yaml in spec/changes — implement-tasks writes status per task.
+    import yaml as _yaml
+    (spec_dir / "tasks.yaml").write_text(_yaml.safe_dump({"version": 1, "tasks": [
+        {"id": "T-1", "title": "Write regression test", "status": "completed", "files": [], "verify": []},
+        {"id": "T-2", "title": "Apply the fix", "status": "pending", "files": [], "verify": []},
+    ]}))
 
     state = {
         "change_id": "demo-feature",

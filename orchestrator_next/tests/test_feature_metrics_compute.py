@@ -449,12 +449,14 @@ class TestResolveFeatureMetrics:
         assert result["tasks_failed"] is None
         assert result["resolve_rate"] is None
 
-    def test_feature_schema_missing_tasks_md_raises(self, tmp_path):
+    def test_feature_schema_missing_tasks_yaml_returns_null_counts(self, tmp_path):
+        """Missing tasks.yaml returns None task counts — not an error."""
         from orchestrator_next.record import _resolve_feature_metrics
         state = self._make_state(tmp_path, with_tasks=False,
                                  tasks_path_override=str(tmp_path / "nonexistent.md"))
-        with pytest.raises(FileNotFoundError):
-            _resolve_feature_metrics(state, "my-feature")
+        result = _resolve_feature_metrics(state, "my-feature")
+        assert result["tasks_total"] is None
+        assert result["tasks_completed"] is None
 
     def test_feature_schema_missing_started_at_raises(self, tmp_path):
         from orchestrator_next.record import _resolve_feature_metrics
@@ -477,18 +479,16 @@ class TestResolveFeatureMetrics:
         assert result is not None
 
     def test_fallback_tasks_path_state_change_dir(self, tmp_path):
-        """Falls back to <repo_root>/spec/changes/<change_id>/tasks.md when tasks_path absent.
-
-        Updated in ORC-36: fallback was .state/<change_id>/ (retired). Now resolves to
-        spec/changes/<change_id>/ — the canonical artifact directory.
-        """
+        """Resolves tasks.yaml from <repo_root>/spec/changes/<change_id>/tasks.yaml."""
+        import yaml as _yaml
         from orchestrator_next.record import _resolve_feature_metrics
-        # Create the fallback path at the new canonical location.
-        fallback = tmp_path / "spec" / "changes" / "my-feature" / "tasks.md"
+        fallback = tmp_path / "spec" / "changes" / "my-feature" / "tasks.yaml"
         fallback.parent.mkdir(parents=True)
-        fallback.write_text("- [x] T1\n- [ ] T2\n")
+        fallback.write_text(_yaml.safe_dump({"version": 1, "tasks": [
+            {"id": "T-1", "title": "a", "status": "completed", "files": [], "verify": []},
+            {"id": "T-2", "title": "b", "status": "pending", "files": [], "verify": []},
+        ]}))
         state = self._make_state(tmp_path, with_tasks=False, tasks_path_override=None)
-        # Don't set tasks_path in state
         state.pop("tasks_path", None)
         state["repo_root"] = str(tmp_path)
         result = _resolve_feature_metrics(state, "my-feature")

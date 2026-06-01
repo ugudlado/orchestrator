@@ -1,153 +1,89 @@
-"""T-13 RED tests: compute_resolution reads from step_history, not tasks.md.
+"""Tests for compute_task_counts — reads from tasks.yaml status fields.
 
-AC-16: telemetry source of truth shifts from tasks.md checkboxes to per-task
-step_history entries.
-
-RED: these tests fail before T-13 implementation because compute_task_counts
-does not exist yet.
+implement-tasks writes status: completed per task after each commit.
+compute_task_counts reads tasks.yaml as the single source of truth.
 """
 from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 import pytest
+import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
-if _SCRIPTS_DIR not in sys.path:
-    sys.path.insert(0, _SCRIPTS_DIR)
+_REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 
-def test_compute_task_counts_completed_from_step_history():
-    """tasks_completed = count of step_history entries with step_id like 'task-%'
-    and status in (completed, recovered)."""
+def _write_tasks(tmp_path: Path, tasks: list[dict]) -> Path:
+    p = tmp_path / "tasks.yaml"
+    p.write_text(yaml.safe_dump({"version": 1, "tasks": tasks}))
+    return p
+
+
+def test_compute_task_counts_all_pending(tmp_path):
     from orchestrator_next.record import compute_task_counts
-    step_history = [
-        {"step_id": "task-T-1", "status": "completed"},
-        {"step_id": "task-T-2", "status": "completed"},
-        {"step_id": "task-T-3", "status": "failed"},
-        {"step_id": "run-phase-review", "status": "completed"},
-    ]
-    workflow_plan = {
-        "implement": {
-            "nodes": [
-                {"id": "task-T-1"},
-                {"id": "task-T-2"},
-                {"id": "task-T-3"},
-                {"id": "run-phase-review"},
-            ]
-        }
-    }
-    result = compute_task_counts(step_history=step_history, workflow_plan=workflow_plan)
-    assert result["tasks_completed"] == 2
-    assert result["tasks_total"] == 3
-
-
-def test_compute_task_counts_recovered_counts_as_completed():
-    """status=recovered counts toward tasks_completed."""
-    from orchestrator_next.record import compute_task_counts
-    step_history = [
-        {"step_id": "task-T-1", "status": "recovered"},
-        {"step_id": "task-T-2", "status": "completed"},
-    ]
-    workflow_plan = {
-        "implement": {
-            "nodes": [
-                {"id": "task-T-1"},
-                {"id": "task-T-2"},
-                {"id": "run-phase-review"},
-            ]
-        }
-    }
-    result = compute_task_counts(step_history=step_history, workflow_plan=workflow_plan)
-    assert result["tasks_completed"] == 2
+    p = _write_tasks(tmp_path, [
+        {"id": "T-1", "title": "a", "status": "pending", "files": [], "verify": []},
+        {"id": "T-2", "title": "b", "status": "pending", "files": [], "verify": []},
+    ])
+    result = compute_task_counts(p)
     assert result["tasks_total"] == 2
-
-
-def test_compute_task_counts_failed_not_counted_as_completed():
-    """status=failed is counted in tasks_failed, not tasks_completed."""
-    from orchestrator_next.record import compute_task_counts
-    step_history = [
-        {"step_id": "task-T-1", "status": "failed"},
-    ]
-    workflow_plan = {
-        "implement": {
-            "nodes": [
-                {"id": "task-T-1"},
-            ]
-        }
-    }
-    result = compute_task_counts(step_history=step_history, workflow_plan=workflow_plan)
     assert result["tasks_completed"] == 0
-    assert result["tasks_failed"] == 1
-    assert result["tasks_total"] == 1
+    assert result["tasks_failed"] == 2
+    assert result["resolve_rate"] == 0.0
 
 
-def test_compute_task_counts_tasks_added_from_fix_nodes():
-    """tasks_added = fix-N nodes in workflow_plan (appended after initial expand-plan)."""
+def test_compute_task_counts_some_completed(tmp_path):
     from orchestrator_next.record import compute_task_counts
-    step_history = [
-        {"step_id": "task-T-1", "status": "completed"},
-        {"step_id": "task-T-2", "status": "completed"},
-        {"step_id": "task-fix-1", "status": "completed"},
-    ]
-    workflow_plan = {
-        "implement": {
-            "nodes": [
-                {"id": "task-T-1"},
-                {"id": "task-T-2"},
-                {"id": "task-fix-1"},
-                {"id": "run-phase-review"},
-            ]
-        }
-    }
-    result = compute_task_counts(step_history=step_history, workflow_plan=workflow_plan)
-    assert result["tasks_total"] == 3   # T-1, T-2, fix-1
-    assert result["tasks_added"] == 1   # fix-1 is added
+    p = _write_tasks(tmp_path, [
+        {"id": "T-1", "title": "a", "status": "completed", "files": [], "verify": []},
+        {"id": "T-2", "title": "b", "status": "completed", "files": [], "verify": []},
+        {"id": "T-3", "title": "c", "status": "pending", "files": [], "verify": []},
+    ])
+    result = compute_task_counts(p)
+    assert result["tasks_total"] == 3
+    assert result["tasks_completed"] == 2
+    assert result["tasks_failed"] == 1
+    assert round(result["resolve_rate"], 4) == round(2 / 3, 4)
+
+
+def test_compute_task_counts_fix_tasks_counted(tmp_path):
+    from orchestrator_next.record import compute_task_counts
+    p = _write_tasks(tmp_path, [
+        {"id": "T-1", "title": "a", "status": "completed", "files": [], "verify": []},
+        {"id": "T-2", "title": "b", "status": "completed", "files": [], "verify": []},
+        {"id": "fix-1", "title": "fix", "status": "completed", "files": [], "verify": []},
+    ])
+    result = compute_task_counts(p)
+    assert result["tasks_total"] == 3
+    assert result["tasks_planned"] == 2
+    assert result["tasks_added"] == 1
     assert result["tasks_completed"] == 3
 
 
-def test_compute_task_counts_retry_failed_then_completed():
-    """A task that fails then completes (retry) counts as completed, not both.
-
-    Regression test for the retry case: step_history has two entries for the same
-    step_id (failed then completed). tasks_completed must equal 1, tasks_failed == 0.
-    Without this test, a raw-count approach yields completed=1, failed=1, total=1
-    (sum > total), which violates the metrics-schema.md contract.
-    """
+def test_compute_task_counts_no_status_field_counts_as_pending(tmp_path):
+    """Tasks without a status field are treated as pending."""
     from orchestrator_next.record import compute_task_counts
-    step_history = [
-        {"step_id": "task-T-1", "status": "failed"},
-        {"step_id": "task-T-1", "status": "completed"},
-    ]
-    workflow_plan = {
-        "implement": {
-            "nodes": [
-                {"id": "task-T-1"},
-            ]
-        }
-    }
-    result = compute_task_counts(step_history=step_history, workflow_plan=workflow_plan)
-    assert result["tasks_completed"] == 1
-    assert result["tasks_failed"] == 0
+    p = _write_tasks(tmp_path, [
+        {"id": "T-1", "title": "a", "files": [], "verify": []},
+    ])
+    result = compute_task_counts(p)
     assert result["tasks_total"] == 1
+    assert result["tasks_completed"] == 0
 
 
-def test_compute_task_counts_no_task_nodes_returns_none():
-    """When workflow_plan has no task-nodes, returns None values (spike path)."""
+def test_compute_task_counts_missing_file_returns_none():
     from orchestrator_next.record import compute_task_counts
-    step_history = [
-        {"step_id": "run-phase-review", "status": "completed"},
-    ]
-    workflow_plan = {
-        "implement": {
-            "nodes": [
-                {"id": "design-and-draft-artifacts"},
-                {"id": "run-phase-review"},
-            ]
-        }
-    }
-    result = compute_task_counts(step_history=step_history, workflow_plan=workflow_plan)
+    result = compute_task_counts(Path("/nonexistent/tasks.yaml"))
     assert result["tasks_total"] is None
     assert result["tasks_completed"] is None
+
+
+def test_compute_task_counts_none_path_returns_none():
+    from orchestrator_next.record import compute_task_counts
+    result = compute_task_counts(None)
+    assert result["tasks_total"] is None
