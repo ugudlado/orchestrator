@@ -671,7 +671,7 @@ Path(usage_path).write_text(json.dumps(usage), encoding="utf-8")
 PY
 
       # Parse COMPLETION block from extracted assistant text (not raw JSON stdout).
-      PARSE_SCRIPT="$ORCH_SCRIPTS_DIR/workflow/parse-completion.py"
+      PARSE_SCRIPT="$ORCH_SCRIPTS_DIR/lib/parse-completion.py"
       COMPLETION_JSON=""
       PARSE_EXIT=0
       COMPLETION_JSON=$(python3 "$PARSE_SCRIPT" "$TOOL_TEXT" 2>"$TMP_DIR/parse_stderr") || PARSE_EXIT=$?
