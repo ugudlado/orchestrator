@@ -21,6 +21,7 @@ from typing import Any
 import yaml
 
 from orchestrator_next import readiness
+from orchestrator_next.step_env import build_dispatch_env as _build_dispatch_env
 from orchestrator_next.parser import (
     ContractError,
     ContractDispatchError as ParserContractDispatchError,
@@ -157,17 +158,6 @@ def _max_spawn_failures(state_raw: dict[str, Any]) -> int:
     )
     return _DEFAULT_MAX_SPAWN_FAILURES
 
-
-def _build_env(
-    state: State,
-    step_id: str,
-    attempt: int,
-    state_yaml_path: str = "",
-) -> dict[str, str]:
-    """Build the ORCHESTRATOR_* env block for the action response."""
-    from orchestrator_next.step_env import build_dispatch_env
-
-    return build_dispatch_env(state, step_id, attempt, state_yaml_path)
 
 
 def _get_last_entry(step_history: list[StepHistoryEntry]) -> StepHistoryEntry | None:
@@ -485,7 +475,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "inputs": inputs_resolved,
             "expected_outputs": contract.legacy_output_names,
             "resolved_allowed_tools": resolved_allowed_tools,
-            "env": _build_env(state, step_id, attempt, state_yaml_path),
+            "env": _build_dispatch_env(state, step_id, attempt, state_yaml_path),
             "step_context": _node_step_context(state, step_id),
         }
         return action, 0
@@ -547,7 +537,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         return {"reason": "spawn_failure_cap"}, 2
 
     attempt = _compute_attempt(state.step_history, state.phase, next_step_id)
-    env = _build_env(state, next_step_id, attempt, state_yaml_path)
+    env = _build_dispatch_env(state, next_step_id, attempt, state_yaml_path)
     inputs_resolved, _missing = _resolve_inputs(state, contract)
     resolved_allowed_tools = _resolve_allowed_tools(contract)
     step_context = _node_step_context(state, next_step_id)

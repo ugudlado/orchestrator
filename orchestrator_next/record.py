@@ -299,26 +299,11 @@ def _merge_evidence_block(
 
 
 def _max_retry_rounds(state_raw: dict[str, Any]) -> int:
-    """Read `quality_bar.max_retry_rounds` from the repo's project.yaml (orc-67).
+    """Read `quality_bar.max_retry_rounds` from the repo's project.yaml (orc-67)."""
+    from orchestrator_next.dispatch import _project_yaml_path
 
-    The reviewer reads the same key; the engine MUST read the same one or retry
-    accounting splits. project.yaml lives at `<root>/spec/project.yaml` —
-    `worktree_path` is preferred when its directory exists, else `repo_root`.
-    Returns `_DEFAULT_MAX_RETRY_ROUNDS` (with a `[record]` stderr warning) when
-    the file or the key is absent.
-    """
-    candidate: Path | None = None
-    worktree = state_raw.get("worktree_path")
-    if isinstance(worktree, str) and worktree:
-        wt = Path(os.path.expanduser(worktree))
-        if wt.is_dir():
-            candidate = wt / "spec" / "project.yaml"
-    if candidate is None:
-        repo_root = state_raw.get("repo_root")
-        if isinstance(repo_root, str) and repo_root:
-            candidate = Path(os.path.expanduser(repo_root)) / "spec" / "project.yaml"
-
-    if candidate is not None and candidate.is_file():
+    candidate = _project_yaml_path(state_raw)
+    if candidate is not None:
         try:
             data = yaml.safe_load(candidate.read_text()) or {}
             quality_bar = data.get("quality_bar") if isinstance(data, dict) else None
