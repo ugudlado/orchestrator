@@ -62,17 +62,23 @@ def _write_project_yaml(repo_root: Path) -> None:
 
 
 def _run_seed(slug: str, schema: str, *, repo_root: Path, worktree_base: Path,
+              fake_home: Path | None = None,
               flag_overrides: list[str] | None = None,
               extra_env: dict | None = None) -> subprocess.CompletedProcess:
     """Run seed-state.sh against a real git repo with an isolated worktree base.
 
     ORC-108: seed-state.sh always creates a worktree, so WORKTREE_BASE_DIR is
     pinned to a tmp path (never the developer's real worktree directory).
+
+    fake_home overrides HOME so state.yaml writes land under tmp_path instead
+    of the real ~/.config/orchestrator.
     """
     env = os.environ.copy()
     env["REPO_ROOT"] = str(repo_root)
     env["ORCHESTRATOR_HOME"] = _ORCHESTRATOR_HOME
     env["WORKTREE_BASE_DIR"] = str(worktree_base)
+    if fake_home is not None:
+        env["HOME"] = str(fake_home)
     # Ensure orchestrator_next is importable in the subprocess.
     real_scripts_dir = str(_HERE.parents[1])
     existing_pypath = env.get("PYTHONPATH", "")
@@ -252,17 +258,16 @@ def test_archive_contains_artifact_files(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Sub-test 4 (T-2 RED): seed-state.sh writes to spec/changes/<slug>/
+# Sub-test 4: seed-state.sh writes state to ~/.config/orchestrator/<repo>/<slug>/
 # ---------------------------------------------------------------------------
 
 def test_seed_state_writes_to_spec_changes(tmp_path):
     """
-    seed-state.sh writes state.yaml under spec/changes/<slug>/ — inside the
-    worktree (ORC-108: every run is isolated) — and does NOT create a .state/
-    directory. The no-.state/ invariant is the original ORC-36 protection; only
-    the root moved from repo_root to the worktree.
+    seed-state.sh writes state.yaml under ~/.config/orchestrator/<repo-name>/<slug>/,
+    independent of the worktree. Artifacts still live in the worktree under
+    spec/changes/<slug>/. No .state/ directory is created anywhere.
 
-    orc-36 failure mode #4 (path shape) + orc-108 (worktree always-on).
+    orc-36 failure mode #4 (path shape) + new canonical state location.
     """
     assert _SEED_SCRIPT.exists(), (
         f"seed-state.sh not found at {_SEED_SCRIPT}. "
@@ -273,6 +278,7 @@ def test_seed_state_writes_to_spec_changes(tmp_path):
     schema = "bugfix"
     fake_repo = tmp_path / "repo"
     worktree_base = tmp_path / "wt"
+    fake_home = tmp_path / "home"
     fake_repo.mkdir(parents=True)
     subprocess.run(["git", "-C", str(fake_repo), "init", "-q"], check=True)
     subprocess.run(["git", "-C", str(fake_repo), "config", "user.email", "t@t.com"], check=True)
@@ -286,16 +292,19 @@ def test_seed_state_writes_to_spec_changes(tmp_path):
         schema,
         repo_root=fake_repo,
         worktree_base=worktree_base,
+        fake_home=fake_home,
     )
     assert result.returncode == 0, (
         f"seed-state.sh exited {result.returncode}\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
 
-    # state.yaml written to <worktree>/spec/changes/<slug>/.
-    expected_state = worktree_base / slug / "spec" / "changes" / slug / "state.yaml"
+    # State written to $HOME/.config/orchestrator/<repo-name>/<slug>/state.yaml.
+    # The fake repo has no remote, so repo-name falls back to basename of fake_repo.
+    repo_name = fake_repo.name
+    expected_state = fake_home / ".config" / "orchestrator" / repo_name / slug / "state.yaml"
     assert expected_state.exists(), (
-        f"state.yaml not found at expected worktree path:\n"
+        f"state.yaml not found at expected path:\n"
         f"  {expected_state}\n"
         f"seed-state.sh stdout: {result.stdout!r}\n"
         f"seed-state.sh stderr: {result.stderr!r}"
