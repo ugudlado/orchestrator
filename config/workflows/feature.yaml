@@ -1,5 +1,6 @@
 steps:
   - check-rerun # halt if this feature is already archived (workflow's own decision)
+  - create-worktree # no-op when flags.worktree=false; writes worktree_path+branch to state
   - explore
   - ux-design
   - design-and-draft-artifacts

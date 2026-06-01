@@ -43,6 +43,8 @@ _STATE_PATCH_KEYS = frozenset({
     "refresh_artifacts",
     "change_type",
     "flag_adaptations",
+    "worktree_path",
+    "branch",
 })
 
 _PHASE_REVIEW_VERDICTS = frozenset({"pass", "needs_work", "incomplete_phase"})
@@ -348,7 +350,7 @@ def _apply_state_patch(state_raw: dict[str, Any], patch: dict[str, Any]) -> None
         else:
             events.append(qe)
         state_raw["quarantine_events"] = events
-    for key in ("baseline", "refresh_artifacts", "change_type", "flag_adaptations"):
+    for key in ("baseline", "refresh_artifacts", "change_type", "flag_adaptations", "worktree_path", "branch"):
         if key in patch:
             state_raw[key] = patch[key]
 
