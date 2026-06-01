@@ -52,26 +52,23 @@ def test_fr4_project_verify_commands():
 
 
 # ---------------------------------------------------------------------------
-# FR-5: SKILL.md mentions run_in_background: true AND exception agents
+# FR-5: SKILL.md shells out to orchestrator run / run-workflow.sh (shell driver)
 # ---------------------------------------------------------------------------
 
-def test_fr5_skill_background_spawn():
-    """skills/orchestrate/SKILL.md must mention run_in_background: true and both exception agents."""
+def test_fr5_skill_shell_driver():
+    """skills/orchestrate/SKILL.md must delegate to the shell driver, not in-chat dispatch."""
     content = _read("skills/orchestrate/SKILL.md")
 
-    assert "run_in_background: true" in content, (
-        "skills/orchestrate/SKILL.md does not mention 'run_in_background: true'. "
-        "Add spawn semantics annotation in §4 run_step branch."
+    assert "orchestrator run" in content, (
+        "skills/orchestrate/SKILL.md must shell out via 'orchestrator run'."
     )
 
-    assert "ideator" in content, (
-        "skills/orchestrate/SKILL.md does not mention 'ideator' as an exception agent "
-        "for foreground spawning."
+    assert "run-workflow.sh" in content, (
+        "skills/orchestrate/SKILL.md must reference run-workflow.sh as the execution driver."
     )
 
-    assert "reviewer" in content, (
-        "skills/orchestrate/SKILL.md does not mention 'reviewer' as an exception agent "
-        "for foreground spawning."
+    assert "run_in_background: true" not in content, (
+        "skills/orchestrate/SKILL.md still documents in-chat Task-tool spawn semantics."
     )
 
 
@@ -110,28 +107,26 @@ def test_fr6_agents_forbid_state_edits():
 
 
 # ---------------------------------------------------------------------------
-# FR-9: SKILL.md passes raw Task result as agent_task_result (not driver parsing)
+# FR-9: SKILL.md has no in-chat dispatch loop (shell-out model)
 # ---------------------------------------------------------------------------
 
-def test_fr9_skill_passes_agent_task_result():
-    """skills/orchestrate/SKILL.md must instruct the driver to pass agent_task_result
-    and must not require driver-side USAGE CAPTURE or agentId extraction.
-    """
+def test_fr9_skill_no_chat_driver_dispatch():
+    """skills/orchestrate/SKILL.md must not document the removed chat-driver loop."""
     content = _read("skills/orchestrate/SKILL.md")
 
-    assert "agent_task_result" in content, (
-        "skills/orchestrate/SKILL.md does not contain 'agent_task_result'. "
-        "Driver must pass raw Task tool result text; record.py extracts agentId."
+    assert "### 3. Dispatch loop" not in content, (
+        "skills/orchestrate/SKILL.md still has the in-chat dispatch-loop section."
+    )
+    assert "exit_code, stdout = orchestrator next" not in content, (
+        "skills/orchestrate/SKILL.md still documents the in-chat orchestrator next loop."
     )
 
     assert "USAGE CAPTURE" not in content, (
-        "skills/orchestrate/SKILL.md still contains 'USAGE CAPTURE'. "
-        "Remove driver-side usage parsing; record.py loads usage from JSONL."
+        "skills/orchestrate/SKILL.md still contains 'USAGE CAPTURE'."
     )
 
     assert "MANDATORY: AGENT IDENTITY" not in content, (
-        "skills/orchestrate/SKILL.md still contains driver agentId extraction. "
-        "record.py extracts agentId from agent_task_result."
+        "skills/orchestrate/SKILL.md still contains driver agentId extraction prose."
     )
 
 

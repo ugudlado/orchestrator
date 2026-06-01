@@ -17,7 +17,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -189,16 +188,6 @@ def cmd_log_step_usage(args: argparse.Namespace) -> int:
 
 _EMPTY_USAGE = {"input_tokens": 0, "output_tokens": 0, "model": "none"}
 
-_AGENT_ID_FROM_TASK_RESULT_RE = re.compile(r"agentId:\s*([a-f0-9]{17})")
-
-
-def _extract_agent_id_from_stdout(text: str | None) -> str | None:
-    if not text:
-        return None
-    match = _AGENT_ID_FROM_TASK_RESULT_RE.search(text)
-    return match.group(1) if match else None
-
-
 def _load_usage_file(path: str) -> dict[str, Any]:
     if not path or not os.path.isfile(path):
         return {}
@@ -246,12 +235,6 @@ def cmd_build_payload(args: argparse.Namespace) -> int:
         for key in ("learn_result", "phase_review_report", "discovery_result"):
             if key in payload and key not in payload["outputs"]:
                 payload["outputs"][key] = payload.pop(key)
-        stdout_text = ""
-        if args.stdout_file and os.path.isfile(args.stdout_file):
-            with open(args.stdout_file, encoding="utf-8", errors="replace") as f:
-                stdout_text = f.read()
-        if stdout_text and _extract_agent_id_from_stdout(stdout_text):
-            payload["agent_task_result"] = stdout_text
         if getattr(args, "usage_file", ""):
             file_usage = _load_usage_file(args.usage_file)
             if file_usage:

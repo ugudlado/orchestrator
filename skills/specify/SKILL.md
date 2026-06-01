@@ -1,6 +1,6 @@
 ---
 name: specify
-description: "Create feature specification. Runs only the specify (or diagnose) phase of the orchestrate workflow. This skill should be used when the user says 'specify', 'create spec', 'write specification'."
+description: "Create feature specification via the orchestrate workflow. Delegates to /orchestrate for init and a full workflow run. Use when the user says 'specify', 'create spec', 'write specification'."
 user-invocable: true
 args:
   - name: description
@@ -16,8 +16,8 @@ args:
 
 ## Execution
 
-Route to the orchestrate skill with a `--phase specify` constraint. The orchestrate skill owns pre-dispatch init, including state/worktree/artifact-dir setup.
+Route to the orchestrate skill. The orchestrate skill owns pre-dispatch init, including state/worktree/artifact-dir setup.
 
 ```
-orchestrate $ARGUMENTS --phase specify
+orchestrate $ARGUMENTS
 ```

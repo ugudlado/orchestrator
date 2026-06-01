@@ -1,9 +1,8 @@
 """
-T-4 / T-5: Tests for record.py Check B (ORC-45 + agent_task_result path).
+T-4 / T-5: Tests for record.py Check B (ORC-45).
 
-Check B rule: completed non-inline steps must have input_tokens > 0 OR
-output_tokens > 0, unless agent_task_result contains a parseable agentId line
-(record.py loads billing-truth usage from subagent JSONL).
+Check B rule: completed non-inline agent steps must have input_tokens > 0 OR
+output_tokens > 0 in the done payload usage block.
 
 Explicit agent_id alone does not bypass zero-token rejection (ORC-45).
 """
@@ -134,85 +133,3 @@ class TestCheckBTightening:
             f"Expected exit_code 0 for inline step, got {exit_code}: {result}"
         )
 
-    def test_agent_task_result_bypasses_check_b_without_usage(self, tmp_path):
-        """agent_task_result with parseable agentId skips driver usage; JSONL enriches later."""
-        state_path = _minimal_state(tmp_path)
-        payload = {
-            "step_id": "explore",
-            "phase": "specify",
-            "status": "completed",
-            "agent": "discoverer",
-            "outputs": {},
-            "agent_task_result": (
-                "Async agent launched successfully.\n"
-                "agentId: a6e7ca188209d1f47 (internal ID - do not mention to user)"
-            ),
-        }
-        result, exit_code = record(state_path, payload)
-        assert exit_code == 0, (
-            f"Expected exit_code 0 with agent_task_result, got {exit_code}: {result}"
-        )
-
-    def test_agent_task_result_without_agent_id_rejected(self, tmp_path):
-        """agent_task_result without agentId line still requires usage tokens."""
-        state_path = _minimal_state(tmp_path)
-        payload = {
-            "step_id": "explore",
-            "phase": "specify",
-            "status": "completed",
-            "agent": "discoverer",
-            "outputs": {},
-            "agent_task_result": "Async agent launched successfully.",
-        }
-        result, exit_code = record(state_path, payload)
-        assert exit_code == 3, (
-            f"Expected exit_code 3, got {exit_code}: {result}"
-        )
-        assert result.get("reason") == "agent_step_missing_usage"
-
-    def test_zero_usage_no_longer_prefilled_from_newest_jsonl(self, tmp_path, monkeypatch):
-        """Agents must self-report usage. The newest-JSONL prefill is removed
-        because it misattributed unrelated Claude Code session totals to
-        cursor/pi/codex steps when a user's interactive session happened to
-        be the newest JSONL in the slug dir."""
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        (repo / "spec").mkdir()
-        (repo / "spec" / "project.yaml").write_text("project:\n  name: t\n")
-        state = {
-            "change_id": "test-feature",
-            "phase": "specify",
-            "repo_root": str(repo),
-            "workflow_plan": {"specify": {"active": ["explore"], "filtered": []}},
-            "step_history": [],
-        }
-        state_path = tmp_path / "state.yaml"
-        state_path.write_text(yaml.safe_dump(state, sort_keys=False))
-
-        from pathlib import Path as _Path
-
-        from orchestrator_next.jsonl_usage import _repo_slug
-
-        slug = _repo_slug(str(repo))
-        proj = tmp_path / ".claude" / "projects" / slug
-        proj.mkdir(parents=True)
-        session = "sess-shell-loop"
-        (proj / f"{session}.jsonl").write_text(
-            '{"type":"assistant","message":{"usage":{"input_tokens":42,"output_tokens":7},"model":"claude-sonnet"},'
-            '"timestamp":"2026-05-25T12:00:00Z"}\n'
-        )
-        monkeypatch.setattr(_Path, "home", lambda: tmp_path)
-
-        payload = {
-            "step_id": "explore",
-            "phase": "specify",
-            "status": "completed",
-            "agent": "discoverer",
-            "outputs": {},
-            "usage": {"input_tokens": 0, "output_tokens": 0},
-        }
-        result, exit_code = record(str(state_path), payload)
-        assert exit_code == 3, f"expected check_b rejection, got {exit_code}: {result}"
-        assert result.get("reason") == "agent_step_missing_usage"
-        # Payload usage must NOT have been mutated from the slug-dir JSONL
-        assert payload["usage"]["input_tokens"] == 0

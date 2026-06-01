@@ -147,7 +147,7 @@ quality_bar:
 
 Skills are the interface to workflow actions:
 
-- `/orchestrate` → Router (detects intent, loads schema)
+- `/orchestrate` → Shell out to `orchestrator run <id> --schema <name>` (single execution model via `run-workflow.sh`)
 - `/specify` → Create specification artifacts
 - `/diagnose` → Plan approach, select tech stack
 - `/implement` → Execute implementation phase
@@ -163,7 +163,7 @@ Skills are the interface to workflow actions:
 ### Testing
 
 ```bash
-pytest config/scripts/orchestrator_next/tests/ -q
+pytest orchestrator_next/tests/ -q
 ```
 
 ### Getting Help

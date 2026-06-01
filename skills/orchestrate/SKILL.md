@@ -96,142 +96,40 @@ If state.yaml is absent or its workflow plan is unpromoted, the seeder printed a
 
 The script is the executable init contract. Do not duplicate its workflow-plan, worktree, artifact-dir, or state-stamping logic in this prompt or in wrapper skills. It is idempotent: re-running it when state.yaml already exists exits 0 without overwriting.
 
-### 3. Dispatch loop — HL-287 M5: use the `orchestrator` CLI
+### 3. Run workflow via shell driver
 
-The dispatch loop is now a thin wrapper around `orchestrator next` and
-`orchestrator done`. Pre/post stamping (started_at / completed_at /
-status / usage / evidence) is applied uniformly by the CLI — do NOT
-write per-step stamping prose.
-
-**Context-passthrough contract (single-file workflow state, ORC-63).**
-`orchestrator next` returns an action JSON that already contains the agent's
-full operational contract: `instruction`, `rules` (merged from schema + project.yaml),
-`step_context` (the `workflow_plan` node block with
-goal/inputs/outputs/agent/status/depends_on),
-`inputs`, `expected_outputs`, `resolved_allowed_tools`, `env`, plus (for
-resume_step) `is_resume` and `started_at`. The driver MUST pass this payload
-verbatim into the agent spawn prompt. It MUST NOT re-derive goal, rules, or
-outputs from memory — those already live in `step_context` and `rules`.
-
-What the driver SHOULD add to a spawn prompt (beyond the passthrough):
-- Feature-specific paths the agent can't get from step_context: state_dir,
-  worktree_path, backlog-entry anchor, prior-phase archives (if relevant).
-- For developer spawns: pass full tasks.md queue; agent completes all unchecked items before COMPLETION.
-- For reviewer spawns: the artifacts + any driver-level findings to verify.
-
-What the driver MUST NOT duplicate in the spawn prompt:
-- The step's goal (in step_context.goal).
-- The merged rules (in `rules` and step_context.rules — same list).
-- Expected_outputs (in `expected_outputs`).
-- Verify criteria (in step_context.verify when applicable).
-- Step-contract instruction (in `instruction`).
-
-This keeps the `workflow_plan` nodes in state.yaml as the single source of
-step contract; duplication invites drift when step contracts update.
+After init (§2.1) or when resuming with existing state, shell out to the CLI and
+let `orchestrator-run.sh` + `run-workflow.sh` drive every step to completion.
+No in-chat dispatch loop — the shell driver spawns agent subprocesses, records
+steps, and handles retries.
 
 ```
-LOOP:
-  # ORC-45 two-path dispatch protocol:
-  exit_code, stdout = orchestrator next $WORKFLOW_STATE_DIR/$CHANGE_ID/state.yaml
-  #   exit 0 + JSON with `agent` key  → spawn agent
-  #   exit 0 + no JSON                → inline script ran and recorded; loop again
-  #   exit 1                          → workflow complete
-  #   exit 2                          → step blocked
-  #   exit 3                          → ContractDispatchError (missing agent: and run:)
-  exit_code, stdout = orchestrator next $WORKFLOW_STATE_DIR/$CHANGE_ID/state.yaml
-
-  IF exit_code == 1:
-      # Workflow complete — no JSON on stdout.
-      # workflow-report already ran before archive-completed-change.
-      # Read step_history for workflow-report outputs (tail_summary, cost_summary_path) and
-      # include the markdown from cost-summary.md in the final message when present.
-      # If workflow-report failed, surface its step_history evidence — do not skip.
-      STOP (workflow done)
-
-  IF exit_code == 2:
-      # Step blocked — no JSON on stdout. Read state.yaml for reason/escalation.
-      STOP (read state.yaml step_history[-1] for escalation details, escalate or fix)
-
-  IF exit_code == 3:
-      # ContractDispatchError — step has neither agent: nor run:.
-      STOP (surface stderr to user, add agent: or run: to the step contract)
-
-  IF exit_code == 0 AND stdout is empty:
-      # Inline script ran synchronously and was recorded by CLI — nothing for driver to do.
-      # Loop continues to call `orchestrator next` for the next step.
-      continue
-
-  IF exit_code == 0 AND "agent" in action:
-      action = parse JSON from stdout
-      # Show running cost after every step (AC-3, ORC-42). cost_so_far is always
-      # present in the action dict (0.0 when DB unavailable). Skip if 0.
-      IF action.cost_so_far > 0:
-          print(f"  [cost so far: ${action.cost_so_far:.2f}]")
-
-      IF action.get("is_resume"):
-          # Resume: always log to stderr — even on autopilot runs — so operators see resume events.
-          print(f"RESUMING step {action.step_id} (attempt {action.attempt})", file=sys.stderr)
-
-      # Agent spawn. Load skill from $ORCHESTRATOR_HOME/skills/<action.agent>/SKILL.md.
-      # Spawn with run_in_background: true as the default.
-      # Exceptions: ideator and reviewer spawns are short-running and may be foreground.
-      spawn agent(action.agent) with prompt=action.instruction, rules=action.rules,
-            step_context=action.step_context, inputs=action.inputs,
-            expecting=action.expected_outputs,
-            resolved_allowed_tools=action.resolved_allowed_tools, env=action.env,
-            run_in_background: true  # default; omit for ideator/reviewer
-      # Pass action.step_context into the prompt verbatim (goal, merged rules,
-      # inputs, outputs, agent, status, depends_on, repeat_until when present).
-      # Do NOT re-derive these from memory — the workflow_plan node in
-      # state.yaml is the single source.
-
-      # 1. Collect agent result (wait for background task to complete).
-      # 2. Parse COMPLETION block from agent result.
-      #    Map fields verbatim — do NOT extract review_score, verdict, or artifact
-      #    content from report prose. Agents write artifact files themselves;
-      #    COMPLETION carries machine-readable fields only.
-      #    Merge step_id, phase, agent from dispatch context; pass the raw Task tool
-      #    result text as agent_task_result (record.py extracts agentId and loads
-      #    billing-truth usage from subagent JSONL — do not parse usage or agentId).
-      # 3. Forward COMPLETION.workflow_issues from the agent verbatim when present.
-      #    Mechanics detection (retry-success, script-warning, etc.) is handled
-      #    by the shell driver (run-workflow.sh) — not this LLM loop.
-      # 4. Pipe payload to orchestrator done (driver does not verify tasks/tests).
-      #    Attach workflow_issues only when the agent emitted a non-empty list.
-
-      done_payload = {step_id, phase, status, agent, agent_task_result, outputs, evidence}
-      IF COMPLETION.workflow_issues is non-empty:
-          done_payload.workflow_issues = COMPLETION.workflow_issues
-      done_exit = orchestrator done state.yaml <<< done_payload
+orchestrator run $CHANGE_ID --schema $SCHEMA [flag=value ...] [--repo $REPO_ROOT]
 ```
 
-### Workflow issues
+- `$CHANGE_ID` — resolved slug from `$request` (e.g. `orc-112`, `HL-287`).
+- `$SCHEMA` — from §1 (`feature`, `bugfix`, etc.; use `complete` for merge/teardown only).
+- Pass any `key=value` overrides from the invocation verbatim (e.g. `tdd_required=false`).
+- `orchestrator-run.sh` performs resume detection, seeds when state is absent (idempotent
+  with §2.1), and execs `run-workflow.sh` until the workflow exits.
 
-Workflow-mechanics issues (retry-success, script-warning, script-failed,
-tool-crashed, manual-phase-advance) are detected inside the shell driver
-(`orchestrator_next/scripts/run-workflow.sh` via
-`orchestrator_next/scripts/lib/detect-workflow-issues.sh`). This LLM loop does
-not invoke that helper — forward agent-emitted `workflow_issues:` in COMPLETION
-verbatim into the done payload when present. Do not re-derive mechanics
-categories in this prompt.
+Exit codes match `run-workflow.sh` (1=complete, 2=blocked, 3–7=errors). Surface
+stderr to the user on failure. On success (exit 1), read `step_history` for
+`cost-report` outputs (`tail_summary`, `cost_summary_path`) and include
+`cost-summary.md` in the final message when present.
 
-Escalation (agent returns STATUS: escalate_to_architect): record a
-step_history entry with `status: escalate_to_architect` — `orchestrator
-next` on the following call exits 2 (blocked), which the loop surfaces.
-Spawn architect agent with the escalation block (type, task_id, context,
-question, attempted) + design.md + tasks.yaml. Apply any DESIGN_AMENDMENT
-and TASK_CHANGES, record to state.yaml `escalation_events`, then re-spawn
-developer with the architect DECISION appended — same attempt, no retry charged.
+Wrapper skills (`/specify`, `/implement`) invoke this skill with extra arguments;
+forward those arguments unchanged on the `orchestrator run` line so they land in
+`state.flags` (same as CLI `flag=value` passthrough today).
 
-### 4. Phase transitions
+## What This Skill Does NOT Do
 
-All schemas (feature, bugfix, autopilot) have a single `main` phase — no advancement needed; `complete_workflow` fires when the last step completes.
+- No in-chat `orchestrator next` / `orchestrator done` loop and no Task-tool agent spawns.
+- Does not duplicate dispatch, retry, or usage recording — `run-workflow.sh` owns that.
+- Does not merge — use `orchestrator complete <id>` (`/complete-feature`) after the workflow archives.
 
-### Key rules
+## Failure modes
 
-- **Always read the step contract YAML before executing** — never execute from memory
-- **Always read the agent .md file before spawning** — the agent needs its full prompt
-- **State.yaml is the source of truth** — read it before each step to confirm position
-- **One step at a time** — complete and record each step before starting the next
-- **On failure**: failed step → increment retries, re-execute with RETRY_CONTEXT; blocked once → re-spawn with blocker context; blocked twice → treat as failure; retries exhausted → pause + surface to user (interactive) or create ticket (autopilot)
-- **Write `next_step`** as `{ step_id, phase, attempt }` after each phase advance
+- **Missing or unpromoted state after seed** — halt at §2.1; do not shell out.
+- **Workflow blocked (exit 2)** — read `state.yaml` `step_history[-1]` and surface escalation or fix the blocker.
+- **Workflow error (exit 3–7)** — surface stderr; no in-skill retry loop.

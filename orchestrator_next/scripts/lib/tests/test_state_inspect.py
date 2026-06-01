@@ -265,8 +265,8 @@ class TestBuildPayload:
         payload = json.loads(out)
         assert payload["step_id"] == "explore"
         assert payload["agent"] == "discoverer"
-        # Driver stdout without agentId is not a Task tool result.
-        assert "agent_task_result" not in payload
+        # Raw driver stdout is not attached to the done payload (usage via --usage-file).
+        assert "agentId:" not in str(payload)
         # Completion's usage wins over the default placeholder.
         assert payload["usage"]["model"] == "claude-opus-4-7"
         # Original completion outputs preserved.
@@ -313,10 +313,10 @@ class TestBuildPayload:
         )
         payload = json.loads(out)
         assert payload["usage"] == {"input_tokens": 0, "output_tokens": 0, "model": "none"}
-        # Missing stdout file is silently skipped (no agent_task_result key).
-        assert "agent_task_result" not in payload
+        # Missing stdout file does not add legacy chat-driver fields to the payload.
+        assert len([k for k in payload if k.startswith("agent") and k.endswith("_result")]) == 0
 
-    def test_agent_kind_sets_agent_task_result_when_agent_id_present(self, tmp_path, capsys):
+    def test_agent_kind_does_not_attach_stdout_when_agent_id_present(self, tmp_path, capsys):
         stdout_file = tmp_path / "tool_stdout.txt"
         stdout_file.write_text(
             "Async agent launched.\nagentId: a6e7ca188209d1f47 (internal)\n",
@@ -339,7 +339,7 @@ class TestBuildPayload:
             stdin=json.dumps({"status": "completed", "outputs": {}}),
         )
         payload = json.loads(out)
-        assert "agentId: a6e7ca188209d1f47" in payload["agent_task_result"]
+        assert "agentId: a6e7ca188209d1f47" not in json.dumps(payload)
 
     def test_agent_kind_merges_usage_file_over_empty_usage(self, tmp_path, capsys):
         """Adapter usage JSON from --usage-file wins over _EMPTY_USAGE (ORC-111 AC-6)."""
@@ -381,7 +381,7 @@ class TestBuildPayload:
         assert payload["usage"]["model"] == "claude-opus-4-8"
         assert payload["usage"]["cost_usd"] == 0.1958375
 
-    def test_agent_kind_no_jsonl_usage_fallback_when_tokenless(
+    def test_agent_kind_no_claude_jsonl_fallback_when_tokenless(
         self, tmp_path, capsys, monkeypatch
     ):
         """Shell path must not read ~/.claude JSONL when COMPLETION has no tokens (AC-6)."""
@@ -389,11 +389,9 @@ class TestBuildPayload:
         monkeypatch.setenv("HOME", str(home))
         repo = home / "code" / "feature_worktrees" / "orc-111"
         repo.mkdir(parents=True)
-        if str(_REPO_ROOT) not in sys.path:
-            sys.path.insert(0, str(_REPO_ROOT))
-        from orchestrator_next.jsonl_usage import _repo_slug
+        repo_slug = "-" + str(repo).lstrip("/").replace("/", "-").replace("_", "-")
 
-        projects = home / ".claude" / "projects" / _repo_slug(str(repo))
+        projects = home / ".claude" / "projects" / repo_slug
         projects.mkdir(parents=True)
         session = projects / "sess-abc.jsonl"
         session.write_text(
@@ -436,7 +434,7 @@ class TestBuildPayload:
             stdin=json.dumps({"status": "completed", "outputs": {}}),
         )
         payload = json.loads(out)
-        assert "agent_task_result" not in payload
+        assert len([k for k in payload if k.startswith("agent") and k.endswith("_result")]) == 0
         assert payload["usage"] == {"input_tokens": 0, "output_tokens": 0, "model": "none"}
 
 

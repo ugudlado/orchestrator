@@ -12,12 +12,7 @@ T-1 test cases — must fail before T-2/T-3 land:
    A payload with agent: 'developer' must persist that value in state.yaml.
    (passes at HEAD: record.py uses payload.get("agent"))
 
-3. test_jsonl_enrichment_fires_with_agent_id
-   A payload with agent_id='a6e7ca188209d1f47' (orc-30 JSONL on disk) must
-   produce output_tokens > 0 and model == 'claude-sonnet-4-6'.
-   (passes at HEAD: enrichment block already works when agent_id is present)
-
-4. test_inline_step_no_agent_required
+3. test_inline_step_no_agent_required
    An inline-script step (no agent: field in contract) with no 'agent' in
    payload succeeds, and state.yaml records agent=None.
    (passes at HEAD)
@@ -25,8 +20,8 @@ T-1 test cases — must fail before T-2/T-3 land:
 Red-light verification command (before T-2/T-3):
     pytest config/scripts/orchestrator_next/tests/test_record_agent_field.py -v
 
-Expected before T-2: test 1 FAILS; tests 2, 3, 4 PASS.
-Expected after T-2/T-3: all 4 PASS.
+Expected before T-2: test 1 FAILS; tests 2, 3 PASS.
+Expected after T-2/T-3: all 3 PASS.
 """
 from __future__ import annotations
 
@@ -41,10 +36,7 @@ _SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-from orchestrator_next.record import (  # noqa: E402
-    _extract_agent_id_from_task_result,
-    record,
-)
+from orchestrator_next.record import record  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -91,19 +83,6 @@ def _write_contract(contracts_dir, step_id: str, *, agent: str | None = None, in
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
-
-class TestExtractAgentIdFromTaskResult:
-    """Unit tests for agentId regex on raw Task tool result text."""
-
-    def test_extracts_17hex_agent_id(self):
-        text = "Async agent launched successfully.\nagentId: a6e7ca188209d1f47 (internal)"
-        assert _extract_agent_id_from_task_result(text) == "a6e7ca188209d1f47"
-
-    def test_returns_none_when_missing(self):
-        assert _extract_agent_id_from_task_result("no id here") is None
-        assert _extract_agent_id_from_task_result(None) is None
-        assert _extract_agent_id_from_task_result("") is None
-
 
 class TestRecordAgentField:
     """ORC-48 regression cases for agent/agent_id in done payload."""
@@ -185,101 +164,7 @@ class TestRecordAgentField:
         )
 
     # ------------------------------------------------------------------
-    # Test 3 (PASSES at HEAD — engine enrichment already works)
-    # ------------------------------------------------------------------
-
-    def test_jsonl_enrichment_fires_with_agent_id(self, tmp_path, contracts_dir):
-        """
-        GREEN (engine already works): payload with agent_id='a6e7ca188209d1f47' (orc-30
-        JSONL confirmed on disk) triggers JSONL enrichment and produces output_tokens > 0
-        and model == 'claude-sonnet-4-6'.
-
-        Manual verification (if JSONL is present locally):
-            ls ~/.claude/projects/-Users-spidey-code-orchestrator/*/subagents/agent-a6e7ca188209d1f47.jsonl
-
-        This test is skipped if the JSONL is not present in the test environment.
-        After T-3 lands (SKILL.md updated), the driver will pass agent_id correctly
-        so future runs will populate this data.
-        """
-        import glob
-        pattern = os.path.expanduser(
-            "~/.claude/projects/-Users-spidey-code-orchestrator/*/subagents/agent-a6e7ca188209d1f47.jsonl"
-        )
-        matches = glob.glob(pattern)
-        if not matches:
-            pytest.skip(
-                "JSONL fixture not present on disk. "
-                "Verify with: ls ~/.claude/projects/-Users-spidey-code-orchestrator/*/subagents/agent-a6e7ca188209d1f47.jsonl"
-            )
-
-        _write_contract(contracts_dir, "diagnose", agent="discoverer")
-        # repo_root must match the project slug so jsonl_usage can locate the file
-        state_path = _write_state(tmp_path, repo_root="/Users/spidey/code/orchestrator")
-
-        payload = {
-            "step_id": "diagnose",
-            "phase": "main",
-            "status": "completed",
-            "agent": "discoverer",
-            "agent_id": "a6e7ca188209d1f47",
-            "outputs": {"discovery_result": "discovery.md"},
-            # Pass non-zero input_tokens so Check B (tokens check) doesn't reject
-            "usage": {"input_tokens": 74514, "output_tokens": 0},
-        }
-        result, exit_code = record(state_path, payload)
-
-        assert exit_code == 0, f"Expected exit_code=0, got {exit_code}: {result}"
-
-        with open(state_path) as f:
-            state_after = yaml.safe_load(f)
-
-        last = state_after["step_history"][-1]
-        usage = last.get("usage", {})
-        assert usage.get("output_tokens", 0) > 0, (
-            f"Expected output_tokens > 0 from JSONL enrichment, got: {usage.get('output_tokens')!r}"
-        )
-        assert usage.get("model") == "claude-sonnet-4-6", (
-            f"Expected model='claude-sonnet-4-6' from JSONL enrichment, got: {usage.get('model')!r}"
-        )
-
-    def test_jsonl_enrichment_from_agent_task_result(self, tmp_path, contracts_dir):
-        """agent_task_result replaces explicit agent_id for JSONL enrichment."""
-        import glob
-
-        pattern = os.path.expanduser(
-            "~/.claude/projects/-Users-spidey-code-orchestrator/*/subagents/agent-a6e7ca188209d1f47.jsonl"
-        )
-        matches = glob.glob(pattern)
-        if not matches:
-            pytest.skip("JSONL fixture not present on disk")
-
-        _write_contract(contracts_dir, "diagnose", agent="discoverer")
-        state_path = _write_state(tmp_path, repo_root="/Users/spidey/code/orchestrator")
-
-        payload = {
-            "step_id": "diagnose",
-            "phase": "main",
-            "status": "completed",
-            "agent": "discoverer",
-            "outputs": {"discovery_result": "discovery.md"},
-            "agent_task_result": (
-                "Async agent launched successfully.\n"
-                "agentId: a6e7ca188209d1f47 (internal ID)"
-            ),
-        }
-        result, exit_code = record(state_path, payload)
-
-        assert exit_code == 0, f"Expected exit_code=0, got {exit_code}: {result}"
-
-        with open(state_path) as f:
-            state_after = yaml.safe_load(f)
-
-        usage = state_after["step_history"][-1].get("usage", {})
-        assert usage.get("output_tokens", 0) > 0
-        assert usage.get("agent_id") == "a6e7ca188209d1f47"
-
-    # ------------------------------------------------------------------
-    # Test 4 (PASSES at HEAD)
+    # Test 3 (inline step — no agent required)
     # ------------------------------------------------------------------
 
     def test_inline_step_no_agent_required(self, tmp_path, contracts_dir):

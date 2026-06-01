@@ -1,6 +1,6 @@
 ---
 name: implement
-description: "Execute implementation tasks. Runs only the implement phase of the orchestrate workflow. This skill should be used when the user says 'implement', 'start building', 'continue feature'."
+description: "Execute implementation via the orchestrate workflow. Delegates to /orchestrate for a full workflow run. Use when the user says 'implement', 'start building', 'continue feature'."
 user-invocable: true
 args:
   - name: feature-id
@@ -10,8 +10,8 @@ args:
 
 ## Execution
 
-Route to the orchestrate skill with a `--phase implement` constraint. The schema owns all phase-gate and execution logic.
+Route to the orchestrate skill. The orchestrate skill runs the full workflow via the shell driver.
 
 ```
-orchestrate $ARGUMENTS --phase implement
+orchestrate $ARGUMENTS
 ```
