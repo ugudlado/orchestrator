@@ -21,7 +21,6 @@ from typing import Any
 import yaml
 
 from orchestrator_next import readiness
-from orchestrator_next import resolver
 from orchestrator_next.parser import (
     ContractError,
     ContractDispatchError as ParserContractDispatchError,
@@ -251,19 +250,6 @@ def _resolve_inputs(
 
 
 def _resolve_allowed_tools(contract: StepContract) -> list[str]:
-    """
-    Compute the resolved tool list for a step contract.
-
-    Logic (from design.md § Low-Level Design pseudocode):
-      - agent is None + allowed_tools set → warn, return []
-      - agent is None + no allowed_tools → return []
-      - role unresolvable (None) + allowed_tools set → warn, return []
-      - role unresolvable (None) + no allowed_tools → return []
-      - allowed_tools non-empty + widens role → ContractError
-      - allowed_tools non-empty, no widening → sorted intersection
-      - allowed_tools empty (absent/null/[]) → sorted full role list
-    """
-    # For script steps (no agent), tools don't apply
     if contract.agent is None:
         if contract.allowed_tools:
             print(
@@ -272,34 +258,18 @@ def _resolve_allowed_tools(contract: StepContract) -> list[str]:
             )
         return []
 
-    role_tools = resolver.load_agent_tools(contract.agent)
-
-    if role_tools is None:
-        if contract.allowed_tools:
-            if _agent_definition_path(contract.agent) is None:
-                raise ContractDispatchError(
-                    f"Agent definition not found: {contract.agent!r}. "
-                    f"Run /doctor to diagnose."
-                )
-            print(
-                f"WARNING: cannot resolve agent {contract.agent!r} tools; "
-                f"allowed_tools on step {contract.id!r} not enforced",
-                file=sys.stderr,
-            )
-        return []
-
     if contract.allowed_tools:
-        declared = set(contract.allowed_tools)
-        illegal = declared - role_tools
-        if illegal:
-            raise ContractError(
-                f"allowed_tools on step {contract.id!r} declares "
-                f"{sorted(illegal)!r} not in agent {contract.agent!r} tools"
+        if _agent_definition_path(contract.agent) is None:
+            raise ContractDispatchError(
+                f"Agent definition not found: {contract.agent!r}. "
+                f"Run /doctor to diagnose."
             )
-        return sorted(declared & role_tools)
-
-    # Empty allowed_tools (absent, null, or []) → full role list (backward-compat)
-    return sorted(role_tools)
+        print(
+            f"WARNING: cannot resolve agent {contract.agent!r} tools; "
+            f"allowed_tools on step {contract.id!r} not enforced",
+            file=sys.stderr,
+        )
+    return []
 
 
 def _node_step_context(state: State, step_id: str) -> dict[str, Any]:

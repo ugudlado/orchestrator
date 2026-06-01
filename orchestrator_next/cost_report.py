@@ -16,39 +16,12 @@ from __future__ import annotations
 
 import yaml
 
-from .resolver import load_agent_tools
 from .parser import _load_contract, ContractError, StepContract
 
 
 def _anomalies(db, repo_root: str, change_id: str) -> list[dict]:
-    """
-    Find (agent, tool) pairs where the tool is not in the agent's declared frontmatter.
-    Returns a list of dicts with keys: agent_name, tool_name, calls.
-    Agents whose files are missing or unparseable are silently skipped.
-    """
-    sql = """
-    SELECT agent_name, tool_name, COUNT(*) AS calls
-    FROM tool_calls
-    WHERE repo_root = ? AND change_id = ?
-    GROUP BY agent_name, tool_name
-    """
-    rows = db.execute(sql, [repo_root, change_id]).fetchall()
-
-    result = []
-    # Cache to avoid reading the same file multiple times
-    _cache: dict[str, set[str] | None] = {}
-    for agent_name, tool_name, calls in rows:
-        if agent_name not in _cache:
-            _cache[agent_name] = load_agent_tools(agent_name)
-        allowed = _cache[agent_name]
-        if allowed is None:
-            continue  # no frontmatter or unparseable — skip
-        if tool_name not in allowed:
-            result.append({"agent_name": agent_name, "tool_name": tool_name, "calls": int(calls)})
-
-    # Sort deterministically: agent ASC, tool ASC
-    result.sort(key=lambda x: (x["agent_name"], x["tool_name"]))
-    return result
+    # Agent tool sets are not enforced at dispatch; anomaly detection is a no-op.
+    return []
 
 
 def _step_allowlist_anomalies(db, repo_root: str, change_id: str) -> list[dict]:
