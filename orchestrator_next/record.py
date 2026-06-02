@@ -1282,9 +1282,10 @@ def record(
                 readiness.mark_node_status(state_raw, phase, step_id, "completed")
             else:
                 # routing is a target step_id — loop back: mark self completed,
-                # reset target to pending so next_ready_node() picks it up.
+                # reset target so next_ready_node() picks it up even if step_history
+                # has a prior completed entry for it ("reset" beats history inference).
                 readiness.mark_node_status(state_raw, phase, step_id, "completed")
-                readiness.mark_node_status(state_raw, phase, routing, "pending")
+                readiness.mark_node_status(state_raw, phase, routing, "reset")
 
     # Advance next_step (DAG-walk over the just-mutated node statuses).
     next_step = _compute_next_step(state_raw, step_id, state_yaml_path)

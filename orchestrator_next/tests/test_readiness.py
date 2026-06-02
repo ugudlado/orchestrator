@@ -169,16 +169,16 @@ def test_readiness_module_imports():
     import orchestrator_next.readiness  # noqa: F401
 
 
-def test_legacy_active_plan_infers_completion_from_step_history(tmp_path):
-    """Pre-ORC-63 active:[ids] plans infer node completion from step_history."""
+def test_plan_infers_completion_from_step_history(tmp_path):
+    """Nodes with a completed step_history entry are not re-dispatched."""
     from orchestrator_next.parser import load_state
     from orchestrator_next.readiness import is_node_ready, next_ready_node
 
     state_path = tmp_path / "state.yaml"
     state_path.write_text(yaml.dump({
-        "change_id": "legacy-done",
+        "change_id": "done",
         "phase": "implement",
-        "workflow_plan": {"implement": {"active": ["my-step"]}},
+        "workflow_plan": {"implement": {"nodes": [{"id": "my-step", "depends_on": []}]}},
         "step_history": [{
             "step_id": "my-step",
             "phase": "implement",
@@ -192,16 +192,19 @@ def test_legacy_active_plan_infers_completion_from_step_history(tmp_path):
     assert next_ready_node(state) is None
 
 
-def test_legacy_active_plan_advances_to_successor(tmp_path):
-    """Legacy active plans dispatch the next step after predecessor completes."""
+def test_plan_advances_to_successor(tmp_path):
+    """Dispatch advances to the next step after predecessor completes."""
     from orchestrator_next.parser import load_state
     from orchestrator_next.readiness import next_ready_node
 
     state_path = tmp_path / "state.yaml"
     state_path.write_text(yaml.dump({
-        "change_id": "legacy-chain",
+        "change_id": "chain",
         "phase": "implement",
-        "workflow_plan": {"implement": {"active": ["step-a", "step-b"]}},
+        "workflow_plan": {"implement": {"nodes": [
+            {"id": "step-a", "depends_on": []},
+            {"id": "step-b", "depends_on": ["step-a"]},
+        ]}},
         "step_history": [{
             "step_id": "step-a",
             "phase": "implement",

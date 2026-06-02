@@ -244,7 +244,7 @@ class TestReworkRecordNodeReopen:
         # run-phase-review is marked completed (the failed attempt is recorded)
         assert _node_status(state_path, "run-phase-review") == "completed"
         # on_failure target (execute-next-task) is reset to pending for re-dispatch
-        assert _node_status(state_path, "execute-next-task") == "pending"
+        assert _node_status(state_path, "execute-next-task") == "reset"
         # intermediate node (run-ux-critique) is NOT touched
         assert _node_status(state_path, "run-ux-critique") == "completed"
 
@@ -254,7 +254,7 @@ class TestReworkRecordNodeReopen:
         record.record(state_path, _review_payload("incomplete_phase"))
 
         assert _node_status(state_path, "run-phase-review") == "completed"
-        assert _node_status(state_path, "execute-next-task") == "pending"
+        assert _node_status(state_path, "execute-next-task") == "reset"
 
     def test_pass_verdict_advances_normally(self, tmp_path, monkeypatch):
         """pass verdict: run-phase-review node marked completed, no regression."""
@@ -326,12 +326,12 @@ class TestOnFailureResetReadiness:
         )
         return state
 
-    def test_next_ready_node_prefers_reset_target_with_explicit_pending(self, tmp_path, monkeypatch):
+    def test_next_ready_node_prefers_reset_target(self, tmp_path, monkeypatch):
         state_raw = self._state_with_stale_completed_target(tmp_path)
         nodes = state_raw["workflow_plan"]["implement"]["nodes"]
         for node in nodes:
             if node["id"] == "execute-next-task":
-                node["status"] = "pending"
+                node["status"] = "reset"
                 break
         state_path = _setup(tmp_path, monkeypatch, state_raw)
         state = load_state(state_path)
@@ -344,7 +344,7 @@ class TestOnFailureResetReadiness:
             self._state_with_stale_completed_target(tmp_path),
         )
         record.record(state_path, _review_payload("needs_work"))
-        assert _node_status(state_path, "execute-next-task") == "pending"
+        assert _node_status(state_path, "execute-next-task") == "reset"
         updated_state = load_state(state_path)
         assert readiness.next_ready_node(updated_state) == "execute-next-task"
 

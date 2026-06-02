@@ -96,14 +96,13 @@ def _malformed_review_history_entry() -> dict:
 def _plain_node(
     node_id: str,
     *,
-    status: str = "pending",
+    status: str | None = "pending",
     depends_on: list[str] | None = None,
     agent: str = "developer",
     outputs: list[str] | None = None,
 ) -> dict:
-    return {
+    node: dict = {
         "id": node_id,
-        "status": status,
         "agent": agent,
         "goal": "",
         "inputs": [],
@@ -111,6 +110,9 @@ def _plain_node(
         "rules": [],
         "depends_on": depends_on or [],
     }
+    if status is not None:
+        node["status"] = status
+    return node
 
 
 def _rework_dag_state(
@@ -198,7 +200,7 @@ class TestEffectiveNodeStatus:
         """A recovered entry in history infers completed status."""
         state_raw = _rework_dag_state(
             tmp_path,
-            review_status="pending",
+            review_status=None,  # no explicit status — step_history inference applies
             step_history=[
                 {
                     "step_id": "run-phase-review",
@@ -321,7 +323,7 @@ class TestReworkRecordCounterClimb:
         assert last["status"] == "failed"
         assert raw.get("status") != "blocked"
         # on_failure target (execute-next-task) is reset to pending
-        assert _node_status(state_path, "execute-next-task") == "pending"
+        assert _node_status(state_path, "execute-next-task") == "reset"
 
 
 class TestReworkRecordExhaustion:
