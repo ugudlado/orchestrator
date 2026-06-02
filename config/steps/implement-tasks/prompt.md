@@ -7,9 +7,16 @@ task: implement the change, run verification, commit, then update `status: compl
 ## Inputs
 
 - `design.md` at `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/design.md` — design, acceptance
-  criteria, and component breakdown.
+  criteria, and component breakdown (optional for patch schema; see below).
 - `tasks.yaml` at `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/tasks.yaml` — ordered task list
-  with `status` field per task.
+  with `status` field per task (optional on first pass for patch schema; create it
+  when tracking multiple work items).
+- **Patch workflow:** when `design.md` and `tasks.yaml` are both absent, the ticket
+  description and implementation plan injected above (under "Ticket / bug report")
+  are the spec. Derive work items from the ticket acceptance criteria and
+  implementation plan. Do not block or abandon because design artifacts are missing.
+  Create `tasks.yaml` in the artifact dir when you need to track multiple items across
+  commits; a single cohesive change may complete without ever writing `design.md`.
 
 ## Outputs
 
@@ -20,9 +27,13 @@ task: implement the change, run verification, commit, then update `status: compl
 
 ### Pre-flight
 
-1. Read `design.md` for context: goals, acceptance criteria, component breakdown.
-2. Read `tasks.yaml`. Identify all tasks where `status` is `pending` (or absent).
-   Tasks with `status: completed` are done — skip them entirely.
+1. Read `design.md` for context when present: goals, acceptance criteria, component
+   breakdown. For patch schema with no `design.md`, use the ticket body above instead.
+2. Read `tasks.yaml` when present. Identify all tasks where `status` is `pending`
+   (or absent). Tasks with `status: completed` are done — skip them entirely. When
+   `tasks.yaml` is absent (patch first pass), derive tasks from the ticket acceptance
+   criteria and implementation plan, then create `tasks.yaml` if multiple commits are
+   needed to track progress.
 3. Resolve execution order: respect `depends_on` — do not start a task until all
    its dependencies have `status: completed`.
 4. **Shell capability probe**: before starting the first task, run `git status` and `echo ok` to confirm shell commands are not blocked. If either command fails or is rejected, record the failure in `known_concerns` and abandon immediately — do NOT attempt any task. This prevents wasting tool budget on a task loop that cannot commit. <!-- learned: 2026-06-02, source: orc-118, cycle: 76, hits: 2, misses: 2, repo: orchestrator -->
