@@ -120,6 +120,7 @@ class TestMaxRetryRounds:
 # ---------------------------------------------------------------------------
 
 from orchestrator_next import dispatch  # noqa: E402
+from orchestrator_next import readiness  # noqa: E402
 from orchestrator_next.parser import load_state  # noqa: E402
 
 
@@ -306,3 +307,51 @@ class TestReworkRecordEscalation:
         record.record(state_path, _review_payload("needs_work"))  # retry 1
         record.record(state_path, _review_payload("needs_work"))  # cap hit → halt
         assert _node_status(state_path, "run-phase-review") == "completed"
+
+
+class TestOnFailureResetReadiness:
+
+    def _state_with_stale_completed_target(self, tmp_path) -> dict:
+        state = _nodes_state(tmp_path)
+        state["step_history"].append(
+            {
+                "step_id": "execute-next-task",
+                "phase": "implement",
+                "status": "completed",
+                "agent": "developer",
+                "attempt": 1,
+                "started_at": "2026-05-22T09:00:00Z",
+                "ended_at": "2026-05-22T09:01:00Z",
+            }
+        )
+        return state
+
+    def test_next_ready_node_prefers_reset_target_with_explicit_pending(self, tmp_path, monkeypatch):
+        state_raw = self._state_with_stale_completed_target(tmp_path)
+        nodes = state_raw["workflow_plan"]["implement"]["nodes"]
+        for node in nodes:
+            if node["id"] == "execute-next-task":
+                node["status"] = "pending"
+                break
+        state_path = _setup(tmp_path, monkeypatch, state_raw)
+        state = load_state(state_path)
+        assert readiness.next_ready_node(state) == "execute-next-task"
+
+    def test_record_needs_work_requeues_execute_next_task(self, tmp_path, monkeypatch):
+        state_path = _setup(
+            tmp_path,
+            monkeypatch,
+            self._state_with_stale_completed_target(tmp_path),
+        )
+        record.record(state_path, _review_payload("needs_work"))
+        assert _node_status(state_path, "execute-next-task") == "pending"
+        updated_state = load_state(state_path)
+        assert readiness.next_ready_node(updated_state) == "execute-next-task"
+
+    def test_completed_history_without_explicit_pending_stays_completed(self, tmp_path, monkeypatch):
+        state_raw = self._state_with_stale_completed_target(tmp_path)
+        state_path = _setup(tmp_path, monkeypatch, state_raw)
+        state = load_state(state_path)
+        nodes = state.workflow_plan["implement"]["nodes"]
+        execute_node = next(node for node in nodes if node["id"] == "execute-next-task")
+        assert readiness._effective_node_status(state, execute_node) == "completed"
