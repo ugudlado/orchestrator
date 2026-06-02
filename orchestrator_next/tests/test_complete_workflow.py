@@ -63,7 +63,6 @@ def _build_repo_with_worktree(tmp_path, *, worktree,
         "worktree_path": str(worktree_path),
         "branch": branch,
         "archive_path": archive_path,
-        "flags": {},
         "workflow_plan": {
             "main": {
                 "nodes": [{"id": "archive-completed-change", "status": "pending"}],

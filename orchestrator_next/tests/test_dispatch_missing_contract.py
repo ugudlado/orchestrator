@@ -42,7 +42,6 @@ def _write_state(tmp_path: Path, *, deleted_step: str) -> Path:
             },
         },
         "step_history": [],
-        "flags": {},
     }
     state_path = tmp_path / "state.yaml"
     state_path.write_text(yaml.safe_dump(state))

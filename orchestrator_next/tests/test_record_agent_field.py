@@ -50,7 +50,6 @@ def _write_state(tmp_path, *, repo_root: str = "/tmp") -> str:
         "change_id": "orc-48-test",
         "repo_root": repo_root,
         "phase": "main",
-        "flags": {},
         "workflow_plan": {
             "main": {
                 "active": ["diagnose"],
@@ -180,7 +179,6 @@ class TestRecordAgentField:
             "change_id": "orc-48-test",
             "repo_root": "/tmp",
             "phase": "main",
-            "flags": {},
             "workflow_plan": {
                 "main": {
                     "active": ["inline-setup"],

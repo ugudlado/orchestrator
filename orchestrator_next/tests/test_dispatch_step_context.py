@@ -54,7 +54,6 @@ def _make_state_yaml(state_dir: Path, phase: str, nodes: list[dict]) -> str:
         "schema": "feature",
         "status": "active",
         "repo_root": str(state_dir),
-        "flags": {},
         "workflow_plan": {phase: {"nodes": nodes, "filtered": []}},
         "phase": phase,
         "step_history": [],

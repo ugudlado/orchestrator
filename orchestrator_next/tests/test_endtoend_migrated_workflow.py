@@ -86,7 +86,6 @@ def _make_state_yaml(
         "status": "active",
         "repo_root": str(state_dir),
         "worktree_artifact_dir": worktree_artifact_dir,
-        "flags": {},
         "workflow_plan": {phase: {"nodes": nodes, "filtered": []}},
         "phase": phase,
         "step_history": step_history or [],

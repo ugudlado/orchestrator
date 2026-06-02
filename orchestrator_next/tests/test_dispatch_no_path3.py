@@ -100,7 +100,6 @@ def test_contract_missing_agent_and_run_exits_3(tmp_path):
         phase: implement
         repo_root: /tmp/test-repo
         workflow_dir: /tmp
-        flags: {}
         step_history: []
         workflow_plan:
           implement:
@@ -145,7 +144,6 @@ def test_agent_contract_response_has_agent_no_action(tmp_path):
         phase: implement
         repo_root: /tmp/test-repo
         workflow_dir: /tmp
-        flags: {}
         step_history: []
         workflow_plan:
           implement:
@@ -198,7 +196,6 @@ def test_all_steps_done_exits_1_no_json(tmp_path):
         phase: implement
         repo_root: /tmp/test-repo
         workflow_dir: /tmp
-        flags: {}
         step_history:
           - step_id: my-step
             phase: implement
@@ -249,7 +246,6 @@ def test_blocked_step_exits_2_no_json(tmp_path):
         phase: implement
         repo_root: /tmp/test-repo
         workflow_dir: /tmp
-        flags: {}
         step_history:
           - step_id: my-step
             phase: implement

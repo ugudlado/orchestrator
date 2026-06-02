@@ -111,7 +111,6 @@ def _write_state(state_dir: Path, schema_name: str, schema: dict) -> Path:
         "schema": schema_name,
         "status": "active",
         "repo_root": str(state_dir.parent.parent),
-        "flags": dict(schema.get("defaults") or {}),
         "workflow_plan": workflow_plan,
         "phase": first_phase,
         "step_history": [],

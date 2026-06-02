@@ -164,7 +164,7 @@ _ORC63_PRUNED_CONTRACTS = [
 # Known top-level state.raw bootstrap keys an input may resolve against.
 _STATE_RAW_BOOTSTRAP_KEYS = {
     "change_id", "slug", "schema", "repo_root", "worktree_path", "branch",
-    "flags", "phase", "complexity", "user_request", "tasks_path",
+    "phase", "complexity", "user_request", "tasks_path",
 }
 
 # Inline steps emit outputs at runtime via stdout JSON, not a static

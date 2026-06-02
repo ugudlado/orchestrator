@@ -66,7 +66,6 @@ def _write_state_with_completed_step(tmp_path: Path) -> Path:
                 "evidence": {"outputs": {"discovery_result": "x"}},
             }
         ],
-        "flags": {},
     }
     state_path = tmp_path / "state.yaml"
     state_path.write_text(yaml.safe_dump(state))
