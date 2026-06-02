@@ -14,16 +14,11 @@ _REPO_ROOT_STR = os.path.abspath(os.path.join(_HERE, "..", ".."))
 if _REPO_ROOT_STR not in sys.path:
     sys.path.insert(0, _REPO_ROOT_STR)
 
-import orchestrator_next.graph as graph  # noqa: E402
-from orchestrator_next.graph import render_workflow_graph  # noqa: E402
-
-
-def _require(name: str):
-    """Return graph attribute or xfail when RED (function not yet implemented)."""
-    fn = getattr(graph, name, None)
-    if fn is None:
-        pytest.xfail(f"{name} not implemented yet")
-    return fn
+from orchestrator_next.graph import (  # noqa: E402
+    _aggregate_step_metrics,
+    render_workflow_graph,
+    render_workflow_graph_with_overlay,
+)
 
 # Golden output captured from render_workflow_graph('feature') at T-1 time.
 _FEATURE_GRAPH_GOLDEN = (
@@ -92,7 +87,6 @@ def _script_entry(step_id, *, attempt=1):
     }
 
 
-@pytest.mark.xfail(strict=False)
 def test_aggregate_step_metrics_globs_and_merges(tmp_path):
     state_dir = tmp_path / "states"
     _write_state(
@@ -105,7 +99,7 @@ def test_aggregate_step_metrics_globs_and_merges(tmp_path):
         schema="complete",
     )
 
-    metrics = _require("_aggregate_step_metrics")(state_dir)
+    metrics = _aggregate_step_metrics(state_dir)
 
     assert "implement-tasks" in metrics
     assert "run-learn-cycle" in metrics
@@ -114,7 +108,6 @@ def test_aggregate_step_metrics_globs_and_merges(tmp_path):
     assert metrics["run-learn-cycle"]["tokens"] == 0
 
 
-@pytest.mark.xfail(strict=False)
 def test_aggregate_step_metrics_sums_and_max_attempt(tmp_path):
     state_dir = tmp_path / "states"
     _write_state(
@@ -125,14 +118,13 @@ def test_aggregate_step_metrics_sums_and_max_attempt(tmp_path):
         ],
     )
 
-    metrics = _require("_aggregate_step_metrics")(state_dir)
+    metrics = _aggregate_step_metrics(state_dir)
 
     assert metrics["implement-tasks"]["tokens"] == 96440
     assert metrics["implement-tasks"]["cost"] == pytest.approx(5.41)
     assert metrics["implement-tasks"]["attempts"] == 2
 
 
-@pytest.mark.xfail(strict=False)
 def test_overlay_annotates_agent_step_labels(tmp_path):
     state_dir = tmp_path / "states"
     _write_state(
@@ -140,7 +132,7 @@ def test_overlay_annotates_agent_step_labels(tmp_path):
         [_agent_entry("implement-tasks", input_tokens=8000, output_tokens=1278, cost_usd=1.05)],
     )
 
-    src, _ = _require("render_workflow_graph_with_overlay")("feature", state_dir)
+    src, _ = render_workflow_graph_with_overlay("feature", state_dir)
 
     assert "implement_tasks" in src
     assert "tok ·" in src
@@ -148,7 +140,6 @@ def test_overlay_annotates_agent_step_labels(tmp_path):
     assert "9,278 tok · $1.05" in src
 
 
-@pytest.mark.xfail(strict=False)
 def test_overlay_script_only_steps_plain(tmp_path):
     state_dir = tmp_path / "states"
     _write_state(
@@ -156,13 +147,12 @@ def test_overlay_script_only_steps_plain(tmp_path):
         [_script_entry("check-rerun")],
     )
 
-    src, _ = _require("render_workflow_graph_with_overlay")("feature", state_dir)
+    src, _ = render_workflow_graph_with_overlay("feature", state_dir)
 
     assert 'check_rerun["check-rerun"]' in src
     assert "tok ·" not in src.split('check_rerun["check-rerun"]')[1].split("\n")[0]
 
 
-@pytest.mark.xfail(strict=False)
 def test_overlay_retry_style_for_multiple_attempts(tmp_path):
     state_dir = tmp_path / "states"
     _write_state(
@@ -174,26 +164,24 @@ def test_overlay_retry_style_for_multiple_attempts(tmp_path):
         ],
     )
 
-    src, _ = _require("render_workflow_graph_with_overlay")("feature", state_dir)
+    src, _ = render_workflow_graph_with_overlay("feature", state_dir)
 
     assert "style run_phase_review fill:#f90" in src
     assert "style explore fill:#f90" not in src
 
 
-@pytest.mark.xfail(strict=False)
 def test_overlay_returns_step_data_for_sidebar(tmp_path):
     state_dir = tmp_path / "states"
     entry = _agent_entry("implement-tasks", input_tokens=8000, output_tokens=1278, cost_usd=1.05)
     _write_state(state_dir / "20260101T000000_feature_state.yaml", [entry])
 
-    _, step_data = _require("render_workflow_graph_with_overlay")("feature", state_dir)
+    _, step_data = render_workflow_graph_with_overlay("feature", state_dir)
 
     assert "implement-tasks" in step_data
     assert step_data["implement-tasks"]["usage"]["input_tokens"] == 8000
     assert step_data["implement-tasks"]["usage"]["cost_usd"] == pytest.approx(1.05)
 
 
-@pytest.mark.xfail(strict=False)
 def test_overlay_emits_click_callbacks(tmp_path):
     state_dir = tmp_path / "states"
     _write_state(
@@ -201,12 +189,11 @@ def test_overlay_emits_click_callbacks(tmp_path):
         [_agent_entry("implement-tasks")],
     )
 
-    src, _ = _require("render_workflow_graph_with_overlay")("feature", state_dir)
+    src, _ = render_workflow_graph_with_overlay("feature", state_dir)
 
     assert "click implement_tasks showStep" in src
 
 
-@pytest.mark.xfail(strict=False)
 def test_render_workflow_graph_unchanged_no_overlay():
     src, step_data = render_workflow_graph("feature")
 
