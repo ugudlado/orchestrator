@@ -478,3 +478,15 @@ rules:
       `pytest tests/test_parse_completion.py` which imported
       `orchestrator_next/scripts/workflow/parse-completion.py` — a file not in
       the task's `files` list and not yet in the repo.
+  - id: check-rerun-blind-to-pre-impl-commits
+    learned: 2026-06-02
+    source: orc-97
+    rule: >
+      The check-rerun guard signals "fresh" based on metrics rows and state.yaml
+      presence — it does NOT inspect HEAD commits. A feature that was implemented
+      and committed to main before the workflow lifecycle began will pass check-rerun
+      as if no work has been done. When discovery.md or design.md notes that the
+      implementation is already shipped (e.g. "git log main..HEAD is empty"),
+      treat the workflow run as verification-only: mark tasks pre-completed in
+      tasks.yaml and do not re-implement. This is intentional behavior; the guard
+      is accurate within its scope (lifecycle tracking), not a code inspection tool.
