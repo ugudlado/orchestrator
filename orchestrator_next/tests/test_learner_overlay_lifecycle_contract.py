@@ -4,8 +4,6 @@ from __future__ import annotations
 import os
 import re
 
-import pytest
-
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
 _LEARNER_SKILL = os.path.join(_REPO_ROOT, "skills", "workflow-learner", "SKILL.md")
@@ -28,7 +26,6 @@ def _section(content: str, heading: str, next_heading: str | None = None) -> str
     return content[start:end]
 
 
-@pytest.mark.xfail(strict=False, reason="RED phase: section 5b overlay scope not implemented yet")
 def test_rule_effectiveness_scan_includes_agent_overlay_files() -> None:
     section = _section(
         _read_learner_skill(),
@@ -40,7 +37,6 @@ def test_rule_effectiveness_scan_includes_agent_overlay_files() -> None:
     )
 
 
-@pytest.mark.xfail(strict=False, reason="RED phase: section 5b-decay overlay parity not implemented yet")
 def test_rule_decay_scan_applies_same_thresholds_to_overlay_rules() -> None:
     section = _section(
         _read_learner_skill(),
@@ -58,7 +54,6 @@ def test_rule_decay_scan_applies_same_thresholds_to_overlay_rules() -> None:
     )
 
 
-@pytest.mark.xfail(strict=False, reason="RED phase: learned-only mutation boundary not explicit for overlays yet")
 def test_overlay_mutation_scope_is_learned_comment_only() -> None:
     section_5b = _section(
         _read_learner_skill(),
@@ -79,7 +74,6 @@ def test_overlay_mutation_scope_is_learned_comment_only() -> None:
     )
 
 
-@pytest.mark.xfail(strict=False, reason="RED phase: default zero counters for overlay metadata not explicit yet")
 def test_overlay_metadata_missing_hits_and_misses_defaults_to_zero() -> None:
     section = _section(
         _read_learner_skill(),
