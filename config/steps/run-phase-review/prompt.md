@@ -66,6 +66,9 @@
    - Read design.md (feature) or fix-plan.md (bugfix) for acceptance criteria,
      using the format defined in the Format Contract Reference section below
      (§ Design Format Contract or § Fix Plan Format Contract respectively).
+   - **Patch schema:** when `design.md` is absent, read acceptance criteria from
+     the ticket body injected in this prompt (under "Ticket / bug report") instead.
+     The ticket AC section is the contract — verify each checkbox item with evidence.
    - For each acceptance criterion:
      a. Run the verification check (test, manual check, build gate, or file inspection).
      b. Record pass/fail with evidence (command output, file check result, etc.).
