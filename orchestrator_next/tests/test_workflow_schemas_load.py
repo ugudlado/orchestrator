@@ -37,7 +37,8 @@ _WORKFLOWS_DIR = _REAL_HOME / "workflows"
 # Schemas exercised by orchestrate / autopilot. ORC-108: autopilot is now a
 # real steps-based workflow (config/workflows/autopilot.yaml), run via
 # generate_plan like the others — no longer inline-script-driven.
-_USER_FACING_SCHEMAS = ["feature", "bugfix", "autopilot"]
+# ORC-120: patch and design are first-class workflow schemas.
+_USER_FACING_SCHEMAS = ["feature", "bugfix", "patch", "design", "autopilot"]
 
 _STEP_REF_RE = re.compile(r"^([a-zA-Z0-9_-]+)(?:\s+if\s+(?:not\s+)?[a-zA-Z0-9_]+)?$")
 
@@ -180,7 +181,8 @@ def test_real_schema_generates_plan(tmp_path, monkeypatch, schema_name):
 
 
 # ---------------------------------------------------------------------------
-# Terminal steps — feature/bugfix pause at QA; complete/autopilot own their tails.
+# Terminal steps — develop schemas end at run-learn-cycle; complete/autopilot
+# own their tails.
 # ---------------------------------------------------------------------------
 
 
@@ -193,9 +195,19 @@ def _schema_step_ids(schema_name):
     ]
 
 
+def _schema_step_entry(schema_name, step_id):
+    schema = yaml.safe_load((_WORKFLOWS_DIR / f"{schema_name}.yaml").read_text())
+    for entry in schema.get("steps") or []:
+        if _step_id_of(entry) == step_id:
+            return entry
+    return None
+
+
 _SCHEMA_TERMINAL_STEP = {
-    "feature": "ticket-qa",
-    "bugfix": "ticket-qa",
+    "feature": "run-learn-cycle",
+    "bugfix": "run-learn-cycle",
+    "patch": "run-learn-cycle",
+    "design": "run-learn-cycle",
     "autopilot": "workflow-report",
     "complete": "workflow-report",
 }
@@ -226,5 +238,29 @@ def test_complete_schema_merge_teardown_order():
     assert indices == sorted(indices), (
         f"complete.yaml steps out of order: {list(zip(order, indices))}"
     )
+
+
+def test_patch_schema_retry_edges():
+    """patch.yaml: implement-tasks and run-phase-review carry ORC-120 retry routing."""
+    implement = _schema_step_entry("patch", "implement-tasks")
+    review = _schema_step_entry("patch", "run-phase-review")
+    assert isinstance(implement, dict)
+    assert implement.get("on_failure") == "implement-tasks"
+    assert implement.get("max_retries") == 3
+    assert isinstance(review, dict)
+    assert review.get("on_success") == "ticket-qa"
+    assert review.get("on_failure") == "implement-tasks"
+    assert review.get("max_retries") == 8
+
+
+def test_patch_schema_skips_design_phase():
+    """patch.yaml must not include explore, design, or design-review steps."""
+    steps = _schema_step_ids("patch")
+    design_steps = {"explore", "diagnose", "design-and-draft-artifacts", "design-review", "ux-design"}
+    assert design_steps.isdisjoint(set(steps)), (
+        f"patch.yaml must skip design phase; found {design_steps & set(steps)}"
+    )
+    assert "implement-tasks" in steps
+    assert steps.index("create-worktree") < steps.index("implement-tasks")
 
 
