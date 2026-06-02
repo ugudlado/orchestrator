@@ -1,0 +1,171 @@
+# tasks.yaml for orc-117 — Remove flags system from codebase
+# Pure deletion. Each task removes a flag-bearing region together with any
+# coupled test assertion so `pytest orchestrator_next/tests/ -q` stays green at
+# every commit boundary. No RED-first pairing: tdd_required is unset and there
+# is no new behavior to drive — see design.md "Selected Approach".
+# Baseline is dirty: 8 pre-existing failures named in design.md "Constraints".
+# AC-4 means "no test fails OUTSIDE that named set", not a literal zero.
+version: 1
+tasks:
+  - id: T-1
+    title: "Remove flags from the seed pipeline (parse + write)"
+    status: completed
+    tokens_in: 1800
+    tokens_out: 900
+    duration_s: 240
+    depends_on: []
+    files:
+      - orchestrator_next/scripts/lib/seed_parse_overrides.py
+      - orchestrator_next/scripts/lib/seed_write_state.py
+    verify:
+      - python orchestrator_next/scripts/lib/seed_parse_overrides.py x feature . config/workflows/feature.yaml
+      - python -c "import json,subprocess,sys,tempfile,os; j=subprocess.run([sys.executable,'orchestrator_next/scripts/lib/seed_parse_overrides.py','x','feature','.','config/workflows/feature.yaml'],capture_output=True,text=True,check=True).stdout; d=json.loads(j); assert 'flags' not in d, 'flags key still emitted'; f=tempfile.mktemp(suffix='.yaml'); subprocess.run([sys.executable,'orchestrator_next/scripts/lib/seed_write_state.py',f,j],check=True); import yaml; assert 'flags' not in (yaml.safe_load(open(f).read()) or {}), 'flags written to state'; os.remove(f); print('seed pipeline ok, no flags')"
+    test_scenarios:
+      - "seed_parse_overrides emits JSON with no flags key"
+      - "seed_write_state consumes that JSON and writes state.yaml with no flags field"
+      - "the parse->write pipe-through runs end-to-end without raising (no KeyError on d['flags'])"
+    why: "AC-1 + AC-2 — these two scripts are the only flags producers; fused because seed_write_state.py hard-reads d['flags'] from the parse JSON, so split-order removal raises an untested KeyError (design.md Selected Approach)"
+    change: >-
+      In orchestrator_next/scripts/lib/seed_parse_overrides.py: delete the
+      `flags` dict construction (the `for arg in raw_overrides:` build loop,
+      lines 30-36) and the `"flags": flags,` key in the JSON output (line 53);
+      `raw_overrides = args[4:]` (line 28) becomes unused — remove it. Do NOT
+      add a reject-on-override guard: the ticket requires removing parsing and no
+      caller passes overrides. Update the module docstring (line 6) to drop
+      `flags` from the stdout-keys list. In
+      orchestrator_next/scripts/lib/seed_write_state.py: delete the
+      `"flags": d["flags"],` entry from the `state` dict (line 63). Both edits
+      land in one commit so the pipe-through never sees a missing key.
+      NOTE: the pipe-through verify's write-half (seed_write_state subprocess)
+      is inspection-verified, not run-verified, because pre-deletion the
+      parse JSON still has `flags` and the first assert short-circuits before
+      the write runs. It executes end-to-end only after this task's edits land;
+      arg shape (path, init_json) matches seed_write_state.main and `active` is
+      non-empty for feature, so it should pass on first post-edit run.
+
+  - id: T-2
+    title: "Remove flags machinery from generate_plan.py"
+    status: completed
+    tokens_in: 2600
+    tokens_out: 1300
+    duration_s: 300
+    depends_on: []
+    files:
+      - orchestrator_next/generate_plan.py
+    verify:
+      - python -c "import ast,inspect; import orchestrator_next.generate_plan as g; src=inspect.getsource(g); assert '_evaluate_rules_when' not in src, '_evaluate_rules_when still present'; assert 'verify_when' not in src, 'verify_when still present'; import inspect as I; assert 'flags' not in I.signature(g._merge_rules).parameters, 'flags still in _merge_rules'; assert 'flags' not in I.signature(g._build_step_block).parameters, 'flags still in _build_step_block'; print('generate_plan flags-free')"
+    test_scenarios:
+      - "_evaluate_rules_when no longer defined"
+      - "_merge_rules and _build_step_block no longer accept a flags parameter"
+      - "no verify_when reference remains; verify resolution collapses to base_verify"
+    why: "AC-3 — generate_plan.py is the sole state-side consumer of the flags field"
+    change: >-
+      In orchestrator_next/generate_plan.py, remove in this order: (1) the
+      `flags: dict[str, Any] = state.raw.get("flags") or {}` line (414); (2) the
+      `flags=flags` arg at the _build_step_block call site (459); (3) the `flags`
+      param on _build_step_block (252) and its forward in
+      `_merge_rules(..., flags, repo_name)` (278); (4) the `flags` param on
+      _merge_rules (188) — inside it drop `rules_when = step_entry.get(...)`
+      (197), `injected = _evaluate_rules_when(rules_when, flags)` (199), and
+      `merged.extend(injected)` (238), KEEPING `extra`/`merged.extend(extra)`;
+      (5) replace the named-rule loop (224-234) so every named rule is appended
+      unconditionally (delete the `when_flag`/`elif flags.get(...)` branch);
+      (6) the `_evaluate_rules_when` function (139-162); (7) the verify_when
+      override loop (477-483) — collapse the `if base_verify is not None:` body
+      to `verify_block = base_verify`, keeping the `if verify_block is None` /
+      `base_verify = phase_def.get("verify")` guard; (8) `"verify_when"` from the
+      _resolve_phases synthetic-phase key tuple (95) and the rules_when mention
+      in the _step_entry_for_id docstring (keep the bare-id stripping at 132-135).
+
+  - id: T-3
+    title: "Update generate_plan tests coupled to removed flags machinery"
+    status: completed
+    tokens_in: 3100
+    tokens_out: 1700
+    duration_s: 420
+    depends_on: [T-2]
+    files:
+      - orchestrator_next/tests/test_generate_plan.py
+      - orchestrator_next/tests/test_generate_plan_directory_layout.py
+    verify:
+      - pytest orchestrator_next/tests/test_generate_plan.py orchestrator_next/tests/test_generate_plan_directory_layout.py -q
+    test_scenarios:
+      - "_make_state_yaml helper no longer takes or writes a flags param"
+      - "test_rule_merge_precedence no longer asserts rules_when injection but KEEPS the extra_rules ordering assertion"
+      - "test_light_flag_drops_filtered_steps still passes (filtered-step resolution is flag-independent)"
+      - "directory-layout test no longer passes flags positionally into _build_step_block (was TypeError)"
+    why: "AC-4 — these two files reference flags in signatures/assertions changed by T-2; without the edits they raise TypeError (positional flags) or ValueError (.index on a removed rule string)"
+    change: >-
+      In orchestrator_next/tests/test_generate_plan.py: remove the `flags` param
+      from the `_make_state_yaml` helper (signature line 54, `"flags": flags,`
+      body line 64) and drop the `flags` argument at every call site (139, 224,
+      295, 360, 416), plus the now-unused `flags = {...}` locals above them
+      (105, 190, 274, 332, 395). In test_rule_merge_precedence (161-251): delete
+      the `"rules_when": {"some_flag": ["Injected from rules_when."]}` schema
+      step-entry key (182-184), the `idx_injected_when = rules.index(...)` line
+      (234), and the `assert idx_injected_when < idx_contract` assertion (244);
+      KEEP the `extra_rules` block, `idx_extra`, and `assert idx_extra <
+      idx_contract`. In test_generate_plan_directory_layout.py: delete the
+      `flags: dict = {}` local (217) and remove the `flags` positional argument
+      from the `_build_step_block(...)` call (227).
+
+  - id: T-4
+    title: "Sweep inert flags keys from state-shaped test fixtures (honesty cleanup)"
+    status: completed
+    tokens_in: 5200
+    tokens_out: 2200
+    duration_s: 480
+    depends_on: [T-1, T-2]
+    files:
+      - orchestrator_next/tests/test_dispatch_missing_contract.py
+      - orchestrator_next/tests/test_dispatch_no_path3.py
+      - orchestrator_next/tests/test_dispatch_step_context.py
+      - orchestrator_next/tests/test_record_agent_field.py
+      - orchestrator_next/tests/test_complete_workflow.py
+      - orchestrator_next/tests/test_endtoend_migrated_workflow.py
+      - orchestrator_next/tests/test_pre_stamp_idempotency.py
+      - orchestrator_next/tests/test_workflow_schemas_load.py
+      - orchestrator_next/tests/test_prose_contracts.py
+    verify:
+      - pytest orchestrator_next/tests/ -q
+    test_scenarios:
+      - "no test fixture constructs a flags key in a state.yaml-shaped dict"
+      - "test_workflow_schemas_load no longer derives flags from schema.get('defaults')"
+      - "test_prose_contracts bootstrap-keys set no longer lists 'flags'"
+      - "full suite stays green (no test fails outside the named baseline set)"
+    why: "ticket title 'from codebase' + design.md Trade-offs (keep fixtures honest) — these flags keys are inert (ignored by the post-T-2 consumer per UC-E1) but should not imply a state field that no longer exists"
+    change: >-
+      Remove the inert `"flags": {}` / `flags: {}` entries from each fixture:
+      test_dispatch_missing_contract.py:45, test_dispatch_no_path3.py
+      (103/148/201/252, YAML-string form), test_dispatch_step_context.py:57,
+      test_record_agent_field.py (53, 183), test_complete_workflow.py:66,
+      test_endtoend_migrated_workflow.py:89, test_pre_stamp_idempotency.py:69.
+      In test_workflow_schemas_load.py:114 drop the
+      `"flags": dict(schema.get("defaults") or {}),` line. In
+      test_prose_contracts.py:167 remove `"flags"` from the
+      _STATE_RAW_BOOTSTRAP_KEYS set. Leave `resolved_flags` fixtures untouched
+      (out of scope — plan.yaml shape). Do NOT touch the comment-only "flags"
+      mentions in test_agents_yaml_tools.py:4 or test_workflow_schemas_load.py:10.
+
+  - id: T-5
+    title: "Phase gate — full suite at baseline parity, no flags symbols remain"
+    status: completed
+    tokens_in: 1400
+    tokens_out: 500
+    duration_s: 210
+    depends_on: [T-1, T-2, T-3, T-4]
+    files: []
+    verify:
+      - pytest orchestrator_next/tests/ -q
+    test_scenarios:
+      - "pytest orchestrator_next/tests/ -q shows no failure outside the named baseline set in design.md Constraints"
+      - "no _evaluate_rules_when / rules_when / verify_when remains in orchestrator_next non-test source"
+      - "no state.yaml-shape flags key remains in orchestrator_next/tests (resolved_flags excepted)"
+    why: "AC-4 — confirm the deletion integrates cleanly across the whole suite and against the recorded dirty baseline"
+    change: >-
+      No code edit. Run the full suite and confirm every failure is in the
+      design.md baseline set (the 5 test_agent_runner cases, the 1 test_step_runner
+      case, the 2 test_workflow_schemas_load terminal-tail cases). Then run
+      `grep -rn 'rules_when\\|verify_when\\|_evaluate_rules_when' orchestrator_next --include='*.py'`
+      and confirm zero hits outside tests asserting absence. If any task's
+      surface still fails, route back to the owning task rather than patching here.
