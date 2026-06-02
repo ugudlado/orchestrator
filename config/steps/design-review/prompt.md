@@ -26,7 +26,7 @@ Read `design.md` and `tasks.yaml` in full before evaluating anything.
 |-----------|---------------|
 | **completeness** | Goals, Non-Goals, Approaches Considered, Selected Approach, AC section all present and non-empty |
 | **ac_coverage** | Every AC in design.md has at least one task in tasks.yaml; every task has a `why` tracing to an AC |
-| **task_quality** | Tasks are small and independently verifiable; every task has `verify` commands; no task touches unrelated files |
+| **task_quality** | Tasks are small and independently verifiable; every task has `verify` commands; no task touches unrelated files. **Critical**: if any task uses TDD-style RED tests (verify expected to fail until a later task), those tests must use `@pytest.mark.xfail(strict=False)` so the verify command exits 0 at commit time — flag missing xfail annotations as a critical finding |
 | **feasibility** | Selected approach is consistent with constraints in discovery.md; no obvious missing dependencies or unresolved open questions |
 | **scope_control** | Non-Goals are explicit; no task implements something outside the stated Goals |
 
