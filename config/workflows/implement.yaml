@@ -1,7 +1,6 @@
 steps:
   - check-rerun
   - create-worktree
-  - design-and-draft-artifacts
   - ticket-start
   - id: implement-tasks
     on_failure: implement-tasks
