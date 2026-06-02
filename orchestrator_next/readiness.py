@@ -76,13 +76,16 @@ def _step_completed_in_history(state: State, node_id: str) -> bool:
 def _effective_node_status(state: State, node: dict[str, Any]) -> str:
     """Node status with step_history completion inference.
 
-    An explicit ``pending`` node status is authoritative because the on_failure
-    reset path deliberately re-opens a prior step by writing ``status: pending``.
+    Explicit ``completed`` always wins.
+    ``"reset"`` (written by on_failure routing via mark_node_status) wins over
+    step_history — it means "re-open this node even though history says done".
+    All other statuses (``"pending"``, absent, etc.) are overridden by
+    step_history when a completed/recovered entry exists.
     """
     status = node.get("status")
     if status == "completed":
         return "completed"
-    if status == "pending":
+    if status == "reset":
         return "pending"
     if _step_completed_in_history(state, _node_id(node)):
         return "completed"
