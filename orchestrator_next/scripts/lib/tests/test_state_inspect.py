@@ -215,6 +215,25 @@ class TestBuildPayload:
         )
         assert "started_at" not in json.loads(out)
 
+    def test_build_payload_sets_duration_ms_on_usage(self, capsys):
+        _, out, _ = _run(
+            capsys,
+            [
+                "build-payload",
+                "script",
+                "--step-id",
+                "s",
+                "--phase",
+                "main",
+                "--status",
+                "completed",
+                "--duration-ms",
+                "12345",
+            ],
+        )
+        payload = json.loads(out)
+        assert payload["usage"]["duration_ms"] == 12345
+
     def test_failed_kind_carries_exit_code(self, capsys):
         _, out, _ = _run(
             capsys,
