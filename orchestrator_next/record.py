@@ -126,7 +126,8 @@ _DEFAULT_MAX_RETRY_ROUNDS = 3
 _STATUS_TO_STATE_STATUS: dict[str, str | None] = {
     "completed": None,
     "recovered": None,
-    "abandoned": "blocked",
+    # abandoned is routed via on_failure; block only on explicit halt paths.
+    "abandoned": None,
     "failed": None,           # routing handles failure; _resolve_routing sets blocked when halting
     "blocked": "blocked",
     "escalate_to_architect": "blocked",

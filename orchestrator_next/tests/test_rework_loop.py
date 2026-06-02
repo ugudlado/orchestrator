@@ -53,6 +53,10 @@ class TestResolveRouting:
         state = self._state_with_edge("step-a", on_failure="step-x", max_retries=3)
         assert record._resolve_routing("step-a", "failed", state, "implement") == "step-x"
 
+    def test_abandoned_with_on_failure_returns_target(self):
+        state = self._state_with_edge("step-a", on_failure="step-x", max_retries=3)
+        assert record._resolve_routing("step-a", "abandoned", state, "implement") == "step-x"
+
     def test_failure_no_edge_returns_halt(self):
         state = self._state_with_edge("step-a")
         assert record._resolve_routing("step-a", "failed", state, "implement") == "halt"
