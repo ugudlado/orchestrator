@@ -1,0 +1,14 @@
+steps:
+  - check-rerun
+  - create-worktree
+  - ticket-start
+  - id: implement-tasks
+    on_failure: implement-tasks
+    max_retries: 3
+  - ticket-review
+  - id: run-phase-review
+    on_success: ticket-qa
+    on_failure: implement-tasks
+    max_retries: 8
+  - ticket-qa
+  - run-learn-cycle

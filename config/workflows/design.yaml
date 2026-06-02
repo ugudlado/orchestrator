@@ -1,0 +1,9 @@
+steps:
+  - check-rerun
+  - create-worktree
+  - explore
+  - design-and-draft-artifacts
+  - id: design-review
+    on_failure: design-and-draft-artifacts
+    max_retries: 3
+  - run-learn-cycle
