@@ -1,0 +1,118 @@
+version: 1
+tasks:
+  - id: T-1
+    title: "Extract feature-metrics functions to orchestrator_next/metrics.py with re-exports"
+    status: completed
+    tokens_in: 45000
+    tokens_out: 12000
+    duration_s: 180
+    depends_on: []
+    files:
+      - orchestrator_next/metrics.py
+      - orchestrator_next/record.py
+    verify:
+      - python -c "import orchestrator_next.metrics as m; assert all(hasattr(m, n) for n in ['compute_task_counts','compute_retries','compute_resolution','run_git_churn','extract_review_scores','wall_clock_minutes','_resolve_feature_metrics','_resolve_feature_metrics_tasks_path','_resolve_workflow_artifact_path'])"
+      - python -c "from orchestrator_next.record import compute_task_counts, compute_retries, compute_resolution, run_git_churn, extract_review_scores, wall_clock_minutes, _resolve_feature_metrics, _resolve_feature_metrics_tasks_path, _resolve_workflow_artifact_path"
+      - python -c "import orchestrator_next.metrics; import orchestrator_next.readiness; import orchestrator_next.record"
+      - pytest orchestrator_next/tests/test_record_validation.py orchestrator_next/tests/test_resolve_artifact_fallback.py orchestrator_next/tests/test_resolve_tasks_md.py orchestrator_next/tests/test_t13_compute_resolution_from_step_history.py orchestrator_next/tests/test_orc36_path_consolidation.py -q
+    test_scenarios:
+      - "compute_task_counts/run_git_churn/extract_review_scores/wall_clock_minutes/compute_retries/compute_resolution/_resolve_feature_metrics/_resolve_feature_metrics_tasks_path/_resolve_workflow_artifact_path are defined in metrics.py"
+      - "all nine moved names plus _phase_review_verdict remain importable from orchestrator_next.record via re-export"
+      - "no circular import: metrics imports cleanly; record still imports successfully"
+      - "the metrics/path-resolution test files pass unchanged"
+    why: "design.md AC-2 (metrics in own module) and AC-4 (re-exports preserve import paths)"
+    change: >-
+      Create orchestrator_next/metrics.py beginning with `from __future__ import
+      annotations` and the imports those functions need (datetime as _dt, os, re,
+      subprocess where used, pathlib.Path, typing.Any, yaml — keep each function's
+      existing local imports such as `import yaml as _yaml` intact). MOVE these
+      function bodies verbatim from record.py into metrics.py: _phase_review_verdict
+      (record.py:707), compute_task_counts (504), compute_retries (561),
+      compute_resolution (582), run_git_churn (631), extract_review_scores (726),
+      wall_clock_minutes (761), _resolve_workflow_artifact_path (800),
+      _resolve_feature_metrics_tasks_path (841), _resolve_feature_metrics (850); also
+      move the _PHASE_REVIEW_VERDICTS frozenset constant (record.py:50) that
+      _phase_review_verdict reads. Note _validate_phase_review_output (record.py:83)
+      also reads _PHASE_REVIEW_VERDICTS and STAYS in record.py — so re-import the
+      constant back (see below). Delete the moved bodies from record.py. Add a
+      module-level re-export block in record.py mirroring the pricing.py precedent at
+      record.py:488 — `from orchestrator_next.metrics import (  # noqa: E402,F401
+      _PHASE_REVIEW_VERDICTS, _phase_review_verdict, compute_task_counts,
+      compute_retries, compute_resolution, run_git_churn, extract_review_scores,
+      wall_clock_minutes, _resolve_workflow_artifact_path,
+      _resolve_feature_metrics_tasks_path, _resolve_feature_metrics)`. This binds the
+      names in record's namespace so both internal callers (record() at lines 865-878
+      call compute_*/run_git_churn/extract_review_scores/wall_clock_minutes;
+      _resolve_tasks_md at 893 and _check_declared_outputs path-resolution call
+      _resolve_workflow_artifact_path) and test imports resolve unchanged. Do NOT move
+      REPEAT_PREDICATES or _resolve_tasks_md — they stay in record.py.
+
+  - id: T-2
+    title: "Extract payload supplement helpers to orchestrator_next/payload.py with re-exports"
+    status: completed
+    tokens_in: 25000
+    tokens_out: 8000
+    duration_s: 120
+    depends_on: []
+    files:
+      - orchestrator_next/payload.py
+      - orchestrator_next/record.py
+    verify:
+      - python -c "import orchestrator_next.payload as p; assert all(hasattr(p, n) for n in ['_coerce_payload_outputs','_artifact_basenames_from_outputs','_supplement_legacy_outputs','_supplement_learn_result','_supplement_backlog_tickets_synced','_merge_evidence_block','_OUTPUTS_ALLOW_EMPTY_LIST'])"
+      - python -c "from orchestrator_next.record import _coerce_payload_outputs, _artifact_basenames_from_outputs, _supplement_legacy_outputs, _supplement_learn_result, _supplement_backlog_tickets_synced, _merge_evidence_block, _OUTPUTS_ALLOW_EMPTY_LIST"
+      - python -c "import orchestrator_next.payload; import orchestrator_next.record"
+      - pytest orchestrator_next/tests/test_record_validation.py orchestrator_next/tests/test_record_learn_result.py orchestrator_next/tests/test_record_check_b.py orchestrator_next/tests/test_record_agent_field.py -q
+    test_scenarios:
+      - "the six supplement/coerce helpers and _OUTPUTS_ALLOW_EMPTY_LIST are defined in payload.py"
+      - "all moved names remain importable from orchestrator_next.record via re-export"
+      - "_check_declared_outputs (stays in record.py) still resolves _OUTPUTS_ALLOW_EMPTY_LIST through the re-import"
+      - "no circular import; StepContract type annotation resolves with no runtime import"
+    why: "design.md AC-3 (payload helpers in own module) and AC-4 (re-exports preserve import paths)"
+    change: >-
+      Create orchestrator_next/payload.py beginning with `from __future__ import
+      annotations`, then `import sys`, `from pathlib import Path`, `from typing import
+      Any, TYPE_CHECKING`, and a `if TYPE_CHECKING: from orchestrator_next.parser
+      import StepContract` guard (StepContract is used only as the string annotation
+      `contract: StepContract | None` at record.py:180 — never evaluated at runtime,
+      so no runtime import is added and no cycle is created). MOVE these bodies
+      verbatim from record.py into payload.py: _coerce_payload_outputs (137),
+      _artifact_basenames_from_outputs (149), _supplement_legacy_outputs (177),
+      _OUTPUTS_ALLOW_EMPTY_LIST constant (218), _supplement_learn_result (221),
+      _supplement_backlog_tickets_synced (244), _merge_evidence_block (263). Delete the
+      moved bodies from record.py. Add a module-level re-export block in record.py
+      mirroring pricing.py (record.py:488) — `from orchestrator_next.payload import (
+      # noqa: E402,F401 _coerce_payload_outputs, _artifact_basenames_from_outputs,
+      _supplement_legacy_outputs, _supplement_learn_result,
+      _supplement_backlog_tickets_synced, _merge_evidence_block,
+      _OUTPUTS_ALLOW_EMPTY_LIST)`. The _OUTPUTS_ALLOW_EMPTY_LIST re-import is
+      load-bearing: _check_declared_outputs (stays in record.py, reads the constant at
+      record.py:959) and record()'s supplement calls (record.py:1077-1090, 1223)
+      resolve these names through record's namespace unchanged. Run T-2 independently
+      of T-1 — no ordering dependency; both edit record.py but touch disjoint regions
+      (metrics block vs. payload block).
+
+  - id: T-3
+    title: "Phase gate — confirm all record-touching tests green after both extractions"
+    status: completed
+    tokens_in: 5000
+    tokens_out: 1000
+    duration_s: 30
+    depends_on: [T-1, T-2]
+    files: []
+    verify:
+      - pytest orchestrator_next/tests/test_boundary_detection.py orchestrator_next/tests/test_endtoend_migrated_workflow.py orchestrator_next/tests/test_orc36_path_consolidation.py orchestrator_next/tests/test_record_abandoned_node.py orchestrator_next/tests/test_record_agent_field.py orchestrator_next/tests/test_record_append_retro_path.py orchestrator_next/tests/test_record_check_b.py orchestrator_next/tests/test_record_learn_result.py orchestrator_next/tests/test_record_validation.py orchestrator_next/tests/test_repeat_until.py orchestrator_next/tests/test_resolve_artifact_fallback.py orchestrator_next/tests/test_resolve_tasks_md.py orchestrator_next/tests/test_rework_loop.py orchestrator_next/tests/test_t13_compute_resolution_from_step_history.py -q
+      - python -c "from orchestrator_next.record import compute_task_counts, run_git_churn, _resolve_feature_metrics, _resolve_feature_metrics_tasks_path, _coerce_payload_outputs, _supplement_legacy_outputs, _OUTPUTS_ALLOW_EMPTY_LIST, _detect_boundary, BoundaryKind, record"
+      - python -c "import orchestrator_next.metrics; import orchestrator_next.payload; import orchestrator_next.readiness; import orchestrator_next.record"
+    test_scenarios:
+      - "all 14 record-touching test files pass (109 passed / 1 xfailed baseline at HEAD — must hold)"
+      - "every moved name plus the deliberately-retained ones (_detect_boundary, BoundaryKind, record) import from orchestrator_next.record"
+      - "metrics, payload, readiness, record all import without circular-import error"
+    why: "design.md AC-1 and AC-5 — phase gate scoped to the record test set (green at HEAD), not the full suite which has unrelated pre-existing failures"
+    change: >-
+      No code edits. Run the verify commands. The pytest set is scoped to exactly the
+      14 files that import from orchestrator_next.record — these are confirmed green at
+      HEAD (109 passed, 1 xfailed). The full orchestrator_next/tests/ suite is NOT used
+      because it carries pre-existing failures unrelated to this refactor (ORC-119
+      lesson); gating on it would block this task on unrelated red. If any of the 14
+      files regress, the extraction broke an import path or moved a body incorrectly —
+      fix in T-1/T-2, do not edit test files.
