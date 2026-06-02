@@ -1,0 +1,89 @@
+version: 1
+tasks:
+  - id: T-1
+    title: "Add RED lifecycle-contract tests for overlay hit/miss and decay scope"
+    status: completed
+    tokens_in: 9800
+    tokens_out: 2500
+    duration_s: 210
+    depends_on: []
+    files:
+      - orchestrator_next/tests/test_learner_overlay_lifecycle_contract.py
+    verify:
+      - pytest orchestrator_next/tests/test_learner_overlay_lifecycle_contract.py -v
+    test_scenarios:
+      - "section 5b explicitly includes .orchestrator/agents/*.md in effectiveness scan targets"
+      - "section 5b-decay applies identical ineffective thresholds to overlay learned rules"
+      - "Contract text restricts mutation/removal to learned-stamped entries only"
+      - "Legacy overlay metadata with missing hits/misses defaults to zero safely"
+    why: "AC-1, AC-2, AC-3, AC-4"
+    change: "Create orchestrator_next/tests/test_learner_overlay_lifecycle_contract.py with failing contract assertions for section 5b/section 5b-decay overlay behavior, and annotate each RED assertion with @pytest.mark.xfail(strict=False) so verify exits 0 before GREEN."
+
+  - id: T-2
+    title: "Implement overlay lifecycle parity in workflow-learner contract"
+    status: completed
+    tokens_in: 7600
+    tokens_out: 1900
+    duration_s: 165
+    depends_on: [T-1]
+    files:
+      - skills/workflow-learner/SKILL.md
+      - orchestrator_next/tests/test_learner_overlay_routing.py
+    verify:
+      - pytest orchestrator_next/tests/test_learner_overlay_lifecycle_contract.py -v
+      - pytest orchestrator_next/tests/test_learner_overlay_routing.py -v
+    test_scenarios:
+      - "Overlay learned entries are scanned in section 5b effectiveness update"
+      - "Overlay learned entries are scanned and pruned in section 5b-decay under existing thresholds"
+      - "Manual overlay prose without learned metadata remains out of mutation scope"
+      - "Missing hits/misses defaults are documented for overlay metadata parsing"
+    why: "AC-1, AC-2, AC-3, AC-4"
+    change: "Edit skills/workflow-learner/SKILL.md around section 5b (lines near 283-301) and section 5b-decay (lines near 302-340): expand target discovery from step-contract files to include .orchestrator/agents/*.md, keep the same hit/miss and ineffective-threshold rules, and add explicit mutation safety text that only <!-- learned: --> entries are writable with missing hits/misses defaulting to 0."
+
+  - id: T-3
+    title: "Finalize GREEN state and remove temporary xfail markers"
+    status: completed
+    tokens_in: 4200
+    tokens_out: 1100
+    duration_s: 110
+    depends_on: [T-2]
+    files:
+      - orchestrator_next/tests/test_learner_overlay_lifecycle_contract.py
+      - orchestrator_next/tests/test_learner_overlay_routing.py
+      - skills/workflow-learner/SKILL.md
+    verify:
+      - pytest orchestrator_next/tests/test_learner_overlay_lifecycle_contract.py -v
+      - pytest orchestrator_next/tests/test_learner_overlay_routing.py -v
+    test_scenarios:
+      - "All overlay lifecycle contract assertions pass without xfail markers"
+      - "Existing overlay routing invariants remain green after lifecycle wording changes"
+    why: "Phase gate for AC-1, AC-2, AC-3, AC-4"
+    change: "Remove @pytest.mark.xfail(strict=False) annotations from orchestrator_next/tests/test_learner_overlay_lifecycle_contract.py once T-2 contract edits satisfy assertions; keep skill text and tests aligned for final green verification."
+
+  - id: fix-1
+    title: "Restore telemetry workflow/schema and step-env contract coverage to green"
+    status: completed
+    tokens_in: 0
+    tokens_out: 0
+    duration_s: 1320
+    depends_on: [T-3]
+    files:
+      - config/workflows/feature.yaml
+      - config/workflows/bugfix.yaml
+      - config/workflows/telemetry.yaml
+      - config/steps/render-telemetry/contract.yaml
+      - config/steps/capture-test-baseline/script.sh
+      - orchestrator_next/tests/test_graph_workflow.py
+      - orchestrator_next/tests/test_operator_workflows.py
+      - orchestrator_next/tests/test_step_runner.py
+      - orchestrator_next/tests/test_workflow_schemas_load.py
+    verify:
+      - pytest orchestrator_next/tests/test_graph_workflow.py::test_render_workflow_graph_produces_mermaid[telemetry] -v
+      - pytest orchestrator_next/tests/test_operator_workflows.py::test_step_params_from_contract -v
+      - pytest orchestrator_next/tests/test_operator_workflows.py::test_merge_step_env_os_environ_overrides_contract -v
+      - pytest orchestrator_next/tests/test_step_runner.py::test_capture_test_baseline_script_uses_step_dir_env -v
+      - pytest orchestrator_next/tests/test_workflow_schemas_load.py::test_schema_ends_at_expected_terminal[feature-ticket-qa] -v
+      - pytest orchestrator_next/tests/test_workflow_schemas_load.py::test_schema_ends_at_expected_terminal[bugfix-ticket-qa] -v
+      - pytest orchestrator_next/tests/ -q
+    why: "Phase-boundary verification failed (6 suite failures); restore required workflow contracts before phase signoff."
+    change: "Fix the failing workflow contract/test expectations identified in run-phase-review without changing ORC-99 acceptance scope."
