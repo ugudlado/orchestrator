@@ -9,7 +9,9 @@ steps:
     max_retries: 3
   - ticket-start # ticket -> In Progress (implement entry)
   - run-ux-critique
-  - implement-tasks
+  - id: implement-tasks
+    on_failure: design-and-draft-artifacts
+    max_retries: 3
   - ticket-review # ticket -> Code Review
   - id: run-phase-review
     on_success: ticket-qa
