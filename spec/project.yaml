@@ -490,3 +490,35 @@ rules:
       treat the workflow run as verification-only: mark tasks pre-completed in
       tasks.yaml and do not re-implement. This is intentional behavior; the guard
       is accurate within its scope (lifecycle tracking), not a code inspection tool.
+  - id: verification-only-run-tasks-must-pre-complete
+    learned: 2026-06-02
+    source: orc-123
+    cycle: 1
+    hits: 1
+    misses: 0
+    rule: >
+      When a feature's deliverables are already committed to the branch before the
+      workflow lifecycle begins, the workflow run is verification-only. tasks.yaml
+      must: (a) mark every task `status: completed` in the YAML, (b) write
+      `verify:` commands that assert the shipped state rather than re-implementing
+      it, and (c) document the pre-committed commits by hash in the task's
+      `change:` field or header comment. Do not re-implement or overwrite
+      already-committed work. This is the architect's task-level application of
+      `check-rerun-blind-to-pre-impl-commits` during design-and-draft-artifacts.
+  - id: ac-naming-follow-on-schema-must-match-actual-resume-path
+    learned: 2026-06-02
+    source: orc-123
+    cycle: 1
+    hits: 1
+    misses: 0
+    rule: >
+      When a ticket's AC names a follow-on schema (e.g. `patch`) as the resume
+      target, verify that the named schema actually exercises the design steps
+      that would be skipped. If the named schema has no overlap with those steps
+      (e.g. `patch.yaml` has no `explore` or `design-and-draft-artifacts` steps),
+      the resume AC is a no-op for that schema. In that case: (a) write the AC
+      against the schema that actually demonstrates the skip behavior
+      (`feature`/`bugfix`), (b) document the discrepancy in the Decisions section,
+      and (c) flag it as an Open Question rather than silently renaming.
+      ORC-123 OQ-2: ticket named `patch` for cross-schema resume, but `patch.yaml`
+      has no design steps — the meaningful skip scenario is `feature`/`bugfix`.
