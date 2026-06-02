@@ -188,7 +188,7 @@ def _graph_verb(args: list[str]) -> None:
 
     Modes:
       graph <schema>               — static step topology (stdout)
-      graph <schema> <slug>        — live phase DAG (stdout)
+      graph <schema> <slug>        — schema DAG with cost/token overlay (stdout)
       graph <schema> [<slug>] --html  — write .tmp/graph-<name>.html and open it
 
     Read-only: no state.yaml write, no DuckDB.
@@ -201,15 +201,14 @@ def _graph_verb(args: list[str]) -> None:
 
     if slug:
         state_yaml_path = _resolve_slug_state(schema_name, slug)
-        from orchestrator_next.parser import load_state
-        from orchestrator_next.graph import render_graph
+        from orchestrator_next.graph import render_workflow_graph_with_overlay
+        state_dir = os.path.dirname(state_yaml_path)
         try:
-            state = load_state(state_yaml_path)
-        except (FileNotFoundError, ValueError) as exc:
+            mermaid_src, step_data = render_workflow_graph_with_overlay(schema_name, state_dir)
+        except FileNotFoundError as exc:
             print(f"error: {exc}", file=sys.stderr)
             sys.exit(3)
-        mermaid_src, step_data = render_graph(state)
-        title = f"{schema_name} / {slug} — live DAG"
+        title = f"{schema_name} / {slug} — cost overlay"
     else:
         from orchestrator_next.graph import render_workflow_graph
         try:
