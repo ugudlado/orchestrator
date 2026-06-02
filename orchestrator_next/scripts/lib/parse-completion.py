@@ -37,7 +37,14 @@ def find_completion_block(text: str) -> str | None:
     Searches for 'COMPLETION:' at the start of a line, then captures either:
     - a fenced ```yaml ... ``` block (common in agent stdout), or
     - subsequent indented content until a non-indented line or EOF.
+
+    Handles agents (e.g. Cursor) that emit COMPLETION: mid-line with no
+    preceding newline by normalising the text first.
     """
+    import re as _re
+    # Insert a newline before COMPLETION: when it appears mid-line
+    # (i.e. not preceded by a newline or start-of-string).
+    text = _re.sub(r"(?<!\n)(COMPLETION:)", r"\n\1", text)
     lines = text.splitlines()
     start_idx = None
     for i, line in enumerate(lines):
