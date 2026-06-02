@@ -289,20 +289,26 @@ learned rules based on the just-completed feature's step retry data.
 1. Get recent completed features: prefer `learn_metrics.recent_features_csv` from prep; else `orchestrator_next/scripts/metrics/metrics-query.sh recent-features --limit 10`; if that exits non-zero or returns empty, fall back to listing `spec/changes/archive/*/state.yaml`. Read the just-completed feature's `step_history[]` from the state.yaml.
 2. Build a map: `step_retries[step_id] = total retry count for that step`.
    A step with no retries has count 0.
-3. List all `$ORCHESTRATOR_HOME/config/steps/*.yaml` files.
-4. For each file, grep for lines matching `<!-- learned:`. For each learned rule:
+3. Build lifecycle scan targets as a union:
+   - Step-contract targets: all `$ORCHESTRATOR_HOME/config/steps/*.yaml` files.
+   - Agent-overlay targets: all `$REPO_ROOT/.orchestrator/agents/*.md` files.
+4. For each target file, grep for lines matching `<!-- learned:`. For each learned rule:
    - Parse the metadata fields: `learned`, `source`, `cycle`, `hits` (default 0), `misses` (default 0).
-   - Determine the step_id from the filename (e.g., `execute-one-task.yaml` → `execute-one-task`).
-   - If `step_retries[step_id] == 0`: increment `hits` by 1.
-   - If `step_retries[step_id] > 0`: increment `misses` by 1.
-   - If `step_id` was not executed in this feature (not in step_history): skip — do not update counters.
-5. Rewrite the metadata comment inline with updated counters.
-6. Log: `[learn] Rule effectiveness: updated N rules across M step contracts`
+   - Determine attribution key:
+     - For step-contract targets, derive `step_id` from filename (e.g., `execute-one-task.yaml` → `execute-one-task`).
+     - For agent-overlay targets, map to the owning agent's step executions from `step_history[]` and use the same retry-derived signal.
+   - If the attributed execution has retries == 0: increment `hits` by 1.
+   - If the attributed execution has retries > 0: increment `misses` by 1.
+   - If the attributed step/agent was not executed in this feature: skip — do not update counters.
+5. Rewrite only the inline learned metadata comment with updated counters. Do not rewrite non-learned text.
+6. Never mutate manual overlay prose without `<!-- learned:` metadata.
+7. Log: `[learn] Rule effectiveness: updated N rules across M step contracts/agent overlays`
 
 ### 5b-decay. Rule Decay Evaluation (every 5th invocation)
 
 This sub-step runs only when the current cycle count is a multiple of 5. It scans all
-step contracts for ineffective learned rules and removes flagged rules.
+step contracts and `.orchestrator/agents/*.md` overlays for ineffective learned rules
+and removes flagged rules.
 
 **Trigger check**:
 1. Count archived state.yaml files: prefer `learn_metrics.cycle_count_csv` from prep; else `orchestrator_next/scripts/metrics/metrics-query.sh cycle-count`; if that exits non-zero or returns empty, fall back to `ls spec/changes/archive/*/state.yaml 2>/dev/null | wc -l`. Use the result as cycle count K.
@@ -310,8 +316,10 @@ step contracts for ineffective learned rules and removes flagged rules.
 3. If `K % 5 == 0`: proceed.
 
 **Scan**:
-1. List all `$ORCHESTRATOR_HOME/config/steps/*.yaml` files.
-2. For each file, grep for lines matching `<!-- learned:` to collect all learned rules.
+1. Build lifecycle scan targets as a union:
+   - Step-contract targets: all `$ORCHESTRATOR_HOME/config/steps/*.yaml` files.
+   - Agent-overlay targets: all `$REPO_ROOT/.orchestrator/agents/*.md` files.
+2. For each target file, grep for lines matching `<!-- learned:` to collect all learned rules.
 3. For each learned rule found, parse the metadata:
    - `date` from `learned: YYYY-MM-DD`
    - `source` from `source: FEATURE-ID`
@@ -337,7 +345,8 @@ step contracts for ineffective learned rules and removes flagged rules.
 3. For each flagged rule:
    - Remove or resolve the flagged rule from the step contract
    - ONLY remove rules with `<!-- learned:` metadata — never touch permanent rules (no metadata comment)
-4. Log: `[learn] Rule decay: scanned N rules, flagged M for removal, K for resolution`
+4. In mixed overlay files, only remove learned-stamped entries; never touch manual overlay prose.
+5. Log: `[learn] Rule decay: scanned N rules, flagged M for removal, K for resolution`
 
 ### 5c. Adaptive Quality Bar (every invocation)
 
