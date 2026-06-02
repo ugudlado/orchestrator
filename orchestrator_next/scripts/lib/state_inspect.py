@@ -188,6 +188,23 @@ def cmd_log_step_usage(args: argparse.Namespace) -> int:
 
 _EMPTY_USAGE = {"input_tokens": 0, "output_tokens": 0, "model": "none"}
 
+
+def _apply_duration_ms(payload: dict[str, Any], duration_ms: str) -> None:
+    if not duration_ms:
+        return
+    try:
+        ms = int(duration_ms)
+    except ValueError:
+        return
+    if ms < 0:
+        return
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        usage = dict(_EMPTY_USAGE)
+        payload["usage"] = usage
+    usage["duration_ms"] = ms
+
+
 def _load_usage_file(path: str) -> dict[str, Any]:
     if not path or not os.path.isfile(path):
         return {}
@@ -246,6 +263,8 @@ def cmd_build_payload(args: argparse.Namespace) -> int:
     else:
         sys.stderr.write(f"unknown payload kind: {args.kind}\n")
         return 2
+
+    _apply_duration_ms(payload, getattr(args, "duration_ms", "") or "")
 
     print(json.dumps(payload))
     return 0
@@ -326,6 +345,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="agent-kind: tool working directory (legacy; unused for usage)",
     )
     p.add_argument("--started-at", default="")
+    p.add_argument(
+        "--duration-ms",
+        default="",
+        help="wall-clock step duration in milliseconds (usage.duration_ms)",
+    )
     p.set_defaults(func=cmd_build_payload)
 
     p = sub.add_parser("pi-settings", help="emit pi agent's saved provider/model/thinking as JSON")

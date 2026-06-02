@@ -554,3 +554,85 @@ STUB
   [[ "$output" =~ "feature complete:" ]]
   [[ "$output" =~ "bats-cost-rollup" ]]
 }
+
+# --- ORC-121: duration_ms in done-payload ---
+
+@test "run_step done payload records duration_ms" {
+  local script_path
+  script_path="$(mktemp)"
+  echo '#!/bin/sh; exit 0' > "$script_path"
+  chmod +x "$script_path"
+
+  local call_count_file="$BATS_TMPDIR/call_count"
+  echo 0 > "$call_count_file"
+  local done_payload_file="$BATS_TMPDIR/done_payload_run_step"
+
+  cat > "$STUB_DIR/orchestrator" <<STUB
+#!/bin/sh
+COUNT=\$(cat "$call_count_file")
+echo \$((COUNT + 1)) > "$call_count_file"
+case "\$1 \$COUNT" in
+  "next 0")
+    printf '{"step_id":"step-init","phase":"main","kind":"run_step","run":"$script_path","env":{},"started_at":"2026-06-02T00:00:00Z"}'
+    exit 0
+    ;;
+  "done 1")
+    cat > "$done_payload_file"
+    exit 0
+    ;;
+  "next 2")
+    exit 1
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+STUB
+  chmod +x "$STUB_DIR/orchestrator"
+
+  run_workflow
+  [ "$status" -eq 1 ]
+  [ -f "$done_payload_file" ]
+  python3 -c "import json; d=json.load(open('$done_payload_file')); dur=d.get('usage',{}).get('duration_ms'); assert isinstance(dur,int) and dur >= 0, dur"
+}
+
+@test "run_inline agent done payload records duration_ms" {
+  write_cursor_stub
+  mkdir -p "$REPO_ROOT/.orchestrator/config"
+  cp "$REPO_ROOT/config/agents.yaml" "$REPO_ROOT/.orchestrator/config/agents.yaml"
+  yq -i ".tools.\"cursor-stub\".binary = \"$STUB_DIR/cursor-agent-stub\"" "$REPO_ROOT/.orchestrator/config/agents.yaml"
+  yq -i '.tools."cursor-stub".args_template = ["{prompt}"]' "$REPO_ROOT/.orchestrator/config/agents.yaml"
+  yq -i '.agents.developer.subprocess = "cursor-stub"' "$REPO_ROOT/.orchestrator/config/agents.yaml"
+
+  local call_count_file="$BATS_TMPDIR/call_count"
+  echo 0 > "$call_count_file"
+  local done_payload_file="$BATS_TMPDIR/done_payload_run_inline"
+
+  cat > "$STUB_DIR/orchestrator" <<STUB
+#!/bin/sh
+COUNT=\$(cat "$call_count_file")
+echo \$((COUNT + 1)) > "$call_count_file"
+case "\$1 \$COUNT" in
+  "next 0")
+    printf '{"step_id":"task-T-1","phase":"main","agent":"developer","kind":"run_inline","instruction":"do work","step_context":{"task":{"id":"T-1","title":"Test"}},"env":{},"started_at":"2026-06-02T00:00:00Z"}'
+    exit 0
+    ;;
+  "done 1")
+    cat > "$done_payload_file"
+    exit 0
+    ;;
+  "next 2")
+    exit 1
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+STUB
+  chmod +x "$STUB_DIR/orchestrator"
+
+  run_workflow
+  [ "$status" -eq 1 ]
+  [ -f "$done_payload_file" ]
+  python3 -c "import json; d=json.load(open('$done_payload_file')); dur=d.get('usage',{}).get('duration_ms'); assert isinstance(dur,int) and dur >= 0, dur"
+}

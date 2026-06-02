@@ -1,0 +1,38 @@
+# ORC-121: Track step wall-clock duration in done-payload
+change_id: orc-121
+tasks:
+  - id: T-1
+    title: Wire wall-clock duration_ms into done-payload
+    status: completed
+    tokens_in: 0
+    tokens_out: 0
+    duration_s: 120
+    files:
+      - orchestrator_next/scripts/run-workflow.sh
+      - orchestrator_next/scripts/lib/state_inspect.py
+      - orchestrator_next/scripts/lib/tests/test_state_inspect.py
+    verify:
+      - bash -n orchestrator_next/scripts/run-workflow.sh
+      - python3 -m pytest orchestrator_next/scripts/lib/tests/test_state_inspect.py -q
+    change: |
+      Add --duration-ms to state_inspect build-payload (sets usage.duration_ms).
+      In run-workflow.sh capture STEP_START_MS before each step dispatch (python ms
+      clock for macOS portability) and pass elapsed ms into every build-payload call.
+    why: AC #1–#3 — workflow-report reads usage.duration_ms from step_history.
+
+  - id: T-2
+    title: Bats assert duration_ms in script and agent done payloads
+    status: completed
+    tokens_in: 0
+    tokens_out: 0
+    duration_s: 60
+    depends_on:
+      - T-1
+    files:
+      - tests/test_run_workflow.bats
+    verify:
+      - bats tests/test_run_workflow.bats -f "duration_ms"
+    change: |
+      Extend test_run_workflow.bats with tests that capture orchestrator done stdin
+      and assert usage.duration_ms is a positive integer for run_step and run_inline.
+    why: AC #4 — regression guard for driver duration tracking.

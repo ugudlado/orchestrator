@@ -326,6 +326,11 @@ _log_ts() {
   date +%H:%M:%S
 }
 
+# Millisecond wall clock (portable; macOS date lacks %3N). ORC-121.
+_now_ms() {
+  python3 -c 'import time; print(int(time.time() * 1000))'
+}
+
 # Print usage line for the last terminal step_history row matching step_id/phase.
 _log_step_usage() {
   local step_id="$1"
@@ -482,6 +487,9 @@ while true; do
     printf '[%s]   cost so far: $%.4f\n' "$(_log_ts)" "$COST_SO_FAR" >&2
   fi
 
+  # Wall-clock start for duration_ms in done-payload (ORC-121).
+  STEP_START_MS=$(_now_ms)
+
   # -----------------------------------------------------------------------
   # Dispatch on kind
   # -----------------------------------------------------------------------
@@ -519,9 +527,10 @@ while true; do
         STATUS="failed"
       fi
 
+      DURATION_MS=$(($( _now_ms ) - STEP_START_MS))
       DONE_PAYLOAD=$(python3 "$STATE_INSPECT" build-payload script \
         --step-id "$STEP_ID" --phase "$PHASE" --status "$STATUS" \
-        --started-at "$STARTED_AT")
+        --started-at "$STARTED_AT" --duration-ms "$DURATION_MS")
 
       # Workflow-issues detection (script-warning on exit 10).
       WFI_JSON=$(bash "$DETECT_WORKFLOW_ISSUES" \
@@ -638,9 +647,10 @@ except Exception:
           tail -8 "$TMP_DIR/tool_stderr_${STEP_ID}.txt" >&2
         fi
         # Record failure via orchestrator done
+        DURATION_MS=$(($( _now_ms ) - STEP_START_MS))
         DONE_PAYLOAD=$(python3 "$STATE_INSPECT" build-payload failed \
           --step-id "$STEP_ID" --phase "$PHASE" --agent "$AGENT" \
-          --exit-code "$TOOL_EXIT")
+          --exit-code "$TOOL_EXIT" --duration-ms "$DURATION_MS")
         WFI_JSON=$(bash "$DETECT_WORKFLOW_ISSUES" \
           --phase "$PHASE" --step-id "$STEP_ID" \
           --tool-exit "$TOOL_EXIT" 2>/dev/null || echo "[]")
@@ -688,11 +698,12 @@ PY
       fi
 
       # Build done payload from COMPLETION JSON + dispatch context
+      DURATION_MS=$(($( _now_ms ) - STEP_START_MS))
       DONE_PAYLOAD=$(python3 "$STATE_INSPECT" build-payload agent \
         --step-id "$STEP_ID" --phase "$PHASE" --agent "$AGENT" \
         --stdout-file "$TOOL_STDOUT" --usage-file "$TOOL_USAGE" \
         --cwd "$AGENT_WORK_DIR" \
-        --started-at "$STARTED_AT" <<<"$COMPLETION_JSON")
+        --started-at "$STARTED_AT" --duration-ms "$DURATION_MS" <<<"$COMPLETION_JSON")
 
       # Workflow-issues detection (retry-success when this attempt > 1).
       WFI_JSON=$(bash "$DETECT_WORKFLOW_ISSUES" \
@@ -714,7 +725,7 @@ PY
           cat "$DONE_STDERR" >&2 2>/dev/null || true
           FALLBACK_PAYLOAD=$(python3 "$STATE_INSPECT" build-payload failed \
             --step-id "$STEP_ID" --phase "$PHASE" --agent "$AGENT" \
-            --exit-code "$DONE_EXIT")
+            --exit-code "$DONE_EXIT" --duration-ms "$DURATION_MS")
           echo "$FALLBACK_PAYLOAD" | orchestrator done "$STATE_YAML" || true
         else
           echo "ERROR: orchestrator done exited $DONE_EXIT" >&2
