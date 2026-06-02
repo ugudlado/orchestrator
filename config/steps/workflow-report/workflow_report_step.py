@@ -28,6 +28,34 @@ def _resolve_state(state_path: str, repo_root: str) -> tuple[Path, dict] | tuple
     return None, None
 
 
+def _collect_all_states(primary_path: Path, primary_state: dict, repo_root: str) -> list[dict]:
+    """Collect step_history from all state files for this change_id (feature + complete runs)."""
+    import glob
+    cid = _change_id(primary_state)
+    if not cid:
+        return [primary_state]
+
+    # Gather all state files from the .orchestrator/<cid>/ dir (siblings of primary)
+    state_dir = primary_path.parent
+    sibling_files = sorted(state_dir.glob("*_state.yaml"))
+
+    # Also check archive dir for any archived state
+    archive_pattern = os.path.join(repo_root, "spec", "changes", "archive", f"*{cid}", "state.yaml")
+    archive_files = [Path(p) for p in sorted(glob.glob(archive_pattern))]
+
+    seen = set()
+    states = []
+    for f in sibling_files + archive_files:
+        if f in seen or not f.is_file():
+            continue
+        seen.add(f)
+        s = _load_state(f)
+        if _change_id(s) == cid:
+            states.append(s)
+
+    return states if states else [primary_state]
+
+
 def _render_report(step_history: list, issues: list) -> None:
     """Print per-step duration/tokens/cost table to stderr."""
     if not step_history:
@@ -99,8 +127,12 @@ def main() -> int:
         print(json.dumps({"status": "failed", "evidence": {"summary": "missing change_id"}}))
         return 1
 
-    step_history = state.get("step_history") or []
-    issues = state.get("workflow_issues") or []
+    all_states = _collect_all_states(path, state, repo_root)
+    step_history: list = []
+    issues: list = []
+    for s in all_states:
+        step_history.extend(s.get("step_history") or [])
+        issues.extend(s.get("workflow_issues") or [])
 
     _render_report(step_history, issues)
 
