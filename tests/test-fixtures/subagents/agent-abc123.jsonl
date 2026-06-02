@@ -1,3 +1,0 @@
-{"type":"user","uuid":"su1","sessionId":"sess-sub-001","timestamp":"2026-04-11T20:00:20Z","message":{"content":"implement task"}}
-{"type":"assistant","uuid":"sa1-stream","sessionId":"sess-sub-001","timestamp":"2026-04-11T20:00:25Z","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":1000,"output_tokens":400,"cache_creation_input_tokens":100,"cache_read_input_tokens":2000},"content":"streaming"}}
-{"type":"assistant","uuid":"sa1-final","sessionId":"sess-sub-001","timestamp":"2026-04-11T20:00:30Z","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":2000,"output_tokens":1000,"cache_creation_input_tokens":300,"cache_read_input_tokens":5000,"iterations":[{}]},"content":"done"}}
