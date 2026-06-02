@@ -142,7 +142,8 @@ Evaluate the feature with:
 Classify each finding and route it to the right handler.
 
 **Routing targets:**
-- **Agent prompts** → `skills/<name>/SKILL.md` (tighten instructions when the agent skipped something a contract already enforces)
+- **Agent prompts (base)** → `skills/<name>/SKILL.md` — fleet-shared identity; read for validation only during learn routing; never written by the learn loop
+- **Agent prompt learnings (repo overlay)** → `$REPO_ROOT/.orchestrator/agents/<name>.md` — repo-scoped, stamped deltas appended at dispatch
 - **Workflow rules** → step contracts in `$ORCHESTRATOR_HOME/config/steps/` (deterministic, enforced at execution time, shared across repos) — or `.orchestrator/` override for repo-specific shape changes
 - **Project-specific learnings** → `spec/project.yaml` `learnings:` section (agent-agnostic, persists across sessions, repo-scoped)
 - **Never write to CLAUDE.md** — it's a pointer file only.
@@ -154,7 +155,7 @@ Every finding belongs to exactly one of three buckets. The axes are
 
 | Bucket               | Owner of the miss                                   | Target                                                  |
 |----------------------|-----------------------------------------------------|---------------------------------------------------------|
-| `agent_improvement`  | Agent ignored or skipped an existing contract rule  | `skills/<name>/SKILL.md` — tighten prompt/instructions        |
+| `agent_improvement`  | Agent ignored or skipped an existing contract rule  | `$REPO_ROOT/.orchestrator/agents/<name>.md` — repo-scoped overlay (base `skills/<name>/SKILL.md` validated, never written) |
 | `workflow_improvement` | Step/phase/gate is missing or wrong                | Step contract (global by default) or `.orchestrator/` override |
 | `project_learning`   | Tech-stack / command / domain / path fact needed    | `spec/project.yaml` `learnings[]` or `rules[]`          |
 
@@ -197,9 +198,11 @@ command, file path, or stack tool, it's bucket 2. Workflow files stay
 tool-agnostic.
 
 After classification:
-- `agent_improvement` → edit `skills/<name>/SKILL.md` directly. No metadata
-  comment, no `<!-- learned: -->` stamp. Agent prompts aren't subject to
-  decay evaluation the way contract rules are.
+- `agent_improvement` → append a stamped block to `$REPO_ROOT/.orchestrator/agents/<name>.md`.
+  (1) Validate that `skills/<name>/SKILL.md` exists; if not, skip the write and log it.
+  (2) Scaffold the overlay with a one-line generated-overlay header if the file is absent.
+  (3) Append the learning with `<!-- learned: YYYY-MM-DD, source: FEATURE-ID, cycle: N, repo: NAME -->`
+  metadata on the block. Leave `skills/<name>/SKILL.md` unchanged — the shared base stays pristine.
 - `workflow_improvement` (global) → edit `$ORCHESTRATOR_HOME/config/steps/<step>.yaml`
   per the routing table below. Learned rule gets `<!-- learned: ... -->` metadata.
 - `workflow_improvement` (repo override) → edit `$REPO_ROOT/.orchestrator/<path>`;
@@ -215,10 +218,13 @@ After classification:
 - Identify which agent owned the skipped step (reviewer, developer,
   architect, etc.) — check `state.yaml` step_history for the agent
   assigned to the failing step.
-- Edit `skills/<name>/SKILL.md` to make the existing requirement harder to
-  skip: add an explicit checklist item, name the artifact to inspect,
-  or move the check earlier in the prompt.
-- Do NOT add a rule to the step contract — the contract already has one.
+- Validate `skills/<name>/SKILL.md` exists; if not, skip the overlay write and log it.
+- Append a stamped learning block to `$REPO_ROOT/.orchestrator/agents/<name>.md`
+  (scaffold the overlay with a header on first write) to make the existing
+  requirement harder to skip: add an explicit checklist item, name the artifact
+  to inspect, or move the check earlier in the prompt.
+- Leave `skills/<name>/SKILL.md` unchanged and do NOT add a rule to the step
+  contract — the contract already has one.
 
 **Workflow issues** (schema gaps, step contract bugs, hook problems):
 - Resolve the target file path per scope:
@@ -238,7 +244,7 @@ After classification:
 - Apply the §4a classifier first. The bucket tells you WHERE to write;
   the routing table below (for `workflow_improvement` only) tells you
   WHICH step contract the rule belongs in.
-- `agent_improvement` → edit `skills/<name>/SKILL.md` — skip this table entirely
+- `agent_improvement` → append to `$REPO_ROOT/.orchestrator/agents/<name>.md` — skip this table entirely
 - `workflow_improvement` (global) → `$ORCHESTRATOR_HOME/config/steps/<step>.yaml`
 - `workflow_improvement` (repo override) → `$REPO_ROOT/.orchestrator/steps/<step>.yaml`
 - `project_learning` → append to `spec/project.yaml` `learnings[]` — skip

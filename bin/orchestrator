@@ -435,7 +435,12 @@ def main() -> None:
                 },
             )
 
-        _proc = _sp.run(_run_cmd, capture_output=True, env=_script_env)
+        _inline_cwd = _script_env.get("REPO_ROOT") or None
+        if _inline_cwd and not os.path.isdir(_inline_cwd):
+            _inline_cwd = None
+        _proc = _sp.run(
+            _run_cmd, capture_output=True, env=_script_env, cwd=_inline_cwd
+        )
         if _proc.stderr:
             sys.stderr.buffer.write(_proc.stderr)
             sys.stderr.buffer.flush()
