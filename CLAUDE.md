@@ -73,10 +73,6 @@ schema:  # Workflow schema (feature|bugfix|chore|spike)
   version: 1
   type: feature
 
-flags:   # Flags from CLI or defaults
-  worktree: false
-  linear: true
-
 step_history:  # Terminal steps recorded in metrics
   - step_id: specify
     phase: specify

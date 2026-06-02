@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # create-worktree — create feature worktree for implementation artifacts.
 #
-# No-ops when flags.worktree is false (or absent). When worktree_path is
-# already set in state (prior run seeded it), re-uses it.
+# Always creates a worktree. Re-uses worktree_path if already set in state.
 #
 # Env (injected by orchestrator): REPO_ROOT, CHANGE_ID, STATE_YAML_PATH
 # Outputs: {created, worktree_path, branch} or {created: false, reason}
@@ -16,24 +15,17 @@ set -uo pipefail
 STATE_YAML="${ORCHESTRATOR_STATE_YAML_PATH:-${STATE_YAML_PATH:?orchestrator: STATE_YAML_PATH required}}"
 WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-$HOME/code/feature_worktrees}"
 
-# Read flags.worktree and existing worktree_path from state.
+# Read existing worktree_path and schema from state.
 read_state() {
   python3 -c "
 import sys, yaml
 raw = yaml.safe_load(open('$STATE_YAML')) or {}
-flags = raw.get('flags') or {}
-print(str(flags.get('worktree', '')).lower())
 print(raw.get('worktree_path') or '')
 print(raw.get('schema') or '')
-" 2>/dev/null || printf '\n\n\n'
+" 2>/dev/null || printf '\n\n'
 }
 
-IFS=$'\n' read -r _WORKTREE_FLAG _EXISTING_WT _SCHEMA <<< "$(read_state)"
-
-if [ "$_WORKTREE_FLAG" = "false" ] || [ -z "$_WORKTREE_FLAG" ]; then
-  printf '%s\n' '{"created": false, "reason": "worktree flag not set"}'
-  exit 0
-fi
+IFS=$'\n' read -r _EXISTING_WT _SCHEMA <<< "$(read_state)"
 
 SCHEMA="${_SCHEMA:-feature}"
 BRANCH="$SCHEMA/$CHANGE_ID"

@@ -10,7 +10,7 @@
 # This is the same end state as feature/bugfix.
 steps:
   - check-rerun # halt if this change is already archived (workflow's own decision)
-  - create-worktree # no-op when flags.worktree=false; writes worktree_path+branch to state
+  - create-worktree # creates worktree + branch; writes worktree_path+branch to state
   - explore
   - design-and-draft-artifacts
   - id: design-review

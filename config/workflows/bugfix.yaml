@@ -1,6 +1,6 @@
 steps:
   - check-rerun # halt if this fix is already archived (workflow's own decision)
-  - create-worktree # no-op when flags.worktree=false; writes worktree_path+branch to state
+  - create-worktree # creates worktree + branch; writes worktree_path+branch to state
   - diagnose
   - design-and-draft-artifacts
   - id: design-review
