@@ -32,7 +32,7 @@ agents:
   #        mcp__chrome-devtools__take_screenshot mcp__chrome-devtools__navigate_page
   #        mcp__chrome-devtools__get_console_message mcp__chrome-devtools__list_console_messages
   #        mcp__chrome-devtools__evaluate_script mcp__pal__codereview mcp__pal__consensus
-  reviewer:          { model: sonnet, subprocess: claude }
+  reviewer:          { model: opus,   subprocess: claude }
 
   # subprocess: cursor-agent CLI; model=auto → cursor-agent -p --model auto
   # Override per run: orchestrator run <id> agent.developer.subprocess=pi

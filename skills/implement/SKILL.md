@@ -1,17 +1,19 @@
 ---
 name: implement
-description: "Execute implementation via the orchestrate workflow. Delegates to /orchestrate for a full workflow run. Use when the user says 'implement', 'start building', 'continue feature'."
+description: "Run the implement workflow — skips explore/design, goes straight to coding. Use when design artifacts already exist and the ticket is ready to build. Triggers on 'implement', 'start building', 'build this'."
 user-invocable: true
 args:
   - name: feature-id
-    description: Feature ID (e.g., HL-170). Auto-detected from worktree/branch if omitted.
+    description: Feature ID (e.g., ORC-121). Auto-detected from worktree/branch if omitted.
     required: false
 ---
 
 ## Execution
 
-Route to the orchestrate skill. The orchestrate skill runs the full workflow via the shell driver.
+Run the implement workflow schema. Design artifacts must already exist (design.md, tasks.md).
 
 ```
-orchestrate $ARGUMENTS
+orchestrator run $FEATURE_ID --schema implement
 ```
+
+If no feature-id is provided, detect from current branch or active state.yaml.
