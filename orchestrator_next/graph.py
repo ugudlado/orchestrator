@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -114,21 +115,68 @@ def _normalize_steps(schema: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
-def render_workflow_graph(schema_name: str) -> tuple[str, dict[str, Any]]:
-    """Render a workflow schema's step topology as a Mermaid `flowchart TD` string.
+def _aggregate_step_metrics(state_dir: str | Path) -> dict[str, dict[str, Any]]:
+    """Glob *_state.yaml files and collapse step_history by step_id."""
+    metrics: dict[str, dict[str, Any]] = {}
+    for path in sorted(Path(state_dir).glob("*_state.yaml")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                state = yaml.safe_load(f)
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(state, dict):
+            continue
+        for entry in state.get("step_history") or []:
+            if not isinstance(entry, dict):
+                continue
+            step_id = entry.get("step_id") or ""
+            if not step_id:
+                continue
+            attempt = entry.get("attempt") or 1
+            usage = entry.get("usage") or {}
+            if not isinstance(usage, dict):
+                usage = {}
+            tokens = (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
+            cost = float(usage.get("cost_usd") or 0.0)
+            if step_id not in metrics:
+                metrics[step_id] = {"tokens": tokens, "cost": cost, "attempts": attempt}
+            else:
+                metrics[step_id]["tokens"] += tokens
+                metrics[step_id]["cost"] += cost
+                metrics[step_id]["attempts"] = max(metrics[step_id]["attempts"], attempt)
+    return metrics
 
-    Returns (mermaid_src, step_data). step_data is empty for static schemas
-    (no live run state).
-    """
-    from orchestrator_next.paths import config_root
 
-    schema_path = config_root() / "workflows" / f"{schema_name}.yaml"
-    if not schema_path.is_file():
-        raise FileNotFoundError(f"Workflow schema not found: {schema_path}")
+def _last_history_from_state_dir(state_dir: str | Path) -> dict[str, dict[str, Any]]:
+    """Return the last step_history entry per step_id across all state files."""
+    best: dict[str, dict[str, Any]] = {}
+    for path in sorted(Path(state_dir).glob("*_state.yaml")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                state = yaml.safe_load(f)
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(state, dict):
+            continue
+        for entry in state.get("step_history") or []:
+            if not isinstance(entry, dict):
+                continue
+            sid = entry.get("step_id") or ""
+            if not sid:
+                continue
+            prev = best.get(sid)
+            if prev is None or (entry.get("attempt") or 0) >= (prev.get("attempt") or 0):
+                best[sid] = entry
+    return best
 
-    with open(schema_path, "r", encoding="utf-8") as f:
-        schema = yaml.safe_load(f) or {}
 
+def _render_schema_graph(
+    schema_name: str,
+    schema: dict[str, Any],
+    metrics: dict[str, dict[str, Any]],
+) -> tuple[str, dict[str, Any]]:
+    """Render workflow schema topology; annotate nodes when metrics is non-empty."""
+    overlay = bool(metrics)
     steps = _normalize_steps(schema)
     lines = ["flowchart TD", f"  %% workflow: {schema_name}"]
 
@@ -138,7 +186,15 @@ def render_workflow_graph(schema_name: str) -> tuple[str, dict[str, Any]]:
 
     for step in steps:
         sid = str(step.get("id", ""))
-        lines.append(f'  {_safe_id(sid)}["{sid}"]')
+        safe = _safe_id(sid)
+        m = metrics.get(sid, {})
+        tokens = int(m.get("tokens") or 0)
+        cost = float(m.get("cost") or 0.0)
+        if overlay and tokens > 0:
+            label = f"{sid}\\n{tokens:,} tok · ${cost:.2f}"
+        else:
+            label = sid
+        lines.append(f'  {safe}["{label}"]')
 
     step_ids = [str(s.get("id", "")) for s in steps]
     for idx, step in enumerate(steps):
@@ -159,7 +215,58 @@ def render_workflow_graph(schema_name: str) -> tuple[str, dict[str, Any]]:
         elif next_sid:
             lines.append(f"  {_safe_id(sid)} --> {_safe_id(next_sid)}")
 
+    if overlay:
+        lines.append("")
+        for step in steps:
+            sid = str(step.get("id", ""))
+            attempts = int(metrics.get(sid, {}).get("attempts") or 1)
+            if attempts > 1:
+                lines.append(
+                    f"  style {_safe_id(sid)} fill:#f90,stroke:#d29922,color:#111"
+                )
+        lines.append("")
+        for step in steps:
+            sid = str(step.get("id", ""))
+            lines.append(f"  click {_safe_id(sid)} showStep")
+
     return "\n".join(lines) + "\n", {}
+
+
+def render_workflow_graph(schema_name: str) -> tuple[str, dict[str, Any]]:
+    """Render a workflow schema's step topology as a Mermaid `flowchart TD` string.
+
+    Returns (mermaid_src, step_data). step_data is empty for static schemas
+    (no live run state).
+    """
+    from orchestrator_next.paths import config_root
+
+    schema_path = config_root() / "workflows" / f"{schema_name}.yaml"
+    if not schema_path.is_file():
+        raise FileNotFoundError(f"Workflow schema not found: {schema_path}")
+
+    with open(schema_path, encoding="utf-8") as f:
+        schema = yaml.safe_load(f) or {}
+
+    return _render_schema_graph(schema_name, schema, {})
+
+
+def render_workflow_graph_with_overlay(
+    schema_name: str, state_dir: str | Path
+) -> tuple[str, dict[str, Any]]:
+    """Render schema topology with per-step token/cost/retry overlay from run state."""
+    from orchestrator_next.paths import config_root
+
+    schema_path = config_root() / "workflows" / f"{schema_name}.yaml"
+    if not schema_path.is_file():
+        raise FileNotFoundError(f"Workflow schema not found: {schema_path}")
+
+    with open(schema_path, encoding="utf-8") as f:
+        schema = yaml.safe_load(f) or {}
+
+    metrics = _aggregate_step_metrics(state_dir)
+    mermaid_src, _ = _render_schema_graph(schema_name, schema, metrics)
+    step_data = _last_history_from_state_dir(state_dir)
+    return mermaid_src, step_data
 
 
 def _fmt_duration(ms: Any) -> str:
