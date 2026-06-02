@@ -1,8 +1,8 @@
 """Statechart routing: on_failure rework loop for run-phase-review.
 
 Tests cover end-to-end record() behavior with on_failure edges declared on
-workflow nodes. Review steps emit status: failed (not status: completed with
-a needs_work verdict) — the engine routes via on_failure to the loop target.
+workflow nodes. Review steps emit status: failed + verdict: needs_work —
+_resolve_routing picks on_failure → implement-tasks.
 """
 from __future__ import annotations
 
@@ -190,8 +190,8 @@ def _review_payload(verdict: str, retries_count: int | None = None) -> dict:
     """A run-phase-review `done` payload.
 
     pass → status: completed; needs_work/incomplete_phase → status: failed.
-    Retry counting is engine-owned; retries_count is ignored (kept for back-compat
-    with callers that still pass it but the engine no longer reads it from payload).
+    The reviewer agent emits failed directly (parse-completion.py accepts it).
+    retries_count is ignored (engine-owned; kept for back-compat with old callers).
     """
     status = "completed" if verdict == "pass" else "failed"
     return {
