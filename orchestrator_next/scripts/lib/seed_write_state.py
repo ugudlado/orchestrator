@@ -60,7 +60,6 @@ def main(argv: list[str] | None = None) -> int:
         "schema": d["schema_name"],
         "status": "active",
         "repo_root": repo_root,
-        "flags": d["flags"],
         "workflow_plan": {"main": {"active": d["active"], "filtered": d["filtered"]}},
         "phase": "main",
         "next_step": {"phase": "main", "step_id": d["active"][0]},

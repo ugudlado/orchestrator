@@ -1,9 +1,9 @@
-"""Parse key=value flag overrides and resolve active steps from a workflow schema.
+"""Resolve active steps from a workflow schema.
 
 Usage:
-    python seed_parse_overrides.py <slug> <schema_name> <repo_root> <schema_yaml_path> [key=value ...]
+    python seed_parse_overrides.py <slug> <schema_name> <repo_root> <schema_yaml_path>
 
-Stdout: JSON with keys slug, schema_name, repo_root, flags, active, filtered.
+Stdout: JSON with keys slug, schema_name, repo_root, active, filtered.
 Exit 1 on any pre-condition failure.
 """
 from __future__ import annotations
@@ -19,21 +19,12 @@ def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
     if len(args) < 4:
         print(
-            "Usage: seed_parse_overrides.py <slug> <schema_name> <repo_root> <schema_yaml_path> [key=value ...]",
+            "Usage: seed_parse_overrides.py <slug> <schema_name> <repo_root> <schema_yaml_path>",
             file=sys.stderr,
         )
         return 1
 
     slug, schema_name, repo_root, schema_yaml_path = args[0], args[1], args[2], args[3]
-    raw_overrides = args[4:]
-
-    flags: dict = {}
-    for arg in raw_overrides:
-        if "=" not in arg:
-            print(f"error: flag override '{arg}' must be in key=value format", file=sys.stderr)
-            return 1
-        k, v = arg.split("=", 1)
-        flags[k] = True if v.lower() == "true" else (False if v.lower() == "false" else v)
 
     schema = yaml.safe_load(Path(schema_yaml_path).read_text())
 
@@ -50,7 +41,6 @@ def main(argv: list[str] | None = None) -> int:
         "slug": slug,
         "schema_name": schema_name,
         "repo_root": repo_root,
-        "flags": flags,
         "active": active,
         "filtered": [],
     }))
