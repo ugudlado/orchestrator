@@ -61,36 +61,55 @@ def _render_report(step_history: list, issues: list) -> None:
     if not step_history:
         return
 
-    sys.stderr.write("\n## Workflow step report\n\n")
-    sys.stderr.write(f"{'Step':<35} {'Status':<12} {'Duration':>10} {'Tokens':>10} {'Cost':>10}\n")
-    sys.stderr.write(f"{'-'*35} {'-'*12} {'-'*10} {'-'*10} {'-'*10}\n")
-
-    total_tokens = 0
-    total_cost = 0.0
-    total_ms = 0
-
+    # Collapse entries by step_id: accumulate tokens/cost across all attempts,
+    # track final status and total attempt count.
+    from collections import OrderedDict
+    rows: OrderedDict = OrderedDict()
     for entry in step_history:
         if not isinstance(entry, dict):
             continue
         step_id = entry.get("step_id") or "?"
         status = entry.get("status") or "?"
+        attempt = entry.get("attempt") or 1
         usage = entry.get("usage") or {}
-
-        duration_ms = usage.get("duration_ms") or 0
         tokens = (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
         cost = usage.get("cost_usd") or 0.0
+        duration_ms = usage.get("duration_ms") or 0
+        if step_id not in rows:
+            rows[step_id] = {"status": status, "attempts": attempt, "tokens": tokens, "cost": cost, "duration_ms": duration_ms}
+        else:
+            rows[step_id]["status"] = status  # last status wins
+            rows[step_id]["attempts"] = max(rows[step_id]["attempts"], attempt)
+            rows[step_id]["tokens"] += tokens
+            rows[step_id]["cost"] += cost
+            rows[step_id]["duration_ms"] += duration_ms
+
+    sys.stderr.write("\n## Workflow step report\n\n")
+    sys.stderr.write(f"{'Step':<35} {'Status':<12} {'Attempts':>8} {'Duration':>10} {'Tokens':>10} {'Cost':>10}\n")
+    sys.stderr.write(f"{'-'*35} {'-'*12} {'-'*8} {'-'*10} {'-'*10} {'-'*10}\n")
+
+    total_tokens = 0
+    total_cost = 0.0
+    total_ms = 0
+
+    for step_id, r in rows.items():
+        attempts = r["attempts"]
+        duration_ms = r["duration_ms"]
+        tokens = r["tokens"]
+        cost = r["cost"]
 
         total_ms += duration_ms
         total_tokens += tokens
         total_cost += cost
 
+        att_str = f"{attempts} ✗" if attempts > 1 else "1"
         dur_str = f"{duration_ms / 1000:.1f}s" if duration_ms else "—"
         tok_str = f"{tokens:,}" if tokens else "—"
         cost_str = f"${cost:.4f}" if cost else "—"
 
-        sys.stderr.write(f"{step_id:<35} {status:<12} {dur_str:>10} {tok_str:>10} {cost_str:>10}\n")
+        sys.stderr.write(f"{step_id:<35} {r['status']:<12} {att_str:>8} {dur_str:>10} {tok_str:>10} {cost_str:>10}\n")
 
-    sys.stderr.write(f"\n{'TOTAL':<35} {'':12} {total_ms/1000:.1f}s {total_tokens:>10,} ${total_cost:>9.4f}\n")
+    sys.stderr.write(f"\n{'TOTAL':<35} {'':12} {'':>8} {total_ms/1000:.1f}s {total_tokens:>10,} ${total_cost:>9.4f}\n")
 
     if issues:
         sys.stderr.write(f"\n## Workflow issues ({len(issues)})\n\n")
