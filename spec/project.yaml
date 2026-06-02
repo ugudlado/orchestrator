@@ -226,6 +226,37 @@ learnings:
       that use the sentinel as a fallback or comparison silently misbehave after removal:
       the fallback activates unconditionally and the comparison becomes dead code. Include
       these shell files in the task's file list or add a separate task targeting them.
+  - id: deletion-task-no-tdd
+    learned: 2026-06-02
+    source: orc-117
+    rule: >
+      Pure deletion tasks (removing dead code with no new behavior) should use
+      atomic delete-and-fix commits, not RED/GREEN TDD pairs. TDD drives new
+      behavior; for deletions the "test" would only assert absence, which the
+      existing suite already does after the edit. Use tdd_required: false and
+      select an approach that keeps pytest green at every commit boundary by
+      fusing each deleted code region with the tests coupled to it.
+  - id: coupled-deletion-must-fuse
+    learned: 2026-06-02
+    source: orc-117
+    rule: >
+      When two files form a hard dependency chain (e.g. file B does `d[key]` on
+      JSON produced by file A), removing them in separate tasks creates a "dark
+      period" where the runtime raises a KeyError that no unit test covers — the
+      suite stays green while the real execution path is broken. Fuse both edits
+      into a single task AND add a pipe-through verify that runs both scripts
+      end-to-end. This is the only reliable defense: unit tests cannot catch
+      cross-script runtime coupling.
+  - id: ac-as-named-baseline-not-count
+    learned: 2026-06-02
+    source: orc-117
+    rule: >
+      When baseline test failures include untracked files that may be absent in a
+      clean worktree (e.g. in-flight ORC work), express AC-4 as "no test fails
+      outside this named set" rather than a literal failure count. A count
+      comparison silently shifts when the untracked file is absent in the feature
+      worktree — the count drops and a naive "≤N failures" check passes even if
+      the feature introduced a new failure.
   - id: worktree-branch-sync
     learned: 2026-05-22
     source: orc-78
