@@ -1,0 +1,155 @@
+# tasks.yaml — ORC-122: orchestrator graph cost/token/attempt overlay
+# Contract: config/steps/design-and-draft-artifacts/prompt.md § Tasks YAML Format Contract
+# All verify commands are repo-root-relative.
+version: 1
+tasks:
+  - id: T-1
+    title: "Write overlay tests (RED — xfail until T-2/T-3 land)"
+    status: completed
+    tokens_in: 45000
+    tokens_out: 3500
+    duration_s: 180
+    depends_on: []
+    files:
+      - orchestrator_next/tests/test_graph_overlay.py
+    verify:
+      - python3 -m pytest orchestrator_next/tests/test_graph_overlay.py -v
+    test_scenarios:
+      - "_aggregate_step_metrics globs every *_state.yaml in a dir and merges step_history across files (write 2 synthetic state files in tmp_path: one with implement-tasks, one with workflow-report; assert both step_ids present in the result)"
+      - "_aggregate_step_metrics sums input+output tokens and cost_usd across multiple entries of the same step_id, and sets attempts = max(attempt) (two implement-tasks entries att=1 and att=2 → summed tokens/cost, attempts=2)"
+      - "render_workflow_graph_with_overlay annotates agent-step nodes with 'N tok · $X.XX' label (assert 'implement-tasks' node label contains 'tok ·' and a '$' amount)"
+      - "render_workflow_graph_with_overlay renders script-only steps (usage absent / no tokens) as plain 'step-id' with no metrics line"
+      - "render_workflow_graph_with_overlay emits a 'style <safe_id> fill:#f90' line for a step with attempts > 1, and no such line for single-attempt steps"
+      - "render_workflow_graph_with_overlay returns step_data (dict) suitable for the HTML sidebar (non-empty for a slug with agent steps; keys are step_ids carrying usage)"
+      - "overlay mode emits a 'click <safe_id> showStep' line for nodes (so HTML sidebar resolves per-step data)"
+      - "render_workflow_graph (no overlay) is byte-for-byte unchanged: step_data == {}, AND the output contains NO 'click ' line and NO 'style ' line (these belong to overlay mode only). Capture the current render_workflow_graph('feature') output as a golden string and assert equality."
+    why: "AC-1, AC-2, AC-3, AC-4 — locks the aggregation + label + style + no-regression contract before implementation."
+    change: >-
+      Create orchestrator_next/tests/test_graph_overlay.py. Import from
+      orchestrator_next.graph: _aggregate_step_metrics,
+      render_workflow_graph_with_overlay, render_workflow_graph (the first two do
+      not exist yet — that is the RED state). Build synthetic runs by writing
+      *_state.yaml files into tmp_path with a 'change_id', 'schema', and
+      'step_history' list whose entries carry step_id / attempt / status /
+      usage{input_tokens,output_tokens,cost_usd}; mirror the shapes verified in
+      design.md (orc-120 / orc-99). Mark EVERY test function in this file with
+      '@pytest.mark.xfail(strict=False)' so the verify command exits 0 while the
+      target functions are absent (RED). The xfail markers are removed in T-4
+      (the integration gate). Do NOT touch graph.py in this task.
+
+  - id: T-2
+    title: "Implement aggregation + overlay renderer in graph.py (GREEN)"
+    status: completed
+    tokens_in: 25000
+    tokens_out: 4000
+    duration_s: 120
+    depends_on: [T-1]
+    files:
+      - orchestrator_next/graph.py
+      - orchestrator_next/tests/test_graph_overlay.py
+    verify:
+      - python3 -m pytest orchestrator_next/tests/test_graph_overlay.py -v
+    test_scenarios:
+      - "T-1 aggregation tests pass (glob+merge, sum tokens/cost, max attempt)"
+      - "T-1 label/style/script-only tests pass"
+      - "render_workflow_graph no-slug regression test still passes"
+    why: "AC-1, AC-2, AC-3, AC-4 — the overlay implementation."
+    change: >-
+      In orchestrator_next/graph.py: (1) Add _aggregate_step_metrics(state_dir)
+      that globs sorted(Path(state_dir).glob('*_state.yaml')), loads each via
+      yaml.safe_load (skip non-dict files/entries defensively), merges all
+      step_history, and collapses by step_id into
+      {step_id: {'tokens': sum(input+output), 'cost': sum(cost_usd),
+      'attempts': max(attempt)}} — mirror the collapse in
+      config/steps/workflow-report/workflow_report_step.py _render_report
+      (sum tokens/cost, max attempt). (2) Extract the node/edge body of
+      render_workflow_graph into a shared _render_schema_graph(schema, metrics)
+      helper: for each step, if metrics[sid] has tokens > 0 emit label
+      '"{sid}\\n{tokens:,} tok · ${cost:.2f}"', else plain '"{sid}"'; keep the
+      existing edge logic. CRITICAL for AC-4 byte-for-byte: emit the
+      'style {safe_id} fill:#f90,stroke:#d29922,color:#111' lines (for attempts > 1)
+      and the 'click {safe_id} showStep' callbacks ONLY when metrics is non-empty
+      (overlay mode). When metrics == {} the helper must produce EXACTLY today's
+      render_workflow_graph output — no style lines, no click lines. (3) Make
+      render_workflow_graph(schema_name) a thin wrapper calling
+      _render_schema_graph(schema, {}) so its output is byte-for-byte unchanged
+      (T-1 golden-equality test guards this).
+      (4) Add render_workflow_graph_with_overlay(schema_name, state_dir): load the
+      schema (reuse the config_root()/workflows path + FileNotFoundError guard
+      from render_workflow_graph), call _aggregate_step_metrics(state_dir), render
+      via _render_schema_graph, and build step_data = last step_history entry per
+      step_id across all files (for the sidebar). Also remove the
+      '@pytest.mark.xfail' markers added in T-1 from any test that now passes
+      (cleanup happens fully in T-4; remove here only if a marker causes an
+      xpass-strict issue — strict=False means xpass is allowed, so leaving them
+      until T-4 is fine).
+
+  - id: T-3
+    title: "Route graph <schema> <slug> to the overlay renderer (CLI wiring)"
+    status: completed
+    tokens_in: 15000
+    tokens_out: 2000
+    duration_s: 90
+    depends_on: [T-2]
+    files:
+      - bin/orchestrator
+      - orchestrator_next/tests/_overlay_html_smoke.py
+    verify:
+      - python3 -c "import ast; ast.parse(open('bin/orchestrator').read())"
+      - orchestrator graph feature | grep -q 'workflow: feature'
+      - python3 orchestrator_next/tests/_overlay_html_smoke.py
+    test_scenarios:
+      - "bin/orchestrator parses as valid Python and the slug branch calls render_workflow_graph_with_overlay (not render_graph)"
+      - "graph <schema> (no slug) still prints the plain workflow topology"
+      - "end-to-end via library: a synthetic .orchestrator/<slug>/ (built in tmp) rendered through render_workflow_graph_with_overlay + render_html yields HTML containing the overlay label ('tok ·'), a real agent step_id key inside the STEP_DATA JSON with its usage, and a 'showStep' click binding (AC-5: sidebar resolves per-step data)"
+    why: "AC-1, AC-3, AC-4, AC-5 — connect the new renderer to the existing CLI verb without new flags; confirm --html carries the overlay using a self-built fixture (no dependency on volatile, gitignored .orchestrator/ run data)."
+    change: >-
+      Two edits. (1) bin/orchestrator _graph_verb slug branch: it currently builds
+      state_yaml_path via _resolve_slug_state and calls render_graph(state).
+      Replace with: still call _resolve_slug_state(schema_name, slug) first (keeps
+      the exit-3 guard for a nonexistent slug — UC-E3), then derive
+      state_dir = os.path.dirname(state_yaml_path) and call
+      render_workflow_graph_with_overlay(schema_name, state_dir); set
+      title = f'{schema_name} / {slug} — cost overlay'. Drop the render_graph
+      import from this branch (render_graph stays in graph.py for tests; it is no
+      longer the CLI's slug renderer — see design.md Decisions). Leave the no-slug
+      branch and the --html branch untouched (both already feed mermaid_src +
+      step_data into render_html). (2) Create
+      orchestrator_next/tests/_overlay_html_smoke.py: a standalone script (exit 0
+      pass / 1 fail) that writes a synthetic '<tmp>/.orchestrator/demo/'
+      *_feature_state.yaml containing a real schema step (e.g. 'implement-tasks')
+      with usage{input_tokens,output_tokens,cost_usd} and attempt=1, calls
+      render_workflow_graph_with_overlay('feature', that dir) then render_html on
+      the result, and asserts ALL of: (a) 'tok ·' is in the HTML (overlay label),
+      (b) the literal step_id key '"implement-tasks"' appears inside the embedded
+      STEP_DATA JSON payload (not just the constant name — proves step_data is
+      populated), and (c) a 'showStep' click binding is present (sidebar wiring).
+      Do NOT assert merely 'STEP_DATA' in html — that constant is always present
+      and proves nothing. This keeps AC-5's verify self-contained: .orchestrator/
+      is gitignored and absent from the worktree, so real-run slugs cannot be
+      assumed present.
+
+  - id: T-4
+    title: "Integration gate — strip xfail markers, confirm overlay GREEN"
+    status: completed
+    tokens_in: 10000
+    tokens_out: 1500
+    duration_s: 60
+    depends_on: [T-3]
+    files:
+      - orchestrator_next/tests/test_graph_overlay.py
+    verify:
+      - python3 -m pytest orchestrator_next/tests/test_graph_overlay.py "orchestrator_next/tests/test_graph_workflow.py" -v -k "not telemetry"
+      - python3 -c "import sys; src=open('orchestrator_next/tests/test_graph_overlay.py').read(); sys.exit(1 if 'xfail' in src else 0)"
+    test_scenarios:
+      - "all test_graph_overlay.py tests pass with NO xfail markers remaining"
+      - "test_graph_workflow.py no-slug graph tests pass — the [telemetry] param is deselected via -k 'not telemetry' because telemetry.yaml is missing at HEAD (pre-existing, out of scope; see ORC-119 phase-gate learning)"
+      - "no @pytest.mark.xfail string remains in test_graph_overlay.py (asserted by the grep guard)"
+    why: "Phase gate for the feature — confirms the overlay is fully GREEN and the RED scaffolding is cleaned up. Scoped to the feature's own test files because the full suite (pytest orchestrator_next/tests/) has 4 pre-existing HEAD failures (telemetry schema, 2 operator_workflows, capture-baseline) per ORC-119 learning."
+    change: >-
+      Remove every '@pytest.mark.xfail(strict=False)' decorator (and the now-unused
+      pytest.mark import if it becomes dead) from
+      orchestrator_next/tests/test_graph_overlay.py so the tests run as real
+      assertions. Confirm both the overlay test file and the existing
+      test_graph_workflow.py pass. Do NOT widen verify to the full suite — it is
+      not green at HEAD and the 4 failures are unrelated to this feature.
