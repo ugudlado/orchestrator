@@ -1,0 +1,63 @@
+version: 1
+tasks:
+  - id: T-1
+    title: Update implement-tasks prompt for patch workflow (no design artifacts)
+    status: completed
+    tokens_in: 0
+    tokens_out: 0
+    duration_s: 60
+    depends_on: []
+    files:
+      - config/steps/implement-tasks/prompt.md
+    verify:
+      - grep -q 'Patch workflow' config/steps/implement-tasks/prompt.md
+      - grep -q 'tasks.yaml.*optional\|optional.*tasks.yaml\|absent' config/steps/implement-tasks/prompt.md
+    change: |
+      Add a "Patch workflow (no design artifacts)" section: when design.md and
+      tasks.yaml are absent, use the ticket description + implementation plan
+      injected in the prompt as the spec; derive work items from acceptance
+      criteria; create tasks.yaml in the artifact dir when tracking multiple
+      items; do not block on missing design.md.
+    test_scenarios:
+      - Patch run with no design.md proceeds using ticket as spec
+      - Prompt documents tasks.yaml as optional for patch schema
+
+  - id: T-2
+    title: Add patch schema to workflow load tests and fix terminal step expectations
+    status: completed
+    tokens_in: 0
+    tokens_out: 0
+    duration_s: 90
+    depends_on: []
+    files:
+      - orchestrator_next/tests/test_workflow_schemas_load.py
+    verify:
+      - pytest orchestrator_next/tests/test_workflow_schemas_load.py -q
+    change: |
+      Add patch (and design) to schema load coverage. Update terminal-step
+      expectations: feature, bugfix, and patch end at run-learn-cycle (not
+      ticket-qa). Add test_patch_schema_retry_edges asserting implement-tasks
+      and run-phase-review on_failure/on_success/max_retries from patch.yaml.
+    test_scenarios:
+      - patch.yaml loads through generate_plan without phantom steps
+      - patch implement-tasks has on_failure implement-tasks max_retries 3
+      - run-phase-review has on_success ticket-qa on_failure implement-tasks
+
+  - id: T-3
+    title: Update run-phase-review prompt for patch AC verification fallback
+    status: completed
+    tokens_in: 0
+    tokens_out: 0
+    duration_s: 45
+    depends_on: [T-1]
+    files:
+      - config/steps/run-phase-review/prompt.md
+    verify:
+      - grep -q 'patch' config/steps/run-phase-review/prompt.md
+      - grep -q 'ticket' config/steps/run-phase-review/prompt.md
+    change: |
+      In AC verification (step 5c), when design.md is absent and schema is
+      patch, verify acceptance criteria from the ticket body injected in the
+      prompt instead of design.md.
+    test_scenarios:
+      - Phase review on patch workflow uses ticket ACs when design.md missing
