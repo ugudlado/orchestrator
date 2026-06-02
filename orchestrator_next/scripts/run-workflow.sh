@@ -707,9 +707,20 @@ PY
         _log_step_usage "$STEP_ID" "$PHASE"
       else
         DONE_EXIT=$?
-        echo "ERROR: orchestrator done exited $DONE_EXIT" >&2
-        cat "$DONE_STDERR" 2>/dev/null || true
-        exit 7
+        # Exit 3 = payload validation failure (bad output shape from agent).
+        # Record it as failed so on_failure routing can retry; don't abort.
+        if [ "$DONE_EXIT" -eq 3 ]; then
+          echo "WARN: orchestrator done rejected payload for $STEP_ID (exit 3) — recording as failed" >&2
+          cat "$DONE_STDERR" >&2 2>/dev/null || true
+          FALLBACK_PAYLOAD=$(python3 "$STATE_INSPECT" build-payload failed \
+            --step-id "$STEP_ID" --phase "$PHASE" --agent "$AGENT" \
+            --exit-code "$DONE_EXIT")
+          echo "$FALLBACK_PAYLOAD" | orchestrator done "$STATE_YAML" || true
+        else
+          echo "ERROR: orchestrator done exited $DONE_EXIT" >&2
+          cat "$DONE_STDERR" >&2 2>/dev/null || true
+          exit 7
+        fi
       fi
       ;;
 
