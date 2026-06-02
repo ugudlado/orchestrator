@@ -272,7 +272,7 @@ context:
     - ORCHESTRATOR_HOME is the canonical env var (replacing SPEC_HOME from shell repo).
 
 verify_commands:
-  test: pytest config/scripts/orchestrator_next/tests/ -q
+  test: pytest orchestrator_next/tests/ -q
 
 quality_bar:
   min_phase_review_score: 9
