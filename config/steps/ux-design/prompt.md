@@ -15,6 +15,15 @@
 ## Instructions
 
 1. Read the discovery brief's "UI Direction" section for context.
+   **If the UI Direction is "N/A" or explicitly states no UI components,
+   immediately abandon this step — do NOT generate prototypes or artifacts:**
+   ```
+   COMPLETION:
+     step_id: ux-design
+     status: abandoned
+     outputs:
+       reason: "No UI surface — discovery brief UI Direction is N/A"
+   ```
 2. Generate 3 design options via /playground skill.
    - If /playground fails: escalate to user with error. Do not proceed silently.
 3. Present options to user for selection.

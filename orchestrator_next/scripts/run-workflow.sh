@@ -207,6 +207,8 @@ build_prompt() {
 ---
 You MUST end your stdout with a COMPLETION: block. Fields must be indented under COMPLETION: with two spaces — do NOT write them at column 0 and do NOT wrap in code fences.
 
+IMPORTANT: Output values are parsed as YAML. If a value contains a colon (:), quote the entire value with double quotes.
+
 Success form:
 COMPLETION:
   step_id: <this-step-id>
@@ -219,7 +221,7 @@ COMPLETION:
   step_id: <this-step-id>
   status: abandoned
   outputs:
-    reason: <why this step could not complete>
+    reason: "why this step could not complete (quote if the reason contains a colon)"
 BLOCK
 )
   if [ -n "$ticket_context" ]; then
@@ -610,6 +612,10 @@ except Exception:
       fi
       WORKFLOW_META=$(python3 "$STATE_INSPECT" workflow-meta "$STATE_YAML" 2>/dev/null || true)
       PROMPT=$(build_prompt "$INSTRUCTION" "$STEP_CONTEXT" "$TICKET_CONTEXT" "$WORKFLOW_META")
+      AGENT_OVERLAY=$(python3 -m orchestrator_next.agent_overlay "$REPO_ROOT" "$AGENT" 2>/dev/null || true)
+      if [ -n "$AGENT_OVERLAY" ]; then
+        PROMPT="$PROMPT"$'\n'"$AGENT_OVERLAY"
+      fi
       PROMPT_FILE="$TMP_DIR/prompt_${STEP_ID}.txt"
       echo "$PROMPT" > "$PROMPT_FILE"
 
