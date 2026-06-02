@@ -13,6 +13,11 @@ user-invocable: true
 # must NOT honour that fallback when running inside a worktree — learn edits
 # belong on the branch they were learned on.
 REPO_ROOT=$(git rev-parse --show-toplevel)
+# Step contract writes always go to $REPO_ROOT/config/steps/ — the worktree's
+# own config directory. This keeps learned rules on the feature branch so they
+# go through merge review before landing on main. Never write to ORCHESTRATOR_HOME
+# during a feature run.
+STEPS_DIR="$REPO_ROOT/config/steps"
 REPO_NAME=$(basename "$REPO_ROOT")
 ORCHESTRATOR_HOME=${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}
 WORKFLOW_STATE_DIR="${WORKFLOW_STATE_DIR:-$REPO_ROOT/spec/changes}"
@@ -203,12 +208,9 @@ After classification:
   (2) Scaffold the overlay with a one-line generated-overlay header if the file is absent.
   (3) Append the learning with `<!-- learned: YYYY-MM-DD, source: FEATURE-ID, cycle: N, repo: NAME -->`
   metadata on the block. Leave `skills/<name>/SKILL.md` unchanged — the shared base stays pristine.
-- `workflow_improvement` (global) → edit `$ORCHESTRATOR_HOME/config/steps/<step>.yaml`
-  per the routing table below. Learned rule gets `<!-- learned: ... -->` metadata.
-- `workflow_improvement` (repo override) → edit `$REPO_ROOT/.orchestrator/<path>`;
-  copy global file first if the override doesn't exist. Override fully replaces
-  the global file — no YAML merge. Repo-override path: `$REPO_ROOT/.orchestrator/<relative_path>`;
-  fallback: `$ORCHESTRATOR_HOME/config/<relative_path>`.
+- `workflow_improvement` → edit `$STEPS_DIR/<step>/prompt.md` (the worktree's
+  own config/steps/ directory). Learned rule gets `<!-- learned: ... -->` metadata.
+  Changes land on the feature branch and go through merge review before main.
 - `project_learning` → append to `spec/project.yaml` `learnings[]` with
   `id`, `learned`, and `rule` fields. Never modify global step contracts.
 
@@ -228,10 +230,8 @@ After classification:
 
 **Workflow issues** (schema gaps, step contract bugs, hook problems):
 - Resolve the target file path per scope:
-  - Global → `$ORCHESTRATOR_HOME/config/steps/<step>.yaml`
-  - Repo override → `$REPO_ROOT/.orchestrator/steps/<step>.yaml` (copy global first if missing)
+  - Target: `$STEPS_DIR/<step>/prompt.md`
 - Only edit `### Rules`, `## Verify`, or `## Instructions` sections in `prompt.md` — never touch contract.yaml (routing only) or permanent rules (no `<!-- learned:` stamp).
-- For repo overrides, the override file fully replaces its global counterpart — copy the global file first if the override doesn't exist, then edit.
 - Apply the edit directly and stamp the rule with `<!-- learned: ... -->` metadata per § Rule metadata below.
 - Fix is applied immediately to disk — improves the next workflow execution.
 
@@ -245,8 +245,7 @@ After classification:
   the routing table below (for `workflow_improvement` only) tells you
   WHICH step contract the rule belongs in.
 - `agent_improvement` → append to `$REPO_ROOT/.orchestrator/agents/<name>.md` — skip this table entirely
-- `workflow_improvement` (global) → `$ORCHESTRATOR_HOME/config/steps/<step>.yaml`
-- `workflow_improvement` (repo override) → `$REPO_ROOT/.orchestrator/steps/<step>.yaml`
+- `workflow_improvement` → `$STEPS_DIR/<step>/prompt.md`
 - `project_learning` → append to `spec/project.yaml` `learnings[]` — skip
   this table entirely (no step contract involved)
 
