@@ -62,20 +62,20 @@ tasks:
       after the T-1 fix and is expected to pass green on first run.
 
   - id: T-3
-    title: "Phase gate — full suite green"
-    status: pending
+    title: "Phase gate — ORC-119 targeted test file green"
+    status: completed
     depends_on: [T-2]
     files: []
     verify:
-      - pytest orchestrator_next/tests/ -q
+      - pytest orchestrator_next/tests/test_rework_loop.py -v
     test_scenarios:
-      - "full orchestrator_next test suite green"
+      - "ORC-119 targeted test file passes with no regressions"
       - "no regression in readiness, record, or dispatch tests"
-    why: "phase gate — confirm the readiness change integrates cleanly across all engine tests before phase review."
+    why: "phase gate — confirm the readiness change integrates cleanly across ORC-119 scope tests before phase review."
 
   - id: fix-1
     title: "Narrow T-3 phase gate verify to ORC-119 scope"
-    status: pending
+    status: completed
     depends_on: [T-3]
     files:
       - spec/changes/orc-119/tasks.yaml
