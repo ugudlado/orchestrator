@@ -471,17 +471,20 @@ def main() -> None:
                         _outputs = _json.loads(_stdout_lines[-1])
                     except (_json.JSONDecodeError, ValueError):
                         pass
-                _record(
-                    state_yaml_path,
-                    {
-                        "step_id": _step_id,
-                        "phase": _phase,
-                        "attempt": _attempt,
-                        "status": "completed",
-                        "outputs": _outputs,
-                        "evidence": {"outputs": _outputs, "summary": "inline script completed"},
-                    },
-                )
+                _payload = {
+                    "step_id": _step_id,
+                    "phase": _phase,
+                    "attempt": _attempt,
+                    "status": "completed",
+                    "outputs": _outputs,
+                    "evidence": {"outputs": _outputs, "summary": "inline script completed"},
+                }
+                # Hoist state_patch from script outputs so record.py applies it.
+                # create-worktree embeds state_patch inside its JSON output to
+                # write worktree_path/branch back to state.yaml.
+                if isinstance(_outputs.get("state_patch"), dict):
+                    _payload["state_patch"] = _outputs["state_patch"]
+                _record(state_yaml_path, _payload)
             _stderr_step_log(f"✓ {_step_id}  done  status=completed")
             sys.exit(0)
 
