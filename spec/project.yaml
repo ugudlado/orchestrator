@@ -273,6 +273,11 @@ context:
 
 verify_commands:
   test: pytest orchestrator_next/tests/ -q
+  # Two intentional test roots:
+  #   orchestrator_next/tests/  — pytest unit/integration tests (Python internals)
+  #   tests/                    — bats shell integration tests (workflow engine end-to-end)
+  #   tests/bats/               — bats tests with co-located tests/bats/fixtures/
+  #   tests/inline/             — inline script bats tests with co-located tests/inline/fixtures/
 
 quality_bar:
   min_phase_review_score: 9
