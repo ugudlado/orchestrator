@@ -1,7 +1,0 @@
-# Operator workflow — metrics dashboard (no feature state.yaml).
-#
-# CLI: orchestrator telemetry
-# Driver: orchestrator_next/scripts/orchestrator-telemetry.sh
-# Params: config/steps/render-telemetry/contract.yaml (override via env at invoke)
-steps:
-  - render-telemetry
