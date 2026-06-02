@@ -51,7 +51,6 @@ def _make_project_yaml(tmp_path: Path, rules: list) -> Path:
 def _make_state_yaml(
     tmp_path: Path,
     schema: str,
-    flags: dict,
     workflow_plan: dict,
     repo_root: str | None = None,
 ) -> Path:
@@ -61,7 +60,6 @@ def _make_state_yaml(
         "schema": schema,
         "status": "active",
         "repo_root": repo_root or str(tmp_path),
-        "flags": flags,
         "workflow_plan": workflow_plan,
         "phase": list(workflow_plan.keys())[0],
         "step_history": [],
@@ -102,12 +100,6 @@ def test_light_flag_drops_filtered_steps(tmp_path, monkeypatch):
             }
         ],
     }
-    flags = {
-        "light": True,
-        "discovery": False,
-        "ux_design": False,
-        "tdd_required": False,
-    }
     # Only active steps (filtered ones already resolved out of workflow_plan)
     workflow_plan = {
         "specify": {
@@ -136,7 +128,7 @@ def test_light_flag_drops_filtered_steps(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
 
-    state_path = _make_state_yaml(tmp_path, "feature", flags, workflow_plan)
+    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
 
     # Act
     generate_plan(str(state_path))
@@ -179,15 +171,11 @@ def test_rule_merge_precedence(tmp_path, monkeypatch):
                     {
                         "id": "my-step",
                         "extra_rules": ["Extra injection rule."],
-                        "rules_when": {
-                            "some_flag": ["Injected from rules_when."],
-                        },
                     }
                 ],
             }
         ],
     }
-    flags = {"some_flag": True}
     workflow_plan = {
         "work": {
             "active": ["my-step"],
@@ -221,7 +209,7 @@ def test_rule_merge_precedence(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
 
-    state_path = _make_state_yaml(tmp_path, "test-schema", flags, workflow_plan)
+    state_path = _make_state_yaml(tmp_path, "test-schema", workflow_plan)
 
     # Act
     generate_plan(str(state_path))
@@ -231,7 +219,6 @@ def test_rule_merge_precedence(tmp_path, monkeypatch):
     rules = step["rules"]
 
     # Tier 1 (injected) must appear before tier 2 (contract)
-    idx_injected_when = rules.index("Injected from rules_when.")
     idx_extra = rules.index("Extra injection rule.")
     idx_contract = rules.index("Contract-level rule.")
     idx_phase = rules.index("Phase-level rule.")
@@ -241,7 +228,6 @@ def test_rule_merge_precedence(tmp_path, monkeypatch):
     assert "Project loses on named-both." not in rules
 
     # Precedence order
-    assert idx_injected_when < idx_contract, "rules_when injection must precede contract rules"
     assert idx_extra < idx_contract, "extra_rules injection must precede contract rules"
     assert idx_contract < idx_phase, "contract rules must precede phase rules"
     idx_schema_only = rules.index("Schema-only rule.")
@@ -271,7 +257,6 @@ def test_byte_stable_output(tmp_path, monkeypatch):
             }
         ],
     }
-    flags = {}
     workflow_plan = {
         "specify": {"active": ["step-a", "step-b"], "filtered": []}
     }
@@ -292,7 +277,7 @@ def test_byte_stable_output(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
 
-    state_path = _make_state_yaml(tmp_path, "feature", flags, workflow_plan)
+    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
 
     # Run twice — the promoted state.yaml must be byte-identical (idempotent).
     generate_plan(str(state_path))
@@ -329,7 +314,6 @@ def test_repeat_until_preserved(tmp_path, monkeypatch):
             }
         ],
     }
-    flags = {}
     workflow_plan = {
         "implement": {"active": ["execute-next-task"], "filtered": []}
     }
@@ -357,7 +341,7 @@ def test_repeat_until_preserved(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
 
-    state_path = _make_state_yaml(tmp_path, "feature", flags, workflow_plan)
+    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
 
     generate_plan(str(state_path))
     state = yaml.safe_load(state_path.read_text())
@@ -392,7 +376,6 @@ def test_phase_verify_attached_to_phase_block(tmp_path, monkeypatch):
             }
         ],
     }
-    flags = {}
     workflow_plan = {
         "specify": {"active": ["step-first", "step-last"], "filtered": []}
     }
@@ -413,7 +396,7 @@ def test_phase_verify_attached_to_phase_block(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
 
-    state_path = _make_state_yaml(tmp_path, "feature", flags, workflow_plan)
+    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
 
     generate_plan(str(state_path))
     state = yaml.safe_load(state_path.read_text())
@@ -467,7 +450,7 @@ def test_promotes_state_to_nodes_shape_no_plan_yaml(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
 
     workflow_plan = {"main": {"active": ["step-a", "step-b"], "filtered": []}}
-    state_path = _make_state_yaml(tmp_path, "feature", {}, workflow_plan)
+    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
 
     generate_plan(str(state_path))
 
@@ -503,7 +486,7 @@ def test_linear_schema_synthesizes_implicit_chain_depends_on(tmp_path, monkeypat
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
 
     workflow_plan = {"main": {"active": ["s1", "s2", "s3"], "filtered": []}}
-    state_path = _make_state_yaml(tmp_path, "feature", {}, workflow_plan)
+    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
     generate_plan(str(state_path))
 
     nodes = yaml.safe_load(state_path.read_text())["workflow_plan"]["main"]["nodes"]
@@ -532,7 +515,7 @@ def test_explicit_depends_on_lands_on_node(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
 
     workflow_plan = {"main": {"active": ["explore", "design"], "filtered": []}}
-    state_path = _make_state_yaml(tmp_path, "feature", {}, workflow_plan)
+    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
     generate_plan(str(state_path))
 
     nodes = yaml.safe_load(state_path.read_text())["workflow_plan"]["main"]["nodes"]
@@ -562,7 +545,7 @@ def test_cyclic_edges_raise_and_keep_pre_promotion_shape(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
 
     workflow_plan = {"main": {"active": ["a", "b"], "filtered": []}}
-    state_path = _make_state_yaml(tmp_path, "feature", {}, workflow_plan)
+    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
 
     with pytest.raises(ValueError, match="cycle"):
         generate_plan(str(state_path))
@@ -594,7 +577,7 @@ def test_depends_on_to_filtered_step_dropped_with_warning(tmp_path, monkeypatch,
         "active": ["design"],
         "filtered": [{"id": "ux-design", "reason": "flag ux_design=false"}],
     }}
-    state_path = _make_state_yaml(tmp_path, "feature", {}, workflow_plan)
+    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
     generate_plan(str(state_path))
 
     captured = capsys.readouterr()
@@ -622,7 +605,7 @@ def test_depends_on_unknown_id_raises(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
 
     workflow_plan = {"main": {"active": ["design"], "filtered": []}}
-    state_path = _make_state_yaml(tmp_path, "feature", {}, workflow_plan)
+    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
 
     with pytest.raises(ValueError):
         generate_plan(str(state_path))

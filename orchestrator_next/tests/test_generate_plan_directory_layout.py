@@ -214,7 +214,6 @@ def test_build_step_block_reads_rules_from_directory_form(steps_dir, tmp_path, m
     monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
 
     phase_def = schema["phases"][0]
-    flags: dict = {}
     repo_name = "test-repo"
 
     from orchestrator_next.generate_plan import _build_step_block
@@ -224,7 +223,6 @@ def test_build_step_block_reads_rules_from_directory_form(steps_dir, tmp_path, m
         phase_def,
         schema,
         project,
-        flags,
         repo_name,
         "",
     )
