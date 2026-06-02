@@ -92,7 +92,7 @@ def _resolve_phases(schema: dict[str, Any]) -> list[dict[str, Any]]:
             "goal": schema.get("description", ""),
             "steps": steps,
         }
-        for key in ("verify", "verify_when", "outputs", "rules"):
+        for key in ("verify", "outputs", "rules"):
             if key in schema:
                 synthetic[key] = schema[key]
         return [synthetic]
@@ -118,9 +118,9 @@ def _step_entry_for_id(phase_def: dict[str, Any], step_id: str) -> dict[str, Any
     Step entries may be:
     - Plain string: "design-and-draft-artifacts"
     - String with gate: "explore if discovery"  (strip " if <flag>")
-    - Dict: {id: ..., rules_when: ..., extra_rules: ..., repeat_until: ...}
+    - Dict: {id: ..., extra_rules: ..., repeat_until: ...}
 
-    Returns the dict form {id, rules_when, extra_rules, repeat_until}
+    Returns the dict form {id, extra_rules, repeat_until}
     or an empty dict if the step is a plain string match (no injections).
     Returns None if no match found.
     """
@@ -134,32 +134,6 @@ def _step_entry_for_id(phase_def: dict[str, Any], step_id: str) -> dict[str, Any
             if bare == step_id:
                 return {}  # plain string — no injections
     return None
-
-
-def _evaluate_rules_when(rules_when: dict[str, Any], flags: dict[str, Any]) -> list[str]:
-    """
-    Evaluate rules_when mapping against resolved flags per rule-merge.md § Rules-When Evaluation.
-
-    keys: "<flag>" → activate if flag truthy
-          "not <flag>" → activate if flag falsy/absent
-
-    Returns list of activated plain-string rules.
-    """
-    result: list[str] = []
-    positive_flags: set[str] = set()
-    for key, rules in rules_when.items():
-        if key.startswith("not "):
-            flag_name = key[4:].strip()
-            flag_val = flags.get(flag_name, False)
-            # Only activate if NOT already activated by positive match
-            if not flag_val and flag_name not in positive_flags:
-                result.extend(rules if isinstance(rules, list) else [rules])
-        else:
-            flag_val = flags.get(key, False)
-            if flag_val:
-                positive_flags.add(key)
-                result.extend(rules if isinstance(rules, list) else [rules])
-    return result
 
 
 def _filter_step_rule(rule: str, repo_name: str) -> bool:
@@ -185,7 +159,6 @@ def _merge_rules(
     phase_def: dict[str, Any],
     schema: dict[str, Any],
     project: dict[str, Any],
-    flags: dict[str, Any],
     repo_name: str,
 ) -> list[str]:
     """
@@ -194,9 +167,7 @@ def _merge_rules(
     Returns the merged ordered list of rule strings.
     """
     # ----------- Tier 1: Step entry injections -----------
-    rules_when = step_entry.get("rules_when", {}) or {}
     extra_rules = step_entry.get("extra_rules", []) or []
-    injected = _evaluate_rules_when(rules_when, flags)
     extra = list(extra_rules) if isinstance(extra_rules, list) else [extra_rules]
 
     # ----------- Tier 2: Step contract rules (filtered by repo scope) -----------
@@ -221,22 +192,14 @@ def _merge_rules(
             # Schema overrides project on same id
             named_rules[entry["id"]] = entry
 
-    # Filter by when-condition against flags
+    # All named rules are active.
     active_named: list[str] = []
     for entry in named_rules.values():
-        when_flag = entry.get("when")
-        if when_flag is None:
-            # Always active
-            active_named.append(str(entry.get("rule", "")))
-        elif flags.get(when_flag, False):
-            # Flag is truthy → active
-            active_named.append(str(entry.get("rule", "")))
-        # else: filtered out
+        active_named.append(str(entry.get("rule", "")))
 
     # ----------- Assemble in precedence order (highest first) -----------
     merged: list[str] = []
-    merged.extend(injected)     # source 1a
-    merged.extend(extra)        # source 1b
+    merged.extend(extra)        # source 1
     merged.extend(step_rules)   # source 2
     merged.extend(phase_rules)  # source 3
     merged.extend(active_named) # sources 4+5
@@ -249,7 +212,6 @@ def _build_step_block(
     phase_def: dict[str, Any],
     schema: dict[str, Any],
     project: dict[str, Any],
-    flags: dict[str, Any],
     repo_name: str,
     state_yaml_path: str,
 ) -> dict[str, Any]:
@@ -275,7 +237,7 @@ def _build_step_block(
         inputs = [str(x) for x in raw_inputs]
         outputs = [str(x) for x in raw_outputs]
 
-    rules = _merge_rules(step_entry, contract_raw, phase_def, schema, project, flags, repo_name)
+    rules = _merge_rules(step_entry, contract_raw, phase_def, schema, project, repo_name)
     goal = phase_def.get("goal", "")
 
     # Build node with explicit key order (id/status first, then alphabetical).
@@ -411,7 +373,6 @@ def generate_plan(state_yaml_path: str) -> None:
     """
     state = _parser.load_state(state_yaml_path)
     schema_name = state.raw.get("schema", "")
-    flags: dict[str, Any] = state.raw.get("flags") or {}
     slug = state.raw.get("slug", state.change_id)
 
     schema = _load_schema(schema_name)
@@ -456,7 +417,6 @@ def generate_plan(state_yaml_path: str) -> None:
                 phase_def=phase_def,
                 schema=schema,
                 project=project,
-                flags=flags,
                 repo_name=repo_name,
                 state_yaml_path=state_yaml_path,
             )
@@ -474,13 +434,8 @@ def generate_plan(state_yaml_path: str) -> None:
         verify_block = phase_plan.get("verify") if isinstance(phase_plan, dict) else None
         if verify_block is None:
             base_verify = phase_def.get("verify")
-            verify_when = phase_def.get("verify_when", {})
             if base_verify is not None:
-                effective_verify = dict(base_verify)
-                for flag_name, override in verify_when.items():
-                    if flags.get(flag_name, False):
-                        effective_verify.update(override)
-                verify_block = effective_verify
+                verify_block = base_verify
 
         phase_block: dict[str, Any] = {"nodes": nodes, "filtered": filtered}
         if verify_block:
