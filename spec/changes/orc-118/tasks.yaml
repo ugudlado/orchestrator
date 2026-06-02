@@ -1,0 +1,245 @@
+# tasks.yaml — orc-118: Move agent step execution into bin/orchestrator
+# Field/validation rules: config/steps/design-and-draft-artifacts/prompt.md § Tasks YAML Format Contract
+# verify commands are repo-root-relative — run from $REPO_ROOT.
+version: 1
+tasks:
+  # --- Prerequisite: make COMPLETION parsing importable ---
+  - id: T-1
+    title: "Write tests for importable parse_completion module (RED)"
+    status: completed
+    tokens_in: 0
+    tokens_out: 0
+    duration_s: 120
+    depends_on: []
+    files:
+      - orchestrator_next/tests/test_agent_runner.py
+    verify:
+      - pytest orchestrator_next/tests/test_agent_runner.py -k parse_completion -v
+    test_scenarios:
+      - "import orchestrator_next.parse_completion succeeds (no ImportError)"
+      - "parse_completion() returns the completion dict for a valid indented block"
+      - "parse_completion() raises ValueError for missing/malformed block and for invalid status"
+    why: "Prerequisite for AC-1/AC-5 — COMPLETION parse must be importable in-process, not a hyphenated script."
+    change: "Add a new test module asserting orchestrator_next.parse_completion.parse_completion exists and behaves like the current scripts/lib/parse-completion.py. RED CONTRACT: these tests fail before T-2 because the importable module does not exist yet, but the step rule requires the verify command to exit 0 before commit. Resolve the contradiction by marking EVERY parse_completion test in the file with @pytest.mark.xfail(strict=False) — both the tests you add now AND any parse_completion tests already present in orchestrator_next/tests/test_agent_runner.py (it may exist untracked on main). With strict=False, a failing test reports xfailed (pytest exits 0) in the RED state and xpasses (still exit 0) after T-2 makes it green. T-15 strips these markers at the phase gate. Do NOT delete any pre-existing untracked test file as part of this task."
+
+  - id: T-2
+    title: "Promote parse-completion.py to importable orchestrator_next/parse_completion.py (GREEN)"
+    status: pending
+    depends_on: [T-1]
+    files:
+      - orchestrator_next/parse_completion.py
+      - orchestrator_next/scripts/lib/parse-completion.py
+    verify:
+      - pytest orchestrator_next/tests/test_agent_runner.py -k parse_completion -v
+      - pytest tests/test_parse_completion.py -v
+    test_scenarios:
+      - "all T-1 tests pass"
+      - "existing tests/test_parse_completion.py still pass against the script shim"
+    why: "AC-1, AC-5 — in-process COMPLETION parse."
+    change: "Move find_completion_block/parse_completion/VALID_STATUSES from orchestrator_next/scripts/lib/parse-completion.py into a new package module orchestrator_next/parse_completion.py. Grep for callers of the script first (grep -rn 'parse-completion.py'); leave scripts/lib/parse-completion.py as a thin shim that imports from the package module and keeps its __main__ CLI only if a live caller depends on the script form, else delete it."
+
+  # --- Route resolution port (agent-routes.sh + resolve_config + resolve_tool) ---
+  - id: T-3
+    title: "Write tests for agent_runner.resolve_route (RED)"
+    status: pending
+    depends_on: [T-2]
+    files:
+      - orchestrator_next/tests/test_agent_runner.py
+    verify:
+      - pytest orchestrator_next/tests/test_agent_runner.py -k resolve_route -v
+    test_scenarios:
+      - "resolve_route(developer) returns the tool binary and args_template from a .orchestrator/config/agents.yaml override"
+      - ".orchestrator override takes precedence over config/ over ORCHESTRATOR_HOME"
+      - "ORCHESTRATOR_AGENT_ROUTE_OVERRIDES (agent.<role>.subprocess/model) wins over file route"
+      - "model tier resolves from the agents.<role>.model field"
+      - "missing route raises a typed error (drives UC-E1 record-and-loop)"
+    why: "AC-1 — agent->tool routing must resolve in Python with the same precedence as agent-routes.sh."
+    change: "Append resolve_route tests to test_agent_runner.py using tmp_path agents.yaml fixtures. RED CONTRACT: mark each new test with @pytest.mark.xfail(strict=False) — they fail before T-4 because agent_runner.resolve_route does not exist, and the marker makes the verify command exit 0 in the RED state (xfailed) and after T-4 (xpassed, strict=False). T-15 strips the markers."
+
+  - id: T-4
+    title: "Implement agent_runner.resolve_route + config resolution (GREEN)"
+    status: pending
+    depends_on: [T-3]
+    files:
+      - orchestrator_next/agent_runner.py
+    verify:
+      - pytest orchestrator_next/tests/test_agent_runner.py -k resolve_route -v
+    test_scenarios:
+      - "all T-3 tests pass"
+    why: "AC-1 — port agent-routes.sh / resolve_config / resolve_tool to Python."
+    change: "Create orchestrator_next/agent_runner.py. Add resolve_route(agent, repo_root) and a private _resolve_config(name, repo_root) porting run-workflow.sh:resolve_config (.orchestrator/config > config > ORCHESTRATOR_HOME/config). Port the agent-routes.sh embedded-Python heredoc (subprocess/model resolution with ORCHESTRATOR_AGENT_ROUTE_OVERRIDES + ORCHESTRATOR_AGENTS_CONFIG precedence) and resolve_tool (tools.<name>.binary, default to tool name) into helpers. Return a Route dataclass(tool_name, binary, args_template, model_tier); raise RouteError when no subprocess maps to the agent."
+
+  # --- Prompt assembly (build_prompt + ticket fetch + overlay + COMPLETION footer) ---
+  - id: T-5
+    title: "Write tests for agent_runner.build_agent_prompt + resolve_agent_cwd (RED)"
+    status: pending
+    depends_on: [T-4]
+    files:
+      - orchestrator_next/tests/test_agent_runner.py
+    verify:
+      - pytest orchestrator_next/tests/test_agent_runner.py -k "build_agent_prompt or resolve_agent_cwd" -v
+    test_scenarios:
+      - "prompt contains the instruction, workflow meta block, and step_context"
+      - "prompt includes ticket context section when ticket_id (=change_id) is provided"
+      - "prompt appends the .orchestrator/agents/<agent>.md overlay when present, omits it when absent"
+      - "prompt ends with the COMPLETION contract footer (two-space indent guidance)"
+      - "resolve_agent_cwd returns worktree_path when set and a real dir, else repo_root"
+    why: "AC-3, AC-4 — prompt + overlay + ticket + cwd assembled in Python."
+    change: "Append build_agent_prompt and resolve_agent_cwd tests to test_agent_runner.py with tmp_path overlay/state fixtures. RED CONTRACT: mark each new test with @pytest.mark.xfail(strict=False) — they fail before T-6 because the functions do not exist, and the marker makes the verify command exit 0 in the RED state (xfailed) and after T-6 (xpassed, strict=False). T-15 strips the markers."
+
+  - id: T-6
+    title: "Implement build_agent_prompt + resolve_agent_cwd (GREEN)"
+    status: pending
+    depends_on: [T-5]
+    files:
+      - orchestrator_next/agent_runner.py
+    verify:
+      - pytest orchestrator_next/tests/test_agent_runner.py -k "build_agent_prompt or resolve_agent_cwd" -v
+    test_scenarios:
+      - "all T-5 tests pass"
+    why: "AC-3, AC-4 — port build_prompt + fetch_ticket_context + overlay; resolve cwd from state."
+    change: "In agent_runner.py add build_agent_prompt(action, state, repo_root, ticket_id): port run-workflow.sh:build_prompt (instruction + workflow_meta + ticket + step_context + the COMPLETION footer heredoc verbatim), call orchestrator_next.agent_overlay.overlay_text(repo_root, agent) directly (not via subprocess), and port fetch_ticket_context (read ticketing backend from spec/project.yaml, shell out to `backlog task view <change_id> --plain`). Add resolve_agent_cwd(state, repo_root) porting the WORKTREE_PATH/AGENT_WORK_DIR logic (worktree_path from state if it is an existing dir, else repo_root). For the workflow-meta block: extract state_inspect.cmd_workflow_meta's body into a callable workflow_meta_text(state) function that both the CLI subcommand and build_agent_prompt call (same extract-to-callable treatment as build-payload in T-10) — do not shell out to the state_inspect CLI."
+
+  # --- Tool invocation (invoke_tool subprocess + pi flags + model_tier) ---
+  - id: T-7
+    title: "Write tests for agent_runner.invoke_agent_tool (RED)"
+    status: pending
+    depends_on: [T-6]
+    files:
+      - orchestrator_next/tests/test_agent_runner.py
+    verify:
+      - pytest orchestrator_next/tests/test_agent_runner.py -k invoke_agent_tool -v
+    test_scenarios:
+      - "args_template {prompt}/{prompt_file}/{model_tier} placeholders are substituted"
+      - "empty template falls back to -p <prompt> for claude/pi, bare <prompt> otherwise"
+      - "pi tool prepends --provider/--model/--thinking flags from pi settings when template lacks --provider"
+      - "subprocess runs with cwd set and PI_CODING_AGENT_DIR defaulted; returns captured stdout/stderr and exit code"
+    why: "AC-1 — tool subprocess invocation ported faithfully (placeholder subst, pi flags)."
+    change: "Append invoke_agent_tool tests to test_agent_runner.py using a stub tool script on tmp PATH. RED CONTRACT: mark each new test with @pytest.mark.xfail(strict=False) — they fail before T-8 because the function does not exist, and the marker makes the verify command exit 0 in the RED state (xfailed) and after T-8 (xpassed, strict=False). T-15 strips the markers."
+
+  - id: T-8
+    title: "Implement invoke_agent_tool + pi settings resolution (GREEN)"
+    status: pending
+    depends_on: [T-7]
+    files:
+      - orchestrator_next/agent_runner.py
+    verify:
+      - pytest orchestrator_next/tests/test_agent_runner.py -k invoke_agent_tool -v
+    test_scenarios:
+      - "all T-7 tests pass"
+    why: "AC-1 — port invoke_tool's args expansion, pi flag prepend, subprocess.run."
+    change: "In agent_runner.py add invoke_agent_tool(route, prompt, prompt_file, cwd, pi_settings) porting the invoke_tool Python heredoc: _expand_arg for {prompt}/{prompt_file}/{model_tier}, the empty-template fallback, _pi_flags prepend when tool_name=='pi' and '--provider' absent, env PI_CODING_AGENT_DIR default, subprocess.run(capture). Add resolve_pi_settings() porting state_inspect cmd_pi_settings (read ~/.pi/agent/settings.json -> provider/model/thinking). Return a CompletedProcess-like result with stdout/stderr/returncode."
+
+  # --- Orchestration: run_agent_step + done-payload + error paths ---
+  - id: T-9
+    title: "Write tests for agent_runner.run_agent_step (happy + error paths) (RED)"
+    status: pending
+    depends_on: [T-8]
+    files:
+      - orchestrator_next/tests/test_agent_runner.py
+    verify:
+      - pytest orchestrator_next/tests/test_agent_runner.py -k run_agent_step -v
+    test_scenarios:
+      - "happy path: stub tool emits valid COMPLETION -> orchestrator done recorded with parsed outputs + usage, returns 0"
+      - "UC-E3 tool exit non-zero -> failed payload (model=none, zero tokens) recorded, returns 0"
+      - "UC-E2 malformed/absent COMPLETION -> failed payload with raw stdout tail evidence, returns 0"
+      - "UC-E1 unknown agent (RouteError) -> failed payload recorded, returns 0"
+      - "retry-success workflow-issue merged when attempt > 1"
+    why: "AC-1, AC-5 (UC-E1/E2/E3) — end-to-end agent-step orchestration in Python, including the exit-4/5 -> record-and-loop semantics change."
+    change: "Append run_agent_step tests to test_agent_runner.py: stub the agent tool binary and orchestrator done (or assert against record.record), drive each branch. RED CONTRACT: mark each new test with @pytest.mark.xfail(strict=False) — they fail before T-10 because run_agent_step does not exist, and the marker makes the verify command exit 0 in the RED state (xfailed) and after T-10 (xpassed, strict=False). T-15 strips the markers."
+
+  - id: T-10
+    title: "Implement run_agent_step orchestration + done-payload (GREEN)"
+    status: pending
+    depends_on: [T-9]
+    files:
+      - orchestrator_next/agent_runner.py
+    verify:
+      - pytest orchestrator_next/tests/test_agent_runner.py -k run_agent_step -v
+    test_scenarios:
+      - "all T-9 tests pass"
+    why: "AC-1, AC-5 — wire route + prompt + invoke + parse + payload + done into one function."
+    change: "In agent_runner.py add run_agent_step(state, state_yaml_path, action, repo_root, ticket_id) -> int: emit the `→ <step> phase=… kind=agent agent=… attempt=…` and `invoking <tool> tier=…` stderr log lines (port the run-workflow.sh log lines so run-workflow.sh's exit-0 cat preserves per-step visibility); resolve_route (on RouteError -> failed payload + record + return 0); resolve_agent_cwd; build_agent_prompt -> prompt file; resolve_pi_settings when pi; invoke_agent_tool; on returncode != 0 -> failed payload + merge detect-workflow-issues.sh --tool-exit + record + return 0; else usage_adapters.split_stdout -> assistant_text+usage, parse_completion (on ValueError -> failed payload with stdout tail + record + return 0); build agent done-payload via build_agent_payload(...), merge detect-workflow-issues.sh --attempt for retry-success, then call orchestrator_next.record.record(state_yaml_path, payload) DIRECTLY (parity with the inline-script branch which already imports and calls record.record — not an `orchestrator done` subprocess; build_agent_payload already produces the terminal payload), log `✓ <step> done status=…`, return 0. Promote state_inspect cmd_build_payload's agent-kind and failed-kind bodies into a callable build_agent_payload(...)/build_failed_payload(...) the CLI subcommand also uses."
+
+  # --- bin/orchestrator wiring ---
+  - id: T-11
+    title: "Write test for bin/orchestrator agent-branch dispatch (RED)"
+    status: pending
+    depends_on: [T-10]
+    files:
+      - orchestrator_next/tests/test_agent_runner.py
+    verify:
+      - pytest orchestrator_next/tests/test_agent_runner.py -k "main_agent_branch" -v
+    test_scenarios:
+      - "bin/orchestrator with an agent action invokes run_agent_step and exits 0 (no JSON on stdout)"
+      - "in_progress pre-stamp still occurs before the subprocess spawn"
+    why: "AC-1, AC-2 — main() routes agent actions to run_agent_step like it routes run: actions to the inline branch."
+    change: "Add a test invoking bin/orchestrator (or main()) for an agent action with a stub tool, asserting exit 0, empty stdout, and a recorded step-history entry. RED CONTRACT: mark each new test with @pytest.mark.xfail(strict=False) — it fails before T-12 because main() still emits JSON instead of running the step, and the marker makes the verify command exit 0 in the RED state (xfailed) and after T-12 (xpassed, strict=False). T-15 strips the markers."
+
+  - id: T-12
+    title: "Wire agent branch into bin/orchestrator main() (GREEN)"
+    status: pending
+    depends_on: [T-11]
+    files:
+      - bin/orchestrator
+    verify:
+      - pytest orchestrator_next/tests/test_agent_runner.py -k "main_agent_branch" -v
+    test_scenarios:
+      - "all T-11 tests pass"
+      - "inline-script path (action.run) unchanged"
+    why: "AC-1, AC-2 — agent execution now lives in the CLI."
+    change: "In bin/orchestrator main(), replace the current `if action.get('agent'): print(emit_json(action)); sys.exit(0)` block (the in_progress pre-stamp + JSON emit at ~lines 361-378) with: keep the in_progress pre-stamp, then `from orchestrator_next.agent_runner import run_agent_step` and `sys.exit(run_agent_step(state, state_yaml_path, action, repo_root, ticket_id))`. Resolve repo_root from state.repo_root and ticket_id from state.change_id inside main() (VERIFIED: state.yaml has no ticket_id/linear-ticket key; run-workflow.sh today receives the raw id as $2 which equals change_id uppercased, and fetch_ticket_context calls `backlog task view <id>` which resolves on the lowercased change_id slug). These are no longer passed from run-workflow.sh."
+
+  # --- Reduce run-workflow.sh to a pure loop ---
+  - id: T-13
+    title: "Write grep assertion test that run-workflow.sh is a pure loop (RED)"
+    status: pending
+    depends_on: [T-12]
+    files:
+      - tests/test_run_workflow_pure_loop.bats
+    verify:
+      - bats tests/test_run_workflow_pure_loop.bats
+    test_scenarios:
+      - "run-workflow.sh contains no invoke_tool, build_prompt, resolve_agent_tool, resolve_tool"
+      - "run-workflow.sh contains no parse-completion.py or build-payload invocation"
+      - "run-workflow.sh contains no DONE_PAYLOAD construction"
+    why: "AC-2 — driver reduced to a pure orchestrator next loop."
+    change: "Add a bats file grepping run-workflow.sh for the forbidden tokens (invoke_tool|build_prompt|resolve_agent_tool|resolve_tool|parse-completion|build-payload|DONE_PAYLOAD) and asserting zero matches. RED CONTRACT (bats, NOT pytest — @pytest.mark.xfail does not apply): the tokens still exist until T-14, so the grep assertion would fail and the `bats` verify command would exit non-zero, the same contract contradiction that abandoned the RED pytest tasks. Make each @test body lead with `skip \"RED until T-14 strips run-workflow.sh\"` so bats reports skipped and the verify command exits 0 in the RED state. T-14 removes the skip lines so the assertions actually run and pass after the strip. This is the bats analog of the @pytest.mark.xfail(strict=False) pattern used by the pytest RED tasks."
+
+  - id: T-14
+    title: "Strip agent + run_step execution from run-workflow.sh (GREEN)"
+    status: pending
+    depends_on: [T-13]
+    files:
+      - orchestrator_next/scripts/run-workflow.sh
+      - tests/test_run_workflow_pure_loop.bats
+    verify:
+      - bats tests/test_run_workflow_pure_loop.bats
+      - bats tests/test_run_workflow_smoke.bats
+    test_scenarios:
+      - "all T-13 assertions pass (skip lines removed, grep finds zero forbidden tokens)"
+      - "smoke test (script-only workflow to completion) still passes"
+      - "run_pre_step_hook is retained in run-workflow.sh and called before `orchestrator next` (AC-6 / UC-E5)"
+    why: "AC-2, AC-6 — the loop no longer executes steps but keeps the pre-step hook; bin/orchestrator does the execution."
+    change: "In run-workflow.sh delete invoke_tool, build_prompt, resolve_agent_tool, resolve_tool, fetch_ticket_context, the resolve_config/TOOLS_YAML/ROUTES_YAML block, the agent-routes.sh source, the entire `case \"$KIND\"` dispatch body (run_step + run_inline branches), AND the now-orphaned _merge_workflow_issues helper + DETECT_WORKFLOW_ISSUES var (no longer referenced once both case branches go — grep run-workflow.sh for residual references to confirm zero). Keep: REPO_ROOT/state path resolution, spawn_resume, the while loop calling `orchestrator next`, run_pre_step_hook, the exit 1/2/3 handlers, the exit-0 inline-logging block, the archive 'state.yaml missing' check, and _emit_feature_rollup. The loop now only branches on `orchestrator next` exit code, never on step kind. Drop the TICKET_ID-to-prompt plumbing (ticket context now fetched in Python). NOTE for T-10: agent_runner locates detect-workflow-issues.sh via orchestrator_next.paths.config_root()/.. scripts path (it lives at orchestrator_next/scripts/lib/), not shell-relative. ALSO: remove the `skip \"RED until T-14...\"` lines added to tests/test_run_workflow_pure_loop.bats in T-13 so its grep assertions now run and pass against the stripped script (the bats analog of T-15 stripping xfail markers); the verify command re-runs that bats file and must be green."
+
+  # --- Integration gate: AC-5 ---
+  - id: T-15
+    title: "Retire bats agent-path coverage; full pytest + e2e gate (phase gate)"
+    status: pending
+    depends_on: [T-14]
+    files:
+      - tests/test_run_workflow.bats
+      - orchestrator_next/tests/test_agent_runner.py
+    verify:
+      - pytest orchestrator_next/tests/ -q
+      - pytest tests/ -q
+      - bats tests/test_run_workflow_smoke.bats
+      - bats tests/test_run_workflow_pure_loop.bats
+    test_scenarios:
+      - "all @pytest.mark.xfail markers removed from test_agent_runner.py; the tests pass as normal asserting tests (no xfailed/xpassed in -rA output)"
+      - "full pytest orchestrator_next/tests/ green"
+      - "agent-path scenarios from test_run_workflow.bats are now covered by test_agent_runner.py pytest tests"
+      - "end-to-end workflow run (orchestrator <schema> <id>) completes"
+    why: "AC-5 — pytest clean + end-to-end pass; xfail markers removed; bats agent coverage migrated to pytest."
+    change: "FIRST, strip the TDD scaffolding now that all code is GREEN: remove every @pytest.mark.xfail(strict=False) marker (and any now-unused `import pytest` if it becomes unused) from orchestrator_next/tests/test_agent_runner.py so each test asserts cleanly as a normal passing test — xpassing tests with markers still present are a correctness/readability smell. Verify with `pytest orchestrator_next/tests/test_agent_runner.py -rA` showing PASSED (not XPASS) for every test. THEN remove the agent-path tests from tests/test_run_workflow.bats (routing developer->cursor, pi model tier, unknown-agent, tool-failure, malformed-COMPLETION) — they tested the deleted shell path and are replaced by test_agent_runner.py. Keep only loop-level bats coverage (script-only completion, exit 2/3, archive, cost report) or fold it into test_run_workflow_smoke.bats. Confirm equivalence before deleting each scenario. Run the full gate."
