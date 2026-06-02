@@ -171,7 +171,7 @@ resolve_state_yaml() {
 if [ "$SCHEMA" = "complete" ]; then
   STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG" "complete" 2>/dev/null || true)"
 else
-  STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG" 2>/dev/null || true)"
+  STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG" "$SCHEMA" 2>/dev/null || true)"
 fi
 
 # Rerun refusal is NOT decided here — it's the workflow's own decision, made by
