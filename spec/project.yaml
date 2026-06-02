@@ -387,3 +387,14 @@ rules:
       self-contained and declares its own steps; there is no runtime injection
       (complete_phase.py was deleted). check-implement-complete.py guards against
       premature `orchestrator complete` invocations.
+  - id: cursor-agent-shell-restrictions
+    learned: 2026-06-02
+    source: orc-118
+    rule: >
+      The Cursor agent environment blocks shell commands including pytest, git
+      commit, and other verification tools. When implement-tasks runs in Cursor,
+      the developer agent cannot execute verify commands or commit task work,
+      forcing abandon. Workaround: run implement-tasks via Claude Code (not
+      Cursor) which has shell access. This is a deployment environment constraint,
+      not a code bug — the workflow correctly abandons when verification cannot
+      complete rather than claiming false completion.
