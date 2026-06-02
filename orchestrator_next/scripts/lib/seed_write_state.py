@@ -33,19 +33,33 @@ def main(argv: list[str] | None = None) -> int:
     if prior_path:
         try:
             prior_raw = yaml.safe_load(Path(prior_path).read_text()) or {}
-            for key in ("worktree_path", "branch", "repo_root", "change_id", "slug"):
+            for key in ("worktree_path", "branch", "repo_root", "change_id", "slug",
+                        "ticket_id", "ticketing"):
                 if prior_raw.get(key):
                     prior_context[key] = prior_raw[key]
         except (OSError, yaml.YAMLError):
             pass  # prior unreadable — start fresh
 
+    # Read ticketing backend from spec/project.yaml so ticket-sync steps work.
+    repo_root = prior_context.get("repo_root") or d["repo_root"]
+    ticketing = prior_context.get("ticketing") or ""
+    if not ticketing:
+        try:
+            project = yaml.safe_load((Path(repo_root) / "spec" / "project.yaml").read_text()) or {}
+            ticketing = str(project.get("ticketing") or "")
+        except (OSError, yaml.YAMLError):
+            pass
+
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    slug = prior_context.get("slug") or d["slug"]
     state = {
-        "change_id": prior_context.get("change_id") or d["slug"],
-        "slug": prior_context.get("slug") or d["slug"],
+        "change_id": prior_context.get("change_id") or slug,
+        "slug": slug,
+        "ticket_id": prior_context.get("ticket_id") or slug,
+        "ticketing": ticketing,
         "schema": d["schema_name"],
         "status": "active",
-        "repo_root": prior_context.get("repo_root") or d["repo_root"],
+        "repo_root": repo_root,
         "flags": d["flags"],
         "workflow_plan": {"main": {"active": d["active"], "filtered": d["filtered"]}},
         "phase": "main",
