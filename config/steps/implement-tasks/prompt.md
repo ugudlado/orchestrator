@@ -25,7 +25,7 @@ task: implement the change, run verification, commit, then update `status: compl
    Tasks with `status: completed` are done — skip them entirely.
 3. Resolve execution order: respect `depends_on` — do not start a task until all
    its dependencies have `status: completed`.
-4. **Shell capability probe**: before starting the first task, run `git status` and `echo ok` to confirm shell commands are not blocked. If either command fails or is rejected, record the failure in `known_concerns` and abandon immediately — do NOT attempt any task. This prevents wasting tool budget on a task loop that cannot commit. <!-- learned: 2026-06-02, source: orc-118, cycle: 76, hits: 1, misses: 0, repo: orchestrator -->
+4. **Shell capability probe**: before starting the first task, run `git status` and `echo ok` to confirm shell commands are not blocked. If either command fails or is rejected, record the failure in `known_concerns` and abandon immediately — do NOT attempt any task. This prevents wasting tool budget on a task loop that cannot commit. <!-- learned: 2026-06-02, source: orc-118, cycle: 76, hits: 1, misses: 1, repo: orchestrator -->
 
 ### Per-task loop
 
@@ -55,8 +55,9 @@ For each pending task in dependency order:
 
 ### After all tasks
 
-Return COMPLETION:
+Return one of these COMPLETION forms:
 
+**All tasks committed and verified** (`status: completed`):
 ```
 COMPLETION:
   status: completed
@@ -66,6 +67,28 @@ COMPLETION:
     tasks_skipped: <N>
     known_concerns: [<list or empty>]
 ```
+
+**Could not start — zero tasks attempted** (shell blocked, unresolvable blocker before T-1):
+```
+COMPLETION:
+  status: abandoned
+  outputs:
+    reason: "<what prevented any work from starting>"
+    tasks_completed: 0
+```
+
+**Partial progress — some tasks committed, then unrecoverable blocker**:
+```
+COMPLETION:
+  status: completed
+  outputs:
+    implementation_result: partial
+    tasks_completed: <N of committed tasks>
+    tasks_skipped: <N remaining>
+    known_concerns: ["<blocker description>"]
+```
+
+Use `status: completed` whenever at least one task commit landed in `git log` — even partial progress is a completed pass. Only use `status: abandoned` when zero work was done.
 
 ## Rules
 
@@ -81,7 +104,7 @@ COMPLETION:
   atomically — stale docstrings cap `code_quality` to 7 at phase review.
 - `verify` commands are repo-root-relative — run them from `$REPO_ROOT`.
 - Never `git add -A` — stage only task files.
-- If git commit commands cannot be executed (shell rejected, permission error, or any failure that prevents the commit from landing in HEAD), do NOT return `implementation_result: completed` — record the failure in `known_concerns` AND stop implementation. A task is only complete when its commit is confirmed in `git log`. Returning completed with uncommitted work causes the phase reviewer to flag a critical finding (CF) that blocks the phase. <!-- learned: 2026-06-02, source: orc-87, cycle: 76, hits: 0, misses: 1, repo: orchestrator -->
+- If git commit commands cannot be executed (shell rejected, permission error, or any failure that prevents the commit from landing in HEAD), do NOT return `implementation_result: completed` — record the failure in `known_concerns` AND stop implementation. A task is only complete when its commit is confirmed in `git log`. Returning completed with uncommitted work causes the phase reviewer to flag a critical finding (CF) that blocks the phase. <!-- learned: 2026-06-02, source: orc-87, cycle: 76, hits: 0, misses: 2, repo: orchestrator -->
 
 ## Escalation
 
