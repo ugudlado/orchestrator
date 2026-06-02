@@ -151,8 +151,13 @@ resolve_archived_state_yaml() {
 # Active state lives in $REPO_ROOT/.orchestrator/<slug>/ as <ts>_<schema>_state.yaml.
 resolve_state_yaml() {
   local slug="$1"
+  local schema_filter="${2:-}"
   local match
-  match=$(ls "$WORKFLOW_STATE_DIR/$slug/"*_state.yaml 2>/dev/null | sort | tail -1 || true)
+  if [ -n "$schema_filter" ]; then
+    match=$(ls "$WORKFLOW_STATE_DIR/$slug/"*_"${schema_filter}"_state.yaml 2>/dev/null | sort | tail -1 || true)
+  else
+    match=$(ls "$WORKFLOW_STATE_DIR/$slug/"*_state.yaml 2>/dev/null | sort | tail -1 || true)
+  fi
   if [ -f "$match" ]; then
     echo "$match"
     return 0
@@ -160,7 +165,14 @@ resolve_state_yaml() {
   return 1
 }
 
-STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG" 2>/dev/null || true)"
+# Complete is a separate workflow (complete.yaml). Do not drive it from a
+# feature/bugfix state file whose DAG is already exhausted — that makes
+# `orchestrator next` return exit 1 immediately with "Workflow complete."
+if [ "$SCHEMA" = "complete" ]; then
+  STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG" "complete" 2>/dev/null || true)"
+else
+  STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG" 2>/dev/null || true)"
+fi
 
 # Rerun refusal is NOT decided here — it's the workflow's own decision, made by
 # the optional `check-rerun` step (schemas that want it list it first). The
@@ -182,10 +194,18 @@ if [ ! -f "${STATE_YAML:-}" ]; then
     echo "ERROR: no state.yaml for $TICKET_SLUG and seed-state.sh missing at $SEED_STATE" >&2
     exit 7
   fi
-  echo "Seeding workflow: slug=$TICKET_SLUG schema=$SCHEMA" >&2
+  if [ "$SCHEMA" = "complete" ]; then
+    echo "Seeding complete workflow (prior feature state reused for worktree context): slug=$TICKET_SLUG" >&2
+  else
+    echo "Seeding workflow: slug=$TICKET_SLUG schema=$SCHEMA" >&2
+  fi
   # shellcheck disable=SC2086
   bash "$SEED_STATE" "$TICKET_SLUG" "$SCHEMA" "${FLAG_OVERRIDES[@]}" || exit 7
-  STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG")" || STATE_YAML=""
+  if [ "$SCHEMA" = "complete" ]; then
+    STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG" "complete")" || STATE_YAML=""
+  else
+    STATE_YAML="$(resolve_state_yaml "$TICKET_SLUG")" || STATE_YAML=""
+  fi
 fi
 
 if [ ! -f "$STATE_YAML" ]; then
