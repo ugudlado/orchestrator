@@ -98,7 +98,7 @@ tools:
     # Cursor Agent CLI (non-interactive). Requires `cursor-agent` on PATH.
     # {model_tier} comes from agents.<role>.model (e.g. auto).
     # Agent must emit a COMPLETION: YAML block on stdout for parse-completion.py.
-    args_template: ["-p", "--output-format", "json", "--model", "{model_tier}", "{prompt}"]
+    args_template: ["-p", "--output-format", "json", "--model", "{model_tier}", "--force", "{prompt}"]
     stdin: none
     capture: stdout
 
