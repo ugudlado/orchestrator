@@ -25,7 +25,7 @@ task: implement the change, run verification, commit, then update `status: compl
    Tasks with `status: completed` are done — skip them entirely.
 3. Resolve execution order: respect `depends_on` — do not start a task until all
    its dependencies have `status: completed`.
-4. **Shell capability probe**: before starting the first task, run `git status` and `echo ok` to confirm shell commands are not blocked. If either command fails or is rejected, record the failure in `known_concerns` and abandon immediately — do NOT attempt any task. This prevents wasting tool budget on a task loop that cannot commit. <!-- learned: 2026-06-02, source: orc-118, cycle: 76, hits: 0, misses: 0, repo: orchestrator -->
+4. **Shell capability probe**: before starting the first task, run `git status` and `echo ok` to confirm shell commands are not blocked. If either command fails or is rejected, record the failure in `known_concerns` and abandon immediately — do NOT attempt any task. This prevents wasting tool budget on a task loop that cannot commit. <!-- learned: 2026-06-02, source: orc-118, cycle: 76, hits: 1, misses: 0, repo: orchestrator -->
 
 ### Per-task loop
 

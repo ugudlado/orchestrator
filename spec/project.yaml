@@ -463,3 +463,18 @@ rules:
       Dispatcher improvement: detect shell-probe abandon reason in step evidence
       and escalate (status: blocked) after the first probe-failure abandon,
       rather than retrying up to max_retry_rounds.
+  - id: task-files-must-cover-verify-command-imports
+    learned: 2026-06-02
+    source: orc-118
+    rule: >
+      Each task's `files` list must include every file that the task's `verify`
+      commands transitively depend on (imports, subprocess calls, shim paths).
+      If a verify command runs a test that imports a module not yet in the repo,
+      that module's target path must appear in the task's `files` list (or in a
+      preceding dependency task's `files`). implement-tasks forbids touching
+      unlisted files, so a verify failure caused by a missing dependency file
+      cannot be fixed without violating the per-task scope rule — resulting in
+      abandoned tasks. ORC-118 T-2 failed because its verify ran
+      `pytest tests/test_parse_completion.py` which imported
+      `orchestrator_next/scripts/workflow/parse-completion.py` — a file not in
+      the task's `files` list and not yet in the repo.
