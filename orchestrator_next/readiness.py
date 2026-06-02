@@ -74,10 +74,16 @@ def _step_completed_in_history(state: State, node_id: str) -> bool:
 
 
 def _effective_node_status(state: State, node: dict[str, Any]) -> str:
-    """Node status with completion inferred from step_history when terminal."""
+    """Node status with step_history completion inference.
+
+    An explicit ``pending`` node status is authoritative because the on_failure
+    reset path deliberately re-opens a prior step by writing ``status: pending``.
+    """
     status = node.get("status")
     if status == "completed":
         return "completed"
+    if status == "pending":
+        return "pending"
     if _step_completed_in_history(state, _node_id(node)):
         return "completed"
     return str(status or "pending")
