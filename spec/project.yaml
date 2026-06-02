@@ -353,6 +353,7 @@ rules:
   - id: xfail-cleanup-is-part-of-tdd-task
     learned: 2026-05-31
     source: orc-108
+    see_also: tdd-red-tasks-require-xfail-annotation
     rule: >
       In TDD workflows, RED-phase tests written with @pytest.mark.xfail(strict=False)
       must have those markers removed as part of the final integration-gate task
@@ -361,6 +362,22 @@ rules:
       signal that the test suite is harder to read and trust. Include the marker
       removal in the task's file list and verify commands — the integration-gate task
       is the natural home since it confirms full GREEN state.
+  - id: tdd-red-tasks-require-xfail-annotation
+    learned: 2026-06-02
+    source: orc-118
+    see_also: xfail-cleanup-is-part-of-tdd-task
+    rule: >
+      When tasks.yaml contains RED-phase test tasks (tasks whose verify commands are
+      expected to fail until the paired GREEN task runs), each RED task's `change:`
+      field MUST explicitly instruct the developer to mark tests with
+      @pytest.mark.xfail(strict=False). Without this, the developer agent hits a
+      contract contradiction: step rules require verify commands to exit 0 before
+      commit, but RED tests fail by design. The xfail marker makes verify pass while
+      the test is in expected-failure state. ORC-118: both implement-tasks attempts
+      abandoned because this annotation was missing from the 15-task TDD sequence.
+      The architect is responsible for encoding this in tasks.yaml during
+      design-and-draft-artifacts — the implement-tasks step cannot resolve the
+      contradiction unilaterally.
   - id: capture-test-baseline-path-must-match-project-yaml
     learned: 2026-05-31
     source: orc-108
