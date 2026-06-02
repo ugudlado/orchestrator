@@ -390,6 +390,7 @@ rules:
   - id: cursor-agent-shell-restrictions
     learned: 2026-06-02
     source: orc-118
+    confirmed_by: [orc-117]
     rule: >
       The Cursor agent environment blocks shell commands including pytest, git
       commit, and other verification tools. When implement-tasks runs in Cursor,
@@ -398,3 +399,19 @@ rules:
       Cursor) which has shell access. This is a deployment environment constraint,
       not a code bug — the workflow correctly abandons when verification cannot
       complete rather than claiming false completion.
+      ORC-117 confirmed this is a persistent pattern (not a one-off): a pure
+      deletion task with fully-specified tasks.yaml was blocked by the same
+      Cursor shell restriction, making retry within the same session futile.
+  - id: shell-probe-abandon-is-environment-terminal
+    learned: 2026-06-02
+    source: orc-117
+    rule: >
+      When implement-tasks abandons due to a shell capability probe failure
+      (git status / echo ok rejected), retrying in the same agent session is
+      futile — the environment constraint is session-level, not transient.
+      The incomplete-phase-guard correctly routes to a second attempt, but if
+      the second attempt also fails the shell probe, the run should be surfaced
+      to the user immediately rather than exhausting remaining retries.
+      Dispatcher improvement: detect shell-probe abandon reason in step evidence
+      and escalate (status: blocked) after the first probe-failure abandon,
+      rather than retrying up to max_retry_rounds.
