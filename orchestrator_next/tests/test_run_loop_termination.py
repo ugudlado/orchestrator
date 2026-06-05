@@ -82,3 +82,41 @@ def test_persistently_failing_agent_terminates(tmp_path, monkeypatch):
     hist = yaml.safe_load(sy.read_text()).get("step_history") or []
     failed = [e for e in hist if e.get("step_id") == "bad-agent" and e.get("status") == "failed"]
     assert 1 <= len(failed) <= 3, f"unbounded re-dispatch ({len(failed)} failures): spin"
+
+
+def test_malformed_contract_returns_exit_3_not_crash(tmp_path, monkeypatch):
+    """A malformed step contract (agent kind, missing prompt.md) raises
+    parser.ContractError INSIDE dispatch. The loop must catch it and return
+    exit 3, not propagate the exception and crash."""
+    repo = tmp_path / "repo"
+    (repo / "spec").mkdir(parents=True)
+    (repo / "spec" / "project.yaml").write_text(yaml.safe_dump({
+        "version": 1, "project": {"name": "t", "repo": "t", "summary": "s"},
+        "quality_bar": {"max_spawn_failures": 3}, "rules": [],
+    }))
+
+    # Agent contract WITHOUT the required prompt.md → ContractError at load.
+    contracts = tmp_path / "c"
+    d = contracts / "broken"
+    d.mkdir(parents=True)
+    (d / "contract.yaml").write_text(yaml.safe_dump({
+        "id": "broken", "version": 2, "agent": "tester", "outputs": [],
+    }))
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts))
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+
+    sd = repo / ".orchestrator" / "brk"
+    sd.mkdir(parents=True)
+    sy = sd / "20260101T000000_feature_state.yaml"
+    sy.write_text(yaml.safe_dump({
+        "change_id": "brk", "schema": "feature", "version": 1, "status": "active",
+        "phase": "main", "repo_root": str(repo), "worktree_path": str(repo),
+        "workflow_plan": {"main": {"nodes": [
+            {"id": "broken", "status": "pending", "agent": "tester"},
+        ]}},
+        "step_history": [],
+    }))
+
+    # Must NOT raise — returns exit 3.
+    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), agents_yaml="")
+    assert code == 3, f"malformed contract must return exit 3, got {code}"

@@ -29,10 +29,13 @@ import yaml
 from orchestrator_next import agent_routes
 from orchestrator_next.agent_overlay import overlay_text
 from orchestrator_next.dispatch import ContractDispatchError, dispatch
-# dispatch.py defines its own ContractDispatchError(RuntimeError) but the
-# missing-run path raises parser.ContractDispatchError(ValueError) — a DIFFERENT
-# class. Catch both so a contract error returns exit 3 instead of crashing.
+# dispatch.py defines its own ContractDispatchError(RuntimeError), but contract
+# loading (inside dispatch) raises two SIBLING parser exceptions: the missing-run
+# ContractDispatchError(ValueError) and ContractError(ValueError) for a malformed
+# contract (bad kind, missing prompt.md). Catch all three so any contract problem
+# returns exit 3 instead of crashing the loop.
 from orchestrator_next.parser import ContractDispatchError as ParserContractDispatchError
+from orchestrator_next.parser import ContractError
 from orchestrator_next.parser import load_state
 from orchestrator_next.record import record
 from orchestrator_next.usage_adapters import split_stdout
@@ -487,7 +490,7 @@ def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, agents_yam
             state = load_state(state_yaml_path)
             try:
                 action, code = dispatch(state, state_yaml_path)
-            except (ContractDispatchError, ParserContractDispatchError) as exc:
+            except (ContractDispatchError, ParserContractDispatchError, ContractError) as exc:
                 _log(f"Contract error: {exc}")
                 return 3
             if code == 1:
