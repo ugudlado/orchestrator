@@ -52,19 +52,21 @@ def test_fr4_project_verify_commands():
 
 
 # ---------------------------------------------------------------------------
-# FR-5: SKILL.md shells out to orchestrator run / run-workflow.sh (shell driver)
+# FR-5: SKILL.md shells out to `orchestrator run` (in-process dispatch loop)
 # ---------------------------------------------------------------------------
 
 def test_fr5_skill_shell_driver():
-    """skills/orchestrate/SKILL.md must delegate to the shell driver, not in-chat dispatch."""
+    """skills/orchestrate/SKILL.md must delegate to the CLI, not in-chat dispatch."""
     content = _read("skills/orchestrate/SKILL.md")
 
     assert "orchestrator run" in content, (
         "skills/orchestrate/SKILL.md must shell out via 'orchestrator run'."
     )
 
-    assert "run-workflow.sh" in content, (
-        "skills/orchestrate/SKILL.md must reference run-workflow.sh as the execution driver."
+    # The dispatch loop runs in-process in the CLI (run_loop.py), not the old
+    # shell driver. The skill must reference the in-process loop, not run-workflow.sh.
+    assert "run_loop" in content or "in-process" in content, (
+        "skills/orchestrate/SKILL.md must reference the in-process dispatch loop."
     )
 
     assert "run_in_background: true" not in content, (

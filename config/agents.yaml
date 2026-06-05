@@ -9,11 +9,11 @@
 #   - orchestrator_next/pricing.py                       (agents, models)
 #   - ui/dashboard/server.py                             (agents, models)
 #   - orchestrator_next/scripts/lib/agent-routes.sh       (agents)
-#   - orchestrator_next/scripts/run-workflow.sh          (agents, tools)
+#   - orchestrator_next/run_loop.py                       (agents, tools)
 
 # ── Agent routing ──────────────────────────────────────────────────
 # model:      in-process sub-agent model tier (used by Claude Code host)
-# subprocess: tool binary for shell loop (run-workflow.sh) — see tools: below
+# subprocess: tool binary for the dispatch loop (run_loop.py) — see tools: below
 agents:
   # tools: Read Write Edit Grep Glob Bash WebSearch WebFetch SendMessage
   #        mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
@@ -70,7 +70,7 @@ models:
   haiku:  claude-haiku-4-5
   auto:   auto   # Cursor CLI model id (Cursor picks best fit)
 
-# ── Subprocess tool invocation (shell loop: run-workflow.sh) ───────
+# ── Subprocess tool invocation (dispatch loop: run_loop.py) ────────
 tools:
   claude:
     binary: claude

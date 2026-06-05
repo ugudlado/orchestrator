@@ -1,7 +1,7 @@
 # Complete-only workflow (ORC-108).
 #
 # CLI: `orchestrator complete <ticket-id>` — same driver as other workflows:
-# orchestrator-run.sh --schema complete → run-workflow.sh → post-merge hook.
+# orchestrator run --schema complete → in-process loop (run_loop.py) → post-merge hook.
 #
 # Does not seed a new feature; requires existing state.yaml from a prior
 # `orchestrator feature|bugfix|autopilot` run.

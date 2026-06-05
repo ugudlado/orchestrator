@@ -1,7 +1,7 @@
 """
 Clear spawn_failure_cap state when the shell workflow loop is (re)started.
 
-`orchestrator run` / run-workflow.sh call `apply_spawn_failure_resume` once before
+`orchestrator run` (run_loop.py) calls `apply_spawn_failure_resume` once before
 the dispatch loop. That lets an operator fix the underlying tool issue (e.g. Claude
 usage) and rerun without hand-editing step_history. The cap still applies inside a
 single loop if spawns keep failing.

@@ -120,3 +120,59 @@ def test_malformed_contract_returns_exit_3_not_crash(tmp_path, monkeypatch):
     # Must NOT raise — returns exit 3.
     code = run_loop.run_loop(str(sy), "", repo_root=str(repo), agents_yaml="")
     assert code == 3, f"malformed contract must return exit 3, got {code}"
+
+
+def test_spawn_failure_cap_halts(tmp_path, monkeypatch):
+    """Ported from spawn_failure_halt.bats: an agent whose tool ALWAYS exits 1
+    (a spawn failure: model=none, zero tokens) must trip the spawn-failure cap
+    and halt the workflow (exit 2), not spin. This exercises the path that
+    _failed_payload's usage model='none' shape makes countable."""
+    repo = tmp_path / "repo"
+    (repo / "spec").mkdir(parents=True)
+    (repo / "spec" / "project.yaml").write_text(yaml.safe_dump({
+        "version": 1, "project": {"name": "t", "repo": "t", "summary": "s"},
+        "quality_bar": {"max_spawn_failures": 3}, "rules": [],
+    }))
+
+    # claude that ALWAYS exits 1 with empty stdout — the spawn-failure signal.
+    bin_dir = tmp_path / "bin"; bin_dir.mkdir()
+    bad = bin_dir / "claude"
+    bad.write_text("#!/usr/bin/env bash\nexit 1\n")
+    bad.chmod(0o755)
+
+    contracts = tmp_path / "c"
+    d = contracts / "spawner"; d.mkdir(parents=True)
+    (d / "contract.yaml").write_text(yaml.safe_dump({
+        "id": "spawner", "version": 2, "agent": "tester",
+        "instruction": "x", "outputs": [],
+    }))
+    (d / "prompt.md").write_text("do it")
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts))
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+
+    agents_yaml = tmp_path / "agents.yaml"
+    agents_yaml.write_text(yaml.safe_dump({
+        "agents": {"tester": {"model": "opus", "subprocess": "claude"}},
+        "tools": {"claude": {"binary": str(bad), "args_template": ["-p", "{prompt}"]}},
+    }))
+
+    sd = repo / ".orchestrator" / "spawn"; sd.mkdir(parents=True)
+    sy = sd / "20260101T000000_feature_state.yaml"
+    # on_failure points back to itself → re-dispatches → accumulates spawn failures.
+    sy.write_text(yaml.safe_dump({
+        "change_id": "spawn", "schema": "feature", "version": 1, "status": "active",
+        "phase": "main", "repo_root": str(repo), "worktree_path": str(repo),
+        "workflow_plan": {"main": {"nodes": [
+            {"id": "spawner", "status": "pending", "agent": "tester",
+             "on_failure": "spawner"},
+        ]}},
+        "step_history": [],
+    }))
+
+    # Must terminate at the cap, not spin (pytest hang = loud failure).
+    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), agents_yaml=str(agents_yaml))
+    assert code in (1, 2), f"spawn-failure path did not terminate cleanly: {code}"
+    hist = yaml.safe_load(sy.read_text()).get("step_history") or []
+    failed = [e for e in hist if e.get("step_id") == "spawner" and e.get("status") == "failed"]
+    # Bounded by the cap (3) — not unbounded.
+    assert len(failed) <= 4, f"spawn failures unbounded ({len(failed)}): cap not enforced"

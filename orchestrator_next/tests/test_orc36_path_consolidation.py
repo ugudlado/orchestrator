@@ -32,7 +32,6 @@ _SCRIPTS_DIR = str(_REPO_ROOT)  # package import path (repo root)
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-_SEED_SCRIPT = _REPO_ROOT / "orchestrator_next" / "scripts" / "seed-state.sh"
 _ARCHIVE_SCRIPT = _REPO_ROOT / "config" / "steps" / "archive-completed-change" / "script.sh"
 _ORCHESTRATOR_HOME = os.environ.get(
     "ORCHESTRATOR_HOME", str(Path.home() / ".config" / "orchestrator")

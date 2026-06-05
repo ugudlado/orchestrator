@@ -70,15 +70,16 @@ Then:
 
 ### 2. Resume entry point
 
-If an active state.yaml already exists for this id (the ticket is mid-flight), resume it: read its `next_step` (phase + step_id) and persisted `flags`, and enter the dispatch loop at that point. Tell the user: "Resuming <change_id> at <phase>/<step_id>." (orchestrator-run.sh already performs this resume detection — state.yaml presence drives init vs resume — when driving from the CLI.)
+If an active state.yaml already exists for this id (the ticket is mid-flight), resume it: read its `next_step` (phase + step_id) and persisted `flags`, and enter the dispatch loop at that point. Tell the user: "Resuming <change_id> at <phase>/<step_id>." (`orchestrator run` already performs this resume detection — state.yaml presence drives init vs resume.)
 
-Otherwise this is a new workflow. Shell out to the CLI — `orchestrator-run.sh` seeds state automatically when none exists (idempotent), then drives every step to completion via `run-workflow.sh`. No manual init step needed.
+Otherwise this is a new workflow. Shell out to the CLI — `orchestrator run` seeds state automatically when none exists (idempotent), then drives every step to completion. No manual init step needed.
 
-### 3. Run workflow via shell driver
+### 3. Run workflow via the CLI
 
-Shell out to the CLI and let `orchestrator-run.sh` + `run-workflow.sh` drive every step to completion.
-No in-chat dispatch loop — the shell driver seeds state when needed, spawns agent subprocesses, records
-steps, and handles retries.
+Shell out to `orchestrator run` and let it drive every step to completion. The dispatch
+loop runs **in-process inside the CLI** (`orchestrator_next/run_loop.py`) — it seeds state
+when needed, spawns agent subprocesses, records steps, and handles retries. No in-chat
+dispatch loop.
 
 ```
 orchestrator run $CHANGE_ID --schema $SCHEMA [flag=value ...] [--repo $REPO_ROOT]
@@ -87,10 +88,10 @@ orchestrator run $CHANGE_ID --schema $SCHEMA [flag=value ...] [--repo $REPO_ROOT
 - `$CHANGE_ID` — resolved slug from `$request` (e.g. `orc-112`, `HL-287`).
 - `$SCHEMA` — from §1 (`feature`, `bugfix`, etc.; use `complete` for merge/teardown only).
 - Pass any `key=value` overrides from the invocation verbatim (e.g. `tdd_required=false`).
-- `orchestrator-run.sh` performs resume detection, seeds when state is absent (idempotent
-  with §2.1), and execs `run-workflow.sh` until the workflow exits.
+- `orchestrator run` performs resume detection, seeds when state is absent (idempotent
+  with §2.1), and drives the in-process loop until the workflow exits.
 
-Exit codes match `run-workflow.sh` (1=complete, 2=blocked, 3–7=errors). Surface
+Exit codes: 1=complete, 2=blocked, 3–7=errors. Surface
 stderr to the user on failure. On success (exit 1), read `step_history` for
 `cost-report` outputs (`tail_summary`, `cost_summary_path`) and include
 `cost-summary.md` in the final message when present.
@@ -102,7 +103,7 @@ forward those arguments unchanged on the `orchestrator run` line so they land in
 ## What This Skill Does NOT Do
 
 - No in-chat `orchestrator next` / `orchestrator done` loop and no Task-tool agent spawns.
-- Does not duplicate dispatch, retry, or usage recording — `run-workflow.sh` owns that.
+- Does not duplicate dispatch, retry, or usage recording — the in-process loop (`run_loop.py`) owns that.
 - Does not merge — use `orchestrator complete <id>` (`/complete-feature`) after the workflow archives.
 
 ## Failure modes

@@ -40,7 +40,6 @@ _HERE = Path(__file__).parent.resolve()
 # parents[2] = config
 # parents[3] = repo root (worktree)
 _REPO_ROOT = _HERE.parents[1]
-_SEED_SCRIPT = _REPO_ROOT / "orchestrator_next" / "scripts" / "seed-state.sh"
 _ORCHESTRATOR_HOME = os.environ.get("ORCHESTRATOR_HOME", str(Path.home() / ".config" / "orchestrator"))
 
 # ---------------------------------------------------------------------------
