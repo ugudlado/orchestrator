@@ -17,6 +17,15 @@ Scope is deliberately narrow: **the task lifecycle**. Board, sequence, milestone
 and cleanup commands exist but aren't covered — run `backlog <cmd> --help` if you
 ever need them.
 
+**Run `backlog` from the main repo root, not a feature worktree.** Backlog
+resolves its workspace (`~/.config/backlog/workspaces/<name>/`) from the main
+checkout; a `git worktree` is not recognized and `backlog` errors with "No
+Backlog.md project found". This is expected, not a bug. Workflow ticket-lane
+steps (ticket-start/review/qa) `cd "$REPO_ROOT"` first — when a run's `REPO_ROOT`
+is a worktree, those `backlog task edit` calls fail with a `WARN ... backlog edit
+failed` and the step continues (best-effort). The ticket lane simply won't
+advance in backlog for worktree-based runs; update it manually from the main repo.
+
 **Never use `bun run cli`.** It triggers a slow CSS rebuild and hits sandbox write
 restrictions on `~/.config/backlog/`, causing silent EPERM failures. The installed
 binary handles storage paths (including a redirected `globalStore`) transparently —

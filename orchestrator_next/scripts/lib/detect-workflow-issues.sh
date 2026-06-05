@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # detect-workflow-issues.sh — single source of workflow-mechanics issue
-# detection. Called by both the shell driver (orchestrator_next/scripts/run-workflow.sh) and
+# detection. Called by the in-process dispatch loop (orchestrator_next/run_loop.py) and
 # the LLM driver (skills/orchestrate). Emits a JSON array on stdout; the
 # caller merges it into the `workflow_issues` field of the `orchestrator
 # done` payload.

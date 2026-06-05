@@ -126,7 +126,7 @@ are resolved and the task is fully specified.
 
 ## Workflow integration (orchestrator)
 
-**Shell loop (`orchestrator_next/scripts/run-workflow.sh`):** Ticket lane changes are **not** agent work.
+**Dispatch loop (`orchestrator_next/run_loop.py`):** Ticket lane changes are **not** agent work.
 Dedicated workflow steps (`ticket-start`, `ticket-review`, `ticket-qa`) push outbound
 lane changes via the backlog CLI.
 Do not call this skill for status transitions when the shell loop is driving the workflow.

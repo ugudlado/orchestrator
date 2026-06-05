@@ -59,6 +59,11 @@ class StepContract:
     repeat_until: str | None = None  # ISSUE-16: predicate name gating advance
     # ORC-76: explicit kind; synthesized from run: presence for flat-file form
     kind: str = ""  # "agent" | "script" | "" (legacy/unset)
+    # Per-step lifecycle hooks: shell commands the driver runs immediately
+    # before (pre) / after (post) the step body. Each item is a command string.
+    # pre nonzero → step blocks (exit 2); post nonzero → logged, non-fatal.
+    pre: list[str] = field(default_factory=list)
+    post: list[str] = field(default_factory=list)
 
     def typed_input_paths(self, state: "State") -> list[tuple[str, str]]:
         """Resolve typed inputs to (name, abs_path) pairs for the given state.
@@ -238,7 +243,18 @@ def _parse_contract_fields(
         inline=bool(data.get("inline", False)),
         repeat_until=data.get("repeat_until"),
         kind=kind,
+        pre=_as_str_list(data.get("pre")),
+        post=_as_str_list(data.get("post")),
     )
+
+
+def _as_str_list(value: Any) -> list[str]:
+    """Coerce a contract hook field (scalar | list | None) to a list of strings."""
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [str(v) for v in value]
 
 
 def _contract_lookup_id(step_id: str, state_yaml_path: str) -> str:

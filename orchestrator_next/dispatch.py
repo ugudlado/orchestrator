@@ -566,6 +566,8 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "resolved_allowed_tools": resolved_allowed_tools,
             "env": env,
             "step_context": step_context,
+            "pre": contract.pre,
+            "post": contract.post,
         }
     elif contract.run:
         # Inline script executed synchronously by CLI — no JSON emitted, exit 0
@@ -581,6 +583,8 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             "resolved_allowed_tools": resolved_allowed_tools,
             "env": env,
             "step_context": step_context,
+            "pre": contract.pre,
+            "post": contract.post,
         }
         # ORC-76 AC-2: for directory-form contracts the parser pre-resolves
         # run to an absolute path. Expose the contract directory so

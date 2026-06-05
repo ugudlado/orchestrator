@@ -143,7 +143,7 @@ quality_bar:
 
 Skills are the interface to workflow actions:
 
-- `/orchestrate` → Shell out to `orchestrator run <id> --schema <name>` (single execution model via `run-workflow.sh`)
+- `/orchestrate` → Shell out to `orchestrator run <id> --schema <name>` (in-process dispatch loop in `orchestrator_next/run_loop.py`)
 - `/specify` → Create specification artifacts
 - `/diagnose` → Plan approach, select tech stack
 - `/implement` → Execute implementation phase
