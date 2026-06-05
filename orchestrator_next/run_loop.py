@@ -556,6 +556,33 @@ def _build_route_overrides(flags: list[str]) -> str:
     return json.dumps(data)
 
 
+def _resolve_active_state(slug: str, schema: str, repo_root: str) -> str:
+    """Newest active `.orchestrator/<slug>/*_<schema>_state.yaml`, or "" if none.
+
+    Resolving (not seeding) is what makes a re-run RESUME an in-flight workflow
+    instead of seeding a second state file. Mirrors orchestrator-run.sh
+    resolve_state_yaml.
+    """
+    state_dir = Path(repo_root) / ".orchestrator" / slug
+    matches = sorted(state_dir.glob(f"*_{schema}_state.yaml"))
+    return str(matches[-1]) if matches else ""
+
+
+def _resolve_archived_state(slug: str, repo_root: str) -> str:
+    """Archived state under spec/changes/archive/ for an already-completed
+    feature, or "" if none. Used by `complete` teardown when the active state
+    was already archived. Mirrors orchestrator-run.sh resolve_archived_state_yaml.
+    """
+    archive = Path(repo_root) / "spec" / "changes" / "archive"
+    direct = archive / slug / "state.yaml"
+    if direct.is_file():
+        return str(direct)
+    for dated in sorted(archive.glob(f"*-{slug}/state.yaml")):
+        if dated.is_file():
+            return str(dated)
+    return ""
+
+
 def _seed_state(slug: str, schema: str, repo_root: str, flag_overrides: list[str]) -> str:
     """Seed a state file via the existing Python helpers; return its path.
     Idempotent: reuse the newest *_<schema>_state.yaml if present."""
@@ -675,7 +702,19 @@ def run_cmd(argv: list[str]) -> int:
         os.environ["ORCHESTRATOR_AGENT_ROUTE_OVERRIDES"] = _build_route_overrides(agent_route_flags)
 
     slug = ticket_id.lower()
-    state_yaml_path = _seed_state(slug, schema, repo_root, flag_overrides)
+
+    # State resolution (mirrors orchestrator-run.sh): resolve an existing state
+    # BEFORE seeding, so a re-run resumes instead of seeding a duplicate. `complete`
+    # is a separate teardown workflow that must NOT be driven from a feature state
+    # whose DAG is exhausted — resolve its own *_complete_state.yaml, and if the
+    # feature was already archived, resolve the archived state for merge/teardown.
+    state_yaml_path = _resolve_active_state(slug, schema, repo_root)
+    if not state_yaml_path and schema == "complete":
+        state_yaml_path = _resolve_archived_state(slug, repo_root)
+        if state_yaml_path:
+            _log(f"Resuming complete on archived state: {state_yaml_path}")
+    if not state_yaml_path:
+        state_yaml_path = _seed_state(slug, schema, repo_root, flag_overrides)
 
     # agents.yaml resolution (override > repo > global), mirrors run-workflow.sh.
     agents_yaml = os.environ.get("ORCHESTRATOR_AGENTS_CONFIG", "")

@@ -53,9 +53,9 @@ The schema is chosen by the subcommand, not inferred from prose. The entry point
 - `orchestrator design <id>` → schema `design` (explore → design → review → learn; stops before implement)
 - `orchestrator patch <id>` → schema `patch` (implement → phase-review → learn; no design phase, small-scoped changes)
 - `orchestrator implement <id>` → schema `implement` (implement → phase-review → learn; design artifacts already exist, ticket is ready to build)
-- `orchestrator complete <id>` → complete phase only (`config/workflows/complete.yaml`); same driver as other workflows (`orchestrator-run.sh --schema complete`), merge + teardown after archive
+- `orchestrator complete <id>` → complete phase only (`config/workflows/complete.yaml`); same CLI (`orchestrator complete <id>`), merge + teardown after archive
 
-`feature`, `bugfix`, and `autopilot` are `orchestrator run <id> --schema <name>` under the hood. `complete` uses the same workflow-file discovery but a different driver (no seed; requires existing state).
+`feature`, `bugfix`, and `autopilot` are `orchestrator run <id> --schema <name>` under the hood. `complete` uses the same CLI and in-process loop, but **resolves existing (or archived) state instead of seeding** — it requires an existing feature workflow to complete.
 There is no prose intent-inference step (ORC-108 removed select-workflow + the
 flag registry).
 
