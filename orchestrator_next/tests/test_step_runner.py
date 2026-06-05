@@ -79,10 +79,3 @@ def test_apply_step_paths_sets_step_dir(tmp_path):
         config_root=str(home / "config"),
     )
     assert env["ORCHESTRATOR_STEP_DIR"] == str(steps)
-
-
-def test_capture_test_baseline_script_uses_step_dir_env():
-    script = Path(__file__).resolve().parents[2] / "config/steps/capture-test-baseline/script.sh"
-    body = script.read_text(encoding="utf-8")
-    assert "ORCHESTRATOR_STEP_DIR" in body
-    assert "BASH_SOURCE" not in body

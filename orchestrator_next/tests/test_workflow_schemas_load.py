@@ -253,13 +253,19 @@ def test_patch_schema_retry_edges():
     assert review.get("max_retries") == 8
 
 
-def test_patch_schema_skips_design_phase():
-    """patch.yaml must not include explore, design, or design-review steps."""
+def test_patch_schema_has_light_design_only():
+    """patch.yaml carries a light design step but skips the heavy design phase.
+
+    patch is the lightweight path: it keeps `design-and-draft-artifacts`
+    (added in ec0c2a5) but skips the heavy steps — explore, diagnose,
+    design-review, ux-design.
+    """
     steps = _schema_step_ids("patch")
-    design_steps = {"explore", "diagnose", "design-and-draft-artifacts", "design-review", "ux-design"}
-    assert design_steps.isdisjoint(set(steps)), (
-        f"patch.yaml must skip design phase; found {design_steps & set(steps)}"
+    heavy_design_steps = {"explore", "diagnose", "design-review", "ux-design"}
+    assert heavy_design_steps.isdisjoint(set(steps)), (
+        f"patch.yaml must skip the heavy design phase; found {heavy_design_steps & set(steps)}"
     )
+    assert "design-and-draft-artifacts" in steps
     assert "implement-tasks" in steps
     assert steps.index("create-worktree") < steps.index("implement-tasks")
 

@@ -20,17 +20,17 @@ from orchestrator_next.operator_workflow import (  # noqa: E402
 
 def test_step_params_from_contract(monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_HOME", _REPO_ROOT)
-    params = load_step_params("render-telemetry")
-    assert params["TELEMETRY_SCOPE"] == "recent"
-    assert params["TELEMETRY_FEATURES_LIMIT"] == "5"
+    params = load_step_params("ticket-done")
+    assert params["TICKET_SYNC_STATUS"] == "Done"
+    assert params["TICKET_SYNC_LOG_PREFIX"] == "ticket-done"
 
 
 def test_merge_step_env_os_environ_overrides_contract(monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_HOME", _REPO_ROOT)
-    monkeypatch.setenv("TELEMETRY_SCOPE", "all")
-    merged = merge_step_env("render-telemetry", {"REPO_ROOT": "/tmp/repo"})
-    assert merged["TELEMETRY_SCOPE"] == "all"
-    assert merged["TELEMETRY_FEATURES_LIMIT"] == "5"
+    monkeypatch.setenv("TICKET_SYNC_STATUS", "Archived")
+    merged = merge_step_env("ticket-done", {"REPO_ROOT": "/tmp/repo"})
+    assert merged["TICKET_SYNC_STATUS"] == "Archived"
+    assert merged["TICKET_SYNC_LOG_PREFIX"] == "ticket-done"
 
 
 def test_workflow_report_step_contract(monkeypatch):

@@ -8,8 +8,8 @@
 # Consumers:
 #   - orchestrator_next/pricing.py                       (agents, models)
 #   - ui/dashboard/server.py                             (agents, models)
-#   - orchestrator_next/scripts/lib/agent-routes.sh       (agents)
-#   - orchestrator_next/run_loop.py                       (agents, tools)
+#   - orchestrator_next/agent_routes.py                  (agents)
+#   - orchestrator_next/run_loop.py                      (agents, tools)
 
 # ── Agent routing ──────────────────────────────────────────────────
 # model:      in-process sub-agent model tier (used by Claude Code host)

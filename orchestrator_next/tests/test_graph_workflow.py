@@ -14,7 +14,7 @@ if _REPO_ROOT_STR not in sys.path:
 from orchestrator_next.graph import render_workflow_graph
 
 
-@pytest.mark.parametrize("schema_name", ["feature", "bugfix", "autopilot", "complete", "telemetry"])
+@pytest.mark.parametrize("schema_name", ["feature", "bugfix", "autopilot", "complete", "implement", "patch"])
 def test_render_workflow_graph_produces_mermaid(schema_name):
     src, step_data = render_workflow_graph(schema_name)
     assert src.startswith("flowchart TD\n")
