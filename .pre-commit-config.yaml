@@ -1,0 +1,35 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-yaml
+        exclude: ^spec/changes/ # archived state files have intentional duplicate keys
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+        types: [python]
+      - id: trailing-whitespace
+        types: [python]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.10
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        files: ^orchestrator_next/
+
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v4.0.0-alpha.8
+    hooks:
+      - id: prettier
+        types_or: [yaml, markdown, json]
+        exclude: ^spec/changes/ # archived state files are not formatted
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: python3 -m pytest orchestrator_next/tests/ -q --tb=short
+        language: system
+        pass_filenames: false
+        always_run: false
+        types: [python]
