@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 from orchestrator_next.parser import StepContract
 from orchestrator_next.step_runner import (

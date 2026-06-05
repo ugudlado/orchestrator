@@ -132,4 +132,3 @@ class TestCheckBTightening:
         assert exit_code == 0, (
             f"Expected exit_code 0 for inline step, got {exit_code}: {result}"
         )
-

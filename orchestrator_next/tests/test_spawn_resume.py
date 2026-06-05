@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 import sys
 
-import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))

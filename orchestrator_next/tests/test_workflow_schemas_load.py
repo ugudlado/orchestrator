@@ -268,5 +268,3 @@ def test_patch_schema_has_light_design_only():
     assert "design-and-draft-artifacts" in steps
     assert "implement-tasks" in steps
     assert steps.index("create-worktree") < steps.index("implement-tasks")
-
-

@@ -15,12 +15,10 @@ AC-1, AC-2, AC-3, AC-4, AC-8, AC-9 (design.md)
 """
 from __future__ import annotations
 
-import json
 import os
 import sys
 from pathlib import Path
 
-import pytest
 import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))

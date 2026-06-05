@@ -7,7 +7,6 @@ import os
 import sys
 import textwrap
 
-import pytest
 import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -463,5 +462,3 @@ def test_dispatch_resumes_task_node_with_step_contract(tmp_path, monkeypatch):
     assert code == 0
     assert action.get("is_resume") is True
     assert action["agent"] == "developer"
-
-

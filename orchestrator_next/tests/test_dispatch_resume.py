@@ -70,7 +70,7 @@ def _write_contract(steps_dir, step_id: str, data: dict):
 
 
 def _write_agent(agents_dir, agent_name: str, tools: list):
-    fm = f"---\ntools:\n" + "".join(f"- {t}\n" for t in tools) + "---\n# {agent_name}\n"
+    fm = "---\ntools:\n" + "".join(f"- {t}\n" for t in tools) + "---\n# {agent_name}\n"
     (agents_dir / f"{agent_name}.md").write_text(fm)
 
 
@@ -402,7 +402,6 @@ class TestResumeStepContractFields:
 
 import json as _json
 import os as _os
-import shutil as _shutil
 import subprocess as _subprocess
 import sys as _sys
 import textwrap as _textwrap

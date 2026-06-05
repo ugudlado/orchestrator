@@ -14,7 +14,6 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
 import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))

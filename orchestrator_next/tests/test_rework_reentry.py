@@ -13,7 +13,6 @@ import importlib.util
 import os
 import sys
 
-import pytest
 import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))

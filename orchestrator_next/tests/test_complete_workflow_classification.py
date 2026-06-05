@@ -11,7 +11,6 @@ and moves the active change directory into the archive path.
 from __future__ import annotations
 
 import os
-import re
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))

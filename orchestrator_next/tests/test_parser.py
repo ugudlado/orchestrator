@@ -7,7 +7,6 @@ T-1 (HL-291): RED tests for State.complexity field and load_state() validation.
 """
 from __future__ import annotations
 
-import io
 import os
 import sys
 

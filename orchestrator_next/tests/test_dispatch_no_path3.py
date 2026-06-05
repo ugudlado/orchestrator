@@ -15,11 +15,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import textwrap
 
-import pytest
-import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _BIN_ORCHESTRATOR = os.path.join(os.path.expanduser("~"), ".local", "bin", "orchestrator")

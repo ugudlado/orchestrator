@@ -8,10 +8,7 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
-import textwrap
 
-import pytest
 import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))

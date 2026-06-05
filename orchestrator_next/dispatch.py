@@ -23,7 +23,6 @@ import yaml
 from orchestrator_next import readiness
 from orchestrator_next.step_env import build_dispatch_env as _build_dispatch_env
 from orchestrator_next.parser import (
-    ContractError,
     ContractDispatchError as ParserContractDispatchError,
     State,
     StepContract,

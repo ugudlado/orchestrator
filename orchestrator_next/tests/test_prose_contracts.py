@@ -8,7 +8,6 @@ import os
 import re
 
 import yaml
-import pytest
 
 # Repo root is 4 levels above this file:
 # tests/ -> orchestrator_next/ -> scripts/ -> config/ -> <repo_root>
@@ -250,4 +249,3 @@ def test_no_contract_declares_phase_context_bundle():
     assert not offenders, (
         f"phase_context_bundle still declared in: {offenders}"
     )
-

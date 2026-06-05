@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 
 from orchestrator_next.parser import State
 from orchestrator_next.step_env import inline_script_env

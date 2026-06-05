@@ -1,9 +1,7 @@
 """Tests for operator workflow step contracts and workflow-report."""
 from __future__ import annotations
 
-import json
 import os
-import subprocess
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -14,7 +12,6 @@ if _REPO_ROOT not in sys.path:
 from orchestrator_next.operator_workflow import (  # noqa: E402
     load_step_params,
     merge_step_env,
-    workflow_step_ids,
 )
 
 
@@ -40,5 +37,3 @@ def test_workflow_report_step_contract(monkeypatch):
     contract = Path(_REPO_ROOT) / "config" / "steps" / "workflow-report" / "contract.yaml"
     assert contract.is_file()
     assert "run: script.sh" in contract.read_text()
-
-

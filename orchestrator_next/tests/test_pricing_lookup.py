@@ -2,16 +2,13 @@
 from __future__ import annotations
 
 import datetime
-import sys
 import textwrap
-from io import StringIO
 from pathlib import Path
-from unittest import mock
 
 import pytest
 
 from orchestrator_next import pricing as _pricing_mod
-from orchestrator_next.pricing import _lookup_price, _compute_cost_usd, _load_pricing_table
+from orchestrator_next.pricing import _lookup_price, _compute_cost_usd
 
 
 @pytest.fixture(autouse=True)
