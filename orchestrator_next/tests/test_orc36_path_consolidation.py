@@ -87,11 +87,17 @@ def _run_seed(slug: str, schema: str, *, repo_root: Path, worktree_base: Path,
     )
     if extra_env:
         env.update(extra_env)
+    # Seeding ported to Python (run_loop._seed_state).
+    real_scripts_dir = str(_HERE.parents[1])
+    driver = (
+        "import sys; sys.path.insert(0, {scripts!r});\n"
+        "from orchestrator_next.run_loop import _seed_state;\n"
+        "print(_seed_state({slug!r}, {schema!r}, {repo!r}, list({flags!r})))\n"
+    ).format(scripts=real_scripts_dir, slug=slug, schema=schema,
+             repo=str(repo_root), flags=flag_overrides or [])
     return subprocess.run(
-        ["bash", str(_SEED_SCRIPT), slug, schema, *(flag_overrides or [])],
-        capture_output=True,
-        text=True,
-        env=env,
+        [sys.executable, "-c", driver],
+        capture_output=True, text=True, env=env,
     )
 
 
@@ -270,10 +276,6 @@ def test_seed_state_writes_to_spec_changes(tmp_path):
 
     orc-36 failure mode #4 (path shape) + canonical state location (ORC-114).
     """
-    assert _SEED_SCRIPT.exists(), (
-        f"seed-state.sh not found at {_SEED_SCRIPT}. "
-        "The script must exist before this test can run."
-    )
 
     slug = "orc36-path-test"
     schema = "bugfix"

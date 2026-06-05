@@ -84,8 +84,9 @@ def _shell_workflow_verb(argv: list[str], script_name: str) -> None:
 
 
 def _run_verb(argv: list[str]) -> None:
-    """`orchestrator run` — ticket-driven shell workflow (non-chat driver)."""
-    _shell_workflow_verb(argv, "orchestrator-run.sh")
+    """`orchestrator run` — ticket-driven workflow driver (in-process loop)."""
+    from orchestrator_next.run_loop import run_cmd
+    raise SystemExit(run_cmd(argv))
 
 
 def _append_in_progress_state_entry_if_absent(
@@ -377,115 +378,15 @@ def main() -> None:
         sys.exit(0)
 
     # --- Inline script path (exit 0 + no JSON) ---
+    # Single canonical executor: the same run_script_step the in-process loop
+    # uses. Standalone `orchestrator next` stays a working stepper; the divergent
+    # duplicate that used to live here is gone (one behavior for both callers).
     if action.get("run"):
-        import subprocess as _sp
-        from orchestrator_next.record import record as _record
-        from orchestrator_next.parser import load_contract_for_step as _load_step_contract
-        from orchestrator_next.step_runner import apply_step_paths as _apply_step_paths
-        from orchestrator_next.step_runner import build_step_command as _build_step_cmd
+        from orchestrator_next.run_loop import run_script_step as _run_script_step
 
-        _step_id = action["step_id"]
-        _contract = _load_step_contract(_step_id, state_yaml_path)
-        _script_env = _inline_script_env(state, state_yaml_path, action.get("env", {}))
-        from orchestrator_next.paths import config_root as _config_root
-        _croot = str(_config_root())
-        _script_env = _apply_step_paths(
-            _script_env,
-            step_id=_step_id,
-            contract=_contract,
-            config_root=_croot,
-        )
-        from orchestrator_next.operator_workflow import load_step_params as _load_step_params
-        for _k, _v in _load_step_params(_step_id).items():
-            _script_env.setdefault(_k, _v)
-        try:
-            _run_cmd = _build_step_cmd(_step_id, _contract, _croot)
-        except (FileNotFoundError, ValueError) as _exc:
-            print(f"error: {_exc}", file=sys.stderr)
-            sys.exit(3)
+        _ok, _new_path = _run_script_step(action, state_yaml_path=state_yaml_path)
+        sys.exit(0 if _ok else 3)
 
-        _phase = action["phase"]
-        _attempt = action["attempt"]
-
-        def _stderr_step_log(msg: str) -> None:
-            from datetime import datetime
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}", file=sys.stderr)
-
-        _stderr_step_log(
-            f"→ {_step_id}  phase={_phase}  kind=inline script  attempt={_attempt}"
-        )
-        _stderr_step_log(f"  run: {' '.join(_run_cmd)}")
-
-        # archive-completed-change moves state.yaml; record it completed BEFORE running
-        # so the entry is durable at its current location before the script moves the file.
-        _STATE_MUTATING_INLINE_STEPS = {"archive-completed-change"}
-        _state_mutating = _step_id in _STATE_MUTATING_INLINE_STEPS
-
-        if _state_mutating:
-            _record(
-                state_yaml_path,
-                {
-                    "step_id": _step_id,
-                    "phase": _phase,
-                    "attempt": _attempt,
-                    "status": "completed",
-                    "outputs": {},
-                    "evidence": {"summary": "recorded pre-script (state-mutating inline step)"},
-                },
-            )
-
-        _inline_cwd = _script_env.get("REPO_ROOT") or None
-        if _inline_cwd and not os.path.isdir(_inline_cwd):
-            _inline_cwd = None
-        _proc = _sp.run(
-            _run_cmd, capture_output=True, env=_script_env, cwd=_inline_cwd
-        )
-        if _proc.stderr:
-            sys.stderr.buffer.write(_proc.stderr)
-            sys.stderr.buffer.flush()
-
-        if _proc.returncode != 0:
-            if not _state_mutating:
-                _record(
-                    state_yaml_path,
-                    {
-                        "step_id": _step_id,
-                        "phase": _phase,
-                        "attempt": _attempt,
-                        "status": "failed",
-                        "outputs": {},
-                        "evidence": {"summary": f"script exited {_proc.returncode}"},
-                    },
-                )
-            _stderr_step_log(f"✗ {_step_id}  failed  script_exit={_proc.returncode}")
-            print(f"error: inline script failed (exit {_proc.returncode}): {' '.join(_run_cmd)}", file=sys.stderr)
-            sys.exit(3)
-        else:
-            if not _state_mutating:
-                _stdout_lines = _proc.stdout.decode(errors="replace").strip().splitlines()
-                _outputs = {}
-                if _stdout_lines:
-                    try:
-                        import json as _json
-                        _outputs = _json.loads(_stdout_lines[-1])
-                    except (_json.JSONDecodeError, ValueError):
-                        pass
-                _payload = {
-                    "step_id": _step_id,
-                    "phase": _phase,
-                    "attempt": _attempt,
-                    "status": "completed",
-                    "outputs": _outputs,
-                    "evidence": {"outputs": _outputs, "summary": "inline script completed"},
-                }
-                # Hoist state_patch from script outputs so record.py applies it.
-                # create-worktree embeds state_patch inside its JSON output to
-                # write worktree_path/branch back to state.yaml.
-                if isinstance(_outputs.get("state_patch"), dict):
-                    _payload["state_patch"] = _outputs["state_patch"]
-                _record(state_yaml_path, _payload)
-            _stderr_step_log(f"✓ {_step_id}  done  status=completed")
-            sys.exit(0)
 
     sys.exit(exit_code)
 

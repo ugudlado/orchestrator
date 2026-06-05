@@ -117,8 +117,19 @@ def _run_seed(
     env["PYTHONPATH"] = f"{real_scripts_dir}:{existing_pypath}" if existing_pypath else real_scripts_dir
     if extra_env:
         env.update(extra_env)
+    # Seeding ported to Python (run_loop._seed_state). Drive it in a subprocess
+    # for env isolation. _seed_state prints the state path as its last stdout line.
+    real_scripts_dir = str(_HERE.parents[1])
+    driver = (
+        "import sys; sys.path.insert(0, {scripts!r});\n"
+        "from orchestrator_next.run_loop import _seed_state;\n"
+        "print(_seed_state({slug!r}, {schema!r}, {repo!r}, list({flags!r})))\n"
+    ).format(
+        scripts=real_scripts_dir, slug=slug, schema=schema,
+        repo=str(repo_root), flags=flag_overrides or [],
+    )
     return subprocess.run(
-        ["bash", str(_SEED_SCRIPT), slug, schema, *(flag_overrides or [])],
+        [sys.executable, "-c", driver],
         capture_output=True,
         text=True,
         env=env,
@@ -139,9 +150,6 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
     The end-to-end `orchestrator next` dispatch check moved to test_dispatch.py
     once DAG-walk dispatch landed (ORC-63 T-13).
     """
-    assert _SEED_SCRIPT.exists(), (
-        f"seed-state.sh not found at {_SEED_SCRIPT}."
-    )
 
     slug = "orc-27-test"
     schema = "bugfix"
@@ -227,10 +235,6 @@ def test_seed_state_is_idempotent(tmp_path):
     Re-running seed-state.sh when state.yaml already exists exits 0 without
     overwriting the existing file (FR-3 / AC-4).
     """
-    assert _SEED_SCRIPT.exists(), (
-        f"seed-state.sh not found at {_SEED_SCRIPT}. "
-        "T-2 must create the script before this test passes."
-    )
 
     slug = "orc-27-idempotent"
     schema = "bugfix"
@@ -299,10 +303,6 @@ def test_seed_state_fails_without_project_yaml(tmp_path):
     Running seed-state.sh from a repo with no spec/project.yaml exits non-zero
     with a clear stderr message naming the missing file (FR-4 / AC-5).
     """
-    assert _SEED_SCRIPT.exists(), (
-        f"seed-state.sh not found at {_SEED_SCRIPT}. "
-        "T-2 must create the script before this test passes."
-    )
 
     slug = "orc-27-no-project"
     schema = "bugfix"

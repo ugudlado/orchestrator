@@ -1,7 +1,7 @@
 """T-5 / T-6c: `archive-completed-change` state-mutating classification.
 
-`_STATE_MUTATING_INLINE_STEPS` in `bin/orchestrator` lists inline steps whose
-script moves/deletes state.yaml as a side effect. Such steps must be
+`_STATE_MUTATING_INLINE_STEPS` in `orchestrator_next/run_loop` lists inline
+steps whose script moves/deletes state.yaml as a side effect. Such steps must be
 pre-recorded into state.yaml BEFORE their script runs, or `record.py` crashes
 re-opening the now-moved file (the ORC-66 bug).
 
@@ -19,17 +19,12 @@ _BIN = os.path.join(_REPO_ROOT, "bin", "orchestrator")
 
 
 def _state_mutating_set():
-    """Return the set of step ids in the `_STATE_MUTATING_INLINE_STEPS`
-    assignment in bin/orchestrator, parsed from the source."""
-    with open(_BIN) as f:
-        source = f.read()
-    m = re.search(
-        r"_STATE_MUTATING_INLINE_STEPS\s*=\s*\{([^}]*)\}", source
-    )
-    assert m is not None, (
-        "_STATE_MUTATING_INLINE_STEPS assignment not found in bin/orchestrator"
-    )
-    return set(re.findall(r'["\']([^"\']+)["\']', m.group(1)))
+    """Return the canonical `_STATE_MUTATING_INLINE_STEPS` set (imported, not
+    source-grepped — the value lives in run_loop now)."""
+    import sys
+    sys.path.insert(0, os.path.join(_REPO_ROOT, "orchestrator_next", ".."))
+    from orchestrator_next.run_loop import _STATE_MUTATING_INLINE_STEPS
+    return set(_STATE_MUTATING_INLINE_STEPS)
 
 
 def test_set_contains_archive_completed_change():
