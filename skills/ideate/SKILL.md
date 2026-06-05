@@ -1,6 +1,6 @@
 ---
 name: ideate
-description: "Brainstorm ideas, explore designs, and build a prioritized backlog. Use when the user wants new feature ideas, backlog management, or says \"ideate\", \"brainstorm\", \"what should we build\"."
+description: 'Brainstorm ideas, explore designs, and build a prioritized backlog. Use when the user wants new feature ideas, backlog management, or says "ideate", "brainstorm", "what should we build".'
 user-invocable: true
 args:
   - name: topic
@@ -15,6 +15,7 @@ args:
 ---
 
 ## Execution
+
 1. Parse `$ARGUMENTS` for topic, --next, or --refresh flags.
 2. Read `spec/project.yaml` for project vision, architecture, rules, gotchas, and learnings.
 3. Invoke the `ideator` agent with:

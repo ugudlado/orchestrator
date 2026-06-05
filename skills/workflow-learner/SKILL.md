@@ -7,16 +7,27 @@ user-invocable: true
 ## Variables
 
 # REPO_ROOT is derived from the CURRENT working directory, not the inherited
+
 # env var. When dispatched into a feature worktree (cwd = worktree), this
+
 # resolves to the worktree; standalone (cwd = main checkout) it resolves to
+
 # main. The orchestrator exports REPO_ROOT=<main> during complete-phase, so we
+
 # must NOT honour that fallback when running inside a worktree — learn edits
+
 # belong on the branch they were learned on.
+
 REPO_ROOT=$(git rev-parse --show-toplevel)
+
 # Step contract writes always go to $REPO_ROOT/config/steps/ — the worktree's
+
 # own config directory. This keeps learned rules on the feature branch so they
+
 # go through merge review before landing on main. Never write to ORCHESTRATOR_HOME
+
 # during a feature run.
+
 STEPS_DIR="$REPO_ROOT/config/steps"
 REPO_NAME=$(basename "$REPO_ROOT")
 ORCHESTRATOR_HOME=${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}
@@ -37,12 +48,12 @@ This skill runs the evaluation + self-improvement loop after a feature is comple
 
 Parse `--scope` from `$ARGUMENTS` (default `all`). It biases — does not replace — the pipeline below; every scope still runs Find Context → Route Findings → Backlog Sync → Report.
 
-| `--scope` | Emphasis in §3 evaluation & §4 routing | Replaces legacy skill |
-|---|---|---|
-| `all` | Full workflow-compliance pass (all axes) | — |
-| `errors` | Error patterns from logs/metrics → step-contract rule fixes | `/diagnose` |
-| `workflow` | Hook / step-contract / schema infrastructure defects | `/workflow-improve` |
-| `session` | Session mistakes → `spec/project.yaml` `learnings:` (skip step-contract routing) | `/reflect` |
+| `--scope`  | Emphasis in §3 evaluation & §4 routing                                           | Replaces legacy skill |
+| ---------- | -------------------------------------------------------------------------------- | --------------------- |
+| `all`      | Full workflow-compliance pass (all axes)                                         | —                     |
+| `errors`   | Error patterns from logs/metrics → step-contract rule fixes                      | `/diagnose`           |
+| `workflow` | Hook / step-contract / schema infrastructure defects                             | `/workflow-improve`   |
+| `session`  | Session mistakes → `spec/project.yaml` `learnings:` (skip step-contract routing) | `/reflect`            |
 
 A narrow scope still produces the §5 report; it just weights which findings are surfaced and where they route in §4.
 
@@ -66,6 +77,7 @@ Do not require `status: completed` on the active file — this step runs while
 ### 2. Gather Inputs
 
 Collect the evaluator's inputs from state.yaml:
+
 - **Step history**: read `step_history[]` — the full audit trail of every step (completed, skipped, failed, retried)
 - **Per-step learnings**: extract all `learnings[]` entries from each step_history entry
 - **Aggregate metrics**: read `metrics{}` — total steps, retries, skips, durations, token usage
@@ -85,6 +97,7 @@ Before evaluating, scan archived state.yaml files across recent features to dete
    - `metrics.retry_reasons{}` (aggregate retry reason map, if present)
 
 2. **Aggregate by step + reason**: Build a map:
+
    ```
    patterns[step_id][reason_category] = {
      feature_count: N,   // how many features had this step+reason combo
@@ -92,6 +105,7 @@ Before evaluating, scan archived state.yaml files across recent features to dete
      feature_ids: [...]  // which features
    }
    ```
+
    Normalize reason text by lowercasing and collapsing whitespace before grouping.
 
 3. **Flag systemic patterns**: A pattern is systemic if:
@@ -99,6 +113,7 @@ Before evaluating, scan archived state.yaml files across recent features to dete
    - Retry rate for that step > 30% across those features (total_retries / total step executions > 0.30)
 
 4. **Prepare pattern report**: For each systemic pattern, record:
+
    ```yaml
    systemic_retry_patterns:
      - step_id: <step_id>
@@ -117,6 +132,7 @@ Before evaluating, scan archived state.yaml files across recent features to dete
 ### 3. Run Workflow Evaluation
 
 Evaluate the feature with:
+
 - The step_history audit trail (not a reconstructed report — the raw data)
 - Per-step learnings aggregated by type (mistakes, insights, retries, decisions, skips)
 - Aggregate metrics for pattern detection
@@ -124,16 +140,18 @@ Evaluate the feature with:
 - The step contracts directory path: `$ORCHESTRATOR_HOME/config/steps/`
 - The step contracts directory for rule placement (when writing a learned rule, pick the section based on rule type):
 
-  | Rule type | Target section in `prompt.md` |
-  |-----------|-------------------------------|
-  | Quality constraint | `### Rules (constraints on how)` |
-  | Verification check | `## Verify` |
-  | Process guidance | `## Instructions` (only if it's a step in the existing flow — prefer Rules) |
+  | Rule type          | Target section in `prompt.md`                                               |
+  | ------------------ | --------------------------------------------------------------------------- |
+  | Quality constraint | `### Rules (constraints on how)`                                            |
+  | Verification check | `## Verify`                                                                 |
+  | Process guidance   | `## Instructions` (only if it's a step in the existing flow — prefer Rules) |
 
   **Never** add a rule as a paragraph in `## Instructions`. Instructions describe the flow; rules constrain it.
+
 - Instruction to run all 5 parts: compliance → step analysis → pattern detection → step contract updates → metrics write
 
 **Step analysis**: The evaluator examines:
+
 - **Skipped steps**: Were they justified? Do skip_reasons indicate a workflow design issue (step should be conditional)?
 - **Retried steps**: Are retry_reasons systemic? Should a step contract rule prevent the root cause?
 - **Mistakes**: Which ones are repeats of known issues? Which are new?
@@ -147,6 +165,7 @@ Evaluate the feature with:
 Classify each finding and route it to the right handler.
 
 **Routing targets:**
+
 - **Agent prompts (base)** → `skills/<name>/SKILL.md` — fleet-shared identity; read for validation only during learn routing; never written by the learn loop
 - **Agent prompt learnings (repo overlay)** → `$REPO_ROOT/.orchestrator/agents/<name>.md` — repo-scoped, stamped deltas appended at dispatch
 - **Workflow rules** → step contracts in `$ORCHESTRATOR_HOME/config/steps/` (deterministic, enforced at execution time, shared across repos) — or `.orchestrator/` override for repo-specific shape changes
@@ -156,13 +175,13 @@ Classify each finding and route it to the right handler.
 #### 4a. Classifier (three axes)
 
 Every finding belongs to exactly one of three buckets. The axes are
-**who owns the miss**, not *what the fix looks like*.
+**who owns the miss**, not _what the fix looks like_.
 
-| Bucket               | Owner of the miss                                   | Target                                                  |
-|----------------------|-----------------------------------------------------|---------------------------------------------------------|
-| `agent_improvement`  | Agent ignored or skipped an existing contract rule  | `$REPO_ROOT/.orchestrator/agents/<name>.md` — repo-scoped overlay (base `skills/<name>/SKILL.md` validated, never written) |
-| `workflow_improvement` | Step/phase/gate is missing or wrong                | Step contract (global by default) or `.orchestrator/` override |
-| `project_learning`   | Tech-stack / command / domain / path fact needed    | `spec/project.yaml` `learnings[]` or `rules[]`          |
+| Bucket                 | Owner of the miss                                  | Target                                                                                                                     |
+| ---------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `agent_improvement`    | Agent ignored or skipped an existing contract rule | `$REPO_ROOT/.orchestrator/agents/<name>.md` — repo-scoped overlay (base `skills/<name>/SKILL.md` validated, never written) |
+| `workflow_improvement` | Step/phase/gate is missing or wrong                | Step contract (global by default) or `.orchestrator/` override                                                             |
+| `project_learning`     | Tech-stack / command / domain / path fact needed   | `spec/project.yaml` `learnings[]` or `rules[]`                                                                             |
 
 **Classification order** — check in this order, first match wins. The
 order matters: most misrouting happens when an agent miss gets rewritten
@@ -203,6 +222,7 @@ command, file path, or stack tool, it's bucket 2. Workflow files stay
 tool-agnostic.
 
 After classification:
+
 - `agent_improvement` → append a stamped block to `$REPO_ROOT/.orchestrator/agents/<name>.md`.
   (1) Validate that `skills/<name>/SKILL.md` exists; if not, skip the write and log it.
   (2) Scaffold the overlay with a one-line generated-overlay header if the file is absent.
@@ -217,6 +237,7 @@ After classification:
 **Routing decision tree:**
 
 **Agent misses** (contract already enforces the concern, agent skipped it):
+
 - Identify which agent owned the skipped step (reviewer, developer,
   architect, etc.) — check `state.yaml` step_history for the agent
   assigned to the failing step.
@@ -229,6 +250,7 @@ After classification:
   contract — the contract already has one.
 
 **Workflow issues** (schema gaps, step contract bugs, hook problems):
+
 - Resolve the target file path per scope:
   - Target: `$STEPS_DIR/<step>/prompt.md`
 - Only edit `### Rules`, `## Verify`, or `## Instructions` sections in `prompt.md` — never touch contract.yaml (routing only) or permanent rules (no `<!-- learned:` stamp).
@@ -236,11 +258,13 @@ After classification:
 - Fix is applied immediately to disk — improves the next workflow execution.
 
 **Code/functionality issues** (bugs discovered, missing features, tech debt, test gaps):
+
 - Create a Linear ticket with description, evidence, and suggested approach
 - Do NOT fix inline — let the ideator prioritize it and the develop workflow execute it properly
 - This ensures code changes go through full spec-first discipline
 
 **Learned rules** (patterns to remember, gotchas discovered, quality checks):
+
 - Apply the §4a classifier first. The bucket tells you WHERE to write;
   the routing table below (for `workflow_improvement` only) tells you
   WHICH step contract the rule belongs in.
@@ -249,14 +273,14 @@ After classification:
 - `project_learning` → append to `spec/project.yaml` `learnings[]` — skip
   this table entirely (no step contract involved)
 
-  | When to enforce | Target step contract | Where in the file |
-  |---|---|---|
-  | During diagnosis/investigation | `diagnose.yaml` | `instruction:` section |
-  | During implementation | `execute-one-task.yaml` | `rules:` list |
-  | During review | `run-phase-review.yaml` | `rules:` or `instruction:` |
-  | During implement review | `run-implement-review.yaml` | `instruction:` section |
-  | At phase boundaries | `phase-signoff.yaml` | `instruction:` pre-conditions |
-  | During artifact/task creation | `create-or-refresh-artifacts.yaml` | `rules:` list |
+  | When to enforce                | Target step contract               | Where in the file             |
+  | ------------------------------ | ---------------------------------- | ----------------------------- |
+  | During diagnosis/investigation | `diagnose.yaml`                    | `instruction:` section        |
+  | During implementation          | `execute-one-task.yaml`            | `rules:` list                 |
+  | During review                  | `run-phase-review.yaml`            | `rules:` or `instruction:`    |
+  | During implement review        | `run-implement-review.yaml`        | `instruction:` section        |
+  | At phase boundaries            | `phase-signoff.yaml`               | `instruction:` pre-conditions |
+  | During artifact/task creation  | `create-or-refresh-artifacts.yaml` | `rules:` list                 |
 
 - Apply the rule to the appropriate section of the target step contract
 - **IMPORTANT — Rule metadata**: When writing a learned rule, you MUST append the metadata comment inline on the same line as the rule text:
@@ -266,8 +290,8 @@ After classification:
   Permanent (hand-written) rules already in the step contract MUST NOT receive a metadata comment.
 
 **Tooling rules** (eslint, knip config, build settings):
-- Log as manual TODO — these need human oversight
 
+- Log as manual TODO — these need human oversight
 
 ### 5. Report
 
@@ -286,6 +310,7 @@ This sub-step runs on every learn invocation. It updates hit/miss counters on
 learned rules based on the just-completed feature's step retry data.
 
 **Update counters**:
+
 1. Get recent completed features: prefer `learn_metrics.recent_features_csv` from prep; else `orchestrator_next/scripts/metrics/metrics-query.sh recent-features --limit 10`; if that exits non-zero or returns empty, fall back to listing `spec/changes/archive/*/state.yaml`. Read the just-completed feature's `step_history[]` from the state.yaml.
 2. Build a map: `step_retries[step_id] = total retry count for that step`.
    A step with no retries has count 0.
@@ -311,11 +336,13 @@ step contracts and `.orchestrator/agents/*.md` overlays for ineffective learned 
 and removes flagged rules.
 
 **Trigger check**:
+
 1. Count archived state.yaml files: prefer `learn_metrics.cycle_count_csv` from prep; else `orchestrator_next/scripts/metrics/metrics-query.sh cycle-count`; if that exits non-zero or returns empty, fall back to `ls spec/changes/archive/*/state.yaml 2>/dev/null | wc -l`. Use the result as cycle count K.
 2. If `K % 5 != 0`: skip this sub-step entirely. Log: `[learn] Rule decay: skipped (cycle K, next at cycle M)`.
 3. If `K % 5 == 0`: proceed.
 
 **Scan**:
+
 1. Build lifecycle scan targets as a union:
    - Step-contract targets: all `$ORCHESTRATOR_HOME/config/steps/*.yaml` files.
    - Agent-overlay targets: all `$REPO_ROOT/.orchestrator/agents/*.md` files.
@@ -328,18 +355,22 @@ and removes flagged rules.
    - `misses` from `misses: N` (default 0 if missing)
 
 **Flag for removal** (ineffective rule) when ANY of:
+
 - `hits == 0 AND (K - cycle) > 5` — rule has never demonstrably helped after 5+ features
 - `(hits + misses) > 0 AND misses / (hits + misses) > 0.7 AND (K - cycle) > 10` — rule is mostly ineffective (>70% miss rate) over sufficient sample
 - `hits == 0` AND the rule's `source:` feature-id does NOT appear in any `retry_reasons` or evaluator findings from the last 10 archived state.yaml files
 
 **Flag for retention** (effective rule — do NOT remove even if old):
+
 - `hits > 0 AND (hits + misses) > 0 AND misses / (hits + misses) <= 0.7` — rule is demonstrably working
 
 **Flag for resolution** (contradictory rule) when:
+
 - Two learned rules in the same step contract's `rules:` section offer directly opposing advice on the same topic (e.g., "always X" vs "never X").
 - The newer rule (higher `cycle:` value) is preferred; the older one is flagged for removal.
 
 **Prune**:
+
 1. Collect all flagged rules (removal + resolution candidates) with their file paths and line context.
 2. If no rules are flagged: log `[learn] Rule decay: scanned N rules, nothing flagged` and stop.
 3. For each flagged rule:
@@ -353,6 +384,7 @@ and removes flagged rules.
 This sub-step runs after §5b on every learn invocation. It reads recent performance metrics and adjusts `quality_bar.scoring.green_base` in `spec/project.yaml` when trends warrant it.
 
 **Read metrics**:
+
 1. Prefer `learn_metrics.quality_trend_csv` from prep; else `orchestrator_next/scripts/metrics/metrics-query.sh quality-trend --limit 5`; if that exits non-zero or returns empty, fall back to reading the last 5 archived state.yaml files via `ls -t spec/changes/archive/*/state.yaml | head -5`.
 2. For each state.yaml, extract review score and retry rate from the `metrics:` block:
    - **Review score**: `metrics.review_score_avg` → fallback to omit entry
@@ -363,29 +395,30 @@ This sub-step runs after §5b on every learn invocation. It reads recent perform
 
 If fewer than 2 valid entries exist: skip this sub-step entirely and log `[learn] Quality bar: insufficient data (N entries), skipping`.
 
-**Read current bar**:
-4. Read `spec/project.yaml` — extract `quality_bar.scoring.green_base` (current value).
+**Read current bar**: 4. Read `spec/project.yaml` — extract `quality_bar.scoring.green_base` (current value).
 
-**Apply adjustment rules**:
-5. Evaluate conditions in order:
-   - **Tighten**: if `avg_review_score >= 9.5` AND `avg_retry_rate < 0.10`:
-     - `new_base = min(current_base + 0.25, 9.5)`
-   - **Loosen**: if `avg_review_score < 8.0` OR `avg_retry_rate > 0.40`:
-     - `new_base = max(current_base - 0.25, 7.0)`
-   - **Stable**: otherwise → `new_base = current_base`
+**Apply adjustment rules**: 5. Evaluate conditions in order:
 
-**Apply changes** (only if `new_base != current_base`):
-6. Update `spec/project.yaml` — replace the `green_base:` line with:
-   ```
-   green_base: <new_base>  # auto-adjusted YYYY-MM-DD from X.X (avg: Y.Y, retry: Z%)
-   ```
-   Where YYYY-MM-DD is today's date, X.X is the old value, Y.Y is avg_review_score (1 decimal), Z% is avg_retry_rate as a percentage (0 decimals).
-   Remove any previous `# auto-adjusted` comment that was on the `green_base:` line before replacing.
-7. If the adjustment was a **loosen** (new_base < current_base):
-   - Create a Linear ticket:
-     - Title: `Quality bar lowered: investigate review score / retry rate trend`
-     - Description: `avg_review_score=Y.Y, avg_retry_rate=Z%, green_base adjusted from X.X to new_base. Last N features analyzed.`
-     - Team: "Home Labs", Labels: ["shell", "Improvement", "S"], Priority: 4
+- **Tighten**: if `avg_review_score >= 9.5` AND `avg_retry_rate < 0.10`:
+  - `new_base = min(current_base + 0.25, 9.5)`
+- **Loosen**: if `avg_review_score < 8.0` OR `avg_retry_rate > 0.40`:
+  - `new_base = max(current_base - 0.25, 7.0)`
+- **Stable**: otherwise → `new_base = current_base`
+
+**Apply changes** (only if `new_base != current_base`): 6. Update `spec/project.yaml` — replace the `green_base:` line with:
+
+```
+green_base: <new_base>  # auto-adjusted YYYY-MM-DD from X.X (avg: Y.Y, retry: Z%)
+```
+
+Where YYYY-MM-DD is today's date, X.X is the old value, Y.Y is avg_review_score (1 decimal), Z% is avg_retry_rate as a percentage (0 decimals).
+Remove any previous `# auto-adjusted` comment that was on the `green_base:` line before replacing. 7. If the adjustment was a **loosen** (new_base < current_base):
+
+- Create a Linear ticket:
+  - Title: `Quality bar lowered: investigate review score / retry rate trend`
+  - Description: `avg_review_score=Y.Y, avg_retry_rate=Z%, green_base adjusted from X.X to new_base. Last N features analyzed.`
+  - Team: "Home Labs", Labels: ["shell", "Improvement", "S"], Priority: 4
+
 8. Log the result:
    - If adjusted: `[learn] Quality bar adjusted: green_base X.X → Y.Y (avg score: Z.Z, retry rate: W%)`
    - If stable: `[learn] Quality bar stable at X.X (avg score: Y.Y, retry rate: Z%)`
@@ -408,7 +441,7 @@ If there is nothing to commit, skip silently. Never fail the learn step over a c
 ## Output
 
 Return COMPLETION:
-  status: completed (or abandoned if learn fails and is non-blocking)
-  outputs:
-    learn_result: {completed: true} or {skipped: true, reason: "..."}
-  artifacts: []
+status: completed (or abandoned if learn fails and is non-blocking)
+outputs:
+learn_result: {completed: true} or {skipped: true, reason: "..."}
+artifacts: []

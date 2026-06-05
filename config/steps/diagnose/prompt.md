@@ -16,6 +16,7 @@ None.
 Follow these steps in order. Do not skip steps.
 
 ### Step 1: Reproduce
+
 Write a minimal script or command that triggers the bug. Run it and capture the
 output (error message, stack trace, wrong result). This is your reproduction evidence.
 
@@ -26,11 +27,13 @@ Save the reproduction script/command in the diagnosis document. It must be
 copy-pasteable — another developer should be able to run it and see the same failure.
 
 ### Step 2: Trace the Root Cause
+
 Read the source code along the execution path from bug trigger to failure point.
 Do NOT guess — actually read each function in the call chain.
 
 Identify the EXACT line(s) where the behavior diverges from what the user expects.
 Common patterns:
+
 - Wrong type check (isinstance vs type())
 - Missing edge case handling
 - Incorrect string/path manipulation
@@ -40,15 +43,19 @@ Common patterns:
 Record the file, line number, and what the code does vs what it should do.
 
 ### Step 3: Assess Impact
+
 Check what else calls or depends on the buggy code:
+
 - grep for other callers of the function
 - Check if the bug affects other code paths
 - Identify existing tests that cover this area (they may need updating)
 
 ### Step 4: Document
+
 Write a diagnosis document to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md using
 the template at $ORCHESTRATOR_HOME/config/steps/diagnose/templates/bugfix/discovery.md
 as structural guide, per the Diagnosis Format Contract below, containing:
+
 - **Symptom**: What the user sees (from the bug report)
 - **Reproduction**: Runnable command/script with expected vs actual output
 - **Root cause**: File, line, and explanation of why it's wrong
@@ -147,18 +154,18 @@ Reference: `file_path:line_number`
 
 ### Field rules
 
-| Field | Required | Format |
-|-------|----------|--------|
-| Symptoms | Yes | Prose with concrete evidence (error messages, logs) |
-| Reproduction Steps | Yes | Numbered list, must be runnable/followable |
-| Expected vs Actual | Yes | Two items: `**Expected**:` and `**Actual**:` |
-| Evidence Gathered | Yes | Bulleted list of what was checked |
-| Data Flow Trace | Yes | Prose tracing data path to error point |
-| Root Cause | Yes | Prose with `file_path:line_number` reference |
-| Severity | Yes | One of: `critical`, `high`, `medium`, `low` |
-| Affected Areas | Yes | Prose or bulleted list |
-| Since When | Yes | Commit/PR/date or "Unknown" |
-| Linear Ticket | Yes | `HL-XXX` or `none` |
+| Field              | Required | Format                                              |
+| ------------------ | -------- | --------------------------------------------------- |
+| Symptoms           | Yes      | Prose with concrete evidence (error messages, logs) |
+| Reproduction Steps | Yes      | Numbered list, must be runnable/followable          |
+| Expected vs Actual | Yes      | Two items: `**Expected**:` and `**Actual**:`        |
+| Evidence Gathered  | Yes      | Bulleted list of what was checked                   |
+| Data Flow Trace    | Yes      | Prose tracing data path to error point              |
+| Root Cause         | Yes      | Prose with `file_path:line_number` reference        |
+| Severity           | Yes      | One of: `critical`, `high`, `medium`, `low`         |
+| Affected Areas     | Yes      | Prose or bulleted list                              |
+| Since When         | Yes      | Commit/PR/date or "Unknown"                         |
+| Linear Ticket      | Yes      | `HL-XXX` or `none`                                  |
 
 ### Consumers
 

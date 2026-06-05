@@ -69,11 +69,11 @@ Each feature progresses through formal phases:
 `state.yaml` tracks workflow state:
 
 ```yaml
-schema:  # Workflow schema (feature|bugfix|chore|spike)
+schema: # Workflow schema (feature|bugfix|chore|spike)
   version: 1
   type: feature
 
-step_history:  # Terminal steps recorded in metrics
+step_history: # Terminal steps recorded in metrics
   - step_id: specify
     phase: specify
     status: completed
@@ -104,9 +104,9 @@ step_history:  # Terminal steps recorded in metrics
 
 ```yaml
 quality_bar:
-  min_phase_review_score: 9        # Minimum quality score per phase
-  max_retry_rounds: 8              # Max retries per step
-  max_spawn_failures: 3            # Max agent spawn failures
+  min_phase_review_score: 9 # Minimum quality score per phase
+  max_retry_rounds: 8 # Max retries per step
+  max_spawn_failures: 3 # Max agent spawn failures
 ```
 
 ### Exit Codes (ORC-45 Protocol)
@@ -129,15 +129,15 @@ quality_bar:
 
 ### CLI Reference
 
-| Command | Description |
-|---------|-------------|
-| `orchestrator run <id>` | Run full workflow from ticket |
-| `orchestrator complete <id>` | Complete phase + merge |
-| `orchestrator next <state.yaml>` | Dispatch next step |
-| `orchestrator done <state.yaml>` | Append step event (JSON on stdin) |
-| `orchestrator graph <state.yaml>` | Render Mermaid DAG |
-| `orchestrator expand-plan` | Append task-nodes to plan |
-| `orchestrator doctor` | Run diagnostics |
+| Command                           | Description                       |
+| --------------------------------- | --------------------------------- |
+| `orchestrator run <id>`           | Run full workflow from ticket     |
+| `orchestrator complete <id>`      | Complete phase + merge            |
+| `orchestrator next <state.yaml>`  | Dispatch next step                |
+| `orchestrator done <state.yaml>`  | Append step event (JSON on stdin) |
+| `orchestrator graph <state.yaml>` | Render Mermaid DAG                |
+| `orchestrator expand-plan`        | Append task-nodes to plan         |
+| `orchestrator doctor`             | Run diagnostics                   |
 
 ### Skills Entry Points
 

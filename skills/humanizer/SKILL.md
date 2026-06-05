@@ -12,6 +12,7 @@ args:
 ---
 
 ## Execution
+
 1. Parse `$ARGUMENTS` for target text or file path
 2. If `--voice` provided, include the writing sample for voice calibration
 3. Process the target text through the humanizer agent

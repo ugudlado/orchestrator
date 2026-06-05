@@ -118,18 +118,18 @@ UC-E1: {title} — what happens when {error condition}.
 
 ### Field rules
 
-| Field | Required | Format |
-|-------|----------|--------|
-| Frontmatter | Yes | YAML block with `feature-id` and `linear-ticket` |
-| Feature Summary | Yes | Single paragraph, no bullet lists |
-| Personas & Actors | Yes | At least one actor identified |
-| Happy Path Use Cases | Yes | Minimum 2, format: `UC-<N>: title — actor wants to action so that outcome` |
-| Error & Edge Cases | Yes | Minimum 1, format: `UC-E<N>: title — what happens when condition` |
-| In Scope | Yes | Bulleted list, at least one item |
-| Out of Scope | Yes | Bulleted list with rationale per item |
-| UI Direction | Yes | "N/A — no UI components" if non-UI |
-| Key Decisions | Contextual | Populated by design-exploration step if design=true |
-| Open Questions | Yes | Empty section means no blockers. Format: `OQ-<N>: question` |
+| Field                | Required   | Format                                                                     |
+| -------------------- | ---------- | -------------------------------------------------------------------------- |
+| Frontmatter          | Yes        | YAML block with `feature-id` and `linear-ticket`                           |
+| Feature Summary      | Yes        | Single paragraph, no bullet lists                                          |
+| Personas & Actors    | Yes        | At least one actor identified                                              |
+| Happy Path Use Cases | Yes        | Minimum 2, format: `UC-<N>: title — actor wants to action so that outcome` |
+| Error & Edge Cases   | Yes        | Minimum 1, format: `UC-E<N>: title — what happens when condition`          |
+| In Scope             | Yes        | Bulleted list, at least one item                                           |
+| Out of Scope         | Yes        | Bulleted list with rationale per item                                      |
+| UI Direction         | Yes        | "N/A — no UI components" if non-UI                                         |
+| Key Decisions        | Contextual | Populated by design-exploration step if design=true                        |
+| Open Questions       | Yes        | Empty section means no blockers. Format: `OQ-<N>: question`                |
 
 ### Identifier conventions
 

@@ -18,7 +18,7 @@ agents:
   # tools: Read Write Edit Grep Glob Bash WebSearch WebFetch SendMessage
   #        mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
   #        mcp__pal__thinkdeep mcp__pal__consensus
-  architect:         { model: opus,   subprocess: claude }
+  architect: { model: opus, subprocess: claude }
 
   # tools: Read Write Grep Glob Bash Skill WebSearch WebFetch
   #        mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
@@ -26,13 +26,13 @@ agents:
   #        mcp__drawio__open_drawio_mermaid mcp__drawio__open_drawio_csv
   #        mcp__plugin_claude-mem_mcp-search__search mcp__plugin_claude-mem_mcp-search__get_observations
   #        mcp__plugin_claude-mem_mcp-search__timeline
-  ideator:           { model: opus,   subprocess: claude }
+  ideator: { model: opus, subprocess: claude }
 
   # tools: Read Write Edit Grep Glob Bash
   #        mcp__chrome-devtools__take_screenshot mcp__chrome-devtools__navigate_page
   #        mcp__chrome-devtools__get_console_message mcp__chrome-devtools__list_console_messages
   #        mcp__chrome-devtools__evaluate_script mcp__pal__codereview mcp__pal__consensus
-  reviewer:          { model: opus,   subprocess: claude }
+  reviewer: { model: opus, subprocess: claude }
 
   # subprocess: cursor-agent CLI; model=auto → cursor-agent -p --model auto
   # Override per run: orchestrator run <id> agent.developer.subprocess=pi
@@ -41,41 +41,42 @@ agents:
   #        mcp__chrome-devtools__take_screenshot mcp__chrome-devtools__navigate_page
   #        mcp__chrome-devtools__get_console_message mcp__chrome-devtools__evaluate_script
   #        mcp__plugin_claude-mem_mcp-search__search mcp__plugin_claude-mem_mcp-search__get_observations
-  developer:         { model: auto,   subprocess: cursor }
+  developer: { model: auto, subprocess: cursor }
 
   # tools: Read Write Grep Glob Bash WebSearch WebFetch
   #        mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
   #        mcp__plugin_claude-mem_mcp-search__search mcp__plugin_claude-mem_mcp-search__get_observations
-  discoverer:        { model: sonnet, subprocess: claude }
+  discoverer: { model: sonnet, subprocess: claude }
 
   # tools: Read Write Edit Grep Glob Bash WebSearch
   #        mcp__plugin_claude-mem_mcp-search__search mcp__plugin_claude-mem_mcp-search__get_observations
-  workflow-learner:  { model: sonnet, subprocess: claude }
+  workflow-learner: { model: sonnet, subprocess: claude }
 
   # tools: Read Grep Glob
   #        mcp__chrome-devtools__take_screenshot mcp__chrome-devtools__navigate_page
   #        mcp__chrome-devtools__get_console_message mcp__chrome-devtools__list_console_messages
   #        mcp__chrome-devtools__evaluate_script mcp__chrome-devtools__emulate
   #        mcp__chrome-devtools__resize_page mcp__chrome-devtools__lighthouse_audit
-  ux-reviewer:       { model: sonnet, subprocess: claude }
+  ux-reviewer: { model: sonnet, subprocess: claude }
 
-  sonnet-agent:      { model: sonnet, subprocess: claude }
-  haiku-agent:       { model: haiku,  subprocess: claude }
+  sonnet-agent: { model: sonnet, subprocess: claude }
+  haiku-agent: { model: haiku, subprocess: claude }
 
 # ── Model backends — map model tier to concrete model-id ───────────
 # Keys match agents.<agent>.model values above
 models:
-  opus:   claude-opus-4-7
+  opus: claude-opus-4-7
   sonnet: claude-sonnet-4-6
-  haiku:  claude-haiku-4-5
-  auto:   auto   # Cursor CLI model id (Cursor picks best fit)
+  haiku: claude-haiku-4-5
+  auto: auto # Cursor CLI model id (Cursor picks best fit)
 
 # ── Subprocess tool invocation (dispatch loop: run_loop.py) ────────
 tools:
   claude:
     binary: claude
     # {prompt} is substituted with the full prompt text
-    args_template: ["--model", "{model_tier}", "-p", "--output-format", "json", "{prompt}"]
+    args_template:
+      ["--model", "{model_tier}", "-p", "--output-format", "json", "{prompt}"]
     stdin: none
     capture: stdout
 
@@ -98,7 +99,16 @@ tools:
     # Cursor Agent CLI (non-interactive). Requires `cursor-agent` on PATH.
     # {model_tier} comes from agents.<role>.model (e.g. auto).
     # Agent must emit a COMPLETION: YAML block on stdout for parse-completion.py.
-    args_template: ["-p", "--output-format", "json", "--model", "{model_tier}", "--force", "{prompt}"]
+    args_template:
+      [
+        "-p",
+        "--output-format",
+        "json",
+        "--model",
+        "{model_tier}",
+        "--force",
+        "{prompt}",
+      ]
     stdin: none
     capture: stdout
 

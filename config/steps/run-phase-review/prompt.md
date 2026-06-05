@@ -39,14 +39,14 @@
      a. Every artifact exceeds minimum requirements (not just meets them)
      b. No TODO, FIXME, or placeholder text remains in outputs
      c. All verify assertions passed on first attempt (no retries used this round)
-5b. Baseline comparison (non-blocking):
+     5b. Baseline comparison (non-blocking):
    - Read archived state.yaml files: `spec/changes/archive/*/state.yaml`.
    - Filter entries matching current schema (e.g., feature) via the `schema:` field.
    - Compute average `metrics.review_score_avg` across those entries (skip entries missing this field).
    - If current overall is 2 or more points below that average: emit a warning in the report
      ("Quality regression: current score N is 2+ below historical average M for this schema/phase").
    - If no archived state.yaml files exist or no matching entries: skip silently.
-5bb. Quarantine review (implement phase only):
+     5bb. Quarantine review (implement phase only):
    - If current phase is not implement: skip this step.
    - Read state.yaml for `quarantine_events` (may be absent or empty).
    - For each entry, treat as a **critical finding** in the correctness dimension
@@ -56,35 +56,37 @@
      `T-<N> (reason: <category>, attempts: <K>): <last_detail>`
    - Caps correctness dimension score at scoring.critical_cap until each
      quarantined task either:
-       a. Has a fix task appended to tasks.yaml with `status: pending`, OR
-       b. Is explicitly accepted by the user (state.yaml contains
-          `quarantine_accepted: ["T-<N>", ...]`); for `autopilot` schema,
-          quarantined tasks are treated as accepted automatically — no human gate.
+     a. Has a fix task appended to tasks.yaml with `status: pending`, OR
+     b. Is explicitly accepted by the user (state.yaml contains
+     `quarantine_accepted: ["T-<N>", ...]`); for `autopilot` schema,
+     quarantined tasks are treated as accepted automatically — no human gate.
 
 5c. AC verification with evidence (implement phase only):
-   - If current phase is not implement: skip this step.
-   - Read design.md (feature) or fix-plan.md (bugfix) for acceptance criteria,
-     using the format defined in the Format Contract Reference section below
-     (§ Design Format Contract or § Fix Plan Format Contract respectively).
-   - **Patch schema:** when `design.md` is absent, read acceptance criteria from
-     the ticket body injected in this prompt (under "Ticket / bug report") instead.
-     The ticket AC section is the contract — verify each checkbox item with evidence.
-   - For each acceptance criterion:
-     a. Run the verification check (test, manual check, build gate, or file inspection).
-     b. Record pass/fail with evidence (command output, file check result, etc.).
-     c. If a criterion uses ALL/EVERY/EACH:
-        - Define scope: what "all" means for this criterion (e.g., "all .ts files in src/").
-        - Count programmatically: use grep/find/ast to get the total N.
-        - Verify each target with evidence.
-        - Report: "Verified N/N <target type>" (e.g., "Verified 47/47 API routes").
-        - If N differs from any earlier count in spec: note the discrepancy and
-          use the fresh count as authoritative.
-     d. If a criterion contains FIXED/RESOLVED/COMPLETE claims:
-        - Re-run the original search against the ENTIRE source tree from scratch.
-        - Do not trust earlier phase counts.
-        - Record fresh search result as evidence.
-   - If any AC fails: treat as a critical finding in spec_compliance dimension.
-5a. Write the full human-readable report to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/phase-review.md.
+
+- If current phase is not implement: skip this step.
+- Read design.md (feature) or fix-plan.md (bugfix) for acceptance criteria,
+  using the format defined in the Format Contract Reference section below
+  (§ Design Format Contract or § Fix Plan Format Contract respectively).
+- **Patch schema:** when `design.md` is absent, read acceptance criteria from
+  the ticket body injected in this prompt (under "Ticket / bug report") instead.
+  The ticket AC section is the contract — verify each checkbox item with evidence.
+- For each acceptance criterion:
+  a. Run the verification check (test, manual check, build gate, or file inspection).
+  b. Record pass/fail with evidence (command output, file check result, etc.).
+  c. If a criterion uses ALL/EVERY/EACH:
+  - Define scope: what "all" means for this criterion (e.g., "all .ts files in src/").
+  - Count programmatically: use grep/find/ast to get the total N.
+  - Verify each target with evidence.
+  - Report: "Verified N/N <target type>" (e.g., "Verified 47/47 API routes").
+  - If N differs from any earlier count in spec: note the discrepancy and
+    use the fresh count as authoritative.
+    d. If a criterion contains FIXED/RESOLVED/COMPLETE claims:
+  - Re-run the original search against the ENTIRE source tree from scratch.
+  - Do not trust earlier phase counts.
+  - Record fresh search result as evidence.
+- If any AC fails: treat as a critical finding in spec_compliance dimension.
+  5a. Write the full human-readable report to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/phase-review.md.
+
 6. If overall >= phase verify.metrics.review_score.min and no critical findings: PASS.
    Return COMPLETION:
    ```
@@ -99,18 +101,18 @@
    ```
 7. If FAIL:
    a. Generate fix tasks: one fix task per finding, each with Finding, Scope, and Approach.
-      Do NOT suggest refactoring or unrelated improvements.
+   Do NOT suggest refactoring or unrelated improvements.
    b. Append fix tasks to tasks.yaml:
-      - Read $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/tasks.yaml.
-      - Find the current last task id (e.g., T-3 or fix-2) for depends_on.
-      - Append new entries with ids like fix-1, fix-2, ... (sequential,
-        based on existing fix-N entries) with depends_on pointing to the
-        current last task id.
-      - Each new task MUST have `status: pending`.
-      - Write tasks.yaml back to disk.
-   c. Return COMPLETION with `status: failed` — the engine routes back via the
-      workflow's `on_failure` edge. Do NOT implement retry counting here; the
-      engine enforces `max_retries` on the node.
+   - Read $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/tasks.yaml.
+   - Find the current last task id (e.g., T-3 or fix-2) for depends_on.
+   - Append new entries with ids like fix-1, fix-2, ... (sequential,
+     based on existing fix-N entries) with depends_on pointing to the
+     current last task id.
+   - Each new task MUST have `status: pending`.
+   - Write tasks.yaml back to disk.
+     c. Return COMPLETION with `status: failed` — the engine routes back via the
+     workflow's `on_failure` edge. Do NOT implement retry counting here; the
+     engine enforces `max_retries` on the node.
    ```
    COMPLETION:
      status: failed
@@ -198,11 +200,11 @@ the bugfix schema.
 
 **Required sections:**
 
-| Section | Required | Format |
-|---------|----------|--------|
-| Fix Strategy | Yes | Prose referencing discovery.md Root Cause |
-| Affected Files | Yes | Bulleted list: `` `file_path:line_number` — description `` |
-| Regression Test | Yes | Test file, Test name, Asserts, fail-before/pass-after |
-| Could This Break Other Things? | Yes | Prose analysis or "No — isolated change" |
-| Rollback Plan | Yes | Concrete revert steps or "git revert <commit>" |
-| Out of Scope | Yes | Bulleted list or "None — fix is self-contained" |
+| Section                        | Required | Format                                                     |
+| ------------------------------ | -------- | ---------------------------------------------------------- |
+| Fix Strategy                   | Yes      | Prose referencing discovery.md Root Cause                  |
+| Affected Files                 | Yes      | Bulleted list: `` `file_path:line_number` — description `` |
+| Regression Test                | Yes      | Test file, Test name, Asserts, fail-before/pass-after      |
+| Could This Break Other Things? | Yes      | Prose analysis or "No — isolated change"                   |
+| Rollback Plan                  | Yes      | Concrete revert steps or "git revert <commit>"             |
+| Out of Scope                   | Yes      | Bulleted list or "None — fix is self-contained"            |

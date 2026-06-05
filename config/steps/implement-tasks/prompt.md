@@ -61,7 +61,7 @@ For each pending task in dependency order:
    - `tokens_in: <input tokens used>`
    - `tokens_out: <output tokens used>`
    - `duration_s: <wall-clock seconds from task start to commit>`
-   Write the file immediately after committing.
+     Write the file immediately after committing.
 8. Move to the next pending task.
 
 ### After all tasks
@@ -69,6 +69,7 @@ For each pending task in dependency order:
 Return one of these COMPLETION forms:
 
 **All tasks committed and verified** (`status: completed`):
+
 ```
 COMPLETION:
   status: completed
@@ -80,6 +81,7 @@ COMPLETION:
 ```
 
 **Could not start — zero tasks attempted** (shell blocked, unresolvable blocker before T-1):
+
 ```
 COMPLETION:
   status: abandoned
@@ -89,6 +91,7 @@ COMPLETION:
 ```
 
 **Partial progress — some tasks committed, then unrecoverable blocker**:
+
 ```
 COMPLETION:
   status: completed
@@ -120,6 +123,7 @@ Use `status: completed` whenever at least one task commit landed in `git log` �
 ## Escalation
 
 Escalate to architect (`STATUS: escalate_to_architect`) only for:
+
 - **Design contradiction** — task instruction conflicts with `design.md`
 - **Missing design coverage** — task requires a decision `design.md` doesn't address
 - **Scope ambiguity** — unclear whether behavior is in/out of scope and wrong choice cascades

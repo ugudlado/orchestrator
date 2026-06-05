@@ -30,19 +30,19 @@ outputs? → prompt.
 
 ## Edge cases
 
-| Step | Route | Why |
-|------|-------|-----|
-| Run tests + fix failures | **Split** | `run-tests` shell; `fix-failures` prompt |
-| Lint + apply fixes | **Split** | `run-lint` shell; `fix-lint` prompt |
-| Generate outline from brief | prompt | Structure requires judgment |
-| Convert markdown → PDF via pandoc | shell | Fixed command |
-| SEO keyword research | prompt | Synthesis and selection |
-| Export course pack (zip fixed layout) | shell | Deterministic packaging |
-| Peer review | prompt | Subjective rubric |
-| Check word count ≥ 1000 | shell | `wc -w` threshold |
-| Assess readability grade | shell if formula (flesch script); prompt if holistic |
-| expand-plan (read tasks.yaml) | shell | Existing orchestrator step |
-| draft lesson content | prompt | Creative |
+| Step                                  | Route                                                | Why                                      |
+| ------------------------------------- | ---------------------------------------------------- | ---------------------------------------- |
+| Run tests + fix failures              | **Split**                                            | `run-tests` shell; `fix-failures` prompt |
+| Lint + apply fixes                    | **Split**                                            | `run-lint` shell; `fix-lint` prompt      |
+| Generate outline from brief           | prompt                                               | Structure requires judgment              |
+| Convert markdown → PDF via pandoc     | shell                                                | Fixed command                            |
+| SEO keyword research                  | prompt                                               | Synthesis and selection                  |
+| Export course pack (zip fixed layout) | shell                                                | Deterministic packaging                  |
+| Peer review                           | prompt                                               | Subjective rubric                        |
+| Check word count ≥ 1000               | shell                                                | `wc -w` threshold                        |
+| Assess readability grade              | shell if formula (flesch script); prompt if holistic |
+| expand-plan (read tasks.yaml)         | shell                                                | Existing orchestrator step               |
+| draft lesson content                  | prompt                                               | Creative                                 |
 
 ## Splitting compound steps
 
@@ -62,14 +62,14 @@ id — do not overload unrelated steps.
 
 ## Agent picker (probabilistic steps)
 
-| Activity | Typical `agent:` |
-|----------|------------------|
-| Research, discovery | `discoverer` |
-| Structure, spec, design | `architect` |
-| Creative exploration | `ideator` |
-| Implementation | `developer` |
-| Code/content review | `reviewer` |
-| UX review | `ux-reviewer` |
-| Process learnings | `workflow-learner` |
+| Activity                | Typical `agent:`   |
+| ----------------------- | ------------------ |
+| Research, discovery     | `discoverer`       |
+| Structure, spec, design | `architect`        |
+| Creative exploration    | `ideator`          |
+| Implementation          | `developer`        |
+| Code/content review     | `reviewer`         |
+| UX review               | `ux-reviewer`      |
+| Process learnings       | `workflow-learner` |
 
 Step-specific detail belongs in `prompt.md`, not in picking a exotic agent name.

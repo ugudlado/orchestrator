@@ -9,10 +9,10 @@ Invoke external AI CLIs (Codex, Claude) via PAL MCP's `clink` tool for cross-mod
 
 ## Available CLIs
 
-| CLI | Model | Best For |
-|-----|-------|----------|
-| `codex` | OpenAI o3 | Logical reasoning, subtle bugs, code review |
-| `claude` | Claude | Fresh perspective, parallel analysis |
+| CLI      | Model     | Best For                                    |
+| -------- | --------- | ------------------------------------------- |
+| `codex`  | OpenAI o3 | Logical reasoning, subtle bugs, code review |
+| `claude` | Claude    | Fresh perspective, parallel analysis        |
 
 ## When to Use
 
@@ -58,21 +58,21 @@ clink with codex codereviewer to review uncommitted changes in this repository. 
 
 When presenting PAL/clink results alongside Claude's own review, use attribution tags:
 
-| Tag | Meaning |
-|-----|---------|
-| `[codex]` | Found by Codex CLI (o3) |
-| `[claude]` | Found by Claude's own review |
-| `[both]` | Same issue caught by both models (high-signal) |
+| Tag        | Meaning                                        |
+| ---------- | ---------------------------------------------- |
+| `[codex]`  | Found by Codex CLI (o3)                        |
+| `[claude]` | Found by Claude's own review                   |
+| `[both]`   | Same issue caught by both models (high-signal) |
 
 ## Integration Points
 
 This skill is composed by other workflows:
 
-| Workflow | Use | Blocking? |
-|----------|-----|-----------|
-| `/specify` (step 8) | Artifact review in parallel with Claude agents | Yes (critical findings block) |
-| `phase-review` (step 2) | Code review in parallel with feature-dev:code-reviewer | Yes (critical findings block) |
-| `/complete-feature` (step 2) | Final full-diff review | Advisory only |
+| Workflow                     | Use                                                    | Blocking?                     |
+| ---------------------------- | ------------------------------------------------------ | ----------------------------- |
+| `/specify` (step 8)          | Artifact review in parallel with Claude agents         | Yes (critical findings block) |
+| `phase-review` (step 2)      | Code review in parallel with feature-dev:code-reviewer | Yes (critical findings block) |
+| `/complete-feature` (step 2) | Final full-diff review                                 | Advisory only                 |
 
 ## Prerequisites
 

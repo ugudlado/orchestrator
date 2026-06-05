@@ -19,7 +19,7 @@ None named. (Reads modified files in the phase and `quality_bar` from `spec/proj
    - max_retries = quality_bar.max_retry_rounds
 
 2. Check if any files modified in this phase touch UI:
-   Match: *.html, *.css, *.scss, *.tsx, *.jsx, *.svelte, *.vue, *.astro,
+   Match: _.html, _.css, _.scss, _.tsx, _.jsx, _.svelte, _.vue, _.astro,
    or files in components/, pages/, views/, layouts/, templates/.
 
    If NO UI files modified → skip. Log: "[critique] No UI changes — skipping"

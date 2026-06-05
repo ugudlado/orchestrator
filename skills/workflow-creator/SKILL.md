@@ -28,11 +28,13 @@ user ask → scan existing → improve or create → web search → I/O contract
 ## Process
 
 ### 1. Parse the ask
+
 Extract: goal/deliverable, schema name (kebab-case), artifact root (default `spec/changes/<slug>/`). Ask only if schema name or deliverable is unclear.
 
 ### 2. Scan existing workflows — improve before creating
 
 Resolve the config root, then scan all workflow files:
+
 ```bash
 # ORCHESTRATOR_CONFIG is the canonical config root.
 # It can be set in the repo (.env, .envrc) or in shell config (~/.zshrc etc).
@@ -49,11 +51,13 @@ Use this same `$ORCH_CONFIG` root everywhere steps and workflows are read or wri
 Read each workflow's `description:` field and compare it against the user's intent.
 
 **If a matching workflow exists** — don't create a new one. Instead, analyse it:
+
 - Does its step list cover the user's stated goal end-to-end?
 - Are there gaps (missing phases, wrong classifications, no intake step, no `workflow-improve`)?
 - Does its I/O contract match what the user needs?
 
 Present a gap analysis:
+
 ```
 Existing workflow: <schema>
 Description: <its description>
@@ -72,19 +76,23 @@ Wait for confirmation, then apply improvements to the existing files.
 **If no matching workflow exists** — proceed to create one from scratch (steps 3 onwards).
 
 ### 2. Define the workflow I/O contract
+
 Before researching steps, nail down what goes **in** and what comes **out** of the whole workflow.
 
 **Input** — what does the user pass when triggering `orchestrator <schema> <id>`?
+
 - Is `<id>` a ticket ID, a file path, a record ID in some system, a free-form slug?
 - What data must exist before the workflow can start? (e.g. a PDF on disk, a Linear ticket, a CTMS study record)
 
 **Output** — what artifacts does a completed run produce?
+
 - Files written to `spec/changes/<slug>/` (reports, packages, configs)
 - External state changes (ticket closed, record updated, email sent, deployment live)
 
 Write this as a brief contract block — it drives the intake step design and sets expectations for the user.
 
 ### 3. Web search the workflow
+
 Search how practitioners actually structure this process — phase names, handoffs, typical artifacts. Prefer industry sources over generic AI posts. Cite 1–3 sources in the proposal.
 
 ### 4. Break into atomic steps — always starting with intake
@@ -107,13 +115,15 @@ Middle steps: one clear outcome each, verb-led kebab-case ids, split at natural 
 ### 5. Classify each step
 
 **Shell (deterministic)** — same inputs → same action every time, no judgment needed:
+
 - File ops, format conversion (pandoc/ffmpeg with fixed flags), run linter/tests
 - Ticket/webhook sync with fixed payload, git ops with template args, metrics rollup
 
 **Prompt (probabilistic)** — requires reading for meaning, judgment, or creativity:
+
 - Research, summarize, write, edit, review, plan, diagnose, prioritize
 
-When unsure: can you write a bash script that completes it *without* calling an LLM? → shell. Does it need "read context and decide"? → prompt. See [references/classification.md](references/classification.md) for edge cases.
+When unsure: can you write a bash script that completes it _without_ calling an LLM? → shell. Does it need "read context and decide"? → prompt. See [references/classification.md](references/classification.md) for edge cases.
 
 **Reuse:** Check `ls "$ORCH_CONFIG/steps/"` before creating — reference existing steps when I/O and behavior match.
 
@@ -128,17 +138,18 @@ Output: <artifacts produced, external state changes>
 Sources: <1-3 cited sources>
 ```
 
-| # | Step id | Route | Rationale | Inputs | Outputs |
-|---|---------|-------|-----------|--------|---------|
-| 1 | intake-<schema> | shell | Translates <id> into context files | $CHANGE_ID | spec/changes/<slug>/... |
-| … | … | … | … | … | … |
-| N | workflow-improve | prompt | Reflects on run, proposes workflow edits | step_history, state.yaml | improvement proposals |
+| #   | Step id          | Route  | Rationale                                | Inputs                   | Outputs                 |
+| --- | ---------------- | ------ | ---------------------------------------- | ------------------------ | ----------------------- |
+| 1   | intake-<schema>  | shell  | Translates <id> into context files       | $CHANGE_ID               | spec/changes/<slug>/... |
+| …   | …                | …      | …                                        | …                        | …                       |
+| N   | workflow-improve | prompt | Reflects on run, proposes workflow edits | step_history, state.yaml | improvement proposals   |
 
 Apply edits; then scaffold.
 
 ### 7. Scaffold
 
 **Workflow** (`$ORCH_CONFIG/workflows/<schema>.yaml`):
+
 ```yaml
 description: >-
   <One sentence: what this workflow does and when to use it.
@@ -154,23 +165,28 @@ steps:
 ```
 
 **Shell step** (`$ORCH_CONFIG/steps/<id>/contract.yaml` + `script.sh`):
+
 ```yaml
 id: <id>
 version: 1
 kind: script
 run: script.sh
 ```
+
 Script: `set -euo pipefail`, read env vars, emit `{"status":"completed","outputs":{...}}` on stdout.
 
 **Prompt step** (`$ORCH_CONFIG/steps/<id>/contract.yaml` + `prompt.md`):
+
 ```yaml
 id: <id>
 version: 1
-agent: discoverer   # or architect, reviewer, ideator
+agent: discoverer # or architect, reviewer, ideator
 ```
+
 Prompt: `# Title` → `## Inputs` → `## Outputs` → `## Instructions` → `## Verify`. Return COMPLETION block.
 
 For `workflow-improve`: agent is `architect`. Prompt instructs it to:
+
 1. Read `state.yaml` step history — identify steps that failed, were retried, or produced thin output
 2. Read the workflow's `description:` field — check whether the completed run actually fulfilled the stated intent, or whether gaps exist (missing phases, wrong classifications, weak prompts)
 3. Write concrete improvement proposals to `spec/changes/<slug>/workflow-improvements.md` — specific edits to workflow YAML, step contracts, or prompt.md files, not vague suggestions
@@ -178,6 +194,7 @@ For `workflow-improve`: agent is `architect`. Prompt instructs it to:
 Follow existing steps in `$ORCH_CONFIG/steps/` for exact env var names and JSON shape.
 
 ### 8. Validate
+
 ```bash
 bash skills/workflow-creator/scripts/validate-workflow.sh <schema>
 pytest "$ORCH_CONFIG/steps/__tests__/test_all_contracts_have_agent_or_run.py" -q
@@ -210,6 +227,7 @@ Output artifacts:
 ---
 
 ## Rules
+
 - Flat `steps:` list — order is execution order
 - No LLM tool names in YAML or contracts (agent-agnostic)
 - Never scaffold before the user confirms the I/O contract and step table

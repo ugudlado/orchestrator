@@ -9,6 +9,7 @@ args:
 ---
 
 # Portless Setup
+
 Add named `.localhost` dev URLs to any project using [portless](https://port1355.dev/).
 
 ## How Portless Works
@@ -26,6 +27,7 @@ Browser → https://<name>.localhost → proxy (port 1355) → app (random port 
 - Wildcard subdomains: `tenant.myapp.localhost` routes to `myapp`
 
 ### One-time setup
+
 ```bash
 portless proxy start --https     # Start HTTPS/2 proxy (generates certs, auto-trusts on first run)
 sudo portless trust              # If you skipped sudo on first run, trust CA later
@@ -35,20 +37,21 @@ sudo portless trust              # If you skipped sudo on first run, trust CA la
 
 Read `package.json` and determine how to serve:
 
-| Type | Indicators | Portless dev command | Notes |
-|------|-----------|---------------------|-------|
-| **Static HTML** | No framework/build tool | `portless run serve .` | Add `serve` as devDep |
-| **Next.js** | `next` in deps | `portless run next dev` | Respects `PORT` natively |
-| **Nuxt** | `nuxt` in deps | `portless run nuxt dev` | Respects `PORT` natively |
-| **Express/Fastify** | Server framework | `portless run node server.js` | Must use `process.env.PORT` |
-| **Vite** | `vite` in deps/scripts | `portless run vite` | Auto-injects `--port --host` |
-| **Astro** | `astro` in deps | `portless run astro dev` | Auto-injects `--port --host` |
-| **React Router** | `react-router` in deps | `portless run react-router dev` | Auto-injects `--port --host` |
-| **Angular** | `angular` in deps | `portless run ng serve` | Auto-injects `--port --host` |
+| Type                | Indicators              | Portless dev command            | Notes                        |
+| ------------------- | ----------------------- | ------------------------------- | ---------------------------- |
+| **Static HTML**     | No framework/build tool | `portless run serve .`          | Add `serve` as devDep        |
+| **Next.js**         | `next` in deps          | `portless run next dev`         | Respects `PORT` natively     |
+| **Nuxt**            | `nuxt` in deps          | `portless run nuxt dev`         | Respects `PORT` natively     |
+| **Express/Fastify** | Server framework        | `portless run node server.js`   | Must use `process.env.PORT`  |
+| **Vite**            | `vite` in deps/scripts  | `portless run vite`             | Auto-injects `--port --host` |
+| **Astro**           | `astro` in deps         | `portless run astro dev`        | Auto-injects `--port --host` |
+| **React Router**    | `react-router` in deps  | `portless run react-router dev` | Auto-injects `--port --host` |
+| **Angular**         | `angular` in deps       | `portless run ng serve`         | Auto-injects `--port --host` |
 
 **Key**: Always prefer `portless run` over `portless <name>`. The `run` command auto-infers the app name from `package.json` and auto-handles git worktree subdomain prefixing.
 
 If the project already has a `dev` script, rename it to `dev:base` and wrap:
+
 ```json
 "dev:base": "<original dev command>",
 "dev": "portless run pnpm run dev:base"
@@ -95,6 +98,7 @@ curl -sk -o /dev/null -w "%{http_code}" https://<name>.localhost/
 ```
 
 If verification fails:
+
 1. Is the proxy running? → `portless proxy start --https`
 2. Is CA trusted? → `sudo portless trust`
 3. Does the app respect `PORT`? → Portless auto-injects `--port` for Vite/Astro/Angular/React Router
@@ -132,41 +136,41 @@ PORTLESS=0 pnpm dev              # Run without portless proxy
 
 ## Key Flags
 
-| Flag | Purpose |
-|------|---------|
-| `--https` | Enable HTTP/2 + TLS (clean URLs, no port needed) |
-| `-p, --port <n>` | Proxy listen port (default: 1355) |
-| `--tld <tld>` | Custom TLD (e.g., `test` instead of `localhost`) |
-| `--app-port <n>` | Fixed port for the app (skip auto-assignment) |
-| `--force` | Override an existing route from another process |
-| `--foreground` | Run proxy in foreground (for debugging) |
-| `--cert/--key` | Custom TLS certificate paths |
+| Flag             | Purpose                                          |
+| ---------------- | ------------------------------------------------ |
+| `--https`        | Enable HTTP/2 + TLS (clean URLs, no port needed) |
+| `-p, --port <n>` | Proxy listen port (default: 1355)                |
+| `--tld <tld>`    | Custom TLD (e.g., `test` instead of `localhost`) |
+| `--app-port <n>` | Fixed port for the app (skip auto-assignment)    |
+| `--force`        | Override an existing route from another process  |
+| `--foreground`   | Run proxy in foreground (for debugging)          |
+| `--cert/--key`   | Custom TLS certificate paths                     |
 
 ## Environment Variables
 
-| Variable | Purpose | Where to set |
-|----------|---------|-------------|
-| `PORTLESS_HTTPS=1` | Always enable HTTPS (clean URLs) | `.zshrc` (already set) |
-| `PORTLESS_PORT=<n>` | Override default proxy port | `.zshrc` |
-| `PORTLESS_APP_PORT=<n>` | Fixed app port | per-project `.envrc` |
-| `PORTLESS_TLD=<tld>` | Custom TLD | `.zshrc` |
-| `PORTLESS_SYNC_HOSTS=1` | Auto-sync `/etc/hosts` | `.zshrc` (for Safari) |
-| `PORTLESS=0` | Disable portless for a single run | inline |
+| Variable                | Purpose                           | Where to set           |
+| ----------------------- | --------------------------------- | ---------------------- |
+| `PORTLESS_HTTPS=1`      | Always enable HTTPS (clean URLs)  | `.zshrc` (already set) |
+| `PORTLESS_PORT=<n>`     | Override default proxy port       | `.zshrc`               |
+| `PORTLESS_APP_PORT=<n>` | Fixed app port                    | per-project `.envrc`   |
+| `PORTLESS_TLD=<tld>`    | Custom TLD                        | `.zshrc`               |
+| `PORTLESS_SYNC_HOSTS=1` | Auto-sync `/etc/hosts`            | `.zshrc` (for Safari)  |
+| `PORTLESS=0`            | Disable portless for a single run | inline                 |
 
 ### Child Process Env (set by portless)
 
-| Variable | Value |
-|----------|-------|
-| `PORT` | Random port (4000-4999) the app should listen on |
-| `HOST` | Always `127.0.0.1` |
+| Variable       | Value                                               |
+| -------------- | --------------------------------------------------- |
+| `PORT`         | Random port (4000-4999) the app should listen on    |
+| `HOST`         | Always `127.0.0.1`                                  |
 | `PORTLESS_URL` | Full public URL (e.g., `https://algoviz.localhost`) |
 
 ## Existing Portless Apps
 
-| App | URL | Project |
-|-----|-----|---------|
-| algoviz | `https://algoviz.localhost` | `tools/algoviz/` |
-| designviz | `https://designviz.localhost` | `tools/designviz/` |
+| App       | URL                           | Project             |
+| --------- | ----------------------------- | ------------------- |
+| algoviz   | `https://algoviz.localhost`   | `tools/algoviz/`    |
+| designviz | `https://designviz.localhost` | `tools/designviz/`  |
 | paperlens | `https://paperlens.localhost` | `~/code/paperlens/` |
 
 Update this table when adding new apps.

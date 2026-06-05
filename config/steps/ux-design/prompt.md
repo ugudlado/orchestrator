@@ -37,14 +37,14 @@
 6. Record final UI direction in the discovery brief's "UI Direction" section.
 7. Persist UX artifacts:
    a. Save the final polished prototype HTML to
-      $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ux-prototype.html
+   $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ux-prototype.html
    b. Write $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ux-artifacts.yaml with:
-      - prototype.file: ux-prototype.html
-      - prototype.description: one-line summary of the design direction
-      - prototype.options_considered: number of options generated (typically 3)
-      - prototype.selected_option: which option was chosen
-      - prototype.critique_status: passed|passed-with-fixes|skipped
-      - prototype.critique_rounds: number of /critique iterations run
+   - prototype.file: ux-prototype.html
+   - prototype.description: one-line summary of the design direction
+   - prototype.options_considered: number of options generated (typically 3)
+   - prototype.selected_option: which option was chosen
+   - prototype.critique_status: passed|passed-with-fixes|skipped
+   - prototype.critique_rounds: number of /critique iterations run
 8. Return COMPLETION (driver calls orchestrator done):
    ```
    COMPLETION:

@@ -1,6 +1,6 @@
 ---
 name: doctor
-description: "Run the unified orchestrator health check. Use when user says \"doctor\", \"/doctor\", \"health check\", \"check orchestrator health\", or before debugging dispatch/contract errors."
+description: 'Run the unified orchestrator health check. Use when user says "doctor", "/doctor", "health check", "check orchestrator health", or before debugging dispatch/contract errors.'
 user-invocable: true
 ---
 

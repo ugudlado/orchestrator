@@ -12,24 +12,28 @@ Read `quality_bar.scoring` from `spec/project.yaml` for thresholds (critical_cap
 ### Criteria (weighted equally — each scored 1-10)
 
 **1. CRAP Principles**
+
 - **Contrast**: Do important elements stand out? Is there clear visual differentiation between primary, secondary, and tertiary content?
 - **Repetition**: Are design patterns consistent? Same element = same styling everywhere?
 - **Alignment**: Is everything deliberately aligned? No "almost aligned" elements?
 - **Proximity**: Are related items grouped? Unrelated items separated? Does spacing communicate relationships?
 
 **2. Originality**
+
 - Does this have a distinct visual identity or could it be any project?
 - Are there unexpected design choices that delight?
 - Does it avoid template-look (Bootstrap/Tailwind defaults)?
 - Would a designer recognize this as thoughtfully crafted?
 
 **3. Simplicity**
+
 - Can a new user accomplish the primary task in < 3 clicks?
 - Is there visual noise that could be removed?
 - Are there elements that exist "just in case" rather than serving a purpose?
 - Does every element earn its place on screen?
 
 **4. Aesthetics**
+
 - Does the color palette feel intentional and cohesive?
 - Is typography hierarchy clear and comfortable to read?
 - Does whitespace feel designed, not leftover?
@@ -37,6 +41,7 @@ Read `quality_bar.scoring` from `spec/project.yaml` for thresholds (critical_cap
 - Does it feel polished at the detail level (borders, shadows, transitions)?
 
 **5. Non-AI-Generated (CRITICAL — veto power)**
+
 - **Fails if ANY of these are present:**
   - Indigo/purple gradient palette with teal accents
   - Gradient text on headings
@@ -51,18 +56,21 @@ Read `quality_bar.scoring` from `spec/project.yaml` for thresholds (critical_cap
 - **The test**: Show this to 10 designers. If >5 say "AI made this," it fails.
 
 **6. Information Architecture**
+
 - Is the structure intuitive for new users?
 - Is content grouped logically?
 - Is navigation clear and predictable?
 - Are there too many choices at once? (cognitive overload)
 
 **7. States & Edge Cases**
+
 - Empty states guide users toward action?
 - Loading states reduce perceived wait time?
 - Error states are helpful and non-blaming?
 - Success states confirm and guide next steps?
 
 **8. Accessibility**
+
 - Sufficient color contrast (WCAG AA minimum)?
 - Interactive elements obviously interactive?
 - Works without color alone conveying meaning?

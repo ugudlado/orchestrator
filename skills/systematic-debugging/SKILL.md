@@ -12,7 +12,7 @@ args:
 
 This skill owns the **trace → hypothesize** middle of root-cause investigation.
 It is invoked at T-2 of the bugfix task plan (`tasks.yaml`),
-*after* the bug is reproducible (T-1) and *before* the root cause is written to
+_after_ the bug is reproducible (T-1) and _before_ the root cause is written to
 `diagnosis.md` (T-3, owned by `config/steps/diagnose.yaml`).
 
 It does not reproduce the bug (T-1's job) and does not author the diagnosis
@@ -40,7 +40,7 @@ evidence at each hop; do not theorize yet.
 
 - Start at the observable failure (stack trace, assertion, wrong output) and
   walk upstream through callers, not downstream from a suspected cause.
-- At each step record the *actual* value/state vs the *expected* one, with a
+- At each step record the _actual_ value/state vs the _expected_ one, with a
   concrete `file:line` reference.
 - Inspect the boundary where actual first diverges from expected. That boundary,
   not the crash site, is where the root cause lives.
@@ -63,7 +63,7 @@ Prove the hypothesis before proposing any fix:
 
 - Make the smallest possible intervention that the hypothesis predicts will
   change behavior, and confirm it does (and that reverting it restores the bug).
-- Confirm the cause explains *all* observed symptoms, not just the loudest one.
+- Confirm the cause explains _all_ observed symptoms, not just the loudest one.
 - Distinguish root cause from symptom: if the "cause" is itself caused by
   something upstream, keep tracing.
 

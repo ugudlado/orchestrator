@@ -65,11 +65,11 @@ APPROACH:
 
 6. For each file needing generation:
    a. Read the template:
-      - design.md → $ORCHESTRATOR_HOME/config/steps/design-and-draft-artifacts/templates/$SCHEMA/design.md
-      - tasks.yaml → $ORCHESTRATOR_HOME/config/steps/design-and-draft-artifacts/templates/$SCHEMA/tasks.yaml
-   b. Read the artifact's format contract from the relevant section below.
-   c. Generate using available context (discovery brief, design direction, change description).
-   d. Write to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/<file>.
+   - design.md → $ORCHESTRATOR_HOME/config/steps/design-and-draft-artifacts/templates/$SCHEMA/design.md
+   - tasks.yaml → $ORCHESTRATOR_HOME/config/steps/design-and-draft-artifacts/templates/$SCHEMA/tasks.yaml
+     b. Read the artifact's format contract from the relevant section below.
+     c. Generate using available context (discovery brief, design direction, change description).
+     d. Write to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/<file>.
 
 7. Generate tasks.yaml:
    - Read design.md for approach, component breakdown, and acceptance criteria.
@@ -87,8 +87,8 @@ APPROACH:
    - `updated_artifact_set` — the list of artifact files generated this pass.
    - `design_direction` — the name of the selected design approach.
    - `complexity` — the complexity rating of the selected approach (XS/S/M/L/XL).
-   Omitting any of these makes `orchestrator done` reject the step with
-   `missing_outputs` (exit 3).
+     Omitting any of these makes `orchestrator done` reject the step with
+     `missing_outputs` (exit 3).
 
    ```
    COMPLETION:
@@ -249,25 +249,25 @@ linear-ticket: HL-XXX
 
 ### Field rules
 
-| Field | Required | Format |
-|-------|----------|--------|
-| Frontmatter | Yes | YAML block with `feature-id` and `linear-ticket` |
-| Context | Yes | Prose describing problem space |
-| Goals | Yes | Bulleted list, at least one |
-| Non-Goals | Yes | Bulleted list, at least one |
-| Approaches Considered | Yes | At least 2 approaches with pros/cons |
-| Selected Approach | Yes | References constraints that ruled out alternatives |
-| Architecture Overview | Yes | System-level component interaction |
-| Key Abstractions | Yes | Core interfaces or patterns introduced |
-| Components | Contextual | Required when >2 components involved |
-| Data Flow | Contextual | Required when data passes through >1 component |
-| State Management | Contextual | Required when mutable state exists |
-| Error Handling | Contextual | Required when external dependencies or user input involved |
-| Constraints | Yes | "None beyond standard project conventions" if genuinely none |
-| Trade-offs | Yes | At least one trade-off articulated |
-| Acceptance Criteria | Yes | Bulleted list, each with `[traces: UC-N]` referencing discovery.md use case(s) |
-| Decisions | Contextual | Populated when non-obvious choices made |
-| Open Questions | Yes | Empty section means no blockers |
+| Field                 | Required   | Format                                                                         |
+| --------------------- | ---------- | ------------------------------------------------------------------------------ |
+| Frontmatter           | Yes        | YAML block with `feature-id` and `linear-ticket`                               |
+| Context               | Yes        | Prose describing problem space                                                 |
+| Goals                 | Yes        | Bulleted list, at least one                                                    |
+| Non-Goals             | Yes        | Bulleted list, at least one                                                    |
+| Approaches Considered | Yes        | At least 2 approaches with pros/cons                                           |
+| Selected Approach     | Yes        | References constraints that ruled out alternatives                             |
+| Architecture Overview | Yes        | System-level component interaction                                             |
+| Key Abstractions      | Yes        | Core interfaces or patterns introduced                                         |
+| Components            | Contextual | Required when >2 components involved                                           |
+| Data Flow             | Contextual | Required when data passes through >1 component                                 |
+| State Management      | Contextual | Required when mutable state exists                                             |
+| Error Handling        | Contextual | Required when external dependencies or user input involved                     |
+| Constraints           | Yes        | "None beyond standard project conventions" if genuinely none                   |
+| Trade-offs            | Yes        | At least one trade-off articulated                                             |
+| Acceptance Criteria   | Yes        | Bulleted list, each with `[traces: UC-N]` referencing discovery.md use case(s) |
+| Decisions             | Contextual | Populated when non-obvious choices made                                        |
+| Open Questions        | Yes        | Empty section means no blockers                                                |
 
 ### Traceability rules
 
@@ -293,22 +293,22 @@ The authoritative template is `$ORCHESTRATOR_HOME/config/steps/design-and-draft-
 
 ### Field rules
 
-| Field | Required | Format |
-|-------|----------|--------|
-| version | Yes | Integer `1` |
-| tasks | Yes | List of task objects |
-| id | Yes | `T-<N>` or `fix-<N>`, unique within the file |
-| title | Yes | One line, imperative verb |
-| depends_on | No | List of other task ids; empty list or absent means no deps |
-| files | Yes | List of file paths the task is allowed to touch |
-| verify | Yes | List of repo-root-relative commands (no absolute paths, no `cd /abs/path &&`) |
-| test_scenarios | No | List of human-readable test cases |
-| why | No | Which design.md AC this task serves |
-| change | No | The mechanism — what edit, at which file:line |
-| status | No | `pending` (default) or `completed`; updated by `implement-tasks` after each commit |
-| tokens_in | No | Input tokens used for this task; written by `implement-tasks` on completion |
-| tokens_out | No | Output tokens used for this task; written by `implement-tasks` on completion |
-| duration_s | No | Wall-clock seconds for this task; written by `implement-tasks` on completion |
+| Field          | Required | Format                                                                             |
+| -------------- | -------- | ---------------------------------------------------------------------------------- |
+| version        | Yes      | Integer `1`                                                                        |
+| tasks          | Yes      | List of task objects                                                               |
+| id             | Yes      | `T-<N>` or `fix-<N>`, unique within the file                                       |
+| title          | Yes      | One line, imperative verb                                                          |
+| depends_on     | No       | List of other task ids; empty list or absent means no deps                         |
+| files          | Yes      | List of file paths the task is allowed to touch                                    |
+| verify         | Yes      | List of repo-root-relative commands (no absolute paths, no `cd /abs/path &&`)      |
+| test_scenarios | No       | List of human-readable test cases                                                  |
+| why            | No       | Which design.md AC this task serves                                                |
+| change         | No       | The mechanism — what edit, at which file:line                                      |
+| status         | No       | `pending` (default) or `completed`; updated by `implement-tasks` after each commit |
+| tokens_in      | No       | Input tokens used for this task; written by `implement-tasks` on completion        |
+| tokens_out     | No       | Output tokens used for this task; written by `implement-tasks` on completion       |
+| duration_s     | No       | Wall-clock seconds for this task; written by `implement-tasks` on completion       |
 
 ### Validation rules
 

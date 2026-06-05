@@ -105,17 +105,17 @@ reset on a missed day. Read by the results screen." \
 
 Useful create options (run `backlog task create --help` for the full set):
 
-| Option | Purpose |
-|--------|---------|
-| `--priority high\|medium\|low` | Priority. Default is medium if omitted. |
-| `-d, --desc <text>` | Description. Multi-line — put real newlines inside the quotes. |
-| `--ac <text>` | Add an acceptance criterion. Repeat for several. |
-| `--plan <text>` | Implementation plan. |
-| `--notes <text>` | Implementation notes. |
-| `-l, --labels a,b` | Labels (comma-separated). |
-| `-s, --status <name>` | Start in a non-default status. |
-| `--depends-on <ids>` | Block this task on others (comma-separated). |
-| `-p, --parent <id>` | Make it a subtask. |
+| Option                         | Purpose                                                        |
+| ------------------------------ | -------------------------------------------------------------- |
+| `--priority high\|medium\|low` | Priority. Default is medium if omitted.                        |
+| `-d, --desc <text>`            | Description. Multi-line — put real newlines inside the quotes. |
+| `--ac <text>`                  | Add an acceptance criterion. Repeat for several.               |
+| `--plan <text>`                | Implementation plan.                                           |
+| `--notes <text>`               | Implementation notes.                                          |
+| `-l, --labels a,b`             | Labels (comma-separated).                                      |
+| `-s, --status <name>`          | Start in a non-default status.                                 |
+| `--depends-on <ids>`           | Block this task on others (comma-separated).                   |
+| `-p, --parent <id>`            | Make it a subtask.                                             |
 
 `create` prints the new ID — capture it for the follow-up edits.
 
@@ -148,7 +148,7 @@ backlog task edit SPOT-2 --check-dod 1               # same verbs for DoD items
 
 ### Notes & summary — append, don't clobber
 
-`--notes` and `--final-summary` *replace* existing content. To add to it across a
+`--notes` and `--final-summary` _replace_ existing content. To add to it across a
 multi-step task without losing earlier context, use the append variants:
 
 ```bash
@@ -195,9 +195,9 @@ Always `search` before creating to avoid filing a duplicate of existing work.
 Two layers. You rarely write these — mostly you read `statuses` to know the valid
 lane names before a transition.
 
-| Layer | Location | Controls |
-|-------|----------|----------|
-| Project | `backlog/config.yml` (in repo) | task prefix, statuses, labels |
+| Layer   | Location                       | Controls                             |
+| ------- | ------------------------------ | ------------------------------------ |
+| Project | `backlog/config.yml` (in repo) | task prefix, statuses, labels        |
 | Machine | `~/.config/backlog/config.yml` | `globalStore` path, machine defaults |
 
 ```bash

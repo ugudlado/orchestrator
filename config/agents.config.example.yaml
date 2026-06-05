@@ -10,4 +10,4 @@
 agents:
   developer: { model: auto, subprocess: cursor }
   # developer: { model: sonnet, subprocess: pi }
-  reviewer:  { model: sonnet, subprocess: claude }
+  reviewer: { model: sonnet, subprocess: claude }

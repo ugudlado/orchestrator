@@ -11,7 +11,7 @@ user-invocable: true
 
 # Backlog Manager
 
-Handles the *what* and *when* of task management. Detects the correct ticketing backend
+Handles the _what_ and _when_ of task management. Detects the correct ticketing backend
 per repo and delegates to the right skill for commands.
 
 ---
@@ -24,10 +24,10 @@ Read `ticketing:` from the repo's `spec/project.yaml` — this is the authoritat
 grep "^ticketing:" spec/project.yaml | awk '{print $2}'
 ```
 
-| Value | Backend | Load skill |
-|-------|---------|------------|
+| Value     | Backend                  | Load skill |
+| --------- | ------------------------ | ---------- |
 | `backlog` | Backlog.md global binary | `/backlog` |
-| `linear` | Linear MCP server | `/linear` |
+| `linear`  | Linear MCP server        | `/linear`  |
 
 If `spec/project.yaml` is missing or `ticketing:` is not set, default to `backlog` and warn the user to configure it.
 
@@ -42,7 +42,7 @@ linear:
   team_id: <uuid>
   team_prefix: HL
   project_id: <uuid>
-  product_label_id: <uuid>  # repo-specific product label
+  product_label_id: <uuid> # repo-specific product label
 ```
 
 Pass these directly to `/linear` MCP tool calls — no additional config lookup needed.
@@ -52,12 +52,14 @@ Pass these directly to `/linear` MCP tool calls — no additional config lookup 
 ## When to create a task
 
 Create a task when:
+
 - Work spans more than one session or needs tracking across time
 - Multiple steps are involved and progress needs to be resumable
 - The work is a discrete deliverable (feature, bugfix)
 - An agent needs to pick it up autonomously
 
 Skip task creation for:
+
 - Quick one-off fixes completed in the same session
 - Exploratory questions with no output artifact
 - Work already covered by an existing open task
@@ -69,20 +71,20 @@ Always search first to avoid duplicates — use the backend's search command bef
 ## Operations
 
 The operations below are the contract other skills (notably `/developer`
-and `/reviewer`) delegate here. They name *what* to do; you resolve the
+and `/reviewer`) delegate here. They name _what_ to do; you resolve the
 backend (above), load its skill (`/backlog` or `/linear`), and run the
 mapped command. The semantics must hold identically on both backends —
 only the commands differ.
 
-| Operation | Backlog.md | Linear |
-|-----------|-----------|--------|
-| **Search** | `backlog search "<q>" --plain` | `/linear` search tools |
-| **Create** | `backlog task create "Title" --priority <p>` | `save_issue` via `/linear` |
+| Operation                | Backlog.md                                      | Linear                                                                                       |
+| ------------------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| **Search**               | `backlog search "<q>" --plain`                  | `/linear` search tools                                                                       |
+| **Create**               | `backlog task create "Title" --priority <p>`    | `save_issue` via `/linear`                                                                   |
 | **Claim next by status** | `backlog task next --status "<S>" --agent @<h>` | pick the top unassigned issue in state `<S>` via `/linear` list, then `save_issue` to assign |
-| **Release claim** | `backlog task edit <id> -a "" -s "<S>"` | `save_issue` clearing `assignee`, leaving state `<S>` |
-| **Transition status** | `backlog task edit <id> -s "<S>"` | `save_issue` with the `stateId` for `<S>` (resolve via `list_issue_statuses`) |
-| **Fetch body** | `backlog task view <id> --plain` | `get_issue { id }` via `/linear` |
-| **Archive** | `backlog task archive <id>` | close/cancel via `/linear` |
+| **Release claim**        | `backlog task edit <id> -a "" -s "<S>"`         | `save_issue` clearing `assignee`, leaving state `<S>`                                        |
+| **Transition status**    | `backlog task edit <id> -s "<S>"`               | `save_issue` with the `stateId` for `<S>` (resolve via `list_issue_statuses`)                |
+| **Fetch body**           | `backlog task view <id> --plain`                | `get_issue { id }` via `/linear`                                                             |
+| **Archive**              | `backlog task archive <id>`                     | close/cancel via `/linear`                                                                   |
 
 ### Atomicity of "claim next by status"
 
@@ -103,8 +105,8 @@ same ticket (no TOCTOU window).
 `/developer` claims from `In Progress` first, then falls back to a
 `Ready`-equivalent lane. A ticket claimed from a not-yet-started lane must
 be moved to the in-progress state as part of the claim, so the rest of the
-workflow sees consistent state. Sequence: *claim next by status* on the
-fallback lane, then *transition status* to the in-progress lane.
+workflow sees consistent state. Sequence: _claim next by status_ on the
+fallback lane, then _transition status_ to the in-progress lane.
 
 > Resolve the exact lane names before transitioning — they are per-project.
 > Backlog.md: `backlog config get statuses`. Linear:
@@ -134,7 +136,7 @@ Do not call this skill for status transitions when the shell loop is driving the
 **LLM dispatch (`skills/orchestrate/SKILL.md`) or queue skills (`/developer`, `/reviewer`):**
 
 1. **Detect backend** (above) before any operation
-2. **Start of run** — *claim next by status* for the status the calling
+2. **Start of run** — _claim next by status_ for the status the calling
    skill asks for (the caller owns the queue policy; e.g. `/developer`
    claims In Progress then a Ready lane, `/reviewer` claims Code Review).
 3. **Mid-task** — note blockers in the task description (no lane change if shell loop active)

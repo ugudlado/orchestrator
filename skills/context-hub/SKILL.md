@@ -5,17 +5,18 @@ user-invocable: true
 ---
 
 # Context Hub — Curated Library Documentation
+
 Fetch agent-optimized documentation for libraries via the `chub` CLI. Curated docs are cleaner than auto-indexed alternatives — less marketing prose, more code examples and parameter tables.
 
 ## When to Use
 
-| Scenario | Action |
-|----------|--------|
+| Scenario                                      | Action                                   |
+| --------------------------------------------- | ---------------------------------------- |
 | Need docs for a library during implementation | Search chub first, fall back to Context7 |
-| Context7 returned noisy/incomplete results | Try `chub get` for curated alternative |
-| Need language-specific variant (JS vs Python) | Use `--lang` flag |
-| Need specific package version docs | Use `--version` flag |
-| Discovered an API gotcha worth remembering | Use `chub annotate` to persist it |
+| Context7 returned noisy/incomplete results    | Try `chub get` for curated alternative   |
+| Need language-specific variant (JS vs Python) | Use `--lang` flag                        |
+| Need specific package version docs            | Use `--version` flag                     |
+| Discovered an API gotcha worth remembering    | Use `chub annotate` to persist it        |
 
 ## Workflow
 
