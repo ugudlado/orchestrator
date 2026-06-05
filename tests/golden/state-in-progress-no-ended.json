@@ -9,9 +9,7 @@
     "ORCHESTRATOR_STEP_ID": "step-inline-only",
     "ORCHESTRATOR_WORKFLOW_DIR": "/tmp/test-workflow"
   },
-  "expected_outputs": [
-    "result"
-  ],
+  "expected_outputs": ["result"],
   "inputs": {},
   "instruction": "",
   "is_resume": true,

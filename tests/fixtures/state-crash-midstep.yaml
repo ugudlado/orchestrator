@@ -8,19 +8,19 @@ worktree_path: /tmp/test-workflow
 workflow_plan:
   implement:
     active:
-    - step-inline-only
+      - step-inline-only
 step_history:
-- step_id: step-inline-only
-  phase: implement
-  status: completed
-  attempt: 1
-  started_at: '2026-04-18T08:00:00Z'
-  ended_at: '2026-04-18T08:30:00Z'
-  usage: {}
-- step_id: step-inline-only
-  phase: implement
-  status: failed
-  attempt: 2
-  started_at: '2026-04-18T09:00:00Z'
-  ended_at: '2026-04-18T09:30:00Z'
-  usage: {}
+  - step_id: step-inline-only
+    phase: implement
+    status: completed
+    attempt: 1
+    started_at: "2026-04-18T08:00:00Z"
+    ended_at: "2026-04-18T08:30:00Z"
+    usage: {}
+  - step_id: step-inline-only
+    phase: implement
+    status: failed
+    attempt: 2
+    started_at: "2026-04-18T09:00:00Z"
+    ended_at: "2026-04-18T09:30:00Z"
+    usage: {}

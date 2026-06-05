@@ -3,6 +3,7 @@
 <!-- Appended by record.py when step payloads include workflow_issues. -->
 
 ## ISSUE-1 — Missing step contract files
+
 - **category**: missing-contract
 - **severity**: blocker
 - **surfaced_at**: implement/task-T-1
@@ -11,6 +12,7 @@
 - **fix_direction**: Add contract validation at workflow init.
 
 ## ISSUE-2 — Sandbox blocks mktemp
+
 - **category**: sandbox-block
 - **severity**: cosmetic
 - **surfaced_at**: diagnose/preview-route
@@ -19,6 +21,7 @@
 - **fix_direction**: Prefix mktemp with ${TMPDIR:-/tmp}.
 
 ## ISSUE-3 — Dispatch retry storm
+
 - **category**: dispatch-bug
 - **severity**: workaround-applied
 - **surfaced_at**: implement/execute-one-task

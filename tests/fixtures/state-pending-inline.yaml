@@ -8,11 +8,11 @@ worktree_path: /tmp/test-workflow
 workflow_plan:
   implement:
     active:
-    - step-inline-only
+      - step-inline-only
 step_history:
-- step_id: step-inline-only
-  phase: implement
-  status: in_progress
-  agent: developer
-  attempt: 1
-  started_at: '2026-06-01T16:54:07.362608+00:00'
+  - step_id: step-inline-only
+    phase: implement
+    status: in_progress
+    agent: developer
+    attempt: 1
+    started_at: "2026-06-01T16:54:07.362608+00:00"
