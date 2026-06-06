@@ -38,7 +38,12 @@ def set_override(steps_dir, monkeypatch):
 
 
 def _write_contract(steps_dir, step_id: str, data: dict):
-    (steps_dir / f"{step_id}.yaml").write_text(yaml.dump(data))
+    """Write a directory-form contract (canonical form since flat-file removed)."""
+    step_dir = steps_dir / step_id
+    step_dir.mkdir(parents=True, exist_ok=True)
+    (step_dir / "contract.yaml").write_text(yaml.dump(data))
+    if data.get("agent") and not data.get("run"):
+        (step_dir / "prompt.md").write_text(data.get("instruction", "placeholder"))
 
 
 # ---------------------------------------------------------------------------
@@ -266,23 +271,6 @@ class TestPhaseNodes:
         state = load_state(p)
         assert phase_nodes(state, "main") == nodes
 
-    def test_legacy_active_block_synthesizes_pending_nodes(self, tmp_path):
-        """A legacy active:[ids] block yields synthesized {id, status:'pending'} nodes."""
-        p = self._write_state(tmp_path, {
-            "change_id": "f",
-            "phase": "main",
-            "workflow_plan": {"main": {"active": ["explore", "design", "ship"]}},
-            "step_history": [],
-        })
-        from orchestrator_next.parser import load_state, phase_nodes
-        state = load_state(p)
-        nodes = phase_nodes(state, "main")
-        assert nodes == [
-            {"id": "explore", "status": "pending"},
-            {"id": "design", "status": "pending"},
-            {"id": "ship", "status": "pending"},
-        ]
-
     def test_nodes_block_returned_unchanged_any_count(self, tmp_path):
         """A {nodes:[...]} block is returned unchanged regardless of node count."""
         single = [{"id": "only", "status": "in_progress"}]
@@ -302,21 +290,14 @@ class TestPhaseNodes:
 
 
 # ---------------------------------------------------------------------------
-# ORC-63 T-3: StepContract.optional_inputs annotation parsing (AC-5)
+# ORC-63 T-3: StepContract optional input parsing (AC-5)
 # ---------------------------------------------------------------------------
 
 class TestStepContractOptionalInputs:
-    """Tests for the StepContract.optional_inputs field and its parsing from a
-    `{<name>: optional}` mapping item in a contract `inputs:` list.
-    """
+    """Tests for optional input parsing from a `{<name>: optional}` mapping item."""
 
-    def test_optional_inputs_field_exists(self, steps_dir):
-        """StepContract dataclass exposes optional_inputs (fails today — absent)."""
-        from orchestrator_next.parser import StepContract
-        assert "optional_inputs" in StepContract.__dataclass_fields__
-
-    def test_annotated_item_lands_in_both_lists(self, steps_dir):
-        """An inputs item `{name: optional}` yields name in inputs and optional_inputs."""
+    def test_annotated_item_is_optional(self, steps_dir):
+        """An inputs item `{name: optional}` produces spec with optional=True."""
         _write_contract(steps_dir, "opt-input", {
             "id": "opt-input",
             "agent": "developer",
@@ -326,12 +307,11 @@ class TestStepContractOptionalInputs:
         })
         from orchestrator_next.parser import _load_contract
         contract = _load_contract("opt-input", "")
-        # ORC-76 T-14: inputs is now list[dict]; use legacy_input_names for name lookup
-        assert "ux_direction" in contract.legacy_input_names
-        assert "ux_direction" in contract.optional_inputs
+        spec = next(s for s in contract.inputs if s["name"] == "ux_direction")
+        assert spec["optional"] is True
 
-    def test_bare_string_item_required_only(self, steps_dir):
-        """A bare-string inputs item lands in inputs only, not optional_inputs."""
+    def test_bare_string_item_is_required(self, steps_dir):
+        """A bare-string inputs item is not optional."""
         _write_contract(steps_dir, "req-input", {
             "id": "req-input",
             "agent": "developer",
@@ -341,25 +321,11 @@ class TestStepContractOptionalInputs:
         })
         from orchestrator_next.parser import _load_contract
         contract = _load_contract("req-input", "")
-        # ORC-76 T-14: inputs is now list[dict]; use legacy_input_names for name-only checks
-        assert contract.legacy_input_names == ["discovery_result"]
-        assert contract.optional_inputs == []
-
-    def test_no_annotations_gives_empty_optional_inputs(self, steps_dir):
-        """A contract with no annotated items yields optional_inputs == []."""
-        _write_contract(steps_dir, "plain-inputs", {
-            "id": "plain-inputs",
-            "agent": "developer",
-            "instruction": "do thing",
-            "inputs": ["a", "b"],
-            "outputs": [],
-        })
-        from orchestrator_next.parser import _load_contract
-        contract = _load_contract("plain-inputs", "")
-        assert contract.optional_inputs == []
+        assert [s["name"] for s in contract.inputs] == ["discovery_result"]
+        assert contract.inputs[0]["optional"] is False
 
     def test_mixed_required_and_optional(self, steps_dir):
-        """A mix of bare and annotated items splits correctly."""
+        """A mix of bare and annotated items marks optional correctly."""
         _write_contract(steps_dir, "mixed-inputs", {
             "id": "mixed-inputs",
             "agent": "developer",
@@ -369,6 +335,6 @@ class TestStepContractOptionalInputs:
         })
         from orchestrator_next.parser import _load_contract
         contract = _load_contract("mixed-inputs", "")
-        # ORC-76 T-14: inputs is now list[dict]; use legacy_input_names for name-only checks
-        assert contract.legacy_input_names == ["discovery_result", "ux_direction"]
-        assert contract.optional_inputs == ["ux_direction"]
+        by_name = {s["name"]: s for s in contract.inputs}
+        assert by_name["discovery_result"]["optional"] is False
+        assert by_name["ux_direction"]["optional"] is True

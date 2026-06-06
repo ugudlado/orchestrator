@@ -42,11 +42,6 @@ _record_setup = _rework_loop._setup
 
 
 def _setup(tmp_path, monkeypatch, state: dict) -> str:
-    spec_dir = tmp_path / "spec"
-    spec_dir.mkdir(exist_ok=True)
-    (spec_dir / "project.yaml").write_text(
-        yaml.safe_dump({"quality_bar": {"max_retry_rounds": 8}})
-    )
     state.setdefault("repo_root", str(tmp_path))
     state.setdefault("worktree_path", str(tmp_path))
     path = tmp_path / "state.yaml"
@@ -301,7 +296,7 @@ class TestReworkRecordCounterClimb:
 
     def test_needs_work_counter_climbs(self, tmp_path, monkeypatch):
         state_path = _record_setup(
-            tmp_path, monkeypatch, _nodes_state(tmp_path), max_retry_rounds=8
+            tmp_path, monkeypatch, _nodes_state(tmp_path)
         )
         assert _state_retries(state_path) == 0
 
@@ -312,7 +307,7 @@ class TestReworkRecordCounterClimb:
     def test_below_cap_does_not_block(self, tmp_path, monkeypatch):
         """Retries below max: failed entry recorded, on_failure target reset, state stays active."""
         state_path = _record_setup(
-            tmp_path, monkeypatch, _nodes_state(tmp_path), max_retry_rounds=8
+            tmp_path, monkeypatch, _nodes_state(tmp_path)
         )
         record.record(state_path, _review_payload("needs_work"))
 
@@ -336,7 +331,6 @@ class TestReworkRecordExhaustion:
             tmp_path,
             monkeypatch,
             _nodes_state_with_compute(tmp_path, max_retries=max_rounds),
-            max_retry_rounds=max_rounds,
         )
 
         # First max_rounds failures each route to on_failure (retries < max_rounds)
@@ -378,7 +372,6 @@ class TestReworkRecordComposition:
             tmp_path,
             monkeypatch,
             _nodes_state_with_compute(tmp_path),
-            max_retry_rounds=8,
         )
 
         # needs_work → on_failure routes to execute-next-task

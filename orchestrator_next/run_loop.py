@@ -7,7 +7,7 @@ execute (agent|script) → record → repeat. One canonical path per step kind.
 Seeding reuses the existing Python helpers (seed_parse_overrides, seed_write_state,
 generate_plan) — the shell only ever orchestrated them.
 
-Exit codes (ORC-45 protocol, unchanged):
+Exit codes (protocol, unchanged):
   1 complete · 2 blocked · 3 contract/parse error · 4 unknown agent route ·
   6 tool subprocess failure (recorded) · 7 unexpected/usage.
 """
@@ -29,12 +29,11 @@ import yaml
 from orchestrator_next import agent_routes
 from orchestrator_next.agent_overlay import overlay_text
 from orchestrator_next.dispatch import ContractDispatchError, dispatch
-# dispatch.py defines its own ContractDispatchError(RuntimeError), but contract
-# loading (inside dispatch) raises two SIBLING parser exceptions: the missing-run
-# ContractDispatchError(ValueError) and ContractError(ValueError) for a malformed
-# contract (bad kind, missing prompt.md). Catch all three so any contract problem
-# returns exit 3 instead of crashing the loop.
-from orchestrator_next.parser import ContractDispatchError as ParserContractDispatchError
+# dispatch.py defines its own ContractDispatchError(RuntimeError); parser raises
+# ContractNotFoundError(ValueError) for a missing script payload and
+# ContractError(ValueError) for a malformed contract. Catch all three so any
+# contract problem returns exit 3 instead of crashing the loop.
+from orchestrator_next.parser import ContractNotFoundError
 from orchestrator_next.parser import ContractError
 from orchestrator_next.parser import load_state
 from orchestrator_next.record import record
@@ -81,9 +80,6 @@ _EMPTY_USAGE = {
     "cache_read_tokens": 0,
     "cache_creation_tokens": 0,
 }
-
-_STATE_MUTATING_INLINE_STEPS = {"archive-completed-change"}
-
 
 def _ts() -> str:
     return datetime.now().strftime("%H:%M:%S")
@@ -324,7 +320,7 @@ def run_agent_step(
 # Script step execution — canonical path (lifted from bin/orchestrator inline
 # arm; dead exit-10 soft-fail intentionally NOT carried).
 # ---------------------------------------------------------------------------
-def run_script_step(action: dict, *, state_yaml_path: str) -> tuple[bool, str]:
+def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[bool, str]:
     """Run an inline script step. Returns (ok, new_state_path).
 
     ok=False  → script exited nonzero AND step has no on_failure routing: the
@@ -345,7 +341,8 @@ def run_script_step(action: dict, *, state_yaml_path: str) -> tuple[bool, str]:
     step_id = action["step_id"]
     phase = action.get("phase", "main")
     attempt = action.get("attempt", 1)
-    state = load_state(state_yaml_path)
+    if state is None:
+        state = load_state(state_yaml_path)
     contract = load_contract_for_step(step_id, state_yaml_path)
     env = inline_script_env(state, state_yaml_path, action_env=action.get("env", {}))
     croot = str(config_root())
@@ -357,7 +354,7 @@ def run_script_step(action: dict, *, state_yaml_path: str) -> tuple[bool, str]:
     _log(f"→ {step_id}  phase={phase}  kind=inline script  attempt={attempt}")
     _log(f"  run: {' '.join(run_cmd)}")
 
-    state_mutating = step_id in _STATE_MUTATING_INLINE_STEPS
+    state_mutating = contract.state_mutating
     if state_mutating:
         record(state_yaml_path, {
             "step_id": step_id, "phase": phase, "attempt": attempt,
@@ -388,14 +385,8 @@ def run_script_step(action: dict, *, state_yaml_path: str) -> tuple[bool, str]:
         # arm's sys.exit(3). ok=False signals the loop to stop.
         return False, new_state_path
 
+    outputs = _parse_stdout_outputs(proc)
     if not state_mutating:
-        outputs = {}
-        lines = proc.stdout.decode(errors="replace").strip().splitlines()
-        if lines:
-            try:
-                outputs = json.loads(lines[-1])
-            except (json.JSONDecodeError, ValueError):
-                pass
         payload = {
             "step_id": step_id, "phase": phase, "attempt": attempt,
             "status": "completed", "outputs": outputs,
@@ -404,26 +395,27 @@ def run_script_step(action: dict, *, state_yaml_path: str) -> tuple[bool, str]:
         if isinstance(outputs.get("state_patch"), dict):
             payload["state_patch"] = outputs["state_patch"]
         record(state_yaml_path, payload)
-        # archive relocation: re-point state path if it moved.
-        new_state_path = _relocate_after_archive(step_id, outputs, state_yaml_path, new_state_path)
-    else:
-        # state-mutating script (archive) already recorded; relocate via stdout.
-        outputs = {}
-        lines = proc.stdout.decode(errors="replace").strip().splitlines()
-        if lines:
-            try:
-                outputs = json.loads(lines[-1])
-            except (json.JSONDecodeError, ValueError):
-                pass
-        new_state_path = _relocate_after_archive(step_id, outputs, state_yaml_path, new_state_path)
+    # Relocate state path if the script moved it (archive-completed-change emits
+    # archive_record.archive_path when it succeeds).
+    new_state_path = _relocate_after_archive(outputs, state_yaml_path, new_state_path)
 
     _log(f"✓ {step_id}  done  status=completed")
     return True, new_state_path
 
 
-def _relocate_after_archive(step_id, outputs, state_yaml_path, default) -> str:
-    if step_id != "archive-completed-change":
-        return default
+def _parse_stdout_outputs(proc) -> dict:
+    """Parse the last JSON line of script stdout into an outputs dict."""
+    lines = proc.stdout.decode(errors="replace").strip().splitlines()
+    if lines:
+        try:
+            return json.loads(lines[-1])
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return {}
+
+
+def _relocate_after_archive(outputs, state_yaml_path, default) -> str:
+    """Relocate state path when a script emits archive_record.archive_path."""
     archive_path = (outputs.get("archive_record") or {}).get("archive_path") or ""
     if not archive_path:
         return default
@@ -490,7 +482,7 @@ def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, agents_yam
             state = load_state(state_yaml_path)
             try:
                 action, code = dispatch(state, state_yaml_path)
-            except (ContractDispatchError, ParserContractDispatchError, ContractError) as exc:
+            except (ContractDispatchError, ContractNotFoundError, ContractError) as exc:
                 _log(f"Contract error: {exc}")
                 return 3
             if code == 1:
@@ -523,7 +515,7 @@ def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, agents_yam
                 else:
                     _log(f"✓ {action['step_id']}  done  status={payload.get('status','completed')}")
             elif action.get("run"):
-                ok, state_yaml_path = run_script_step(action, state_yaml_path=state_yaml_path)
+                ok, state_yaml_path = run_script_step(action, state_yaml_path=state_yaml_path, state=state)
                 if not ok:
                     _log("Workflow aborted: deterministic script step failed.")
                     return 3

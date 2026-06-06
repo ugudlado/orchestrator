@@ -112,19 +112,12 @@ class TestCheckB:
                         "updated_artifact_set",
                         "design_direction",
                         "complexity",
-                        {"name": "design", "path": "spec/changes/<slug>/design.md"},
-                        {"name": "tasks", "path": "spec/changes/<slug>/tasks.yaml"},
                     ],
                 }
             )
         )
         (step_dir / "prompt.md").write_text("# test\n")
         monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(empty))
-
-        change_dir = tmp_path / "wt" / "spec" / "changes" / "orc-7"
-        change_dir.mkdir(parents=True)
-        (change_dir / "design.md").write_text("# design\n")
-        (change_dir / "tasks.yaml").write_text("version: 1\ntasks: []\n")
 
         state = {
             "change_id": "orc-7",
@@ -174,8 +167,6 @@ class TestCheckB:
                         "updated_artifact_set",
                         "design_direction",
                         "complexity",
-                        {"name": "design", "path": "spec/changes/<slug>/design.md"},
-                        {"name": "tasks", "path": "spec/changes/<slug>/tasks.yaml"},
                     ],
                 }
             )
@@ -413,7 +404,11 @@ def _phase_review_state(tmp_path) -> str:
         "phase": "implement",
         "workflow_plan": {
             "implement": {
-                "active": ["run-phase-review"],
+                "nodes": [
+                    {"id": "run-phase-review", "status": "in_progress",
+                     "agent": "reviewer", "goal": "", "inputs": [],
+                     "outputs": ["phase_review_report"], "rules": []},
+                ],
                 "filtered": [],
             }
         },
@@ -426,15 +421,16 @@ def _phase_review_state(tmp_path) -> str:
 
 def _write_run_phase_review_contract(contracts_dir: Path) -> None:
     contracts_dir.mkdir(parents=True, exist_ok=True)
+    step_dir = contracts_dir / "run-phase-review"
+    step_dir.mkdir(parents=True, exist_ok=True)
     contract = {
         "id": "run-phase-review",
         "agent": "reviewer",
         "inputs": ["task_execution_result"],
         "outputs": ["phase_review_report"],
     }
-    (contracts_dir / "run-phase-review.yaml").write_text(
-        yaml.safe_dump(contract, sort_keys=False)
-    )
+    (step_dir / "contract.yaml").write_text(yaml.safe_dump(contract, sort_keys=False))
+    (step_dir / "prompt.md").write_text("Run phase review.")
 
 
 class TestPhaseReviewVerdictValidation:
@@ -518,16 +514,18 @@ def _nodes_state(tmp_path, contracts_dir, nodes, phase="main"):
 
 
 def _write_outputs_contract(contracts_dir, step_id, outputs):
-    (Path(contracts_dir) / f"{step_id}.yaml").write_text(yaml.safe_dump({
+    step_dir = Path(contracts_dir) / step_id
+    step_dir.mkdir(parents=True, exist_ok=True)
+    (step_dir / "contract.yaml").write_text(yaml.safe_dump({
         "id": step_id, "instruction": "x",
         "inputs": [], "outputs": outputs, "rules": [],
     }))
+    (step_dir / "prompt.md").write_text("x")
 
 
 class TestOutputPostCheckUpgrade:
-    """AC-10: a declared output is satisfied only when its key is present, the
-    value is non-null and non-empty, and (for a path-named output) the file
-    exists on disk."""
+    """AC-10: a declared output is satisfied only when its key is present and
+    the value is non-null and non-empty."""
 
     @pytest.fixture()
     def contracts_dir(self, tmp_path, monkeypatch):
@@ -575,34 +573,15 @@ class TestOutputPostCheckUpgrade:
         assert code == 3
         assert result["reason"] == "missing_outputs"
 
-    def test_rejects_path_named_output_missing_file(self, tmp_path, contracts_dir):
-        """A path-named output (name contains '/') whose file is absent → reject."""
-        _write_outputs_contract(contracts_dir, "s", ["spec/project.yaml"])
+    def test_accepts_all_outputs_present_and_non_empty(self, tmp_path, contracts_dir):
+        """All declared outputs present and non-empty → accepted."""
+        _write_outputs_contract(contracts_dir, "s", ["discovery_result"])
         sp = _nodes_state(tmp_path, contracts_dir, [
-            {"id": "s", "status": "pending", "outputs": ["spec/project.yaml"]},
+            {"id": "s", "status": "pending", "outputs": ["discovery_result"]},
         ])
         result, code = record(sp, {
             "step_id": "s", "phase": "main", "status": "completed",
-            "outputs": {"spec/project.yaml": "spec/project.yaml"}, "usage": {},
-        })
-        assert code == 3
-        assert result["reason"] == "missing_outputs"
-
-    def test_accepts_all_outputs_present_and_real(self, tmp_path, contracts_dir):
-        """All declared outputs present, non-empty, path-files existing → accepted."""
-        # Create the path-named output file on disk.
-        proj = tmp_path / "spec"
-        proj.mkdir()
-        (proj / "project.yaml").write_text("version: 1\n")
-        _write_outputs_contract(contracts_dir, "s", ["discovery_result", "spec/project.yaml"])
-        sp = _nodes_state(tmp_path, contracts_dir, [
-            {"id": "s", "status": "pending",
-             "outputs": ["discovery_result", "spec/project.yaml"]},
-        ])
-        result, code = record(sp, {
-            "step_id": "s", "phase": "main", "status": "completed",
-            "outputs": {"discovery_result": {"findings": ["x"]},
-                        "spec/project.yaml": "spec/project.yaml"},
+            "outputs": {"discovery_result": {"findings": ["x"]}},
             "usage": {},
         })
         assert code == 0, result

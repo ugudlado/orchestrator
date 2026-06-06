@@ -236,7 +236,9 @@ def _informational_only_project() -> dict:
 
 
 def _write_agent_contract(steps_dir: Path, step_id: str, *, agent: str = "developer") -> None:
-    (steps_dir / f"{step_id}.yaml").write_text(
+    step_dir = steps_dir / step_id
+    step_dir.mkdir(parents=True, exist_ok=True)
+    (step_dir / "contract.yaml").write_text(
         textwrap.dedent(
             f"""\
             id: {step_id}
@@ -248,10 +250,13 @@ def _write_agent_contract(steps_dir: Path, step_id: str, *, agent: str = "develo
             """
         )
     )
+    (step_dir / "prompt.md").write_text(f"Run {step_id}.")
 
 
 def _write_run_contract(steps_dir: Path, step_id: str, script_path: Path) -> None:
-    (steps_dir / f"{step_id}.yaml").write_text(
+    step_dir = steps_dir / step_id
+    step_dir.mkdir(parents=True, exist_ok=True)
+    (step_dir / "contract.yaml").write_text(
         textwrap.dedent(
             f"""\
             id: {step_id}

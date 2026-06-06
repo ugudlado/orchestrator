@@ -1,5 +1,5 @@
 """
-Shared DAG-walk and node-status mutation for the orchestrator engine (ORC-63).
+Shared DAG-walk and node-status mutation for the orchestrator engine.
 
 This module is the *single* source of node readiness and the *single*
 `node.status` mutator. Both `dispatch.py` (→ `in_progress`) and `record.py`
@@ -7,15 +7,13 @@ This module is the *single* source of node readiness and the *single*
 next-node computation cannot drift.
 
 A plan node is an entry in `workflow_plan[phase].nodes`:
-  {id, depends_on?, status, agent, goal, inputs, outputs, rules, repeat_until?}
+  {id, depends_on?, status, agent, goal, inputs, outputs, rules}
 
 `depends_on` absent ⇒ an implicit chain edge on the declaration-order
 predecessor (the first node of a phase has no implicit edge).
 
 A node is *ready* when it is not `completed` and every entry in its effective
-`depends_on` is `completed`. For a `repeat_until` node, a dependent treats it
-as a completed dependency only when its status is `completed` AND its
-`repeat_until` predicate evaluates True (design.md OQ-5).
+`depends_on` is `completed`.
 """
 from __future__ import annotations
 
@@ -26,6 +24,14 @@ from orchestrator_next.parser import State, phase_nodes
 
 def _node_id(node: dict[str, Any]) -> str:
     return str(node.get("id", ""))
+
+
+def find_node(nodes: list[dict], node_id: str) -> dict | None:
+    """Return the node dict whose id matches node_id, or None."""
+    for node in nodes:
+        if _node_id(node) == node_id:
+            return node
+    return None
 
 
 def effective_depends_on(nodes: list[dict], node_id: str) -> list[str]:
@@ -43,24 +49,6 @@ def effective_depends_on(nodes: list[dict], node_id: str) -> list[str]:
                 return []
             return [_node_id(nodes[idx - 1])]
     return []
-
-
-def _repeat_predicate_satisfied(state: State, node: dict[str, Any]) -> bool:
-    """Return True when a node's repeat_until predicate (if any) is True.
-
-    A node with no `repeat_until` always returns True. The predicate set lives
-    in `record.py`; it is imported lazily here to avoid a module-load import
-    cycle (record.py imports this module).
-    """
-    repeat_until = node.get("repeat_until")
-    if not repeat_until:
-        return True
-    from orchestrator_next.record import REPEAT_PREDICATES  # lazy: avoid cycle
-    predicate = REPEAT_PREDICATES.get(repeat_until)
-    if predicate is None:
-        # Unknown predicate — treat as absent (matches dispatch/record behavior).
-        return True
-    return bool(predicate(state.raw))
 
 
 def _step_completed_in_history(state: State, node_id: str) -> bool:
@@ -92,12 +80,14 @@ def _effective_node_status(state: State, node: dict[str, Any]) -> str:
     return str(status or "pending")
 
 
-def is_node_ready(state: State, node_id: str) -> bool:
-    """Return True iff `node_id` is not completed and every effective
-    dependency is completed (a repeat_until dep also needs its predicate True).
+def _is_node_ready(
+    state: State, node_id: str, nodes: list[dict], by_id: dict
+) -> bool:
+    """Return True iff `node_id` is not completed and every effective dependency is completed.
+
+    Accepts pre-built `nodes` and `by_id` so callers that iterate all nodes
+    avoid rebuilding the list and dict on every call.
     """
-    nodes = phase_nodes(state, state.phase)
-    by_id = {_node_id(n): n for n in nodes}
     node = by_id.get(node_id)
     if node is None:
         return False
@@ -109,56 +99,23 @@ def is_node_ready(state: State, node_id: str) -> bool:
             return False
         if _effective_node_status(state, dep) != "completed":
             return False
-        if not _repeat_predicate_satisfied(state, dep):
-            return False
     return True
 
 
-def repeat_until_redispatch(state: State, state_yaml_path: str) -> str | None:
-    """Return a step_id to re-run when it is completed but its repeat_until predicate is False.
+def is_node_ready(state: State, node_id: str) -> bool:
+    """Return True iff `node_id` is ready. Public API; builds node index internally."""
+    nodes = phase_nodes(state, state.phase)
+    by_id = {_node_id(n): n for n in nodes}
+    return _is_node_ready(state, node_id, nodes, by_id)
 
-    Covers both promoted `nodes:` plans (repeat_until on the node) and legacy
-    `active:[ids]` plans (repeat_until on the step contract only).
-
-    Repeat semantics only fire while the workflow still has forward work: when
-    no node is ready (the phase is otherwise complete), return None rather than
-    resurrecting a completed step. Without this guard, after the terminal
-    `archive-completed-change` step archives `tasks.md`, `_check_all_tasks_completed`
-    fails-closed on the moved file and re-picks the long-completed
-    `execute-next-task` — the OQ-5 ORC-66 re-dispatch hazard.
-    """
-    from orchestrator_next.parser import load_contract_for_step, ContractError
-    from orchestrator_next.record import REPEAT_PREDICATES
-
-    if next_ready_node(state) is None:
-        return None
-
-    for node in phase_nodes(state, state.phase):
-        node_id = _node_id(node)
-        if _effective_node_status(state, node) != "completed":
-            continue
-        repeat_until = node.get("repeat_until")
-        if not repeat_until:
-            try:
-                contract = load_contract_for_step(node_id, state_yaml_path)
-                repeat_until = contract.repeat_until
-            except (FileNotFoundError, ContractError):
-                repeat_until = None
-        if not repeat_until:
-            continue
-        predicate = REPEAT_PREDICATES.get(repeat_until)
-        if predicate is None:
-            continue
-        if not predicate(state.raw):
-            return node_id
-    return None
 
 
 def ready_nodes(state: State) -> list[str]:
     """Return every ready (not-completed, deps satisfied) node id in
     declaration order for the current phase."""
     nodes = phase_nodes(state, state.phase)
-    return [_node_id(n) for n in nodes if is_node_ready(state, _node_id(n))]
+    by_id = {_node_id(n): n for n in nodes}
+    return [_node_id(n) for n in nodes if _is_node_ready(state, _node_id(n), nodes, by_id)]
 
 
 def next_ready_node(state: State) -> str | None:
@@ -182,7 +139,6 @@ def mark_node_status(
     nodes = phase_plan.get("nodes")
     if not isinstance(nodes, list):
         return
-    for node in nodes:
-        if isinstance(node, dict) and str(node.get("id", "")) == node_id:
-            node["status"] = status
-            return
+    node = find_node(nodes, node_id)
+    if node is not None:
+        node["status"] = status

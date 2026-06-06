@@ -97,10 +97,7 @@ def _resolve_phases(schema: dict[str, Any]) -> list[dict[str, Any]]:
                 synthetic[key] = schema[key]
         return [synthetic]
 
-    resolved: list[dict[str, Any]] = []
-    for phase_entry in raw_phases:
-        resolved.append(phase_entry)
-    return resolved
+    return list(raw_phases)
 
 
 def _find_phase_def(phases: list[dict[str, Any]], phase_name: str) -> dict[str, Any]:

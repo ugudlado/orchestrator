@@ -23,7 +23,7 @@ if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
 from orchestrator_next.dispatch import dispatch  # noqa: E402
-from orchestrator_next.parser import ContractDispatchError, load_state  # noqa: E402
+from orchestrator_next.parser import ContractNotFoundError as ContractDispatchError, load_state  # noqa: E402
 
 
 def _write_state(tmp_path: Path, *, deleted_step: str) -> Path:
@@ -37,7 +37,12 @@ def _write_state(tmp_path: Path, *, deleted_step: str) -> Path:
         "next_step": {"phase": "complete", "step_id": deleted_step},
         "workflow_plan": {
             "complete": {
-                "active": [deleted_step, "remove-worktree"],
+                "nodes": [
+                    {"id": deleted_step, "status": "pending", "agent": "developer",
+                     "goal": "deleted", "inputs": [], "outputs": [], "rules": []},
+                    {"id": "remove-worktree", "status": "pending", "agent": "developer",
+                     "goal": "ok", "inputs": [], "outputs": [], "rules": []},
+                ],
                 "filtered": [],
             },
         },

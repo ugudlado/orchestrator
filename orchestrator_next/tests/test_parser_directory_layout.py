@@ -1,19 +1,13 @@
 """
-ORC-76 T-1: Failing tests for parser._load_contract directory-form loading (agent kind).
-
-These tests assert behavior that does not yet exist in parser.py. They are
-intentionally RED — T-3 will make them pass by implementing directory-form
-loading in _load_contract.
+Tests for parser._load_contract directory-form loading.
 
 Scenarios covered:
   1. Directory <id>/contract.yaml with sibling prompt.md loads:
      kind == 'agent', instruction == prompt.md contents.
   2. Directory <id>/contract.yaml with kind: agent but missing prompt.md
      raises ContractError.
-  3. Flat <id>.yaml still loads (back-compat) and synthesizes kind from
-     absence of run:.
 
-AC-1, AC-6, AC-7 (design.md)
+AC-1, AC-6 (design.md)
 """
 from __future__ import annotations
 
@@ -47,11 +41,6 @@ def set_override(steps_dir, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps_dir))
 
 
-def _write_flat_contract(steps_dir, step_id: str, data: dict):
-    """Write a flat-file contract (legacy form)."""
-    (steps_dir / f"{step_id}.yaml").write_text(yaml.dump(data))
-
-
 def _write_dir_contract(
     steps_dir,
     step_id: str,
@@ -78,11 +67,7 @@ def _write_dir_contract(
 # ---------------------------------------------------------------------------
 
 class TestAgentKindContractLoad:
-    """Tests for directory-form contract loading with kind: agent.
-
-    Class name carries 'agent' into all pytest node IDs, so `-k agent` selects
-    all three scenarios in this class.
-    """
+    """Tests for directory-form contract loading with kind: agent."""
 
     def test_agent_dir_contract_loads_kind_and_instruction(self, steps_dir):
         """Scenario 1: directory form with prompt.md loads kind=='agent' and instruction.
@@ -132,27 +117,6 @@ class TestAgentKindContractLoad:
         with pytest.raises(ContractError, match="missing prompt.md"):
             _load_contract("no-prompt", "")
 
-    def test_agent_flat_file_back_compat_synthesizes_kind(self, steps_dir):
-        """Scenario 3: flat-file form without run: synthesizes kind == 'agent'.
-
-        AC-7: the back-compat read path must set kind = 'agent' when the flat
-        contract has no run: field.
-
-        Currently RED: StepContract has no `kind` field, so accessing .kind raises
-        AttributeError.
-        """
-        _write_flat_contract(steps_dir, "diagnose", {
-            "id": "diagnose",
-            "agent": "architect",
-            "instruction": "Diagnose the issue carefully.",
-            "inputs": [],
-            "outputs": ["diagnosis"],
-            "rules": [],
-        })
-
-        from orchestrator_next.parser import _load_contract
-        contract = _load_contract("diagnose", "")
-        assert contract.kind == "agent"
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +187,7 @@ class TestScriptKindContractLoad:
             script_text=None,  # deliberately no script.sh
         )
 
-        from orchestrator_next.parser import _load_contract, ContractDispatchError
+        from orchestrator_next.parser import _load_contract, ContractNotFoundError as ContractDispatchError
         with pytest.raises(ContractDispatchError, match="script"):
             _load_contract("no-script", "")
 

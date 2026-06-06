@@ -328,7 +328,7 @@ def main() -> None:
     state_yaml_path = args[1]
 
     try:
-        from orchestrator_next.parser import load_state, ContractDispatchError
+        from orchestrator_next.parser import load_state, ContractNotFoundError as ContractDispatchError
         from orchestrator_next.dispatch import dispatch, emit_json
     except ImportError as exc:
         print(f"error: failed to import orchestrator_next — {exc}", file=sys.stderr)

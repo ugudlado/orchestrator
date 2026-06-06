@@ -6,7 +6,6 @@ dict in workflow_plan.nodes — plan.yaml eliminated).
   test_run_step_has_step_context
   test_verify_phase_omits_step_context
   test_step_context_built_from_node
-  test_legacy_active_block_still_dispatches
 """
 from __future__ import annotations
 
@@ -28,7 +27,18 @@ if _SCRIPTS_DIR not in sys.path:
 
 
 def _write_contract(contracts_dir: Path, step_id: str, data: dict) -> None:
-    (contracts_dir / f"{step_id}.yaml").write_text(yaml.safe_dump(data))
+    step_dir = contracts_dir / step_id
+    step_dir.mkdir(parents=True, exist_ok=True)
+    run_rel = data.get("run")
+    if run_rel and not os.path.isabs(run_rel):
+        # Rewrite run: to use an absolute path we create here
+        script_path = step_dir / "script.sh"
+        script_path.write_text("#!/bin/sh\necho '{}'\n")
+        script_path.chmod(0o755)
+        data = {**data, "run": str(script_path)}
+    (step_dir / "contract.yaml").write_text(yaml.safe_dump(data))
+    if data.get("agent") and not data.get("run"):
+        (step_dir / "prompt.md").write_text(data.get("instruction", "placeholder"))
 
 
 def _node(step_id: str, status: str = "pending", **extra) -> dict:
@@ -166,32 +176,3 @@ def test_step_context_built_from_node(tmp_path, monkeypatch):
     action, code = dispatch(load_state(sp), sp)
     assert code == 0
     assert action["step_context"]["goal"] == "Special goal."
-
-
-def test_legacy_active_block_still_dispatches(tmp_path, monkeypatch):
-    """AC-11: a legacy active:[ids] block still dispatches without a migration."""
-    contracts_dir = tmp_path / "contracts"
-    contracts_dir.mkdir()
-    _write_contract(contracts_dir, "legacy-step", {
-        "id": "legacy-step", "agent": "developer", "instruction": "x",
-        "inputs": [], "outputs": [], "rules": [],
-    })
-    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
-
-    state_dir = tmp_path / "state"
-    state_dir.mkdir()
-    state = {
-        "change_id": "test-feature",
-        "phase": "implement",
-        "repo_root": str(state_dir),
-        "workflow_plan": {"implement": {"active": ["legacy-step"], "filtered": []}},
-        "step_history": [],
-    }
-    path = state_dir / "state.yaml"
-    path.write_text(yaml.safe_dump(state, sort_keys=False))
-
-    from orchestrator_next.dispatch import dispatch
-    from orchestrator_next.parser import load_state
-    action, code = dispatch(load_state(str(path)), str(path))
-    assert code == 0
-    assert action["step_id"] == "legacy-step"

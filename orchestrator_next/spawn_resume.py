@@ -18,9 +18,9 @@ import yaml
 
 from orchestrator_next import readiness
 from orchestrator_next.dispatch import (
+    _DEFAULT_MAX_SPAWN_FAILURES,
     _consecutive_spawn_failures,
     _is_spawn_failure,
-    _max_spawn_failures,
 )
 from orchestrator_next.parser import _parse_history_entry
 
@@ -51,7 +51,7 @@ def clear_spawn_failure_cap_in_raw(state_raw: dict[str, Any]) -> bool:
         return False
 
     spawn_count = _consecutive_spawn_failures(state.step_history, phase, step_id)
-    if spawn_count < _max_spawn_failures(state_raw):
+    if spawn_count < _DEFAULT_MAX_SPAWN_FAILURES:
         return False
 
     # Most recent row for this step must be a spawn failure (not architect/blocked).

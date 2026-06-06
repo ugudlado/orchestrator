@@ -72,7 +72,18 @@ def state_dir(tmp_path):
 
 
 def _write_contract(steps_dir, step_id: str, data: dict):
-    (steps_dir / f"{step_id}.yaml").write_text(yaml.dump(data))
+    from pathlib import Path
+    step_dir = Path(steps_dir) / step_id
+    step_dir.mkdir(parents=True, exist_ok=True)
+    run_rel = data.get("run")
+    if run_rel and not os.path.isabs(run_rel):
+        script_path = step_dir / "script.sh"
+        script_path.write_text("#!/bin/sh\necho '{}'\n")
+        script_path.chmod(0o755)
+        data = {**data, "run": str(script_path)}
+    (step_dir / "contract.yaml").write_text(yaml.dump(data))
+    if data.get("agent") and not data.get("run"):
+        (step_dir / "prompt.md").write_text(data.get("instruction", "placeholder"))
 
 
 def _write_agent(agents_dir, agent_name: str, tools: list[str]):
@@ -81,40 +92,33 @@ def _write_agent(agents_dir, agent_name: str, tools: list[str]):
 
 
 def _write_plan_yaml(state_dir, phase: str, step_ids: list) -> str:
-    """Write a minimal plan.yaml next to state.yaml; return the state.yaml path string."""
+    """Write a state.yaml with nodes-form workflow_plan; return the state.yaml path string."""
     from pathlib import Path
     state_dir = Path(state_dir)
-    plan = {
-        "feature": "test-change",
-        "schema": "feature",
-        "resolved_flags": {},
-        "phases": [
-            {
-                "name": phase,
-                "goal": "Test phase.",
-                "steps": [
-                    {"id": sid, "agent": "developer", "goal": "Test.", "inputs": [],
-                     "outputs": [], "rules": []}
-                    for sid in step_ids
-                ],
-            }
-        ],
-    }
-    (state_dir / "plan.yaml").write_text(yaml.safe_dump(plan, sort_keys=False))
+    nodes = [{"id": sid, "status": "in_progress", "agent": "developer",
+              "goal": "Test.", "inputs": [], "outputs": [], "rules": []}
+             for sid in step_ids]
     state_yaml = state_dir / "state.yaml"
-    state_yaml.write_text(yaml.safe_dump({"change_id": "test-change", "phase": phase}))
+    state_yaml.write_text(yaml.safe_dump({
+        "change_id": "test-change",
+        "phase": phase,
+        "workflow_plan": {phase: {"nodes": nodes, "filtered": []}},
+        "step_history": [],
+    }, sort_keys=False))
     return str(state_yaml)
 
 
 def _make_state(steps: list[str], phase: str = "implement") -> "State":
     """Build a minimal State for the given steps."""
     from orchestrator_next.parser import State
+    nodes = [{"id": s, "status": "pending", "agent": "developer", "goal": "",
+              "inputs": [], "outputs": [], "rules": []} for s in steps]
     return State(
         change_id="test-change",
         phase=phase,
         repo_root="/repo",
         workflow_dir="/workflow",
-        workflow_plan={phase: {"active": steps}},
+        workflow_plan={phase: {"nodes": nodes, "filtered": []}},
         step_history=[],
         raw={"change_id": "test-change"},
     )
@@ -141,7 +145,7 @@ def _make_state_with_inprogress(step_id: str, agent: str, phase: str = "implemen
         phase=phase,
         repo_root="/repo",
         workflow_dir="/workflow",
-        workflow_plan={phase: {"active": [step_id]}},
+        workflow_plan={phase: {"nodes": [{"id": step_id, "status": "in_progress", "agent": agent, "goal": "", "inputs": [], "outputs": [], "rules": []}], "filtered": []}},
         step_history=[entry],
         raw={"change_id": "test-change"},
     )
@@ -285,10 +289,10 @@ class TestWideningGuard:
             "instruction": "do thing", "inputs": [], "outputs": [],
             "allowed_tools": ["Read", "NewTool"],
         })
-        from orchestrator_next.dispatch import _resolve_allowed_tools
+        from orchestrator_next.dispatch import _warn_allowed_tools
         from orchestrator_next.parser import _load_contract
         contract = _load_contract("widen-step", "")
-        assert _resolve_allowed_tools(contract) == []
+        _warn_allowed_tools(contract)
         assert "not enforced" in capsys.readouterr().err
 
 

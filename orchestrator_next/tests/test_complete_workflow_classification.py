@@ -1,7 +1,7 @@
 """T-5 / T-6c: `archive-completed-change` state-mutating classification.
 
-`_STATE_MUTATING_INLINE_STEPS` in `orchestrator_next/run_loop` lists inline
-steps whose script moves/deletes state.yaml as a side effect. Such steps must be
+`state_mutating: true` in a step's contract.yaml marks inline steps whose
+script moves/deletes state.yaml as a side effect. Such steps must be
 pre-recorded into state.yaml BEFORE their script runs, or `record.py` crashes
 re-opening the now-moved file (the ORC-66 bug).
 
@@ -11,24 +11,19 @@ and moves the active change directory into the archive path.
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
-_BIN = os.path.join(_REPO_ROOT, "bin", "orchestrator")
 
 
-def _state_mutating_set():
-    """Return the canonical `_STATE_MUTATING_INLINE_STEPS` set (imported, not
-    source-grepped — the value lives in run_loop now)."""
-    import sys
-    sys.path.insert(0, os.path.join(_REPO_ROOT, "orchestrator_next", ".."))
-    from orchestrator_next.run_loop import _STATE_MUTATING_INLINE_STEPS
-    return set(_STATE_MUTATING_INLINE_STEPS)
-
-
-def test_set_contains_archive_completed_change():
-    steps = _state_mutating_set()
-    assert steps == {"archive-completed-change"}, (
-        f"_STATE_MUTATING_INLINE_STEPS must be exactly "
-        f"{{'archive-completed-change'}}, got {steps}"
+def test_archive_completed_change_contract_is_state_mutating():
+    contract_path = Path(_REPO_ROOT) / "config" / "steps" / "archive-completed-change" / "contract.yaml"
+    assert contract_path.is_file(), f"contract.yaml not found at {contract_path}"
+    data = yaml.safe_load(contract_path.read_text()) or {}
+    assert data.get("state_mutating") is True, (
+        f"archive-completed-change/contract.yaml must have `state_mutating: true`; "
+        f"got state_mutating={data.get('state_mutating')!r}"
     )

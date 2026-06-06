@@ -75,10 +75,13 @@ def _write_stub_contracts(tmp_path: Path) -> Path:
     contracts = tmp_path / "stub-steps"
     contracts.mkdir(exist_ok=True)
     for sid, agent in (("explore", "discoverer"), ("design-and-draft-artifacts", "architect")):
-        (contracts / f"{sid}.yaml").write_text(yaml.safe_dump({
+        step_dir = contracts / sid
+        step_dir.mkdir(exist_ok=True)
+        (step_dir / "contract.yaml").write_text(yaml.safe_dump({
             "id": sid, "agent": agent, "instruction": f"do {sid}",
             "inputs": [], "outputs": [], "rules": [],
         }))
+        (step_dir / "prompt.md").write_text(f"do {sid}")
     return contracts
 
 

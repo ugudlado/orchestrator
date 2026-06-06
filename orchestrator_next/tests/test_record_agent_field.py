@@ -64,7 +64,7 @@ def _write_state(tmp_path, *, repo_root: str = "/tmp") -> str:
 
 
 def _write_contract(contracts_dir, step_id: str, *, agent: str | None = None, inline: bool = False) -> None:
-    """Write a minimal step contract YAML to the contracts dir."""
+    """Write a minimal step contract (directory form)."""
     data: dict = {
         "id": step_id,
         "inputs": [],
@@ -75,8 +75,11 @@ def _write_contract(contracts_dir, step_id: str, *, agent: str | None = None, in
         data["agent"] = agent
     if inline:
         data["inline"] = True
-    path = contracts_dir / f"{step_id}.yaml"
-    path.write_text(yaml.safe_dump(data))
+    step_dir = contracts_dir / step_id
+    step_dir.mkdir(parents=True, exist_ok=True)
+    (step_dir / "contract.yaml").write_text(yaml.safe_dump(data))
+    if agent and not inline:
+        (step_dir / "prompt.md").write_text("test instruction")
 
 
 # ---------------------------------------------------------------------------

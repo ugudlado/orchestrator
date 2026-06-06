@@ -1,7 +1,7 @@
 """
 Pure dispatcher: State → (action_dict, exit_code).
 
-Protocol (ORC-45 two-path dispatch):
+Two-path dispatch protocol:
   exit 0 + JSON with agent key  → driver spawns Agent tool
   exit 0 + no JSON              → inline script ran and recorded; driver loops
   exit 1                        → workflow complete; driver reads state.yaml
@@ -23,13 +23,18 @@ import yaml
 from orchestrator_next import readiness
 from orchestrator_next.step_env import build_dispatch_env as _build_dispatch_env
 from orchestrator_next.parser import (
-    ContractDispatchError as ParserContractDispatchError,
+    ContractNotFoundError,
     State,
     StepContract,
     StepHistoryEntry,
     load_contract_for_step,
     phase_nodes,
+    safe_write_yaml as _safe_write_yaml,
 )
+from orchestrator_next.config import project_yaml_path as _project_yaml_path
+from orchestrator_next.step_runner import step_directory as _step_directory
+
+
 def _step_in_plan(state, phase: str, step_id: str) -> bool:
     """True when step_id is a node in workflow_plan for this phase."""
     return any(str(n.get("id", "")) == step_id for n in phase_nodes(state, phase))
@@ -53,27 +58,16 @@ def _agent_definition_path(agent_name: str) -> str | None:
     return None
 
 
-def _load_step_contract(step_id: str, state_yaml_path: str) -> StepContract:
-    """Load a step contract; map FileNotFoundError to ContractDispatchError."""
-    try:
-        return load_contract_for_step(step_id, state_yaml_path)
-    except FileNotFoundError as e:
-        raise ContractDispatchError(
-            f"Step contract not found: {step_id}. Run /doctor to diagnose."
-        ) from e
-
-
 # Blocking statuses: caller cannot proceed
 _BLOCKING_STATUSES = frozenset({"escalate_to_architect", "blocked"})
 _DEFAULT_MAX_SPAWN_FAILURES = 3
 
 
 def _compute_attempt(step_history: list[StepHistoryEntry], phase: str, step_id: str) -> int:
-    """
-    Compute the next attempt number for a (phase, step_id) pair.
+    """Return the next attempt number for a (phase, step_id) pair.
 
-    Scans step_history for all entries matching phase+step_id, finds the
-    maximum attempt number, and returns max + 1 (default 1 when none exist).
+    Scans all history entries including in_progress. record.py has a parallel
+    version that excludes in_progress entries (different semantics for recording).
     """
     attempts = [
         e.attempt
@@ -91,11 +85,7 @@ def _is_spawn_failure(entry: StepHistoryEntry) -> bool:
     model = usage.get("model")
     input_tokens = usage.get("input_tokens", 0)
     output_tokens = usage.get("output_tokens", 0)
-    return (
-        model == "none"
-        and input_tokens == 0
-        and output_tokens == 0
-    )
+    return model == "none" and input_tokens == 0 and output_tokens == 0
 
 
 def _consecutive_spawn_failures(
@@ -113,142 +103,25 @@ def _consecutive_spawn_failures(
     return count
 
 
-def _project_yaml_path(state_raw: dict[str, Any]) -> Path | None:
-    """Resolve the repo's project.yaml, worktree-first then repo_root (orc-85).
-
-    Shared by callers that read project.yaml fields (quality_bar, learnings).
-    Returns None when neither location yields an existing file.
-    """
-    worktree = state_raw.get("worktree_path")
-    if isinstance(worktree, str) and worktree:
-        wt = Path(os.path.expanduser(worktree))
-        if wt.is_dir():
-            candidate = wt / "spec" / "project.yaml"
-            if candidate.is_file():
-                return candidate
-    repo_root = state_raw.get("repo_root")
-    if isinstance(repo_root, str) and repo_root:
-        candidate = Path(os.path.expanduser(repo_root)) / "spec" / "project.yaml"
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def _max_spawn_failures(state_raw: dict[str, Any]) -> int:
-    """Read `quality_bar.max_spawn_failures` from the repo's project.yaml (orc-85)."""
-    candidate = _project_yaml_path(state_raw)
-    if candidate is not None:
-        try:
-            data = yaml.safe_load(candidate.read_text()) or {}
-            quality_bar = data.get("quality_bar") if isinstance(data, dict) else None
-            value = (
-                quality_bar.get("max_spawn_failures")
-                if isinstance(quality_bar, dict)
-                else None
-            )
-            if isinstance(value, int) and not isinstance(value, bool):
-                return value
-        except (yaml.YAMLError, OSError) as exc:
-            sys.stderr.write(f"[dispatch] warning: could not read {candidate}: {exc}\n")
-
-    sys.stderr.write(
-        f"[dispatch] warning: quality_bar.max_spawn_failures not found in project.yaml; "
-        f"defaulting to {_DEFAULT_MAX_SPAWN_FAILURES}\n"
-    )
-    return _DEFAULT_MAX_SPAWN_FAILURES
-
-
-
 def _get_last_entry(step_history: list[StepHistoryEntry]) -> StepHistoryEntry | None:
     return step_history[-1] if step_history else None
 
 
-def _typed_input_base_dir(state: State) -> str:
-    """Repo or worktree root for path templates like spec/changes/<slug>/file.md.
 
-    Typed I/O paths are relative to this root. seed-state sets worktree_path
-    (every run is isolated in a worktree) but not worktree_artifact_dir in
-    state.yaml; parser derives worktree_artifact_dir as <root>/spec/changes for
-    legacy evidence only.
+def _warn_allowed_tools(contract: StepContract) -> None:
+    """Emit diagnostic warnings for unenforceable allowed_tools declarations.
+
+    Tool enforcement is not yet implemented — this guard surfaces mis-configs
+    (inline step with allowed_tools, missing agent definition) early so they
+    don't silently pass.
     """
-    worktree_path = str(state.raw.get("worktree_path") or "").strip()
-    if worktree_path:
-        return os.path.expanduser(worktree_path) if worktree_path.startswith("~") else worktree_path
-    explicit = str(state.raw.get("worktree_artifact_dir") or "").strip()
-    if explicit:
-        return os.path.expanduser(explicit) if explicit.startswith("~") else explicit
-    return state.repo_root or ""
-
-
-def _resolve_inputs(
-    state: State, contract: StepContract
-) -> tuple[dict[str, Any], list[str]]:
-    """Resolve a contract's declared ``inputs:`` against prior step outputs.
-
-    For typed inputs (path is not None): substitute ``<slug>`` with
-    ``state.change_id``, join against ``state.worktree_artifact_dir``, and
-    add ``{name: abs_path}`` to resolved iff the file exists.  Missing typed
-    inputs (file absent) are added to ``missing`` only when not optional.
-
-    For legacy inputs (path is None): walk ``state.step_history`` in reverse
-    for a terminal ``completed`` entry whose ``evidence.outputs.<name>`` is
-    set; fall back to ``state.raw`` top-level keys.
-
-    Returns ``(resolved, missing)``. Missing names are not an error here —
-    the caller decides. Contracts with empty ``inputs:`` return ``({}, [])``.
-    """
-    resolved: dict[str, Any] = {}
-    missing: list[str] = []
-
-    # ORC-76 T-16: typed paths join against repo/worktree root (see _typed_input_base_dir).
-    raw_artifact_dir = _typed_input_base_dir(state)
-    typed_names: set[str] = set()
-    for spec in contract.inputs:
-        path = spec.get("path")
-        if path is None:
-            continue
-        name = spec["name"]
-        optional = bool(spec.get("optional", False))
-        typed_names.add(name)
-        # Substitute <slug> and join against the raw artifact dir root
-        resolved_rel = path.replace("<slug>", state.change_id)
-        abs_path = os.path.join(raw_artifact_dir, resolved_rel) if raw_artifact_dir else resolved_rel
-        if os.path.isfile(abs_path):
-            resolved[name] = abs_path
-        elif not optional:
-            missing.append(name)
-        # optional + absent → silently skip (no resolved entry, no missing)
-
-    # Legacy inputs: walk evidence.outputs then state.raw
-    legacy_names = [n for n in contract.legacy_input_names if n not in typed_names]
-    for name in legacy_names:
-        found = False
-        for entry in reversed(state.step_history):
-            if entry.status != "completed":
-                continue
-            outputs = (entry.raw.get("evidence") or {}).get("outputs") or {}
-            if name in outputs:
-                resolved[name] = outputs[name]
-                found = True
-                break
-        if not found and name in state.raw:
-            resolved[name] = state.raw[name]
-            found = True
-        if not found:
-            missing.append(name)
-
-    return resolved, missing
-
-
-def _resolve_allowed_tools(contract: StepContract) -> list[str]:
     if contract.agent is None:
         if contract.allowed_tools:
             print(
                 f"WARNING: allowed_tools on inline step {contract.id!r} ignored",
                 file=sys.stderr,
             )
-        return []
-
+        return
     if contract.allowed_tools:
         if _agent_definition_path(contract.agent) is None:
             raise ContractDispatchError(
@@ -260,20 +133,16 @@ def _resolve_allowed_tools(contract: StepContract) -> list[str]:
             f"allowed_tools on step {contract.id!r} not enforced",
             file=sys.stderr,
         )
-    return []
 
 
 def _node_step_context(state: State, step_id: str) -> dict[str, Any]:
     """Return the plan node dict for (current phase, step_id) as step_context.
 
-    ORC-63: the per-step data formerly held in plan.yaml now lives on the node
-    in `state.workflow_plan[phase].nodes`. A legacy `active:[ids]` block yields
-    a synthesized bare node (back-compat read path, AC-11).
+    Per-step data lives on the node in `state.workflow_plan[phase].nodes`.
+    A legacy `active:[ids]` block yields a synthesized bare node (back-compat read path).
     """
-    for node in phase_nodes(state, state.phase):
-        if str(node.get("id", "")) == step_id:
-            return dict(node)
-    return {"id": step_id}
+    node = readiness.find_node(phase_nodes(state, state.phase), step_id)
+    return dict(node) if node is not None else {"id": step_id}
 
 
 def _load_learnings(state_raw: dict[str, Any]) -> list[dict[str, Any]]:
@@ -333,7 +202,24 @@ def _relevant_learnings(
     return selected
 
 
-def _persist_node_status(state_yaml_path: str, phase: str, step_id: str, status: str) -> None:
+def _load_learnings_safe(
+    state_raw: dict[str, Any], agent: str | None, phase: str
+) -> list[dict[str, Any]]:
+    """Load and filter learnings, degrading to [] on any failure."""
+    try:
+        return _relevant_learnings(_load_learnings(state_raw), agent, phase)
+    except Exception as exc:  # noqa: BLE001
+        sys.stderr.write(f"[dispatch] warning: learnings injection skipped: {exc}\n")
+        return []
+
+
+def _persist_node_status(
+    state_yaml_path: str,
+    phase: str,
+    step_id: str,
+    status: str,
+    state_raw: dict | None = None,
+) -> None:
     """Mark a node's status in state.yaml on disk via readiness.mark_node_status.
 
     A narrow state.yaml writer for the dispatch-time `in_progress` transition.
@@ -343,84 +229,184 @@ def _persist_node_status(state_yaml_path: str, phase: str, step_id: str, status:
     try:
         with open(path, "rb") as f:
             pre_bytes = f.read()
-        state_raw = yaml.safe_load(pre_bytes.decode("utf-8")) or {}
+        if state_raw is None:
+            state_raw = yaml.safe_load(pre_bytes.decode("utf-8")) or {}
     except (OSError, yaml.YAMLError):
         return
     readiness.mark_node_status(state_raw, phase, step_id, status)
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(state_raw, f, sort_keys=False, default_flow_style=False, allow_unicode=True)
-    # Post-write corruption guard: restore pre-write bytes if unparseable.
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            yaml.safe_load(f)
+        _safe_write_yaml(path, state_raw, pre_bytes)
     except yaml.YAMLError:
-        with open(path, "wb") as f:
-            f.write(pre_bytes)
+        pass  # pre_bytes already restored by safe_write_yaml
 
 
-def _check_required_inputs(
-    state: State, contract: StepContract, step_id: str
-) -> int | None:
-    """Return exit code 2 if a required input is unresolvable, else None.
+def _build_action_base(
+    contract: StepContract,
+    step_id: str,
+    phase: str,
+    attempt: int,
+    state: State,
+    state_yaml_path: str,
+) -> dict[str, Any]:
+    """Build the base keys shared by both resume and fresh-dispatch action dicts.
 
-    For typed inputs (path set): missing iff os.path.isfile(resolved_path)
-    is False and optional is False.  Diagnostic names the resolved abs path.
-
-    For legacy inputs: missing iff no prior completed step produced the name
-    under evidence.outputs and the name is absent from state.raw.
-    Inputs named in contract.optional_inputs never block.
+    Resume path adds: is_resume, started_at, agent, learnings.
+    Fresh path adds: pre, post, then agent+learnings or run+step_contract_dir.
     """
-    _resolved, missing = _resolve_inputs(state, contract)
-    optional = set(contract.optional_inputs)
-    required_missing = [m for m in missing if m not in optional]
-    if required_missing:
-        # Build diagnostic: for typed inputs include the resolved abs path.
-        raw_artifact_dir = _typed_input_base_dir(state)
-        typed_paths: dict[str, str] = {}
-        for spec in contract.inputs:
-            path = spec.get("path")
-            if path is None:
-                continue
-            name = spec["name"]
-            resolved_rel = path.replace("<slug>", state.change_id)
-            abs_path = os.path.join(raw_artifact_dir, resolved_rel) if raw_artifact_dir else resolved_rel
-            typed_paths[name] = abs_path
+    return {
+        "step_id": step_id,
+        "phase": phase,
+        "attempt": attempt,
+        "instruction": contract.instruction,
+        "rules": contract.rules,
+        "inputs": {},
+        "expected_outputs": [s["name"] for s in contract.outputs],
+        "resolved_allowed_tools": [],
+        "env": _build_dispatch_env(state, step_id, attempt, state_yaml_path),
+        "step_context": _node_step_context(state, step_id),
+    }
 
-        parts: list[str] = []
-        for name in required_missing:
-            if name in typed_paths:
-                parts.append(f"{name!r} (expected file: {typed_paths[name]})")
-            else:
-                parts.append(repr(name))
 
+def _warn_if_more_phases_remain(state: State) -> None:
+    """Emit a stderr warning when the current phase is complete but the plan has more phases.
+
+    The driver must manually advance state.yaml's `phase` field before re-running
+    `orchestrator next`. Without this warning, phase-complete looks identical to
+    workflow-complete from the outside.
+    """
+    plan = state.workflow_plan or {}
+    phase_names = list(plan.keys())
+    if len(phase_names) > 1 and state.phase in phase_names:
+        remaining = phase_names[phase_names.index(state.phase) + 1:]
+        if remaining:
+            print(
+                f"WARNING: phase '{state.phase}' is complete but "
+                f"workflow_plan has other phases ({', '.join(remaining)}). "
+                f"Driver must advance state.yaml 'phase' field and re-run "
+                f"'orchestrator next' before completing workflow.",
+                file=sys.stderr,
+            )
+
+
+def _resolve_step_contract_dir(step_id: str, contract: StepContract) -> str:
+    """Return the contract directory path for a script contract, or empty string."""
+    orch_home = os.environ.get("ORCHESTRATOR_HOME", "")
+    if orch_home and contract.run:
+        return str(_step_directory(step_id, contract, orch_home))
+    if contract.run and os.path.isabs(contract.run):
+        return os.path.dirname(contract.run)
+    return ""
+
+
+def _fallback_contract(step_id: str, agent: str | None) -> StepContract:
+    """Minimal inline-only contract used when the contract file is missing."""
+    return StepContract(id=step_id, agent=agent, run=None, instruction="", rules=[])
+
+
+def _handle_resume(
+    state: State, state_yaml_path: str, last: StepHistoryEntry
+) -> tuple[dict[str, Any], int]:
+    """Resume an in-progress step.
+
+    Keeps the ORIGINAL attempt number — do not call _compute_attempt here
+    (that returns max+1, which is retry semantics, not resume semantics).
+    """
+    step_id = last.step_id
+    attempt = last.attempt if last.attempt is not None else 1
+    try:
+        contract = load_contract_for_step(step_id, state_yaml_path, workflow_plan=state.workflow_plan)
+    except (FileNotFoundError, ContractDispatchError):
+        contract = _fallback_contract(step_id, last.agent)
+    _warn_allowed_tools(contract)
+    action = _build_action_base(
+        contract,
+        step_id,
+        state.phase,
+        attempt,
+        state,
+        state_yaml_path,
+    )
+    action["is_resume"] = True
+    action["started_at"] = last.started_at
+    action["agent"] = contract.agent
+    action["learnings"] = _load_learnings_safe(state.raw, contract.agent, state.phase)
+    return action, 0
+
+
+def _dispatch_fresh(
+    state: State, state_yaml_path: str, next_step_id: str
+) -> tuple[dict[str, Any], int]:
+    """Dispatch a fresh (non-resume) step node."""
+    # --- Load contract for the next step
+    try:
+        contract = load_contract_for_step(next_step_id, state_yaml_path, workflow_plan=state.workflow_plan)
+    except (FileNotFoundError, ContractDispatchError):
+        # Contract deleted after workflow_plan was frozen at pre-dispatch init.
+        contract = _fallback_contract(next_step_id, None)
+
+    spawn_failures = _consecutive_spawn_failures(
+        state.step_history, state.phase, next_step_id
+    )
+    max_spawn_failures = _DEFAULT_MAX_SPAWN_FAILURES
+    if spawn_failures >= max_spawn_failures:
         print(
-            f"ERROR: step {step_id!r} blocked — required input(s) missing: "
-            f"{', '.join(parts)}. "
-            f"Typed inputs require the file to exist on disk; legacy inputs "
-            f"require a prior completed step to have produced them under "
-            f"evidence.outputs or a matching key in state.raw.",
+            f"BLOCKED: spawn_failure_cap — {spawn_failures} consecutive zero-token "
+            f"failures for {state.phase}/{next_step_id}",
             file=sys.stderr,
         )
-        return 2
-    return None
+        return {"reason": "spawn_failure_cap"}, 2
+
+    attempt = _compute_attempt(state.step_history, state.phase, next_step_id)
+    _warn_allowed_tools(contract)
+
+    # Two-path dispatch: agent: → spawn; run: → execute inline; else → error.
+    # Build the shared base, then each branch merges in its discriminating keys.
+    action = _build_action_base(
+        contract,
+        next_step_id,
+        state.phase,
+        attempt,
+        state,
+        state_yaml_path,
+    )
+    action["pre"] = contract.pre
+    action["post"] = contract.post
+    if contract.agent:
+        # Learnings injection is best-effort: a failure here must never block a
+        # spawn. Degrade to no learnings rather than taking down the dispatcher.
+        action["agent"] = contract.agent
+        action["learnings"] = _load_learnings_safe(state.raw, contract.agent, state.phase)
+    elif contract.run:
+        # Inline script executed synchronously by CLI — no JSON emitted, exit 0
+        action["run"] = contract.run
+        step_contract_dir = _resolve_step_contract_dir(next_step_id, contract)
+        if step_contract_dir:
+            action["step_contract_dir"] = step_contract_dir
+    else:
+        raise ContractNotFoundError(
+            f"step_contract_missing_run: {next_step_id}"
+        )
+
+    # Mark the chosen node in_progress in state.yaml (the one status mutator).
+    # No-op for a legacy active:[ids] block.
+    _persist_node_status(state_yaml_path, state.phase, next_step_id, "in_progress", state_raw=state.raw)
+    return action, 0
 
 
 def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
-    """
-    DAG-walk dispatcher: State → (action_dict, exit_code).
+    """DAG-walk dispatcher: State → (action_dict, exit_code).
 
-    ORC-63: selects the next step via `readiness.next_ready_node(state)` over
-    `workflow_plan[phase].nodes` — no plan.yaml. Required-input prereqs are a
-    hard block (exit 2). On a fresh selection the chosen node is marked
-    `in_progress` in state.yaml.
+    exit 0 + JSON with agent key → driver spawns Agent tool
+    exit 0 + no JSON → inline script ran and recorded; driver loops
+    exit 1 → workflow complete
+    exit 2 → step blocked
+    exit 3 → ContractDispatchError
     """
     last = _get_last_entry(state.step_history)
 
-    # --- Check: last entry is a blocking status → exit 2, no JSON (ORC-45)
     if last is not None and last.phase == state.phase and last.status in _BLOCKING_STATUSES:
         return {}, 2
 
-    # --- Check: last entry is in_progress → resume
     if (
         last is not None
         and last.phase == state.phase
@@ -435,178 +421,15 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
                 file=sys.stderr,
             )
             return {}, 3
-        step_id = last.step_id
-        # Resume: keep the ORIGINAL attempt. DO NOT call _compute_attempt here —
-        # it returns max+1 (retry semantics). Resume semantics require attempt unchanged.
-        attempt = last.attempt if last.attempt is not None else 1
-        try:
-            contract = _load_step_contract(step_id, state_yaml_path)
-        except ContractDispatchError:
-            # Fall back to inline-only contract with minimal data
-            contract = StepContract(
-                id=step_id,
-                agent=last.agent,
-                run=None,
-                instruction="",
-                rules=[],
-            )
-        inputs_resolved, _missing = _resolve_inputs(state, contract)
-        resolved_allowed_tools = _resolve_allowed_tools(contract)
-        # Best-effort learnings injection (mirrors the fresh-dispatch path below);
-        # a failure here must never block a resume.
-        try:
-            _resume_learnings = _relevant_learnings(
-                _load_learnings(state.raw), contract.agent, state.phase
-            )
-        except Exception as exc:  # noqa: BLE001 — dispatch must not crash on this
-            sys.stderr.write(f"[dispatch] warning: learnings injection skipped: {exc}\n")
-            _resume_learnings = []
-        action = {
-            "step_id": step_id,
-            "phase": state.phase,
-            "attempt": attempt,
-            "is_resume": True,
-            "started_at": last.started_at,
-            "agent": contract.agent,
-            "learnings": _resume_learnings,
-            "instruction": contract.instruction,
-            "rules": contract.rules,
-            "inputs": inputs_resolved,
-            "expected_outputs": contract.legacy_output_names,
-            "resolved_allowed_tools": resolved_allowed_tools,
-            "env": _build_dispatch_env(state, step_id, attempt, state_yaml_path),
-            "step_context": _node_step_context(state, step_id),
-        }
-        return action, 0
+        return _handle_resume(state, state_yaml_path, last)
 
-    # --- DAG-walk: select the first ready node (declaration-order tiebreak)
-    next_step_id = readiness.repeat_until_redispatch(state, state_yaml_path)
-    if next_step_id is None:
-        next_step_id = readiness.next_ready_node(state)
+    next_step_id = readiness.next_ready_node(state)
 
-    # --- Check: no ready node → exit 1, no JSON (phase complete) (ORC-45)
     if next_step_id is None:
-        # Warn if this phase is not the last in workflow_plan (driver must advance phase)
-        plan = (state.workflow_plan or {})
-        phase_names = list(plan.keys())
-        if len(phase_names) > 1 and state.phase in phase_names:
-            current_idx = phase_names.index(state.phase)
-            remaining = phase_names[current_idx + 1:]
-            if remaining:
-                print(
-                    f"WARNING: phase '{state.phase}' is complete but "
-                    f"workflow_plan has other phases ({', '.join(remaining)}). "
-                    f"Driver must advance state.yaml 'phase' field and re-run "
-                    f"'orchestrator next' before completing workflow.",
-                    file=sys.stderr,
-                )
+        _warn_if_more_phases_remain(state)
         return {}, 1
 
-    # --- Load contract for the next step
-    try:
-        contract = _load_step_contract(next_step_id, state_yaml_path)
-    except ContractDispatchError:
-        # Fall back to inline-only contract with minimal data when the step
-        # contract was deleted after workflow_plan was frozen at pre-dispatch init.
-        # Mirrors the resume_step branch above.
-        contract = StepContract(
-            id=next_step_id,
-            agent=None,
-            run=None,
-            instruction="",
-            rules=[],
-        )
-
-    # --- Prerequisite hard block (AC-4): a required input that no prior
-    #     completed step produced and that is absent from state.raw → exit 2.
-    block_code = _check_required_inputs(state, contract, next_step_id)
-    if block_code is not None:
-        return {}, block_code
-
-    spawn_failures = _consecutive_spawn_failures(
-        state.step_history, state.phase, next_step_id
-    )
-    max_spawn_failures = _max_spawn_failures(state.raw)
-    if spawn_failures >= max_spawn_failures:
-        print(
-            f"BLOCKED: spawn_failure_cap — {spawn_failures} consecutive zero-token "
-            f"failures for {state.phase}/{next_step_id}",
-            file=sys.stderr,
-        )
-        return {"reason": "spawn_failure_cap"}, 2
-
-    attempt = _compute_attempt(state.step_history, state.phase, next_step_id)
-    env = _build_dispatch_env(state, next_step_id, attempt, state_yaml_path)
-    inputs_resolved, _missing = _resolve_inputs(state, contract)
-    resolved_allowed_tools = _resolve_allowed_tools(contract)
-    step_context = _node_step_context(state, next_step_id)
-
-    # ORC-45 two-path dispatch: agent: → spawn; run: → execute inline; else → error.
-    if contract.agent:
-        # Learnings injection is best-effort: a failure here must never block a
-        # spawn. Degrade to no learnings rather than taking down the dispatcher.
-        try:
-            learnings = _relevant_learnings(
-                _load_learnings(state.raw), contract.agent, state.phase
-            )
-        except Exception as exc:  # noqa: BLE001 — dispatch must not crash on this
-            sys.stderr.write(f"[dispatch] warning: learnings injection skipped: {exc}\n")
-            learnings = []
-        action = {
-            "step_id": next_step_id,
-            "phase": state.phase,
-            "attempt": attempt,
-            "agent": contract.agent,
-            "learnings": learnings,
-            "instruction": contract.instruction,
-            "rules": contract.rules,
-            "inputs": inputs_resolved,
-            "expected_outputs": contract.legacy_output_names,
-            "resolved_allowed_tools": resolved_allowed_tools,
-            "env": env,
-            "step_context": step_context,
-            "pre": contract.pre,
-            "post": contract.post,
-        }
-    elif contract.run:
-        # Inline script executed synchronously by CLI — no JSON emitted, exit 0
-        action: dict[str, Any] = {
-            "step_id": next_step_id,
-            "phase": state.phase,
-            "attempt": attempt,
-            "run": contract.run,
-            "instruction": contract.instruction,
-            "rules": contract.rules,
-            "inputs": inputs_resolved,
-            "expected_outputs": contract.legacy_output_names,
-            "resolved_allowed_tools": resolved_allowed_tools,
-            "env": env,
-            "step_context": step_context,
-            "pre": contract.pre,
-            "post": contract.post,
-        }
-        # ORC-76 AC-2: for directory-form contracts the parser pre-resolves
-        # run to an absolute path. Expose the contract directory so
-        # bin/orchestrator can resolve relative run: paths against it when
-        # step_contract_dir is set (and for metadata inspection by callers).
-        from orchestrator_next.step_runner import step_directory
-
-        orch_home = os.environ.get("ORCHESTRATOR_HOME", "")
-        if orch_home and contract.run:
-            action["step_contract_dir"] = str(
-                step_directory(next_step_id, contract, orch_home)
-            )
-        elif contract.run and os.path.isabs(contract.run):
-            action["step_contract_dir"] = os.path.dirname(contract.run)
-    else:
-        raise ParserContractDispatchError(
-            f"step_contract_missing_run: {next_step_id}"
-        )
-
-    # ORC-63: mark the chosen node in_progress in state.yaml (the one
-    # status mutator). No-op for a legacy active:[ids] block.
-    _persist_node_status(state_yaml_path, state.phase, next_step_id, "in_progress")
-    return action, 0
+    return _dispatch_fresh(state, state_yaml_path, next_step_id)
 
 
 def emit_json(obj: dict[str, Any]) -> str:
@@ -614,6 +437,6 @@ def emit_json(obj: dict[str, Any]) -> str:
     Emit the action dict as deterministic, sorted-keys, indented JSON.
 
     Always uses sort_keys=True and indent=2 for byte-identical output
-    regardless of TTY — satisfies AC-1 (deterministic) and test byte-compare.
+    regardless of TTY — deterministic, byte-identical for test comparison.
     """
     return json.dumps(obj, sort_keys=True, indent=2) + "\n"

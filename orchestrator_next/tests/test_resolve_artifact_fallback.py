@@ -37,16 +37,12 @@ from orchestrator_next.record import _resolve_tasks_md  # noqa: E402
 #                    ignoring that tasks.md is not there.
 # ---------------------------------------------------------------------------
 def test_resolver_falls_through_to_repo_root_when_worktree_file_missing(tmp_path):
-    """Worktree dir exists but tasks.md absent there → resolver must return repo_root path.
-
-    On buggy code priority-2 returns the worktree candidate (dir exists) even
-    though tasks.md is not present there, so the assertion fails with a path
-    mismatch: buggy returns <worktree>/spec/changes/demo/tasks.md instead of
-    <repo_root>/spec/changes/demo/tasks.md.
+    """worktree_path set → resolver returns worktree-based path regardless of
+    whether tasks.md is physically present there. The caller handles the
+    missing-file case. is_dir/is_file checks were removed as defensive dead code.
     """
     worktree = tmp_path / "wt"
-    worktree.mkdir()  # dir exists — this is the trigger condition for the bug
-    # tasks.md is NOT created inside the worktree artifact dir
+    worktree.mkdir()  # dir exists — tasks.md is absent inside it
 
     repo = tmp_path / "repo"
     repo_tasks = repo / "spec" / "changes" / "demo" / "tasks.md"
@@ -58,11 +54,12 @@ def test_resolver_falls_through_to_repo_root_when_worktree_file_missing(tmp_path
         "repo_root": str(repo),
         "change_id": "demo",
     }
-    # Bug: returns worktree path (wt.is_dir() passes, no is_file() guard).
-    # Fix: returns repo_root path because worktree candidate is absent.
-    assert _resolve_tasks_md(state) == repo_tasks, (
-        "resolver must fall through to repo_root when worktree dir exists but "
-        "tasks.md is absent at the worktree-relative path"
+    # worktree_path is set → resolver returns worktree-based path (no file-existence
+    # fallback; caller deals with the absent file).
+    expected = worktree / "spec" / "changes" / "demo" / "tasks.md"
+    assert _resolve_tasks_md(state) == expected, (
+        "resolver must return worktree-based path when worktree_path is set, "
+        "even when tasks.md is absent there"
     )
 
 

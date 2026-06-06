@@ -85,40 +85,6 @@ class TestResolveRouting:
 
 
 # ---------------------------------------------------------------------------
-# _max_retry_rounds
-# ---------------------------------------------------------------------------
-
-class TestMaxRetryRounds:
-
-    def _write_project_yaml(self, root, content) -> None:
-        spec_dir = root / "spec"
-        spec_dir.mkdir(parents=True, exist_ok=True)
-        (spec_dir / "project.yaml").write_text(yaml.safe_dump(content))
-
-    def test_reads_max_retry_rounds_from_project_yaml(self, tmp_path):
-        self._write_project_yaml(tmp_path, {"quality_bar": {"max_retry_rounds": 8}})
-        state_raw = {"repo_root": str(tmp_path)}
-        assert record._max_retry_rounds(state_raw) == 8
-
-    def test_reads_from_worktree_path_when_present(self, tmp_path):
-        self._write_project_yaml(tmp_path, {"quality_bar": {"max_retry_rounds": 5}})
-        state_raw = {"worktree_path": str(tmp_path), "repo_root": "/nonexistent"}
-        assert record._max_retry_rounds(state_raw) == 5
-
-    def test_default_3_with_warning_when_key_absent(self, tmp_path, capsys):
-        self._write_project_yaml(tmp_path, {"quality_bar": {}})
-        state_raw = {"repo_root": str(tmp_path)}
-        assert record._max_retry_rounds(state_raw) == 3
-        assert "[record]" in capsys.readouterr().err
-
-    def test_default_3_with_warning_when_project_yaml_missing(self, tmp_path, capsys):
-        # no project.yaml written at all
-        state_raw = {"repo_root": str(tmp_path)}
-        assert record._max_retry_rounds(state_raw) == 3
-        assert "[record]" in capsys.readouterr().err
-
-
-# ---------------------------------------------------------------------------
 # T-4 (RED): end-to-end record() — node re-open on needs_work + escalation
 # ---------------------------------------------------------------------------
 
@@ -173,22 +139,6 @@ def _nodes_state(tmp_path) -> dict:
     }
 
 
-def _legacy_active_state(tmp_path) -> dict:
-    """Legacy `active:[ids]` plan shape (pre-ORC-63) — no node dicts."""
-    return {
-        "change_id": "orc-67-legacy",
-        "phase": "implement",
-        "schema": "feature",
-        "repo_root": str(tmp_path),
-        "worktree_path": str(tmp_path),
-        "workflow_plan": {
-            "implement": {
-                "active": ["execute-next-task", "run-phase-review"],
-            }
-        },
-        "step_history": [],
-    }
-
 
 def _review_payload(verdict: str, retries_count: int | None = None) -> dict:
     """A run-phase-review `done` payload.
@@ -209,18 +159,16 @@ def _review_payload(verdict: str, retries_count: int | None = None) -> dict:
     }
 
 
-def _setup(tmp_path, monkeypatch, state: dict, max_retry_rounds: int = 8) -> str:
-    """Write contract override, project.yaml, tasks.md, state.yaml; return path."""
+def _setup(tmp_path, monkeypatch, state: dict) -> str:
+    """Write contract override, tasks.md, state.yaml; return path."""
     contracts_dir = tmp_path / "contracts"
     contracts_dir.mkdir(exist_ok=True)
-    (contracts_dir / "run-phase-review.yaml").write_text(_RUN_PHASE_REVIEW_CONTRACT)
+    step_dir = contracts_dir / "run-phase-review"
+    step_dir.mkdir(exist_ok=True)
+    (step_dir / "contract.yaml").write_text(_RUN_PHASE_REVIEW_CONTRACT)
+    (step_dir / "prompt.md").write_text("Run phase review.")
     monkeypatch.setenv(
         "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir)
-    )
-    spec_dir = tmp_path / "spec"
-    spec_dir.mkdir(exist_ok=True)
-    (spec_dir / "project.yaml").write_text(
-        yaml.safe_dump({"quality_bar": {"max_retry_rounds": max_retry_rounds}})
     )
     # tasks.md with no unchecked items — execute-next-task's repeat_until is
     # satisfied immediately when it is re-opened.
@@ -269,17 +217,6 @@ class TestReworkRecordNodeReopen:
         # on_failure target is NOT touched on success
         assert _node_status(state_path, "execute-next-task") == "completed"
 
-    def test_legacy_active_plan_degrades_without_error(self, tmp_path, monkeypatch):
-        """Legacy active:[ids] plan: failed record degrades to halt (no on_failure edge)."""
-        state_path = _setup(tmp_path, monkeypatch, _legacy_active_state(tmp_path))
-        result, exit_code = record.record(
-            state_path, _review_payload("needs_work")
-        )
-        assert exit_code == 0  # no exception raised
-        raw = yaml.safe_load(open(state_path).read())
-        # legacy plan has no nodes list — still an active block, untouched
-        assert "nodes" not in raw["workflow_plan"]["implement"]
-
 
 class TestReworkRecordEscalation:
 
@@ -289,9 +226,10 @@ class TestReworkRecordEscalation:
 
         max_retries=1: first failure routes to on_failure target, second halts.
         """
-        state_path = _setup(
-            tmp_path, monkeypatch, _nodes_state(tmp_path), max_retry_rounds=1
-        )
+        state = _nodes_state(tmp_path)
+        # Set max_retries=1 on the node (node-level cap, not project.yaml)
+        state["workflow_plan"]["implement"]["nodes"][-1]["max_retries"] = 1
+        state_path = _setup(tmp_path, monkeypatch, state)
         record.record(state_path, _review_payload("needs_work"))  # retry 1 → routes
         record.record(state_path, _review_payload("needs_work"))  # retry cap hit → halt
 
@@ -304,9 +242,9 @@ class TestReworkRecordEscalation:
 
     def test_escalation_leaves_review_node_completed(self, tmp_path, monkeypatch):
         """On cap exhaustion run-phase-review is marked completed (not pending)."""
-        state_path = _setup(
-            tmp_path, monkeypatch, _nodes_state(tmp_path), max_retry_rounds=1
-        )
+        state = _nodes_state(tmp_path)
+        state["workflow_plan"]["implement"]["nodes"][-1]["max_retries"] = 1
+        state_path = _setup(tmp_path, monkeypatch, state)
         record.record(state_path, _review_payload("needs_work"))  # retry 1
         record.record(state_path, _review_payload("needs_work"))  # cap hit → halt
         assert _node_status(state_path, "run-phase-review") == "completed"

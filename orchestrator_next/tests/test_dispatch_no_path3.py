@@ -17,6 +17,8 @@ import os
 import subprocess
 import textwrap
 
+import yaml
+
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _BIN_ORCHESTRATOR = os.path.join(os.path.expanduser("~"), ".local", "bin", "orchestrator")
@@ -52,9 +54,17 @@ def _write_plan_yaml(directory: str, step_id: str, agent: str = "developer") -> 
 
 
 def _write_contract_yaml(steps_dir: str, step_id: str, content: str) -> str:
-    path = os.path.join(steps_dir, f"{step_id}.yaml")
+    """Write a directory-form contract.yaml for step_id."""
+    import pathlib
+    step_dir = pathlib.Path(steps_dir) / step_id
+    step_dir.mkdir(parents=True, exist_ok=True)
+    path = str(step_dir / "contract.yaml")
     with open(path, "w") as f:
         f.write(textwrap.dedent(content))
+    # Write prompt.md for agent-kind contracts (no run: field)
+    data = yaml.safe_load(textwrap.dedent(content))
+    if data and data.get("agent") and not data.get("run"):
+        (step_dir / "prompt.md").write_text(data.get("instruction", "placeholder"))
     return path
 
 
@@ -81,15 +91,22 @@ def test_contract_missing_agent_and_run_exits_3(tmp_path):
     steps_dir = tmp_path / "steps"
     steps_dir.mkdir()
 
-    # Contract with no agent: and no run: -- path-3 territory
-    _write_contract_yaml(str(steps_dir), "my-step", """\
+    # Contract with no agent: and no run: -- path-3 territory.
+    # We write a prompt.md so the parser doesn't fail at load time;
+    # dispatch should raise ContractDispatchError (step_contract_missing_run).
+    import pathlib
+    step_dir = pathlib.Path(str(steps_dir)) / "my-step"
+    step_dir.mkdir(parents=True, exist_ok=True)
+    (step_dir / "contract.yaml").write_text(textwrap.dedent("""\
         id: my-step
         version: 1
+        kind: agent
         instruction: Do something.
         inputs: []
         outputs: []
         rules: []
-    """)
+    """))
+    (step_dir / "prompt.md").write_text("Do something.\n")
 
     state_yaml_path = _write_state_yaml(str(tmp_path), """\
         schema: feature
@@ -100,8 +117,15 @@ def test_contract_missing_agent_and_run_exits_3(tmp_path):
         step_history: []
         workflow_plan:
           implement:
-            active:
-              - my-step
+            nodes:
+              - id: my-step
+                status: pending
+                agent: null
+                goal: ""
+                inputs: []
+                outputs: []
+                rules: []
+            filtered: []
     """)
     _write_plan_yaml(str(tmp_path), "my-step")
 
@@ -144,8 +168,15 @@ def test_agent_contract_response_has_agent_no_action(tmp_path):
         step_history: []
         workflow_plan:
           implement:
-            active:
-              - my-step
+            nodes:
+              - id: my-step
+                status: pending
+                agent: developer
+                goal: ""
+                inputs: []
+                outputs: []
+                rules: []
+            filtered: []
     """)
     _write_plan_yaml(str(tmp_path), "my-step")
 
@@ -201,8 +232,15 @@ def test_all_steps_done_exits_1_no_json(tmp_path):
             attempt: 1
         workflow_plan:
           implement:
-            active:
-              - my-step
+            nodes:
+              - id: my-step
+                status: pending
+                agent: developer
+                goal: ""
+                inputs: []
+                outputs: []
+                rules: []
+            filtered: []
     """)
     _write_plan_yaml(str(tmp_path), "my-step")
 
@@ -251,8 +289,15 @@ def test_blocked_step_exits_2_no_json(tmp_path):
             attempt: 1
         workflow_plan:
           implement:
-            active:
-              - my-step
+            nodes:
+              - id: my-step
+                status: pending
+                agent: developer
+                goal: ""
+                inputs: []
+                outputs: []
+                rules: []
+            filtered: []
     """)
     _write_plan_yaml(str(tmp_path), "my-step")
 

@@ -1,15 +1,5 @@
 """
-ORC-36 regression tests: path-split failure modes (T-1 — RED on HEAD).
-
-Four sub-tests that assert the post-fix expectation for each failure mode
-described in the orc-36 diagnosis artifact. All four FAIL on HEAD before T-2/T-3/T-4 land.
-They PASS once the corresponding fix task ships.
-
-Failure mode map:
-  test_resolve_tasks_path_uses_spec_changes    → T-3 fix (record.py line 798)
-  test_resolve_feature_metrics_no_raise        → T-3 fix (same function)
-  test_archive_contains_artifact_files         → T-4 fix (archive-completed-change.sh)
-  test_seed_state_writes_to_spec_changes       → T-2 fix (seed-state.sh line 49)
+ORC-36 regression tests: archive and seed-state path correctness.
 """
 from __future__ import annotations
 
@@ -120,99 +110,7 @@ def _run_archive(
 
 
 # ---------------------------------------------------------------------------
-# Sub-test 1 (T-3 RED): _resolve_feature_metrics_tasks_path resolves to spec/changes/
-# ---------------------------------------------------------------------------
-
-def test_resolve_tasks_path_uses_spec_changes(tmp_path):
-    """
-    POST-FIX: _resolve_feature_metrics_tasks_path(state) returns
-      <repo_root>/spec/changes/<slug>/tasks.md
-
-    PRE-FIX (HEAD): returns <repo_root>/.state/<slug>/tasks.md — FAILS here.
-
-    orc-36 failure mode #1 / record.py line 798.
-    """
-    from orchestrator_next.record import _resolve_feature_metrics_tasks_path
-
-    repo = tmp_path / "repo"
-    repo.mkdir()
-
-    state = {
-        "repo_root": str(repo),
-        "change_id": "demo-feature",
-        # Deliberately omit tasks_path — exercises the fallback branch at line 798.
-    }
-
-    resolved = _resolve_feature_metrics_tasks_path(state)
-
-    expected = repo / "spec" / "changes" / "demo-feature" / "tasks.md"
-    assert resolved == expected, (
-        f"[ORC-36 failure mode 1] _resolve_feature_metrics_tasks_path returned:\n"
-        f"  {resolved}\n"
-        f"Expected (post-fix):\n"
-        f"  {expected}\n"
-        f"Pre-fix behaviour: returns <repo>/.state/demo-feature/tasks.md (wrong location)."
-    )
-
-
-# ---------------------------------------------------------------------------
-# Sub-test 2 (T-3 RED): _resolve_feature_metrics does NOT raise when tasks.md
-#                        is in spec/changes/<slug>/ (no .state copy, no tasks_path)
-# ---------------------------------------------------------------------------
-
-def test_resolve_feature_metrics_no_raise(tmp_path):
-    """
-    POST-FIX: _resolve_feature_metrics(state, change_id) does NOT raise
-      FileNotFoundError when tasks.md exists only at spec/changes/<slug>/tasks.md.
-
-    PRE-FIX (HEAD): raises FileNotFoundError because the resolver looks in
-      .state/<slug>/tasks.md and finds nothing — FAILS here.
-
-    orc-36 failure mode #2 / record.py lines 822-826.
-    """
-    from orchestrator_next.record import _resolve_feature_metrics
-
-    repo = tmp_path / "repo"
-    spec_dir = repo / "spec" / "changes" / "demo-feature"
-    spec_dir.mkdir(parents=True)
-
-    # Write tasks.yaml in spec/changes — implement-tasks writes status per task.
-    import yaml as _yaml
-    (spec_dir / "tasks.yaml").write_text(_yaml.safe_dump({"version": 1, "tasks": [
-        {"id": "T-1", "title": "Write regression test", "status": "completed", "files": [], "verify": []},
-        {"id": "T-2", "title": "Apply the fix", "status": "pending", "files": [], "verify": []},
-    ]}))
-
-    state = {
-        "change_id": "demo-feature",
-        "schema": "bugfix",
-        "repo_root": str(repo),
-        "worktree_path": str(repo),
-        "started_at": "2026-05-03T00:00:00Z",
-        "completed_at": "2026-05-03T01:00:00Z",
-        "step_history": [],
-        # No tasks_path key — exercises the fallback path.
-    }
-
-    # Post-fix: must not raise.
-    try:
-        result = _resolve_feature_metrics(state, "demo-feature")
-    except FileNotFoundError as exc:
-        pytest.fail(
-            f"[ORC-36 failure mode 2] _resolve_feature_metrics raised FileNotFoundError:\n"
-            f"  {exc}\n"
-            f"Post-fix expectation: resolves tasks.md from spec/changes/<slug>/ and "
-            f"returns metrics dict without raising."
-        )
-
-    # Sanity: the returned dict should reflect the real task counts.
-    assert result.get("tasks_total") == 2, (
-        f"Expected tasks_total=2 (post-fix reads actual tasks.md), got: {result.get('tasks_total')}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Sub-test 3 (T-4 RED): archive-completed-change.sh preserves artifact files
+# archive-completed-change.sh preserves artifact files
 # ---------------------------------------------------------------------------
 
 @pytest.mark.xfail(

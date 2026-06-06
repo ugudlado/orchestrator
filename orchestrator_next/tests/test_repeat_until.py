@@ -31,7 +31,6 @@ from orchestrator_next.record import record  # noqa: E402
 _STUB_CONTRACT_WITH_REPEAT_UNTIL = textwrap.dedent("""\
     id: execute-next-task
     agent: developer
-    instruction: Execute the next task.
     rules: []
     inputs: []
     outputs:
@@ -42,12 +41,19 @@ _STUB_CONTRACT_WITH_REPEAT_UNTIL = textwrap.dedent("""\
 _STUB_CONTRACT_WITHOUT_REPEAT_UNTIL = textwrap.dedent("""\
     id: execute-next-task
     agent: developer
-    instruction: Execute the next task.
     rules: []
     inputs: []
     outputs:
       - task_execution_result
 """)
+
+
+def _write_dir_contract(contracts_dir, step_id: str, content: str) -> None:
+    """Write a directory-form contract with prompt.md."""
+    step_dir = contracts_dir / step_id
+    step_dir.mkdir(parents=True, exist_ok=True)
+    (step_dir / "contract.yaml").write_text(content)
+    (step_dir / "prompt.md").write_text("Execute the next task.\n")
 
 
 def _write_state(tmp_path, tasks_md_path: str) -> str:
@@ -104,9 +110,7 @@ class TestRepeatUntil:
         # Write stub contract with repeat_until: all_tasks_completed
         contracts_dir = tmp_path / "contracts"
         contracts_dir.mkdir()
-        (contracts_dir / "execute-next-task.yaml").write_text(
-            _STUB_CONTRACT_WITH_REPEAT_UNTIL
-        )
+        _write_dir_contract(contracts_dir, "execute-next-task", _STUB_CONTRACT_WITH_REPEAT_UNTIL)
         monkeypatch.setenv(
             "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir)
         )
@@ -129,9 +133,7 @@ class TestRepeatUntil:
         not repeat — next_step should advance to run-phase-review."""
         contracts_dir = tmp_path / "contracts"
         contracts_dir.mkdir()
-        (contracts_dir / "execute-next-task.yaml").write_text(
-            _STUB_CONTRACT_WITH_REPEAT_UNTIL
-        )
+        _write_dir_contract(contracts_dir, "execute-next-task", _STUB_CONTRACT_WITH_REPEAT_UNTIL)
         monkeypatch.setenv(
             "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir)
         )
@@ -154,9 +156,7 @@ class TestRepeatUntil:
         The step should advance normally — preserving existing behavior."""
         contracts_dir = tmp_path / "contracts"
         contracts_dir.mkdir()
-        (contracts_dir / "execute-next-task.yaml").write_text(
-            _STUB_CONTRACT_WITHOUT_REPEAT_UNTIL
-        )
+        _write_dir_contract(contracts_dir, "execute-next-task", _STUB_CONTRACT_WITHOUT_REPEAT_UNTIL)
         monkeypatch.setenv(
             "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir)
         )

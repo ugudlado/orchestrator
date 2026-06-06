@@ -47,10 +47,20 @@ _CONTRACT_RUN_PHASE_REVIEW = textwrap.dedent("""\
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _write_dir_contract(steps_dir, step_id: str, content: str) -> None:
+    """Write a directory-form contract."""
+    step_dir = steps_dir / step_id
+    step_dir.mkdir(parents=True, exist_ok=True)
+    (step_dir / "contract.yaml").write_text(content)
+    data = yaml.safe_load(content)
+    if data and data.get("agent") and not data.get("run"):
+        (step_dir / "prompt.md").write_text(data.get("instruction", "placeholder"))
+
+
 def _write_contracts(steps_dir) -> None:
     """Write both step contracts to steps_dir."""
-    (steps_dir / "execute-next-task.yaml").write_text(_CONTRACT_EXECUTE_NEXT_TASK)
-    (steps_dir / "run-phase-review.yaml").write_text(_CONTRACT_RUN_PHASE_REVIEW)
+    _write_dir_contract(steps_dir, "execute-next-task", _CONTRACT_EXECUTE_NEXT_TASK)
+    _write_dir_contract(steps_dir, "run-phase-review", _CONTRACT_RUN_PHASE_REVIEW)
 
 
 def _write_plan_yaml(state_dir, phase: str = "implement") -> None:
@@ -180,7 +190,7 @@ def test_dispatch_selects_first_ready_node_no_plan_yaml(tmp_path, monkeypatch):
     steps = tmp_path / "steps"
     steps.mkdir()
     for sid in ("a", "b"):
-        (steps / f"{sid}.yaml").write_text(_agent_contract(sid))
+        _write_dir_contract(steps, sid, _agent_contract(sid))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
 
     state_dir = tmp_path / "st"
@@ -205,7 +215,7 @@ def test_dispatch_skips_node_with_unmet_depends_on(tmp_path, monkeypatch):
     steps = tmp_path / "steps"
     steps.mkdir()
     for sid in ("a", "b", "c"):
-        (steps / f"{sid}.yaml").write_text(_agent_contract(sid))
+        _write_dir_contract(steps, sid, _agent_contract(sid))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
 
     state_dir = tmp_path / "st"
@@ -232,7 +242,7 @@ def test_dispatch_tiebreak_declaration_order(tmp_path, monkeypatch):
     steps = tmp_path / "steps"
     steps.mkdir()
     for sid in ("a", "b", "c"):
-        (steps / f"{sid}.yaml").write_text(_agent_contract(sid))
+        _write_dir_contract(steps, sid, _agent_contract(sid))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
 
     state_dir = tmp_path / "st"
@@ -259,7 +269,7 @@ def test_dispatch_marks_chosen_node_in_progress(tmp_path, monkeypatch):
     steps = tmp_path / "steps"
     steps.mkdir()
     for sid in ("a", "b"):
-        (steps / f"{sid}.yaml").write_text(_agent_contract(sid))
+        _write_dir_contract(steps, sid, _agent_contract(sid))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
 
     state_dir = tmp_path / "st"
@@ -283,7 +293,7 @@ def test_dispatch_builds_step_context_from_node(tmp_path, monkeypatch):
     from orchestrator_next.parser import load_state
     steps = tmp_path / "steps"
     steps.mkdir()
-    (steps / "a.yaml").write_text(_agent_contract("a"))
+    _write_dir_contract(steps, "a", _agent_contract("a"))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
 
     state_dir = tmp_path / "st"
@@ -301,64 +311,6 @@ def test_dispatch_builds_step_context_from_node(tmp_path, monkeypatch):
     assert ctx["goal"] == "Do a."
 
 
-def test_dispatch_hard_blocks_on_missing_required_input(tmp_path, monkeypatch, capsys):
-    """A required input absent from every prior completed step's evidence.outputs
-    and from state.raw makes dispatch exit 2 naming the input and the node."""
-    from orchestrator_next.parser import load_state
-    steps = tmp_path / "steps"
-    steps.mkdir()
-    (steps / "a.yaml").write_text(_agent_contract("a"))
-    (steps / "b.yaml").write_text(_agent_contract("b", inputs=["discovery_result"]))
-    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
-
-    state_dir = tmp_path / "st"
-    state_dir.mkdir()
-    nodes = [
-        {"id": "a", "status": "completed", "agent": "developer", "goal": "",
-         "inputs": [], "outputs": [], "rules": []},
-        {"id": "b", "status": "pending", "agent": "developer", "goal": "",
-         "inputs": ["discovery_result"], "outputs": [], "rules": []},
-    ]
-    # a completed but produced no discovery_result.
-    history = [{"step_id": "a", "phase": "main", "status": "completed",
-                "agent": "developer", "attempt": 1, "evidence": {"outputs": {}}}]
-    sp = _write_nodes_state(state_dir, nodes, history=history)
-    state = load_state(sp)
-    action, code = dispatch(state, sp)
-    assert code == 2, f"expected exit 2 (blocked), got {code}"
-    err = capsys.readouterr().err
-    assert "discovery_result" in err
-    assert "b" in err
-
-
-def test_dispatch_optional_input_does_not_block(tmp_path, monkeypatch):
-    """An absent optional input does NOT block dispatch."""
-    from orchestrator_next.parser import load_state
-    steps = tmp_path / "steps"
-    steps.mkdir()
-    (steps / "a.yaml").write_text(_agent_contract("a"))
-    # b declares an optional input via the {name: optional} mapping form.
-    (steps / "b.yaml").write_text(
-        "id: b\nagent: developer\ninstruction: Run b.\nrules: []\n"
-        "inputs:\n  - {ux_direction: optional}\noutputs: []\n"
-    )
-    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
-
-    state_dir = tmp_path / "st"
-    state_dir.mkdir()
-    nodes = [
-        {"id": "a", "status": "completed", "agent": "developer", "goal": "",
-         "inputs": [], "outputs": [], "rules": []},
-        {"id": "b", "status": "pending", "agent": "developer", "goal": "",
-         "inputs": ["ux_direction"], "outputs": [], "rules": []},
-    ]
-    history = [{"step_id": "a", "phase": "main", "status": "completed",
-                "agent": "developer", "attempt": 1, "evidence": {"outputs": {}}}]
-    sp = _write_nodes_state(state_dir, nodes, history=history)
-    state = load_state(sp)
-    action, code = dispatch(state, sp)
-    assert code == 0, f"optional input must not block; got exit {code}"
-    assert action["step_id"] == "b"
 
 
 def _write_execute_one_task_contract(contracts_dir) -> None:

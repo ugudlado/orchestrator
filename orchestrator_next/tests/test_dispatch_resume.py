@@ -66,7 +66,11 @@ def state_dir(tmp_path):
 # ---------------------------------------------------------------------------
 
 def _write_contract(steps_dir, step_id: str, data: dict):
-    (steps_dir / f"{step_id}.yaml").write_text(yaml.dump(data))
+    step_dir = steps_dir / step_id
+    step_dir.mkdir(parents=True, exist_ok=True)
+    (step_dir / "contract.yaml").write_text(yaml.dump(data))
+    if data.get("agent") and not data.get("run"):
+        (step_dir / "prompt.md").write_text(data.get("instruction", "placeholder"))
 
 
 def _write_agent(agents_dir, agent_name: str, tools: list):
@@ -75,30 +79,21 @@ def _write_agent(agents_dir, agent_name: str, tools: list):
 
 
 def _write_plan_yaml(state_dir, phase: str, step_ids: list) -> str:
-    """Write a minimal plan.yaml next to state.yaml; return the state.yaml path."""
+    """Write a state.yaml with nodes-form workflow_plan; return the state.yaml path."""
     from pathlib import Path
     state_dir = Path(state_dir)
-    plan = {
-        "feature": "test-resume",
-        "schema": "feature",
-        "resolved_flags": {},
-        "phases": [
-            {
-                "name": phase,
-                "goal": "Test resume phase.",
-                "steps": [
-                    {
-                        "id": sid, "agent": "developer",
-                        "goal": "Test step.", "inputs": [], "outputs": [], "rules": [],
-                    }
-                    for sid in step_ids
-                ],
-            }
-        ],
-    }
-    (state_dir / "plan.yaml").write_text(yaml.safe_dump(plan, sort_keys=False))
+    nodes = [
+        {"id": sid, "status": "in_progress", "agent": "developer",
+         "goal": "Test step.", "inputs": [], "outputs": [], "rules": []}
+        for sid in step_ids
+    ]
     state_yaml = state_dir / "state.yaml"
-    state_yaml.write_text(yaml.safe_dump({"change_id": "test-resume", "phase": phase}))
+    state_yaml.write_text(yaml.safe_dump({
+        "change_id": "test-resume",
+        "phase": phase,
+        "workflow_plan": {phase: {"nodes": nodes, "filtered": []}},
+        "step_history": [],
+    }, sort_keys=False))
     return str(state_yaml)
 
 
@@ -130,7 +125,7 @@ def _make_state_with_inprogress(
         phase=phase,
         repo_root="/repo",
         workflow_dir="/workflow",
-        workflow_plan={phase: {"active": [step_id]}},
+        workflow_plan={phase: {"nodes": [{"id": step_id, "status": "in_progress", "agent": agent, "goal": "", "inputs": [], "outputs": [], "rules": []}], "filtered": []}},
         step_history=[entry],
         raw={"change_id": "test-resume"},
     )
@@ -278,7 +273,7 @@ class TestResumeStepActionShape:
             phase="implement",
             repo_root="/repo",
             workflow_dir="/workflow",
-            workflow_plan={"implement": {"active": ["my-resume-step"]}},
+            workflow_plan={"implement": {"nodes": [{"id": "my-resume-step", "status": "in_progress", "agent": "developer", "goal": "", "inputs": [], "outputs": [], "rules": []}], "filtered": []}},
             step_history=[completed_entry, failed_entry, inprogress_entry],
             raw={"change_id": "test-resume"},
         )

@@ -191,23 +191,6 @@ def _promoted_plan_state(
     }
 
 
-def _legacy_active_state(
-    tmp_path,
-    *,
-    phase: str = "implement",
-    active: list[str],
-    step_history: list[dict],
-) -> dict:
-    return {
-        "change_id": "orc-85-legacy",
-        "phase": phase,
-        "schema": "feature",
-        "repo_root": str(tmp_path),
-        "worktree_path": str(tmp_path),
-        "workflow_plan": {phase: {"active": active, "filtered": []}},
-        "step_history": step_history,
-    }
-
 
 def _orc84_storm_completion_storm_history() -> list[dict]:
     """Subset of orc-84 task-T-1: spawn storm, completed attempt 11, more spawn failures."""
@@ -296,13 +279,17 @@ def test_completed_entry_in_step_history_makes_next_ready_node_skip_that_node_on
     assert readiness.is_node_ready(state, "task-T-1") is False
 
 
-def test_completed_entry_in_step_history_makes_next_ready_node_skip_that_node_on_legacy_active_plan(
+def test_completed_entry_in_step_history_makes_next_ready_node_skip_that_node_on_sequential_nodes_plan(
     tmp_path, monkeypatch,
 ):
-    state = _legacy_active_state(
+    """History-authoritative completion: completed step_history entry overrides in_progress node."""
+    state = _promoted_plan_state(
         tmp_path,
-        active=["my-step", "next-step"],
-        step_history=[_terminal_history_entry("my-step", "implement", "completed", 1)],
+        nodes=[
+            _task_node("my-step", status="in_progress"),
+            _task_node("next-step", status="pending", depends_on=["my-step"]),
+        ],
+        step_history=[_terminal_history_entry("my-step", "main", "completed", 1)],
     )
     state_path = _setup(tmp_path, monkeypatch, state)
     state = load_state(state_path)

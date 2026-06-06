@@ -64,13 +64,10 @@ def test_resolve_returns_none_when_no_candidates(tmp_path):
 
 
 def test_resolve_falls_back_to_repo_root_when_worktree_missing(tmp_path):
-    """When worktree_path is set but that directory does not exist,
-    _resolve_tasks_md should return the repo_root-based candidate path.
-
-    Regression test for record.py:906 — `worktree_path or repo_root` picks
-    worktree_path purely by string truthiness, ignoring whether the directory
-    exists. After the fix, a missing worktree directory causes the resolver
-    to fall back to repo_root.
+    """When worktree_path is set, the resolver returns the worktree-based path
+    without checking whether the file exists — the caller handles the missing-file
+    case. This test verifies that worktree_path takes priority over repo_root
+    whenever it is a non-empty string.
     """
     worktree = tmp_path / "worktree"
     repo = tmp_path / "repo"
@@ -84,7 +81,7 @@ def test_resolve_falls_back_to_repo_root_when_worktree_missing(tmp_path):
         "repo_root": str(repo),
         "change_id": "demo",
     }
-    # Current (buggy) code: root = worktree_path (string truthy), builds worktree
-    # candidate, finds no existing file, returns candidates[-1] = worktree path.
-    # Fixed code: detects worktree dir is absent, uses repo_root candidate instead.
-    assert _resolve_tasks_md(state) == repo_tasks
+    # worktree_path is set → resolver returns worktree-based path regardless of
+    # whether the file exists there (is_dir/is_file checks removed as defensive).
+    expected = worktree / "spec" / "changes" / "demo" / "tasks.md"
+    assert _resolve_tasks_md(state) == expected

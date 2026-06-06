@@ -63,7 +63,7 @@ def _supplement_legacy_outputs(
     if contract is None:
         return outputs
     out = dict(outputs)
-    if "updated_artifact_set" not in contract.legacy_output_names:
+    if "updated_artifact_set" not in [s["name"] for s in contract.outputs]:
         return out
     cur = out.get("updated_artifact_set")
     empty = cur is None or (hasattr(cur, "__len__") and len(cur) == 0)
