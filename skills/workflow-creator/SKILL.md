@@ -196,7 +196,7 @@ Follow existing steps in `$ORCH_CONFIG/steps/` for exact env var names and JSON 
 ### 8. Validate
 
 ```bash
-bash skills/workflow-creator/scripts/validate-workflow.sh <schema>
+orchestrator validate-workflow <schema>
 pytest "$ORCH_CONFIG/steps/__tests__/test_all_contracts_have_agent_or_run.py" -q
 ```
 

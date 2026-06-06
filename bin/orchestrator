@@ -64,6 +64,7 @@ def _usage() -> None:
         "  orchestrator graph <schema>              # Mermaid flowchart of a workflow schema\n"
         "  orchestrator graph <schema> <slug>      # Mermaid flowchart of a live run\n"
         "  orchestrator graph <schema> [<slug>] --html  # open in browser\n"
+        "  orchestrator validate-workflow <schema-name>\n"
         "  orchestrator doctor",
         file=sys.stderr,
     )
@@ -285,12 +286,12 @@ def main() -> None:
     # 'record' kept for silent backward-compat (one cycle) but absent from the banner.
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
-        "next", "done", "record", "graph", "doctor", "reset-step", "run",
+        "next", "done", "record", "graph", "doctor", "reset-step", "run", "validate-workflow",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
     if len(args) < 2 and args[0] in (
-        "next", "record", "done", "graph", "reset-step", "run",
+        "next", "record", "done", "graph", "reset-step", "run", "validate-workflow",
     ) or (len(args) < 2 and args[0] in _wf_subcommands):
         _usage()
     # ORC-108: each config/workflows/<name>.yaml is a CLI subcommand → orchestrator-run.sh.
@@ -324,6 +325,10 @@ def main() -> None:
             print(f"error: {exc}", file=sys.stderr)
             sys.exit(1)
         sys.exit(0)
+
+    if args[0] == "validate-workflow":
+        from orchestrator_next.validate_workflow import main as _vw_main
+        sys.exit(_vw_main(args[1:]))
 
     state_yaml_path = args[1]
 

@@ -18,8 +18,10 @@ _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
 
 
 def _git(cwd, *args):
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith("GIT_")}
     return subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True, check=True
+        ["git", *args], cwd=cwd, capture_output=True, text=True, check=True, env=env
     )
 
 
