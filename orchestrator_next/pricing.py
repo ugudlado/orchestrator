@@ -65,15 +65,6 @@ def _model_id_from_route(routes: dict, route_entry: object) -> str | None:
     return None
 
 
-def _route_backend_label(route_entry: object) -> str | None:
-    if route_entry is None:
-        return None
-    if isinstance(route_entry, dict):
-        tier = route_entry.get("model")
-        return str(tier) if tier else None
-    return str(route_entry)
-
-
 # ---------------------------------------------------------------------------
 # File-based pricing table
 # ---------------------------------------------------------------------------

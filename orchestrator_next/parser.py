@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import create_model
 
 
 
@@ -24,6 +25,44 @@ class ContractNotFoundError(ValueError):
     """Raised when a step contract script payload is missing or invalid."""
 
 
+_SCHEMA_TYPE_MAP: dict[str, Any] = {
+    "str": str,
+    "int": int,
+    "float": float,
+    "bool": bool,
+    "list": list,
+    "dict": dict,
+}
+
+
+def build_output_validator(schema: dict[str, Any]):
+    """Build a Pydantic model from a contract output_schema dict.
+
+    Schema format (YAML):
+      output_schema:
+        verdict: {type: str, required: true}
+        score:   {type: int}
+
+    Returns a pydantic model class, or None if schema is empty.
+    """
+    if not schema:
+        return None
+    fields: dict[str, Any] = {}
+    for name, spec in schema.items():
+        if not isinstance(spec, dict):
+            continue
+        type_name = spec.get("type", "str")
+        py_type = _SCHEMA_TYPE_MAP.get(type_name, Any)
+        required = bool(spec.get("required", False))
+        if required:
+            fields[name] = (py_type, ...)
+        else:
+            fields[name] = (py_type | None, None)
+    if not fields:
+        return None
+    return create_model("OutputSchema", **fields)
+
+
 @dataclass
 class AgentStepContract:
     """Contract for steps dispatched to an agent subprocess."""
@@ -33,6 +72,8 @@ class AgentStepContract:
     pre: list[str] = field(default_factory=list)
     post: list[str] = field(default_factory=list)
     state_mutating: bool = False
+    default_outputs: dict = field(default_factory=dict)
+    output_schema: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -124,10 +165,16 @@ def _make_contract(
         state_mutating=bool(data.get("state_mutating", False)),
     )
     if run is None:
+        raw_defaults = data.get("default_outputs")
+        default_outputs = raw_defaults if isinstance(raw_defaults, dict) else {}
+        raw_schema = data.get("output_schema")
+        output_schema = raw_schema if isinstance(raw_schema, dict) else {}
         return AgentStepContract(
             **shared,
             model=data.get("model") or None,
             instruction=instruction,
+            default_outputs=default_outputs,
+            output_schema=output_schema,
         )
     return ScriptStepContract(**shared, run=run)
 
@@ -326,3 +373,36 @@ def phase_nodes(state: State, phase: str) -> list[dict]:
     if nodes is not None:
         return list(nodes)
     return []
+
+
+def compute_attempt(
+    history: "list[StepHistoryEntry] | list[dict]",
+    phase: str,
+    step_id: str,
+    *,
+    include_in_progress: bool,
+) -> int:
+    """Return the next attempt number for (phase, step_id).
+
+    Dispatch passes include_in_progress=True (counts placeholders so the
+    outgoing action gets a unique number). Record passes False (placeholders
+    are not completed attempts and must not inflate the recorded attempt).
+    """
+    attempts: list[int] = []
+    for e in history:
+        if isinstance(e, StepHistoryEntry):
+            if e.phase != phase or e.step_id != step_id or e.attempt is None:
+                continue
+            if not include_in_progress and e.status == "in_progress":
+                continue
+            attempts.append(e.attempt)
+        elif isinstance(e, dict):
+            if e.get("phase") != phase or e.get("step_id") != step_id:
+                continue
+            attempt_val = e.get("attempt")
+            if not attempt_val:
+                continue
+            if not include_in_progress and e.get("status") == "in_progress":
+                continue
+            attempts.append(attempt_val)
+    return (max(attempts) + 1) if attempts else 1

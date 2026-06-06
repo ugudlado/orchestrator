@@ -20,6 +20,7 @@ when a value exists):
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -43,6 +44,43 @@ def _apply_home_paths(env: dict[str, str]) -> None:
         env["ORCHESTRATOR_SCRIPTS_DIR"] = str(Path(home) / "orchestrator_next" / "scripts")
 
 
+def _resolve_prior_outputs(state: Any, step_id: str) -> dict[str, Any]:
+    """Collect declared inputs for step_id from completed step_history entries.
+
+    For each name in node["inputs"], find the most-recent completed step_history
+    entry whose evidence.outputs contains that key. Returns a flat dict of
+    {input_name: value} — only keys declared in inputs are included.
+    """
+    from orchestrator_next.parser import phase_nodes
+    from orchestrator_next.readiness import find_node
+
+    nodes = phase_nodes(state, state.phase)
+    node = find_node(nodes, step_id)
+    if node is None:
+        return {}
+    declared_inputs: list[str] = [str(k) for k in (node.get("inputs") or []) if k]
+    if not declared_inputs:
+        return {}
+
+    history = getattr(state, "step_history", []) or []
+    # Walk history most-recent-first to get the latest value for each input key.
+    result: dict[str, Any] = {}
+    remaining = set(declared_inputs)
+    for entry in reversed(history):
+        if not remaining:
+            break
+        if getattr(entry, "status", None) not in ("completed", "recovered"):
+            continue
+        raw = getattr(entry, "raw", {}) or {}
+        evidence = raw.get("evidence") or {}
+        outputs = evidence.get("outputs") or {}
+        for key in list(remaining):
+            if key in outputs:
+                result[key] = outputs[key]
+                remaining.discard(key)
+    return result
+
+
 def build_dispatch_env(
     state: Any,
     step_id: str,
@@ -51,7 +89,8 @@ def build_dispatch_env(
 ) -> dict[str, str]:
     """ORCHESTRATOR_* block attached to dispatch actions (agent and inline)."""
     change_id = getattr(state, "change_id", "") or ""
-    return {
+    prior_outputs = _resolve_prior_outputs(state, step_id)
+    env: dict[str, str] = {
         "ORCHESTRATOR_CHANGE_ID": change_id,
         "ORCHESTRATOR_PHASE": getattr(state, "phase", "") or "main",
         "ORCHESTRATOR_STEP_ID": step_id,
@@ -59,12 +98,12 @@ def build_dispatch_env(
         "ORCHESTRATOR_WORKFLOW_DIR": getattr(state, "workflow_dir", "") or "",
         "ORCHESTRATOR_REPO_ROOT": getattr(state, "repo_root", "") or "",
         "ORCHESTRATOR_WORKTREE_ARTIFACT_DIR": getattr(state, "worktree_artifact_dir", "") or "",
-        **(
-            {"ORCHESTRATOR_STATE_YAML_PATH": state_yaml_path}
-            if state_yaml_path
-            else {}
-        ),
     }
+    if state_yaml_path:
+        env["ORCHESTRATOR_STATE_YAML_PATH"] = state_yaml_path
+    if prior_outputs:
+        env["ORCHESTRATOR_PRIOR_OUTPUTS"] = json.dumps(prior_outputs)
+    return env
 
 
 def inline_script_env(
@@ -76,52 +115,43 @@ def inline_script_env(
     """Full subprocess env for inline step scripts (bin/orchestrator, rework, etc.)."""
     raw = getattr(state, "raw", None) or {}
     change_id = getattr(state, "change_id", "") or raw.get("slug") or ""
-    phase = getattr(state, "phase", "") or "main"
     repo_root = getattr(state, "repo_root", "") or ""
-    workflow_dir = getattr(state, "workflow_dir", "") or ""
-    worktree_artifact_dir = getattr(state, "worktree_artifact_dir", "") or ""
 
-    merged_action = action_env or {}
-    step_id = merged_action.get("ORCHESTRATOR_STEP_ID", "")
-    attempt = merged_action.get("ORCHESTRATOR_ATTEMPT", "")
-
+    # Start with os.environ, then overlay action_env (which already carries the
+    # canonical ORCHESTRATOR_* fields from build_dispatch_env).
     env: dict[str, str] = {
         **{k: str(v) for k, v in os.environ.items()},
-        **{k: str(v) for k, v in merged_action.items()},
-        "STATE_YAML_PATH": state_yaml_path,
-        "ORCHESTRATOR_STATE_YAML_PATH": state_yaml_path,
-        "REPO_ROOT": repo_root,
-        "ORCHESTRATOR_REPO_ROOT": repo_root,
-        "ORCHESTRATOR_CHANGE_ID": change_id,
-        "ORCHESTRATOR_PHASE": phase,
-        "ORCHESTRATOR_WORKFLOW_DIR": workflow_dir,
-        "ORCHESTRATOR_WORKTREE_ARTIFACT_DIR": worktree_artifact_dir,
+        **(action_env or {}),
     }
-    if step_id:
-        env["ORCHESTRATOR_STEP_ID"] = str(step_id)
-    elif not env.get("ORCHESTRATOR_STEP_ID") and merged_action.get("step_id"):
-        env["ORCHESTRATOR_STEP_ID"] = str(merged_action["step_id"])
-    if attempt:
-        env["ORCHESTRATOR_ATTEMPT"] = str(attempt)
 
+    # Script-specific fields not present in the dispatch env.
+    env["STATE_YAML_PATH"] = state_yaml_path
+    env["ORCHESTRATOR_STATE_YAML_PATH"] = state_yaml_path
+    if repo_root:
+        env.setdefault("REPO_ROOT", repo_root)
+        env.setdefault("ORCHESTRATOR_REPO_ROOT", repo_root)
     if change_id:
         env["CHANGE_ID"] = change_id
+        env.setdefault("ORCHESTRATOR_CHANGE_ID", change_id)
     branch = raw.get("branch") or ""
     if branch:
         env["BRANCH"] = str(branch)
+    # worktree_path is already expanded in state.workflow_dir (and thus
+    # ORCHESTRATOR_WORKFLOW_DIR in action_env), but legacy scripts also read
+    # WORKTREE_PATH / WORKTREE_ROOT directly.
     worktree = raw.get("worktree_path") or ""
     if worktree:
         worktree = os.path.expanduser(str(worktree))
         env["WORKTREE_PATH"] = worktree
         env["WORKTREE_ROOT"] = worktree
         env["ORCHESTRATOR_WORKFLOW_DIR"] = worktree
+    elif not env.get("ORCHESTRATOR_WORKFLOW_DIR"):
+        workflow_dir = getattr(state, "workflow_dir", "") or ""
+        if workflow_dir:
+            env["ORCHESTRATOR_WORKFLOW_DIR"] = workflow_dir
     archive_path = raw.get("archive_path") or ""
     if archive_path:
         env["ARCHIVE_PATH"] = str(archive_path)
-    repo_root_raw = raw.get("repo_root") or ""
-    if repo_root_raw and not env.get("REPO_ROOT"):
-        env["REPO_ROOT"] = str(repo_root_raw)
-        env["ORCHESTRATOR_REPO_ROOT"] = str(repo_root_raw)
 
     _apply_home_paths(env)
     return env

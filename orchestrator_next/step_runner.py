@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
 
 from orchestrator_next.parser import ScriptStepContract
@@ -43,21 +42,3 @@ def build_step_command(
     if not os.path.isfile(contract.run):
         raise FileNotFoundError(f"step script not found: {contract.run}")
     return ["bash", contract.run]
-
-
-def run_step_subprocess(
-    step_id: str,
-    contract: ScriptStepContract,
-    env: dict[str, str],
-) -> subprocess.CompletedProcess[str]:
-    """Run step entrypoint with merged env; returns completed process."""
-    from orchestrator_next.paths import config_root as _config_root
-    croot = str(_config_root())
-    step_env = apply_step_paths(env, step_id=step_id, contract=contract, config_root=croot)
-    cmd = build_step_command(step_id, contract, croot)
-    return subprocess.run(
-        cmd,
-        env=step_env,
-        capture_output=True,
-        text=True,
-    )

@@ -17,47 +17,6 @@ def _coerce_payload_outputs(raw: Any) -> dict[str, Any]:
     return {}
 
 
-def _supplement_learn_result(
-    outputs: dict[str, Any],
-    payload: dict[str, Any],
-    step_id: str,
-    status: str,
-) -> dict[str, Any]:
-    """run-learn-cycle: ensure learn_result when the agent omitted outputs:."""
-    if step_id != "run-learn-cycle":
-        return outputs
-    out = dict(outputs)
-    cur = out.get("learn_result")
-    if cur is not None and cur != "" and not (hasattr(cur, "__len__") and len(cur) == 0):
-        return out
-    if status != "completed":
-        return out
-    out["learn_result"] = {"completed": True}
-    sys.stderr.write(
-        "[record] supplemented outputs.learn_result for run-learn-cycle "
-        "(COMPLETION missing outputs:; treated as learn completed)\n"
-    )
-    return out
-
-
-def _supplement_backlog_tickets_synced(
-    outputs: dict[str, Any],
-    step_id: str,
-    status: str,
-) -> dict[str, Any]:
-    """run-learn-cycle: ensure backlog_tickets_synced when the agent omitted it."""
-    if step_id != "run-learn-cycle" or status != "completed":
-        return outputs
-    out = dict(outputs)
-    if "backlog_tickets_synced" in out:
-        return out
-    out["backlog_tickets_synced"] = []
-    sys.stderr.write(
-        "[record] supplemented outputs.backlog_tickets_synced=[] for "
-        "run-learn-cycle (COMPLETION missing backlog sync list)\n"
-    )
-    return out
-
 
 def _merge_evidence_block(
     outputs: dict[str, Any],

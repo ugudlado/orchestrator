@@ -1,3 +1,6 @@
 id: run-learn-cycle
-version: 2
+version: 3
 model: sonnet
+default_outputs:
+  learn_result: { completed: true }
+  backlog_tickets_synced: []

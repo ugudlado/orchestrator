@@ -28,6 +28,7 @@ from orchestrator_next.parser import (
     State,
     StepContract,
     StepHistoryEntry,
+    compute_attempt,
     load_contract_for_step,
     phase_nodes,
     safe_write_yaml as _safe_write_yaml,
@@ -50,17 +51,7 @@ _DEFAULT_MAX_SPAWN_FAILURES = 3
 
 
 def _compute_attempt(step_history: list[StepHistoryEntry], phase: str, step_id: str) -> int:
-    """Return the next attempt number for a (phase, step_id) pair.
-
-    Scans all history entries including in_progress. record.py has a parallel
-    version that excludes in_progress entries (different semantics for recording).
-    """
-    attempts = [
-        e.attempt
-        for e in step_history
-        if e.phase == phase and e.step_id == step_id and e.attempt is not None
-    ]
-    return (max(attempts) + 1) if attempts else 1
+    return compute_attempt(step_history, phase, step_id, include_in_progress=True)
 
 
 def _is_spawn_failure(entry: StepHistoryEntry) -> bool:

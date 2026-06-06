@@ -3,9 +3,8 @@ Validate a workflow schema and its step contracts (ORC-*).
 
 Checks:
   1. Schema file exists under config/workflows/<name>.yaml
-  2. Every step has a contract (contract.yaml or flat <step>.yaml)
-  3. Every contract declares either agent: or run:
-  4. generate_plan succeeds on a synthetic state (skipped for operator schemas)
+  2. Every step has a loadable contract (contract.yaml with a valid model: or run: field)
+  3. generate_plan succeeds on a synthetic state (skipped for operator schemas)
 
 Public API: validate_workflow(schema_name: str, repo_root: str) -> None
 Raises SystemExit(1) on any failure, prints diagnostics to stderr.
@@ -23,6 +22,8 @@ from typing import Any
 
 import yaml
 
+from orchestrator_next.parser import ContractError, load_contract_for_step
+
 # Schemas that have no standard seed shape — skip the generate_plan smoke.
 _SKIP_EXPAND = {"complete"}
 
@@ -30,9 +31,6 @@ _SKIP_EXPAND = {"complete"}
 def _config_root(repo_root: str) -> Path:
     return Path(repo_root) / "config"
 
-
-def _steps_dir(repo_root: str) -> Path:
-    return _config_root(repo_root) / "steps"
 
 
 def _load_schema(schema_name: str, repo_root: str) -> dict[str, Any]:
@@ -63,37 +61,30 @@ def _step_ids(schema: dict[str, Any]) -> list[str]:
     return [s for s in ids if s]
 
 
-def _find_contract(step_id: str, steps_dir: Path) -> Path | None:
-    dir_form = steps_dir / step_id / "contract.yaml"
-    if dir_form.is_file():
-        return dir_form
-    flat = steps_dir / f"{step_id}.yaml"
-    if flat.is_file():
-        return flat
-    return None
-
-
-def _check_contracts(step_ids: list[str], steps_dir: Path) -> None:
+def _check_contracts(step_ids: list[str], repo_root: str) -> None:
+    """Load each step contract via the parser; report missing or invalid contracts."""
+    # Use a dummy state path — _contract_lookup_id gets workflow_plan={} so it
+    # never reads the file, but the path must be under repo_root so config_root()
+    # resolves the right steps/ directory.
+    dummy_state = os.path.join(repo_root, "state.yaml")
     missing = []
-    violations = []
+    invalid = []
     for step_id in step_ids:
-        contract_path = _find_contract(step_id, steps_dir)
-        if contract_path is None:
+        try:
+            load_contract_for_step(step_id, dummy_state, workflow_plan={})
+        except FileNotFoundError:
             missing.append(step_id)
-            continue
-        with open(contract_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        if not (data.get("agent") or data.get("run")):
-            violations.append(step_id)
+        except ContractError as exc:
+            invalid.append((step_id, str(exc)))
     if missing:
         print("ERROR: missing contracts:", file=sys.stderr)
         for s in missing:
             print(f"  - {s}", file=sys.stderr)
         raise SystemExit(1)
-    if violations:
-        print("ERROR: contracts missing agent: and run:", file=sys.stderr)
-        for s in violations:
-            print(f"  - {s}", file=sys.stderr)
+    if invalid:
+        print("ERROR: invalid contracts:", file=sys.stderr)
+        for s, reason in invalid:
+            print(f"  - {s}: {reason}", file=sys.stderr)
         raise SystemExit(1)
 
 
@@ -130,9 +121,10 @@ def validate_workflow(schema_name: str, repo_root: str) -> None:
     wf_path = _config_root(repo_root) / "workflows" / f"{schema_name}.yaml"
     print(f"Checking workflow: {wf_path}", file=sys.stderr)
 
+    os.environ["ORCHESTRATOR_HOME"] = repo_root
     schema = _load_schema(schema_name, repo_root)
     step_ids = _step_ids(schema)
-    _check_contracts(step_ids, _steps_dir(repo_root))
+    _check_contracts(step_ids, repo_root)
 
     if schema_name in _SKIP_EXPAND:
         print(f"OK: contracts valid ({schema_name} — expand-plan smoke skipped)", file=sys.stderr)

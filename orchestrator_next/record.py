@@ -17,13 +17,12 @@ from typing import Any
 
 import yaml
 
-from orchestrator_next.parser import AgentStepContract, ContractError, State, load_contract_for_step, safe_write_yaml as _safe_write_yaml_base
+from pydantic import ValidationError
+from orchestrator_next.parser import AgentStepContract, ContractError, State, build_output_validator, compute_attempt, load_contract_for_step, safe_write_yaml as _safe_write_yaml_base
 from orchestrator_next import readiness
 from orchestrator_next.pricing import _compute_cost_usd
 from orchestrator_next.payload import (
     _coerce_payload_outputs,
-    _supplement_learn_result,
-    _supplement_backlog_tickets_synced,
     _merge_evidence_block,
 )
 
@@ -334,13 +333,61 @@ def _load_contract(step_id: str, state_yaml_path: str, workflow_plan: dict | Non
         return None
 
 
-def _validate_outputs(
-    step_id: str, status: str, outputs: dict[str, Any],
-    contract: Any, state_raw: dict[str, Any],
+def _apply_default_outputs(
+    outputs: dict[str, Any],
+    contract: Any,
+    status: str,
+) -> dict[str, Any]:
+    """Fill in any missing outputs from contract.default_outputs on completed steps."""
+    if status != "completed":
+        return outputs
+    defaults = getattr(contract, "default_outputs", None) or {}
+    if not defaults:
+        return outputs
+    out = dict(outputs)
+    for key, value in defaults.items():
+        if key not in out or out[key] is None or out[key] == "" or (hasattr(out[key], "__len__") and len(out[key]) == 0):
+            out[key] = value
+            sys.stderr.write(
+                f"[record] supplemented outputs.{key} from contract default "
+                f"(step omitted it)\n"
+            )
+    return out
+
+
+def _validate_outputs_schema(
+    step_id: str, outputs: dict[str, Any], contract: Any,
 ) -> None:
+    """Validate outputs against contract.output_schema using Pydantic."""
+    schema = getattr(contract, "output_schema", None) or {}
+    if not schema:
+        return
+    validator = build_output_validator(schema)
+    if validator is None:
+        return
+    try:
+        validator.model_validate(outputs)
+    except ValidationError as exc:
+        errors = exc.errors(include_url=False)
+        raise _RecordError(
+            {
+                "reason": "output_schema_validation_failed",
+                "step_id": step_id,
+                "errors": [
+                    {"field": ".".join(str(loc) for loc in e["loc"]), "msg": e["msg"]}
+                    for e in errors
+                ],
+            },
+            3,
+        ) from exc
+
+
+def _validate_outputs(step_id: str, status: str, outputs: dict[str, Any], contract: Any = None) -> None:
     if status != "completed":
         return
     _validate_phase_review_output(step_id, outputs)
+    if contract is not None:
+        _validate_outputs_schema(step_id, outputs, contract)
 
 
 def _validate_agent_usage(
@@ -384,9 +431,8 @@ def _validate_payload(
     step_id, phase, status = _validate_shape(payload)
     outputs = _coerce_payload_outputs(payload.get("outputs"))
     contract = _load_contract(step_id, state_yaml_path, (state_raw or {}).get("workflow_plan"))
-    outputs = _supplement_learn_result(outputs, payload, step_id, status)
-    outputs = _supplement_backlog_tickets_synced(outputs, step_id, status)
-    _validate_outputs(step_id, status, outputs, contract, state_raw or {})
+    outputs = _apply_default_outputs(outputs, contract, status)
+    _validate_outputs(step_id, status, outputs, contract)
     agent = _validate_agent_usage(payload, step_id, status, contract)
     return step_id, phase, status, outputs, contract, agent
 
@@ -432,19 +478,8 @@ def _build_history_entry(
     state_raw: dict[str, Any],
 ) -> dict[str, Any]:
     """Compute attempt number and build the step_history entry dict."""
-    # Determine attempt number for this (phase, step_id).
-    # Exclude in_progress entries from the count — they are placeholders, not
-    # completed attempts, and must not inflate the attempt number.
     history = list(state_raw.get("step_history") or [])
-    prior_attempts = [
-        e.get("attempt") for e in history
-        if isinstance(e, dict)
-        and e.get("phase") == phase
-        and e.get("step_id") == step_id
-        and e.get("attempt")
-        and e.get("status") != "in_progress"
-    ]
-    attempt = (max(prior_attempts) + 1) if prior_attempts else 1
+    attempt = compute_attempt(history, phase, step_id, include_in_progress=False)
 
     now = _utcnow_iso()
 
@@ -484,8 +519,6 @@ def _apply_routing(
     phase: str,
     status: str,
     state_raw: dict[str, Any],
-    state_yaml_path: str,
-    contract: Any = None,
 ) -> None:
     """Set state_raw["status"] and flip workflow_plan node statuses per routing logic."""
     new_state_status = _STATUS_TO_STATE_STATUS.get(status)
@@ -616,7 +649,7 @@ def record(
     history.append(entry)
     state_raw["step_history"] = history
 
-    _apply_routing(entry, step_id, phase, status, state_raw, state_yaml_path, contract=contract)
+    _apply_routing(entry, step_id, phase, status, state_raw)
     state = _state_from_raw(state_raw)
     nxt = readiness.next_ready_node(state)
     next_step = {"phase": state_raw.get("phase", ""), "step_id": nxt} if nxt else None
