@@ -30,23 +30,23 @@ outputs? → prompt.
 
 ## Edge cases
 
-| Step                                  | Route                                                | Why                                      |
-| ------------------------------------- | ---------------------------------------------------- | ---------------------------------------- |
-| Run tests + fix failures              | **Split**                                            | `run-tests` shell; `fix-failures` prompt |
-| Lint + apply fixes                    | **Split**                                            | `run-lint` shell; `fix-lint` prompt      |
-| Generate outline from brief           | prompt                                               | Structure requires judgment              |
-| Convert markdown → PDF via pandoc     | shell                                                | Fixed command                            |
-| SEO keyword research                  | prompt                                               | Synthesis and selection                  |
-| Export course pack (zip fixed layout) | shell                                                | Deterministic packaging                  |
-| Peer review                           | prompt                                               | Subjective rubric                        |
-| Check word count ≥ 1000               | shell                                                | `wc -w` threshold                        |
+| Step                                  | Route                                                | Why                                                                                                  |
+| ------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `tests-pass`, `lint-and-fix`          | prompt (prefer inside pre-commit checks)             | Agent runs and fixes until green/clean; only add a dedicated step if pre-commit hooks can't cover it |
+| Generate outline from brief           | prompt                                               | Structure requires judgment                                                                          |
+| Convert markdown → PDF via pandoc     | shell                                                | Fixed command                                                                                        |
+| SEO keyword research                  | prompt                                               | Synthesis and selection                                                                              |
+| Export course pack (zip fixed layout) | shell                                                | Deterministic packaging                                                                              |
+| Peer review                           | prompt                                               | Subjective rubric                                                                                    |
+| Check word count ≥ 1000               | shell                                                | `wc -w` threshold                                                                                    |
 | Assess readability grade              | shell if formula (flesch script); prompt if holistic |
-| expand-plan (read tasks.yaml)         | shell                                                | Existing orchestrator step               |
-| draft lesson content                  | prompt                                               | Creative                                 |
+| validate new workflow schema          | shell (`orchestrator validate-workflow <schema>`)    | CLI verb, not a workflow step                                                                        |
+| draft lesson content                  | prompt                                               | Creative                                                                                             |
 
-## Splitting compound steps
+## Compound steps
 
-If research suggests one phase that mixes both (e.g. “Develop content and run QA”):
+If a proposed step mixes both (e.g. “Develop content and run QA”), design it as separate
+atomic steps from the start — don't create a compound step and split later:
 
 1. `draft-content` — prompt
 2. `run-qa-checks` — shell (link checker, spellcheck CLI)
@@ -57,19 +57,17 @@ Smaller steps improve resume, cost attribution, and clarity.
 ## Reusing existing steps
 
 Before creating a new step, check `config/steps/`. Reuse when behavior and I/O match
-(e.g. `archive-completed-change`, `cost-report`, `expand-plan`). Otherwise create a new step
+(e.g. `archive-completed-change`, `cost-report`). Otherwise create a new step
 id — do not overload unrelated steps.
 
 ## Agent picker (probabilistic steps)
 
-| Activity                | Typical `agent:`   |
-| ----------------------- | ------------------ |
-| Research, discovery     | `discoverer`       |
-| Structure, spec, design | `architect`        |
-| Creative exploration    | `ideator`          |
-| Implementation          | `developer`        |
-| Code/content review     | `reviewer`         |
-| UX review               | `ux-reviewer`      |
-| Process learnings       | `workflow-learner` |
+Don't pick from a fixed list. Check `skills/` for available agents and read each
+`SKILL.md` to find the best fit for the step's activity. The agent roster changes
+as new skills are added.
 
-Step-specific detail belongs in `prompt.md`, not in picking a exotic agent name.
+Match on what the step _does_, not on a keyword in its name. When no existing agent
+fits well, `developer` is the safe default — it can execute most tasks given a clear
+prompt.
+
+Step-specific detail belongs in `prompt.md`, not in the agent name.
