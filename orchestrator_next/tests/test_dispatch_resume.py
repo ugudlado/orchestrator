@@ -155,7 +155,7 @@ class TestResumeStepActionShape:
         state = _make_state_with_inprogress("my-resume-step", "developer")
         action, code = dispatch(state, state_yaml_path)
 
-        assert action.get("is_resume") is True and "agent" in action, (
+        assert action.get("is_resume") is True and "model" in action, (
             "Expected is_resume=True and agent key (ORC-45: no action field)"
         )
         assert action.get("is_resume") is True, (
@@ -181,7 +181,7 @@ class TestResumeStepActionShape:
         state = _make_state_with_inprogress("my-resume-step", "developer", attempt=1)
         action, code = dispatch(state, state_yaml_path)
 
-        assert action.get("is_resume") is True and "agent" in action  # ORC-45: no action field
+        assert action.get("is_resume") is True and "model" in action  # ORC-45: no action field
         assert action.get("is_resume") is True
         assert action["attempt"] == 1, (
             f"Expected attempt=1 (preserved), got: {action['attempt']} "
@@ -208,7 +208,7 @@ class TestResumeStepActionShape:
         )
         action, code = dispatch(state, state_yaml_path)
 
-        assert action.get("is_resume") is True and "agent" in action  # ORC-45: no action field
+        assert action.get("is_resume") is True and "model" in action  # ORC-45: no action field
         assert action.get("started_at") == original_started_at, (
             f"Expected started_at={original_started_at!r}, got: {action.get('started_at')!r}"
         )
@@ -279,7 +279,7 @@ class TestResumeStepActionShape:
         )
         action, code = dispatch(state, state_yaml_path)
 
-        assert action.get("is_resume") is True and "agent" in action  # ORC-45: no action field
+        assert action.get("is_resume") is True and "model" in action  # ORC-45: no action field
         assert action["attempt"] == 2, (
             f"Expected attempt=2 (preserved from in_progress entry), got: {action['attempt']} "
             "(must NOT return _compute_attempt which would give max(1,2,2)+1=3)"
@@ -304,7 +304,7 @@ class TestResumeStepActionShape:
         state = _make_state_with_inprogress("ctx-step", "developer")
         action, code = dispatch(state, state_yaml_path)
 
-        assert action.get("is_resume") is True and "agent" in action  # ORC-45: no action field
+        assert action.get("is_resume") is True and "model" in action  # ORC-45: no action field
         assert "step_context" in action
         assert action["step_context"].get("id") == "ctx-step", (
             f"step_context must identify the resumed step, got: {action['step_context']}"

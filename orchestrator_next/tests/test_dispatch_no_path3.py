@@ -6,7 +6,7 @@ These tests FAIL against current dispatch.py and PASS after T-2.
 Scenarios:
   (a) dispatch.py raises ContractDispatchError (exit 3) when a contract has
       neither `agent:` nor `run:`.
-  (b) When contract.agent is set, response JSON has `agent` key and NO `action` key.
+  (b) When contract.model is set, response JSON has `agent` key and NO `action` key.
   (c) When all steps are done, `orchestrator next` exits 1 with no JSON on stdout.
   (d) When last step is blocked, `orchestrator next` exits 2 with no JSON on stdout.
 """
@@ -63,7 +63,7 @@ def _write_contract_yaml(steps_dir: str, step_id: str, content: str) -> str:
         f.write(textwrap.dedent(content))
     # Write prompt.md for agent-kind contracts (no run: field)
     data = yaml.safe_load(textwrap.dedent(content))
-    if data and data.get("agent") and not data.get("run"):
+    if data and data.get("model") and not data.get("run"):
         (step_dir / "prompt.md").write_text(data.get("instruction", "placeholder"))
     return path
 
@@ -87,14 +87,14 @@ def _run_next(state_yaml_path: str, steps_dir: str, tmp_dir: str) -> subprocess.
 # ---------------------------------------------------------------------------
 
 def test_agent_contract_response_has_agent_no_action(tmp_path):
-    """When contract.agent is set, response JSON has agent key and NO action key."""
+    """When contract.model is set, response JSON has agent key and NO action key."""
     steps_dir = tmp_path / "steps"
     steps_dir.mkdir()
 
     _write_contract_yaml(str(steps_dir), "my-step", """\
         id: my-step
         version: 1
-        agent: developer
+        model: auto
         instruction: Do something.
         inputs: []
         outputs: []
@@ -133,8 +133,8 @@ def test_agent_contract_response_has_agent_no_action(tmp_path):
     assert stdout, "Expected JSON on stdout for agent contract"
     action = json.loads(stdout)
 
-    assert "agent" in action, f"Expected 'agent' key in response, got keys: {list(action.keys())}"
-    assert action["agent"] == "developer", f"Expected agent=developer, got: {action['agent']}"
+    assert "model" in action, f"Expected 'agent' key in response, got keys: {list(action.keys())}"
+    assert action["model"] == "auto", f"Expected agent=developer, got: {action['agent']}"
     assert "action" not in action, (
         f"Expected NO 'action' key in response, but found action={action.get('action')!r}\n"
         f"Full response: {action}"
@@ -153,7 +153,7 @@ def test_all_steps_done_exits_1_no_json(tmp_path):
     _write_contract_yaml(str(steps_dir), "my-step", """\
         id: my-step
         version: 1
-        agent: developer
+        model: auto
         instruction: Do something.
         inputs: []
         outputs: []
@@ -210,7 +210,7 @@ def test_blocked_step_exits_2_no_json(tmp_path):
     _write_contract_yaml(str(steps_dir), "my-step", """\
         id: my-step
         version: 1
-        agent: developer
+        model: auto
         instruction: Do something.
         inputs: []
         outputs: []

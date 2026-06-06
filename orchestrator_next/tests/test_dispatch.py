@@ -320,8 +320,7 @@ def _write_execute_one_task_contract(contracts_dir) -> None:
     (step_dir / "contract.yaml").write_text(textwrap.dedent("""\
         id: execute-one-task
         version: 1
-        kind: agent
-        agent: developer
+        model: auto
         inputs: []
         outputs:
           - task_execution_result
@@ -369,7 +368,7 @@ def test_dispatch_task_node_resolves_step_contract(tmp_path, monkeypatch):
     action, code = dispatch(state, sp)
     assert code == 0, f"expected dispatch success, got exit {code}"
     assert action["step_id"] == "task-T-1"
-    assert action["agent"] == "developer"
+    assert action["model"] == "auto"
     assert action["step_context"]["task"]["id"] == "T-1"
 
 
@@ -413,4 +412,4 @@ def test_dispatch_resumes_task_node_with_step_contract(tmp_path, monkeypatch):
     action, code = dispatch(state, sp)
     assert code == 0
     assert action.get("is_resume") is True
-    assert action["agent"] == "developer"
+    assert action["model"] == "auto"

@@ -28,7 +28,7 @@ def _orchestrator_home() -> Path:
 @functools.lru_cache(maxsize=1)
 def _load_routes() -> dict:
     from orchestrator_next.paths import config_root
-    path = config_root() / "agents.yaml"
+    path = config_root() / "models.yaml"
     if not path.is_file():
         path = _orchestrator_home() / "scripts" / "routes.yaml"
     try:

@@ -44,16 +44,16 @@ def test_persistently_failing_agent_terminates(tmp_path, monkeypatch):
     d = contracts / "bad-agent"
     d.mkdir(parents=True)
     (d / "contract.yaml").write_text(yaml.safe_dump({
-        "id": "bad-agent", "version": 2, "agent": "tester",
+        "id": "bad-agent", "version": 2, "model": "opus",
         "instruction": "do it", "outputs": [],
     }))
     (d / "prompt.md").write_text("do the thing")  # directory-form agent needs prompt.md
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts))
     monkeypatch.setenv("REPO_ROOT", str(repo))
 
-    agents_yaml = tmp_path / "agents.yaml"
-    agents_yaml.write_text(yaml.safe_dump({
-        "agents": {"tester": {"model": "opus", "subprocess": "claude"}},
+    models_yaml = tmp_path / "models.yaml"
+    models_yaml.write_text(yaml.safe_dump({
+        "models": {"opus": {"model_id": "claude-opus-4-7", "subprocess": "claude"}},
         "tools": {"claude": {"binary": str(bad), "args_template": ["-p", "{prompt}"]}},
     }))
 
@@ -64,13 +64,13 @@ def test_persistently_failing_agent_terminates(tmp_path, monkeypatch):
         "change_id": "term", "schema": "feature", "version": 1, "status": "active",
         "phase": "main", "repo_root": str(repo), "worktree_path": str(repo),
         "workflow_plan": {"main": {"nodes": [
-            {"id": "bad-agent", "status": "pending", "agent": "tester"},
+            {"id": "bad-agent", "status": "pending", "model": "opus"},
         ]}},
         "step_history": [],
     }))
 
     # If the loop spins, this call never returns and pytest hangs (loud failure).
-    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), agents_yaml=str(agents_yaml))
+    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), models_yaml=str(models_yaml))
 
     # TERMINATES. With no on_failure routing, a failed agent node is not
     # re-opened by readiness — the phase completes (exit 1). The point of this
@@ -100,7 +100,7 @@ def test_malformed_contract_returns_exit_3_not_crash(tmp_path, monkeypatch):
     d = contracts / "broken"
     d.mkdir(parents=True)
     (d / "contract.yaml").write_text(yaml.safe_dump({
-        "id": "broken", "version": 2, "agent": "tester", "outputs": [],
+        "id": "broken", "version": 2, "model": "opus", "outputs": [],
     }))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts))
     monkeypatch.setenv("REPO_ROOT", str(repo))
@@ -112,13 +112,13 @@ def test_malformed_contract_returns_exit_3_not_crash(tmp_path, monkeypatch):
         "change_id": "brk", "schema": "feature", "version": 1, "status": "active",
         "phase": "main", "repo_root": str(repo), "worktree_path": str(repo),
         "workflow_plan": {"main": {"nodes": [
-            {"id": "broken", "status": "pending", "agent": "tester"},
+            {"id": "broken", "status": "pending", "model": "opus"},
         ]}},
         "step_history": [],
     }))
 
     # Must NOT raise — returns exit 3.
-    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), agents_yaml="")
+    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), models_yaml="")
     assert code == 3, f"malformed contract must return exit 3, got {code}"
 
 
@@ -143,16 +143,16 @@ def test_spawn_failure_cap_halts(tmp_path, monkeypatch):
     contracts = tmp_path / "c"
     d = contracts / "spawner"; d.mkdir(parents=True)
     (d / "contract.yaml").write_text(yaml.safe_dump({
-        "id": "spawner", "version": 2, "agent": "tester",
+        "id": "spawner", "version": 2, "model": "opus",
         "instruction": "x", "outputs": [],
     }))
     (d / "prompt.md").write_text("do it")
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts))
     monkeypatch.setenv("REPO_ROOT", str(repo))
 
-    agents_yaml = tmp_path / "agents.yaml"
-    agents_yaml.write_text(yaml.safe_dump({
-        "agents": {"tester": {"model": "opus", "subprocess": "claude"}},
+    models_yaml = tmp_path / "models.yaml"
+    models_yaml.write_text(yaml.safe_dump({
+        "models": {"opus": {"model_id": "claude-opus-4-7", "subprocess": "claude"}},
         "tools": {"claude": {"binary": str(bad), "args_template": ["-p", "{prompt}"]}},
     }))
 
@@ -163,14 +163,14 @@ def test_spawn_failure_cap_halts(tmp_path, monkeypatch):
         "change_id": "spawn", "schema": "feature", "version": 1, "status": "active",
         "phase": "main", "repo_root": str(repo), "worktree_path": str(repo),
         "workflow_plan": {"main": {"nodes": [
-            {"id": "spawner", "status": "pending", "agent": "tester",
+            {"id": "spawner", "status": "pending", "model": "opus",
              "on_failure": "spawner"},
         ]}},
         "step_history": [],
     }))
 
     # Must terminate at the cap, not spin (pytest hang = loud failure).
-    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), agents_yaml=str(agents_yaml))
+    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), models_yaml=str(models_yaml))
     assert code in (1, 2), f"spawn-failure path did not terminate cleanly: {code}"
     hist = yaml.safe_load(sy.read_text()).get("step_history") or []
     failed = [e for e in hist if e.get("step_id") == "spawner" and e.get("status") == "failed"]

@@ -348,18 +348,18 @@ def _validate_agent_usage(
     payload: dict[str, Any], step_id: str, status: str, contract: Any,
 ) -> str | None:
     """Check agent field presence and token guard. Returns agent name or None."""
-    contract_agent = contract.agent if isinstance(contract, AgentStepContract) else None
-    if status == "completed" and contract_agent is not None and "agent" not in payload:
+    contract_model = contract.model if isinstance(contract, AgentStepContract) else None
+    if status == "completed" and contract_model is not None and "agent" not in payload:
         raise _RecordError(
             {
                 "reason": "payload_missing_agent_for_agent_step",
                 "step_id": step_id,
-                "expected_agent": contract_agent,
+                "expected_model": contract_model,
                 "hint": (
-                    "step contract declares agent: %s but payload omitted "
+                    "step contract declares model: %s but payload omitted "
                     "the 'agent' field. The driver must include agent and "
                     "usage (input_tokens/output_tokens) in the done payload."
-                ) % contract_agent,
+                ) % contract_model,
             },
             3,
         )

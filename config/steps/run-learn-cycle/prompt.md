@@ -22,8 +22,7 @@ Run the workflow learning pipeline for this completed change.
    archive; merge and worktree teardown stay in `orchestrator complete`.
 
 2. Run the full evaluation, finding classification, rule routing, hit/miss
-   update, decay evaluation, and quality bar adjustment per the workflow-learner
-   agent pipeline.
+   update, decay evaluation, and quality bar adjustment.
 
 3. If learning fails for any reason: log learn_skipped: true and return success.
    Learning is best-effort and must not fail the complete phase.

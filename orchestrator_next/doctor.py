@@ -201,7 +201,7 @@ def check_config_root(config_root: Path) -> CheckResult:
         )
     missing = [
         name
-        for name, is_dir in (("workflows", True), ("steps", True), ("agents.yaml", False))
+        for name, is_dir in (("workflows", True), ("steps", True), ("models.yaml", False))
         if not ((config_root / name).is_dir() if is_dir else (config_root / name).is_file())
     ]
     if missing:
@@ -264,64 +264,31 @@ def check_step_dispatch_kind(config_root: Path) -> CheckResult:
         except Exception as exc:  # noqa: BLE001
             failures.append(f"{step_id}: {exc}")
             continue
-        if not (data.get("agent") or data.get("run")):
-            failures.append(f"{step_id}: no agent:/run:")
+        if not (data.get("model") or data.get("run")):
+            failures.append(f"{step_id}: no model:/run:")
     if failures:
         return CheckResult("step dispatch kind", "FAIL", "; ".join(failures))
     return CheckResult("step dispatch kind", "PASS", "all steps are agent- or script-driven")
 
 
-def _skill_search_roots() -> list[Path]:
-    """Where agent skills may be installed (per-coding-agent + repo)."""
-    roots = [Path(__file__).resolve().parent.parent / "skills"]  # repo skills/
-    roots.append(Path.home() / ".claude" / "skills")
-    return roots
-
-
-def check_agents_have_skills(config_root: Path) -> CheckResult:
-    """RULE 3 (WARN): every agent in agents.yaml has a matching skill SKILL.md.
-
-    WARN, not FAIL: skills install per-coding-agent (outside the config folder),
-    so a missing skill is install-state, not config-integrity.
-    """
-    agents_yaml = config_root / "agents.yaml"
-    if not agents_yaml.is_file():
-        return CheckResult("agents have skills", "WARN", "agents.yaml not found")
-    try:
-        data = yaml.safe_load(agents_yaml.read_text()) or {}
-    except Exception as exc:  # noqa: BLE001
-        return CheckResult("agents have skills", "WARN", f"agents.yaml parse: {exc}")
-    roots = _skill_search_roots()
-    missing = [
-        name
-        for name in (data.get("agents") or {})
-        if not any((root / name / "SKILL.md").is_file() for root in roots)
-    ]
-    if missing:
-        return CheckResult(
-            "agents have skills", "WARN", f"no SKILL.md for: {', '.join(sorted(missing))}"
-        )
-    return CheckResult("agents have skills", "PASS", "all agents have a skill")
-
-
 def check_subprocesses_available(config_root: Path) -> CheckResult:
-    """RULE 4 (WARN): every distinct subprocess: in agents.yaml is on PATH.
+    """RULE 3 (WARN): every distinct subprocess: in models.yaml is on PATH.
 
     WARN, not FAIL: a config is valid even if a backend (e.g. cursor) is not
     installed on this machine — that's machine state, not config integrity.
     """
     import shutil
 
-    agents_yaml = config_root / "agents.yaml"
-    if not agents_yaml.is_file():
-        return CheckResult("subprocesses available", "WARN", "agents.yaml not found")
+    models_yaml = config_root / "models.yaml"
+    if not models_yaml.is_file():
+        return CheckResult("subprocesses available", "WARN", "models.yaml not found")
     try:
-        data = yaml.safe_load(agents_yaml.read_text()) or {}
+        data = yaml.safe_load(models_yaml.read_text()) or {}
     except Exception as exc:  # noqa: BLE001
-        return CheckResult("subprocesses available", "WARN", f"agents.yaml parse: {exc}")
+        return CheckResult("subprocesses available", "WARN", f"models.yaml parse: {exc}")
     subs = {
         entry.get("subprocess")
-        for entry in (data.get("agents") or {}).values()
+        for entry in (data.get("models") or {}).values()
         if isinstance(entry, dict) and entry.get("subprocess")
     }
     missing = sorted(s for s in subs if not shutil.which(s))
@@ -391,8 +358,7 @@ def run_all(args) -> int:
         check_config_root(config_root),
         check_workflow_steps_resolve(config_root),  # rule 1
         check_step_dispatch_kind(config_root),      # rule 2
-        check_agents_have_skills(config_root),      # rule 3 (WARN)
-        check_subprocesses_available(config_root),  # rule 4 (WARN)
+        check_subprocesses_available(config_root),  # rule 3 (WARN)
         # Engine/state health (legacy anchor: orch_home = config_root.parent).
         check_state_valid(),
         check_active_vs_archive(orch_home),

@@ -63,7 +63,7 @@ def _write_state(tmp_path, *, repo_root: str = "/tmp") -> str:
     return str(path)
 
 
-def _write_contract(contracts_dir, step_id: str, *, agent: str | None = None, inline: bool = False) -> None:
+def _write_contract(contracts_dir, step_id: str, *, model: str | None = None, inline: bool = False) -> None:
     """Write a minimal step contract (directory form)."""
     data: dict = {
         "id": step_id,
@@ -71,14 +71,14 @@ def _write_contract(contracts_dir, step_id: str, *, agent: str | None = None, in
         "outputs": [],
         "instruction": "test instruction",
     }
-    if agent:
-        data["agent"] = agent
+    if model:
+        data["model"] = model
     if inline:
         data["inline"] = True
     step_dir = contracts_dir / step_id
     step_dir.mkdir(parents=True, exist_ok=True)
     (step_dir / "contract.yaml").write_text(yaml.safe_dump(data))
-    if agent and not inline:
+    if model and not inline:
         (step_dir / "prompt.md").write_text("test instruction")
 
 
@@ -107,7 +107,7 @@ class TestRecordAgentField:
         Expected: record returns (error_dict, 3) with reason=payload_missing_agent_for_agent_step.
         At HEAD this FAILS because record.py silently defaults agent incorrectly.
         """
-        _write_contract(contracts_dir, "diagnose", agent="discoverer")
+        _write_contract(contracts_dir, "diagnose", model="sonnet")
         state_path = _write_state(tmp_path)
 
         payload = {
@@ -116,7 +116,7 @@ class TestRecordAgentField:
             "status": "completed",
             "outputs": {"discovery_result": "discovery.md"},
             "usage": {"input_tokens": 74514, "output_tokens": 3210},
-            # 'agent' key ABSENT — bug: driver follows SKILL.md template which omits it
+            # 'agent' key ABSENT — driver must include it in the done payload
         }
         result, exit_code = record(state_path, payload)
 
@@ -129,8 +129,8 @@ class TestRecordAgentField:
         assert result.get("reason") == "payload_missing_agent_for_agent_step", (
             f"Expected reason=payload_missing_agent_for_agent_step, got: {result}"
         )
-        assert result.get("expected_agent") == "discoverer", (
-            f"Expected expected_agent=discoverer, got: {result}"
+        assert result.get("expected_model") == "sonnet", (
+            f"Expected expected_model=sonnet, got: {result}"
         )
 
     # ------------------------------------------------------------------
@@ -142,7 +142,7 @@ class TestRecordAgentField:
         GREEN: payload includes agent='developer'; state.yaml must record that value.
         This is a sanity test that the happy path works (and that T-2 doesn't break it).
         """
-        _write_contract(contracts_dir, "diagnose", agent="developer")
+        _write_contract(contracts_dir, "diagnose", model="auto")
         state_path = _write_state(tmp_path)
 
         payload = {

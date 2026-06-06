@@ -24,13 +24,13 @@ None named. (Reads modified files in the phase and `quality_bar` from `spec/proj
 
    If NO UI files modified → skip. Log: "[critique] No UI changes — skipping"
 
-3. Spawn ux-reviewer agent in background with:
+3. Perform UX critique directly on:
    - Target files (list of modified UI files)
    - vision.target_users from project.yaml
    - quality_bar.scoring thresholds
    - ux-prototype.html reference if it exists in change dir
 
-4. When agent returns, read SCORE and STATUS from output.
+4. Read SCORE and STATUS from your critique output.
 
 5. If score >= target_score: PASS. Record critique_score in state.yaml.
 
@@ -39,7 +39,7 @@ None named. (Reads modified files in the phase and `quality_bar` from `spec/proj
    b. Apply fixes scoped to critique findings only.
    c. Run verify_commands to confirm nothing broke.
    d. Increment retry counter in state.yaml.
-   e. Re-spawn ux-reviewer agent on updated files.
+   e. Re-run critique on updated files.
    f. If retries >= max_retries: STOP and escalate to user.
 
 7. Commit UX improvements:
@@ -52,7 +52,7 @@ None named. (Reads modified files in the phase and `quality_bar` from `spec/proj
 - Only runs when the phase includes UI-facing changes.
 - Target score is quality_bar.min_phase_review_score from project.yaml.
 - Retry with fixes until target score is met or max_retry_rounds exhausted.
-- Spawn ux-reviewer agent directly with context — do NOT invoke /critique skill.
+- Perform critique directly — do NOT invoke /critique skill.
 
 ## Verify
 

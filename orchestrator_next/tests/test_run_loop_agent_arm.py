@@ -56,9 +56,9 @@ def test_agent_arm_runs_end_to_end(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
 
     # agents.yaml: route a 'tester' agent to the fake claude.
-    agents_yaml = tmp_path / "agents.yaml"
-    agents_yaml.write_text(yaml.safe_dump({
-        "agents": {"tester": {"model": "opus", "subprocess": "claude"}},
+    models_yaml = tmp_path / "models.yaml"
+    models_yaml.write_text(yaml.safe_dump({
+        "models": {"opus": {"model_id": "claude-opus-4-7", "subprocess": "claude"}},
         "tools": {"claude": {
             "binary": str(bin_dir / "claude"),
             "args_template": ["-p", "{prompt}"],
@@ -74,7 +74,7 @@ def test_agent_arm_runs_end_to_end(tmp_path, monkeypatch):
         "status": "active", "phase": "main", "repo_root": str(repo),
         "worktree_path": str(repo),
         "workflow_plan": {"main": {"nodes": [
-            {"id": "fake-agent-step", "status": "pending", "agent": "tester"},
+            {"id": "fake-agent-step", "status": "pending", "model": "opus"},
         ]}},
         "step_history": [],
     }))
@@ -83,13 +83,13 @@ def test_agent_arm_runs_end_to_end(tmp_path, monkeypatch):
     # node straight at run_agent_step, which is the unit under test).
     action = {
         "step_id": "fake-agent-step", "phase": "main", "attempt": 1,
-        "agent": "tester", "instruction": "do the work",
+        "model": "opus", "instruction": "do the work",
         "step_context": {}, "started_at": "2026-01-01T00:00:00+00:00",
     }
     monkeypatch.setenv("REPO_ROOT", str(repo))
 
     payload = run_loop.run_agent_step(
-        action, repo_root=str(repo), agents_yaml=str(agents_yaml),
+        action, repo_root=str(repo), models_yaml=str(models_yaml),
         ticket_id="", state_raw=yaml.safe_load(state_yaml.read_text()),
         state_yaml_path=str(state_yaml), tmp_dir=tmp_path,
     )
@@ -97,7 +97,7 @@ def test_agent_arm_runs_end_to_end(tmp_path, monkeypatch):
     # The whole chain produced a well-formed done-payload.
     assert payload["step_id"] == "fake-agent-step"
     assert payload["status"] == "completed"
-    assert payload["agent"] == "tester"
+    assert payload["agent"] == "opus"
     assert payload["outputs"].get("note") == "ok"
     assert payload["usage"]["input_tokens"] == 10
     assert payload["usage"]["output_tokens"] == 5
@@ -121,18 +121,18 @@ def test_malformed_completion_is_recoverable(tmp_path, monkeypatch):
     bad.write_text("#!/usr/bin/env bash\necho '{\"type\":\"result\",\"result\":\"no completion here\"}'\n")
     bad.chmod(0o755)
 
-    agents_yaml = tmp_path / "agents.yaml"
-    agents_yaml.write_text(yaml.safe_dump({
-        "agents": {"tester": {"model": "opus", "subprocess": "claude"}},
+    models_yaml = tmp_path / "models.yaml"
+    models_yaml.write_text(yaml.safe_dump({
+        "models": {"opus": {"model_id": "claude-opus-4-7", "subprocess": "claude"}},
         "tools": {"claude": {"binary": str(bad), "args_template": ["-p", "{prompt}"]}},
     }))
 
     action = {
-        "step_id": "s", "phase": "main", "attempt": 1, "agent": "tester",
+        "step_id": "s", "phase": "main", "attempt": 1, "model": "opus",
         "instruction": "x", "step_context": {},
     }
     payload = run_loop.run_agent_step(
-        action, repo_root=str(tmp_path), agents_yaml=str(agents_yaml),
+        action, repo_root=str(tmp_path), models_yaml=str(models_yaml),
         ticket_id="", state_raw={}, state_yaml_path=str(tmp_path / "s.yaml"),
         tmp_dir=tmp_path,
     )

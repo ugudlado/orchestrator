@@ -44,20 +44,6 @@ class ContractDispatchError(RuntimeError):
     """Missing step contract or agent file on disk; run /doctor to diagnose."""
 
 
-def _agent_definition_path(agent_name: str) -> str | None:
-    """Return the first existing agent .md path, or None if not found."""
-    search_roots: list[str] = []
-    home = os.environ.get("ORCHESTRATOR_HOME", "")
-    if home:
-        search_roots.append(home)
-    search_roots.append(os.path.expanduser("~/.claude"))
-    for root in search_roots:
-        path = os.path.join(root, "agents", f"{agent_name}.md")
-        if os.path.isfile(path):
-            return path
-    return None
-
-
 # Blocking statuses: caller cannot proceed
 _BLOCKING_STATUSES = frozenset({"escalate_to_architect", "blocked"})
 _DEFAULT_MAX_SPAWN_FAILURES = 3
@@ -214,7 +200,7 @@ def _handle_resume(
     try:
         contract = load_contract_for_step(step_id, state_yaml_path, workflow_plan=state.workflow_plan)
     except (FileNotFoundError, ContractDispatchError):
-        contract = AgentStepContract(id=step_id, agent=last.agent, instruction="")
+        contract = AgentStepContract(id=step_id, model=last.agent, instruction="")
     action = _build_action_base(
         contract,
         step_id,
@@ -226,7 +212,7 @@ def _handle_resume(
     action["is_resume"] = True
     action["started_at"] = last.started_at
     if isinstance(contract, AgentStepContract):
-        action["agent"] = contract.agent
+        action["model"] = contract.model
     return action, 0
 
 
@@ -261,7 +247,7 @@ def _dispatch_fresh(
     action["pre"] = contract.pre
     action["post"] = contract.post
     if isinstance(contract, AgentStepContract):
-        action["agent"] = contract.agent
+        action["model"] = contract.model
     else:
         action["run"] = contract.run
         step_contract_dir = _resolve_step_contract_dir(next_step_id, contract)

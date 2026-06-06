@@ -363,8 +363,8 @@ def main() -> None:
     if exit_code in (1, 2):
         sys.exit(exit_code)
 
-    # --- Agent path (exit 0 + JSON with agent key) ---
-    if action.get("agent"):
+    # --- Agent path (exit 0 + JSON with model key) ---
+    if action.get("model"):
         from datetime import datetime, timezone
         _started_at = action.get("started_at") or datetime.now(timezone.utc).isoformat()
         try:
@@ -373,7 +373,7 @@ def main() -> None:
                 step_id=action["step_id"],
                 phase=action["phase"],
                 attempt=int(action["attempt"]),
-                agent=action["agent"],
+                agent=action["model"],
                 started_at=_started_at,
             )
         except Exception as _ape:  # noqa: BLE001

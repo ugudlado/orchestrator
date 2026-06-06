@@ -1,0 +1,13 @@
+# Runtime model routing overlay (optional).
+# Pass to orchestrator run:
+#   orchestrator run ORC-84 --agents-config ./models.example.yaml
+#   orchestrator run ORC-84 agents.config=./models.example.yaml
+#
+# Same shape as the `models:` block in config/models.yaml.
+# Fields here override models.yaml for this run only; CLI model.<tier>.<field>=
+# flags still win over this file.
+
+models:
+  auto: { model_id: auto, subprocess: cursor }
+  # auto: { model_id: auto, subprocess: pi }
+  sonnet: { model_id: claude-sonnet-4-6, subprocess: claude }

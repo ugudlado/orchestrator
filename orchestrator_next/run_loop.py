@@ -26,7 +26,7 @@ from typing import Any
 
 import yaml
 
-from orchestrator_next import agent_routes
+from orchestrator_next import model_routes
 from orchestrator_next.dispatch import ContractDispatchError, dispatch
 # dispatch.py defines its own ContractDispatchError(RuntimeError); parser raises
 # ContractNotFoundError(ValueError) for a missing script payload and
@@ -155,11 +155,11 @@ def _fetch_ticket_context(ticket_id: str, repo_root: str) -> str:
 # ---------------------------------------------------------------------------
 # Tool invocation — faithful port of run-workflow.sh invoke_tool()
 # ---------------------------------------------------------------------------
-def _resolve_tool_template(tool_name: str, agents_yaml: str | None) -> tuple[str, list[str]]:
-    """Return (binary, args_template) from the tools: block of agents.yaml."""
+def _resolve_tool_template(tool_name: str, models_yaml: str | None) -> tuple[str, list[str]]:
+    """Return (binary, args_template) from the tools: block of models.yaml."""
     binary, template = tool_name, []
-    if agents_yaml and Path(agents_yaml).is_file():
-        cfg = yaml.safe_load(Path(agents_yaml).read_text()) or {}
+    if models_yaml and Path(models_yaml).is_file():
+        cfg = yaml.safe_load(Path(models_yaml).read_text()) or {}
         entry = (cfg.get("tools") or {}).get(tool_name) or {}
         binary = entry.get("binary") or tool_name
         template = entry.get("args_template") or []
@@ -232,7 +232,7 @@ def _failed_payload(action: dict, exit_code: int, duration_ms: int) -> dict:
         "step_id": action["step_id"],
         "phase": action.get("phase", "main"),
         "status": "failed",
-        "agent": action.get("agent", ""),
+        "agent": action.get("model", ""),
         "outputs": {"task_execution_result": {"status": "failed", "exit_code": exit_code}},
         "usage": {**dict(_EMPTY_USAGE), "model": "none"},
         "duration_ms": duration_ms,
@@ -243,7 +243,7 @@ def _agent_payload(action: dict, completion: dict, usage: dict, started_at, dura
     payload = dict(completion)
     payload["step_id"] = action["step_id"]
     payload["phase"] = action.get("phase", "main")
-    payload["agent"] = action.get("agent", "")
+    payload["agent"] = action.get("model", "")
     if not isinstance(payload.get("outputs"), dict):
         payload["outputs"] = {}
     for key in ("learn_result", "phase_review_report", "discovery_result"):
@@ -257,7 +257,7 @@ def _agent_payload(action: dict, completion: dict, usage: dict, started_at, dura
 
 
 def run_agent_step(
-    action: dict, *, repo_root: str, agents_yaml: str, ticket_id: str,
+    action: dict, *, repo_root: str, models_yaml: str, ticket_id: str,
     state_raw: dict, state_yaml_path: str, tmp_dir: Path,
 ) -> dict:
     """Execute one agent action; always returns a done-payload dict.
@@ -266,17 +266,17 @@ def run_agent_step(
     COMPLETION both → `failed` payload so on_failure/max_retries retries. A bad
     parse never aborts the workflow.
     """
-    agent = action["agent"]
+    model = action["model"]
     step_id = action["step_id"]
     started_at = action.get("started_at") or datetime.now(timezone.utc).isoformat()
     start_ms = _now_ms()
 
-    tool_name = agent_routes.resolve_subprocess(agent, agents_yaml)
+    tool_name = model_routes.resolve_subprocess(model, models_yaml)
     if not tool_name:
-        _log(f"ERROR: no route for agent '{agent}'")
+        _log(f"ERROR: no route for model '{model}'")
         raise SystemExit(4)
-    model_tier = agent_routes.resolve_model(agent, agents_yaml)
-    binary, template = _resolve_tool_template(tool_name, agents_yaml)
+    model_tier = model_routes.resolve_model_id(model, models_yaml)
+    binary, template = _resolve_tool_template(tool_name, models_yaml)
 
     meta = _workflow_meta(state_raw, state_yaml_path)
     ticket_ctx = _fetch_ticket_context(ticket_id, repo_root)
@@ -463,7 +463,7 @@ def _run_hooks(
 # ---------------------------------------------------------------------------
 # The loop
 # ---------------------------------------------------------------------------
-def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, agents_yaml: str) -> int:
+def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, models_yaml: str) -> int:
     import tempfile
     tmp_dir = Path(tempfile.mkdtemp())
     try:
@@ -498,11 +498,11 @@ def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, agents_yam
                 _log(f"Workflow blocked: pre-hook failed for {action['step_id']}.")
                 return 2
 
-            if action.get("agent"):
+            if action.get("model"):
                 _log(f"→ {action['step_id']}  phase={action.get('phase','main')}  "
-                     f"kind=agent  agent={action['agent']}  attempt={action.get('attempt',1)}")
+                     f"kind=agent  model={action['model']}  attempt={action.get('attempt',1)}")
                 payload = run_agent_step(
-                    action, repo_root=repo_root, agents_yaml=agents_yaml,
+                    action, repo_root=repo_root, models_yaml=models_yaml,
                     ticket_id=ticket_id, state_raw=state.raw,
                     state_yaml_path=state_yaml_path, tmp_dir=tmp_dir,
                 )
@@ -684,13 +684,13 @@ def run_cmd(argv: list[str]) -> int:
         return 7
     os.environ["REPO_ROOT"] = repo_root
 
-    # Route-override env (agent_routes.py reads these from os.environ).
+    # Route-override env (model_routes.py reads these from os.environ).
     if routes_override_arg:
         os.environ["ORCHESTRATOR_ROUTES_YAML"] = os.path.abspath(routes_override_arg)
     if agents_config_arg:
-        os.environ["ORCHESTRATOR_AGENTS_CONFIG"] = os.path.abspath(agents_config_arg)
+        os.environ["ORCHESTRATOR_MODELS_CONFIG"] = os.path.abspath(agents_config_arg)
     if agent_route_flags:
-        os.environ["ORCHESTRATOR_AGENT_ROUTE_OVERRIDES"] = _build_route_overrides(agent_route_flags)
+        os.environ["ORCHESTRATOR_MODEL_ROUTE_OVERRIDES"] = _build_route_overrides(agent_route_flags)
 
     slug = ticket_id.lower()
 
@@ -707,20 +707,20 @@ def run_cmd(argv: list[str]) -> int:
     if not state_yaml_path:
         state_yaml_path = _seed_state(slug, schema, repo_root, flag_overrides)
 
-    # agents.yaml resolution (override > repo > global), mirrors run-workflow.sh.
-    agents_yaml = os.environ.get("ORCHESTRATOR_AGENTS_CONFIG", "")
-    if not agents_yaml:
+    # models.yaml resolution (override > repo > global), mirrors run-workflow.sh.
+    models_yaml = os.environ.get("ORCHESTRATOR_MODELS_CONFIG", "")
+    if not models_yaml:
         for cand in (
-            Path(repo_root) / ".orchestrator" / "config" / "agents.yaml",
-            Path(repo_root) / "config" / "agents.yaml",
-            Path(os.environ.get("ORCHESTRATOR_HOME", "")) / "config" / "agents.yaml",
+            Path(repo_root) / ".orchestrator" / "config" / "models.yaml",
+            Path(repo_root) / "config" / "models.yaml",
+            Path(os.environ.get("ORCHESTRATOR_HOME", "")) / "config" / "models.yaml",
         ):
             if cand.is_file():
-                agents_yaml = str(cand)
+                models_yaml = str(cand)
                 break
 
     _log(f"Running workflow: ticket={ticket_id} schema={schema} state={state_yaml_path}")
-    return run_loop(state_yaml_path, ticket_id, repo_root=repo_root, agents_yaml=agents_yaml)
+    return run_loop(state_yaml_path, ticket_id, repo_root=repo_root, models_yaml=models_yaml)
 
 
 if __name__ == "__main__":

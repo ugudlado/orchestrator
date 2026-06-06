@@ -26,9 +26,9 @@ class ContractNotFoundError(ValueError):
 
 @dataclass
 class AgentStepContract:
-    """Contract for steps dispatched to an agent."""
+    """Contract for steps dispatched to an agent subprocess."""
     id: str
-    agent: str | None
+    model: str | None
     instruction: str
     pre: list[str] = field(default_factory=list)
     post: list[str] = field(default_factory=list)
@@ -126,7 +126,7 @@ def _make_contract(
     if run is None:
         return AgentStepContract(
             **shared,
-            agent=data.get("agent") or None,
+            model=data.get("model") or None,
             instruction=instruction,
         )
     return ScriptStepContract(**shared, run=run)
@@ -208,7 +208,7 @@ def _load_contract(
                 prompt_path = os.path.join(contract_dir, "prompt.md")
                 if not os.path.isfile(prompt_path):
                     raise ContractError(
-                        f"agent contract {step_id} missing prompt.md"
+                        f"step contract {step_id} missing prompt.md"
                     )
                 with open(prompt_path, "r") as f:
                     instruction = f.read()
