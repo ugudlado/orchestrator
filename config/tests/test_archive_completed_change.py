@@ -14,7 +14,7 @@ import subprocess
 import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
+_REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
 
 
 def _git(cwd, *args):

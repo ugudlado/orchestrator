@@ -17,7 +17,7 @@ import pytest
 import yaml
 
 _CONFIG_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..")
+    os.path.join(os.path.dirname(__file__), "..")
 )
 _STEPS_DIR = os.path.join(_CONFIG_DIR, "steps")
 _WORKFLOWS_DIR = os.path.join(_CONFIG_DIR, "workflows")
@@ -34,10 +34,14 @@ def _collect_workflow_steps() -> Set[str]:
             data = yaml.safe_load(f)
         if not data:
             continue
-        # Workflows use top-level `steps:` list (flat list of step IDs)
         steps = data.get("steps") or []
-        for step_id in steps:
-            step_ids.add(step_id)
+        for entry in steps:
+            if isinstance(entry, dict):
+                sid = entry.get("id", "")
+            else:
+                sid = str(entry).split(" if ")[0].strip()
+            if sid:
+                step_ids.add(sid)
     return step_ids
 
 
