@@ -27,7 +27,6 @@ from typing import Any
 import yaml
 
 from orchestrator_next import agent_routes
-from orchestrator_next.agent_overlay import overlay_text
 from orchestrator_next.dispatch import ContractDispatchError, dispatch
 # dispatch.py defines its own ContractDispatchError(RuntimeError); parser raises
 # ContractNotFoundError(ValueError) for a missing script payload and
@@ -283,10 +282,6 @@ def run_agent_step(
     ticket_ctx = _fetch_ticket_context(ticket_id, repo_root)
     step_context = json.dumps(action.get("step_context") or {})
     prompt = build_prompt(action.get("instruction", ""), step_context, ticket_ctx, meta, ticket_id)
-    overlay = overlay_text(repo_root, agent)
-    if overlay:
-        prompt = f"{prompt}\n{overlay}"
-
     prompt_file = tmp_dir / f"prompt_{step_id}.txt"
     prompt_file.write_text(prompt)
 
@@ -336,19 +331,23 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
     from orchestrator_next.paths import config_root
     from orchestrator_next.step_env import inline_script_env
     from orchestrator_next.step_runner import apply_step_paths, build_step_command
-    from orchestrator_next.operator_workflow import load_step_params
-
     step_id = action["step_id"]
     phase = action.get("phase", "main")
     attempt = action.get("attempt", 1)
     if state is None:
         state = load_state(state_yaml_path)
+    from orchestrator_next.parser import ScriptStepContract
     contract = load_contract_for_step(step_id, state_yaml_path)
+    if not isinstance(contract, ScriptStepContract):
+        raise ContractDispatchError(f"run_script_step called on non-script contract: {step_id}")
     env = inline_script_env(state, state_yaml_path, action_env=action.get("env", {}))
     croot = str(config_root())
     env = apply_step_paths(env, step_id=step_id, contract=contract, config_root=croot)
-    for k, v in load_step_params(step_id).items():
-        env.setdefault(k, v)
+    _params_path = config_root() / "steps" / step_id / "contract.yaml"
+    if _params_path.is_file():
+        _raw = yaml.safe_load(_params_path.read_text(encoding="utf-8")) or {}
+        for k, v in (_raw.get("params") or {}).items():
+            env.setdefault(str(k), str(v))
     run_cmd = build_step_command(step_id, contract, croot)
 
     _log(f"→ {step_id}  phase={phase}  kind=inline script  attempt={attempt}")

@@ -8,15 +8,12 @@ via ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE env var.
 from __future__ import annotations
 
 import os
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-
-_COMPLEXITY_VALUES = frozenset({"XS", "S", "M", "L", "XL"})
 
 
 class ContractError(ValueError):
@@ -28,33 +25,29 @@ class ContractNotFoundError(ValueError):
 
 
 @dataclass
-class StepContract:
-    """Contract fields needed by the dispatcher.
-
-    `inputs` and `outputs` are I/O specs for this step.
-    Each item is a dict with keys: name (str), optional (bool).
-
-    Backward-compatible: contracts that don't declare the fields get `[]`.
-    """
+class AgentStepContract:
+    """Contract for steps dispatched to an agent."""
     id: str
-    agent: str | None  # None = not declared (use run: path)
-    run: str | None  # None = inline-only
+    agent: str | None
     instruction: str
-    rules: list[str]
-    inputs: list[dict[str, Any]] = field(default_factory=list)
-    outputs: list[dict[str, Any]] = field(default_factory=list)
-    allowed_tools: list[str] = field(default_factory=list)
-    inline: bool = False  # inline: true + run: <script> path
-    repeat_until: str | None = None  # predicate name gating advance
-    kind: str = ""  # "agent" | "script" | "" (unset)
-    # Per-step lifecycle hooks: shell commands the driver runs immediately
-    # before (pre) / after (post) the step body. Each item is a command string.
-    # pre nonzero → step blocks (exit 2); post nonzero → logged, non-fatal.
+    pre: list[str] = field(default_factory=list)
+    post: list[str] = field(default_factory=list)
+    state_mutating: bool = False
+
+
+@dataclass
+class ScriptStepContract:
+    """Contract for steps executed as inline scripts."""
+    id: str
+    run: str
     pre: list[str] = field(default_factory=list)
     post: list[str] = field(default_factory=list)
     # When true, the driver records the step BEFORE running the script so
     # state.yaml is consistent even if the script moves or rewrites it.
     state_mutating: bool = False
+
+
+StepContract = AgentStepContract | ScriptStepContract
 
 
 
@@ -83,7 +76,6 @@ class State:
     workflow_plan: dict[str, Any]  # raw workflow_plan
     step_history: list[StepHistoryEntry]
     raw: dict[str, Any]  # full state.yaml for any extra fields
-    complexity: str | None = None  # optional closed set {XS,S,M,L,XL}
     worktree_artifact_dir: str = ""  # base path for tracked artifacts (spec/design/tasks/diagnose)
 
 
@@ -110,77 +102,34 @@ def _contract_search_dirs(state_yaml_path: str) -> list[str]:
     return dirs
 
 
-def _parse_io_specs(raw: list) -> list[dict[str, Any]]:
-    """Parse a raw inputs or outputs list into a list of {name, optional} dicts.
-
-    Two item forms:
-      1. Optional sugar: {<name>: "optional"} → {name, optional: True}
-      2. Bare string or unknown dict → {name, optional: False}
-    """
-    specs: list[dict[str, Any]] = []
-    for item in raw:
-        if (
-            isinstance(item, dict)
-            and len(item) == 1
-            and str(next(iter(item.values()))).strip().lower() == "optional"
-        ):
-            name = str(next(iter(item.keys())))
-            specs.append({"name": name, "optional": True})
-        else:
-            name = str(item.get("name", item)) if isinstance(item, dict) else str(item)
-            specs.append({"name": name, "optional": False})
-    return specs
-
-
-def _parse_contract_fields(
-    step_id: str,
-    data: dict[str, Any],
-    kind: str,
-    run: str | None,
-    instruction: str,
-) -> StepContract:
-    """Build a StepContract from raw YAML data and pre-resolved values.
-
-    Handles inputs/outputs coercion and optional_inputs extraction.
-    Called by both the directory-form and flat-file branches.
-    """
-    # Stripped-contract model: contracts are pure routing
-    # (id/version/kind/agent|run). All instruction, constraint, and I/O semantics
-    # live in prompt.md. inputs/outputs/rules default to [].
-    data.setdefault("inputs", [])
-    data.setdefault("outputs", [])
-    # Parse inputs/outputs into list[dict[str,Any]] — each item: {name, optional}.
-    inputs = _parse_io_specs(data.get("inputs") or [])
-    outputs = _parse_io_specs(data.get("outputs") or [])
-
-    # allowed_tools: absent or null -> []; explicit list -> list
-    raw_allowed = data.get("allowed_tools", []) or []
-    allowed_tools = [str(x) for x in raw_allowed]
-    return StepContract(
-        id=data.get("id", step_id),
-        agent=data.get("agent") or None,
-        run=run,
-        instruction=instruction,
-        rules=data.get("rules", []),
-        inputs=inputs,
-        outputs=outputs,
-        allowed_tools=allowed_tools,
-        inline=bool(data.get("inline", False)),
-        repeat_until=data.get("repeat_until"),
-        kind=kind,
-        pre=_as_str_list(data.get("pre")),
-        post=_as_str_list(data.get("post")),
-        state_mutating=bool(data.get("state_mutating", False)),
-    )
-
 
 def _as_str_list(value: Any) -> list[str]:
-    """Coerce a contract hook field (scalar | list | None) to a list of strings."""
     if not value:
         return []
     if isinstance(value, str):
         return [value]
     return [str(v) for v in value]
+
+
+def _make_contract(
+    step_id: str,
+    data: dict[str, Any],
+    run: str | None,
+    instruction: str,
+) -> StepContract:
+    shared = dict(
+        id=data.get("id", step_id),
+        pre=_as_str_list(data.get("pre")),
+        post=_as_str_list(data.get("post")),
+        state_mutating=bool(data.get("state_mutating", False)),
+    )
+    if run is None:
+        return AgentStepContract(
+            **shared,
+            agent=data.get("agent") or None,
+            instruction=instruction,
+        )
+    return ScriptStepContract(**shared, run=run)
 
 
 def _contract_lookup_id(
@@ -243,32 +192,9 @@ def _load_contract(
             with open(dir_contract, "r") as f:
                 data = yaml.safe_load(f)
 
-            # kind: explicit when declared, else inferred from run:/agent:
-            # presence (stripped contracts may omit it). A `run:` field
-            # means script; otherwise agent. Mirrors the flat-file branch.
-            kind = data.get("kind")
-            if not kind:
-                kind = "script" if data.get("run") else "agent"
-            if kind not in {"agent", "script"}:
-                raise ContractError(
-                    f"contract {step_id} has invalid kind: {kind!r} (agent|script)"
-                )
-
-            if kind == "agent":
-                prompt_path = os.path.join(contract_dir, "prompt.md")
-                if not os.path.isfile(prompt_path):
-                    raise ContractError(
-                        f"agent contract {step_id} missing prompt.md"
-                    )
-                with open(prompt_path, "r") as f:
-                    instruction = f.read()
-                run = None
-            else:  # kind == "script"
+            is_script = bool(data.get("run"))
+            if is_script:
                 run_rel = data.get("run")
-                if not run_rel:
-                    raise ContractError(
-                        f"script contract {step_id} requires run:"
-                    )
                 if os.path.isabs(run_rel):
                     run = run_rel
                 else:
@@ -278,8 +204,17 @@ def _load_contract(
                         f"script contract {step_id} missing script payload: {run}"
                     )
                 instruction = ""
+            else:
+                prompt_path = os.path.join(contract_dir, "prompt.md")
+                if not os.path.isfile(prompt_path):
+                    raise ContractError(
+                        f"agent contract {step_id} missing prompt.md"
+                    )
+                with open(prompt_path, "r") as f:
+                    instruction = f.read()
+                run = None
 
-            return _parse_contract_fields(step_id, data, kind, run, instruction)
+            return _make_contract(step_id, data, run, instruction)
 
     raise FileNotFoundError(
         f"Step contract not found for '{step_id}'"
@@ -326,15 +261,6 @@ def load_state(state_yaml_path: str) -> State:
     phase = raw.get("phase", "")
     workflow_dir = os.path.expanduser(str(raw.get("worktree_path", "") or ""))
 
-    # validate complexity against closed set; coerce unknown to None
-    complexity = raw.get("complexity")
-    if complexity is not None and complexity not in _COMPLEXITY_VALUES:
-        sys.stderr.write(
-            f"[complexity] ignoring unknown value {complexity!r} "
-            f"for {raw.get('change_id', '<unknown>')}\n"
-        )
-        complexity = None
-
     # repo_root: env var wins over state.yaml field (state file is authoritative
     # when env is absent; env may be set to override for multi-repo setups).
     repo_root = (
@@ -358,7 +284,6 @@ def load_state(state_yaml_path: str) -> State:
         workflow_plan=raw.get("workflow_plan", {}),
         step_history=step_history,
         raw=raw,
-        complexity=complexity,
         worktree_artifact_dir=worktree_artifact_dir,
     )
 

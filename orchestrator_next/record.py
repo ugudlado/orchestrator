@@ -17,7 +17,7 @@ from typing import Any
 
 import yaml
 
-from orchestrator_next.parser import ContractError, State, load_contract_for_step, safe_write_yaml as _safe_write_yaml_base
+from orchestrator_next.parser import AgentStepContract, ContractError, State, load_contract_for_step, safe_write_yaml as _safe_write_yaml_base
 from orchestrator_next import readiness
 from orchestrator_next.pricing import _compute_cost_usd
 from orchestrator_next.payload import (
@@ -26,7 +26,6 @@ from orchestrator_next.payload import (
     _supplement_learn_result,
     _supplement_backlog_tickets_synced,
     _merge_evidence_block,
-    _OUTPUTS_ALLOW_EMPTY_LIST,
 )
 
 
@@ -285,30 +284,6 @@ def _resolve_tasks_md(state_raw: dict[str, Any]) -> Path | None:
     return Path(base) / "spec" / "changes" / change_id / "tasks.md"
 
 
-def _check_declared_outputs(
-    declared: list[Any], outputs: dict[str, Any], state_raw: dict[str, Any]
-) -> list[str]:
-    """Return the list of declared outputs not present or empty in outputs.
-
-    Each declared item is a bare name (str) or a dict with a 'name' key.
-    The output key must be present, non-null, and non-empty.
-    Zero/False are accepted values.
-    """
-    unsatisfied: list[str] = []
-    for item in declared:
-        name = str(item.get("name", "")) if isinstance(item, dict) else str(item)
-        if name not in outputs:
-            unsatisfied.append(name)
-            continue
-        value = outputs[name]
-        if value is None or (
-            hasattr(value, "__len__")
-            and len(value) == 0
-            and name not in _OUTPUTS_ALLOW_EMPTY_LIST
-        ):
-            unsatisfied.append(name)
-    return unsatisfied
-
 
 def _state_from_raw(state_raw: dict[str, Any]) -> State:
     """Build an in-memory State view over a mutated `state_raw` dict.
@@ -364,15 +339,8 @@ def _validate_outputs(
     step_id: str, status: str, outputs: dict[str, Any],
     contract: Any, state_raw: dict[str, Any],
 ) -> None:
-    """Check declared outputs against the contract. Raises _RecordError on failure."""
-    if contract is None or status != "completed":
+    if status != "completed":
         return
-    missing_out = _check_declared_outputs(contract.outputs, outputs, state_raw)
-    if missing_out:
-        raise _RecordError(
-            {"reason": "missing_outputs", "step_id": step_id, "missing_outputs": missing_out},
-            3,
-        )
     _validate_phase_review_output(step_id, outputs)
 
 
@@ -380,7 +348,7 @@ def _validate_agent_usage(
     payload: dict[str, Any], step_id: str, status: str, contract: Any,
 ) -> str | None:
     """Check agent field presence and token guard. Returns agent name or None."""
-    contract_agent = contract.agent if contract is not None else None
+    contract_agent = contract.agent if isinstance(contract, AgentStepContract) else None
     if status == "completed" and contract_agent is not None and "agent" not in payload:
         raise _RecordError(
             {

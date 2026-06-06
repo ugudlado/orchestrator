@@ -172,9 +172,6 @@ def test_real_schema_generates_plan(tmp_path, monkeypatch, schema_name):
                 f"{contract_path} or {flat_path} "
                 f"(phantom reference — generate_plan silently skips these)"
             )
-            assert "agent" in node, (
-                f"{schema_name}/{phase_name}/{step_id}: missing agent in resolved node"
-            )
             assert node.get("status") == "pending", (
                 f"{schema_name}/{phase_name}/{step_id}: node status must be 'pending' at init"
             )

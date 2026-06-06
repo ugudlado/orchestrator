@@ -38,25 +38,12 @@ def _make_state(tmp_path, nodes, phase="main", extra=None):
 # effective_depends_on
 # ---------------------------------------------------------------------------
 
-def test_effective_depends_on_synthesizes_chain_edge():
-    """A node with no depends_on inherits the implicit predecessor edge."""
-    from orchestrator_next.readiness import effective_depends_on
-    nodes = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
-    assert effective_depends_on(nodes, "b") == ["a"]
-    assert effective_depends_on(nodes, "c") == ["b"]
-
-
-def test_effective_depends_on_first_node_empty():
-    """The first node of a phase has no implicit edge."""
-    from orchestrator_next.readiness import effective_depends_on
-    nodes = [{"id": "a"}, {"id": "b"}]
-    assert effective_depends_on(nodes, "a") == []
-
-
 def test_effective_depends_on_explicit_honored():
-    """An authored depends_on is returned verbatim (no implicit edge)."""
+    """depends_on is read verbatim; absent means no dependencies."""
     from orchestrator_next.readiness import effective_depends_on
     nodes = [{"id": "a"}, {"id": "b"}, {"id": "c", "depends_on": ["a"]}]
+    assert effective_depends_on(nodes, "a") == []
+    assert effective_depends_on(nodes, "b") == []
     assert effective_depends_on(nodes, "c") == ["a"]
 
 
@@ -69,8 +56,8 @@ def test_is_node_ready_true_only_when_deps_completed(tmp_path):
     from orchestrator_next.readiness import is_node_ready
     state = _make_state(tmp_path, [
         {"id": "a", "status": "completed"},
-        {"id": "b", "status": "pending"},
-        {"id": "c", "status": "pending"},
+        {"id": "b", "status": "pending", "depends_on": ["a"]},
+        {"id": "c", "status": "pending", "depends_on": ["b"]},
     ])
     assert is_node_ready(state, "b") is True   # dep a completed
     assert is_node_ready(state, "c") is False  # dep b not completed
@@ -122,7 +109,7 @@ def test_ready_nodes_declaration_order(tmp_path):
     state = _make_state(tmp_path, [
         {"id": "a", "status": "completed"},
         {"id": "b", "status": "pending"},
-        {"id": "c", "status": "pending"},
+        {"id": "c", "status": "pending", "depends_on": ["b"]},
     ])
     # only b is ready (c depends on b)
     assert ready_nodes(state) == ["b"]

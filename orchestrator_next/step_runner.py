@@ -5,10 +5,10 @@ import os
 import subprocess
 from pathlib import Path
 
-from orchestrator_next.parser import StepContract
+from orchestrator_next.parser import ScriptStepContract
 
 
-def step_directory(step_id: str, contract: StepContract, config_root: str) -> Path:
+def step_directory(step_id: str, contract: ScriptStepContract, config_root: str) -> Path:
     """Directory for <config_root>/steps/<step_id>/ (authoritative, not dirname of _runner).
 
     `config_root` is the config/ dir itself (see paths.config_root) — this
@@ -25,7 +25,7 @@ def apply_step_paths(
     env: dict[str, str],
     *,
     step_id: str,
-    contract: StepContract,
+    contract: ScriptStepContract,
     config_root: str,
 ) -> dict[str, str]:
     """Set ORCHESTRATOR_STEP_DIR (step scripts resolve their own payload locally)."""
@@ -36,20 +36,18 @@ def apply_step_paths(
 
 def build_step_command(
     step_id: str,
-    contract: StepContract,
+    contract: ScriptStepContract,
     config_root: str,
 ) -> list[str]:
     """Argv for subprocess: ``run: script.sh`` (the script calls Python via env)."""
-    if contract.run:
-        if not os.path.isfile(contract.run):
-            raise FileNotFoundError(f"step script not found: {contract.run}")
-        return ["bash", contract.run]
-    raise ValueError(f"step {step_id!r}: contract has no run:")
+    if not os.path.isfile(contract.run):
+        raise FileNotFoundError(f"step script not found: {contract.run}")
+    return ["bash", contract.run]
 
 
 def run_step_subprocess(
     step_id: str,
-    contract: StepContract,
+    contract: ScriptStepContract,
     env: dict[str, str],
 ) -> subprocess.CompletedProcess[str]:
     """Run step entrypoint with merged env; returns completed process."""

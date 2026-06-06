@@ -89,9 +89,9 @@ class TestAgentKindContractLoad:
             "rules": [],
         }, prompt_text=prompt_text)
 
-        from orchestrator_next.parser import _load_contract
+        from orchestrator_next.parser import _load_contract, AgentStepContract
         contract = _load_contract("explore", "")
-        assert contract.kind == "agent"
+        assert isinstance(contract, AgentStepContract)
         assert contract.instruction == prompt_text
 
     def test_agent_dir_contract_missing_prompt_raises_contract_error(self, steps_dir):
@@ -158,9 +158,9 @@ class TestScriptKindContractLoad:
         )
         expected_run = str(step_dir / "script.sh")
 
-        from orchestrator_next.parser import _load_contract
+        from orchestrator_next.parser import _load_contract, ScriptStepContract
         contract = _load_contract("inline-step", "")
-        assert contract.kind == "script"
+        assert isinstance(contract, ScriptStepContract)
         assert contract.run == expected_run
 
     def test_script_dir_contract_missing_script_raises_contract_dispatch_error(self, steps_dir):

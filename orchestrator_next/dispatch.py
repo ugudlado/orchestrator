@@ -23,7 +23,8 @@ import yaml
 from orchestrator_next import readiness
 from orchestrator_next.step_env import build_dispatch_env as _build_dispatch_env
 from orchestrator_next.parser import (
-    ContractNotFoundError,
+    AgentStepContract,
+    ScriptStepContract,
     State,
     StepContract,
     StepHistoryEntry,
@@ -107,32 +108,6 @@ def _get_last_entry(step_history: list[StepHistoryEntry]) -> StepHistoryEntry | 
 
 
 
-def _warn_allowed_tools(contract: StepContract) -> None:
-    """Emit diagnostic warnings for unenforceable allowed_tools declarations.
-
-    Tool enforcement is not yet implemented — this guard surfaces mis-configs
-    (inline step with allowed_tools, missing agent definition) early so they
-    don't silently pass.
-    """
-    if contract.agent is None:
-        if contract.allowed_tools:
-            print(
-                f"WARNING: allowed_tools on inline step {contract.id!r} ignored",
-                file=sys.stderr,
-            )
-        return
-    if contract.allowed_tools:
-        if _agent_definition_path(contract.agent) is None:
-            raise ContractDispatchError(
-                f"Agent definition not found: {contract.agent!r}. "
-                f"Run /doctor to diagnose."
-            )
-        print(
-            f"WARNING: cannot resolve agent {contract.agent!r} tools; "
-            f"allowed_tools on step {contract.id!r} not enforced",
-            file=sys.stderr,
-        )
-
 
 def _node_step_context(state: State, step_id: str) -> dict[str, Any]:
     """Return the plan node dict for (current phase, step_id) as step_context.
@@ -189,11 +164,7 @@ def _build_action_base(
         "step_id": step_id,
         "phase": phase,
         "attempt": attempt,
-        "instruction": contract.instruction,
-        "rules": contract.rules,
-        "inputs": {},
-        "expected_outputs": [s["name"] for s in contract.outputs],
-        "resolved_allowed_tools": [],
+        "instruction": contract.instruction if isinstance(contract, AgentStepContract) else "",
         "env": _build_dispatch_env(state, step_id, attempt, state_yaml_path),
         "step_context": _node_step_context(state, step_id),
     }
@@ -220,19 +191,14 @@ def _warn_if_more_phases_remain(state: State) -> None:
             )
 
 
-def _resolve_step_contract_dir(step_id: str, contract: StepContract) -> str:
+def _resolve_step_contract_dir(step_id: str, contract: ScriptStepContract) -> str:
     """Return the contract directory path for a script contract, or empty string."""
     orch_home = os.environ.get("ORCHESTRATOR_HOME", "")
-    if orch_home and contract.run:
+    if orch_home:
         return str(_step_directory(step_id, contract, orch_home))
-    if contract.run and os.path.isabs(contract.run):
+    if os.path.isabs(contract.run):
         return os.path.dirname(contract.run)
     return ""
-
-
-def _fallback_contract(step_id: str, agent: str | None) -> StepContract:
-    """Minimal inline-only contract used when the contract file is missing."""
-    return StepContract(id=step_id, agent=agent, run=None, instruction="", rules=[])
 
 
 def _handle_resume(
@@ -248,8 +214,7 @@ def _handle_resume(
     try:
         contract = load_contract_for_step(step_id, state_yaml_path, workflow_plan=state.workflow_plan)
     except (FileNotFoundError, ContractDispatchError):
-        contract = _fallback_contract(step_id, last.agent)
-    _warn_allowed_tools(contract)
+        contract = AgentStepContract(id=step_id, agent=last.agent, instruction="")
     action = _build_action_base(
         contract,
         step_id,
@@ -260,7 +225,8 @@ def _handle_resume(
     )
     action["is_resume"] = True
     action["started_at"] = last.started_at
-    action["agent"] = contract.agent
+    if isinstance(contract, AgentStepContract):
+        action["agent"] = contract.agent
     return action, 0
 
 
@@ -268,12 +234,7 @@ def _dispatch_fresh(
     state: State, state_yaml_path: str, next_step_id: str
 ) -> tuple[dict[str, Any], int]:
     """Dispatch a fresh (non-resume) step node."""
-    # --- Load contract for the next step
-    try:
-        contract = load_contract_for_step(next_step_id, state_yaml_path, workflow_plan=state.workflow_plan)
-    except (FileNotFoundError, ContractDispatchError):
-        # Contract deleted after workflow_plan was frozen at pre-dispatch init.
-        contract = _fallback_contract(next_step_id, None)
+    contract = load_contract_for_step(next_step_id, state_yaml_path, workflow_plan=state.workflow_plan)
 
     spawn_failures = _consecutive_spawn_failures(
         state.step_history, state.phase, next_step_id
@@ -288,10 +249,7 @@ def _dispatch_fresh(
         return {"reason": "spawn_failure_cap"}, 2
 
     attempt = _compute_attempt(state.step_history, state.phase, next_step_id)
-    _warn_allowed_tools(contract)
 
-    # Two-path dispatch: agent: → spawn; run: → execute inline; else → error.
-    # Build the shared base, then each branch merges in its discriminating keys.
     action = _build_action_base(
         contract,
         next_step_id,
@@ -302,18 +260,13 @@ def _dispatch_fresh(
     )
     action["pre"] = contract.pre
     action["post"] = contract.post
-    if contract.agent:
+    if isinstance(contract, AgentStepContract):
         action["agent"] = contract.agent
-    elif contract.run:
-        # Inline script executed synchronously by CLI — no JSON emitted, exit 0
+    else:
         action["run"] = contract.run
         step_contract_dir = _resolve_step_contract_dir(next_step_id, contract)
         if step_contract_dir:
             action["step_contract_dir"] = step_contract_dir
-    else:
-        raise ContractNotFoundError(
-            f"step_contract_missing_run: {next_step_id}"
-        )
 
     # Mark the chosen node in_progress in state.yaml (the one status mutator).
     # No-op for a legacy active:[ids] block.

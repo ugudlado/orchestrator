@@ -24,7 +24,7 @@ from typing import Any
 import yaml
 
 # Schemas that have no standard seed shape — skip the generate_plan smoke.
-_SKIP_EXPAND = {"telemetry", "complete"}
+_SKIP_EXPAND = {"complete"}
 
 
 def _config_root(repo_root: str) -> Path:

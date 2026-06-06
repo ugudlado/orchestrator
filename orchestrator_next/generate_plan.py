@@ -2,8 +2,7 @@
 Promote a seeded state.yaml workflow_plan into the DAG `nodes` shape (ORC-63).
 
 Public API: generate_plan(state_yaml_path: str) -> None
-Reads state.yaml + schema + step contracts + project.yaml, applies the 5-tier
-rule merge (rule-merge.md), topo-sorts the dependency graph, and rewrites
+Reads state.yaml + schema, topo-sorts the dependency graph, and rewrites
 state.yaml in place with `workflow_plan[phase] = {nodes, filtered, verify}`.
 No separate plan file is produced — workflow state lives in one file.
 
@@ -12,15 +11,13 @@ Entry point: python -m orchestrator_next.generate_plan <state_yaml_path>
 from __future__ import annotations
 
 import argparse
-import os
-import re
 import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from orchestrator_next import parser as _parser
+from orchestrator_next.paths import config_root
 
 
 # ---------------------------------------------------------------------------
@@ -30,48 +27,11 @@ from orchestrator_next import parser as _parser
 
 def _load_schema(schema_name: str) -> dict[str, Any]:
     """Load a workflow schema YAML by name."""
-    from orchestrator_next.paths import config_root
     path = config_root() / "workflows" / f"{schema_name}.yaml"
     if not path.is_file():
         raise FileNotFoundError(f"Schema file not found: {path}")
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
-
-
-def _load_project(repo_root: str) -> dict[str, Any]:
-    """Load spec/project.yaml from repo_root."""
-    path = Path(repo_root) / "spec" / "project.yaml"
-    if not path.is_file():
-        raise FileNotFoundError(f"spec/project.yaml not found at: {path}")
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def _load_step_contract_raw(step_id: str, state_yaml_path: str) -> dict[str, Any] | None:
-    """
-    Load raw YAML dict for a step contract.
-
-    Returns None if not found (missing contract → emit step without rules).
-    Uses the same search dirs as parser._contract_search_dirs.
-
-    Search order mirrors parser._load_contract: for each directory, the
-    directory form (<step_id>/contract.yaml) is checked before the flat-file
-    form (<step_id>.yaml).
-    """
-    search_dirs = _parser._contract_search_dirs(state_yaml_path)
-    for d in search_dirs:
-        # Directory form: <d>/<step_id>/contract.yaml (preferred)
-        dir_contract = os.path.join(d, step_id, "contract.yaml")
-        if os.path.isfile(dir_contract):
-            with open(dir_contract, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f)
-        # Flat-file form: <d>/<step_id>.yaml (back-compat)
-        flat_contract = os.path.join(d, f"{step_id}.yaml")
-        if os.path.isfile(flat_contract):
-            with open(flat_contract, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f)
-    print(f"WARNING: step contract not found for '{step_id}', skipping rules", file=sys.stderr)
-    return None
 
 
 def _resolve_phases(schema: dict[str, Any]) -> list[dict[str, Any]]:
@@ -115,10 +75,9 @@ def _step_entry_for_id(phase_def: dict[str, Any], step_id: str) -> dict[str, Any
     Step entries may be:
     - Plain string: "design-and-draft-artifacts"
     - String with gate: "explore if discovery"  (strip " if <flag>")
-    - Dict: {id: ..., extra_rules: ..., repeat_until: ...}
+    - Dict: {id: ..., depends_on: ..., repeat_until: ...}
 
-    Returns the dict form {id, extra_rules, repeat_until}
-    or an empty dict if the step is a plain string match (no injections).
+    Returns the dict form or an empty dict if the step is a plain string match.
     Returns None if no match found.
     """
     for entry in phase_def.get("steps", []):
@@ -126,150 +85,35 @@ def _step_entry_for_id(phase_def: dict[str, Any], step_id: str) -> dict[str, Any
             if entry.get("id") == step_id:
                 return entry
         elif isinstance(entry, str):
-            # Strip " if <flag>" suffix
             bare = entry.split(" if ")[0].strip()
             if bare == step_id:
-                return {}  # plain string — no injections
+                return {}
     return None
 
 
-def _filter_step_rule(rule: str, repo_name: str) -> bool:
-    """
-    Return True if a plain-string rule should be kept for this repo.
-
-    Rules with <!-- learned: ... repo: X --> metadata are scoped.
-    """
-    m = re.search(r"<!--\s*learned:.*?repo:\s*(\S+?)[\s>]", rule)
-    if m:
-        repo_field = m.group(1).rstrip(">").strip()
-        return repo_field == "*" or repo_field == repo_name
-    # Has learned metadata but no repo field → backward compat, keep
-    if "<!-- learned:" in rule and "repo:" not in rule:
-        return True
-    # No metadata → permanent, keep
-    return True
-
-
-def _merge_rules(
-    step_entry: dict[str, Any],
-    contract_raw: dict[str, Any] | None,
-    phase_def: dict[str, Any],
-    schema: dict[str, Any],
-    project: dict[str, Any],
-    repo_name: str,
-) -> list[str]:
-    """
-    Apply 5-tier merge per rule-merge.md.
-
-    Returns the merged ordered list of rule strings.
-    """
-    # ----------- Tier 1: Step entry injections -----------
-    extra_rules = step_entry.get("extra_rules", []) or []
-    extra = list(extra_rules) if isinstance(extra_rules, list) else [extra_rules]
-
-    # ----------- Tier 2: Step contract rules (filtered by repo scope) -----------
-    contract_rules_raw: list[str] = []
-    if contract_raw is not None:
-        contract_rules_raw = contract_raw.get("rules", []) or []
-    step_rules = [r for r in contract_rules_raw if _filter_step_rule(str(r), repo_name)]
-
-    # ----------- Tier 3: Phase rules (plain strings) -----------
-    phase_rules_raw = phase_def.get("rules", []) or []
-    phase_rules = [str(r) for r in phase_rules_raw if isinstance(r, str)]
-
-    # ----------- Tiers 4+5: Named rules (schema overrides project, deduped by id) -----------
-    # Start with project rules, then override/add schema rules
-    named_rules: dict[str, dict[str, Any]] = {}
-    for entry in (project.get("rules") or []):
-        if isinstance(entry, dict) and "id" in entry:
-            named_rules[entry["id"]] = entry
-
-    for entry in (schema.get("rules") or []):
-        if isinstance(entry, dict) and "id" in entry:
-            # Schema overrides project on same id
-            named_rules[entry["id"]] = entry
-
-    # All named rules are active.
-    active_named: list[str] = []
-    for entry in named_rules.values():
-        active_named.append(str(entry.get("rule", "")))
-
-    # ----------- Assemble in precedence order (highest first) -----------
-    merged: list[str] = []
-    merged.extend(extra)        # source 1
-    merged.extend(step_rules)   # source 2
-    merged.extend(phase_rules)  # source 3
-    merged.extend(active_named) # sources 4+5
-
-    return merged
-
-
-def _build_step_block(
-    step_id: str,
-    phase_def: dict[str, Any],
-    schema: dict[str, Any],
-    project: dict[str, Any],
-    repo_name: str,
-    state_yaml_path: str,
-) -> dict[str, Any]:
-    """
-    Build the per-step node block for state.yaml workflow_plan (ORC-63).
-
-    Emits: id, status, depends_on (when authored), agent, goal, inputs,
-    outputs, rules, repeat_until (when set). The implicit chain `depends_on`
-    is left absent here and applied by the topo-sort/promotion step in the
-    caller. verify is attached at the phase level, not per node.
-    """
+def _build_step_node(step_id: str, phase_def: dict[str, Any]) -> dict[str, Any]:
+    """Build the per-step node block: id, status, and optional depends_on/repeat_until."""
     step_entry = _step_entry_for_id(phase_def, step_id) or {}
-    contract_raw = _load_step_contract_raw(step_id, state_yaml_path)
 
-    # Defaults for missing contracts
-    agent = None
-    inputs: list[str] = []
-    outputs: list[str] = []
-    if contract_raw is not None:
-        agent = contract_raw.get("agent")
-        raw_inputs = contract_raw.get("inputs") or []
-        raw_outputs = contract_raw.get("outputs") or []
-        inputs = [str(x) for x in raw_inputs]
-        outputs = [str(x) for x in raw_outputs]
-
-    rules = _merge_rules(step_entry, contract_raw, phase_def, schema, project, repo_name)
-    goal = phase_def.get("goal", "")
-
-    # Build node with explicit key order (id/status first, then alphabetical).
-    block: dict[str, Any] = {
+    node: dict[str, Any] = {
         "id": step_id,
         "status": "pending",
-        "agent": agent,
-        "goal": goal,
-        "inputs": inputs,
-        "outputs": outputs,
-        "rules": rules,
     }
 
-    # Authored depends_on from the dict-form schema step entry (ORC-63).
     authored = step_entry.get("depends_on")
     if authored:
-        block["depends_on"] = [str(d) for d in authored]
+        node["depends_on"] = [str(d) for d in authored]
 
-    # repeat_until: from schema step entry OR contract, step entry takes precedence
-    repeat_until = step_entry.get("repeat_until") or (contract_raw.get("repeat_until") if contract_raw else None)
+    repeat_until = step_entry.get("repeat_until")
     if repeat_until:
-        block["repeat_until"] = repeat_until
+        node["repeat_until"] = repeat_until
 
-    # Statechart routing edges: on_success / on_failure / max_retries.
-    # Values are step ids, or the keyword "halt". Absent = default behavior.
     for edge_key in ("on_success", "on_failure", "max_retries"):
         val = step_entry.get(edge_key)
         if val is not None:
-            block[edge_key] = val
+            node[edge_key] = val
 
-    return block
-
-
-# Legacy name retained for design.md / task verify imports (ORC-77).
-_build_node_for_step = _build_step_block
+    return node
 
 
 def _topo_sort(nodes: list[dict[str, Any]], filtered_ids: set[str]) -> None:
@@ -287,7 +131,6 @@ def _topo_sort(nodes: list[dict[str, Any]], filtered_ids: set[str]) -> None:
     node_ids = [str(n.get("id", "")) for n in nodes]
     id_set = set(node_ids)
 
-    # Resolve effective depends_on for each node (authored or implicit chain).
     effective: dict[str, list[str]] = {}
     for idx, node in enumerate(nodes):
         nid = str(node.get("id", ""))
@@ -315,7 +158,6 @@ def _topo_sort(nodes: list[dict[str, Any]], filtered_ids: set[str]) -> None:
                 )
             kept.append(dep)
         effective[nid] = kept
-        # Write the effective edges back onto the node.
         if kept:
             node["depends_on"] = kept
         elif "depends_on" in node:
@@ -347,12 +189,6 @@ def _topo_sort(nodes: list[dict[str, Any]], filtered_ids: set[str]) -> None:
 
 
 def _write_yaml_stable(obj: Any, path: Path) -> None:
-    """
-    Write obj as YAML with stable, diffable output.
-
-    sort_keys=False preserves insertion order. Dict keys at the step level
-    are pre-sorted by the caller (_build_step_block uses alphabetical insertion).
-    """
     content = yaml.safe_dump(obj, sort_keys=False, default_flow_style=False, allow_unicode=True)
     path.write_text(content, encoding="utf-8")
 
@@ -368,25 +204,16 @@ def generate_plan(state_yaml_path: str) -> None:
 
     Public API. Returns None. Raises on unrecoverable errors.
     """
+    from orchestrator_next import parser as _parser
     state = _parser.load_state(state_yaml_path)
     schema_name = state.raw.get("schema", "")
-    slug = state.raw.get("slug", state.change_id)
 
     schema = _load_schema(schema_name)
-    project = _load_project(state.repo_root)
-    repo_name = (project.get("project") or {}).get("name", "") or slug
-
-    # Resolve schema phases
     resolved_phases = _resolve_phases(schema)
 
-    # Build the promoted workflow_plan in a fresh dict, preserving phase order.
-    # Topo-sort each phase BEFORE mutating anything written back, so a cycle
-    # aborts with state.yaml untouched.
     promoted: dict[str, Any] = {}
     for phase_name, phase_plan in state.raw.get("workflow_plan", {}).items():
         if isinstance(phase_plan, dict):
-            # Idempotent: a re-run sees the promoted `nodes` shape — re-derive
-            # the step id order from it. Otherwise read the seed `active` list.
             if "nodes" in phase_plan:
                 active_step_ids = [
                     str(n.get("id", ""))
@@ -403,31 +230,17 @@ def generate_plan(state_yaml_path: str) -> None:
             phase_def = _find_phase_def(resolved_phases, phase_name)
         except ValueError as e:
             print(f"WARNING: {e} — skipping phase", file=sys.stderr)
-            # Keep the phase block unchanged so we don't silently drop it.
             promoted[phase_name] = phase_plan
             continue
 
-        nodes: list[dict[str, Any]] = []
-        for step_id in active_step_ids:
-            block = _build_step_block(
-                step_id=step_id,
-                phase_def=phase_def,
-                schema=schema,
-                project=project,
-                repo_name=repo_name,
-                state_yaml_path=state_yaml_path,
-            )
-            nodes.append(block)
+        nodes = [_build_step_node(step_id, phase_def) for step_id in active_step_ids]
 
         filtered_ids = {
             (f.get("id") if isinstance(f, dict) else str(f))
             for f in filtered
         }
-        # Topo-sort: raises ValueError on a cycle or unknown-id edge BEFORE
-        # any state.yaml write. Mutates each node's effective depends_on.
         _topo_sort(nodes, filtered_ids)
 
-        # Resolve the phase verify block (workflow_plan override, else schema).
         verify_block = phase_plan.get("verify") if isinstance(phase_plan, dict) else None
         if verify_block is None:
             base_verify = phase_def.get("verify")
@@ -439,7 +252,6 @@ def generate_plan(state_yaml_path: str) -> None:
             phase_block["verify"] = verify_block
         promoted[phase_name] = phase_block
 
-    # All phases topo-sorted clean — now rewrite state.yaml in place.
     state_raw = dict(state.raw)
     state_raw["workflow_plan"] = promoted
     _write_yaml_stable(state_raw, Path(state_yaml_path))

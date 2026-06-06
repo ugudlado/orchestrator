@@ -54,43 +54,9 @@ def _supplement_legacy_outputs(
     payload: dict[str, Any],
     contract: StepContract | None,
 ) -> dict[str, Any]:
-    """Fill missing legacy output keys from artifacts list or output paths.
+    """No-op: contract.outputs is no longer declared; kept for call-site compat."""
+    return outputs
 
-    design-and-draft-artifacts agents often list paths under outputs but omit
-    ``updated_artifact_set`` (and sometimes ``artifacts``); record would reject
-    with missing_outputs even when design.md and tasks.yaml exist on disk.
-    """
-    if contract is None:
-        return outputs
-    out = dict(outputs)
-    if "updated_artifact_set" not in [s["name"] for s in contract.outputs]:
-        return out
-    cur = out.get("updated_artifact_set")
-    empty = cur is None or (hasattr(cur, "__len__") and len(cur) == 0)
-    if not empty:
-        return out
-
-    candidates: list[str] = []
-    artifacts = payload.get("artifacts")
-    if isinstance(artifacts, list):
-        candidates.extend(str(a) for a in artifacts if a is not None)
-    candidates.extend(_artifact_basenames_from_outputs(out))
-
-    if not candidates:
-        return out
-
-    out["updated_artifact_set"] = list(dict.fromkeys(candidates))
-    if not payload.get("artifacts"):
-        payload["artifacts"] = list(out["updated_artifact_set"])
-    sys.stderr.write(
-        "[record] supplemented outputs.updated_artifact_set "
-        "from payload outputs/artifacts\n"
-    )
-    return out
-
-
-# Declared outputs that may be an empty list (contract allows "no tickets synced").
-_OUTPUTS_ALLOW_EMPTY_LIST: frozenset[str] = frozenset({"backlog_tickets_synced"})
 
 
 def _supplement_learn_result(

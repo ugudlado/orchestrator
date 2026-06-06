@@ -7,12 +7,13 @@ This module is the *single* source of node readiness and the *single*
 next-node computation cannot drift.
 
 A plan node is an entry in `workflow_plan[phase].nodes`:
-  {id, depends_on?, status, agent, goal, inputs, outputs, rules}
+  {id, depends_on?, status}
 
-`depends_on` absent ⇒ an implicit chain edge on the declaration-order
-predecessor (the first node of a phase has no implicit edge).
+`depends_on` is always explicit — generate_plan writes it at init time.
+Absent means no dependencies (the node is unconditionally ready once
+its predecessors complete, or immediately for the first node).
 
-A node is *ready* when it is not `completed` and every entry in its effective
+A node is *ready* when it is not `completed` and every entry in its
 `depends_on` is `completed`.
 """
 from __future__ import annotations
@@ -35,19 +36,15 @@ def find_node(nodes: list[dict], node_id: str) -> dict | None:
 
 
 def effective_depends_on(nodes: list[dict], node_id: str) -> list[str]:
-    """Return the effective dependency ids for a node.
+    """Return the dependency ids for a node.
 
-    Authored `depends_on` is honored verbatim. Absent ⇒ the implicit single
-    chain edge on the declaration-order predecessor. The first node ⇒ `[]`.
+    generate_plan always writes explicit depends_on into state.yaml, so this
+    just reads the authored list. Absent means no dependencies.
     """
-    for idx, node in enumerate(nodes):
+    for node in nodes:
         if _node_id(node) == node_id:
             authored = node.get("depends_on")
-            if authored is not None:
-                return [str(d) for d in authored]
-            if idx == 0:
-                return []
-            return [_node_id(nodes[idx - 1])]
+            return [str(d) for d in authored] if authored else []
     return []
 
 

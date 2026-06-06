@@ -287,39 +287,3 @@ def test_seed_state_is_idempotent(tmp_path):
     assert r2.stderr.strip(), (
         "Expected a stderr notice on idempotent skip (FR-3: 'prints a single line to stderr')"
     )
-
-
-# ---------------------------------------------------------------------------
-# test_seed_state_fails_without_project_yaml
-# ---------------------------------------------------------------------------
-
-
-def test_seed_state_fails_without_project_yaml(tmp_path):
-    """
-    Running seed-state.sh from a repo with no spec/project.yaml exits non-zero
-    with a clear stderr message naming the missing file (FR-4 / AC-5).
-    """
-
-    slug = "orc-27-no-project"
-    schema = "bugfix"
-    fake_repo = tmp_path / "repo-no-project"
-    worktree_base = tmp_path / "wt"
-    fake_repo.mkdir(parents=True)
-    # Deliberately do NOT write spec/project.yaml
-
-    result = _run_seed(
-        slug,
-        schema,
-        repo_root=fake_repo,
-        worktree_base=worktree_base,
-    )
-
-    assert result.returncode != 0, (
-        "seed-state.sh should have exited non-zero when spec/project.yaml is missing, "
-        f"but exited {result.returncode}"
-    )
-    assert "project.yaml" in result.stderr.lower() or "project.yaml" in result.stdout.lower(), (
-        f"Expected error message naming 'project.yaml', got:\n"
-        f"stdout: {result.stdout!r}\n"
-        f"stderr: {result.stderr!r}"
-    )

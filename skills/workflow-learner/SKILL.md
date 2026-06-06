@@ -166,8 +166,7 @@ Classify each finding and route it to the right handler.
 
 **Routing targets:**
 
-- **Agent prompts (base)** → `skills/<name>/SKILL.md` — fleet-shared identity; read for validation only during learn routing; never written by the learn loop
-- **Agent prompt learnings (repo overlay)** → `$REPO_ROOT/.orchestrator/agents/<name>.md` — repo-scoped, stamped deltas appended at dispatch
+- **Agent prompts** → `skills/<name>/SKILL.md` — repo-scoped skill file; `agent_improvement` learnings are appended here directly
 - **Workflow rules** → step contracts in `$ORCHESTRATOR_HOME/config/steps/` (deterministic, enforced at execution time, shared across repos) — or `.orchestrator/` override for repo-specific shape changes
 - **Project-specific learnings** → `spec/project.yaml` `learnings:` section (agent-agnostic, persists across sessions, repo-scoped)
 - **Never write to CLAUDE.md** — it's a pointer file only.
@@ -177,11 +176,11 @@ Classify each finding and route it to the right handler.
 Every finding belongs to exactly one of three buckets. The axes are
 **who owns the miss**, not _what the fix looks like_.
 
-| Bucket                 | Owner of the miss                                  | Target                                                                                                                     |
-| ---------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `agent_improvement`    | Agent ignored or skipped an existing contract rule | `$REPO_ROOT/.orchestrator/agents/<name>.md` — repo-scoped overlay (base `skills/<name>/SKILL.md` validated, never written) |
-| `workflow_improvement` | Step/phase/gate is missing or wrong                | Step contract (global by default) or `.orchestrator/` override                                                             |
-| `project_learning`     | Tech-stack / command / domain / path fact needed   | `spec/project.yaml` `learnings[]` or `rules[]`                                                                             |
+| Bucket                 | Owner of the miss                                  | Target                                                                              |
+| ---------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `agent_improvement`    | Agent ignored or skipped an existing contract rule | `skills/<name>/SKILL.md` — append stamped learning block directly to the skill file |
+| `workflow_improvement` | Step/phase/gate is missing or wrong                | Step contract (global by default) or `.orchestrator/` override                      |
+| `project_learning`     | Tech-stack / command / domain / path fact needed   | `spec/project.yaml` `learnings[]` or `rules[]`                                      |
 
 **Classification order** — check in this order, first match wins. The
 order matters: most misrouting happens when an agent miss gets rewritten
@@ -223,11 +222,10 @@ tool-agnostic.
 
 After classification:
 
-- `agent_improvement` → append a stamped block to `$REPO_ROOT/.orchestrator/agents/<name>.md`.
+- `agent_improvement` → append a stamped block to `skills/<name>/SKILL.md`.
   (1) Validate that `skills/<name>/SKILL.md` exists; if not, skip the write and log it.
-  (2) Scaffold the overlay with a one-line generated-overlay header if the file is absent.
-  (3) Append the learning with `<!-- learned: YYYY-MM-DD, source: FEATURE-ID, cycle: N, repo: NAME -->`
-  metadata on the block. Leave `skills/<name>/SKILL.md` unchanged — the shared base stays pristine.
+  (2) Append the learning with `<!-- learned: YYYY-MM-DD, source: FEATURE-ID, cycle: N, repo: NAME -->`
+  metadata on the block.
 - `workflow_improvement` → edit `$STEPS_DIR/<step>/prompt.md` (the worktree's
   own config/steps/ directory). Learned rule gets `<!-- learned: ... -->` metadata.
   Changes land on the feature branch and go through merge review before main.
@@ -241,13 +239,11 @@ After classification:
 - Identify which agent owned the skipped step (reviewer, developer,
   architect, etc.) — check `state.yaml` step_history for the agent
   assigned to the failing step.
-- Validate `skills/<name>/SKILL.md` exists; if not, skip the overlay write and log it.
-- Append a stamped learning block to `$REPO_ROOT/.orchestrator/agents/<name>.md`
-  (scaffold the overlay with a header on first write) to make the existing
+- Validate `skills/<name>/SKILL.md` exists; if not, skip the write and log it.
+- Append a stamped learning block to `skills/<name>/SKILL.md` to make the existing
   requirement harder to skip: add an explicit checklist item, name the artifact
   to inspect, or move the check earlier in the prompt.
-- Leave `skills/<name>/SKILL.md` unchanged and do NOT add a rule to the step
-  contract — the contract already has one.
+- Do NOT add a rule to the step contract — the contract already has one.
 
 **Workflow issues** (schema gaps, step contract bugs, hook problems):
 
@@ -268,7 +264,7 @@ After classification:
 - Apply the §4a classifier first. The bucket tells you WHERE to write;
   the routing table below (for `workflow_improvement` only) tells you
   WHICH step contract the rule belongs in.
-- `agent_improvement` → append to `$REPO_ROOT/.orchestrator/agents/<name>.md` — skip this table entirely
+- `agent_improvement` → append to `skills/<name>/SKILL.md` — skip this table entirely
 - `workflow_improvement` → `$STEPS_DIR/<step>/prompt.md`
 - `project_learning` → append to `spec/project.yaml` `learnings[]` — skip
   this table entirely (no step contract involved)
@@ -316,23 +312,23 @@ learned rules based on the just-completed feature's step retry data.
    A step with no retries has count 0.
 3. Build lifecycle scan targets as a union:
    - Step-contract targets: all `$ORCHESTRATOR_HOME/config/steps/*.yaml` files.
-   - Agent-overlay targets: all `$REPO_ROOT/.orchestrator/agents/*.md` files.
+   - Skill targets: all `skills/*/SKILL.md` files.
 4. For each target file, grep for lines matching `<!-- learned:`. For each learned rule:
    - Parse the metadata fields: `learned`, `source`, `cycle`, `hits` (default 0), `misses` (default 0).
    - Determine attribution key:
      - For step-contract targets, derive `step_id` from filename (e.g., `execute-one-task.yaml` → `execute-one-task`).
-     - For agent-overlay targets, map to the owning agent's step executions from `step_history[]` and use the same retry-derived signal.
+     - For skill targets, map to the owning agent's step executions from `step_history[]` and use the same retry-derived signal.
    - If the attributed execution has retries == 0: increment `hits` by 1.
    - If the attributed execution has retries > 0: increment `misses` by 1.
    - If the attributed step/agent was not executed in this feature: skip — do not update counters.
 5. Rewrite only the inline learned metadata comment with updated counters. Do not rewrite non-learned text.
-6. Never mutate manual overlay prose without `<!-- learned:` metadata.
-7. Log: `[learn] Rule effectiveness: updated N rules across M step contracts/agent overlays`
+6. Never mutate permanent (non-stamped) skill prose.
+7. Log: `[learn] Rule effectiveness: updated N rules across M step contracts/skills`
 
 ### 5b-decay. Rule Decay Evaluation (every 5th invocation)
 
 This sub-step runs only when the current cycle count is a multiple of 5. It scans all
-step contracts and `.orchestrator/agents/*.md` overlays for ineffective learned rules
+step contracts and `skills/*/SKILL.md` files for ineffective learned rules
 and removes flagged rules.
 
 **Trigger check**:
@@ -345,7 +341,7 @@ and removes flagged rules.
 
 1. Build lifecycle scan targets as a union:
    - Step-contract targets: all `$ORCHESTRATOR_HOME/config/steps/*.yaml` files.
-   - Agent-overlay targets: all `$REPO_ROOT/.orchestrator/agents/*.md` files.
+   - Skill targets: all `skills/*/SKILL.md` files.
 2. For each target file, grep for lines matching `<!-- learned:` to collect all learned rules.
 3. For each learned rule found, parse the metadata:
    - `date` from `learned: YYYY-MM-DD`
@@ -376,7 +372,7 @@ and removes flagged rules.
 3. For each flagged rule:
    - Remove or resolve the flagged rule from the step contract
    - ONLY remove rules with `<!-- learned:` metadata — never touch permanent rules (no metadata comment)
-4. In mixed overlay files, only remove learned-stamped entries; never touch manual overlay prose.
+4. In skill files, only remove learned-stamped entries; never touch permanent skill prose.
 5. Log: `[learn] Rule decay: scanned N rules, flagged M for removal, K for resolution`
 
 ### 5c. Adaptive Quality Bar (every invocation)

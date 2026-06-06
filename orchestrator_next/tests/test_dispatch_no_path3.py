@@ -83,64 +83,6 @@ def _run_next(state_yaml_path: str, steps_dir: str, tmp_dir: str) -> subprocess.
 
 
 # ---------------------------------------------------------------------------
-# (a) ContractDispatchError when contract has neither agent: nor run:
-# ---------------------------------------------------------------------------
-
-def test_contract_missing_agent_and_run_exits_3(tmp_path):
-    """dispatch raises ContractDispatchError when contract has neither agent: nor run:."""
-    steps_dir = tmp_path / "steps"
-    steps_dir.mkdir()
-
-    # Contract with no agent: and no run: -- path-3 territory.
-    # We write a prompt.md so the parser doesn't fail at load time;
-    # dispatch should raise ContractDispatchError (step_contract_missing_run).
-    import pathlib
-    step_dir = pathlib.Path(str(steps_dir)) / "my-step"
-    step_dir.mkdir(parents=True, exist_ok=True)
-    (step_dir / "contract.yaml").write_text(textwrap.dedent("""\
-        id: my-step
-        version: 1
-        kind: agent
-        instruction: Do something.
-        inputs: []
-        outputs: []
-        rules: []
-    """))
-    (step_dir / "prompt.md").write_text("Do something.\n")
-
-    state_yaml_path = _write_state_yaml(str(tmp_path), """\
-        schema: feature
-        change_id: test-no-path3
-        phase: implement
-        repo_root: /tmp/test-repo
-        workflow_dir: /tmp
-        step_history: []
-        workflow_plan:
-          implement:
-            nodes:
-              - id: my-step
-                status: pending
-                agent: null
-                goal: ""
-                inputs: []
-                outputs: []
-                rules: []
-            filtered: []
-    """)
-    _write_plan_yaml(str(tmp_path), "my-step")
-
-    result = _run_next(state_yaml_path, str(steps_dir), str(tmp_path))
-
-    assert result.returncode == 3, (
-        f"Expected exit 3 (ContractDispatchError), got {result.returncode}\n"
-        f"stdout: {result.stdout!r}\nstderr: {result.stderr!r}"
-    )
-    assert "step_contract_missing_run" in result.stderr, (
-        f"Expected 'step_contract_missing_run' in stderr, got: {result.stderr!r}"
-    )
-
-
-# ---------------------------------------------------------------------------
 # (b) Agent contract: response has `agent` key and NO `action` key
 # ---------------------------------------------------------------------------
 
