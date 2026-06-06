@@ -31,7 +31,6 @@ from orchestrator_next.parser import (
     phase_nodes,
     safe_write_yaml as _safe_write_yaml,
 )
-from orchestrator_next.config import project_yaml_path as _project_yaml_path
 from orchestrator_next.step_runner import step_directory as _step_directory
 
 
@@ -144,73 +143,6 @@ def _node_step_context(state: State, step_id: str) -> dict[str, Any]:
     node = readiness.find_node(phase_nodes(state, state.phase), step_id)
     return dict(node) if node is not None else {"id": step_id}
 
-
-def _load_learnings(state_raw: dict[str, Any]) -> list[dict[str, Any]]:
-    """Read `learnings[]` from the repo's project.yaml. Empty list on any failure.
-
-    project.yaml learnings are already repo-scoped — the file IS the repo. So
-    no repo: filtering here (that lives in contract-rule metadata, not here).
-    This just loads the raw list; relevance filtering is _relevant_learnings.
-    """
-    path = _project_yaml_path(state_raw)
-    if path is None:
-        return []
-    try:
-        data = yaml.safe_load(path.read_text()) or {}
-    except (yaml.YAMLError, OSError) as exc:
-        sys.stderr.write(f"[dispatch] warning: could not read learnings from {path}: {exc}\n")
-        return []
-    learnings = data.get("learnings") if isinstance(data, dict) else None
-    if not isinstance(learnings, list):
-        return []
-    items = [item for item in learnings if isinstance(item, dict)]
-    # YAML parses `learned: 2026-04-09` into a date object, which is not JSON
-    # serializable — the action payload must be. Round-trip through json with
-    # default=str to flatten dates (and any other non-JSON scalar) to strings.
-    return json.loads(json.dumps(items, default=str))
-
-
-def _relevant_learnings(
-    learnings: list[dict[str, Any]], agent_name: str, phase: str
-) -> list[dict[str, Any]]:
-    """Select which project learnings to inject into a given agent's context.
-
-    Policy (tag-and-filter, untagged = universal):
-      - Exclude `kind: informational` — reference data (e.g. external-benchmark-
-        references), not behavioral guidance for an agent.
-      - If a learning carries an optional `agents:` list, include it only when
-        `agent_name` is in that list. If it carries `phases:`, include only when
-        `phase` matches. A learning with both must match both.
-      - Untagged learnings (no `agents:` and no `phases:`) are universal —
-        injected for every agent. This degrades to inject-all today, since no
-        learning is tagged yet, and tightens automatically as the learner adds
-        tags going forward.
-
-    Order is preserved. Returns [] to inject nothing.
-    """
-    selected: list[dict[str, Any]] = []
-    for item in learnings:
-        if item.get("kind") == "informational":
-            continue
-        agents = item.get("agents")
-        if isinstance(agents, list) and agents and agent_name not in agents:
-            continue
-        phases = item.get("phases")
-        if isinstance(phases, list) and phases and phase not in phases:
-            continue
-        selected.append(item)
-    return selected
-
-
-def _load_learnings_safe(
-    state_raw: dict[str, Any], agent: str | None, phase: str
-) -> list[dict[str, Any]]:
-    """Load and filter learnings, degrading to [] on any failure."""
-    try:
-        return _relevant_learnings(_load_learnings(state_raw), agent, phase)
-    except Exception as exc:  # noqa: BLE001
-        sys.stderr.write(f"[dispatch] warning: learnings injection skipped: {exc}\n")
-        return []
 
 
 def _persist_node_status(
@@ -329,7 +261,6 @@ def _handle_resume(
     action["is_resume"] = True
     action["started_at"] = last.started_at
     action["agent"] = contract.agent
-    action["learnings"] = _load_learnings_safe(state.raw, contract.agent, state.phase)
     return action, 0
 
 
@@ -372,10 +303,7 @@ def _dispatch_fresh(
     action["pre"] = contract.pre
     action["post"] = contract.post
     if contract.agent:
-        # Learnings injection is best-effort: a failure here must never block a
-        # spawn. Degrade to no learnings rather than taking down the dispatcher.
         action["agent"] = contract.agent
-        action["learnings"] = _load_learnings_safe(state.raw, contract.agent, state.phase)
     elif contract.run:
         # Inline script executed synchronously by CLI — no JSON emitted, exit 0
         action["run"] = contract.run
