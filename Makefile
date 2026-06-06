@@ -65,7 +65,7 @@ stale: ## Detect stale/abandoned workflow state directories
 	fi
 
 test: ## Run orchestrator_next unit tests
-	@python3 -m unittest discover -s orchestrator_next/tests
+	@poetry run pytest -q
 
 lint-contracts: ## HL-287 M2: every step contract must declare inputs: and outputs:
 	@missing=0; \

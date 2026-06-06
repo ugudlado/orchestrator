@@ -40,6 +40,7 @@ spec/changes/*/plan.yaml
 .pi/
 
 *.lock
+!poetry.lock
 
 # Python virtualenvs (e.g. ui/dashboard/.venv)
 .venv/

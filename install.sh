@@ -190,10 +190,13 @@ setup_python_deps() {
     exit 1
   fi
 
-  # Gate: only install if any of the three packages is missing.
-  if ! python3 -c "import yaml, ruamel.yaml" 2>/dev/null; then
-    echo "Installing Python dependencies (pyyaml ruamel.yaml)..."
-    pip install --user pyyaml ruamel.yaml
+  # Prefer poetry (uses pyproject.toml lockfile); fall back to pip.
+  if command -v poetry >/dev/null 2>&1 && [ -f "$(dirname "$0")/pyproject.toml" ]; then
+    echo "Installing Python dependencies via poetry..."
+    poetry install --no-interaction --no-root 2>/dev/null || poetry install --no-interaction
+  elif ! python3 -c "import yaml, ruamel.yaml, pydantic" 2>/dev/null; then
+    echo "Installing Python dependencies (pyyaml ruamel.yaml pydantic)..."
+    pip install --user pyyaml ruamel.yaml pydantic
   fi
 }
 
