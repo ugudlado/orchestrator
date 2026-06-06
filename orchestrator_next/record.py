@@ -22,7 +22,6 @@ from orchestrator_next import readiness
 from orchestrator_next.pricing import _compute_cost_usd
 from orchestrator_next.payload import (
     _coerce_payload_outputs,
-    _supplement_legacy_outputs,
     _supplement_learn_result,
     _supplement_backlog_tickets_synced,
     _merge_evidence_block,
@@ -385,7 +384,6 @@ def _validate_payload(
     step_id, phase, status = _validate_shape(payload)
     outputs = _coerce_payload_outputs(payload.get("outputs"))
     contract = _load_contract(step_id, state_yaml_path, (state_raw or {}).get("workflow_plan"))
-    outputs = _supplement_legacy_outputs(outputs, payload, contract)
     outputs = _supplement_learn_result(outputs, payload, step_id, status)
     outputs = _supplement_backlog_tickets_synced(outputs, step_id, status)
     _validate_outputs(step_id, status, outputs, contract, state_raw or {})

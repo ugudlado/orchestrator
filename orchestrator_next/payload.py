@@ -2,11 +2,7 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from orchestrator_next.parser import StepContract
+from typing import Any
 
 
 def _coerce_payload_outputs(raw: Any) -> dict[str, Any]:
@@ -19,44 +15,6 @@ def _coerce_payload_outputs(raw: Any) -> dict[str, Any]:
             "treating as empty\n"
         )
     return {}
-
-
-def _artifact_basenames_from_outputs(outputs: dict[str, Any]) -> list[str]:
-    """Infer artifact filenames from COMPLETION output keys/values."""
-    skip_keys = frozenset({
-        "updated_artifact_set",
-        "design_direction",
-        "complexity",
-        "discovery_result",
-    })
-    names: list[str] = []
-    for key, val in outputs.items():
-        if key in skip_keys:
-            continue
-        if isinstance(key, str) and "." in key and not key.startswith("{"):
-            names.append(Path(key).name)
-            continue
-        if isinstance(val, str) and val.strip():
-            candidate = Path(val.strip()).name
-            if "." in candidate:
-                names.append(candidate)
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for name in names:
-        if name not in seen:
-            seen.add(name)
-            ordered.append(name)
-    return ordered
-
-
-def _supplement_legacy_outputs(
-    outputs: dict[str, Any],
-    payload: dict[str, Any],
-    contract: StepContract | None,
-) -> dict[str, Any]:
-    """No-op: contract.outputs is no longer declared; kept for call-site compat."""
-    return outputs
-
 
 
 def _supplement_learn_result(

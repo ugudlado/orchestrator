@@ -96,11 +96,7 @@ def _get_last_entry(step_history: list[StepHistoryEntry]) -> StepHistoryEntry | 
 
 
 def _node_step_context(state: State, step_id: str) -> dict[str, Any]:
-    """Return the plan node dict for (current phase, step_id) as step_context.
-
-    Per-step data lives on the node in `state.workflow_plan[phase].nodes`.
-    A legacy `active:[ids]` block yields a synthesized bare node (back-compat read path).
-    """
+    """Return the plan node dict for (current phase, step_id) as step_context."""
     node = readiness.find_node(phase_nodes(state, state.phase), step_id)
     return dict(node) if node is not None else {"id": step_id}
 
@@ -113,11 +109,7 @@ def _persist_node_status(
     status: str,
     state_raw: dict | None = None,
 ) -> None:
-    """Mark a node's status in state.yaml on disk via readiness.mark_node_status.
-
-    A narrow state.yaml writer for the dispatch-time `in_progress` transition.
-    No-op for a legacy `active:[ids]` block (no node dicts to mutate).
-    """
+    """Mark a node's status to in_progress in state.yaml on disk."""
     path = Path(state_yaml_path)
     try:
         with open(path, "rb") as f:
@@ -254,8 +246,6 @@ def _dispatch_fresh(
         if step_contract_dir:
             action["step_contract_dir"] = step_contract_dir
 
-    # Mark the chosen node in_progress in state.yaml (the one status mutator).
-    # No-op for a legacy active:[ids] block.
     _persist_node_status(state_yaml_path, state.phase, next_step_id, "in_progress", state_raw=state.raw)
     return action, 0
 

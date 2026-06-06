@@ -127,8 +127,7 @@ def mark_node_status(
 ) -> None:
     """Set `status` on the named node in `state_raw.workflow_plan[phase].nodes`.
 
-    The single node-status mutator. No-op when the phase or node is absent
-    (a legacy `active:[ids]` block has no node dicts to mutate).
+    The single node-status mutator. No-op when the phase or node is absent.
     """
     phase_plan = (state_raw.get("workflow_plan") or {}).get(phase)
     if not isinstance(phase_plan, dict):

@@ -45,9 +45,7 @@ def _write_contract(steps_dir, step_id: str, data: dict):
 # ---------------------------------------------------------------------------
 
 class TestPhaseNodes:
-    """Tests for parser.phase_nodes(state, phase) — single read path over the
-    new `nodes` shape with a back-compat read of a legacy `active:[ids]` block.
-    """
+    """Tests for parser.phase_nodes(state, phase)."""
 
     def _write_state(self, tmp_path, data: dict):
         p = tmp_path / "state.yaml"
