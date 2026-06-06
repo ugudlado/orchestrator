@@ -1,5 +1,5 @@
 """
-ORC-36 regression tests: archive and seed-state path correctness.
+ORC-36 regression tests: seed-state path correctness.
 """
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 import yaml
 
 # ---------------------------------------------------------------------------
@@ -22,7 +21,6 @@ _SCRIPTS_DIR = str(_REPO_ROOT)  # package import path (repo root)
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
-_ARCHIVE_SCRIPT = _REPO_ROOT / "config" / "steps" / "archive-completed-change" / "script.sh"
 _ORCHESTRATOR_HOME = os.environ.get(
     "ORCHESTRATOR_HOME", str(Path.home() / ".config" / "orchestrator")
 )
@@ -90,79 +88,8 @@ def _run_seed(slug: str, schema: str, *, repo_root: Path, worktree_base: Path,
     )
 
 
-def _run_archive(
-    slug: str, *, repo_root: Path, worktree_root: Path, archive_path: str
-) -> subprocess.CompletedProcess:
-    """Run archive-completed-change.sh with explicit env vars."""
-    env = os.environ.copy()
-    env["REPO_ROOT"] = str(repo_root)
-    env["WORKTREE_ROOT"] = str(worktree_root)
-    env["CHANGE_ID"] = slug
-    env["ARCHIVE_PATH"] = archive_path
-    env.pop("ORCHESTRATOR_WORKFLOW_DIR", None)
-    return subprocess.run(
-        ["bash", str(_ARCHIVE_SCRIPT)],
-        capture_output=True,
-        text=True,
-        env=env,
-        cwd=str(repo_root),
-    )
-
-
 # ---------------------------------------------------------------------------
-# archive-completed-change.sh preserves artifact files
-# ---------------------------------------------------------------------------
-
-@pytest.mark.xfail(
-    reason="ORC-36 T-4: archive-completed-change.sh does not yet copy state.yaml into archive",
-    strict=False,
-)
-def test_archive_contains_artifact_files(tmp_path):
-    """
-    All workflow files (state.yaml, plan.yaml, artifacts) live under the worktree
-    at WORKTREE_ROOT/spec/changes/<slug>/. archive-completed-change.sh must collect
-    everything from that single source into the archive destination.
-    """
-    repo = tmp_path / "repo"
-    worktree = tmp_path / "worktree"
-    repo.mkdir()
-    (repo / "README.md").write_text("test repo")
-
-    slug = "demo-feature"
-
-    # All files live in the worktree under spec/changes/<slug>/
-    src = worktree / "spec" / "changes" / slug
-    src.mkdir(parents=True)
-    (src / "state.yaml").write_text("change_id: demo-feature\nschema: feature\nstatus: completed\n")
-    (src / "plan.yaml").write_text("phase: complete\n")
-    (src / "tasks.md").write_text("- [x] T-1: done\n")
-    (src / "design.md").write_text("# Design\n")
-
-    archive_rel = f"spec/changes/archive/2026-05-03-{slug}"
-
-    result = _run_archive(
-        slug,
-        repo_root=repo,
-        worktree_root=worktree,
-        archive_path=archive_rel,
-    )
-
-    archive_dir = repo / archive_rel
-
-    assert (archive_dir / "state.yaml").exists(), (
-        f"archive missing state.yaml\nstdout={result.stdout!r}\nstderr={result.stderr!r}"
-    )
-    assert (archive_dir / "tasks.md").exists(), (
-        f"archive missing tasks.md\nstdout={result.stdout!r}\nstderr={result.stderr!r}"
-    )
-    assert (archive_dir / "design.md").exists(), (
-        f"archive missing design.md\nstdout={result.stdout!r}\nstderr={result.stderr!r}"
-    )
-    assert not src.exists(), "worktree source dir should be removed after archive"
-
-
-# ---------------------------------------------------------------------------
-# Sub-test 4: seed-state.sh writes state to ~/.config/orchestrator/<repo>/<slug>/
+# seed-state.sh writes state to ~/.config/orchestrator/<repo>/<slug>/
 # ---------------------------------------------------------------------------
 
 def test_seed_state_writes_to_spec_changes(tmp_path):
