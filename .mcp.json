@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "backlog": {
+      "command": "backlog",
+      "args": ["mcp", "start"],
+      "env": {
+        "BACKLOG_URL": "${BACKLOG_URL}",
+        "BACKLOG_TOKEN": "${BACKLOG_TOKEN}"
+      }
+    }
+  }
+}

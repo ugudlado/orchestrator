@@ -28,6 +28,9 @@ spec/changes/*/plan.yaml
 
 .env
 .mcp.json
+# Tracked exception: contains only ${VAR} placeholders (no secrets); must clone
+# into cloud sessions so the backlog MCP server exists there. See docs/cloud-environment.md.
+!.mcp.json
 .pricing-cache.json
 
 # Cross-repo metrics runtime artifacts (per-machine, never gitted)

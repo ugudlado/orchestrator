@@ -633,6 +633,7 @@ def run_cmd(argv: list[str]) -> int:
     ticket_id = ""
     schema = "feature"
     repo_arg = ""
+    seed_only = False
     flag_overrides: list[str] = []
     agent_route_flags: list[str] = []
     agents_config_arg = ""
@@ -649,8 +650,13 @@ def run_cmd(argv: list[str]) -> int:
             agents_config_arg = args.pop(0)
         elif a == "--routes-override":
             routes_override_arg = args.pop(0)
+        elif a == "--seed-only":
+            # Seed state.yaml and stop — do NOT drive. For external drivers (e.g. a
+            # Claude Code cloud session) that walk next/done themselves instead of
+            # letting the engine spawn per-step subprocesses. See DRIVE.md.
+            seed_only = True
         elif a in ("--help", "-h"):
-            _log("Usage: orchestrator run <ticket-id> [--schema S] [--repo PATH] [flag=value ...]")
+            _log("Usage: orchestrator run <ticket-id> [--schema S] [--repo PATH] [--seed-only] [flag=value ...]")
             return 7
         elif a.startswith("-"):
             _log(f"ERROR: unknown option: {a}")
@@ -706,6 +712,13 @@ def run_cmd(argv: list[str]) -> int:
             _log(f"Resuming complete on archived state: {state_yaml_path}")
     if not state_yaml_path:
         state_yaml_path = _seed_state(slug, schema, repo_root, flag_overrides)
+
+    # --seed-only: stop here. The caller (external driver) walks next/done itself.
+    # Print the path on its own final line so callers can `tail -1` it.
+    if seed_only:
+        _log(f"seeded (seed-only): {state_yaml_path}")
+        print(state_yaml_path)
+        return 0
 
     # models.yaml resolution (override > repo > global), mirrors run-workflow.sh.
     models_yaml = os.environ.get("ORCHESTRATOR_MODELS_CONFIG", "")
