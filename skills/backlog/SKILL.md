@@ -195,15 +195,21 @@ Always `search` before creating to avoid filing a duplicate of existing work.
 Two layers. You rarely write these — mostly you read `statuses` to know the valid
 lane names before a transition.
 
-| Layer   | Location                       | Controls                             |
-| ------- | ------------------------------ | ------------------------------------ |
-| Project | `backlog/config.yml` (in repo) | task prefix, statuses, labels        |
-| Machine | `~/.config/backlog/config.yml` | `globalStore` path, machine defaults |
+| Layer   | Location                       | Controls                                      |
+| ------- | ------------------------------ | --------------------------------------------- |
+| Project | `backlog/config.yml` (in repo) | task prefix, statuses, labels                 |
+| Machine | `~/.config/backlog/config.yml` | `globalStore`, `backlog_url`, `backlog_token` |
 
-```bash
-backlog config get statuses
-backlog config list
+Remote server (CLI + MCP share this):
+
+```yaml
+# ~/.config/backlog/config.yml
+globalStore: ~/.config/backlog/workspaces
+backlog_url: http://your-server:6420
+backlog_token: your-secret-token # optional
 ```
+
+Env vars `BACKLOG_URL` and `BACKLOG_TOKEN` override config when set.
 
 ---
 
