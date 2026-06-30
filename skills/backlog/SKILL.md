@@ -36,6 +36,19 @@ drift out of sync.
 command -v backlog || echo "not installed — run: npm i -g backlog.md"
 ```
 
+**Cloud sessions only — bypass the sandbox proxy.** When the backlog backend is
+remote (`BACKLOG_URL` set), the cloud container's HTTP proxy drops the host and
+the CLI fails with "socket connection was closed unexpectedly". Unset the proxy
+for backlog commands — the CLI's only upstream is the backlog host, so this is safe:
+
+```bash
+https_proxy="" http_proxy="" HTTPS_PROXY="" HTTP_PROXY="" backlog task list --plain
+```
+
+Prefix **every** `backlog` command this way in a cloud session. (Local sessions need
+no prefix.) `NO_PROXY` does **not** work here — the sandbox enforces the proxy at a
+level that ignores `NO_PROXY`, so unsetting the proxy vars inline is the only way.
+
 Add `--plain` to any read command (`list`, `view`, `search`) for scriptable text
 instead of the interactive TUI. In an agent context you almost always want `--plain`.
 
