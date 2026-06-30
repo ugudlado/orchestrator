@@ -17,15 +17,15 @@ orchestrator/
 │   ├── scripts/                  # Workflow driver scripts
 │   ├── steps/                    # Step directories (contract.yaml + prompt.md or script.sh)
 │   └── workflows/*.yaml          # Workflow schemas
-├── skills/*/SKILL.md             # Skills (includes agent definitions)
-├── skills/*.md                   # Skill dispatchers (entry points)
+├── skills/*/SKILL.md             # Skills (entry points + agent definitions)
 ├── spec/
 │   ├── project.yaml              # Repo-specific config
-│   └── changes/<slug>/**         # Active feature artifacts
-│       └── archive/              # Completed features
+│   └── changes/archive/          # Completed features (active state lives in ~/.workflows/<slug>/)
 ├── tests/                        # Workflow validation tests
 └── config/pricing.yaml           # Model pricing rates (USD/MTok)
 ```
+
+Active workflow state lives in `~/.workflows/<slug>/state.yaml`, not under `spec/changes/`. Archived runs move to `spec/changes/archive/`.
 
 ### Quick Start
 
@@ -38,7 +38,8 @@ orchestrator run HL-287 --schema feature
 # Alternative: specify a different repo path
 orchestrator run HL-287 --repo /path/to/repo
 
-# Complete phase only (after implementation)
+# Complete phase only (after implementation) — "complete" is a workflow schema name,
+# dispatched via the same <workflow> <ticket-id> form as "feature"/"bugfix"
 orchestrator complete HL-287
 ```
 
@@ -95,9 +96,10 @@ step_history: # Terminal steps recorded in metrics
 - autopilot-must-complete: Never skip complete phase (learn + metrics)
 - metrics-db-derived: Cross-repo metrics derived at bootstrap time
 - specify-phase-scope-churn-cost: Front-load scope constraints in description
-- worktree-state-dir-path: State dir is spec/changes/<id>/, not worktree root
+- state-dir-location: Active state lives in ~/.workflows/<slug>/state.yaml, not spec/changes/<id>/ or worktree root
 - worktree-branch-sync: Check branch divergence before merge phase
 - bash-fragility-prefer-python-for-new-code: Python for YAML/state logic
+- orchestrator-next-simplified (Jun 2026): No typed I/O, no repeat_until loop, no flat-file contracts — all 21 step contracts are directory-form (contract.yaml + prompt.md or script.sh). See docs/simplification-june-2026.md.
 ```
 
 ### Quality Gates
@@ -129,15 +131,16 @@ quality_bar:
 
 ### CLI Reference
 
-| Command                           | Description                       |
-| --------------------------------- | --------------------------------- |
-| `orchestrator run <id>`           | Run full workflow from ticket     |
-| `orchestrator complete <id>`      | Complete phase + merge            |
-| `orchestrator next <state.yaml>`  | Dispatch next step                |
-| `orchestrator done <state.yaml>`  | Append step event (JSON on stdin) |
-| `orchestrator graph <state.yaml>` | Render Mermaid DAG                |
-| `orchestrator expand-plan`        | Append task-nodes to plan         |
-| `orchestrator doctor`             | Run diagnostics                   |
+| Command                                       | Description                                                                                                              |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `orchestrator run <id>`                       | Run full workflow from ticket                                                                                            |
+| `orchestrator complete <id>`                  | Run the "complete" workflow schema (verify, sign-off, merge, archive) — same dispatch path as `run`, not a distinct verb |
+| `orchestrator next <state.yaml>`              | Dispatch next step                                                                                                       |
+| `orchestrator done <state.yaml>`              | Append step event (JSON on stdin)                                                                                        |
+| `orchestrator graph <state.yaml>`             | Render Mermaid DAG                                                                                                       |
+| `orchestrator validate-workflow <schema>`     | Validate a workflow schema file                                                                                          |
+| `orchestrator reset-step <state.yaml> <step>` | Reset a step for re-run                                                                                                  |
+| `orchestrator doctor`                         | Run diagnostics                                                                                                          |
 
 ### Skills Entry Points
 
@@ -145,16 +148,20 @@ Skills are the interface to workflow actions:
 
 - `/orchestrate` → Shell out to `orchestrator run <id> --schema <name>` (in-process dispatch loop in `orchestrator_next/run_loop.py`)
 - `/specify` → Create specification artifacts
-- `/diagnose` → Plan approach, select tech stack
 - `/implement` → Execute implementation phase
-- `/complete` → Verify, sign-off, merge, archive
+- `/complete-feature` → Verify, sign-off, merge, archive
 - `/autopilot` → Self-improving iteration (includes complete phase)
-- `/developer` → Claim & implement next dev ticket
-- `/reviewer` → Claim & review next code review ticket
 - `/backlog-manager` → Task lifecycle operations
 - `/linear` → Linear issue management (if configured)
 - `/context-hub` → Curated library documentation
-- `/ctx-stats`, `/ctx-doctor`, `/ctx-purge`, `/ctx-upgrade` → Context-mode tools
+- `/doctor` → Run orchestrator health check
+- `/approve-qa`, `/rework` → QA sign-off / send back for rework
+- `/commit-group` → Group unstaged changes into atomic commits
+- `/ideate` → Brainstorm and prioritize the backlog
+- `/systematic-debugging` → Methodical bug investigation
+- `/workflow-creator` → Scaffold new orchestrator workflow schemas
+
+See `skills/` for the full list of 24 skill directories.
 
 ### Testing
 

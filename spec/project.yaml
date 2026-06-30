@@ -34,7 +34,6 @@ architecture:
     config/workflows: Workflow schemas (feature, bugfix, chore, spike, bootstrap)
     config/steps: Step contracts — YAML spec for each workflow step
     config/templates: Output templates per workflow type
-    ui/dashboard: Live metrics UI (FastAPI; `make dashboard` or `orchestrator dashboard`)
     agents: Agent definitions (developer, reviewer, architect, discoverer, etc.)
     skills: Skill definitions (orchestrate, specify, implement, learn, autopilot, etc.)
     install.sh: Per-tool symlink installer (Claude Code, Cursor, Codex CLI, etc.)
