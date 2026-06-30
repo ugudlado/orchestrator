@@ -1,4 +1,4 @@
-.PHONY: setup install install-cli use-local doctor stale help test lint-contracts dashboard dashboard-stop
+.PHONY: setup install install-cli use-local doctor stale help test lint-contracts
 
 # Default target
 .DEFAULT_GOAL := help
@@ -79,25 +79,3 @@ lint-contracts: ## HL-287 M2: every step contract must declare inputs: and outpu
 		echo "  $$missing contract(s) fail M2 lint"; exit 1; \
 	fi
 
-
-dashboard: ## Launch live agent-progress dashboard on http://localhost:8765
-	@if [ ! -x ui/dashboard/.venv/bin/uvicorn ]; then \
-		echo "Creating dashboard venv..."; \
-		python3 -m venv ui/dashboard/.venv; \
-		ui/dashboard/.venv/bin/pip install --quiet fastapi 'uvicorn[standard]' pyyaml; \
-	fi
-	@if lsof -ti tcp:8765 >/dev/null 2>&1; then \
-		echo "Dashboard already running on :8765 (use 'make dashboard-stop' to stop)"; \
-	else \
-		echo "Starting dashboard on http://localhost:8765 ..."; \
-		nohup ui/dashboard/run.sh > /tmp/orchestrator-dashboard.log 2>&1 & \
-		sleep 1; \
-		echo "  log: /tmp/orchestrator-dashboard.log"; \
-	fi
-
-dashboard-stop: ## Stop the live dashboard server
-	@if lsof -ti tcp:8765 >/dev/null 2>&1; then \
-		lsof -ti tcp:8765 | xargs kill 2>/dev/null && echo "Stopped."; \
-	else \
-		echo "Dashboard not running."; \
-	fi
