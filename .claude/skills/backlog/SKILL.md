@@ -156,12 +156,17 @@ grep "^ticketing:" spec/project.yaml | awk '{print $2}'        # -> backlog
 grep "^backlog_project:" spec/project.yaml | awk '{print $2}'  # -> orchestrator (default)
 ```
 
-Use the `backlog` **CLI only** for all task operations, scoped to that project — no
-MCP or REST fallback. Reads via `backlog task view <ID> --plain`; status transitions
-via `backlog task edit <ID> -s "<lane>"`. Resolve the real status-lane name first
-(`backlog config get statuses`) so you never transition to a lane that doesn't exist.
+Use the `backlog` **CLI only** for all task operations, and pass the resolved
+project id explicitly on every command with `--project <backlog_project>`
+(default `orchestrator`) — no MCP or REST fallback, and don't rely on the implicit
+"current project" selection. Reads via
+`backlog task view <ID> --project <backlog_project> --plain`; status transitions
+via `backlog task edit <ID> --project <backlog_project> -s "<lane>"`. Resolve the
+real status-lane name first
+(`backlog config get statuses --project <backlog_project>`) so you never transition
+to a lane that doesn't exist.
 
 ```bash
-backlog task view <ID> --plain            # read a task (scoped to the project)
-backlog task edit <ID> -s "In Progress"   # transition status
+backlog task view <ID> --project orchestrator --plain          # read a task (project explicit)
+backlog task edit <ID> --project orchestrator -s "In Progress" # transition status
 ```
