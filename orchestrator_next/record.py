@@ -690,6 +690,16 @@ def main(argv: list[str]) -> int:
 
     result, code = record(state_yaml_path, payload)
     print(json.dumps(result, sort_keys=True, indent=2))
+    # Surface the running cost total mid-run for standalone/self-driven callers
+    # (DRIVE.md walks next/done itself). Re-derived from the just-written state.
+    if code == 0:
+        try:
+            from orchestrator_next.pricing import format_cost_so_far
+            with open(state_yaml_path) as f:
+                _state = yaml.safe_load(f) or {}
+            sys.stderr.write(format_cost_so_far(_state) + "\n")
+        except (OSError, yaml.YAMLError):
+            pass
     return code
 
 
