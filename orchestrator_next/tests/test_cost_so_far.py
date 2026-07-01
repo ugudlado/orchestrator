@@ -260,3 +260,64 @@ def test_next_action_estimated_cost_zero_on_fresh_state(tmp_path):
 
     assert action["step_id"] == "explore"
     assert action["estimated_cost_so_far"] == pytest.approx(0.0)
+
+
+def test_next_cli_emits_estimated_cost_so_far(tmp_path):
+    """Integration: driving the real `orchestrator next` CLI against a fixture
+    whose step_history usage cost_usd values are 0.25 + 0.02 emits both the
+    additive action-JSON field (estimated_cost_so_far == 0.27) and the human
+    `[cost so far: $0.27]` stderr line on the agent-dispatch path."""
+    state = {
+        "schema": "feature",
+        "change_id": "cost-next-cli",
+        "slug": "cost-next-cli",
+        "status": "active",
+        "repo_root": str(tmp_path),
+        "phase": "specify",
+        "workflow_plan": {
+            "specify": {
+                "nodes": [
+                    {"id": "explore", "status": "completed", "agent": "discoverer",
+                     "goal": "explore", "inputs": [], "outputs": [], "rules": []},
+                    {"id": "design-and-draft-artifacts", "status": "pending",
+                     "agent": "architect", "goal": "design", "inputs": [],
+                     "outputs": [], "rules": []},
+                ],
+                "filtered": [],
+            },
+        },
+        "step_history": [
+            {"step_id": "explore", "phase": "specify", "status": "completed",
+             "agent": "discoverer", "attempt": 1,
+             "started_at": "2026-06-01T00:00:00Z", "ended_at": "2026-06-01T00:01:00Z",
+             "usage": {"input_tokens": 1000, "output_tokens": 100, "cost_usd": 0.25}},
+            {"step_id": "explore", "phase": "specify", "status": "completed",
+             "agent": "discoverer", "attempt": 2,
+             "started_at": "2026-06-01T00:02:00Z", "ended_at": "2026-06-01T00:03:00Z",
+             "usage": {"input_tokens": 200, "output_tokens": 20, "cost_usd": 0.02}},
+        ],
+    }
+    state_path = tmp_path / "state.yaml"
+    state_path.write_text(yaml.safe_dump(state))
+    contracts = _write_stub_agent_contracts(tmp_path)
+
+    env = {
+        **os.environ,
+        "WORKFLOW_STATE_DIR": str(tmp_path),
+        "ORCHESTRATOR_HOME": str(_REPO_ROOT),
+        "ORCHESTRATOR_REPO_ROOT": str(tmp_path),
+        "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE": str(contracts),
+    }
+    proc = subprocess.run(
+        [sys.executable, str(_BIN_ORCHESTRATOR), "next", str(state_path)],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert proc.returncode == 0, f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
+
+    action = json.loads(proc.stdout)
+    assert action["step_id"] == "design-and-draft-artifacts"
+    assert action["estimated_cost_so_far"] == pytest.approx(0.27)
+    # Human-readable running total surfaced on stderr for the self-driven caller.
+    assert "[cost so far: $0.27]" in proc.stderr
