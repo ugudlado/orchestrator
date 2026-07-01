@@ -32,12 +32,9 @@ architecture:
     per-tool symlinks. No runtime coupling to shell repo or any specific LLM tool.
   structure:
     config/workflows: Workflow schemas (feature, bugfix, chore, spike, bootstrap)
-    config/steps: Step contracts — YAML spec for each workflow step
-    config/templates: Output templates per workflow type
-    agents: Agent definitions (developer, reviewer, architect, discoverer, etc.)
+    config/steps: Step contracts — directory per step (contract.yaml + prompt.md or script.sh)
     skills: Skill definitions (orchestrate, specify, implement, learn, autopilot, etc.)
     install.sh: Per-tool symlink installer (Claude Code, Cursor, Codex CLI, etc.)
-    guidelines.yaml: LLM-driven workflow selection (replaces keyword matching)
     spec: Per-project workflow config (this file)
 
 gotchas:
@@ -55,18 +52,29 @@ learnings:
     rule: Autopilot iterations must run the full workflow including the complete phase (learn + metrics). Skipping the complete phase breaks the self-improving feedback loop and loses per-feature telemetry data.
   - id: metrics-db-derived
     learned: 2026-04-17
+    superseded: 2026-07-01
     summary: >
-      Cross-repo metrics are best derived at bootstrap time via a single script that
-      walks spec/changes/archive/*/state.yaml and upserts into a local DuckDB database.
-      This avoids per-step instrumentation while enabling SQL-based trend analysis across
-      all registered repos.
+      SUPERSEDED — DuckDB is no longer the reporting store (see workflow-report-structured-console
+      below). Originally: cross-repo metrics derived at bootstrap time via a single script
+      that walks spec/changes/archive/*/state.yaml and upserts into a local DuckDB database.
     evidence: spec/changes/archive/cross-repo-metrics-duckdb (feature cross-repo-metrics-duckdb)
     rule: >
-      Use a single wide features table keyed on (repo_root, change_id) with explicit
-      typed columns and a payload_json VARCHAR for the full state.yaml content.
-      Never use read_json_auto for ingest — type drift across DuckDB versions breaks
-      re-runs. Use INSERT OR REPLACE for idempotent upserts. Escape all SQL-interpolated
-      values via sql_quote and enforce change_id slug guard before any INSERT.
+      Historical only — do not reintroduce metrics.duckdb. See workflow-report-structured-console.
+  - id: workflow-report-structured-console
+    learned: 2026-07-01
+    summary: >
+      With design/implement/review split into separately-invocable schemas (each its own
+      state.yaml under .orchestrator/<slug>/), no DB ingest step exists to roll them up.
+      workflow-report already collects step_history across every sibling state file for a
+      change_id; it now also emits outputs.workflow_report — a structured
+      {change_id, schemas_run, steps, totals} dict — as its COMPLETION JSON, alongside the
+      existing human-readable stderr table. Console-only; a future ingestion pipeline can
+      parse the structured field without a database dependency.
+    evidence: config/steps/workflow-report/workflow_report_step.py
+    rule: >
+      change_id is the join key across a ticket's separate design/implement/review runs.
+      Any future reporting must read workflow-report's structured output (or step_history
+      directly), not assume a single state.yaml per feature.
   - id: design-divergence-from-backlog
     learned: 2026-04-17
     rule: >

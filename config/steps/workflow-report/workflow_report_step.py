@@ -56,10 +56,11 @@ def _collect_all_states(primary_path: Path, primary_state: dict, repo_root: str)
     return states if states else [primary_state]
 
 
-def _render_report(step_history: list, issues: list) -> None:
-    """Print per-step duration/tokens/cost table to stderr."""
+def _render_report(step_history: list, issues: list) -> dict:
+    """Print per-step duration/tokens/cost table to stderr; return the same
+    figures as a plain dict for structured (JSON) output."""
     if not step_history:
-        return
+        return {"steps": [], "totals": {"duration_ms": 0, "tokens": 0, "cost_usd": 0.0}}
 
     # Collapse entries by step_id: accumulate tokens/cost across all attempts,
     # track final status and total attempt count.
@@ -125,6 +126,15 @@ def _render_report(step_history: list, issues: list) -> None:
             sys.stderr.write(f"| {sev} | {cat} | {det} | {fix} |\n")
         sys.stderr.write("\n")
 
+    return {
+        "steps": [
+            {"step_id": step_id, "status": r["status"], "attempts": r["attempts"],
+             "duration_ms": r["duration_ms"], "tokens": r["tokens"], "cost_usd": round(r["cost"], 6)}
+            for step_id, r in rows.items()
+        ],
+        "totals": {"duration_ms": total_ms, "tokens": total_tokens, "cost_usd": round(total_cost, 6)},
+    }
+
 
 def main() -> int:
     state_path = os.environ.get("ORCHESTRATOR_STATE_YAML_PATH", "")
@@ -149,13 +159,23 @@ def main() -> int:
     all_states = _collect_all_states(path, state, repo_root)
     step_history: list = []
     issues: list = []
+    schemas_run: list = []
     for s in all_states:
         step_history.extend(s.get("step_history") or [])
         issues.extend(s.get("workflow_issues") or [])
+        schema = s.get("schema")
+        if schema and schema not in schemas_run:
+            schemas_run.append(schema)
 
-    _render_report(step_history, issues)
+    report = _render_report(step_history, issues)
 
-    outputs: dict = {"steps_reported": len(step_history)}
+    # workflow_report is structured for future ingestion (no DB — console only,
+    # per ORC decision to drop metrics.duckdb). change_id + schemas_run is the
+    # join key across the separate design/implement/review runs for one ticket.
+    outputs: dict = {
+        "steps_reported": len(step_history),
+        "workflow_report": {"change_id": cid, "schemas_run": schemas_run, **report},
+    }
     if issues:
         outputs["workflow_issues_count"] = len(issues)
 
