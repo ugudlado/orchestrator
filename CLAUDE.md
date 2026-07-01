@@ -20,23 +20,29 @@ orchestrator/
 ├── skills/*/SKILL.md             # Skills (entry points + agent definitions)
 ├── spec/
 │   ├── project.yaml              # Repo-specific config
-│   └── changes/archive/          # Completed features (active state lives in ~/.workflows/<slug>/)
+│   └── changes/archive/          # Completed features (active state lives in <repo>/.orchestrator/<slug>/)
 ├── tests/                        # Workflow validation tests
 └── config/pricing.yaml           # Model pricing rates (USD/MTok)
 ```
 
-Active workflow state lives in `~/.workflows/<slug>/state.yaml`, not under `spec/changes/`. Archived runs move to `spec/changes/archive/`.
+Active workflow state lives in `<repo_root>/.orchestrator/<slug>/*_<schema>_state.yaml` (one file per schema run — e.g. separate files for `design`, `implement`, `review` on the same ticket), not under `spec/changes/`. Archived runs move to `spec/changes/archive/`.
 
 ### Quick Start
 
 #### Running a Feature
 
 ```bash
-# Full workflow from ticket ID
+# Full workflow from ticket ID (design + implement + review, one chained run)
 orchestrator run HL-287 --schema feature
 
 # Alternative: specify a different repo path
 orchestrator run HL-287 --repo /path/to/repo
+
+# Or run phases as separate, independently-resumable invocations on the same
+# ticket (same change_id carries worktree/branch/artifacts across runs):
+orchestrator run HL-287 --schema design      # explore -> design.md/tasks.yaml -> design-review
+orchestrator run HL-287 --schema implement   # implement-tasks only, stops after coding
+orchestrator run HL-287 --schema review      # ticket-review -> run-phase-review -> ticket-qa -> learn
 
 # Complete phase only (after implementation) — "complete" is a workflow schema name,
 # dispatched via the same <workflow> <ticket-id> form as "feature"/"bugfix"
@@ -46,11 +52,11 @@ orchestrator complete HL-287
 #### State Management
 
 ```bash
-# Advance to next step
-cat state.yaml | orchestrator next -
+# Advance to next step (state.yaml is a real path, not stdin)
+orchestrator next state.yaml
 
-# Append step event as JSON
-echo '{"step_id":"specify","phase":"specify","status":"completed"}' | orchestrator done -
+# Append step event as JSON (payload on stdin, path as arg)
+echo '{"step_id":"specify","phase":"specify","status":"completed"}' | orchestrator done state.yaml
 
 # Visualize workflow DAG
 orchestrator graph state.yaml
@@ -58,12 +64,14 @@ orchestrator graph state.yaml
 
 ### Workflow Phases
 
-Each feature progresses through formal phases:
+Each feature progresses through three phases, each independently invocable as its own
+schema/skill (`design`/`implement`/`review`) or chained together in one run (`feature`/`bugfix`):
 
-1. **Specify** → Create spec.md, tasks.md, id.md
-2. **Diagnose** → Plan approach, select tools/tech
-3. **Implement** → Execute tasks, mark AC complete
-4. **Complete** → Verify, sign-off, merge, archive
+1. **Design** (`explore` → `design-and-draft-artifacts` → `design-review`) → design.md + tasks.yaml
+2. **Implement** (`implement-tasks`) → code, tests, commits — stops after coding, no gate
+3. **Review** (`ticket-review` → `run-phase-review` → `ticket-qa` → `run-learn-cycle`) → quality gate + learnings
+
+`complete` is a separate teardown schema (archive, merge, worktree removal) run after review passes.
 
 ### State File Format
 
@@ -96,7 +104,7 @@ step_history: # Terminal steps recorded in metrics
 - autopilot-must-complete: Never skip complete phase (learn + metrics)
 - metrics-db-derived: Cross-repo metrics derived at bootstrap time
 - specify-phase-scope-churn-cost: Front-load scope constraints in description
-- state-dir-location: Active state lives in ~/.workflows/<slug>/state.yaml, not spec/changes/<id>/ or worktree root
+- state-dir-location: Active state lives in <repo*root>/.orchestrator/<slug>/\**<schema>\_state.yaml, not spec/changes/<id>/ or worktree root
 - worktree-branch-sync: Check branch divergence before merge phase
 - bash-fragility-prefer-python-for-new-code: Python for YAML/state logic
 - orchestrator-next-simplified (Jun 2026): No typed I/O, no repeat_until loop, no flat-file contracts — all 21 step contracts are directory-form (contract.yaml + prompt.md or script.sh). See docs/simplification-june-2026.md.
@@ -146,9 +154,11 @@ quality_bar:
 
 Skills are the interface to workflow actions:
 
-- `/orchestrate` → Shell out to `orchestrator run <id> --schema <name>` (in-process dispatch loop in `orchestrator_next/run_loop.py`)
+- `/orchestrate` → Shell out to `orchestrator run <id> --schema <name>` (in-process dispatch loop in `orchestrator_next/run_loop.py`). In a cloud/Slack session (`CLAUDE_CODE_REMOTE=true`) this routes to [`DRIVE.md`](DRIVE.md) instead — a different execution model where the session self-drives `next`/`done` and is the model for every step (see `docs/cloud-environment.md` for setup).
 - `/specify` → Create specification artifacts
-- `/implement` → Execute implementation phase
+- `/design` → Design phase only — design.md + tasks.yaml, stops after design-review passes
+- `/implement` → Execute implementation phase, stops after coding (no review gate)
+- `/review` → Review phase only — quality gate + learn cycle against an existing implementation
 - `/complete-feature` → Verify, sign-off, merge, archive
 - `/autopilot` → Self-improving iteration (includes complete phase)
 - `/backlog-manager` → Task lifecycle operations
@@ -161,12 +171,12 @@ Skills are the interface to workflow actions:
 - `/systematic-debugging` → Methodical bug investigation
 - `/workflow-creator` → Scaffold new orchestrator workflow schemas
 
-See `skills/` for the full list of 24 skill directories.
+See `skills/` for the full list of 25 skill directories.
 
 ### Testing
 
 ```bash
-pytest orchestrator_next/tests/ -q
+pytest tests/ -q
 ```
 
 ### Getting Help
