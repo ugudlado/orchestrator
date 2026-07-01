@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "backlog": {
+      "source": "ugudlado/backlog",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/backlog/SKILL.md",
+      "computedHash": "2f6bdbfb21bd7ddea6d1d3755f3c5184a3de634905045f776047164607e46294"
+    }
+  }
+}
