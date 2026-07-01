@@ -1,7 +1,7 @@
 id: ticket-qa
 version: 1
 kind: script
-run: script.sh
+run: ../lib/ticket-sync.sh
 params:
   TICKET_SYNC_STATUS: "QA Review"
   TICKET_SYNC_LOG_PREFIX: ticket-qa

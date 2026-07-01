@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# ticket-qa — backlog task status sync (params from contract.yaml).
+# Shared body for ticket-start/review/qa/rework: backlog task -> $TICKET_SYNC_STATUS.
+# ticket-done has extra idempotency/lookup logic and does not use this script.
 set -euo pipefail
 
 : "${REPO_ROOT:?orchestrator: REPO_ROOT required}"
