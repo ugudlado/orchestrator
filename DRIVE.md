@@ -15,6 +15,9 @@ spawning per-step model subprocesses; ignore that here.
 - **Single session.** The run proceeds until it completes (`exit 1`) or hits a blocking
   signoff (`exit 2`). At a block you report and stop. Resuming after a block requires the
   state file to survive — see "Durability" below.
+- **No worktree.** `create-worktree` detects `CLAUDE_CODE_REMOTE=true` and no-ops — you're
+  already in an isolated sandbox on your own branch, so every step runs directly against
+  the repo checkout instead of a local `~/code/feature_worktrees/...` dir.
 - **Ticketing is via MCP**, not the engine. The engine's `ticket-*` script steps target
   the `backlog` CLI and **no-op cleanly** when the backend isn't `backlog` or the CLI is
   absent (they still return `completed`). You own ticket transitions through MCP tools.

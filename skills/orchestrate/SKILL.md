@@ -10,6 +10,14 @@ args:
     required: false
 ---
 
+## 0. Remote-session check (do this first)
+
+If `$CLAUDE_CODE_REMOTE == "true"` (cloud/Slack session), **stop reading this skill** and
+follow [`DRIVE.md`](../../DRIVE.md) instead. That is a different execution model: no
+`orchestrator run` subprocess spawn, no per-step model routing — you drive `next`/`done`
+yourself and execute every step with your own model. Everything below (§§1-4) assumes a
+local session where the CLI self-drives.
+
 ## Variables
 
 ```

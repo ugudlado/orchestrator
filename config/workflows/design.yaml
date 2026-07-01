@@ -7,3 +7,4 @@ steps:
     on_failure: design-and-draft-artifacts
     max_retries: 3
   - run-learn-cycle
+  - workflow-report

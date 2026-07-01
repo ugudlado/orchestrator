@@ -3,6 +3,11 @@
 #
 # Always creates a worktree. Re-uses worktree_path if already set in state.
 #
+# Remote (cloud/Slack) sessions already run in an isolated sandbox on their own
+# branch — a local worktree would just misdirect every downstream step into a
+# detached dir instead of the branch the PR flow surfaces. No-op there, same
+# convention as the ticket-* steps' cloud no-op (see DRIVE.md).
+#
 # Env (injected by orchestrator): REPO_ROOT, CHANGE_ID, STATE_YAML_PATH
 # Outputs: {created, worktree_path, branch} or {created: false, reason}
 # state_patch: worktree_path + branch written back to state when created.
@@ -11,6 +16,11 @@ set -uo pipefail
 
 : "${REPO_ROOT:?orchestrator: REPO_ROOT required}"
 : "${CHANGE_ID:?orchestrator: CHANGE_ID required}"
+
+if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
+  printf '%s\n' '{"created": false, "reason": "remote session — using sandbox checkout in place, no local worktree"}'
+  exit 0
+fi
 
 STATE_YAML="${ORCHESTRATOR_STATE_YAML_PATH:-${STATE_YAML_PATH:?orchestrator: STATE_YAML_PATH required}}"
 WORKTREE_BASE_DIR="${WORKTREE_BASE_DIR:-$HOME/code/feature_worktrees}"
