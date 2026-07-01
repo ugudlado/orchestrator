@@ -233,3 +233,28 @@ data, no parsing). Use the **CLI for writes** so git tracking stays in sync.
 
 - Resource: `backlog://workflow/overview` — full MCP tool reference
 - Tools follow `backlog.<operation>` (e.g. `backlog.list_tasks`, `backlog.get_task`)
+
+---
+
+## Cloud / remote backend resolution
+
+Confirm the backend is `backlog` from the repo's `spec/project.yaml`, and resolve
+the project id from the `backlog_project` key (default `orchestrator` if unset):
+
+```bash
+grep "^ticketing:" spec/project.yaml | awk '{print $2}'        # -> backlog
+grep "^backlog_project:" spec/project.yaml | awk '{print $2}'  # -> orchestrator (default)
+```
+
+Use the `backlog` **CLI only** for all task operations, scoped to that project — no
+MCP or REST fallback. Reads via `backlog task view <ID> --plain`; status transitions
+via `backlog task edit <ID> -s "<lane>"`. Resolve the real status-lane name first
+(`backlog config get statuses`) so you never transition to a lane that doesn't exist.
+
+```bash
+backlog task view <ID> --plain            # read a task (scoped to the project)
+backlog task edit <ID> -s "In Progress"   # transition status
+```
+
+(In a cloud session remember the proxy-bypass prefix from above:
+`https_proxy="" http_proxy="" HTTPS_PROXY="" HTTP_PROXY="" backlog task view <ID> --plain`.)
