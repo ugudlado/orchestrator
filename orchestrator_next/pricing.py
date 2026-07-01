@@ -213,3 +213,35 @@ def _compute_cost_usd(
         + cache_creation_tokens * price["cache_creation"] / 1_000_000
     )
     return model_id, cost
+
+
+# ---------------------------------------------------------------------------
+# Running cost total (re-derived from live state.yaml — no DuckDB)
+# ---------------------------------------------------------------------------
+
+def sum_cost_usd(state: dict) -> float:
+    """Sum step_history[].usage.cost_usd from an in-memory state dict.
+
+    Pure and dependency-free: iterates the recorded step_history and adds each
+    entry's usage.cost_usd defensively. Missing keys, None, and non-numeric
+    values contribute 0.0 rather than raising, so a partially-populated state
+    still yields a usable running total mid-run.
+    """
+    total = 0.0
+    for entry in state.get("step_history", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        usage = entry.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        cost = usage.get("cost_usd", 0) or 0
+        try:
+            total += float(cost)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def format_cost_so_far(state: dict) -> str:
+    """Render the human-readable running-total line, e.g. `[cost so far: $12.34]`."""
+    return f"[cost so far: ${sum_cost_usd(state):.2f}]"
