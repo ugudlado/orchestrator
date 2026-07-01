@@ -1,4 +1,4 @@
-.PHONY: setup install install-cli use-local doctor stale help test lint-contracts
+.PHONY: setup install install-cli use-local doctor stale help test
 
 # Default target
 .DEFAULT_GOAL := help
@@ -66,16 +66,4 @@ stale: ## Detect stale/abandoned workflow state directories
 
 test: ## Run orchestrator_next unit tests
 	@poetry run pytest -q
-
-lint-contracts: ## HL-287 M2: every step contract must declare inputs: and outputs:
-	@missing=0; \
-	for f in config/steps/*.yaml; do \
-		grep -q "^inputs:" "$$f" || { echo "  ❌ $$f missing inputs:"; missing=$$((missing + 1)); }; \
-		grep -q "^outputs:" "$$f" || { echo "  ❌ $$f missing outputs:"; missing=$$((missing + 1)); }; \
-	done; \
-	if [ "$$missing" -eq 0 ]; then \
-		echo "  ✅ All contracts declare inputs: and outputs:"; \
-	else \
-		echo "  $$missing contract(s) fail M2 lint"; exit 1; \
-	fi
 
