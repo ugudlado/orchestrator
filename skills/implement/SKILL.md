@@ -11,7 +11,8 @@ args:
 ## Execution
 
 Run the implement workflow schema. Design artifacts must already exist (design.md, tasks.md).
-Stops after coding — no review/QA gate. Run `/review` next to run the quality gate and learn cycle.
+Includes the automated review gate: ticket-review → run-phase-review (loops back to
+implement-tasks on failure) → ticket-qa → learn cycle.
 
 ```
 orchestrator run $FEATURE_ID --schema implement
