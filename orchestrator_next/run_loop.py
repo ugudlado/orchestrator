@@ -36,7 +36,7 @@ from orchestrator_next.parser import ContractNotFoundError
 from orchestrator_next.parser import ContractError
 from orchestrator_next.parser import load_state
 from orchestrator_next.pricing import format_cost_so_far
-from orchestrator_next.record import record
+from orchestrator_next.record import autocommit_state, record
 from orchestrator_next.usage_adapters import split_stdout
 
 _LIB = Path(__file__).resolve().parent / "scripts" / "lib"
@@ -478,6 +478,35 @@ def _run_hooks(
 
 
 # ---------------------------------------------------------------------------
+# Exit-2 notification — unattended runs need a human channel for signoffs
+# ---------------------------------------------------------------------------
+def _notify_blocked(state_yaml_path: str, state_raw: dict[str, Any], reason: str) -> None:
+    """Pipe a JSON blocked-event to ORCHESTRATOR_NOTIFY_CMD (stdin), if set.
+
+    Channel-agnostic: point the env var at curl / a Slack CLI / anything.
+    Best-effort — a failing notifier never changes the exit code.
+    """
+    cmd = os.environ.get("ORCHESTRATOR_NOTIFY_CMD", "")
+    if not cmd:
+        return
+    schema = state_raw.get("schema")
+    if isinstance(schema, dict):
+        schema = schema.get("type")
+    payload = json.dumps({
+        "event": "blocked",
+        "change_id": state_raw.get("change_id") or Path(state_yaml_path).parent.name,
+        "schema": schema or "",
+        "reason": reason,
+        "state_yaml_path": state_yaml_path,
+    })
+    try:
+        subprocess.run(["bash", "-c", cmd], input=payload, text=True,
+                       capture_output=True, timeout=30)
+    except Exception as exc:  # noqa: BLE001 — notification is best-effort
+        _log(f"WARN: notify command failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # The loop
 # ---------------------------------------------------------------------------
 def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, models_yaml: str) -> int:
@@ -506,6 +535,9 @@ def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, models_yam
                 return 1
             if code == 2:
                 _log("Workflow blocked.")
+                autocommit_state(state_yaml_path, push=True)
+                _notify_blocked(state_yaml_path, state.raw,
+                                (action or {}).get("reason") or "blocked (signoff or halt)")
                 return 2
 
             # pre hooks: run before the step body. A nonzero pre hook blocks
@@ -513,6 +545,9 @@ def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, models_yam
             if not _run_hooks(action.get("pre") or [], "pre", action,
                               state_yaml_path, repo_root, state.raw):
                 _log(f"Workflow blocked: pre-hook failed for {action['step_id']}.")
+                autocommit_state(state_yaml_path, push=True)
+                _notify_blocked(state_yaml_path, state.raw,
+                                f"pre-hook failed for {action['step_id']}")
                 return 2
 
             if action.get("model"):
@@ -535,6 +570,7 @@ def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, models_yam
                 ok, state_yaml_path = run_script_step(action, state_yaml_path=state_yaml_path, state=state)
                 if not ok:
                     _log("Workflow aborted: deterministic script step failed.")
+                    autocommit_state(state_yaml_path, push=True)
                     return 3
             else:
                 _log("dispatch returned no actionable step; continuing")
