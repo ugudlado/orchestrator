@@ -33,10 +33,11 @@ the SessionStart hook (`.claude/cloud-setup.sh`) installs the package, and the e
 var is set in the cloud environment (see `docs/cloud-environment.md`). You don't
 run install steps here.
 
-Run the orchestrator as in-repo Python (no PATH install needed):
+The install gives you the `orchestrator` console script (fallback if PATH is
+stale: `python -m orchestrator_next`):
 
 ```bash
-python bin/orchestrator <verb> ...
+orchestrator <verb> ...
 ```
 
 Config resolution is explicit — no cwd fallback. Export the config root once at the
@@ -77,7 +78,7 @@ server first — don't hardcode "In Progress" if the project uses a different la
 Pick the schema from the request (`feature`, `bugfix`, `chore`, `patch`, …).
 
 ```bash
-STATE=$(python bin/orchestrator run <slug> --schema <schema> --seed-only | tail -1)
+STATE=$(orchestrator run <slug> --schema <schema> --seed-only | tail -1)
 ```
 
 `--seed-only` creates `state.yaml` under `.orchestrator/<slug>/` and stops — it does
@@ -90,7 +91,7 @@ a duplicate.
 Repeat until the engine says stop:
 
 ```bash
-python bin/orchestrator next "$STATE"
+orchestrator next "$STATE"
 ```
 
 Interpret by exit code:
@@ -122,7 +123,7 @@ echo '{
   "agent":   "<your model id, e.g. claude-opus-4-8>",
   "usage":   {"input_tokens": <real if known else 0>, "output_tokens": <real if known else 0>},
   "outputs": { ... any outputs the step contract requires ... }
-}' | python bin/orchestrator done "$STATE"
+}' | orchestrator done "$STATE"
 ```
 
 - `agent` is **required** for agent steps.

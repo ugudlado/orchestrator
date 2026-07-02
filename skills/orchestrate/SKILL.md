@@ -22,7 +22,9 @@ local session where the CLI self-drives.
 
 ```
 REPO_ROOT=${REPO_ROOT:-$(git rev-parse --show-toplevel)}
-ORCHESTRATOR_HOME=${ORCHESTRATOR_HOME:-$HOME/.config/orchestrator}
+# Config root is explicit — no cwd fallback (see paths.config_root).
+ORCHESTRATOR_CONFIG=${ORCHESTRATOR_CONFIG:-${ORCHESTRATOR_HOME:+$ORCHESTRATOR_HOME/config}}
+ORCHESTRATOR_CONFIG=${ORCHESTRATOR_CONFIG:-$(orchestrator config-path)}
 REPO_WORKFLOW_DIR=${REPO_WORKFLOW_DIR:-$REPO_ROOT/.orchestrator}
 WORKFLOW_STATE_DIR=${WORKFLOW_STATE_DIR:-$REPO_ROOT/.orchestrator}
 WORKTREE_ARTIFACT_DIR="${WORKTREE_ARTIFACT_DIR:-${WORKTREE_ROOT:-$REPO_ROOT}/spec/changes}"
@@ -38,14 +40,14 @@ RESOLVE_WORKFLOW_FILE(relative_path):
   repo_override = $REPO_WORKFLOW_DIR/<relative_path>
   IF exists(repo_override):
     RETURN repo_override
-  RETURN $ORCHESTRATOR_HOME/config/<relative_path>
+  RETURN $ORCHESTRATOR_CONFIG/<relative_path>
 ```
 
 Repo overrides **fully replace** the global file (no YAML merge). The error
 recovery and override resolution protocols are universal and NOT subject to
-override — always read from `$ORCHESTRATOR_HOME/config/`.
+override — always read from `$ORCHESTRATOR_CONFIG/`.
 
-When reading any path written below as `$ORCHESTRATOR_HOME/config/<...>`,
+When reading any path written below as `$ORCHESTRATOR_CONFIG/<...>`,
 apply `RESOLVE_WORKFLOW_FILE(<...>)` unless it is a universal invariant
 contract listed above.
 
@@ -69,7 +71,7 @@ flag registry).
 
 Then:
 
-1. Read the schema YAML: `$ORCHESTRATOR_HOME/config/workflows/<schema>.yaml`. Workflow
+1. Read the schema YAML: `$ORCHESTRATOR_CONFIG/workflows/<schema>.yaml`. Workflow
    files declare `steps:` (and rarely a `defaults:` override block). The `steps:` list
    IS the plan — there is no flag-gating.
 2. Any `key=value` arguments passed on the command line are persisted verbatim to

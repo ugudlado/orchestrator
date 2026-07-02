@@ -133,7 +133,7 @@ In a throwaway `@Claude` session for this repo:
 env | grep -E 'ORCHESTRATOR_SKIP_USAGE_CHECK|BACKLOG_URL'   # env vars present?
 which backlog && backlog --version                          # binary installed?
 backlog task list --plain | head                            # backend reachable? (network gate)
-python bin/orchestrator --help                              # orchestrator runnable?
+orchestrator --help                              # orchestrator runnable?
 ```
 
 If `backlog task list` hangs or errors, the network prerequisite isn't met — the backend
