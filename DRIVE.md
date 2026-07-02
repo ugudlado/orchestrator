@@ -136,16 +136,21 @@ echo '{
 ## Durability (resume after a block)
 
 `state.yaml` lives in the repo working tree (`.orchestrator/<slug>/`). The cloud session's
-filesystem is **ephemeral** — it's gone when the session ends. If you want a later session
-to resume after a `exit 2` block:
+filesystem is **ephemeral** — it's gone when the session ends.
+
+You get durability for free: because `CLAUDE_CODE_REMOTE=true` marks the session headless,
+every `orchestrator done` auto-commits the state dir (`git add -f` — it's gitignored), and
+when a step transitions the run to **blocked** it also pushes (`git push origin HEAD`).
+
+The one case you still handle manually: ending a session mid-run **without** a block —
+push the branch yourself so the auto-commits survive:
 
 ```bash
-git add .orchestrator/<slug>/ && git commit -m "wip: orchestrator state for <slug>"
-git push
+git push origin HEAD
 ```
 
-A future session resumes by pulling the branch and re-running `next "$STATE"`. Without this
-commit, a blocked workflow **cannot be resumed** — it must be re-seeded from scratch.
+A future session resumes by pulling the branch and re-running `next "$STATE"`. Without the
+state on the remote, a blocked workflow **cannot be resumed** — it must be re-seeded.
 
 ---
 

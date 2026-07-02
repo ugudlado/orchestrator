@@ -623,6 +623,55 @@ def _run_retro(
                 sys.stderr.write(f"[record] retro append failed: {exc}\n")
 
 
+# ---------------------------------------------------------------------------
+# Headless durability — auto-commit state so ephemeral runs can resume
+# ---------------------------------------------------------------------------
+
+def _headless() -> bool:
+    """Headless = nobody at a terminal to keep state alive (CI job, cloud
+    sandbox). Opt-in via ORCHESTRATOR_HEADLESS=1; cloud sessions already
+    carry CLAUDE_CODE_REMOTE=true."""
+    return (
+        os.environ.get("ORCHESTRATOR_HEADLESS") == "1"
+        or os.environ.get("CLAUDE_CODE_REMOTE") == "true"
+    )
+
+
+def autocommit_state(state_yaml_path: str, *, push: bool = False) -> None:
+    """Commit the state dir on the current branch so an ephemeral headless run
+    can resume after the filesystem is gone (see DRIVE.md "Durability").
+
+    No-op unless headless. Best-effort — a git failure never fails the record.
+    `add -f` because .orchestrator/ is gitignored (ephemeral locally, durable
+    when headless). Pathspec commit so concurrently staged work is untouched.
+    """
+    if not _headless():
+        return
+    state_dir = str(Path(state_yaml_path).resolve().parent)
+    slug = Path(state_dir).name
+
+    def _git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", "-C", state_dir, *args], capture_output=True, text=True
+        )
+
+    try:
+        _git("add", "-f", "--", state_dir)
+        if _git("diff", "--cached", "--quiet", "--", state_dir).returncode != 0:
+            proc = _git("commit", "-m", f"wip: orchestrator state for {slug}",
+                        "--", state_dir)
+            if proc.returncode != 0:
+                sys.stderr.write(
+                    f"[record] state auto-commit failed: {proc.stderr.strip()}\n")
+        if push:
+            proc = _git("push", "origin", "HEAD")
+            if proc.returncode != 0:
+                sys.stderr.write(
+                    f"[record] state auto-push failed: {proc.stderr.strip()}\n")
+    except Exception as exc:  # noqa: BLE001 — durability is best-effort
+        sys.stderr.write(f"[record] state auto-commit skipped: {exc}\n")
+
+
 def record(
     state_yaml_path: str, payload: dict[str, Any],
 ) -> tuple[dict[str, Any], int]:
@@ -664,6 +713,11 @@ def record(
         return (e.reason, e.code)
 
     _run_retro(state_raw, phase, step_id, payload)
+
+    # Headless: state changed on disk — commit it; push once when the run
+    # transitions to blocked (that's the resume-later case, incl. the
+    # self-drive `done` path which never reaches run_loop's exit handling).
+    autocommit_state(state_yaml_path, push=state_raw.get("status") == "blocked")
 
     response: dict[str, Any] = {
         "step_id": step_id,
