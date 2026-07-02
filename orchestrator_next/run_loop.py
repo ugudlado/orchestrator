@@ -631,8 +631,8 @@ def _resolve_archived_state(slug: str, repo_root: str) -> str:
 def _seed_state(slug: str, schema: str, repo_root: str, flag_overrides: list[str]) -> str:
     """Seed a state file via the existing Python helpers; return its path.
     Idempotent: reuse the newest *_<schema>_state.yaml if present."""
-    orch_home = os.environ.get("ORCHESTRATOR_HOME", str(Path.home() / ".config" / "orchestrator"))
-    schema_yaml = Path(orch_home) / "config" / "workflows" / f"{schema}.yaml"
+    from orchestrator_next.paths import config_root
+    schema_yaml = config_root() / "workflows" / f"{schema}.yaml"
     repo_override = Path(repo_root) / ".orchestrator" / "workflows" / f"{schema}.yaml"
     if repo_override.is_file():
         schema_yaml = repo_override
@@ -777,10 +777,11 @@ def run_cmd(argv: list[str]) -> int:
     # models.yaml resolution (override > repo > global), mirrors run-workflow.sh.
     models_yaml = os.environ.get("ORCHESTRATOR_MODELS_CONFIG", "")
     if not models_yaml:
+        from orchestrator_next.paths import config_root
         for cand in (
             Path(repo_root) / ".orchestrator" / "config" / "models.yaml",
             Path(repo_root) / "config" / "models.yaml",
-            Path(os.environ.get("ORCHESTRATOR_HOME", "")) / "config" / "models.yaml",
+            config_root() / "models.yaml",
         ):
             if cand.is_file():
                 models_yaml = str(cand)

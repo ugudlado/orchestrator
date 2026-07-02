@@ -190,8 +190,8 @@ def check_symlinks(repo_root: Path, orch_home: Path) -> CheckResult:
 def check_config_root(config_root: Path) -> CheckResult:
     """FAIL when the resolved config root is missing or lacks the required layout.
 
-    The config root (ORCHESTRATOR_CONFIG, else ORCHESTRATOR_HOME/config, else
-    <cwd>/config — see paths.config_root) must exist and hold workflows/,
+    The config root (ORCHESTRATOR_CONFIG, else ORCHESTRATOR_HOME/config —
+    see paths.config_root; explicit, no cwd fallback) must exist and hold workflows/,
     steps/, and agents.yaml. This is the prerequisite for every config-content
     check below: if the root is wrong, those checks have nothing to validate.
     """
@@ -348,9 +348,13 @@ def _format_table(results: list) -> str:
 def run_all(args) -> int:
     """Run all checks and return exit code 0 (pass/warn) or 2 (any failure)."""
     del args
-    from orchestrator_next.paths import config_root as _config_root
+    from orchestrator_next.paths import ConfigRootError, config_root as _config_root
 
-    config_root = _config_root()
+    try:
+        config_root = _config_root()
+    except ConfigRootError as exc:
+        print(_format_table([CheckResult("config root", "FAIL", str(exc))]))
+        return 2
     orch_home = config_root.parent
     repo_root = _repo_root_from_env(orch_home)
     results = [
@@ -377,8 +381,9 @@ def _doctor_main(argv: list) -> int:
     """Entry point for `orchestrator doctor`. Runs all checks.
 
     No ORCHESTRATOR_HOME guard: the config root resolves via paths.config_root
-    (ORCHESTRATOR_CONFIG → ORCHESTRATOR_HOME/config → cwd/config). A wrong or
-    missing config root surfaces as the `config root` FAIL check, not a crash.
+    (ORCHESTRATOR_CONFIG → ORCHESTRATOR_HOME/config; explicit, no cwd fallback).
+    A wrong, unset, or missing config root surfaces as the `config root` FAIL
+    check, not a crash.
     """
     ap = argparse.ArgumentParser(prog="orchestrator doctor")
     ap.parse_args(argv)  # --help handled here; no flags in this iteration

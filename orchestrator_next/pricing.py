@@ -27,8 +27,11 @@ def _orchestrator_home() -> Path:
 
 @functools.lru_cache(maxsize=1)
 def _load_routes() -> dict:
-    from orchestrator_next.paths import config_root
-    path = config_root() / "models.yaml"
+    from orchestrator_next.paths import ConfigRootError, config_root
+    try:
+        path = config_root() / "models.yaml"
+    except ConfigRootError:
+        path = _orchestrator_home() / "scripts" / "routes.yaml"
     if not path.is_file():
         path = _orchestrator_home() / "scripts" / "routes.yaml"
     try:
@@ -76,8 +79,12 @@ def _load_pricing_table() -> dict[str, list]:
     Each value is a list of (effective_from_dt, input, output, cache_read, cache_creation)
     tuples sorted descending by effective_from so _pick_row can do a simple linear scan.
     """
-    from orchestrator_next.paths import config_root
-    path = config_root() / "pricing.yaml"
+    from orchestrator_next.paths import ConfigRootError, config_root
+    try:
+        path = config_root() / "pricing.yaml"
+    except ConfigRootError as exc:
+        sys.stderr.write(f"[record] pricing: {exc}\n")
+        return {}
     if not path.is_file():
         sys.stderr.write(f"[record] pricing: config/pricing.yaml not found at {path}\n")
         return {}

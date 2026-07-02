@@ -39,6 +39,15 @@ Run the orchestrator as in-repo Python (no PATH install needed):
 python bin/orchestrator <verb> ...
 ```
 
+Config resolution is explicit — no cwd fallback. Export the config root once at the
+start of the session, before any orchestrator verb:
+
+```bash
+export ORCHESTRATOR_CONFIG="$PWD/config"        # this repo's config
+# or, for a wheel-only install without a checkout:
+export ORCHESTRATOR_CONFIG=$(orchestrator config-path)   # bundled config
+```
+
 ## 1. Read the ticket (MCP)
 
 Detect the backend from `spec/project.yaml`:
