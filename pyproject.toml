@@ -3,7 +3,12 @@ name = "orchestrator"
 version = "0.1.0"
 description = "LLM-agnostic config-driven workflow engine"
 authors = ["Mahesh <mahesh288@gmail.com>"]
-packages = [{ include = "orchestrator_next" }]
+# config/ ships inside the package (installed as orchestrator_next/config) so a
+# wheel install is self-contained; `orchestrator config-path` prints its location.
+packages = [
+    { include = "orchestrator_next" },
+    { include = "config", to = "orchestrator_next" },
+]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -15,11 +20,11 @@ pytest = "^8.0"
 ruff = "^0.4"
 
 [tool.poetry.scripts]
-orchestrator = "orchestrator_next.__main__:main"
+orchestrator = "orchestrator_next.cli:main"
 
 [build-system]
 requires = ["poetry-core"]
-build-backend = "poetry-core.masonry.api"
+build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
 line-length = 120

@@ -26,22 +26,22 @@ from pathlib import Path
 from typing import Any
 
 
-def _orchestrator_home_default() -> str:
-    root = Path(__file__).resolve().parent.parent
-    if (root / "config").is_dir():
-        return str(root)
-    return os.environ.get("ORCHESTRATOR_HOME", "")
-
-
 def _apply_home_paths(env: dict[str, str]) -> None:
     home = env.get("ORCHESTRATOR_HOME", "")
     if not home:
-        default = _orchestrator_home_default()
-        if default:
-            home = default
+        # Steps reference $ORCHESTRATOR_HOME/config/... — derive home from the
+        # explicit config root. ponytail: assumes the config dir is literally
+        # named config/ (true for the repo and the bundled package layout);
+        # rename step prompts to $ORCHESTRATOR_CONFIG if that ever breaks.
+        from orchestrator_next.paths import ConfigRootError, config_root
+        try:
+            home = str(config_root().parent)
             env["ORCHESTRATOR_HOME"] = home
-    if home:
-        env["ORCHESTRATOR_SCRIPTS_DIR"] = str(Path(home) / "orchestrator_next" / "scripts")
+        except ConfigRootError:
+            pass
+    # Engine shell drivers live inside the package in every layout (dev
+    # checkout and wheel install alike) — anchor on the package, not home.
+    env["ORCHESTRATOR_SCRIPTS_DIR"] = str(Path(__file__).resolve().parent / "scripts")
 
 
 def _resolve_prior_outputs(state: Any, step_id: str) -> dict[str, Any]:

@@ -162,9 +162,11 @@ def _warn_if_more_phases_remain(state: State) -> None:
 
 def _resolve_step_contract_dir(step_id: str, contract: ScriptStepContract) -> str:
     """Return the contract directory path for a script contract, or empty string."""
-    orch_home = os.environ.get("ORCHESTRATOR_HOME", "")
-    if orch_home:
-        return str(_step_directory(step_id, contract, orch_home))
+    from orchestrator_next.paths import ConfigRootError, config_root
+    try:
+        return str(_step_directory(step_id, contract, str(config_root())))
+    except ConfigRootError:
+        pass
     if os.path.isabs(contract.run):
         return os.path.dirname(contract.run)
     return ""

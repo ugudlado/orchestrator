@@ -29,6 +29,18 @@ Active workflow state lives in `<repo_root>/.orchestrator/<slug>/*_<schema>_stat
 
 ### Quick Start
 
+#### Config resolution (explicit — no cwd fallback)
+
+The engine is an installable package (`pip install .` / `uv tool install git+<repo-url>`)
+with `config/` bundled inside the wheel; the CLI works via the `orchestrator` console
+script, `bin/orchestrator` (dev shim), or `python -m orchestrator_next`. The config root
+must be set explicitly — `ORCHESTRATOR_CONFIG` (the config dir itself), or legacy
+`ORCHESTRATOR_HOME` (repo root, config/ is a subdir). Unset → hard error:
+
+```bash
+export ORCHESTRATOR_CONFIG=$(orchestrator config-path)  # bundled/checkout config
+```
+
 #### Running a Feature
 
 ```bash

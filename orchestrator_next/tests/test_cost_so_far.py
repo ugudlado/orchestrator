@@ -126,6 +126,7 @@ def test_done_cli_emits_cost_so_far(tmp_path, monkeypatch):
     env = {
         "PYTHONPATH": str(repo_root),
         "PATH": "/usr/bin:/bin",
+        "ORCHESTRATOR_CONFIG": str(repo_root / "config"),
     }
     proc = subprocess.run(
         [sys.executable, "-m", "orchestrator_next.record", str(state_path)],

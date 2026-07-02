@@ -28,13 +28,9 @@ from orchestrator_next.parser import ContractError, load_contract_for_step
 _SKIP_EXPAND = {"complete"}
 
 
-def _config_root(repo_root: str) -> Path:
-    return Path(repo_root) / "config"
-
-
-
 def _load_schema(schema_name: str, repo_root: str) -> dict[str, Any]:
-    path = _config_root(repo_root) / "workflows" / f"{schema_name}.yaml"
+    from orchestrator_next.paths import config_root
+    path = config_root() / "workflows" / f"{schema_name}.yaml"
     if not path.is_file():
         print(f"ERROR: workflow not found: {path}", file=sys.stderr)
         raise SystemExit(1)
@@ -109,7 +105,6 @@ def _smoke_expand(schema_name: str, step_ids: list[str], repo_root: str) -> None
         state_path = os.path.join(tmp, "state.yaml")
         with open(state_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(state, f, sort_keys=False)
-        os.environ["ORCHESTRATOR_HOME"] = repo_root
         try:
             generate_plan(state_path)
         except (ValueError, FileNotFoundError) as exc:
@@ -118,10 +113,10 @@ def _smoke_expand(schema_name: str, step_ids: list[str], repo_root: str) -> None
 
 
 def validate_workflow(schema_name: str, repo_root: str) -> None:
-    wf_path = _config_root(repo_root) / "workflows" / f"{schema_name}.yaml"
+    from orchestrator_next.paths import config_root
+    wf_path = config_root() / "workflows" / f"{schema_name}.yaml"
     print(f"Checking workflow: {wf_path}", file=sys.stderr)
 
-    os.environ["ORCHESTRATOR_HOME"] = repo_root
     schema = _load_schema(schema_name, repo_root)
     step_ids = _step_ids(schema)
     _check_contracts(step_ids, repo_root)
@@ -142,8 +137,12 @@ def main(args: list[str] | None = None) -> int:
         return 1
     schema_name = args[0]
     repo_root = os.environ.get("ORCHESTRATOR_HOME") or str(Path(__file__).resolve().parents[1])
+    from orchestrator_next.paths import ConfigRootError
     try:
         validate_workflow(schema_name, repo_root)
+    except ConfigRootError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
     except SystemExit as exc:
         return int(exc.code) if exc.code is not None else 1
     return 0
