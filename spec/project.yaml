@@ -1,6 +1,7 @@
 version: 1
 
 ticketing: backlog # backlog | linear — drives skills/lib/tickets/ and /backlog-manager
+backlog_project: orchestrator # project id the backlog CLI / REST API scope task lookups to (default: orchestrator)
 
 project:
   name: orchestrator

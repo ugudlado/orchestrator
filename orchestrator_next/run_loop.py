@@ -35,6 +35,7 @@ from orchestrator_next.dispatch import ContractDispatchError, dispatch
 from orchestrator_next.parser import ContractNotFoundError
 from orchestrator_next.parser import ContractError
 from orchestrator_next.parser import load_state
+from orchestrator_next.pricing import format_cost_so_far
 from orchestrator_next.record import record
 from orchestrator_next.usage_adapters import split_stdout
 
@@ -86,6 +87,21 @@ def _ts() -> str:
 
 def _log(msg: str) -> None:
     print(f"[{_ts()}] {msg}", file=sys.stderr)
+
+
+def _log_cost_so_far(state_yaml_path: str) -> None:
+    """Emit the running `[cost so far: $X.XX]` total re-derived from live state.
+
+    Reads the just-updated state.yaml and sums step_history[].usage.cost_usd so
+    the total reflects every completed step mid-run. Best-effort: a missing or
+    unreadable state file never interrupts the loop.
+    """
+    try:
+        with open(state_yaml_path) as f:
+            state_raw = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError):
+        return
+    _log(format_cost_so_far(state_raw))
 
 
 def _now_ms() -> int:
@@ -399,6 +415,7 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
     new_state_path = _relocate_after_archive(outputs, state_yaml_path, new_state_path)
 
     _log(f"✓ {step_id}  done  status=completed")
+    _log_cost_so_far(new_state_path)
     return True, new_state_path
 
 
@@ -513,6 +530,7 @@ def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, models_yam
                     record(state_yaml_path, _failed_payload(action, 3, payload.get("duration_ms", 0)))
                 else:
                     _log(f"✓ {action['step_id']}  done  status={payload.get('status','completed')}")
+                    _log_cost_so_far(state_yaml_path)
             elif action.get("run"):
                 ok, state_yaml_path = run_script_step(action, state_yaml_path=state_yaml_path, state=state)
                 if not ok:
