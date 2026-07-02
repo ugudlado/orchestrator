@@ -25,7 +25,7 @@ orchestrator/
 └── config/pricing.yaml           # Model pricing rates (USD/MTok)
 ```
 
-Active workflow state lives in `<repo_root>/.orchestrator/<slug>/*_<schema>_state.yaml` (one file per schema run — e.g. separate files for `design`, `implement`, `review` on the same ticket), not under `spec/changes/`. Archived runs move to `spec/changes/archive/`.
+Active workflow state lives in `<repo_root>/.orchestrator/<slug>/*_<schema>_state.yaml` (one file per schema run — e.g. separate files for `design` and `implement` on the same ticket), not under `spec/changes/`. Archived runs move to `spec/changes/archive/`.
 
 ### Quick Start
 
@@ -41,8 +41,7 @@ orchestrator run HL-287 --repo /path/to/repo
 # Or run phases as separate, independently-resumable invocations on the same
 # ticket (same change_id carries worktree/branch/artifacts across runs):
 orchestrator run HL-287 --schema design      # explore -> design.md/tasks.yaml -> design-review
-orchestrator run HL-287 --schema implement   # implement-tasks only, stops after coding
-orchestrator run HL-287 --schema review      # ticket-review -> run-phase-review -> ticket-qa -> learn
+orchestrator run HL-287 --schema implement   # implement-tasks -> review gate -> QA -> learn
 
 # Complete phase only (after implementation) — "complete" is a workflow schema name,
 # dispatched via the same <workflow> <ticket-id> form as "feature"/"bugfix"
@@ -62,14 +61,29 @@ echo '{"step_id":"specify","phase":"specify","status":"completed"}' | orchestrat
 orchestrator graph state.yaml
 ```
 
+### Headless Runs (servers / CI)
+
+Set `ORCHESTRATOR_HEADLESS=1` to mark a run unattended (cloud sessions with
+`CLAUDE_CODE_REMOTE=true` count automatically). Two behaviors switch on:
+
+- **State auto-commit**: every recorded step commits `.orchestrator/<slug>/` on the current
+  branch (`git add -f` — the dir is gitignored), so an ephemeral run resumes from the branch.
+  On a blocked exit (2) or script abort (3) the state is also pushed (`git push origin HEAD`).
+- **Exit-2 notification**: set `ORCHESTRATOR_NOTIFY_CMD` to any shell command; on a block it
+  receives a JSON event on stdin — `{event, change_id, schema, reason, state_yaml_path}`.
+  Point it at curl, a Slack CLI, whatever. Notification works with or without headless mode.
+
+Resume after a block: pull the branch and re-run `orchestrator run <id> --schema <s>` —
+state resolution is idempotent and picks up the existing state file.
+
 ### Workflow Phases
 
-Each feature progresses through three phases, each independently invocable as its own
-schema/skill (`design`/`implement`/`review`) or chained together in one run (`feature`/`bugfix`):
+The core schemas are `design`, `implement`, `feature`, and `bugfix`; each embeds its own
+automated review gate. Other schemas (`patch`, `autopilot`) are step-list variants of these.
 
 1. **Design** (`explore` → `design-and-draft-artifacts` → `design-review`) → design.md + tasks.yaml
-2. **Implement** (`implement-tasks`) → code, tests, commits — stops after coding, no gate
-3. **Review** (`ticket-review` → `run-phase-review` → `ticket-qa` → `run-learn-cycle`) → quality gate + learnings
+2. **Implement** (`implement-tasks` → `ticket-review` → `run-phase-review` → `ticket-qa` → `run-learn-cycle`) → code + quality gate + learnings
+3. **Feature/Bugfix** chain both phases in one run (`bugfix` starts with `diagnose` instead of `explore`)
 
 `complete` is a separate teardown schema (archive, merge, worktree removal) run after review passes.
 
@@ -104,7 +118,7 @@ step_history: # Terminal steps recorded in metrics
 - autopilot-must-complete: Never skip complete phase (learn + metrics)
 - metrics-db-derived: Cross-repo metrics derived at bootstrap time
 - specify-phase-scope-churn-cost: Front-load scope constraints in description
-- state-dir-location: Active state lives in <repo*root>/.orchestrator/<slug>/\**<schema>\_state.yaml, not spec/changes/<id>/ or worktree root
+- state-dir-location: Active state lives in <repo\*root>/.orchestrator/<slug>/\*\*<schema>\_state.yaml, not spec/changes/<id>/ or worktree root
 - worktree-branch-sync: Check branch divergence before merge phase
 - bash-fragility-prefer-python-for-new-code: Python for YAML/state logic
 - orchestrator-next-simplified (Jun 2026): No typed I/O, no repeat_until loop, no flat-file contracts — all 21 step contracts are directory-form (contract.yaml + prompt.md or script.sh). See docs/simplification-june-2026.md.
@@ -157,8 +171,7 @@ Skills are the interface to workflow actions:
 - `/orchestrate` → Shell out to `orchestrator run <id> --schema <name>` (in-process dispatch loop in `orchestrator_next/run_loop.py`). In a cloud/Slack session (`CLAUDE_CODE_REMOTE=true`) this routes to [`DRIVE.md`](DRIVE.md) instead — a different execution model where the session self-drives `next`/`done` and is the model for every step (see `docs/cloud-environment.md` for setup).
 - `/specify` → Create specification artifacts
 - `/design` → Design phase only — design.md + tasks.yaml, stops after design-review passes
-- `/implement` → Execute implementation phase, stops after coding (no review gate)
-- `/review` → Review phase only — quality gate + learn cycle against an existing implementation
+- `/implement` → Execute implementation phase, including the automated review gate + learn cycle
 - `/complete-feature` → Verify, sign-off, merge, archive
 - `/autopilot` → Self-improving iteration (includes complete phase)
 - `/backlog-manager` → Task lifecycle operations
@@ -171,7 +184,7 @@ Skills are the interface to workflow actions:
 - `/systematic-debugging` → Methodical bug investigation
 - `/workflow-creator` → Scaffold new orchestrator workflow schemas
 
-See `skills/` for the full list of 25 skill directories.
+See `skills/` for the full list of 24 skill directories.
 
 ### Testing
 
