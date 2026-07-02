@@ -1,0 +1,101 @@
+# tasks.yaml for orc-125 — Restore mid-run live cost display
+# Format contract: config/steps/design-and-draft-artifacts/prompt.md § Tasks YAML Format Contract
+# Design: spec/changes/orc-125/design.md
+version: 1
+tasks:
+  - id: T-1
+    title: "Write tests for sum_cost_usd helper (RED — tests must fail)"
+    status: pending
+    depends_on: []
+    files:
+      - orchestrator_next/tests/test_cost_so_far.py
+    verify:
+      - pytest orchestrator_next/tests/test_cost_so_far.py -v
+    test_scenarios:
+      - "sum_cost_usd over two entries with usage.cost_usd 0.01 and 0.02 returns 0.03"
+      - "sum_cost_usd over empty step_history returns 0.0"
+      - "sum_cost_usd ignores entries whose usage.cost_usd is None or absent"
+      - "sum_cost_usd ignores a non-dict entry and an entry whose usage is not a dict (no raise)"
+    why: "AC-1, AC-2, AC-5 — proves the summation helper sums cost_usd from step_history and is null/malformed-tolerant."
+    change: >
+      Create orchestrator_next/tests/test_cost_so_far.py importing sum_cost_usd from
+      orchestrator_next.pricing. Add unit tests for the four scenarios above. Because
+      sum_cost_usd does not yet exist, mark every test in this file with
+      @pytest.mark.xfail(strict=False) so the verify command exits 0 at RED-commit time;
+      the markers are removed in T-4 (the phase gate) once T-2 makes them pass.
+
+  - id: T-2
+    title: "Implement sum_cost_usd in pricing.py (GREEN — make T-1 tests pass)"
+    status: pending
+    depends_on: [T-1]
+    files:
+      - orchestrator_next/pricing.py
+      - orchestrator_next/tests/test_cost_so_far.py
+    verify:
+      - pytest orchestrator_next/tests/test_cost_so_far.py -v
+    test_scenarios:
+      - "all T-1 unit tests pass"
+      - "sum_cost_usd is a pure read-only function with no I/O"
+    why: "AC-1, AC-2, AC-5 — adds the pure summation helper that is the single source for both display surfaces."
+    change: >
+      Add `def sum_cost_usd(step_history) -> float:` to orchestrator_next/pricing.py,
+      co-located with _compute_cost_usd. Iterate step_history; for each entry, resolve its
+      usage dict (support both dict entries via entry.get('usage') and StepHistoryEntry via
+      getattr(entry, 'usage', None)); if usage is a dict, add float(usage.get('cost_usd') or 0.0);
+      skip non-dict entries and non-dict usage. Return 0.0 for empty/None input. Mirror the
+      null-tolerant read in workflow_report_step._render_report (usage.get('cost_usd') or 0.0).
+      Then remove the @pytest.mark.xfail markers added in T-1 so the tests pass strictly.
+
+  - id: T-3
+    title: "Surface running total on both display sites (dispatch action dict + run_loop log)"
+    status: pending
+    depends_on: [T-2]
+    files:
+      - orchestrator_next/dispatch.py
+      - orchestrator_next/run_loop.py
+      - orchestrator_next/tests/test_cost_so_far.py
+    verify:
+      - pytest orchestrator_next/tests/test_cost_so_far.py -v
+    test_scenarios:
+      - "orchestrator next against a fixture state with cost_usd 0.01 + 0.02 emits action JSON containing estimated_cost_so_far == 0.03"
+      - "orchestrator next against a fresh state (no completed steps) emits estimated_cost_so_far == 0.0 without raising"
+      - "run_loop prints a [cost so far: $X.XX] line after the '✓ <step> done' line when the running total > 0, and suppresses it when total == 0.0"
+    why: "AC-1, AC-2, AC-3 — wires the helper into the orchestrator next action dict (ORC-42 estimated_cost_so_far shape) and the local run_loop completion log, proving mid-run display."
+    change: >
+      In orchestrator_next/dispatch.py::dispatch, import sum_cost_usd from
+      orchestrator_next.pricing and, on the exit-0 action return paths (fresh via
+      _dispatch_fresh and resume via _handle_resume, or once centrally before returning the
+      action), set action['estimated_cost_so_far'] = sum_cost_usd(state.step_history).
+      emit_json already sorts keys, so the new key sorts in without breaking byte-stable JSON
+      (update any test that pins the exact action JSON — grep tests for emit_json/estimated_cost).
+      In orchestrator_next/run_loop.py, after the successful record() at ~line 509-515, reload
+      state (load_state(state_yaml_path)) or read step_history, compute
+      total = sum_cost_usd(step_history), and if total > 0 emit
+      _log(f"  [cost so far: ${total:.2f}]") right after the existing
+      _log(f"✓ {action['step_id']}  done ...") line; suppress when total == 0.0.
+      Extend test_cost_so_far.py with the integration assertions above (subprocess
+      `orchestrator next` against a multi-step fixture; assert estimated_cost_so_far in the
+      emitted JSON). No new xfail markers — these tests must pass strictly since T-2 landed
+      the helper.
+
+  - id: T-4
+    title: "Phase gate — no DuckDB / no schema-step edits, feature tests green (agent-agnostic + no-regression check)"
+    status: pending
+    depends_on: [T-3]
+    files: []
+    verify:
+      - pytest orchestrator_next/tests/test_cost_so_far.py -v
+      - bash -c 'grep -rn "sum_cost_usd(.*db\|metrics.duckdb\|import duckdb\|upsert" orchestrator_next bin && exit 1 || exit 0'
+      - bash -c 'git diff --name-only main...HEAD -- config/workflows config/steps | grep . && exit 1 || exit 0'
+      - bash -c 'grep -RIl "@pytest.mark.xfail" orchestrator_next/tests/test_cost_so_far.py && exit 1 || exit 0'
+    test_scenarios:
+      - "feature test file passes with no remaining xfail markers"
+      - "no DuckDB / metrics.duckdb / upsert / db-backed sum_cost_usd reintroduced (AC-4, AC-2)"
+      - "no file under config/workflows/ or config/steps/ modified (AC-4, agent-agnostic)"
+    why: "AC-2, AC-4 — confirms the DuckDB prohibition and agent-agnostic constraint hold and the RED xfail markers were cleaned up before phase review."
+    change: >
+      Verification-only gate. Run the feature test file (scoped to the feature per the
+      phase-gate-verify learning, since the full suite is not confirmed green at HEAD in this
+      environment), then assert: no DuckDB/upsert symbol reintroduced, no config/workflows or
+      config/steps file changed by this branch, and no xfail markers remain in the feature test
+      file. No source edits in this task.

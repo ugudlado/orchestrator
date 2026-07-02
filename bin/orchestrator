@@ -379,6 +379,16 @@ def main() -> None:
         except Exception as _ape:  # noqa: BLE001
             print(f"warning: state.yaml pending append failed — {_ape}", file=sys.stderr)
 
+        # Running cost total re-derived from step_history[].usage.cost_usd (no
+        # DuckDB). Additive field on the action JSON plus a human stderr line so
+        # the self-driven caller shows it mid-run.
+        try:
+            from orchestrator_next.pricing import sum_cost_usd, format_cost_so_far
+            action["estimated_cost_so_far"] = round(sum_cost_usd(state.raw), 6)
+            print(format_cost_so_far(state.raw), file=sys.stderr)
+        except Exception as _cse:  # noqa: BLE001
+            print(f"warning: cost-so-far computation failed — {_cse}", file=sys.stderr)
+
         print(emit_json(action), end="")
         sys.exit(0)
 

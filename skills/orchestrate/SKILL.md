@@ -100,9 +100,12 @@ orchestrator run $CHANGE_ID --schema $SCHEMA [flag=value ...] [--repo $REPO_ROOT
   with §2.1), and drives the in-process loop until the workflow exits.
 
 Exit codes: 1=complete, 2=blocked, 3–7=errors. Surface
-stderr to the user on failure. On success (exit 1), read `step_history` for
-`cost-report` outputs (`tail_summary`, `cost_summary_path`) and include
-`cost-summary.md` in the final message when present.
+stderr to the user on failure. After each step completes, the loop emits a
+running `[cost so far: $X.XX]` line on stderr (re-derived by summing
+`step_history[].usage.cost_usd` from live state) — relay it so the user sees the
+mid-run total. On success (exit 1), read `step_history` for `cost-report`
+outputs (`tail_summary`, `cost_summary_path`) and include `cost-summary.md` in
+the final message when present.
 
 Wrapper skills (`/specify`, `/implement`) invoke this skill with extra arguments;
 forward those arguments unchanged on the `orchestrator run` line so they land in
