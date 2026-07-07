@@ -95,6 +95,7 @@ def _resolve_agent_id(payload: dict[str, Any]) -> str | None:
 
 
 _PHASE_REVIEW_VERDICTS = frozenset({"pass", "needs_work", "incomplete_phase"})
+_SUCCESS_STATUSES = frozenset({"completed", "recovered"})
 
 
 def _usage_has_tokens(usage: dict[str, Any]) -> bool:
@@ -129,6 +130,50 @@ def _validate_phase_review_output(step_id: str, outputs: dict[str, Any]) -> None
                 "step_id": step_id,
                 "verdict": verdict,
                 "valid_verdicts": sorted(_PHASE_REVIEW_VERDICTS),
+            },
+            3,
+        )
+
+
+def _normalize_review_payload_status(
+    step_id: str, status: str, outputs: dict[str, Any]
+) -> str:
+    """Coerce agent mistakes before routing.
+
+    design-review agents sometimes emit ``status: completed`` with
+    ``design_review_result: needs_work``. Routing keys off ``status``, not the
+    output field — normalize to ``failed`` so the workflow's ``on_failure`` edge
+    fires.
+    """
+    if step_id != "design-review":
+        return status
+    result = outputs.get("design_review_result")
+    if result == "needs_work" and status in _SUCCESS_STATUSES:
+        sys.stderr.write(
+            "[record] design-review: coercing status "
+            f"{status!r} → 'failed' (design_review_result: needs_work)\n"
+        )
+        return "failed"
+    return status
+
+
+def _validate_design_review_output(
+    step_id: str, status: str, outputs: dict[str, Any]
+) -> None:
+    """Reject completed design-review payloads that are not a pass."""
+    if step_id != "design-review" or status != "completed":
+        return
+    result = outputs.get("design_review_result")
+    if result != "pass":
+        raise _RecordError(
+            {
+                "reason": "invalid_design_review_result",
+                "step_id": step_id,
+                "design_review_result": result,
+                "hint": (
+                    "status: completed requires design_review_result: pass; "
+                    "emit status: failed for needs_work"
+                ),
             },
             3,
         )
@@ -192,7 +237,6 @@ def _apply_state_patch(state_raw: dict[str, Any], patch: dict[str, Any]) -> None
 # Statechart routing (on_success / on_failure edges)
 # ---------------------------------------------------------------------------
 
-_SUCCESS_STATUSES = frozenset({"completed", "recovered"})
 _HALT_KEYWORD = "halt"
 
 
@@ -386,6 +430,7 @@ def _validate_outputs(step_id: str, status: str, outputs: dict[str, Any], contra
     if status != "completed":
         return
     _validate_phase_review_output(step_id, outputs)
+    _validate_design_review_output(step_id, status, outputs)
     if contract is not None:
         _validate_outputs_schema(step_id, outputs, contract)
 
@@ -430,6 +475,7 @@ def _validate_payload(
     """Validate a done-payload end-to-end. Returns (step_id, phase, status, outputs, contract, agent)."""
     step_id, phase, status = _validate_shape(payload)
     outputs = _coerce_payload_outputs(payload.get("outputs"))
+    status = _normalize_review_payload_status(step_id, status, outputs)
     contract = _load_contract(step_id, state_yaml_path, (state_raw or {}).get("workflow_plan"))
     outputs = _apply_default_outputs(outputs, contract, status)
     _validate_outputs(step_id, status, outputs, contract)

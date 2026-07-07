@@ -16,6 +16,12 @@ if _SCRIPTS_DIR not in sys.path:
 from orchestrator_next.generate_plan import generate_plan  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _clear_explicit_config_for_home_fixtures(monkeypatch):
+    """These tests install schemas under ORCHESTRATOR_HOME — ORCHESTRATOR_CONFIG wins."""
+    monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
+
+
 def _make_state_yaml(
     tmp_path: Path,
     schema: str,
