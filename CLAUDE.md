@@ -186,3 +186,19 @@ orchestrator --help
 ```
 
 ---
+
+## Cursor Cloud specific instructions
+
+Environment setup (deps + wiring) is handled by the startup update script. Notes below are the non-obvious caveats for running things here.
+
+- **Interpreter:** only `python3` exists (no `python`). `DRIVE.md`/`.claude/cloud-setup.sh` say `python`; use `python3 bin/orchestrator ...` instead.
+- **Lint:** `ruff check orchestrator_next/` (config in `pyproject.toml`).
+- **Canonical tests:** `pytest orchestrator_next/tests/ -q` from the repo root — expect `242 passed, 5 xfailed`. Two gotchas:
+  - Do **not** have `ORCHESTRATOR_SKIP_USAGE_CHECK` set in the env when running the suite — it disables usage validation and makes `test_record_validation.py::TestCheckB` fail. (It's only for the DRIVE.md self-drive loop.)
+  - Tests default `ORCHESTRATOR_HOME` to `~/.config/orchestrator` and several invoke the CLI at `~/.local/bin/orchestrator`. The update script creates both symlinks (config → repo `config/`, CLI → repo `bin/orchestrator`); without them ~12 tests fail with "schema not found" / "orchestrator not found".
+- **Run the CLI:** `python3 bin/orchestrator <verb>` (or `orchestrator` via `~/.local/bin`). `ORCHESTRATOR_HOME` defaults to the repo root when unset. Smoke checks: `orchestrator doctor`, `orchestrator graph feature`, `orchestrator validate-workflow feature`.
+- **Cloud self-drive (DRIVE.md):** `orchestrator run <slug> --schema <s> --seed-only` seeds `.orchestrator/<slug>/` (gitignored), then loop `orchestrator next "$STATE"` / pipe JSON to `orchestrator done "$STATE"`. Set `CLAUDE_CODE_REMOTE=true` only while driving so `create-worktree` no-ops (not while running the test suite).
+- **bats shell tests (`tests/*.bats`):** need `bats` (not in the update script; `sudo apt-get install -y bats`). Most are **stale** — they reference scripts removed in the June-2026 simplification (e.g. `orchestrator_next/scripts/orchestrator-run.sh`, a top-level `scripts/` dir) and fail on a clean checkout regardless of environment. Only `tests/bats/render-retro.bats` and `tests/bats/inline_script_cwd_anchor.bats` pass. Not part of the canonical verify.
+- **`pip install -e .` is broken** (`pyproject.toml` `build-backend` = `poetry-core.masonry.api`, should be `poetry.core.masonry.api`). Not needed: the CLI and tests run from the repo root and deps are installed directly by the update script.
+
+---
