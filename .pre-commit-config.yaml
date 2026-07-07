@@ -28,7 +28,7 @@ repos:
     hooks:
       - id: pytest
         name: pytest
-        entry: python3 -m pytest orchestrator_next/tests/ -q --tb=short
+        entry: bash -c 'export ORCHESTRATOR_CONFIG="${ORCHESTRATOR_CONFIG:-$(pwd)/config}" && python3 -m pytest orchestrator_next/tests/ -q --tb=short'
         language: system
         pass_filenames: false
         always_run: false
