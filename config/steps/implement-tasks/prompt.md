@@ -11,12 +11,14 @@ task: implement the change, run verification, commit, then update `status: compl
 - `tasks.yaml` at `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/tasks.yaml` — ordered task list
   with `status` field per task (optional on first pass for patch schema; create it
   when tracking multiple work items).
-- **Patch workflow:** when `design.md` and `tasks.yaml` are both absent, the ticket
-  description and implementation plan injected above (under "Ticket / bug report")
-  are the spec. Derive work items from the ticket acceptance criteria and
-  implementation plan. Do not block or abandon because design artifacts are missing.
-  Create `tasks.yaml` in the artifact dir when you need to track multiple items across
-  commits; a single cohesive change may complete without ever writing `design.md`.
+- **Patch workflow:** when `design.md` and `tasks.yaml` are both absent, read the
+  ticket body from `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ticket-context.md`
+  (`spec/changes/<slug>/ticket-context.md`, written by `load-ticket-context`).
+  That file is the spec — derive work items from its acceptance criteria and
+  description. Do not block or abandon because design artifacts are missing.
+  Create `tasks.yaml` in the artifact dir when you need to track multiple items
+  across commits; a single cohesive change may complete without ever writing
+  `design.md`.
 
 ## Outputs
 
@@ -28,11 +30,13 @@ task: implement the change, run verification, commit, then update `status: compl
 ### Pre-flight
 
 1. Read `design.md` for context when present: goals, acceptance criteria, component
-   breakdown. For patch schema with no `design.md`, use the ticket body above instead.
+   breakdown. For patch schema with no `design.md`, use
+   `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ticket-context.md`
+   (`spec/changes/<slug>/ticket-context.md`) instead.
 2. Read `tasks.yaml` when present. Identify all tasks where `status` is `pending`
    (or absent). Tasks with `status: completed` are done — skip them entirely. When
-   `tasks.yaml` is absent (patch first pass), derive tasks from the ticket acceptance
-   criteria and implementation plan, then create `tasks.yaml` if multiple commits are
+   `tasks.yaml` is absent (patch first pass), derive tasks from the ticket-context.md
+   acceptance criteria, then create `tasks.yaml` if multiple commits are
    needed to track progress.
 3. Resolve execution order: respect `depends_on` — do not start a task until all
    its dependencies have `status: completed`.
