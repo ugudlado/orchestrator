@@ -131,13 +131,13 @@ In a throwaway `@Claude` session for this repo:
 
 ```bash
 env | grep -E 'ORCHESTRATOR_SKIP_USAGE_CHECK|BACKLOG_URL'   # env vars present?
-which backlog && backlog --version                          # binary installed?
-backlog task list --plain | head                            # backend reachable? (network gate)
+curl -fsS -H "Authorization: Bearer $BACKLOG_TOKEN" \
+  "$BACKLOG_URL/api/tasks?limit=1" | head                    # backend reachable?
 orchestrator --help                              # orchestrator runnable?
 ```
 
-If `backlog task list` hangs or errors, the network prerequisite isn't met — the backend
-isn't reachable from the sandbox. Fix that before relying on MCP ticketing.
+If the curl fails, the network prerequisite isn't met — the backend isn't reachable
+from the sandbox. Fix that before relying on MCP or engine ticket sync.
 
 Also confirm the Slack session inherits this environment: have it print
 `env | grep ORCHESTRATOR` — if the var shows, the Slack → environment binding is confirmed.

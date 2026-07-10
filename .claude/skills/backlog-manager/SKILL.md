@@ -76,15 +76,15 @@ backend (above), load its skill (`/backlog` or `/linear`), and run the
 mapped command. The semantics must hold identically on both backends —
 only the commands differ.
 
-| Operation                | Backlog.md                                      | Linear                                                                                       |
-| ------------------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| **Search**               | `backlog search "<q>" --plain`                  | `/linear` search tools                                                                       |
-| **Create**               | `backlog task create "Title" --priority <p>`    | `save_issue` via `/linear`                                                                   |
-| **Claim next by status** | `backlog task next --status "<S>" --agent @<h>` | pick the top unassigned issue in state `<S>` via `/linear` list, then `save_issue` to assign |
-| **Release claim**        | `backlog task edit <id> -a "" -s "<S>"`         | `save_issue` clearing `assignee`, leaving state `<S>`                                        |
-| **Transition status**    | `backlog task edit <id> -s "<S>"`               | `save_issue` with the `stateId` for `<S>` (resolve via `list_issue_statuses`)                |
-| **Fetch body**           | `backlog task view <id> --plain`                | `get_issue { id }` via `/linear`                                                             |
-| **Archive**              | `backlog task archive <id>`                     | close/cancel via `/linear`                                                                   |
+| Operation                | Backlog.md                                                                       | Linear                                                                                       |
+| ------------------------ | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| **Search**               | `backlog search "<q>" --plain`                                                   | `/linear` search tools                                                                       |
+| **Create**               | `backlog task create "Title" --priority <p>`                                     | `save_issue` via `/linear`                                                                   |
+| **Claim next by status** | `backlog task next --status "<S>" --agent @<h>`                                  | pick the top unassigned issue in state `<S>` via `/linear` list, then `save_issue` to assign |
+| **Release claim**        | `backlog task edit <id> -a "" -s "<S>"`                                          | `save_issue` clearing `assignee`, leaving state `<S>`                                        |
+| **Transition status**    | `backlog task edit <id> -s "<S>"`                                                | `save_issue` with the `stateId` for `<S>` (resolve via `list_issue_statuses`)                |
+| **Fetch body**           | MCP `task_view` / REST `GET /api/tasks/:id` (engine: `load-ticket-context` step) | `get_issue { id }` via `/linear`                                                             |
+| **Archive**              | `backlog task archive <id>`                                                      | close/cancel via `/linear`                                                                   |
 
 ### Atomicity of "claim next by status"
 
