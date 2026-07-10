@@ -4,7 +4,11 @@
 
 ## Inputs
 
-None. (Reads `spec/project.yaml` and codebase source for context.)
+- `spec/project.yaml` and codebase source for context.
+- Ticket body at `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ticket-context.md`
+  (`spec/changes/<slug>/ticket-context.md`) when present — written by
+  `load-ticket-context`. Source of truth for scope; do not invent a different
+  feature from the codebase.
 
 ## Outputs
 
@@ -21,6 +25,10 @@ None. (Reads `spec/project.yaml` and codebase source for context.)
    `outputs.discovery_result: {already_completed: true, archive_path: "...", path: "discovery.md"}`
    and `artifacts: [discovery.md]`. Do not redo codebase survey.
 1. Search the codebase for files, patterns, and modules relevant to the description.
+   First read `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ticket-context.md` (same as
+   `spec/changes/<slug>/ticket-context.md`) when it exists — that file is the
+   ticket body (title, description, ACs). Treat it as the source of truth for
+   scope; do not invent a different feature from the codebase.
    Read architecture from spec/project.yaml and directly related source files.
    Do NOT web-search unless the description explicitly references external technology.
 2. Identify existing codebase conventions that constrain the solution space.

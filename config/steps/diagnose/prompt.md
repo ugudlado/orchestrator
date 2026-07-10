@@ -4,7 +4,9 @@
 
 ## Inputs
 
-None.
+- Ticket body at `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ticket-context.md`
+  (`spec/changes/<slug>/ticket-context.md`) when present — written by
+  `load-ticket-context`. That is the bug report / ticket scope.
 
 ## Outputs
 
@@ -14,6 +16,10 @@ None.
 ## Instructions
 
 Follow these steps in order. Do not skip steps.
+
+Read `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ticket-context.md`
+(`spec/changes/<slug>/ticket-context.md`) first when it exists — that is the
+ticket/bug report. Do not invent a different bug from the codebase.
 
 ### Step 1: Reproduce
 

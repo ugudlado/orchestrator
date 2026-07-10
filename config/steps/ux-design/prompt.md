@@ -6,6 +6,8 @@
 
 - `discovery_result`
 - `discovery.md` at `spec/changes/<slug>/discovery.md`.
+- Ticket body at `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ticket-context.md`
+  (`spec/changes/<slug>/ticket-context.md`) when present — for product/UX scope.
 
 ## Outputs
 
