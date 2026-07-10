@@ -11,6 +11,7 @@
 steps:
   - check-rerun # halt if this change is already archived (workflow's own decision)
   - create-worktree # creates worktree + branch; writes worktree_path+branch to state
+  - load-ticket-context
   - explore
   - design-and-draft-artifacts
   - id: design-review

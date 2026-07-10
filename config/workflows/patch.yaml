@@ -1,6 +1,7 @@
 steps:
   - check-rerun
   - create-worktree
+  - load-ticket-context
   - design-and-draft-artifacts
   - ticket-start
   - id: implement-tasks
