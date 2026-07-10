@@ -114,16 +114,12 @@ def _now_ms() -> int:
 def build_prompt(
     instruction: str,
     step_context: str,
-    ticket_context: str,
     workflow_meta: str,
-    ticket_id: str,
 ) -> str:
-    if ticket_context:
-        return (
-            f"{instruction}\n\n{workflow_meta}\n\n"
-            f"Ticket / bug report ({ticket_id}):\n{ticket_context}\n\n"
-            f"Step context:\n{step_context}\n{_COMPLETION_CONTRACT}\n"
-        )
+    """Assemble the agent prompt. Ticket body is not injected here — the
+    load-ticket-context workflow step writes
+    spec/changes/<id>/ticket-context.md for agents to read.
+    """
     return (
         f"{instruction}\n\n{workflow_meta}\n\n"
         f"Step context:\n{step_context}\n{_COMPLETION_CONTRACT}\n"
@@ -143,29 +139,6 @@ def _workflow_meta(state_raw: dict[str, Any], state_yaml_path: str) -> str:
     if wt:
         lines.append(f"worktree_path={wt}")
     return "\n".join(lines)
-
-
-def _fetch_ticket_context(ticket_id: str, repo_root: str) -> str:
-    """Fetch ticket body for agent steps (backlog backend only, as in bash)."""
-    if not ticket_id:
-        return ""
-    project_yaml = Path(repo_root) / "spec" / "project.yaml"
-    backend = "backlog"
-    try:
-        data = yaml.safe_load(project_yaml.read_text()) or {}
-        backend = (data.get("ticketing") or "backlog").strip()
-    except OSError:
-        pass
-    if backend != "backlog":
-        return ""
-    try:
-        out = subprocess.run(
-            ["backlog", "task", "view", ticket_id, "--plain"],
-            cwd=repo_root, capture_output=True, text=True,
-        )
-        return out.stdout if out.returncode == 0 else ""
-    except FileNotFoundError:
-        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +246,7 @@ def _agent_payload(action: dict, completion: dict, usage: dict, started_at, dura
 
 
 def run_agent_step(
-    action: dict, *, repo_root: str, models_yaml: str, ticket_id: str,
+    action: dict, *, repo_root: str, models_yaml: str,
     state_raw: dict, state_yaml_path: str, tmp_dir: Path,
 ) -> dict:
     """Execute one agent action; always returns a done-payload dict.
@@ -281,6 +254,9 @@ def run_agent_step(
     Failure policy (LOCKED, deviates from bash): tool nonzero exit AND malformed
     COMPLETION both → `failed` payload so on_failure/max_retries retries. A bad
     parse never aborts the workflow.
+
+    Ticket context is not fetched here — load-ticket-context (workflow config)
+    writes spec/changes/<id>/ticket-context.md; agent prompts instruct reading that file.
     """
     model = action["model"]
     step_id = action["step_id"]
@@ -295,9 +271,8 @@ def run_agent_step(
     binary, template = _resolve_tool_template(tool_name, models_yaml)
 
     meta = _workflow_meta(state_raw, state_yaml_path)
-    ticket_ctx = _fetch_ticket_context(ticket_id, repo_root)
     step_context = json.dumps(action.get("step_context") or {})
-    prompt = build_prompt(action.get("instruction", ""), step_context, ticket_ctx, meta, ticket_id)
+    prompt = build_prompt(action.get("instruction", ""), step_context, meta)
     prompt_file = tmp_dir / f"prompt_{step_id}.txt"
     prompt_file.write_text(prompt)
 
@@ -555,7 +530,7 @@ def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, models_yam
                      f"kind=agent  model={action['model']}  attempt={action.get('attempt',1)}")
                 payload = run_agent_step(
                     action, repo_root=repo_root, models_yaml=models_yaml,
-                    ticket_id=ticket_id, state_raw=state.raw,
+                    state_raw=state.raw,
                     state_yaml_path=state_yaml_path, tmp_dir=tmp_dir,
                 )
                 result, rc = record(state_yaml_path, payload)
