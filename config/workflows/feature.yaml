@@ -1,6 +1,7 @@
 steps:
   - check-rerun # halt if this feature is already archived (workflow's own decision)
   - create-worktree # creates worktree + branch; writes worktree_path+branch to state
+  - load-ticket-context # REST fetch ticket body → ticket-context.md (loop stays agnostic)
   - explore
   - ux-design
   - design-and-draft-artifacts

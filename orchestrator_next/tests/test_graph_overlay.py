@@ -26,6 +26,7 @@ _FEATURE_GRAPH_GOLDEN = (
     "  %% workflow: feature\n"
     '  check_rerun["check-rerun"]\n'
     '  create_worktree["create-worktree"]\n'
+    '  load_ticket_context["load-ticket-context"]\n'
     '  explore["explore"]\n'
     '  ux_design["ux-design"]\n'
     '  design_and_draft_artifacts["design-and-draft-artifacts"]\n'
@@ -38,7 +39,8 @@ _FEATURE_GRAPH_GOLDEN = (
     '  ticket_qa["ticket-qa"]\n'
     '  run_learn_cycle["run-learn-cycle"]\n'
     "  check_rerun --> create_worktree\n"
-    "  create_worktree --> explore\n"
+    "  create_worktree --> load_ticket_context\n"
+    "  load_ticket_context --> explore\n"
     "  explore --> ux_design\n"
     "  ux_design --> design_and_draft_artifacts\n"
     "  design_and_draft_artifacts --> design_review\n"

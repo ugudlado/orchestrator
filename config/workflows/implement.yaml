@@ -1,6 +1,7 @@
 steps:
   - check-rerun
   - create-worktree
+  - load-ticket-context
   - ticket-start
   - id: implement-tasks
     on_failure: implement-tasks

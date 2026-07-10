@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# ticket-done — backlog task -> Done (params from contract.yaml).
+# ticket-done — backlog task -> Done via REST (params from contract.yaml).
+# When ticketing=backlog, REST failure aborts the workflow (exit 1).
 set -euo pipefail
 
 : "${REPO_ROOT:?orchestrator: REPO_ROOT required}"
@@ -7,6 +8,9 @@ set -euo pipefail
 : "${TICKET_SYNC_LOG_PREFIX:?orchestrator: TICKET_SYNC_LOG_PREFIX required}"
 
 STATE_YAML="${ORCHESTRATOR_STATE_YAML_PATH:-${STATE_YAML_PATH:?orchestrator: state yaml path required}}"
+LIB="$(cd "$(dirname "$0")/../lib" && pwd)/backlog-api.sh"
+# shellcheck source=../lib/backlog-api.sh
+source "$LIB"
 
 _read_state_field() {
   local key="$1"
@@ -15,36 +19,36 @@ _read_state_field() {
 
 ticket_id="$(_read_state_field ticket_id)"
 ticketing="$(_read_state_field ticketing)"
-change_id="${CHANGE_ID:-$(_read_state_field change_id)}"
 synced=""
+if [ -n "$ticket_id" ]; then
+  ticket_id="$(printf '%s' "$ticket_id" | tr '[:lower:]' '[:upper:]')"
+fi
 
-if [ -n "$ticket_id" ] && [ "$ticketing" = "backlog" ]; then
-  _current_status=$(cd "$REPO_ROOT" && backlog task "$ticket_id" --plain 2>/dev/null | grep -E "^Status:" | sed 's/^Status:[[:space:]]*//' || true)
-  if [ "$_current_status" = "$TICKET_SYNC_STATUS" ]; then
-    echo "${TICKET_SYNC_LOG_PREFIX}: ${ticket_id} already ${TICKET_SYNC_STATUS} — skipping" >&2
-    synced="$ticket_id"
-  elif (cd "$REPO_ROOT" && backlog task edit "$ticket_id" -s "$TICKET_SYNC_STATUS" >/dev/null 2>&1); then
-    echo "${TICKET_SYNC_LOG_PREFIX}: ${ticket_id} -> ${TICKET_SYNC_STATUS}" >&2
-    synced="$ticket_id"
-  else
-    echo "WARN ${TICKET_SYNC_LOG_PREFIX}: backlog edit failed for ${ticket_id}" >&2
-  fi
-elif [ -n "$change_id" ] && command -v backlog >/dev/null 2>&1 \
-     && [ -d "$REPO_ROOT/spec/changes/backlog" ]; then
-  ticket_id=$(backlog task list --plain 2>/dev/null \
-    | grep -oE "ORC-[0-9]+" \
-    | while read -r tid; do
-        if backlog task "$tid" --plain 2>/dev/null \
-           | grep -qE "^Labels:.*\\bslug-${change_id}\\b"; then
-          echo "$tid"
-          break
-        fi
-      done | head -1)
-  if [ -n "$ticket_id" ] \
-     && (cd "$REPO_ROOT" && backlog task edit "$ticket_id" -s "$TICKET_SYNC_STATUS" >/dev/null 2>&1); then
-    echo "${TICKET_SYNC_LOG_PREFIX}: ${ticket_id} -> ${TICKET_SYNC_STATUS} (slug-${change_id})" >&2
-    synced="$ticket_id"
-  fi
+if [ -z "$ticket_id" ] || [ "$ticketing" != "backlog" ]; then
+  printf '%s\n' "{\"status\": \"completed\", \"outputs\": {\"ticket_status_set\": \"${TICKET_SYNC_STATUS}\", \"ticket_id\": \"\"}}"
+  exit 0
+fi
+
+if ! backlog_api_base >/dev/null; then
+  echo "ERROR ${TICKET_SYNC_LOG_PREFIX}: BACKLOG_URL/BACKLOG_TOKEN missing for ${ticket_id}" >&2
+  printf '%s\n' "{\"status\": \"failed\", \"outputs\": {}, \"evidence\": {\"summary\": \"BACKLOG_URL/BACKLOG_TOKEN missing\"}}"
+  exit 1
+fi
+
+_current_status=""
+if json="$(backlog_api_get_task "$ticket_id" 2>/dev/null)"; then
+  _current_status="$(printf '%s' "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("status") or "")')"
+fi
+if [ "$_current_status" = "$TICKET_SYNC_STATUS" ]; then
+  echo "${TICKET_SYNC_LOG_PREFIX}: ${ticket_id} already ${TICKET_SYNC_STATUS} — skipping" >&2
+  synced="$ticket_id"
+elif backlog_api_put_status "$ticket_id" "$TICKET_SYNC_STATUS"; then
+  echo "${TICKET_SYNC_LOG_PREFIX}: ${ticket_id} -> ${TICKET_SYNC_STATUS}" >&2
+  synced="$ticket_id"
+else
+  echo "ERROR ${TICKET_SYNC_LOG_PREFIX}: REST status update failed for ${ticket_id}" >&2
+  printf '%s\n' "{\"status\": \"failed\", \"outputs\": {}, \"evidence\": {\"summary\": \"PUT /api/tasks/${ticket_id} status failed\"}}"
+  exit 1
 fi
 
 printf '%s\n' "{\"status\": \"completed\", \"outputs\": {\"ticket_status_set\": \"${TICKET_SYNC_STATUS}\", \"ticket_id\": \"${synced}\"}}"

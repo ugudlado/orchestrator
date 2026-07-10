@@ -1,6 +1,7 @@
 steps:
   - check-rerun
   - create-worktree
+  - load-ticket-context
   - explore
   - design-and-draft-artifacts
   - id: design-review
