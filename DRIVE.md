@@ -18,9 +18,11 @@ spawning per-step model subprocesses; ignore that here.
 - **No worktree.** `create-worktree` detects `CLAUDE_CODE_REMOTE=true` and no-ops — you're
   already in an isolated sandbox on your own branch, so every step runs directly against
   the repo checkout instead of a local `~/code/feature_worktrees/...` dir.
-- **Ticketing is via MCP**, not the engine. The engine's `ticket-*` script steps target
-  the `backlog` CLI and **no-op cleanly** when the backend isn't `backlog` or the CLI is
-  absent (they still return `completed`). You own ticket transitions through MCP tools.
+- **Ticketing:** the engine's `load-ticket-context` / `ticket-*` script steps call the
+  Backlog REST API (`BACKLOG_URL` + `BACKLOG_TOKEN`) — not the local `backlog` CLI.
+  They no-op cleanly when ticketing isn't `backlog` or env is missing (still
+  `completed`). In cloud you may also drive transitions via MCP; read the ticket
+  yourself in step 1 either way.
 - **Cost metrics will read $0** unless you report real token usage in each `done` payload
   (see step 4). This is expected; don't try to fix it mid-run.
 
