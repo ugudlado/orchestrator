@@ -13,10 +13,10 @@ steps:
   - id: implement-tasks
     on_failure: design-and-draft-artifacts
     max_retries: 3
-  - ticket-review # ticket -> Code Review
+  - ticket-review # ticket -> Review
   - id: run-phase-review
     on_success: ticket-qa
     on_failure: implement-tasks
     max_retries: 8
-  - ticket-qa # ticket -> QA Review
+  - ticket-qa # ticket -> Verify
   - run-learn-cycle
