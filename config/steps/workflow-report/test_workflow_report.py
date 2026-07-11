@@ -25,7 +25,6 @@ def _render(step_history: list, issues: list | None = None) -> tuple[dict, str]:
     return result, buf.getvalue()
 
 
-@pytest.mark.xfail(strict=False, reason="T-4: widened table not yet implemented")
 def test_agent_row_shows_split_tokens_model_and_structured_fields():
     history = [
         {
@@ -53,7 +52,6 @@ def test_agent_row_shows_split_tokens_model_and_structured_fields():
     assert step["model"] == "sonnet-4-5"
 
 
-@pytest.mark.xfail(strict=False, reason="T-4: widened table not yet implemented")
 def test_collapse_sums_tokens_cost_duration_last_model_wins():
     history = [
         {
@@ -91,7 +89,6 @@ def test_collapse_sums_tokens_cost_duration_last_model_wins():
     assert step["model"] == "sonnet-4-5"
 
 
-@pytest.mark.xfail(strict=False, reason="T-4: widened table not yet implemented")
 def test_null_usage_renders_dashes_without_exception():
     history = [{"step_id": "script-step", "status": "completed", "attempt": 1, "usage": None}]
     result, stderr = _render(history)
@@ -104,7 +101,6 @@ def test_null_usage_renders_dashes_without_exception():
     assert result["steps"][0]["duration_ms"] == 0
 
 
-@pytest.mark.xfail(strict=False, reason="T-4: widened table not yet implemented")
 def test_missing_model_and_cost_contribute_zero_to_totals():
     history = [
         {
@@ -124,7 +120,6 @@ def test_missing_model_and_cost_contribute_zero_to_totals():
     assert result["totals"]["output_tokens"] == 5
 
 
-@pytest.mark.xfail(strict=False, reason="T-4: widened table not yet implemented")
 def test_totals_include_input_and_output_token_sums():
     history = [
         {
