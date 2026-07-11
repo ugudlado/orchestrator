@@ -579,8 +579,13 @@ def _apply_routing(
             entry["status"] = "blocked"
             state_raw["status"] = "blocked"
         elif routing == _HALT_KEYWORD:
-            # No on_failure edge or explicit halt — preserve original entry status.
-            readiness.mark_node_status(state_raw, phase, step_id, "completed")
+            # No on_failure edge or explicit halt. A *failed* deterministic script
+            # (load-ticket-context, create-worktree, ...) must NOT read as completed:
+            # a resume would then treat its dependents as ready and run them without
+            # the missing artifact. But `abandoned` must terminate as completed to
+            # stop infinite re-dispatch (ORC-75) — only `failed` flips the node.
+            node_status = "failed" if status == "failed" else "completed"
+            readiness.mark_node_status(state_raw, phase, step_id, node_status)
             state_raw["status"] = "blocked"
         elif routing == "advance":
             readiness.mark_node_status(state_raw, phase, step_id, "completed")
