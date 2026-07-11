@@ -553,6 +553,19 @@ def _build_history_entry(
         "usage": usage,
         "evidence": _merge_evidence_block(outputs, payload.get("evidence")),
     }
+    # Derive duration_ms from wall-clock timestamps when the payload omitted it
+    # (script steps never self-report duration). Unparseable stamps → skip.
+    if "duration_ms" not in usage:
+        try:
+            started_dt = _dt.datetime.fromisoformat(
+                str(entry["started_at"]).replace("Z", "+00:00")
+            )
+            ended_dt = _dt.datetime.fromisoformat(
+                str(entry["ended_at"]).replace("Z", "+00:00")
+            )
+            usage["duration_ms"] = int((ended_dt - started_dt).total_seconds() * 1000)
+        except (TypeError, ValueError):
+            pass
     for key in _OPTIONAL_STEP_HISTORY_KEYS:
         if key in payload:
             entry[key] = payload[key]

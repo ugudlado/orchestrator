@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import pytest
-
 from orchestrator_next.record import _build_history_entry
 
 
@@ -20,7 +18,6 @@ def _call(payload: dict, *, step_id: str = "script-step", phase: str = "main") -
     )
 
 
-@pytest.mark.xfail(strict=False, reason="T-2: duration_ms derivation not yet implemented")
 def test_derives_duration_ms_from_parseable_timestamps():
     started = "2026-07-11T20:00:00Z"
     entry = _call({"started_at": started, "usage": {"input_tokens": 0, "output_tokens": 0}})
@@ -30,7 +27,6 @@ def test_derives_duration_ms_from_parseable_timestamps():
     assert entry["usage"]["duration_ms"] == expected
 
 
-@pytest.mark.xfail(strict=False, reason="T-2: duration_ms derivation not yet implemented")
 def test_preserves_payload_duration_ms():
     entry = _call(
         {
@@ -41,13 +37,11 @@ def test_preserves_payload_duration_ms():
     assert entry["usage"]["duration_ms"] == 42
 
 
-@pytest.mark.xfail(strict=False, reason="T-2: duration_ms derivation not yet implemented")
 def test_unparseable_started_at_skips_derivation():
     entry = _call({"started_at": "not-a-timestamp", "usage": {}})
     assert "duration_ms" not in entry["usage"]
 
 
-@pytest.mark.xfail(strict=False, reason="T-2: duration_ms derivation not yet implemented")
 def test_null_usage_still_gets_duration_ms():
     started = "2026-07-11T20:00:00Z"
     entry = _call({"started_at": started, "usage": None})
