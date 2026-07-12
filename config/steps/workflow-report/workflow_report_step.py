@@ -67,8 +67,8 @@ def _render_report(step_history: list, issues: list) -> dict:
                 "tokens": 0,
                 "input_tokens": 0,
                 "output_tokens": 0,
-                "cache_read_tokens": 0,
-                "cache_creation_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
                 "cost_usd": 0.0,
             },
         }
@@ -101,8 +101,8 @@ def _render_report(step_history: list, issues: list) -> dict:
                 "tokens": tokens,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
-                "cache_read_tokens": cache_read,
-                "cache_creation_tokens": cache_creation,
+                "cache_read_input_tokens": cache_read,
+                "cache_creation_input_tokens": cache_creation,
                 "cost": cost,
                 "duration_ms": duration_ms,
                 "model": model,
@@ -113,8 +113,8 @@ def _render_report(step_history: list, issues: list) -> dict:
             rows[step_id]["tokens"] += tokens
             rows[step_id]["input_tokens"] += input_tokens
             rows[step_id]["output_tokens"] += output_tokens
-            rows[step_id]["cache_read_tokens"] += cache_read
-            rows[step_id]["cache_creation_tokens"] += cache_creation
+            rows[step_id]["cache_read_input_tokens"] += cache_read
+            rows[step_id]["cache_creation_input_tokens"] += cache_creation
             rows[step_id]["cost"] += cost
             rows[step_id]["duration_ms"] += duration_ms
             if model:
@@ -144,8 +144,8 @@ def _render_report(step_history: list, issues: list) -> dict:
         tokens = r["tokens"]
         input_tokens = r["input_tokens"]
         output_tokens = r["output_tokens"]
-        cache_read = r["cache_read_tokens"]
-        cache_creation = r["cache_creation_tokens"]
+        cache_read = r["cache_read_input_tokens"]
+        cache_creation = r["cache_creation_input_tokens"]
         cost = r["cost"]
         model = r["model"]
 
@@ -206,8 +206,8 @@ def _render_report(step_history: list, issues: list) -> dict:
                 "tokens": r["tokens"],
                 "input_tokens": r["input_tokens"],
                 "output_tokens": r["output_tokens"],
-                "cache_read_tokens": r["cache_read_tokens"],
-                "cache_creation_tokens": r["cache_creation_tokens"],
+                "cache_read_input_tokens": r["cache_read_input_tokens"],
+                "cache_creation_input_tokens": r["cache_creation_input_tokens"],
                 "model": r["model"] or None,
                 "cost_usd": round(r["cost"], 6),
             }
@@ -218,8 +218,8 @@ def _render_report(step_history: list, issues: list) -> dict:
             "tokens": total_tokens,
             "input_tokens": total_input,
             "output_tokens": total_output,
-            "cache_read_tokens": total_cache_read,
-            "cache_creation_tokens": total_cache_creation,
+            "cache_read_input_tokens": total_cache_read,
+            "cache_creation_input_tokens": total_cache_creation,
             "cost_usd": round(total_cost, 6),
         },
     }

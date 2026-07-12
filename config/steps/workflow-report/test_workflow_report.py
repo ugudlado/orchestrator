@@ -143,10 +143,10 @@ def test_cache_tokens_rendered_and_kept_disjoint_from_input():
     assert "52,507" in stderr
     step = result["steps"][0]
     assert step["input_tokens"] == 13  # disjoint: not inflated by cache
-    assert step["cache_read_tokens"] == 517216
-    assert step["cache_creation_tokens"] == 52507
-    assert result["totals"]["cache_read_tokens"] == 517216
-    assert result["totals"]["cache_creation_tokens"] == 52507
+    assert step["cache_read_input_tokens"] == 517216
+    assert step["cache_creation_input_tokens"] == 52507
+    assert result["totals"]["cache_read_input_tokens"] == 517216
+    assert result["totals"]["cache_creation_input_tokens"] == 52507
 
 
 def test_cache_tokens_accumulate_across_attempts():
@@ -166,8 +166,32 @@ def test_cache_tokens_accumulate_across_attempts():
     ]
     result, _stderr = _render(history)
     step = result["steps"][0]
-    assert step["cache_read_tokens"] == 300
-    assert step["cache_creation_tokens"] == 30
+    assert step["cache_read_input_tokens"] == 300
+    assert step["cache_creation_input_tokens"] == 30
+
+
+def test_tokens_field_is_the_grand_total_including_cache():
+    """`tokens` counts every billed token, not just in+out. Nothing outside this
+    module consumes it (structured output is console-only), so widening it is safe
+    — and a `tokens` that omitted 98% of real volume was the bug being fixed."""
+    history = [
+        {
+            "step_id": "explore",
+            "status": "completed",
+            "attempt": 1,
+            "usage": {
+                "input_tokens": 13,
+                "output_tokens": 3312,
+                "cache_read_input_tokens": 517216,
+                "cache_creation_input_tokens": 52507,
+            },
+        }
+    ]
+    result, stderr = _render(history)
+    expected = 13 + 3312 + 517216 + 52507
+    assert result["steps"][0]["tokens"] == expected
+    assert result["totals"]["tokens"] == expected
+    assert "573,048" in stderr  # the all-tokens footer line
 
 
 def test_missing_cache_fields_contribute_zero():
@@ -181,8 +205,8 @@ def test_missing_cache_fields_contribute_zero():
         }
     ]
     result, _stderr = _render(history)
-    assert result["totals"]["cache_read_tokens"] == 0
-    assert result["totals"]["cache_creation_tokens"] == 0
+    assert result["totals"]["cache_read_input_tokens"] == 0
+    assert result["totals"]["cache_creation_input_tokens"] == 0
 
 
 def test_totals_include_input_and_output_token_sums():
