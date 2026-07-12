@@ -18,7 +18,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from orchestrator_next.pricing import format_cost_so_far, sum_cost_usd
+from orchestrator_next.pricing import (
+    format_cost_so_far,
+    format_last_step_usage,
+    sum_cost_usd,
+)
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -74,6 +78,7 @@ def test_format_cost_so_far_two_decimals():
     assert format_cost_so_far(state) == "[cost so far: $12.30]"
     assert format_cost_so_far({}) == "[cost so far: $0.00]"
 
+
 # ---------------------------------------------------------------------------
 # Token-key contract between run_loop's zero floor and what the readers consume
 # ---------------------------------------------------------------------------
@@ -92,10 +97,82 @@ def test_empty_usage_token_keys_are_the_ones_readers_consume():
         "cache_read_input_tokens",
         "cache_creation_input_tokens",
     }
+    # Every floored key is one _compute_cost_usd actually prices.
+    priced = {
+        "input_tokens", "output_tokens",
+        "cache_read_input_tokens", "cache_creation_input_tokens",
+    }
+    assert set(_EMPTY_USAGE) <= priced
     # The floor must not fabricate a model or a cost for a failed/empty step.
     assert "cost_usd" not in _EMPTY_USAGE
     assert "model" not in _EMPTY_USAGE
 
+
+# ---------------------------------------------------------------------------
+# Per-step usage line (the ✓ step's own duration/tokens/cost)
+# ---------------------------------------------------------------------------
+
+def test_format_last_step_usage_renders_agent_step():
+    """Cache keys must match what the adapters write and pricing reads —
+    cache_read_input_tokens, NOT cache_read_tokens."""
+    state = {"step_history": [
+        {"usage": {"cost_usd": 0.10}},  # earlier step — must not be rendered
+        {"usage": {
+            "duration_ms": 9300,
+            "input_tokens": 12100,
+            "output_tokens": 834,
+            "cache_read_input_tokens": 88200,
+            "cache_creation_input_tokens": 1200,
+            "cost_usd": 0.69,
+        }},
+    ]}
+    line = format_last_step_usage(state)
+    assert line == "9.3s  in=12.1k out=834 cache_r=88.2k cache_w=1.2k  $0.69"
+
+
+def test_format_last_step_usage_script_step_duration_only():
+    """Script steps record duration and no tokens/cost — still worth a line."""
+    state = {"step_history": [{"usage": {"duration_ms": 1500}}]}
+    assert format_last_step_usage(state) == "1.5s"
+
+
+def test_format_last_step_usage_hides_trivial_durations():
+    """A sub-100ms script step would render a useless '0.0s' — say nothing."""
+    assert format_last_step_usage({"step_history": [{"usage": {"duration_ms": 12}}]}) == ""
+
+
+def test_format_last_step_usage_no_misattribution_on_state_mutating_step():
+    """archive-completed-change records itself PRE-script (it moves state.yaml, so a
+    post-script record would crash), and that entry carries no usage. The usage line
+    must stay empty rather than reprint the previous step's tokens under its name —
+    format_cost_so_far was order-independent and immune to this; this one isn't."""
+    state = {"step_history": [
+        {"step_id": "ticket-done", "usage": {
+            "input_tokens": 5000, "output_tokens": 900,
+            "cache_read_input_tokens": 400000, "cost_usd": 0.42, "duration_ms": 30000,
+        }},
+        {"step_id": "archive-completed-change", "status": "completed", "outputs": {},
+         "evidence": {"summary": "recorded pre-script (state-mutating inline step)"}},
+    ]}
+    assert format_last_step_usage(state) == ""
+
+
+def test_format_last_step_usage_empty_when_nothing_recorded():
+    assert format_last_step_usage({}) == ""
+    assert format_last_step_usage({"step_history": []}) == ""
+    assert format_last_step_usage({"step_history": [{}]}) == ""
+    assert format_last_step_usage({"step_history": [{"usage": {}}]}) == ""
+    assert format_last_step_usage({"step_history": ["not-a-dict"]}) == ""
+
+
+def test_format_last_step_usage_tolerates_junk_values():
+    state = {"step_history": [{"usage": {
+        "duration_ms": None, "input_tokens": "junk",
+        "output_tokens": 500, "cost_usd": "nan-ish",
+    }}]}
+    # Junk coerces to 0; the four token labels stay together so columns line up
+    # across steps. Unparseable duration/cost drop out entirely.
+    assert format_last_step_usage(state) == "in=0 out=500 cache_r=0 cache_w=0"
 
 
 # ---------------------------------------------------------------------------

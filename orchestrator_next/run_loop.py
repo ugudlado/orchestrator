@@ -35,7 +35,7 @@ from orchestrator_next.dispatch import ContractDispatchError, dispatch
 from orchestrator_next.parser import ContractNotFoundError
 from orchestrator_next.parser import ContractError
 from orchestrator_next.parser import load_state
-from orchestrator_next.pricing import format_cost_so_far
+from orchestrator_next.pricing import format_cost_so_far, format_last_step_usage
 from orchestrator_next.record import autocommit_state, record
 from orchestrator_next.usage_adapters import ZEROED_USAGE, split_stdout
 
@@ -90,17 +90,22 @@ def _log(msg: str) -> None:
 
 
 def _log_cost_so_far(state_yaml_path: str) -> None:
-    """Emit the running `[cost so far: $X.XX]` total re-derived from live state.
+    """Emit the step's own usage, then the running `[cost so far: $X.XX]` total,
+    both re-derived from live state.
 
-    Reads the just-updated state.yaml and sums step_history[].usage.cost_usd so
-    the total reflects every completed step mid-run. Best-effort: a missing or
-    unreadable state file never interrupts the loop.
+    Reads the just-updated state.yaml: step_history[-1] is the step that just
+    recorded, so its duration/tokens/cost render without threading usage back
+    through the call sites. Best-effort — a missing or unreadable state file
+    never interrupts the loop.
     """
     try:
         with open(state_yaml_path) as f:
             state_raw = yaml.safe_load(f) or {}
     except (OSError, yaml.YAMLError):
         return
+    step_usage = format_last_step_usage(state_raw)
+    if step_usage:
+        _log(f"  {step_usage}")
     _log(format_cost_so_far(state_raw))
 
 
