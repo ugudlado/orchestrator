@@ -355,7 +355,12 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
     cwd = env.get("REPO_ROOT") or None
     if cwd and not os.path.isdir(cwd):
         cwd = None
+    # Measure elapsed ms here: record.py's derive-from-timestamps fallback can't
+    # serve script steps (started_at would default to ended_at), and _utcnow_iso
+    # truncates to whole seconds, flooring sub-second steps to 0.
+    _start_ms = _now_ms()
     proc = subprocess.run(run_cmd, capture_output=True, env=env, cwd=cwd)
+    script_duration_ms = _now_ms() - _start_ms
     if proc.stderr:
         sys.stderr.buffer.write(proc.stderr)
         sys.stderr.buffer.flush()
@@ -366,6 +371,7 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
             record(state_yaml_path, {
                 "step_id": step_id, "phase": phase, "attempt": attempt,
                 "status": "failed", "outputs": {},
+                "usage": {"duration_ms": script_duration_ms},
                 "evidence": {"summary": f"script exited {proc.returncode}"},
             })
         _log(f"✗ {step_id}  failed  script_exit={proc.returncode}")
@@ -380,6 +386,7 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
         payload = {
             "step_id": step_id, "phase": phase, "attempt": attempt,
             "status": "completed", "outputs": outputs,
+            "usage": {"duration_ms": script_duration_ms},
             "evidence": {"outputs": outputs, "summary": "inline script completed"},
         }
         if isinstance(outputs.get("state_patch"), dict):
