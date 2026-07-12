@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Workflow report step — duration, model, in/out tokens, and cost per step from state.yaml."""
+"""Workflow report step — duration, model, in/cache/out tokens, and cost per step."""
 from __future__ import annotations
 
 import json
@@ -67,6 +67,8 @@ def _render_report(step_history: list, issues: list) -> dict:
                 "tokens": 0,
                 "input_tokens": 0,
                 "output_tokens": 0,
+                "cache_read_tokens": 0,
+                "cache_creation_tokens": 0,
                 "cost_usd": 0.0,
             },
         }
@@ -84,7 +86,11 @@ def _render_report(step_history: list, issues: list) -> dict:
         usage = entry.get("usage") or {}
         input_tokens = usage.get("input_tokens") or 0
         output_tokens = usage.get("output_tokens") or 0
-        tokens = input_tokens + output_tokens
+        # Cache tokens are billed (pricing.py reads them) and dominate real spend
+        # on agent steps; keep them disjoint from input_tokens so columns sum.
+        cache_read = usage.get("cache_read_input_tokens") or 0
+        cache_creation = usage.get("cache_creation_input_tokens") or 0
+        tokens = input_tokens + output_tokens + cache_read + cache_creation
         cost = usage.get("cost_usd") or 0.0
         duration_ms = usage.get("duration_ms") or 0
         model = usage.get("model") or ""
@@ -95,6 +101,8 @@ def _render_report(step_history: list, issues: list) -> dict:
                 "tokens": tokens,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
+                "cache_read_tokens": cache_read,
+                "cache_creation_tokens": cache_creation,
                 "cost": cost,
                 "duration_ms": duration_ms,
                 "model": model,
@@ -105,6 +113,8 @@ def _render_report(step_history: list, issues: list) -> dict:
             rows[step_id]["tokens"] += tokens
             rows[step_id]["input_tokens"] += input_tokens
             rows[step_id]["output_tokens"] += output_tokens
+            rows[step_id]["cache_read_tokens"] += cache_read
+            rows[step_id]["cache_creation_tokens"] += cache_creation
             rows[step_id]["cost"] += cost
             rows[step_id]["duration_ms"] += duration_ms
             if model:
@@ -113,15 +123,18 @@ def _render_report(step_history: list, issues: list) -> dict:
     sys.stderr.write("\n## Workflow step report\n\n")
     sys.stderr.write(
         f"{'Step':<35} {'Status':<12} {'Att':>4} {'Duration':>10} "
-        f"{'Model':<14} {'In':>8} {'Out':>8} {'Cost':>10}\n"
+        f"{'Model':<14} {'In':>9} {'CacheR':>11} {'CacheW':>10} {'Out':>8} {'Cost':>10}\n"
     )
     sys.stderr.write(
-        f"{'-'*35} {'-'*12} {'-'*4} {'-'*10} {'-'*14} {'-'*8} {'-'*8} {'-'*10}\n"
+        f"{'-'*35} {'-'*12} {'-'*4} {'-'*10} {'-'*14} {'-'*9} {'-'*11} "
+        f"{'-'*10} {'-'*8} {'-'*10}\n"
     )
 
     total_tokens = 0
     total_input = 0
     total_output = 0
+    total_cache_read = 0
+    total_cache_creation = 0
     total_cost = 0.0
     total_ms = 0
 
@@ -131,6 +144,8 @@ def _render_report(step_history: list, issues: list) -> dict:
         tokens = r["tokens"]
         input_tokens = r["input_tokens"]
         output_tokens = r["output_tokens"]
+        cache_read = r["cache_read_tokens"]
+        cache_creation = r["cache_creation_tokens"]
         cost = r["cost"]
         model = r["model"]
 
@@ -138,23 +153,33 @@ def _render_report(step_history: list, issues: list) -> dict:
         total_tokens += tokens
         total_input += input_tokens
         total_output += output_tokens
+        total_cache_read += cache_read
+        total_cache_creation += cache_creation
         total_cost += cost
 
         att_str = f"{attempts} ✗" if attempts > 1 else "1"
         dur_str = f"{duration_ms / 1000:.1f}s" if duration_ms else "—"
         model_str = model if model else "—"
         in_str = f"{input_tokens:,}" if input_tokens else "—"
+        cr_str = f"{cache_read:,}" if cache_read else "—"
+        cw_str = f"{cache_creation:,}" if cache_creation else "—"
         out_str = f"{output_tokens:,}" if output_tokens else "—"
         cost_str = f"${cost:.4f}" if cost else "—"
 
         sys.stderr.write(
             f"{step_id:<35} {r['status']:<12} {att_str:>4} {dur_str:>10} "
-            f"{model_str:<14} {in_str:>8} {out_str:>8} {cost_str:>10}\n"
+            f"{model_str:<14} {in_str:>9} {cr_str:>11} {cw_str:>10} "
+            f"{out_str:>8} {cost_str:>10}\n"
         )
 
     sys.stderr.write(
-        f"\n{'TOTAL':<35} {'':12} {'':>4} {total_ms/1000:.1f}s "
-        f"{'':14} {total_input:>8,} {total_output:>8,} ${total_cost:>9.4f}\n"
+        f"\n{'TOTAL':<35} {'':12} {'':>4} {total_ms/1000:>9.1f}s "
+        f"{'':14} {total_input:>9,} {total_cache_read:>11,} "
+        f"{total_cache_creation:>10,} {total_output:>8,} ${total_cost:>9.4f}\n"
+    )
+    sys.stderr.write(
+        f"{'':<35} {'':12} {'':>4} {'':>10} {'':14} "
+        f"{'all tokens: ' + format(total_tokens, ',')}\n"
     )
 
     if issues:
@@ -181,6 +206,8 @@ def _render_report(step_history: list, issues: list) -> dict:
                 "tokens": r["tokens"],
                 "input_tokens": r["input_tokens"],
                 "output_tokens": r["output_tokens"],
+                "cache_read_tokens": r["cache_read_tokens"],
+                "cache_creation_tokens": r["cache_creation_tokens"],
                 "model": r["model"] or None,
                 "cost_usd": round(r["cost"], 6),
             }
@@ -191,6 +218,8 @@ def _render_report(step_history: list, issues: list) -> dict:
             "tokens": total_tokens,
             "input_tokens": total_input,
             "output_tokens": total_output,
+            "cache_read_tokens": total_cache_read,
+            "cache_creation_tokens": total_cache_creation,
             "cost_usd": round(total_cost, 6),
         },
     }

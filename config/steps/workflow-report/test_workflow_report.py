@@ -120,6 +120,71 @@ def test_missing_model_and_cost_contribute_zero_to_totals():
     assert result["totals"]["output_tokens"] == 5
 
 
+def test_cache_tokens_rendered_and_kept_disjoint_from_input():
+    """Cache read/write drive most of the cost; In stays raw input only."""
+    history = [
+        {
+            "step_id": "explore",
+            "status": "completed",
+            "attempt": 1,
+            "usage": {
+                "input_tokens": 13,
+                "output_tokens": 3312,
+                "cache_read_input_tokens": 517216,
+                "cache_creation_input_tokens": 52507,
+                "model": "sonnet-4-6",
+                "cost_usd": 0.5199,
+                "duration_ms": 81481,
+            },
+        }
+    ]
+    result, stderr = _render(history)
+    assert "517,216" in stderr
+    assert "52,507" in stderr
+    step = result["steps"][0]
+    assert step["input_tokens"] == 13  # disjoint: not inflated by cache
+    assert step["cache_read_tokens"] == 517216
+    assert step["cache_creation_tokens"] == 52507
+    assert result["totals"]["cache_read_tokens"] == 517216
+    assert result["totals"]["cache_creation_tokens"] == 52507
+
+
+def test_cache_tokens_accumulate_across_attempts():
+    history = [
+        {
+            "step_id": "explore",
+            "status": "failed",
+            "attempt": 1,
+            "usage": {"cache_read_input_tokens": 100, "cache_creation_input_tokens": 10},
+        },
+        {
+            "step_id": "explore",
+            "status": "completed",
+            "attempt": 2,
+            "usage": {"cache_read_input_tokens": 200, "cache_creation_input_tokens": 20},
+        },
+    ]
+    result, _stderr = _render(history)
+    step = result["steps"][0]
+    assert step["cache_read_tokens"] == 300
+    assert step["cache_creation_tokens"] == 30
+
+
+def test_missing_cache_fields_contribute_zero():
+    """Old state files predating cache tracking must not crash or skew totals."""
+    history = [
+        {
+            "step_id": "old-step",
+            "status": "completed",
+            "attempt": 1,
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+    ]
+    result, _stderr = _render(history)
+    assert result["totals"]["cache_read_tokens"] == 0
+    assert result["totals"]["cache_creation_tokens"] == 0
+
+
 def test_totals_include_input_and_output_token_sums():
     history = [
         {
