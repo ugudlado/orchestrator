@@ -1,0 +1,92 @@
+version: 1
+tasks:
+  - id: T-1
+    title: "Write tests for duration_ms derivation in record._build_history_entry (RED)"
+    status: completed
+    depends_on: []
+    files:
+      - orchestrator_next/tests/test_record_duration_derivation.py
+    verify:
+      - pytest orchestrator_next/tests/test_record_duration_derivation.py -v
+    test_scenarios:
+      - "payload with no usage.duration_ms and parseable started_at/ended_at → entry.usage.duration_ms == int((ended_at - started_at).total_seconds() * 1000)"
+      - "payload that already sets usage.duration_ms → derivation is skipped (payload value preserved)"
+      - "payload with unparseable started_at → entry.usage has no duration_ms and no exception is raised"
+      - "payload with usage: null → entry.usage still populated with duration_ms when timestamps parse"
+    why: "AC-2 — record-time derivation is the mechanism KD-1 selected"
+    change: "Add pytest module under orchestrator_next/tests/ importing orchestrator_next.record._build_history_entry directly; mark with @pytest.mark.xfail(strict=False) until T-2 lands."
+    tokens_in: 12000
+    tokens_out: 3000
+    duration_s: 180
+
+  - id: T-2
+    title: "Derive usage.duration_ms in record._build_history_entry when absent (GREEN)"
+    status: completed
+    depends_on: [T-1]
+    files:
+      - orchestrator_next/record.py
+      - orchestrator_next/tests/test_record_duration_derivation.py
+    verify:
+      - pytest orchestrator_next/tests/test_record_duration_derivation.py -v
+    test_scenarios:
+      - "all T-1 xfail markers removed and tests pass"
+      - "existing test_record_* suite still green (no regressions in usage handling)"
+    why: "AC-2 — implements KD-1"
+    change: "In orchestrator_next/record.py:_build_history_entry, after the entry dict is built (around line 545-555), if 'duration_ms' not in usage: parse entry['started_at'] and entry['ended_at'] with datetime.fromisoformat and set usage['duration_ms'] = int((ended-started).total_seconds()*1000); guard the parse with try/except (unparseable → skip). Import datetime at top of file if not already imported."
+    tokens_in: 8000
+    tokens_out: 2000
+    duration_s: 14
+
+  - id: T-3
+    title: "Write tests for widened workflow-report table and structured output (RED)"
+    status: completed
+    depends_on: []
+    files:
+      - config/steps/workflow-report/test_workflow_report.py
+    verify:
+      - pytest config/steps/workflow-report/test_workflow_report.py -v
+    test_scenarios:
+      - "step_history with usage.input_tokens/output_tokens/model/cost_usd/duration_ms → _render_report stderr contains a row with each value formatted and returned dict.steps[0] has input_tokens, output_tokens, model fields"
+      - "step_history with two entries for same step_id across attempts → collapsed row shows cumulative in/out/cost/duration and last model wins"
+      - "step_history entry with usage: None → row renders '—' in every metric column and no exception is raised"
+      - "step_history entry with usage missing model and cost_usd → totals include that row with 0 contribution and no exception is raised"
+      - "totals dict returned by _render_report includes input_tokens and output_tokens as integer sums across all rows"
+    why: "AC-1, AC-4, AC-5, AC-6 — locks the widened table contract"
+    change: "Add pytest module colocated with workflow_report_step.py; sys.path-insert its directory then `import workflow_report_step`; call _render_report with synthetic step_history lists. Mark tests with @pytest.mark.xfail(strict=False) until T-4 lands."
+    tokens_in: 6000
+    tokens_out: 2500
+    duration_s: 18
+
+  - id: T-4
+    title: "Widen workflow-report table: split tokens, add model column, expose fields in structured output (GREEN)"
+    status: completed
+    depends_on: [T-3]
+    files:
+      - config/steps/workflow-report/workflow_report_step.py
+      - config/steps/workflow-report/test_workflow_report.py
+    verify:
+      - pytest config/steps/workflow-report/test_workflow_report.py -v
+    test_scenarios:
+      - "all T-3 xfail markers removed and tests pass"
+      - "structured `workflow_report.steps[]` entries include input_tokens, output_tokens, model alongside existing duration_ms/tokens/cost_usd"
+      - "totals dict grows input_tokens and output_tokens integer sums"
+    why: "AC-1, AC-3, AC-4, AC-5, AC-6 — implements KD-2 (last model wins) and KD-3 (cumulative in/out)"
+    change: "In _render_report: extend the row dict with input_tokens, output_tokens, model; on collapse, sum in/out cumulatively and overwrite model with the latest attempt's; widen the header/format string to `Step | Status | Att | Duration | Model | In | Out | Cost` with tuned widths (model=14); update totals row and the returned dict.steps[] and dict.totals with input_tokens/output_tokens. Preserve '—' fallbacks for zero/None values."
+    tokens_in: 7000
+    tokens_out: 3500
+    duration_s: 45
+
+  - id: T-5
+    title: "Phase gate — record + report changes integrate cleanly"
+    status: completed
+    depends_on: [T-2, T-4]
+    files: []
+    verify:
+      - pytest orchestrator_next/tests/test_record_duration_derivation.py config/steps/workflow-report/test_workflow_report.py -v
+    test_scenarios:
+      - "both feature test modules green"
+      - "no xfail markers remain in either test file"
+    why: "phase gate — confirm ORC-115 file scope passes before phase review"
+    tokens_in: 2000
+    tokens_out: 500
+    duration_s: 1
