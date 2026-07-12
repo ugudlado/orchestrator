@@ -37,7 +37,7 @@ from orchestrator_next.parser import ContractError
 from orchestrator_next.parser import load_state
 from orchestrator_next.pricing import format_cost_so_far
 from orchestrator_next.record import autocommit_state, record
-from orchestrator_next.usage_adapters import split_stdout
+from orchestrator_next.usage_adapters import ZEROED_USAGE, split_stdout
 
 _LIB = Path(__file__).resolve().parent / "scripts" / "lib"
 
@@ -74,12 +74,12 @@ COMPLETION:
     reason: "why this step could not complete (quote if the reason contains a colon)"
 """
 
-_EMPTY_USAGE = {
-    "input_tokens": 0,
-    "output_tokens": 0,
-    "cache_read_tokens": 0,
-    "cache_creation_tokens": 0,
-}
+# Zero floor overlaid under every recorded usage dict. Derived from the adapters'
+# own constant rather than hand-copied: the two drifted before (this held
+# cache_read_tokens/cache_creation_tokens, which no reader consumed, so the counts
+# here stayed 0 next to the adapter's real ones). Token keys only — `model` is set
+# per-payload and a failed step must not carry a `cost_usd`.
+_EMPTY_USAGE = {k: 0 for k in ZEROED_USAGE if k.endswith("_tokens")}
 
 def _ts() -> str:
     return datetime.now().strftime("%H:%M:%S")

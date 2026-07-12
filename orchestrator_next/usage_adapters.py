@@ -14,7 +14,7 @@ from typing import Any, Callable
 NormalizedResult = dict[str, Any]
 AdapterFn = Callable[[str, str | None], NormalizedResult]
 
-_ZEROED_USAGE: dict[str, Any] = {
+ZEROED_USAGE: dict[str, Any] = {
     "input_tokens": 0,
     "output_tokens": 0,
     "cache_read_input_tokens": 0,
@@ -29,7 +29,7 @@ def _warn(message: str) -> None:
 
 
 def _empty_result(*, assistant_text: str = "") -> NormalizedResult:
-    return {"assistant_text": assistant_text, **_ZEROED_USAGE}
+    return {"assistant_text": assistant_text, **ZEROED_USAGE}
 
 
 def _result(
