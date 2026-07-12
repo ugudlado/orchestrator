@@ -165,13 +165,20 @@ def _pi_settings() -> dict[str, Any]:
 
 def _build_argv(
     tool_name: str, binary: str, template: list[str],
-    prompt: str, prompt_file: str, model_tier: str,
+    prompt: str, prompt_file: str, model_id: str,
 ) -> list[str]:
     def expand(arg: str) -> str:
         if "{prompt_file}" in arg:
             return arg.replace("{prompt_file}", prompt_file)
-        if "{model_tier}" in arg:
-            return arg.replace("{model_tier}", model_tier or "auto")
+        if "{model_id}" in arg:
+            if not model_id:
+                # No silent "auto" default: an unresolved model would run an
+                # unknown model and record an unpriceable cost.
+                raise ContractDispatchError(
+                    f"{tool_name}: no model_id resolved; check the step's "
+                    f"model: alias against config/models.yaml"
+                )
+            return arg.replace("{model_id}", model_id)
         if arg == "{prompt}":
             return prompt
         return str(arg)
@@ -193,10 +200,10 @@ def _build_argv(
 
 def invoke_tool(
     tool_name: str, binary: str, template: list[str],
-    prompt: str, prompt_file: str, model_tier: str,
+    prompt: str, prompt_file: str, model_id: str,
     cwd: str | None, stdout_path: Path, stderr_path: Path,
 ) -> int:
-    argv = _build_argv(tool_name, binary, template, prompt, prompt_file, model_tier)
+    argv = _build_argv(tool_name, binary, template, prompt, prompt_file, model_id)
     env = os.environ.copy()
     env.setdefault("PI_CODING_AGENT_DIR", str(Path.home() / ".pi" / "agent"))
     run_cwd = cwd if cwd and Path(cwd).is_dir() else None
@@ -267,7 +274,7 @@ def run_agent_step(
     if not tool_name:
         _log(f"ERROR: no route for model '{model}'")
         raise SystemExit(4)
-    model_tier = model_routes.resolve_model_id(model, models_yaml)
+    model_id = model_routes.resolve_model_id(model, models_yaml)
     binary, template = _resolve_tool_template(tool_name, models_yaml)
 
     meta = _workflow_meta(state_raw, state_yaml_path)
@@ -282,15 +289,15 @@ def run_agent_step(
 
     stdout_path = tmp_dir / f"out_{step_id}.txt"
     stderr_path = tmp_dir / f"err_{step_id}.txt"
-    _log(f"  invoking {tool_name} ({binary})" + (f"  tier={model_tier}" if model_tier else ""))
+    _log(f"  invoking {tool_name} ({binary})" + (f"  model={model_id}" if model_id else ""))
     rc = invoke_tool(tool_name, binary, template, prompt, str(prompt_file),
-                     model_tier, work_dir, stdout_path, stderr_path)
+                     model_id, work_dir, stdout_path, stderr_path)
     if rc != 0:
         _log(f"WARN: tool '{binary}' exited {rc}")
         return _failed_payload(action, rc, _now_ms() - start_ms)
 
     adapter_tool = "cursor-agent" if tool_name == "cursor" else tool_name
-    norm = split_stdout(adapter_tool, stdout_path, route_model=model_tier or None)
+    norm = split_stdout(adapter_tool, stdout_path, route_model=model_id or None)
     usage = {k: v for k, v in norm.items() if k != "assistant_text"}
     try:
         completion = parse_completion(norm.get("assistant_text") or "")
