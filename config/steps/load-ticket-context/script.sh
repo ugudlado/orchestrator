@@ -69,7 +69,7 @@ if [ -z "$ticket_id" ]; then
 fi
 
 if ! backlog_api_base >/dev/null; then
-  _fail "[TICKET FETCH FAILED] BACKLOG_URL/BACKLOG_TOKEN missing — do not invent scope from the codebase (ticket ${ticket_id})"
+  _fail "[TICKET FETCH FAILED] BACKLOG_URL/BACKLOG_TOKEN/BACKLOG_PROJECT_ID missing — do not invent scope from the codebase (ticket ${ticket_id})"
 fi
 
 err_file="${STATE_DIR}/.load-ticket-context.err"
