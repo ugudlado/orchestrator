@@ -253,3 +253,52 @@ def sum_cost_usd(state: dict) -> float:
 def format_cost_so_far(state: dict) -> str:
     """Render the human-readable running-total line, e.g. `[cost so far: $12.34]`."""
     return f"[cost so far: ${sum_cost_usd(state):.2f}]"
+
+
+def format_last_step_usage(state: dict) -> str:
+    """Render the most-recent step's own usage, e.g.
+    `9.3s  in=12.1k out=834 cache_r=88.2k cache_w=1.2k  $0.69`.
+
+    Returns "" when the last step recorded no usage at all (nothing worth a line).
+    Token key names match what the usage adapters write and pricing reads —
+    cache_read_input_tokens / cache_creation_input_tokens.
+    """
+    history = state.get("step_history") or []
+    if not history or not isinstance(history[-1], dict):
+        return ""
+    usage = history[-1].get("usage")
+    if not isinstance(usage, dict):
+        return ""
+
+    def _n(key: str) -> int:
+        try:
+            return int(usage.get(key) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _k(n: int) -> str:
+        return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+    parts = []
+    duration_ms = _n("duration_ms")
+    if duration_ms >= 100:  # sub-100ms script steps would just render "0.0s"
+        parts.append(f"{duration_ms / 1000:.1f}s")
+
+    tokens = [
+        ("in", _n("input_tokens")),
+        ("out", _n("output_tokens")),
+        ("cache_r", _n("cache_read_input_tokens")),
+        ("cache_w", _n("cache_creation_input_tokens")),
+    ]
+    if any(n for _, n in tokens):
+        parts.append(" ".join(f"{label}={_k(n)}" for label, n in tokens))
+
+    cost = usage.get("cost_usd") or 0
+    try:
+        cost = float(cost)
+    except (TypeError, ValueError):
+        cost = 0.0
+    if cost:
+        parts.append(f"${cost:.2f}")
+
+    return "  ".join(parts)
