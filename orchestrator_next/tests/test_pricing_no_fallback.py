@@ -38,3 +38,27 @@ def test_unpriced_model_yields_no_cost_not_a_guess():
     model_id, cost = _compute_cost_usd("developer", usage, now=_NOW)
     assert model_id == "no-such-model-xyz"
     assert cost is None  # not a __default__-rate fabrication
+
+
+def test_every_routed_tier_has_a_price():
+    """Guard rail for the removed __default__ row.
+
+    With no fallback, a tier whose model_id lacks a pricing.yaml row records no
+    cost at all — silently. This pins the invariant: every tier in models.yaml
+    must resolve to a priced model, so adding a tier without pricing it fails
+    here rather than in a run's cost report.
+    """
+    import yaml
+
+    from orchestrator_next import model_routes
+    from orchestrator_next.paths import config_root
+
+    routes = str(config_root() / "models.yaml")
+    tiers = yaml.safe_load(open(routes))["models"]
+
+    unpriced = []
+    for tier in tiers:
+        model_id = model_routes.resolve_model_id(tier, routes)
+        if not model_id or _lookup_price(model_id, _NOW) is None:
+            unpriced.append(f"{tier} -> {model_id or '<unresolved>'}")
+    assert not unpriced, f"tiers with no pricing.yaml row: {unpriced}"
