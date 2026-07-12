@@ -126,7 +126,8 @@ def _lookup_price(model_id: str, effective_at: "_dt.datetime") -> dict | None:
     """Look up pricing rates for model_id from config/pricing.yaml.
 
     Returns a dict with keys: input, output, cache_read, cache_creation (float, $/MTok).
-    Returns None if no matching row exists (no __default__ row either).
+    Returns None if model_id has no row — an unpriced model records no cost rather
+    than borrowing another model's rates, which would invent a confident wrong number.
     """
     by_model = _load_pricing_table()
 
@@ -142,11 +143,9 @@ def _lookup_price(model_id: str, effective_at: "_dt.datetime") -> dict | None:
         if base != model_id:
             row = _pick_row(base)
     if row is None:
-        row = _pick_row("__default__")
-    if row is None:
         sys.stderr.write(
-            f"[record] pricing: no price entry for model {model_id!r} and no "
-            f"__default__ row; skipping cost computation\n"
+            f"[record] pricing: no price entry for model {model_id!r}; "
+            f"recording no cost. Add a row to config/pricing.yaml to price it.\n"
         )
         return None
 
@@ -193,11 +192,13 @@ def _compute_cost_usd(
                     f"not resolved to a model_id; skipping cost computation\n"
                 )
 
-        if not model_id and bills > 0:
-            model_id = "__default__"
-
         if not model_id:
-            if not route_entry and agent not in ("inline", None):
+            if bills > 0:
+                sys.stderr.write(
+                    f"[record] cost_usd: agent {agent!r} billed {bills} tokens but no "
+                    f"model_id resolved; recording no cost\n"
+                )
+            elif not route_entry and agent not in ("inline", None):
                 sys.stderr.write(
                     f"[record] cost_usd: agent {agent!r} not in routes.yaml and "
                     f"usage.model not set; skipping cost computation\n"

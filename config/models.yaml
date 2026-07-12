@@ -27,14 +27,18 @@ models:
   # tools: Read Write Edit Grep Glob Bash WebSearch
   haiku: { model_id: claude-haiku-4-5, subprocess: claude }
 
-  # subprocess: cursor-agent CLI; model_id=auto → cursor-agent picks best fit
-  # Override per run: orchestrator run <id> model.auto.subprocess=pi
+  # subprocess: cursor-agent CLI, pinned to a concrete model.
+  # NOT model_id=auto: cursor-agent never discloses which model auto resolved to
+  # (its json output has no model field; stream-json reports the literal "Auto"),
+  # so an auto-routed step is unpriceable — it silently billed at pricing.yaml's
+  # __default__ Opus rates. Pinning keeps cost honest.
+  # Override per run: orchestrator run <id> model.auto.model_id=claude-4.5-sonnet
   # tools: Read Write Edit Grep Glob Bash WebSearch WebFetch
   #        mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
   #        mcp__chrome-devtools__take_screenshot mcp__chrome-devtools__navigate_page
   #        mcp__chrome-devtools__get_console_message mcp__chrome-devtools__evaluate_script
   #        mcp__plugin_claude-mem_mcp-search__search mcp__plugin_claude-mem_mcp-search__get_observations
-  auto: { model_id: auto, subprocess: cursor }
+  auto: { model_id: composer-2.5, subprocess: cursor }
 
 # ── Subprocess tool invocation (dispatch loop: run_loop.py) ────────
 tools:
