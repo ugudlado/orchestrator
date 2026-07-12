@@ -30,8 +30,8 @@ if [ -z "$ticket_id" ] || [ "$ticketing" != "backlog" ]; then
 fi
 
 if ! backlog_api_base >/dev/null; then
-  echo "ERROR ${TICKET_SYNC_LOG_PREFIX}: BACKLOG_URL/BACKLOG_TOKEN missing for ${ticket_id}" >&2
-  printf '%s\n' "{\"status\": \"failed\", \"outputs\": {}, \"evidence\": {\"summary\": \"BACKLOG_URL/BACKLOG_TOKEN missing\"}}"
+  echo "ERROR ${TICKET_SYNC_LOG_PREFIX}: BACKLOG_URL/BACKLOG_TOKEN/BACKLOG_PROJECT_ID missing for ${ticket_id}" >&2
+  printf '%s\n' "{\"status\": \"failed\", \"outputs\": {}, \"evidence\": {\"summary\": \"BACKLOG_URL/BACKLOG_TOKEN/BACKLOG_PROJECT_ID missing\"}}"
   exit 1
 fi
 
