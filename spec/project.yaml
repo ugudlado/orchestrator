@@ -530,3 +530,43 @@ rules:
       and (c) flag it as an Open Question rather than silently renaming.
       ORC-123 OQ-2: ticket named `patch` for cross-schema resume, but `patch.yaml`
       has no design steps — the meaningful skip scenario is `feature`/`bugfix`.
+  - id: derive-state-fields-at-write-time
+    learned: 2026-07-12
+    source: orc-115
+    rule: >
+      When a field in step_history[].usage can be derived from other fields
+      already written on the same entry (e.g. duration_ms from ended_at - started_at),
+      derive it at record time in record.py._build_history_entry, not post-hoc in a
+      reporter or downstream consumer. Post-hoc derivation duplicates the formula in
+      every consumer and leaves state.yaml misleading for tools that read it directly.
+      Guard with try/except — unparseable timestamps should skip the derivation, not crash.
+  - id: structured-output-must-track-display-widening
+    learned: 2026-07-12
+    source: orc-115
+    rule: >
+      When widening a workflow-report table column set (adding fields to the human-readable
+      output), the structured outputs.workflow_report dict emitted as the COMPLETION JSON
+      must be widened in the same task. Split this into separate tasks only when the
+      structured fields serve a distinct design purpose — otherwise drift between display
+      and structured shape creates silent breakage for any downstream parser that assumed
+      the old field set.
+  - id: git-dir-pollution-pre-commit-hook
+    learned: 2026-07-12
+    source: orc-115
+    rule: >
+      The pre-commit pytest hook cannot run when GIT_DIR is set in the hook environment
+      AND the test suite includes tests that invoke git or operate on nested git repos.
+      SKIP=pytest is an acceptable workaround ONLY when the task-scoped verify command
+      (pytest <specific-test-files> -v) was confirmed green immediately before the commit.
+      Document the SKIP in the known_concerns field of the implement-tasks evidence.
+      Never skip the pre-commit hook before the task verify command has passed.
+      Long-term fix: patch the pre-commit hook to unset GIT_DIR before invoking pytest.
+  - id: ticketing-none-skips-integration-steps
+    learned: 2026-07-12
+    source: orc-115
+    rule: >
+      When ticketing: none is set in the run config, steps that call external
+      ticketing integrations (load-ticket-context, ticket-start, ticket-review, ticket-qa)
+      will exit 1 and show status: failed in step_history with usage: {}. This is expected
+      behavior, not a bug. Phase-review should not count these as code findings — verify
+      they show usage: {} (no LLM cost) and that the workflow progressed to the next step.
