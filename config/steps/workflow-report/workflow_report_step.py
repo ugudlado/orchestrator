@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Workflow report step — duration, tokens, and cost per step from state.yaml."""
+"""Workflow report step — duration, model, in/out tokens, and cost per step from state.yaml."""
 from __future__ import annotations
 
 import json
@@ -57,13 +57,22 @@ def _collect_all_states(primary_path: Path, primary_state: dict, repo_root: str)
 
 
 def _render_report(step_history: list, issues: list) -> dict:
-    """Print per-step duration/tokens/cost table to stderr; return the same
+    """Print per-step Duration/Model/In/Out/Cost table to stderr; return the same
     figures as a plain dict for structured (JSON) output."""
     if not step_history:
-        return {"steps": [], "totals": {"duration_ms": 0, "tokens": 0, "cost_usd": 0.0}}
+        return {
+            "steps": [],
+            "totals": {
+                "duration_ms": 0,
+                "tokens": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cost_usd": 0.0,
+            },
+        }
 
     # Collapse entries by step_id: accumulate tokens/cost across all attempts,
-    # track final status and total attempt count.
+    # track final status and total attempt count. Last model wins (KD-2).
     from collections import OrderedDict
     rows: OrderedDict = OrderedDict()
     for entry in step_history:
@@ -73,23 +82,46 @@ def _render_report(step_history: list, issues: list) -> dict:
         status = entry.get("status") or "?"
         attempt = entry.get("attempt") or 1
         usage = entry.get("usage") or {}
-        tokens = (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
+        input_tokens = usage.get("input_tokens") or 0
+        output_tokens = usage.get("output_tokens") or 0
+        tokens = input_tokens + output_tokens
         cost = usage.get("cost_usd") or 0.0
         duration_ms = usage.get("duration_ms") or 0
+        model = usage.get("model") or ""
         if step_id not in rows:
-            rows[step_id] = {"status": status, "attempts": attempt, "tokens": tokens, "cost": cost, "duration_ms": duration_ms}
+            rows[step_id] = {
+                "status": status,
+                "attempts": attempt,
+                "tokens": tokens,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cost": cost,
+                "duration_ms": duration_ms,
+                "model": model,
+            }
         else:
             rows[step_id]["status"] = status  # last status wins
             rows[step_id]["attempts"] = max(rows[step_id]["attempts"], attempt)
             rows[step_id]["tokens"] += tokens
+            rows[step_id]["input_tokens"] += input_tokens
+            rows[step_id]["output_tokens"] += output_tokens
             rows[step_id]["cost"] += cost
             rows[step_id]["duration_ms"] += duration_ms
+            if model:
+                rows[step_id]["model"] = model  # last model wins
 
     sys.stderr.write("\n## Workflow step report\n\n")
-    sys.stderr.write(f"{'Step':<35} {'Status':<12} {'Attempts':>8} {'Duration':>10} {'Tokens':>10} {'Cost':>10}\n")
-    sys.stderr.write(f"{'-'*35} {'-'*12} {'-'*8} {'-'*10} {'-'*10} {'-'*10}\n")
+    sys.stderr.write(
+        f"{'Step':<35} {'Status':<12} {'Att':>4} {'Duration':>10} "
+        f"{'Model':<14} {'In':>8} {'Out':>8} {'Cost':>10}\n"
+    )
+    sys.stderr.write(
+        f"{'-'*35} {'-'*12} {'-'*4} {'-'*10} {'-'*14} {'-'*8} {'-'*8} {'-'*10}\n"
+    )
 
     total_tokens = 0
+    total_input = 0
+    total_output = 0
     total_cost = 0.0
     total_ms = 0
 
@@ -97,20 +129,33 @@ def _render_report(step_history: list, issues: list) -> dict:
         attempts = r["attempts"]
         duration_ms = r["duration_ms"]
         tokens = r["tokens"]
+        input_tokens = r["input_tokens"]
+        output_tokens = r["output_tokens"]
         cost = r["cost"]
+        model = r["model"]
 
         total_ms += duration_ms
         total_tokens += tokens
+        total_input += input_tokens
+        total_output += output_tokens
         total_cost += cost
 
         att_str = f"{attempts} ✗" if attempts > 1 else "1"
         dur_str = f"{duration_ms / 1000:.1f}s" if duration_ms else "—"
-        tok_str = f"{tokens:,}" if tokens else "—"
+        model_str = model if model else "—"
+        in_str = f"{input_tokens:,}" if input_tokens else "—"
+        out_str = f"{output_tokens:,}" if output_tokens else "—"
         cost_str = f"${cost:.4f}" if cost else "—"
 
-        sys.stderr.write(f"{step_id:<35} {r['status']:<12} {att_str:>8} {dur_str:>10} {tok_str:>10} {cost_str:>10}\n")
+        sys.stderr.write(
+            f"{step_id:<35} {r['status']:<12} {att_str:>4} {dur_str:>10} "
+            f"{model_str:<14} {in_str:>8} {out_str:>8} {cost_str:>10}\n"
+        )
 
-    sys.stderr.write(f"\n{'TOTAL':<35} {'':12} {'':>8} {total_ms/1000:.1f}s {total_tokens:>10,} ${total_cost:>9.4f}\n")
+    sys.stderr.write(
+        f"\n{'TOTAL':<35} {'':12} {'':>4} {total_ms/1000:.1f}s "
+        f"{'':14} {total_input:>8,} {total_output:>8,} ${total_cost:>9.4f}\n"
+    )
 
     if issues:
         sys.stderr.write(f"\n## Workflow issues ({len(issues)})\n\n")
@@ -128,11 +173,26 @@ def _render_report(step_history: list, issues: list) -> dict:
 
     return {
         "steps": [
-            {"step_id": step_id, "status": r["status"], "attempts": r["attempts"],
-             "duration_ms": r["duration_ms"], "tokens": r["tokens"], "cost_usd": round(r["cost"], 6)}
+            {
+                "step_id": step_id,
+                "status": r["status"],
+                "attempts": r["attempts"],
+                "duration_ms": r["duration_ms"],
+                "tokens": r["tokens"],
+                "input_tokens": r["input_tokens"],
+                "output_tokens": r["output_tokens"],
+                "model": r["model"] or None,
+                "cost_usd": round(r["cost"], 6),
+            }
             for step_id, r in rows.items()
         ],
-        "totals": {"duration_ms": total_ms, "tokens": total_tokens, "cost_usd": round(total_cost, 6)},
+        "totals": {
+            "duration_ms": total_ms,
+            "tokens": total_tokens,
+            "input_tokens": total_input,
+            "output_tokens": total_output,
+            "cost_usd": round(total_cost, 6),
+        },
     }
 
 
