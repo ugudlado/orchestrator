@@ -1,8 +1,16 @@
 {
   "mcpServers": {
     "backlog": {
-      "command": "backlog",
-      "args": ["mcp", "start"]
+      "url": "${BACKLOG_URL}/projects/${BACKLOG_PROJECT_ID}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${BACKLOG_TOKEN}"
+      },
+      "type": "http",
+      "env": {
+        "BACKLOG_URL": "$BACKLOG_URL",
+        "BACKLOG_TOKEN": "$BACKLOG_TOKEN",
+        "BACKLOG_PROJECT_ID": "$BACKLOG_PROJECT_ID"
+      }
     }
   }
 }
