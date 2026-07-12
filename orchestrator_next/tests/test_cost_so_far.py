@@ -74,6 +74,29 @@ def test_format_cost_so_far_two_decimals():
     assert format_cost_so_far(state) == "[cost so far: $12.30]"
     assert format_cost_so_far({}) == "[cost so far: $0.00]"
 
+# ---------------------------------------------------------------------------
+# Token-key contract between run_loop's zero floor and what the readers consume
+# ---------------------------------------------------------------------------
+
+def test_empty_usage_token_keys_are_the_ones_readers_consume():
+    """run_loop._EMPTY_USAGE floors every recorded usage dict. Its token keys must be
+    the names the adapters write and pricing/workflow-report read. They drifted once
+    (cache_read_tokens vs cache_read_input_tokens): the floor's zeros sat in state
+    beside the adapter's real counts, read by nobody. Cost was computed from the long
+    form so nothing broke loudly — which is exactly why this needs a test."""
+    from orchestrator_next.run_loop import _EMPTY_USAGE
+
+    assert set(_EMPTY_USAGE) == {
+        "input_tokens",
+        "output_tokens",
+        "cache_read_input_tokens",
+        "cache_creation_input_tokens",
+    }
+    # The floor must not fabricate a model or a cost for a failed/empty step.
+    assert "cost_usd" not in _EMPTY_USAGE
+    assert "model" not in _EMPTY_USAGE
+
+
 
 # ---------------------------------------------------------------------------
 # Mid-run surfacing through `orchestrator done` (record CLI path)
