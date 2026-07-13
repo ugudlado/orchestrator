@@ -104,27 +104,6 @@ def test_byte_stable_output(tmp_path, monkeypatch):
     assert first == second
 
 
-def test_repeat_until_preserved(tmp_path, monkeypatch):
-    """repeat_until from the schema step entry lands on the node."""
-    schema = {
-        "name": "feature", "version": 1,
-        "phases": [{
-            "name": "implement", "goal": "Implement tasks.",
-            "steps": [{"id": "execute-next-task", "repeat_until": "all_tasks_completed"}],
-        }],
-    }
-    workflow_plan = {"implement": {"active": ["execute-next-task"], "filtered": []}}
-    home = _setup_home(tmp_path, "feature", schema)
-    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
-    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
-
-    generate_plan(str(state_path))
-    state = yaml.safe_load(state_path.read_text())
-    step = state["workflow_plan"]["implement"]["nodes"][0]
-    assert step["id"] == "execute-next-task"
-    assert step.get("repeat_until") == "all_tasks_completed"
-
-
 def test_phase_verify_attached_to_phase_block(tmp_path, monkeypatch):
     """verify block from schema phase is a sibling of `nodes`, not on any node."""
     schema = {

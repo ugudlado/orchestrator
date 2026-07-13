@@ -3,7 +3,7 @@ ORC-63 T-5: RED tests for orchestrator_next.readiness — the shared DAG-walk
 module (the single source of node readiness for dispatch.py and record.py).
 
 Covers: effective_depends_on, is_node_ready, ready_nodes, next_ready_node,
-mark_node_status, and the repeat_until interaction with readiness (OQ-5).
+and mark_node_status.
 """
 from __future__ import annotations
 
@@ -73,24 +73,9 @@ def test_is_node_ready_false_for_completed_node(tmp_path):
     assert is_node_ready(state, "a") is False
 
 
-def test_repeat_until_unknown_predicate_does_not_block(tmp_path):
-    """ORC-65 T-9: all_tasks_completed removed from REPEAT_PREDICATES.
-    An unknown predicate is treated as satisfied (returns True), so a
-    completed node with an unknown repeat_until does NOT block dependents.
-    """
-    from orchestrator_next.readiness import is_node_ready
-    state = _make_state(tmp_path, [
-        {"id": "exec", "status": "completed", "repeat_until": "all_tasks_completed"},
-        {"id": "review", "status": "pending"},
-    ], extra={"repo_root": str(tmp_path)})
-    # all_tasks_completed not in REPEAT_PREDICATES -> unknown -> treated as True
-    # -> review IS ready (dep satisfied)
-    assert is_node_ready(state, "review") is True
-
-
-def test_repeat_until_dependency_ready_when_no_predicate(tmp_path):
-    """A node with repeat_until and status=completed (no blocking predicate)
-    allows its dependent to become ready."""
+def test_stray_node_keys_ignored(tmp_path):
+    """Unknown node keys (e.g. repeat_until left in pre-existing state files)
+    do not affect readiness — the field was removed from the engine."""
     from orchestrator_next.readiness import is_node_ready
     state = _make_state(tmp_path, [
         {"id": "exec", "status": "completed", "repeat_until": "all_tasks_completed"},

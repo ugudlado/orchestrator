@@ -170,8 +170,8 @@ def _setup(tmp_path, monkeypatch, state: dict) -> str:
     monkeypatch.setenv(
         "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir)
     )
-    # tasks.md with no unchecked items — execute-next-task's repeat_until is
-    # satisfied immediately when it is re-opened.
+    # tasks.md with no unchecked items — execute-next-task completes
+    # immediately when it is re-opened.
     (tmp_path / "tasks.md").write_text("- [x] T-1: done\n")
     state["tasks_path"] = str(tmp_path / "tasks.md")
     path = tmp_path / "state.yaml"
