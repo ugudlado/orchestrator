@@ -607,10 +607,13 @@ def _apply_routing(
         elif routing == "advance":
             readiness.mark_node_status(state_raw, phase, step_id, "completed")
         else:
-            # routing is a target step_id — loop back: mark self completed,
-            # reset target so next_ready_node() picks it up even if step_history
-            # has a prior completed entry for it ("reset" beats history inference).
-            readiness.mark_node_status(state_raw, phase, step_id, "completed")
+            # routing is a target step_id — loop back: reset both the failing
+            # gate and its fixer so next_ready_node() re-runs the fixer, then
+            # re-verifies through the gate once the fixer completes. Marking
+            # the gate "completed" here would make it terminal (downstream
+            # deps ready) even though it failed — the fix would ship unverified
+            # and max_retries on the gate would never advance past 1.
+            readiness.mark_node_status(state_raw, phase, step_id, "reset")
             readiness.mark_node_status(state_raw, phase, routing, "reset")
 
 

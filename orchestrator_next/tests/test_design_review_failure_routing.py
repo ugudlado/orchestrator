@@ -128,7 +128,7 @@ class TestDesignReviewFailureRouting:
             state_path, _design_review_payload(status="failed", result="needs_work")
         )
         assert code == 0, result
-        assert _node_status(state_path, "design-review") == "completed"
+        assert _node_status(state_path, "design-review") == "reset"
         assert _node_status(state_path, "design-and-draft-artifacts") == "reset"
         state = load_state(state_path)
         assert readiness.next_ready_node(state) == "design-and-draft-artifacts"
@@ -170,6 +170,36 @@ class TestDesignReviewFailureRouting:
         )
         state = load_state(state_path)
         assert readiness.next_ready_node(state) == "design-and-draft-artifacts"
+
+    def test_fixer_completion_requeues_review_not_ticket_start(self, tmp_path, monkeypatch):
+        """Regression: after design-review fails and loops back, design-review
+        must re-run (and re-verify) once design-and-draft-artifacts finishes —
+        not get silently skipped in favor of ticket-start."""
+        state_path = _setup(tmp_path, monkeypatch, _state_at_design_review(tmp_path))
+        record.record(
+            state_path, _design_review_payload(status="failed", result="needs_work")
+        )
+
+        # Simulate the fixer (design-and-draft-artifacts) completing its retry.
+        raw = yaml.safe_load(open(state_path).read())
+        nodes = raw["workflow_plan"]["main"]["nodes"]
+        next(n for n in nodes if n["id"] == "design-and-draft-artifacts")["status"] = "completed"
+        raw["step_history"].append(
+            {
+                "step_id": "design-and-draft-artifacts",
+                "phase": "main",
+                "status": "completed",
+                "agent": "architect",
+                "attempt": 2,
+                "started_at": "2026-07-07T11:00:00Z",
+            }
+        )
+        with open(state_path, "w") as f:
+            yaml.safe_dump(raw, f, sort_keys=False)
+
+        state = load_state(state_path)
+        assert readiness.next_ready_node(state) == "design-review"
+        assert readiness.next_ready_node(state) != "ticket-start"
 
     def test_completed_without_pass_result_rejected(self, tmp_path, monkeypatch):
         state_path = _setup(tmp_path, monkeypatch, _state_at_design_review(tmp_path))

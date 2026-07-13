@@ -188,12 +188,13 @@ def _node_status(state_path: str, node_id: str) -> str:
 class TestReworkRecordNodeReopen:
 
     def test_needs_work_routes_to_on_failure_target(self, tmp_path, monkeypatch):
-        """status: failed + on_failure edge: run-phase-review completed, target reset to pending."""
+        """status: failed + on_failure edge: both run-phase-review and its
+        fixer target reset to pending, so the gate re-verifies once the fixer completes."""
         state_path = _setup(tmp_path, monkeypatch, _nodes_state(tmp_path))
         record.record(state_path, _review_payload("needs_work"))
 
-        # run-phase-review is marked completed (the failed attempt is recorded)
-        assert _node_status(state_path, "run-phase-review") == "completed"
+        # run-phase-review is reset (re-runs once execute-next-task completes again)
+        assert _node_status(state_path, "run-phase-review") == "reset"
         # on_failure target (execute-next-task) is reset to pending for re-dispatch
         assert _node_status(state_path, "execute-next-task") == "reset"
         # intermediate node (run-ux-critique) is NOT touched
@@ -204,7 +205,7 @@ class TestReworkRecordNodeReopen:
         state_path = _setup(tmp_path, monkeypatch, _nodes_state(tmp_path))
         record.record(state_path, _review_payload("incomplete_phase"))
 
-        assert _node_status(state_path, "run-phase-review") == "completed"
+        assert _node_status(state_path, "run-phase-review") == "reset"
         assert _node_status(state_path, "execute-next-task") == "reset"
 
     def test_pass_verdict_advances_normally(self, tmp_path, monkeypatch):
