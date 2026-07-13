@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 import yaml
 
 
@@ -12,7 +11,6 @@ def _write_models(path: Path, models: dict) -> None:
     path.write_text(yaml.dump({"models": models}))
 
 
-@pytest.mark.xfail(strict=False)
 def test_models_prints_attributed_table(monkeypatch, tmp_path, capsys):
     """AC-5: prints TIER, SUBPROCESS, MODEL_ID, SOURCE columns per tier."""
     from orchestrator_next.models_verb import main
@@ -44,7 +42,6 @@ def test_models_prints_attributed_table(monkeypatch, tmp_path, capsys):
     assert "user_home" in out or "config_root" in out
 
 
-@pytest.mark.xfail(strict=False)
 def test_models_source_shows_home_override(monkeypatch, tmp_path, capsys):
     """SOURCE column names the file/layer that supplied each tier."""
     from orchestrator_next.models_verb import main
@@ -69,7 +66,6 @@ def test_models_source_shows_home_override(monkeypatch, tmp_path, capsys):
     assert "user_home" in out
 
 
-@pytest.mark.xfail(strict=False)
 def test_models_missing_config_root_errors(monkeypatch, capsys):
     """AC-6: ORCHESTRATOR_CONFIG unset → stderr error, non-zero exit."""
     from orchestrator_next.models_verb import main
