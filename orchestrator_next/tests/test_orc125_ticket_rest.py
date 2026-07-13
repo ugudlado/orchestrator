@@ -119,6 +119,64 @@ def test_load_ticket_context_missing_env_aborts_workflow(tmp_path):
     assert out["outputs"]["ticket_context"] == "failed"
 
 
+def _resolve_project(env_overrides: dict, repo_root: str | None) -> str:
+    """Run backlog_api_project() under a controlled env; return its stdout."""
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("BACKLOG_PROJECT", "BACKLOG_PROJECT_ID")}
+    if repo_root is not None:
+        env["REPO_ROOT"] = repo_root
+    else:
+        env.pop("REPO_ROOT", None)
+    env.update(env_overrides)
+    proc = subprocess.run(
+        ["bash", "-c", f"source '{_API_SH}' && backlog_api_project"],
+        capture_output=True, text=True, env=env,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout.strip()
+
+
+def _write_project_yaml(tmp_path: Path, backlog_project) -> str:
+    spec = tmp_path / "spec"
+    spec.mkdir(parents=True, exist_ok=True)
+    doc = {"version": 1, "ticketing": "backlog"}
+    if backlog_project is not None:
+        doc["backlog_project"] = backlog_project
+    (spec / "project.yaml").write_text(yaml.safe_dump(doc))
+    return str(tmp_path)
+
+
+def test_backlog_api_project_env_id_wins(tmp_path):
+    """BACKLOG_PROJECT_ID env takes precedence over spec/project.yaml."""
+    repo = _write_project_yaml(tmp_path, "from-config")
+    assert _resolve_project({"BACKLOG_PROJECT_ID": "from-env-id"}, repo) == "from-env-id"
+
+
+def test_backlog_api_project_env_name_beats_id(tmp_path):
+    """BACKLOG_PROJECT (name alias) beats BACKLOG_PROJECT_ID."""
+    repo = _write_project_yaml(tmp_path, "from-config")
+    got = _resolve_project(
+        {"BACKLOG_PROJECT": "from-env-name", "BACKLOG_PROJECT_ID": "from-env-id"}, repo)
+    assert got == "from-env-name"
+
+
+def test_backlog_api_project_falls_back_to_config(tmp_path):
+    """No env project → read backlog_project from spec/project.yaml under REPO_ROOT."""
+    repo = _write_project_yaml(tmp_path, "orchestrator")
+    assert _resolve_project({}, repo) == "orchestrator"
+
+
+def test_backlog_api_project_empty_when_no_env_no_config(tmp_path):
+    """No env project and no backlog_project key → empty (base() then fails cleanly)."""
+    repo = _write_project_yaml(tmp_path, None)
+    assert _resolve_project({}, repo) == ""
+
+
+def test_backlog_api_project_empty_when_no_repo_root():
+    """No env project and no REPO_ROOT → empty (no crash)."""
+    assert _resolve_project({}, None) == ""
+
+
 def test_backlog_api_format_plain_roundtrip():
     """format helper produces readable AC lines from JSON."""
     payload = {

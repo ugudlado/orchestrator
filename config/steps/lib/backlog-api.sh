@@ -8,13 +8,29 @@
 # "BKG-541" alone is not an address. The server used to fill the missing half from an ambient
 # default, which could silently resolve to the WRONG project; it now returns 400 instead.
 #
-# BACKLOG_PROJECT_ID (already in the environment, holding the project guid) is the canonical
-# name; BACKLOG_PROJECT is accepted as an alias. Either may be an id, guid, or project name.
+# Project resolution precedence (first non-empty wins):
+#   1. BACKLOG_PROJECT      — env alias (name); takes precedence, see note below.
+#   2. BACKLOG_PROJECT_ID   — env (id/guid/name); the machine-level default.
+#   3. spec/project.yaml:backlog_project under $REPO_ROOT — per-repo workflow config.
+# This makes the project a per-repo setting driven by workflow config: a single
+# installed engine + shared BACKLOG_URL/BACKLOG_TOKEN drives any repo, and each
+# repo names its own backlog project in spec/project.yaml — no global env change
+# needed to switch repos. An explicit env var still overrides the config.
+# Any value may be an id, guid, or project name.
 
 backlog_api_project() {
   # BACKLOG_PROJECT (name) takes precedence: the REST API doesn't resolve the
   # guid until the server ships the guid migration (tasks/project-guid-column).
-  printf '%s' "${BACKLOG_PROJECT:-${BACKLOG_PROJECT_ID:-}}"
+  local from_env="${BACKLOG_PROJECT:-${BACKLOG_PROJECT_ID:-}}"
+  if [ -n "$from_env" ]; then
+    printf '%s' "$from_env"
+    return 0
+  fi
+  # Fall back to the repo's workflow config (spec/project.yaml:backlog_project).
+  local project_yaml="${REPO_ROOT:-}/spec/project.yaml"
+  if [ -n "${REPO_ROOT:-}" ] && [ -f "$project_yaml" ]; then
+    python3 -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1])) or {}; print(d.get("backlog_project") or "")' "$project_yaml" 2>/dev/null
+  fi
 }
 
 backlog_api_base() {
