@@ -217,7 +217,7 @@ def invoke_tool(
     env.setdefault("PI_CODING_AGENT_DIR", str(Path.home() / ".pi" / "agent"))
     run_cwd = cwd if cwd and Path(cwd).is_dir() else None
     with open(stdout_path, "w") as out, open(stderr_path, "w") as err:
-        proc = subprocess.run(argv, stdout=out, stderr=err, cwd=run_cwd, env=env)
+        proc = subprocess.run(argv, stdout=out, stderr=err, stdin=subprocess.DEVNULL, cwd=run_cwd, env=env)
     return proc.returncode
 
 
@@ -302,7 +302,10 @@ def run_agent_step(
     rc = invoke_tool(tool_name, binary, template, prompt, str(prompt_file),
                      model_id, work_dir, stdout_path, stderr_path)
     if rc != 0:
+        stderr_tail = stderr_path.read_text(errors="replace")[-2000:] if stderr_path.exists() else ""
         _log(f"WARN: tool '{binary}' exited {rc}")
+        if stderr_tail.strip():
+            _log(f"  stderr: {stderr_tail.strip()}")
         return _failed_payload(action, rc, _now_ms() - start_ms)
 
     adapter_tool = "cursor-agent" if tool_name == "cursor" else tool_name
