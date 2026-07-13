@@ -279,7 +279,7 @@ def main() -> None:
     # 'record' kept for silent backward-compat (one cycle) but absent from the banner.
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
-        "next", "done", "record", "graph", "doctor", "reset-step", "run", "validate-workflow",
+        "next", "done", "record", "graph", "doctor", "models", "reset-step", "run", "validate-workflow",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
@@ -297,6 +297,10 @@ def main() -> None:
     if args[0] == "doctor":
         from orchestrator_next.doctor import _doctor_main
         sys.exit(_doctor_main(args[1:]))
+
+    if args[0] == "models":
+        from orchestrator_next.models_verb import main as _models_main
+        sys.exit(_models_main(args[1:]))
 
     if args[0] in ("record", "done"):
         from orchestrator_next.record import main as record_main
