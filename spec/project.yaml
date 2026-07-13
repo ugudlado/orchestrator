@@ -580,3 +580,14 @@ rules:
       will exit 1 and show status: failed in step_history with usage: {}. This is expected
       behavior, not a bug. Phase-review should not count these as code findings — verify
       they show usage: {} (no LLM cost) and that the workflow progressed to the next step.
+  - id: on-success-routing-distinct-from-on-failure
+    learned: 2026-07-13
+    source: orc-118
+    rule: >
+      In _apply_routing (record.py), on_success and on_failure targets must be handled
+      by distinct branches. on_success advances the step (mark completed, let next_ready_node
+      pick up the target); on_failure resets both the gate and the fixer for re-verification.
+      Any code that treats all named step_id routing targets uniformly (e.g. always reset-both)
+      will misclassify on_success edges as loop-backs, causing the step to reset to pending
+      and re-dispatch its predecessor — producing infinite wasted dispatches despite a PASS
+      verdict. Regression test: test_phase_review_success_routing.py. Fixed: commit 6ad40cf.
