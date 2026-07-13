@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 import yaml
 
 from orchestrator_next.model_routes import resolve_field, resolve_subprocess
@@ -18,7 +17,6 @@ def _setup_home(monkeypatch, home: Path) -> None:
     monkeypatch.setattr(Path, "home", lambda: home)
 
 
-@pytest.mark.xfail(strict=False)
 def test_home_file_overrides_config_root(monkeypatch, tmp_path):
     """AC-1: home file sets opus.subprocess=cursor, no env vars → 'cursor'."""
     config_root = tmp_path / "config"
@@ -36,7 +34,6 @@ def test_home_file_overrides_config_root(monkeypatch, tmp_path):
     assert resolve_subprocess("opus", str(routes_yaml)) == "cursor"
 
 
-@pytest.mark.xfail(strict=False)
 def test_precedence_env_file_over_home_over_config(monkeypatch, tmp_path):
     """AC-2: env-file > home > config-root."""
     config_root = tmp_path / "config"
@@ -63,7 +60,6 @@ def test_precedence_env_file_over_home_over_config(monkeypatch, tmp_path):
     assert resolve_subprocess("opus", str(routes_yaml)) == "claude"
 
 
-@pytest.mark.xfail(strict=False)
 def test_home_partial_tier_falls_through(monkeypatch, tmp_path):
     """AC-3: home defines only sonnet → opus falls through to config-root."""
     config_root = tmp_path / "config"
@@ -88,7 +84,6 @@ def test_home_partial_tier_falls_through(monkeypatch, tmp_path):
     assert resolve_subprocess("sonnet", str(routes_yaml)) == "cursor"
 
 
-@pytest.mark.xfail(strict=False)
 def test_malformed_home_yaml_falls_through(monkeypatch, tmp_path):
     """AC-4: malformed home YAML → config-root value, no raise."""
     config_root = tmp_path / "config"
@@ -107,7 +102,6 @@ def test_malformed_home_yaml_falls_through(monkeypatch, tmp_path):
     assert resolve_subprocess("opus", str(routes_yaml)) == "claude"
 
 
-@pytest.mark.xfail(strict=False)
 def test_resolve_all_with_source_labels(monkeypatch, tmp_path):
     """resolve_all_with_source returns per-tier fields with source labels."""
     from orchestrator_next.model_routes import resolve_all_with_source
