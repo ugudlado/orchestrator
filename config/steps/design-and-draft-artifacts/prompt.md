@@ -9,6 +9,9 @@ on interactive schemas (feature/bugfix); autopilot runs straight through.
 - `discovery_result` — handle from the explore/diagnose step.
 - `discovery.md` at `spec/changes/<slug>/discovery.md` — the discovery brief this step
   reads for constraints, integration points, and recommended approach.
+- Ticket body at `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ticket-context.md`
+  (`spec/changes/<slug>/ticket-context.md`) when present — written by
+  `load-ticket-context`. Source of truth for scope and ACs.
 
 ## Outputs
 
@@ -73,8 +76,9 @@ APPROACH:
 
 7. Generate tasks.yaml:
    - Read design.md for approach, component breakdown, and acceptance criteria.
-     (Product-level motivation/impact lives on the ticket — read it from
-     state.yaml's linear-ticket/change description if more context is needed.)
+     (Product-level motivation/impact lives on the ticket — read
+     `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ticket-context.md` /
+     `spec/changes/<slug>/ticket-context.md` when present.)
    - If ux-artifacts.yaml exists: reference ux-prototype.html in UI task descriptions.
    - Generate the fewest tasks that cover all acceptance criteria.
    - Write tasks.yaml using the Tasks YAML Format Contract below.

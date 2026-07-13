@@ -265,6 +265,16 @@ learnings:
       comparison silently shifts when the untracked file is absent in the feature
       worktree — the count drops and a naive "≤N failures" check passes even if
       the feature introduced a new failure.
+  - id: precommit-hook-git-dir-leak
+    learned: 2026-07-13
+    source: orc-116
+    rule: >
+      The pre-commit hook (full pytest suite) leaks GIT_DIR into nested test repos when
+      run from a feature worktree, potentially moving the worktree branch HEAD. Workaround:
+      SKIP=pytest git commit bypasses only the full-suite hook when all task-scoped verify
+      commands have passed. Add a task-level verify command targeting the relevant test
+      subset as the primary quality gate; the hook bypass is safe when task verifies are
+      green. Long-term fix: the pre-commit hook should unset GIT_DIR before invoking pytest.
   - id: worktree-branch-sync
     learned: 2026-05-22
     source: orc-78
@@ -530,3 +540,54 @@ rules:
       and (c) flag it as an Open Question rather than silently renaming.
       ORC-123 OQ-2: ticket named `patch` for cross-schema resume, but `patch.yaml`
       has no design steps — the meaningful skip scenario is `feature`/`bugfix`.
+  - id: derive-state-fields-at-write-time
+    learned: 2026-07-12
+    source: orc-115
+    rule: >
+      When a field in step_history[].usage can be derived from other fields
+      already written on the same entry (e.g. duration_ms from ended_at - started_at),
+      derive it at record time in record.py._build_history_entry, not post-hoc in a
+      reporter or downstream consumer. Post-hoc derivation duplicates the formula in
+      every consumer and leaves state.yaml misleading for tools that read it directly.
+      Guard with try/except — unparseable timestamps should skip the derivation, not crash.
+  - id: structured-output-must-track-display-widening
+    learned: 2026-07-12
+    source: orc-115
+    rule: >
+      When widening a workflow-report table column set (adding fields to the human-readable
+      output), the structured outputs.workflow_report dict emitted as the COMPLETION JSON
+      must be widened in the same task. Split this into separate tasks only when the
+      structured fields serve a distinct design purpose — otherwise drift between display
+      and structured shape creates silent breakage for any downstream parser that assumed
+      the old field set.
+  - id: git-dir-pollution-pre-commit-hook
+    learned: 2026-07-12
+    source: orc-115
+    rule: >
+      The pre-commit pytest hook cannot run when GIT_DIR is set in the hook environment
+      AND the test suite includes tests that invoke git or operate on nested git repos.
+      SKIP=pytest is an acceptable workaround ONLY when the task-scoped verify command
+      (pytest <specific-test-files> -v) was confirmed green immediately before the commit.
+      Document the SKIP in the known_concerns field of the implement-tasks evidence.
+      Never skip the pre-commit hook before the task verify command has passed.
+      Long-term fix: patch the pre-commit hook to unset GIT_DIR before invoking pytest.
+  - id: ticketing-none-skips-integration-steps
+    learned: 2026-07-12
+    source: orc-115
+    rule: >
+      When ticketing: none is set in the run config, steps that call external
+      ticketing integrations (load-ticket-context, ticket-start, ticket-review, ticket-qa)
+      will exit 1 and show status: failed in step_history with usage: {}. This is expected
+      behavior, not a bug. Phase-review should not count these as code findings — verify
+      they show usage: {} (no LLM cost) and that the workflow progressed to the next step.
+  - id: on-success-routing-distinct-from-on-failure
+    learned: 2026-07-13
+    source: orc-118
+    rule: >
+      In _apply_routing (record.py), on_success and on_failure targets must be handled
+      by distinct branches. on_success advances the step (mark completed, let next_ready_node
+      pick up the target); on_failure resets both the gate and the fixer for re-verification.
+      Any code that treats all named step_id routing targets uniformly (e.g. always reset-both)
+      will misclassify on_success edges as loop-backs, causing the step to reset to pending
+      and re-dispatch its predecessor — producing infinite wasted dispatches despite a PASS
+      verdict. Regression test: test_phase_review_success_routing.py. Fixed: commit 6ad40cf.

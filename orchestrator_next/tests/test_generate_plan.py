@@ -16,6 +16,12 @@ if _SCRIPTS_DIR not in sys.path:
 from orchestrator_next.generate_plan import generate_plan  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _clear_explicit_config_for_home_fixtures(monkeypatch):
+    """These tests install schemas under ORCHESTRATOR_HOME — ORCHESTRATOR_CONFIG wins."""
+    monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
+
+
 def _make_state_yaml(
     tmp_path: Path,
     schema: str,
@@ -96,27 +102,6 @@ def test_byte_stable_output(tmp_path, monkeypatch):
     second = state_path.read_bytes()
 
     assert first == second
-
-
-def test_repeat_until_preserved(tmp_path, monkeypatch):
-    """repeat_until from the schema step entry lands on the node."""
-    schema = {
-        "name": "feature", "version": 1,
-        "phases": [{
-            "name": "implement", "goal": "Implement tasks.",
-            "steps": [{"id": "execute-next-task", "repeat_until": "all_tasks_completed"}],
-        }],
-    }
-    workflow_plan = {"implement": {"active": ["execute-next-task"], "filtered": []}}
-    home = _setup_home(tmp_path, "feature", schema)
-    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
-    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
-
-    generate_plan(str(state_path))
-    state = yaml.safe_load(state_path.read_text())
-    step = state["workflow_plan"]["implement"]["nodes"][0]
-    assert step["id"] == "execute-next-task"
-    assert step.get("repeat_until") == "all_tasks_completed"
 
 
 def test_phase_verify_attached_to_phase_block(tmp_path, monkeypatch):

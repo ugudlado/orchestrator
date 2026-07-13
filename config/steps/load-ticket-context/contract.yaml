@@ -1,0 +1,4 @@
+id: load-ticket-context
+version: 1
+kind: script
+run: script.sh

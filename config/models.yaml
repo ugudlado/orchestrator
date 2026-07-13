@@ -1,8 +1,13 @@
-# Model routing — single source of truth for how a model tier is routed
+# Model routing — single source of truth for how a model alias is routed
 # to a subprocess tool and concrete model-id.
 #
-# Steps reference a friendly model name (e.g. `model: opus`) in contract.yaml.
-# This file resolves that name to a subprocess + model_id at dispatch time.
+# Steps reference an alias (e.g. `model: opus`) in contract.yaml; this file
+# resolves it to a subprocess + model_id at dispatch time. The alias exists so a
+# model swap is one edit here, not one per contract.
+#
+# An alias must name a MODEL, never a behavior. `auto: {model_id: auto}` used to
+# mean "let cursor pick" — cursor then never reported what it picked, so the step
+# was unpriceable and silently billed at Opus rates.
 #
 # Consumers:
 #   - orchestrator_next/pricing.py                       (models)
@@ -27,14 +32,18 @@ models:
   # tools: Read Write Edit Grep Glob Bash WebSearch
   haiku: { model_id: claude-haiku-4-5, subprocess: claude }
 
-  # subprocess: cursor-agent CLI; model_id=auto → cursor-agent picks best fit
-  # Override per run: orchestrator run <id> model.auto.subprocess=pi
+  # subprocess: cursor-agent CLI, pinned to a concrete model.
+  # Was `auto: {model_id: auto}` — cursor-agent never discloses which model it
+  # picked (its json output has no model field; stream-json reports the literal
+  # "Auto"), so the step was unpriceable and silently billed at Opus rates.
+  # An alias must name a model, not a behavior.
+  # Override per run: orchestrator run <id> model.composer.model_id=claude-4.5-sonnet
   # tools: Read Write Edit Grep Glob Bash WebSearch WebFetch
   #        mcp__plugin_context7_context7__resolve-library-id mcp__plugin_context7_context7__query-docs
   #        mcp__chrome-devtools__take_screenshot mcp__chrome-devtools__navigate_page
   #        mcp__chrome-devtools__get_console_message mcp__chrome-devtools__evaluate_script
   #        mcp__plugin_claude-mem_mcp-search__search mcp__plugin_claude-mem_mcp-search__get_observations
-  auto: { model_id: auto, subprocess: cursor }
+  composer: { model_id: composer-2.5, subprocess: cursor }
 
 # ── Subprocess tool invocation (dispatch loop: run_loop.py) ────────
 tools:
@@ -42,7 +51,7 @@ tools:
     binary: claude
     # {prompt} is substituted with the full prompt text
     args_template:
-      ["--model", "{model_tier}", "-p", "--output-format", "json", "{prompt}"]
+      ["--model", "{model_id}", "-p", "--output-format", "json", "{prompt}"]
     stdin: none
     capture: stdout
 
@@ -63,7 +72,7 @@ tools:
   cursor:
     binary: cursor-agent
     # Cursor Agent CLI (non-interactive). Requires `cursor-agent` on PATH.
-    # {model_tier} comes from models.<name>.model_id (e.g. auto).
+    # {model_id} comes from models.<alias>.model_id (e.g. composer-2.5).
     # Agent must emit a COMPLETION: YAML block on stdout for parse-completion.py.
     args_template:
       [
@@ -71,7 +80,7 @@ tools:
         "--output-format",
         "json",
         "--model",
-        "{model_tier}",
+        "{model_id}",
         "--force",
         "{prompt}",
       ]

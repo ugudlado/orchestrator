@@ -1,0 +1,124 @@
+version: 1
+tasks:
+  - id: T-1
+    title: "RED: test _COMPLETION_CONTRACT instructs agents to emit briefing"
+    status: completed
+    depends_on: []
+    files:
+      - orchestrator_next/tests/test_completion_contract_briefing.py
+    verify:
+      - pytest orchestrator_next/tests/test_completion_contract_briefing.py -v
+    test_scenarios:
+      - "_COMPLETION_CONTRACT string contains the substring 'briefing' (case-insensitive)"
+      - "_COMPLETION_CONTRACT contains a 'briefing:' key example under an outputs block"
+    why: "AC-1"
+    change: "Create test_completion_contract_briefing.py importing _COMPLETION_CONTRACT from orchestrator_next.run_loop; assert 'briefing' appears in the contract text. Mark tests @pytest.mark.xfail(strict=False) so verify exits 0 before T-2 lands."
+    tokens_in: 0
+    tokens_out: 0
+    duration_s: 89
+
+  - id: T-2
+    title: "GREEN: add briefing instruction to _COMPLETION_CONTRACT"
+    status: completed
+    depends_on: [T-1]
+    files:
+      - orchestrator_next/run_loop.py
+      - orchestrator_next/tests/test_completion_contract_briefing.py
+    verify:
+      - pytest orchestrator_next/tests/test_completion_contract_briefing.py -v
+    test_scenarios:
+      - "T-1 tests now pass without xfail marker"
+    why: "AC-1"
+    change: "In orchestrator_next/run_loop.py:56-75 edit _COMPLETION_CONTRACT: add a top-of-block rule line 'Also emit a one-line briefing: field under outputs on every terminal status — a plain-English summary of what got done or what blocked.' and add 'briefing: \"<one-line summary of outcome>\"' as an example line under BOTH the success outputs block and the abandoned outputs block. Then remove the xfail markers from test_completion_contract_briefing.py."
+    tokens_in: 0
+    tokens_out: 0
+    duration_s: 10
+
+  - id: T-3
+    title: "RED: test _OPTIONAL_STEP_HISTORY_KEYS persists briefing and reason"
+    status: completed
+    depends_on: [T-2]
+    files:
+      - orchestrator_next/tests/test_record_briefing_persistence.py
+    verify:
+      - pytest orchestrator_next/tests/test_record_briefing_persistence.py -v
+    test_scenarios:
+      - "done payload with outputs.briefing='did X' persists briefing='did X' into step_history[-1]"
+      - "done payload with outputs.reason='blocked by Y' persists reason='blocked by Y' into step_history[-1]"
+      - "done payload with neither field yields step_history[-1] with no briefing/reason keys (or None) — no error"
+    why: "AC-2, AC-3, AC-6"
+    change: "Create test_record_briefing_persistence.py using the same seed-state + record_step pattern as tests/test_record_agent_field.py. Invoke orchestrator_next.record with a done payload containing outputs.briefing and outputs.reason; load state.yaml and assert step_history[-1]['briefing'] and ['reason'] match. Mark @pytest.mark.xfail(strict=False)."
+    tokens_in: 0
+    tokens_out: 0
+    duration_s: 49
+
+  - id: T-4
+    title: "GREEN: extend _OPTIONAL_STEP_HISTORY_KEYS with briefing and reason"
+    status: completed
+    depends_on: [T-3]
+    files:
+      - orchestrator_next/record.py
+      - orchestrator_next/tests/test_record_briefing_persistence.py
+    verify:
+      - pytest orchestrator_next/tests/test_record_briefing_persistence.py -v
+      - pytest orchestrator_next/tests/test_record_validation.py orchestrator_next/tests/test_record_agent_field.py orchestrator_next/tests/test_record_check_b.py -q
+    test_scenarios:
+      - "T-3 tests pass without xfail marker"
+      - "existing record tests still pass (regression check)"
+    why: "AC-2, AC-3, AC-6"
+    change: "In orchestrator_next/record.py:50-60, append 'briefing' and 'reason' to the _OPTIONAL_STEP_HISTORY_KEYS tuple. Remove xfail markers from test_record_briefing_persistence.py."
+    tokens_in: 0
+    tokens_out: 0
+    duration_s: 11
+
+  - id: T-5
+    title: "RED: test workflow-report renders Briefing column and structured field"
+    status: completed
+    depends_on: [T-4]
+    files:
+      - config/steps/workflow-report/test_workflow_report.py
+    verify:
+      - pytest config/steps/workflow-report/test_workflow_report.py -v
+    test_scenarios:
+      - "step_history entry with briefing='Implemented X' appears truncated in stderr table under a 'Briefing' column"
+      - "structured output steps[i]['briefing'] equals the raw briefing string"
+      - "step_history entry without briefing renders '—' in stderr and null (None) in JSON"
+      - "briefing longer than 120 chars is truncated to 120 chars in stderr; JSON keeps raw"
+    why: "AC-4, AC-5, AC-E3"
+    change: "Add new test functions to config/steps/workflow-report/test_workflow_report.py invoking build_workflow_report with crafted step_history entries and capturing stderr via capsys. Assert 'Briefing' column header, truncation behavior, and JSON key presence. Mark new tests @pytest.mark.xfail(strict=False)."
+    tokens_in: 0
+    tokens_out: 0
+    duration_s: 13
+
+  - id: T-6
+    title: "GREEN: render Briefing column in workflow_report_step and expose in JSON"
+    status: completed
+    depends_on: [T-5]
+    files:
+      - config/steps/workflow-report/workflow_report_step.py
+      - config/steps/workflow-report/test_workflow_report.py
+    verify:
+      - pytest config/steps/workflow-report/test_workflow_report.py -v
+    test_scenarios:
+      - "T-5 tests pass without xfail markers"
+      - "pre-existing test_workflow_report tests still pass"
+    why: "AC-4, AC-5"
+    change: "In config/steps/workflow-report/workflow_report_step.py build_workflow_report: (a) capture briefing per step_id in rows collapse loop (last non-empty wins, parallel to model handling); (b) add 'Briefing' to header/separator lines and append a truncated (replace('\\n',' ')[:120]) briefing column to each per-row stderr write; (c) add 'briefing': r['briefing'] or None to each step dict in the returned structured output. Remove xfail markers from tests."
+    tokens_in: 0
+    tokens_out: 0
+    duration_s: 10
+
+  - id: T-7
+    title: "Phase-gate: targeted regression suite green"
+    status: completed
+    depends_on: [T-6]
+    files: []
+    verify:
+      - pytest orchestrator_next/tests/test_run_loop_agent_arm.py orchestrator_next/tests/test_run_loop_headless.py orchestrator_next/tests/test_record_validation.py orchestrator_next/tests/test_record_agent_field.py orchestrator_next/tests/test_record_check_b.py orchestrator_next/tests/test_record_abandoned_node.py orchestrator_next/tests/test_completion_contract_briefing.py orchestrator_next/tests/test_record_briefing_persistence.py config/steps/workflow-report/test_workflow_report.py -q
+    test_scenarios:
+      - "targeted suite of touched modules + new tests all pass (baseline has an unrelated failure in test_step_env.py — deliberately excluded from gate)"
+    why: "AC-6 — regression scoped to files this feature actually touched"
+    change: "No code edits; verify-only gate. Scoped to touched modules per phase-gate-scope learning: baseline test_step_env.py::test_inline_script_env_sets_legacy_and_orchestrator_aliases fails pre-existing at HEAD and is unrelated to this feature."
+    tokens_in: 0
+    tokens_out: 0
+    duration_s: 1

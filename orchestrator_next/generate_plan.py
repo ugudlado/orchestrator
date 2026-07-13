@@ -75,7 +75,7 @@ def _step_entry_for_id(phase_def: dict[str, Any], step_id: str) -> dict[str, Any
     Step entries may be:
     - Plain string: "design-and-draft-artifacts"
     - String with gate: "explore if discovery"  (strip " if <flag>")
-    - Dict: {id: ..., depends_on: ..., repeat_until: ...}
+    - Dict: {id: ..., depends_on: ..., on_success: ...}
 
     Returns the dict form or an empty dict if the step is a plain string match.
     Returns None if no match found.
@@ -92,7 +92,7 @@ def _step_entry_for_id(phase_def: dict[str, Any], step_id: str) -> dict[str, Any
 
 
 def _build_step_node(step_id: str, phase_def: dict[str, Any]) -> dict[str, Any]:
-    """Build the per-step node block: id, status, and optional depends_on/repeat_until."""
+    """Build the per-step node block: id, status, and optional depends_on/routing."""
     step_entry = _step_entry_for_id(phase_def, step_id) or {}
 
     node: dict[str, Any] = {
@@ -103,10 +103,6 @@ def _build_step_node(step_id: str, phase_def: dict[str, Any]) -> dict[str, Any]:
     authored = step_entry.get("depends_on")
     if authored:
         node["depends_on"] = [str(d) for d in authored]
-
-    repeat_until = step_entry.get("repeat_until")
-    if repeat_until:
-        node["repeat_until"] = repeat_until
 
     for edge_key in ("on_success", "on_failure", "max_retries"):
         val = step_entry.get(edge_key)

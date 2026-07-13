@@ -46,7 +46,13 @@ def test_exact_model_hit(tmp_path, monkeypatch):
     assert result["output"] == 15.0
 
 
-def test_default_fallback(tmp_path, monkeypatch):
+def test_unknown_model_has_no_price_and_does_not_borrow_default(tmp_path, monkeypatch):
+    """No __default__ fallback: an unpriced model records no cost, not a guess.
+
+    A __default__ row used to absorb every unmatched model_id at Opus rates,
+    turning an unknown cost into a confident wrong one. Even if such a row is
+    present in the table, it must not be substituted for an unknown model.
+    """
     _make_pricing_yaml(tmp_path, """
         models:
           - model_id: __default__
@@ -58,9 +64,7 @@ def test_default_fallback(tmp_path, monkeypatch):
     """)
     monkeypatch.setattr("orchestrator_next.paths.config_root", lambda: tmp_path)
     now = datetime.datetime(2026, 1, 1)
-    result = _lookup_price("unknown-model", now)
-    assert result is not None
-    assert result["input"] == 15.0
+    assert _lookup_price("unknown-model", now) is None
 
 
 def test_effective_from_selects_latest_row(tmp_path, monkeypatch):

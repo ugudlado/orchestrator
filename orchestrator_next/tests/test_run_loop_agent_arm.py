@@ -90,7 +90,7 @@ def test_agent_arm_runs_end_to_end(tmp_path, monkeypatch):
 
     payload = run_loop.run_agent_step(
         action, repo_root=str(repo), models_yaml=str(models_yaml),
-        ticket_id="", state_raw=yaml.safe_load(state_yaml.read_text()),
+        state_raw=yaml.safe_load(state_yaml.read_text()),
         state_yaml_path=str(state_yaml), tmp_dir=tmp_path,
     )
 
@@ -133,7 +133,7 @@ def test_malformed_completion_is_recoverable(tmp_path, monkeypatch):
     }
     payload = run_loop.run_agent_step(
         action, repo_root=str(tmp_path), models_yaml=str(models_yaml),
-        ticket_id="", state_raw={}, state_yaml_path=str(tmp_path / "s.yaml"),
+        state_raw={}, state_yaml_path=str(tmp_path / "s.yaml"),
         tmp_dir=tmp_path,
     )
     assert payload["status"] == "failed", "malformed COMPLETION must be recoverable-failed, not fatal"
