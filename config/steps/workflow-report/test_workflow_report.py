@@ -248,8 +248,8 @@ def test_totals_include_input_and_output_token_sums():
 # ---------------------------------------------------------------------------
 
 
-def test_briefing_appears_in_stderr_table_and_structured_output():
-    """step_history entry with briefing appears truncated in stderr under Briefing column."""
+def test_briefing_appears_on_its_own_line_and_in_structured_output():
+    """step_history entry with briefing appears in full under its step's row."""
     history = [
         {
             "step_id": "explore",
@@ -266,13 +266,14 @@ def test_briefing_appears_in_stderr_table_and_structured_output():
         }
     ]
     result, stderr = _render(history)
-    assert "Briefing" in stderr
     assert "Implemented X" in stderr
-    assert result["steps"][0]["briefing"] == "Implemented X"
+    assert result["steps"][0]["briefings"] == [
+        {"attempt": 1, "status": "completed", "briefing": "Implemented X"}
+    ]
 
 
-def test_missing_briefing_renders_em_dash_and_null_in_json():
-    """step_history entry without briefing renders '—' in stderr and null in JSON."""
+def test_missing_briefing_renders_nothing_and_empty_list_in_json():
+    """step_history entry without briefing has no briefing line and an empty list in JSON."""
     history = [
         {
             "step_id": "script-step",
@@ -282,16 +283,12 @@ def test_missing_briefing_renders_em_dash_and_null_in_json():
         }
     ]
     result, stderr = _render(history)
-    assert "Briefing" in stderr
-    data_lines = [ln for ln in stderr.splitlines() if ln.startswith("script-step")]
-    assert data_lines, f"expected a data row in stderr:\n{stderr}"
-    # Trailing briefing cell should be an em dash
-    assert data_lines[0].rstrip().endswith("—")
-    assert result["steps"][0]["briefing"] is None
+    assert "[completed]" not in stderr
+    assert result["steps"][0]["briefings"] == []
 
 
-def test_long_briefing_truncated_in_stderr_raw_in_json():
-    """briefing longer than 120 chars is truncated to 120 in stderr; JSON keeps raw."""
+def test_long_briefing_not_truncated():
+    """briefing longer than the old 120-char cap renders in full."""
     raw = "A" * 150
     history = [
         {
@@ -303,8 +300,32 @@ def test_long_briefing_truncated_in_stderr_raw_in_json():
         }
     ]
     result, stderr = _render(history)
-    assert "Briefing" in stderr
-    # Truncated form appears in stderr; full 150-char string must not
-    assert ("A" * 120) in stderr
-    assert raw not in stderr
-    assert result["steps"][0]["briefing"] == raw
+    assert raw in stderr
+    assert result["steps"][0]["briefings"] == [
+        {"attempt": 1, "status": "completed", "briefing": raw}
+    ]
+
+
+def test_each_attempt_briefing_survives_collapse():
+    """Retried step: both the failed attempt's briefing and the fix's briefing
+    must appear — not just the last one (regression: briefing collapse bug)."""
+    history = [
+        {
+            "step_id": "design-review",
+            "status": "failed",
+            "attempt": 1,
+            "briefing": "RED tasks fail their own verify gates",
+            "usage": {"duration_ms": 100},
+        },
+        {
+            "step_id": "design-review",
+            "status": "completed",
+            "attempt": 2,
+            "briefing": "Fixed: RED tasks use test.todo()",
+            "usage": {"duration_ms": 100},
+        },
+    ]
+    result, stderr = _render(history)
+    assert "RED tasks fail their own verify gates" in stderr
+    assert "Fixed: RED tasks use test.todo()" in stderr
+    assert len(result["steps"][0]["briefings"]) == 2

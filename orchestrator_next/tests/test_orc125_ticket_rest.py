@@ -67,6 +67,7 @@ def test_load_ticket_context_success(tmp_path, monkeypatch):
     env["PATH"] = f"{fake_bin}:{os.environ['PATH']}"
     env["BACKLOG_URL"] = "https://example.test"
     env["BACKLOG_TOKEN"] = "tok"
+    env["BACKLOG_PROJECT_ID"] = "orc"
     env["REPO_ROOT"] = str(tmp_path)
     env["CHANGE_ID"] = "orc-125"
     env["ORCHESTRATOR_CHANGE_ID"] = "orc-125"

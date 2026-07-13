@@ -95,6 +95,9 @@ def _render_report(step_history: list, issues: list) -> dict:
         duration_ms = usage.get("duration_ms") or 0
         model = usage.get("model") or ""
         briefing = entry.get("briefing") or ""
+        # Every attempt's briefing is kept (not just the last one) so a failed
+        # attempt's "why it failed" survives alongside the retry that fixed it.
+        briefing_entry = {"attempt": attempt, "status": status, "briefing": briefing}
         if step_id not in rows:
             rows[step_id] = {
                 "status": status,
@@ -107,7 +110,7 @@ def _render_report(step_history: list, issues: list) -> dict:
                 "cost": cost,
                 "duration_ms": duration_ms,
                 "model": model,
-                "briefing": briefing,
+                "briefings": [briefing_entry],
             }
         else:
             rows[step_id]["status"] = status  # last status wins
@@ -121,17 +124,16 @@ def _render_report(step_history: list, issues: list) -> dict:
             rows[step_id]["duration_ms"] += duration_ms
             if model:
                 rows[step_id]["model"] = model  # last model wins
-            if briefing:
-                rows[step_id]["briefing"] = briefing  # last non-empty wins
+            rows[step_id]["briefings"].append(briefing_entry)
 
     sys.stderr.write("\n## Workflow step report\n\n")
     sys.stderr.write(
         f"{'Step':<35} {'Status':<12} {'Att':>4} {'Duration':>10} "
-        f"{'Model':<14} {'In':>9} {'CacheR':>11} {'CacheW':>10} {'Out':>8} {'Cost':>10} {'Briefing'}\n"
+        f"{'Model':<14} {'In':>9} {'CacheR':>11} {'CacheW':>10} {'Out':>8} {'Cost':>10}\n"
     )
     sys.stderr.write(
         f"{'-'*35} {'-'*12} {'-'*4} {'-'*10} {'-'*14} {'-'*9} {'-'*11} "
-        f"{'-'*10} {'-'*8} {'-'*10} {'-'*8}\n"
+        f"{'-'*10} {'-'*8} {'-'*10}\n"
     )
 
     total_tokens = 0
@@ -152,7 +154,7 @@ def _render_report(step_history: list, issues: list) -> dict:
         cache_creation = r["cache_creation_input_tokens"]
         cost = r["cost"]
         model = r["model"]
-        briefing = r["briefing"]
+        briefings = r["briefings"]
 
         total_ms += duration_ms
         total_tokens += tokens
@@ -170,13 +172,20 @@ def _render_report(step_history: list, issues: list) -> dict:
         cw_str = f"{cache_creation:,}" if cache_creation else "—"
         out_str = f"{output_tokens:,}" if output_tokens else "—"
         cost_str = f"${cost:.4f}" if cost else "—"
-        briefing_str = briefing.replace("\n", " ")[:120] if briefing else "—"
 
         sys.stderr.write(
             f"{step_id:<35} {r['status']:<12} {att_str:>4} {dur_str:>10} "
             f"{model_str:<14} {in_str:>9} {cr_str:>11} {cw_str:>10} "
-            f"{out_str:>8} {cost_str:>10} {briefing_str}\n"
+            f"{out_str:>8} {cost_str:>10}\n"
         )
+        # One line per attempt, full text (no truncation) — a failed attempt's
+        # "why it failed" must survive next to the retry that fixed it.
+        for b in briefings:
+            if not b["briefing"]:
+                continue
+            tag = f"attempt {b['attempt']} ({b['status']})" if len(briefings) > 1 else b["status"]
+            text = b["briefing"].replace("\n", " ")
+            sys.stderr.write(f"    [{tag}] {text}\n")
 
     sys.stderr.write(
         f"\n{'TOTAL':<35} {'':12} {'':>4} {total_ms/1000:>9.1f}s "
@@ -216,7 +225,7 @@ def _render_report(step_history: list, issues: list) -> dict:
                 "cache_creation_input_tokens": r["cache_creation_input_tokens"],
                 "model": r["model"] or None,
                 "cost_usd": round(r["cost"], 6),
-                "briefing": r["briefing"] or None,
+                "briefings": [b for b in r["briefings"] if b["briefing"]],
             }
             for step_id, r in rows.items()
         ],
