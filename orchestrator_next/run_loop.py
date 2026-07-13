@@ -35,9 +35,9 @@ from orchestrator_next.dispatch import ContractDispatchError, dispatch
 from orchestrator_next.parser import ContractNotFoundError
 from orchestrator_next.parser import ContractError
 from orchestrator_next.parser import load_state
-from orchestrator_next.pricing import format_cost_so_far
-from orchestrator_next.record import record
-from orchestrator_next.usage_adapters import split_stdout
+from orchestrator_next.pricing import format_cost_so_far, format_last_step_usage
+from orchestrator_next.record import autocommit_state, record
+from orchestrator_next.usage_adapters import ZEROED_USAGE, split_stdout
 
 _LIB = Path(__file__).resolve().parent / "scripts" / "lib"
 
@@ -59,12 +59,15 @@ You MUST end your stdout with a COMPLETION: block. Fields must be indented under
 
 IMPORTANT: Output values are parsed as YAML. If a value contains a colon (:), quote the entire value with double quotes.
 
+Also emit a one-line briefing: field under outputs on every terminal status — a plain-English summary of what got done or what blocked.
+
 Success form:
 COMPLETION:
   step_id: <this-step-id>
   status: completed
   outputs:
     key: value
+    briefing: "<one-line summary of outcome>"
 
 Failure/skip form:
 COMPLETION:
@@ -72,14 +75,15 @@ COMPLETION:
   status: abandoned
   outputs:
     reason: "why this step could not complete (quote if the reason contains a colon)"
+    briefing: "<one-line summary of outcome>"
 """
 
-_EMPTY_USAGE = {
-    "input_tokens": 0,
-    "output_tokens": 0,
-    "cache_read_tokens": 0,
-    "cache_creation_tokens": 0,
-}
+# Zero floor overlaid under every recorded usage dict. Derived from the adapters'
+# own constant rather than hand-copied: the two drifted before (this held
+# cache_read_tokens/cache_creation_tokens, which no reader consumed, so the counts
+# here stayed 0 next to the adapter's real ones). Token keys only — `model` is set
+# per-payload and a failed step must not carry a `cost_usd`.
+_EMPTY_USAGE = {k: 0 for k in ZEROED_USAGE if k.endswith("_tokens")}
 
 def _ts() -> str:
     return datetime.now().strftime("%H:%M:%S")
@@ -90,17 +94,22 @@ def _log(msg: str) -> None:
 
 
 def _log_cost_so_far(state_yaml_path: str) -> None:
-    """Emit the running `[cost so far: $X.XX]` total re-derived from live state.
+    """Emit the step's own usage, then the running `[cost so far: $X.XX]` total,
+    both re-derived from live state.
 
-    Reads the just-updated state.yaml and sums step_history[].usage.cost_usd so
-    the total reflects every completed step mid-run. Best-effort: a missing or
-    unreadable state file never interrupts the loop.
+    Reads the just-updated state.yaml: step_history[-1] is the step that just
+    recorded, so its duration/tokens/cost render without threading usage back
+    through the call sites. Best-effort — a missing or unreadable state file
+    never interrupts the loop.
     """
     try:
         with open(state_yaml_path) as f:
             state_raw = yaml.safe_load(f) or {}
     except (OSError, yaml.YAMLError):
         return
+    step_usage = format_last_step_usage(state_raw)
+    if step_usage:
+        _log(f"  {step_usage}")
     _log(format_cost_so_far(state_raw))
 
 
@@ -114,16 +123,12 @@ def _now_ms() -> int:
 def build_prompt(
     instruction: str,
     step_context: str,
-    ticket_context: str,
     workflow_meta: str,
-    ticket_id: str,
 ) -> str:
-    if ticket_context:
-        return (
-            f"{instruction}\n\n{workflow_meta}\n\n"
-            f"Ticket / bug report ({ticket_id}):\n{ticket_context}\n\n"
-            f"Step context:\n{step_context}\n{_COMPLETION_CONTRACT}\n"
-        )
+    """Assemble the agent prompt. Ticket body is not injected here — the
+    load-ticket-context workflow step writes
+    spec/changes/<id>/ticket-context.md for agents to read.
+    """
     return (
         f"{instruction}\n\n{workflow_meta}\n\n"
         f"Step context:\n{step_context}\n{_COMPLETION_CONTRACT}\n"
@@ -143,29 +148,6 @@ def _workflow_meta(state_raw: dict[str, Any], state_yaml_path: str) -> str:
     if wt:
         lines.append(f"worktree_path={wt}")
     return "\n".join(lines)
-
-
-def _fetch_ticket_context(ticket_id: str, repo_root: str) -> str:
-    """Fetch ticket body for agent steps (backlog backend only, as in bash)."""
-    if not ticket_id:
-        return ""
-    project_yaml = Path(repo_root) / "spec" / "project.yaml"
-    backend = "backlog"
-    try:
-        data = yaml.safe_load(project_yaml.read_text()) or {}
-        backend = (data.get("ticketing") or "backlog").strip()
-    except OSError:
-        pass
-    if backend != "backlog":
-        return ""
-    try:
-        out = subprocess.run(
-            ["backlog", "task", "view", ticket_id, "--plain"],
-            cwd=repo_root, capture_output=True, text=True,
-        )
-        return out.stdout if out.returncode == 0 else ""
-    except FileNotFoundError:
-        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -192,13 +174,20 @@ def _pi_settings() -> dict[str, Any]:
 
 def _build_argv(
     tool_name: str, binary: str, template: list[str],
-    prompt: str, prompt_file: str, model_tier: str,
+    prompt: str, prompt_file: str, model_id: str,
 ) -> list[str]:
     def expand(arg: str) -> str:
         if "{prompt_file}" in arg:
             return arg.replace("{prompt_file}", prompt_file)
-        if "{model_tier}" in arg:
-            return arg.replace("{model_tier}", model_tier or "auto")
+        if "{model_id}" in arg:
+            if not model_id:
+                # No silent "auto" default: an unresolved model would run an
+                # unknown model and record an unpriceable cost.
+                raise ContractDispatchError(
+                    f"{tool_name}: no model_id resolved; check the step's "
+                    f"model: alias against config/models.yaml"
+                )
+            return arg.replace("{model_id}", model_id)
         if arg == "{prompt}":
             return prompt
         return str(arg)
@@ -220,15 +209,15 @@ def _build_argv(
 
 def invoke_tool(
     tool_name: str, binary: str, template: list[str],
-    prompt: str, prompt_file: str, model_tier: str,
+    prompt: str, prompt_file: str, model_id: str,
     cwd: str | None, stdout_path: Path, stderr_path: Path,
 ) -> int:
-    argv = _build_argv(tool_name, binary, template, prompt, prompt_file, model_tier)
+    argv = _build_argv(tool_name, binary, template, prompt, prompt_file, model_id)
     env = os.environ.copy()
     env.setdefault("PI_CODING_AGENT_DIR", str(Path.home() / ".pi" / "agent"))
     run_cwd = cwd if cwd and Path(cwd).is_dir() else None
     with open(stdout_path, "w") as out, open(stderr_path, "w") as err:
-        proc = subprocess.run(argv, stdout=out, stderr=err, cwd=run_cwd, env=env)
+        proc = subprocess.run(argv, stdout=out, stderr=err, stdin=subprocess.DEVNULL, cwd=run_cwd, env=env)
     return proc.returncode
 
 
@@ -273,7 +262,7 @@ def _agent_payload(action: dict, completion: dict, usage: dict, started_at, dura
 
 
 def run_agent_step(
-    action: dict, *, repo_root: str, models_yaml: str, ticket_id: str,
+    action: dict, *, repo_root: str, models_yaml: str,
     state_raw: dict, state_yaml_path: str, tmp_dir: Path,
 ) -> dict:
     """Execute one agent action; always returns a done-payload dict.
@@ -281,6 +270,9 @@ def run_agent_step(
     Failure policy (LOCKED, deviates from bash): tool nonzero exit AND malformed
     COMPLETION both → `failed` payload so on_failure/max_retries retries. A bad
     parse never aborts the workflow.
+
+    Ticket context is not fetched here — load-ticket-context (workflow config)
+    writes spec/changes/<id>/ticket-context.md; agent prompts instruct reading that file.
     """
     model = action["model"]
     step_id = action["step_id"]
@@ -291,13 +283,12 @@ def run_agent_step(
     if not tool_name:
         _log(f"ERROR: no route for model '{model}'")
         raise SystemExit(4)
-    model_tier = model_routes.resolve_model_id(model, models_yaml)
+    model_id = model_routes.resolve_model_id(model, models_yaml)
     binary, template = _resolve_tool_template(tool_name, models_yaml)
 
     meta = _workflow_meta(state_raw, state_yaml_path)
-    ticket_ctx = _fetch_ticket_context(ticket_id, repo_root)
     step_context = json.dumps(action.get("step_context") or {})
-    prompt = build_prompt(action.get("instruction", ""), step_context, ticket_ctx, meta, ticket_id)
+    prompt = build_prompt(action.get("instruction", ""), step_context, meta)
     prompt_file = tmp_dir / f"prompt_{step_id}.txt"
     prompt_file.write_text(prompt)
 
@@ -307,15 +298,18 @@ def run_agent_step(
 
     stdout_path = tmp_dir / f"out_{step_id}.txt"
     stderr_path = tmp_dir / f"err_{step_id}.txt"
-    _log(f"  invoking {tool_name} ({binary})" + (f"  tier={model_tier}" if model_tier else ""))
+    _log(f"  invoking {tool_name} ({binary})" + (f"  model={model_id}" if model_id else ""))
     rc = invoke_tool(tool_name, binary, template, prompt, str(prompt_file),
-                     model_tier, work_dir, stdout_path, stderr_path)
+                     model_id, work_dir, stdout_path, stderr_path)
     if rc != 0:
+        stderr_tail = stderr_path.read_text(errors="replace")[-2000:] if stderr_path.exists() else ""
         _log(f"WARN: tool '{binary}' exited {rc}")
+        if stderr_tail.strip():
+            _log(f"  stderr: {stderr_tail.strip()}")
         return _failed_payload(action, rc, _now_ms() - start_ms)
 
     adapter_tool = "cursor-agent" if tool_name == "cursor" else tool_name
-    norm = split_stdout(adapter_tool, stdout_path, route_model=model_tier or None)
+    norm = split_stdout(adapter_tool, stdout_path, route_model=model_id or None)
     usage = {k: v for k, v in norm.items() if k != "assistant_text"}
     try:
         completion = parse_completion(norm.get("assistant_text") or "")
@@ -380,7 +374,12 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
     cwd = env.get("REPO_ROOT") or None
     if cwd and not os.path.isdir(cwd):
         cwd = None
+    # Measure elapsed ms here: record.py's derive-from-timestamps fallback can't
+    # serve script steps (started_at would default to ended_at), and _utcnow_iso
+    # truncates to whole seconds, flooring sub-second steps to 0.
+    _start_ms = _now_ms()
     proc = subprocess.run(run_cmd, capture_output=True, env=env, cwd=cwd)
+    script_duration_ms = _now_ms() - _start_ms
     if proc.stderr:
         sys.stderr.buffer.write(proc.stderr)
         sys.stderr.buffer.flush()
@@ -391,6 +390,7 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
             record(state_yaml_path, {
                 "step_id": step_id, "phase": phase, "attempt": attempt,
                 "status": "failed", "outputs": {},
+                "usage": {"duration_ms": script_duration_ms},
                 "evidence": {"summary": f"script exited {proc.returncode}"},
             })
         _log(f"✗ {step_id}  failed  script_exit={proc.returncode}")
@@ -405,6 +405,7 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
         payload = {
             "step_id": step_id, "phase": phase, "attempt": attempt,
             "status": "completed", "outputs": outputs,
+            "usage": {"duration_ms": script_duration_ms},
             "evidence": {"outputs": outputs, "summary": "inline script completed"},
         }
         if isinstance(outputs.get("state_patch"), dict):
@@ -478,6 +479,35 @@ def _run_hooks(
 
 
 # ---------------------------------------------------------------------------
+# Exit-2 notification — unattended runs need a human channel for signoffs
+# ---------------------------------------------------------------------------
+def _notify_blocked(state_yaml_path: str, state_raw: dict[str, Any], reason: str) -> None:
+    """Pipe a JSON blocked-event to ORCHESTRATOR_NOTIFY_CMD (stdin), if set.
+
+    Channel-agnostic: point the env var at curl / a Slack CLI / anything.
+    Best-effort — a failing notifier never changes the exit code.
+    """
+    cmd = os.environ.get("ORCHESTRATOR_NOTIFY_CMD", "")
+    if not cmd:
+        return
+    schema = state_raw.get("schema")
+    if isinstance(schema, dict):
+        schema = schema.get("type")
+    payload = json.dumps({
+        "event": "blocked",
+        "change_id": state_raw.get("change_id") or Path(state_yaml_path).parent.name,
+        "schema": schema or "",
+        "reason": reason,
+        "state_yaml_path": state_yaml_path,
+    })
+    try:
+        subprocess.run(["bash", "-c", cmd], input=payload, text=True,
+                       capture_output=True, timeout=30)
+    except Exception as exc:  # noqa: BLE001 — notification is best-effort
+        _log(f"WARN: notify command failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # The loop
 # ---------------------------------------------------------------------------
 def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, models_yaml: str) -> int:
@@ -506,6 +536,9 @@ def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, models_yam
                 return 1
             if code == 2:
                 _log("Workflow blocked.")
+                autocommit_state(state_yaml_path, push=True)
+                _notify_blocked(state_yaml_path, state.raw,
+                                (action or {}).get("reason") or "blocked (signoff or halt)")
                 return 2
 
             # pre hooks: run before the step body. A nonzero pre hook blocks
@@ -513,6 +546,9 @@ def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, models_yam
             if not _run_hooks(action.get("pre") or [], "pre", action,
                               state_yaml_path, repo_root, state.raw):
                 _log(f"Workflow blocked: pre-hook failed for {action['step_id']}.")
+                autocommit_state(state_yaml_path, push=True)
+                _notify_blocked(state_yaml_path, state.raw,
+                                f"pre-hook failed for {action['step_id']}")
                 return 2
 
             if action.get("model"):
@@ -520,7 +556,7 @@ def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, models_yam
                      f"kind=agent  model={action['model']}  attempt={action.get('attempt',1)}")
                 payload = run_agent_step(
                     action, repo_root=repo_root, models_yaml=models_yaml,
-                    ticket_id=ticket_id, state_raw=state.raw,
+                    state_raw=state.raw,
                     state_yaml_path=state_yaml_path, tmp_dir=tmp_dir,
                 )
                 result, rc = record(state_yaml_path, payload)
@@ -535,6 +571,7 @@ def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, models_yam
                 ok, state_yaml_path = run_script_step(action, state_yaml_path=state_yaml_path, state=state)
                 if not ok:
                     _log("Workflow aborted: deterministic script step failed.")
+                    autocommit_state(state_yaml_path, push=True)
                     return 3
             else:
                 _log("dispatch returned no actionable step; continuing")
@@ -595,8 +632,8 @@ def _resolve_archived_state(slug: str, repo_root: str) -> str:
 def _seed_state(slug: str, schema: str, repo_root: str, flag_overrides: list[str]) -> str:
     """Seed a state file via the existing Python helpers; return its path.
     Idempotent: reuse the newest *_<schema>_state.yaml if present."""
-    orch_home = os.environ.get("ORCHESTRATOR_HOME", str(Path.home() / ".config" / "orchestrator"))
-    schema_yaml = Path(orch_home) / "config" / "workflows" / f"{schema}.yaml"
+    from orchestrator_next.paths import config_root
+    schema_yaml = config_root() / "workflows" / f"{schema}.yaml"
     repo_override = Path(repo_root) / ".orchestrator" / "workflows" / f"{schema}.yaml"
     if repo_override.is_file():
         schema_yaml = repo_override
@@ -741,10 +778,11 @@ def run_cmd(argv: list[str]) -> int:
     # models.yaml resolution (override > repo > global), mirrors run-workflow.sh.
     models_yaml = os.environ.get("ORCHESTRATOR_MODELS_CONFIG", "")
     if not models_yaml:
+        from orchestrator_next.paths import config_root
         for cand in (
             Path(repo_root) / ".orchestrator" / "config" / "models.yaml",
             Path(repo_root) / "config" / "models.yaml",
-            Path(os.environ.get("ORCHESTRATOR_HOME", "")) / "config" / "models.yaml",
+            config_root() / "models.yaml",
         ):
             if cand.is_file():
                 models_yaml = str(cand)

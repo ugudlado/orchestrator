@@ -1,16 +1,13 @@
 # Pricing table — USD per million tokens.
 # Fields: model_id, input_usd, output_usd, cache_read_usd, cache_creation_usd, effective_from
 # is_local: true means the model runs locally (zero cost).
-# __default__ is the fallback when no specific row matches.
+#
+# There is deliberately NO __default__ fallback row. A model with no row here
+# records no cost at all, rather than silently borrowing another model's rates —
+# a wrong-but-confident dollar figure is worse than an absent one. If a step
+# reports no cost, add its model below.
 
 models:
-  - model_id: __default__
-    input_usd: 15.0
-    output_usd: 75.0
-    cache_read_usd: 1.5
-    cache_creation_usd: 18.75
-    effective_from: "2025-01-01T00:00:00"
-
   - model_id: claude-haiku-4-5
     input_usd: 0.8
     output_usd: 4.0
@@ -72,5 +69,14 @@ models:
     input_usd: 0.25
     output_usd: 1.0
     cache_read_usd: 0.25
+    cache_creation_usd: 0.0
+    effective_from: "2025-01-01T00:00:00"
+
+  # Cursor's first-party agentic-coding model (cursor-agent subprocess).
+  # Rates per cursor.com/docs/models-and-pricing; Composer bills no cache write.
+  - model_id: composer-2.5
+    input_usd: 0.5
+    output_usd: 2.5
+    cache_read_usd: 0.2
     cache_creation_usd: 0.0
     effective_from: "2025-01-01T00:00:00"

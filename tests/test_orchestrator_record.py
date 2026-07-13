@@ -80,6 +80,26 @@ class TestOrchestratorRecord(unittest.TestCase):
         self.assertEqual(response["reason"], "missing_outputs")
         self.assertIn("result", response["missing_outputs"])
 
+    def test_failed_step_with_no_on_failure_leaves_node_non_completed(self):
+        """A failed step with no on_failure edge halts AND marks its node failed —
+        not completed — so a resume can't treat its dependents as ready."""
+        # step-inline-only has no on_failure edge → routing halts.
+        payload = {
+            "step_id": "step-inline-only",
+            "phase": "implement",
+            "status": "failed",
+            "outputs": {},
+            "evidence": {"summary": "script exited 1"},
+        }
+        r = _run_record(self.state_path, payload)
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        with open(self.state_path) as f:
+            state = yaml.safe_load(f)
+        node = state["workflow_plan"]["implement"]["nodes"][0]
+        self.assertEqual(node["status"], "failed")
+        self.assertEqual(state["status"], "blocked")
+        self.assertEqual(state["step_history"][0]["status"], "failed")
+
     def test_phase_transition_when_active_exhausted(self):
         """Multiple steps in phase: second record advances next_step to third."""
         # Re-populate state with 3 active steps

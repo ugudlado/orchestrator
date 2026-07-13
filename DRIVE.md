@@ -18,9 +18,11 @@ spawning per-step model subprocesses; ignore that here.
 - **No worktree.** `create-worktree` detects `CLAUDE_CODE_REMOTE=true` and no-ops — you're
   already in an isolated sandbox on your own branch, so every step runs directly against
   the repo checkout instead of a local `~/code/feature_worktrees/...` dir.
-- **Ticketing is via MCP**, not the engine. The engine's `ticket-*` script steps target
-  the `backlog` CLI and **no-op cleanly** when the backend isn't `backlog` or the CLI is
-  absent (they still return `completed`). You own ticket transitions through MCP tools.
+- **Ticketing:** the engine's `load-ticket-context` / `ticket-*` script steps call the
+  Backlog REST API (`BACKLOG_URL` + `BACKLOG_TOKEN`) — not the local `backlog` CLI.
+  They no-op cleanly when ticketing isn't `backlog` or env is missing (still
+  `completed`). In cloud you may also drive transitions via MCP; read the ticket
+  yourself in step 1 either way.
 - **Cost metrics will read $0** unless you report real token usage in each `done` payload
   (see step 4). This is expected; don't try to fix it mid-run.
 
@@ -33,10 +35,20 @@ the SessionStart hook (`.claude/cloud-setup.sh`) installs the package, and the e
 var is set in the cloud environment (see `docs/cloud-environment.md`). You don't
 run install steps here.
 
-Run the orchestrator as in-repo Python (no PATH install needed):
+The install gives you the `orchestrator` console script (fallback if PATH is
+stale: `python -m orchestrator_next`):
 
 ```bash
-python bin/orchestrator <verb> ...
+orchestrator <verb> ...
+```
+
+Config resolution is explicit — no cwd fallback. Export the config root once at the
+start of the session, before any orchestrator verb:
+
+```bash
+export ORCHESTRATOR_CONFIG="$PWD/config"        # this repo's config
+# or, for a wheel-only install without a checkout:
+export ORCHESTRATOR_CONFIG=$(orchestrator config-path)   # bundled config
 ```
 
 ## 1. Read the ticket (MCP)
@@ -68,7 +80,7 @@ server first — don't hardcode "In Progress" if the project uses a different la
 Pick the schema from the request (`feature`, `bugfix`, `chore`, `patch`, …).
 
 ```bash
-STATE=$(python bin/orchestrator run <slug> --schema <schema> --seed-only | tail -1)
+STATE=$(orchestrator run <slug> --schema <schema> --seed-only | tail -1)
 ```
 
 `--seed-only` creates `state.yaml` under `.orchestrator/<slug>/` and stops — it does
@@ -81,7 +93,7 @@ a duplicate.
 Repeat until the engine says stop:
 
 ```bash
-python bin/orchestrator next "$STATE"
+orchestrator next "$STATE"
 ```
 
 Interpret by exit code:
@@ -113,7 +125,7 @@ echo '{
   "agent":   "<your model id, e.g. claude-opus-4-8>",
   "usage":   {"input_tokens": <real if known else 0>, "output_tokens": <real if known else 0>},
   "outputs": { ... any outputs the step contract requires ... }
-}' | python bin/orchestrator done "$STATE"
+}' | orchestrator done "$STATE"
 ```
 
 - `agent` is **required** for agent steps.
@@ -136,16 +148,21 @@ echo '{
 ## Durability (resume after a block)
 
 `state.yaml` lives in the repo working tree (`.orchestrator/<slug>/`). The cloud session's
-filesystem is **ephemeral** — it's gone when the session ends. If you want a later session
-to resume after a `exit 2` block:
+filesystem is **ephemeral** — it's gone when the session ends.
+
+You get durability for free: because `CLAUDE_CODE_REMOTE=true` marks the session headless,
+every `orchestrator done` auto-commits the state dir (`git add -f` — it's gitignored), and
+when a step transitions the run to **blocked** it also pushes (`git push origin HEAD`).
+
+The one case you still handle manually: ending a session mid-run **without** a block —
+push the branch yourself so the auto-commits survive:
 
 ```bash
-git add .orchestrator/<slug>/ && git commit -m "wip: orchestrator state for <slug>"
-git push
+git push origin HEAD
 ```
 
-A future session resumes by pulling the branch and re-running `next "$STATE"`. Without this
-commit, a blocked workflow **cannot be resumed** — it must be re-seeded from scratch.
+A future session resumes by pulling the branch and re-running `next "$STATE"`. Without the
+state on the remote, a blocked workflow **cannot be resumed** — it must be re-seeded.
 
 ---
 

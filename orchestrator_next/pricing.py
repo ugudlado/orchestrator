@@ -27,8 +27,11 @@ def _orchestrator_home() -> Path:
 
 @functools.lru_cache(maxsize=1)
 def _load_routes() -> dict:
-    from orchestrator_next.paths import config_root
-    path = config_root() / "models.yaml"
+    from orchestrator_next.paths import ConfigRootError, config_root
+    try:
+        path = config_root() / "models.yaml"
+    except ConfigRootError:
+        path = _orchestrator_home() / "scripts" / "routes.yaml"
     if not path.is_file():
         path = _orchestrator_home() / "scripts" / "routes.yaml"
     try:
@@ -76,8 +79,12 @@ def _load_pricing_table() -> dict[str, list]:
     Each value is a list of (effective_from_dt, input, output, cache_read, cache_creation)
     tuples sorted descending by effective_from so _pick_row can do a simple linear scan.
     """
-    from orchestrator_next.paths import config_root
-    path = config_root() / "pricing.yaml"
+    from orchestrator_next.paths import ConfigRootError, config_root
+    try:
+        path = config_root() / "pricing.yaml"
+    except ConfigRootError as exc:
+        sys.stderr.write(f"[record] pricing: {exc}\n")
+        return {}
     if not path.is_file():
         sys.stderr.write(f"[record] pricing: config/pricing.yaml not found at {path}\n")
         return {}
@@ -119,7 +126,8 @@ def _lookup_price(model_id: str, effective_at: "_dt.datetime") -> dict | None:
     """Look up pricing rates for model_id from config/pricing.yaml.
 
     Returns a dict with keys: input, output, cache_read, cache_creation (float, $/MTok).
-    Returns None if no matching row exists (no __default__ row either).
+    Returns None if model_id has no row — an unpriced model records no cost rather
+    than borrowing another model's rates, which would invent a confident wrong number.
     """
     by_model = _load_pricing_table()
 
@@ -135,11 +143,9 @@ def _lookup_price(model_id: str, effective_at: "_dt.datetime") -> dict | None:
         if base != model_id:
             row = _pick_row(base)
     if row is None:
-        row = _pick_row("__default__")
-    if row is None:
         sys.stderr.write(
-            f"[record] pricing: no price entry for model {model_id!r} and no "
-            f"__default__ row; skipping cost computation\n"
+            f"[record] pricing: no price entry for model {model_id!r}; "
+            f"recording no cost. Add a row to config/pricing.yaml to price it.\n"
         )
         return None
 
@@ -186,11 +192,13 @@ def _compute_cost_usd(
                     f"not resolved to a model_id; skipping cost computation\n"
                 )
 
-        if not model_id and bills > 0:
-            model_id = "__default__"
-
         if not model_id:
-            if not route_entry and agent not in ("inline", None):
+            if bills > 0:
+                sys.stderr.write(
+                    f"[record] cost_usd: agent {agent!r} billed {bills} tokens but no "
+                    f"model_id resolved; recording no cost\n"
+                )
+            elif not route_entry and agent not in ("inline", None):
                 sys.stderr.write(
                     f"[record] cost_usd: agent {agent!r} not in routes.yaml and "
                     f"usage.model not set; skipping cost computation\n"
@@ -245,3 +253,52 @@ def sum_cost_usd(state: dict) -> float:
 def format_cost_so_far(state: dict) -> str:
     """Render the human-readable running-total line, e.g. `[cost so far: $12.34]`."""
     return f"[cost so far: ${sum_cost_usd(state):.2f}]"
+
+
+def format_last_step_usage(state: dict) -> str:
+    """Render the most-recent step's own usage, e.g.
+    `9.3s  in=12.1k out=834 cache_r=88.2k cache_w=1.2k  $0.69`.
+
+    Returns "" when the last step recorded no usage at all (nothing worth a line).
+    Token key names match what the usage adapters write and pricing reads —
+    cache_read_input_tokens / cache_creation_input_tokens.
+    """
+    history = state.get("step_history") or []
+    if not history or not isinstance(history[-1], dict):
+        return ""
+    usage = history[-1].get("usage")
+    if not isinstance(usage, dict):
+        return ""
+
+    def _n(key: str) -> int:
+        try:
+            return int(usage.get(key) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _k(n: int) -> str:
+        return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+    parts = []
+    duration_ms = _n("duration_ms")
+    if duration_ms >= 100:  # sub-100ms script steps would just render "0.0s"
+        parts.append(f"{duration_ms / 1000:.1f}s")
+
+    tokens = [
+        ("in", _n("input_tokens")),
+        ("out", _n("output_tokens")),
+        ("cache_r", _n("cache_read_input_tokens")),
+        ("cache_w", _n("cache_creation_input_tokens")),
+    ]
+    if any(n for _, n in tokens):
+        parts.append(" ".join(f"{label}={_k(n)}" for label, n in tokens))
+
+    cost = usage.get("cost_usd") or 0
+    try:
+        cost = float(cost)
+    except (TypeError, ValueError):
+        cost = 0.0
+    if cost:
+        parts.append(f"${cost:.2f}")
+
+    return "  ".join(parts)

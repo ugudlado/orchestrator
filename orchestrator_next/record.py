@@ -57,6 +57,8 @@ _OPTIONAL_STEP_HISTORY_KEYS = (
     "regression_check",
     "blocker",
     "escalation",
+    "briefing",
+    "reason",
 )
 
 
@@ -95,6 +97,7 @@ def _resolve_agent_id(payload: dict[str, Any]) -> str | None:
 
 
 _PHASE_REVIEW_VERDICTS = frozenset({"pass", "needs_work", "incomplete_phase"})
+_SUCCESS_STATUSES = frozenset({"completed", "recovered"})
 
 
 def _usage_has_tokens(usage: dict[str, Any]) -> bool:
@@ -129,6 +132,50 @@ def _validate_phase_review_output(step_id: str, outputs: dict[str, Any]) -> None
                 "step_id": step_id,
                 "verdict": verdict,
                 "valid_verdicts": sorted(_PHASE_REVIEW_VERDICTS),
+            },
+            3,
+        )
+
+
+def _normalize_review_payload_status(
+    step_id: str, status: str, outputs: dict[str, Any]
+) -> str:
+    """Coerce agent mistakes before routing.
+
+    design-review agents sometimes emit ``status: completed`` with
+    ``design_review_result: needs_work``. Routing keys off ``status``, not the
+    output field — normalize to ``failed`` so the workflow's ``on_failure`` edge
+    fires.
+    """
+    if step_id != "design-review":
+        return status
+    result = outputs.get("design_review_result")
+    if result == "needs_work" and status in _SUCCESS_STATUSES:
+        sys.stderr.write(
+            "[record] design-review: coercing status "
+            f"{status!r} → 'failed' (design_review_result: needs_work)\n"
+        )
+        return "failed"
+    return status
+
+
+def _validate_design_review_output(
+    step_id: str, status: str, outputs: dict[str, Any]
+) -> None:
+    """Reject completed design-review payloads that are not a pass."""
+    if step_id != "design-review" or status != "completed":
+        return
+    result = outputs.get("design_review_result")
+    if result != "pass":
+        raise _RecordError(
+            {
+                "reason": "invalid_design_review_result",
+                "step_id": step_id,
+                "design_review_result": result,
+                "hint": (
+                    "status: completed requires design_review_result: pass; "
+                    "emit status: failed for needs_work"
+                ),
             },
             3,
         )
@@ -192,7 +239,6 @@ def _apply_state_patch(state_raw: dict[str, Any], patch: dict[str, Any]) -> None
 # Statechart routing (on_success / on_failure edges)
 # ---------------------------------------------------------------------------
 
-_SUCCESS_STATUSES = frozenset({"completed", "recovered"})
 _HALT_KEYWORD = "halt"
 
 
@@ -386,6 +432,7 @@ def _validate_outputs(step_id: str, status: str, outputs: dict[str, Any], contra
     if status != "completed":
         return
     _validate_phase_review_output(step_id, outputs)
+    _validate_design_review_output(step_id, status, outputs)
     if contract is not None:
         _validate_outputs_schema(step_id, outputs, contract)
 
@@ -430,6 +477,7 @@ def _validate_payload(
     """Validate a done-payload end-to-end. Returns (step_id, phase, status, outputs, contract, agent)."""
     step_id, phase, status = _validate_shape(payload)
     outputs = _coerce_payload_outputs(payload.get("outputs"))
+    status = _normalize_review_payload_status(step_id, status, outputs)
     contract = _load_contract(step_id, state_yaml_path, (state_raw or {}).get("workflow_plan"))
     outputs = _apply_default_outputs(outputs, contract, status)
     _validate_outputs(step_id, status, outputs, contract)
@@ -507,9 +555,24 @@ def _build_history_entry(
         "usage": usage,
         "evidence": _merge_evidence_block(outputs, payload.get("evidence")),
     }
+    # Derive duration_ms from wall-clock timestamps when the payload omitted it
+    # (script steps never self-report duration). Unparseable stamps → skip.
+    if "duration_ms" not in usage:
+        try:
+            started_dt = _dt.datetime.fromisoformat(
+                str(entry["started_at"]).replace("Z", "+00:00")
+            )
+            ended_dt = _dt.datetime.fromisoformat(
+                str(entry["ended_at"]).replace("Z", "+00:00")
+            )
+            usage["duration_ms"] = int((ended_dt - started_dt).total_seconds() * 1000)
+        except (TypeError, ValueError):
+            pass
     for key in _OPTIONAL_STEP_HISTORY_KEYS:
         if key in payload:
             entry[key] = payload[key]
+        elif key in outputs:
+            entry[key] = outputs[key]
     return entry
 
 
@@ -533,16 +596,32 @@ def _apply_routing(
             entry["status"] = "blocked"
             state_raw["status"] = "blocked"
         elif routing == _HALT_KEYWORD:
-            # No on_failure edge or explicit halt — preserve original entry status.
-            readiness.mark_node_status(state_raw, phase, step_id, "completed")
+            # No on_failure edge or explicit halt. A *failed* deterministic script
+            # (load-ticket-context, create-worktree, ...) must NOT read as completed:
+            # a resume would then treat its dependents as ready and run them without
+            # the missing artifact. But `abandoned` must terminate as completed to
+            # stop infinite re-dispatch (ORC-75) — only `failed` flips the node.
+            node_status = "failed" if status == "failed" else "completed"
+            readiness.mark_node_status(state_raw, phase, step_id, node_status)
             state_raw["status"] = "blocked"
         elif routing == "advance":
             readiness.mark_node_status(state_raw, phase, step_id, "completed")
-        else:
-            # routing is a target step_id — loop back: mark self completed,
-            # reset target so next_ready_node() picks it up even if step_history
-            # has a prior completed entry for it ("reset" beats history inference).
+        elif status in _SUCCESS_STATUSES:
+            # routing is an explicit on_success target step_id (e.g.
+            # run-phase-review -> ticket-qa) — the step genuinely passed, so
+            # mark it completed like the "advance" case. next_ready_node()
+            # picks up the target via normal dependency satisfaction; nothing
+            # needs to be reset.
             readiness.mark_node_status(state_raw, phase, step_id, "completed")
+        else:
+            # routing is an on_failure target step_id — loop back: reset both
+            # the failing gate and its fixer so next_ready_node() re-runs the
+            # fixer, then re-verifies through the gate once the fixer
+            # completes. Marking the gate "completed" here would make it
+            # terminal (downstream deps ready) even though it failed — the fix
+            # would ship unverified and max_retries on the gate would never
+            # advance past 1.
+            readiness.mark_node_status(state_raw, phase, step_id, "reset")
             readiness.mark_node_status(state_raw, phase, routing, "reset")
 
 
@@ -623,6 +702,55 @@ def _run_retro(
                 sys.stderr.write(f"[record] retro append failed: {exc}\n")
 
 
+# ---------------------------------------------------------------------------
+# Headless durability — auto-commit state so ephemeral runs can resume
+# ---------------------------------------------------------------------------
+
+def _headless() -> bool:
+    """Headless = nobody at a terminal to keep state alive (CI job, cloud
+    sandbox). Opt-in via ORCHESTRATOR_HEADLESS=1; cloud sessions already
+    carry CLAUDE_CODE_REMOTE=true."""
+    return (
+        os.environ.get("ORCHESTRATOR_HEADLESS") == "1"
+        or os.environ.get("CLAUDE_CODE_REMOTE") == "true"
+    )
+
+
+def autocommit_state(state_yaml_path: str, *, push: bool = False) -> None:
+    """Commit the state dir on the current branch so an ephemeral headless run
+    can resume after the filesystem is gone (see DRIVE.md "Durability").
+
+    No-op unless headless. Best-effort — a git failure never fails the record.
+    `add -f` because .orchestrator/ is gitignored (ephemeral locally, durable
+    when headless). Pathspec commit so concurrently staged work is untouched.
+    """
+    if not _headless():
+        return
+    state_dir = str(Path(state_yaml_path).resolve().parent)
+    slug = Path(state_dir).name
+
+    def _git(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["git", "-C", state_dir, *args], capture_output=True, text=True
+        )
+
+    try:
+        _git("add", "-f", "--", state_dir)
+        if _git("diff", "--cached", "--quiet", "--", state_dir).returncode != 0:
+            proc = _git("commit", "-m", f"wip: orchestrator state for {slug}",
+                        "--", state_dir)
+            if proc.returncode != 0:
+                sys.stderr.write(
+                    f"[record] state auto-commit failed: {proc.stderr.strip()}\n")
+        if push:
+            proc = _git("push", "origin", "HEAD")
+            if proc.returncode != 0:
+                sys.stderr.write(
+                    f"[record] state auto-push failed: {proc.stderr.strip()}\n")
+    except Exception as exc:  # noqa: BLE001 — durability is best-effort
+        sys.stderr.write(f"[record] state auto-commit skipped: {exc}\n")
+
+
 def record(
     state_yaml_path: str, payload: dict[str, Any],
 ) -> tuple[dict[str, Any], int]:
@@ -664,6 +792,11 @@ def record(
         return (e.reason, e.code)
 
     _run_retro(state_raw, phase, step_id, payload)
+
+    # Headless: state changed on disk — commit it; push once when the run
+    # transitions to blocked (that's the resume-later case, incl. the
+    # self-drive `done` path which never reaches run_loop's exit handling).
+    autocommit_state(state_yaml_path, push=state_raw.get("status") == "blocked")
 
     response: dict[str, Any] = {
         "step_id": step_id,

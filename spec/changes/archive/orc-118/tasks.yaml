@@ -1,0 +1,174 @@
+version: 1
+tasks:
+  - id: T-1
+    title: "RED: tests for ~/.orchestrator/models.yaml layer in resolve_field"
+    status: completed
+    tokens_in: 12000
+    tokens_out: 3500
+    duration_s: 180
+    depends_on: []
+    files:
+      - orchestrator_next/tests/test_model_routes.py
+    verify:
+      - pytest orchestrator_next/tests/test_model_routes.py -v
+    test_scenarios:
+      - "home file sets opus.subprocess=cursor, no env vars → resolve_subprocess returns 'cursor' (AC-1)"
+      - "env-file wins over home for a tier; home wins over config-root; config-root fallback works (AC-2)"
+      - "home file defines only 'sonnet' → resolve for 'opus' falls through to config-root (AC-3)"
+      - "malformed YAML in home file → resolve_field returns config-root value, does not raise (AC-4)"
+      - "resolve_all_with_source returns dict of tier → {subprocess, subprocess_source, model_id, model_id_source} with correct source labels per layer"
+    why: "AC-1, AC-2, AC-3, AC-4 — verifies the new home-dir layer merges correctly with existing precedence."
+    change: |
+      Create orchestrator_next/tests/test_model_routes.py. Use tmp_path for
+      config_root and home dir; monkeypatch Path.home to return the tmp home,
+      and monkeypatch env vars (ORCHESTRATOR_MODELS_CONFIG,
+      ORCHESTRATOR_MODEL_ROUTE_OVERRIDES) with monkeypatch.setenv/delenv.
+      Write config-root models.yaml and home models.yaml as YAML strings.
+      Import from orchestrator_next.model_routes. Mark every test in this
+      file with @pytest.mark.xfail(strict=False) so verify exits 0 while the
+      code under test does not yet exist — markers are removed by T-6 phase
+      gate after T-2 lands.
+
+  - id: T-2
+    title: "GREEN: add user-home layer + resolve_all_with_source to model_routes.py"
+    status: completed
+    tokens_in: 8000
+    tokens_out: 2500
+    duration_s: 120
+    depends_on: [T-1]
+    files:
+      - orchestrator_next/model_routes.py
+      - orchestrator_next/tests/test_model_routes.py
+    verify:
+      - pytest orchestrator_next/tests/test_model_routes.py -v
+    test_scenarios:
+      - "all T-1 tests pass with xfail markers removed from this file"
+      - "resolve_subprocess and resolve_model_id call sites unchanged (signature stable)"
+    why: "AC-1, AC-2, AC-3, AC-4 — implements the layer insertion and source-attribution helper."
+    change: |
+      Edit orchestrator_next/model_routes.py:
+      1) Add user_models_path() returning Path.home() / ".orchestrator" / "models.yaml".
+      2) Add _layer_chain(routes_yaml) returning ordered list of (label, path)
+         tuples: ("config_root", routes_yaml), ("user_home", str(user_models_path())),
+         ("env_file", os.environ.get("ORCHESTRATOR_MODELS_CONFIG") or "").
+      3) Rewrite resolve_field body: build `entry: dict[str, Any] = {}`, iterate
+         _layer_chain doing entry.update(_models_map(path).get(model) or {}),
+         then apply ORCHESTRATOR_MODEL_ROUTE_OVERRIDES as before.
+      4) Add resolve_all_with_source(routes_yaml) -> dict[str, dict]: walk the
+         same chain; for each layer that defines a tier's field, record
+         label-or-path in "<field>_source". Overlay env-JSON overrides last with
+         source="$ORCHESTRATOR_MODEL_ROUTE_OVERRIDES".
+      Then remove @pytest.mark.xfail markers from
+      orchestrator_next/tests/test_model_routes.py so T-1 tests now genuinely pass.
+
+  - id: T-3
+    title: "RED: tests for orchestrator models CLI verb"
+    status: completed
+    tokens_in: 5000
+    tokens_out: 1800
+    duration_s: 90
+    depends_on: [T-2]
+    files:
+      - orchestrator_next/tests/test_models_verb.py
+    verify:
+      - pytest orchestrator_next/tests/test_models_verb.py -v
+    test_scenarios:
+      - "orchestrator models with a valid config root prints a table containing TIER, SUBPROCESS, MODEL_ID, SOURCE columns and one row per tier (AC-5)"
+      - "SOURCE column shows the file that supplied each tier when home overrides some tiers"
+      - "with ORCHESTRATOR_CONFIG unset, main() writes to stderr and returns non-zero (AC-6)"
+    why: "AC-5, AC-6 — verifies the models verb prints attributed routing and handles missing config."
+    change: |
+      Create orchestrator_next/tests/test_models_verb.py. Use tmp_path for
+      config root + home; monkeypatch env ORCHESTRATOR_CONFIG and Path.home.
+      Import main from orchestrator_next.models_verb. Use capsys to capture
+      stdout/stderr. Mark every test with @pytest.mark.xfail(strict=False);
+      T-4 removes markers.
+
+  - id: T-4
+    title: "GREEN: add orchestrator_next/models_verb.py and register in cli.py"
+    status: completed
+    tokens_in: 6000
+    tokens_out: 2000
+    duration_s: 100
+    depends_on: [T-3]
+    files:
+      - orchestrator_next/models_verb.py
+      - orchestrator_next/cli.py
+      - orchestrator_next/tests/test_models_verb.py
+    verify:
+      - pytest orchestrator_next/tests/test_models_verb.py -v
+    test_scenarios:
+      - "all T-3 tests pass with xfail markers removed"
+    why: "AC-5, AC-6 — implements the verb and wires it into the CLI dispatcher."
+    change: |
+      1) Create orchestrator_next/models_verb.py with main(argv) -> int:
+         - Import config_root from orchestrator_next.paths and
+           resolve_all_with_source from orchestrator_next.model_routes.
+         - Try config_root(); on RuntimeError print
+           "error: no config root (set ORCHESTRATOR_CONFIG)" to sys.stderr,
+           return 1.
+         - routes_yaml = str(config_root() / "models.yaml")
+         - Call resolve_all_with_source(routes_yaml); print aligned table with
+           header "TIER  SUBPROCESS  MODEL_ID  SOURCE" and one row per tier.
+           SOURCE cell uses subprocess_source (or model_id_source if
+           subprocess is empty).
+         - Return 0.
+      2) Edit orchestrator_next/cli.py:
+         - At line ~282, add "models" to the _core_verbs tuple.
+         - After the doctor dispatch block (~line 299), add:
+             if args[0] == "models":
+                 from orchestrator_next.models_verb import main as _models_main
+                 sys.exit(_models_main(args[1:]))
+         - Update the argc guard at line ~286 so "models" is not required to
+           have a second arg (0-arg verb).
+      3) Remove xfail markers from test_models_verb.py.
+
+  - id: T-5
+    title: "RED+GREEN: doctor check for model route sources"
+    status: completed
+    tokens_in: 5000
+    tokens_out: 1800
+    duration_s: 90
+    depends_on: [T-4]
+    files:
+      - orchestrator_next/tests/test_doctor_model_sources.py
+      - orchestrator_next/doctor.py
+    verify:
+      - pytest orchestrator_next/tests/test_doctor_model_sources.py -v
+    test_scenarios:
+      - "check_model_route_sources(config_root) returns CheckResult with status='PASS' and detail listing per-tier source labels (AC-7)"
+      - "the check is included in doctor.run_all's check list"
+    why: "AC-7 — reports model resolution provenance in doctor output."
+    change: |
+      1) Create orchestrator_next/tests/test_doctor_model_sources.py — use
+         tmp_path for config_root with a minimal models.yaml and assert on the
+         returned CheckResult.name/status/detail. Import
+         check_model_route_sources from orchestrator_next.doctor. Also import
+         run_all and assert the check name appears in a dry-run of run_all
+         against tmp_path config root.
+      2) Edit orchestrator_next/doctor.py:
+         - Add check_model_route_sources(config_root: Path) -> CheckResult
+           near line 302 (after check_subprocesses_available). Call
+           resolve_all_with_source(str(config_root / "models.yaml")); build a
+           detail string like "opus←user_home, sonnet←config_root, …" from
+           the subprocess_source values. Status is always "PASS" (provenance,
+           not integrity).
+         - Append check_model_route_sources(config_root) to the checks list
+           in run_all (~line 362).
+      Combined RED+GREEN task — small enough that a two-hop split has no benefit.
+
+  - id: T-6
+    title: "Phase gate: feature-scoped test run"
+    status: completed
+    tokens_in: 2000
+    tokens_out: 500
+    duration_s: 30
+    depends_on: [T-5]
+    files: []
+    verify:
+      - pytest orchestrator_next/tests/test_model_routes.py orchestrator_next/tests/test_models_verb.py orchestrator_next/tests/test_doctor_model_sources.py -v
+      - pytest orchestrator_next/tests/test_pricing_no_fallback.py -v
+    test_scenarios:
+      - "all three new test files green, no xfail markers remaining"
+      - "existing test_pricing_no_fallback.py stays green (it imports model_routes indirectly)"
+    why: "AC-8 — confirms the feature's tests are green and the closest existing consumer of model_routes still passes. Scoped to feature files because the baseline suite has 1 unrelated pre-existing failure (test_step_env)."

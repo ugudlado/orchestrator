@@ -30,7 +30,6 @@ _CONTRACT_EXECUTE_NEXT_TASK = textwrap.dedent("""\
     inputs: []
     outputs:
       - task_execution_result
-    repeat_until: all_tasks_completed
 """)
 
 _CONTRACT_RUN_PHASE_REVIEW = textwrap.dedent("""\

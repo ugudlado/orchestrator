@@ -68,7 +68,8 @@
   using the format defined in the Format Contract Reference section below
   (§ Design Format Contract or § Fix Plan Format Contract respectively).
 - **Patch schema:** when `design.md` is absent, read acceptance criteria from
-  the ticket body injected in this prompt (under "Ticket / bug report") instead.
+  `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ticket-context.md`
+  (`spec/changes/<slug>/ticket-context.md`) instead.
   The ticket AC section is the contract — verify each checkbox item with evidence.
 - For each acceptance criterion:
   a. Run the verification check (test, manual check, build gate, or file inspection).
