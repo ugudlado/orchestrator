@@ -301,6 +301,23 @@ def check_subprocesses_available(config_root: Path) -> CheckResult:
     )
 
 
+def check_model_route_sources(config_root: Path) -> CheckResult:
+    """Report per-tier model route provenance (PASS — informational, not integrity)."""
+    from orchestrator_next.model_routes import resolve_all_with_source
+
+    routes_yaml = str(config_root / "models.yaml")
+    resolved = resolve_all_with_source(routes_yaml)
+    if not resolved:
+        return CheckResult("model route sources", "PASS", "0 tiers resolved")
+
+    parts = []
+    for tier in sorted(resolved):
+        src = resolved[tier].get("subprocess_source") or resolved[tier].get("model_id_source") or "?"
+        parts.append(f"{tier}←{src}")
+    detail = f"{len(resolved)} tiers resolved: {', '.join(parts)}"
+    return CheckResult("model route sources", "PASS", detail)
+
+
 # ---------------------------------------------------------------------------
 # Check 11: contract → template graph
 # ---------------------------------------------------------------------------
@@ -363,6 +380,7 @@ def run_all(args) -> int:
         check_workflow_steps_resolve(config_root),  # rule 1
         check_step_dispatch_kind(config_root),      # rule 2
         check_subprocesses_available(config_root),  # rule 3 (WARN)
+        check_model_route_sources(config_root),
         # Engine/state health (legacy anchor: orch_home = config_root.parent).
         check_state_valid(),
         check_active_vs_archive(orch_home),
