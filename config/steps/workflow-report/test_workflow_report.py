@@ -241,3 +241,70 @@ def test_totals_include_input_and_output_token_sums():
     assert result["totals"]["output_tokens"] == 50
     assert isinstance(result["totals"]["input_tokens"], int)
     assert isinstance(result["totals"]["output_tokens"], int)
+
+
+# ---------------------------------------------------------------------------
+# ORC-116: Briefing column + structured briefing field
+# ---------------------------------------------------------------------------
+
+
+def test_briefing_appears_in_stderr_table_and_structured_output():
+    """step_history entry with briefing appears truncated in stderr under Briefing column."""
+    history = [
+        {
+            "step_id": "explore",
+            "status": "completed",
+            "attempt": 1,
+            "briefing": "Implemented X",
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 5,
+                "model": "sonnet-4-5",
+                "cost_usd": 0.001,
+                "duration_ms": 1000,
+            },
+        }
+    ]
+    result, stderr = _render(history)
+    assert "Briefing" in stderr
+    assert "Implemented X" in stderr
+    assert result["steps"][0]["briefing"] == "Implemented X"
+
+
+def test_missing_briefing_renders_em_dash_and_null_in_json():
+    """step_history entry without briefing renders '—' in stderr and null in JSON."""
+    history = [
+        {
+            "step_id": "script-step",
+            "status": "completed",
+            "attempt": 1,
+            "usage": {"duration_ms": 100},
+        }
+    ]
+    result, stderr = _render(history)
+    assert "Briefing" in stderr
+    data_lines = [ln for ln in stderr.splitlines() if ln.startswith("script-step")]
+    assert data_lines, f"expected a data row in stderr:\n{stderr}"
+    # Trailing briefing cell should be an em dash
+    assert data_lines[0].rstrip().endswith("—")
+    assert result["steps"][0]["briefing"] is None
+
+
+def test_long_briefing_truncated_in_stderr_raw_in_json():
+    """briefing longer than 120 chars is truncated to 120 in stderr; JSON keeps raw."""
+    raw = "A" * 150
+    history = [
+        {
+            "step_id": "explore",
+            "status": "completed",
+            "attempt": 1,
+            "briefing": raw,
+            "usage": {"duration_ms": 100},
+        }
+    ]
+    result, stderr = _render(history)
+    assert "Briefing" in stderr
+    # Truncated form appears in stderr; full 150-char string must not
+    assert ("A" * 120) in stderr
+    assert raw not in stderr
+    assert result["steps"][0]["briefing"] == raw

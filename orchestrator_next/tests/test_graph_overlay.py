@@ -38,6 +38,7 @@ _FEATURE_GRAPH_GOLDEN = (
     '  run_phase_review["run-phase-review"]\n'
     '  ticket_qa["ticket-qa"]\n'
     '  run_learn_cycle["run-learn-cycle"]\n'
+    '  workflow_report["workflow-report"]\n'
     "  check_rerun --> create_worktree\n"
     "  create_worktree --> load_ticket_context\n"
     "  load_ticket_context --> explore\n"
@@ -54,6 +55,7 @@ _FEATURE_GRAPH_GOLDEN = (
     "  run_phase_review --> ticket_qa\n"
     "  run_phase_review -->|retry| implement_tasks\n"
     "  ticket_qa --> run_learn_cycle\n"
+    "  run_learn_cycle --> workflow_report\n"
 )
 
 
