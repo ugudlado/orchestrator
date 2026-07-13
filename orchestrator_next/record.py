@@ -57,6 +57,8 @@ _OPTIONAL_STEP_HISTORY_KEYS = (
     "regression_check",
     "blocker",
     "escalation",
+    "briefing",
+    "reason",
 )
 
 
@@ -569,6 +571,8 @@ def _build_history_entry(
     for key in _OPTIONAL_STEP_HISTORY_KEYS:
         if key in payload:
             entry[key] = payload[key]
+        elif key in outputs:
+            entry[key] = outputs[key]
     return entry
 
 

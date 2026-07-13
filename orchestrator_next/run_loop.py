@@ -59,12 +59,15 @@ You MUST end your stdout with a COMPLETION: block. Fields must be indented under
 
 IMPORTANT: Output values are parsed as YAML. If a value contains a colon (:), quote the entire value with double quotes.
 
+Also emit a one-line briefing: field under outputs on every terminal status — a plain-English summary of what got done or what blocked.
+
 Success form:
 COMPLETION:
   step_id: <this-step-id>
   status: completed
   outputs:
     key: value
+    briefing: "<one-line summary of outcome>"
 
 Failure/skip form:
 COMPLETION:
@@ -72,6 +75,7 @@ COMPLETION:
   status: abandoned
   outputs:
     reason: "why this step could not complete (quote if the reason contains a colon)"
+    briefing: "<one-line summary of outcome>"
 """
 
 # Zero floor overlaid under every recorded usage dict. Derived from the adapters'
