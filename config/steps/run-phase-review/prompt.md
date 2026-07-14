@@ -20,15 +20,12 @@
    - critical_cap: 5 (default)
    - important_cap: 7 (default)
    - green_base: 9 (default)
-2. Run the phase's verify.commands (from schema) if present:
-   Execute each command. All must exit 0.
-3. Check the phase's verify.assertions (from schema):
-   Evaluate each assertion. All must be true.
-4. Check the phase's verify.metrics (from schema):
-   Compare actual values against thresholds.
-   Apply `when:` conditions on metrics (the `when:` mechanism filters any metric
-   whose gating flag is set in state.yaml).
-5. Score each dimension separately on 1-10 using the same caps and rubric:
+2. Run the target repo's `verify_commands` map from its `spec/project.yaml`
+   (top-level, not under quality_bar). Execute every command listed. Any
+   non-zero exit is a critical correctness finding — cannot pass this round.
+   If `verify_commands` is not configured: for this migration release, note
+   it as a warning in phase-review.md and continue; do not hard-fail yet.
+3. Score each dimension separately on 1-10 using the same caps and rubric:
    - Dimensions: spec_compliance, correctness, security, simplicity, code_quality
    - For each dimension:
      - Critical finding in this dimension → caps dimension score at scoring.critical_cap
@@ -38,15 +35,15 @@
    - Award overall +1 (max 10) ONLY if ALL of:
      a. Every artifact exceeds minimum requirements (not just meets them)
      b. No TODO, FIXME, or placeholder text remains in outputs
-     c. All verify assertions passed on first attempt (no retries used this round)
-     5b. Baseline comparison (non-blocking):
+     c. No retries were used this round
+4. Baseline comparison (non-blocking):
    - Read archived state.yaml files: `spec/changes/archive/*/state.yaml`.
    - Filter entries matching current schema (e.g., feature) via the `schema:` field.
    - Compute average `metrics.review_score_avg` across those entries (skip entries missing this field).
    - If current overall is 2 or more points below that average: emit a warning in the report
      ("Quality regression: current score N is 2+ below historical average M for this schema/phase").
    - If no archived state.yaml files exist or no matching entries: skip silently.
-     5bb. Quarantine review (implement phase only):
+5. Quarantine review (implement phase only):
    - If current phase is not implement: skip this step.
    - Read state.yaml for `quarantine_events` (may be absent or empty).
    - For each entry, treat as a **critical finding** in the correctness dimension
@@ -60,35 +57,31 @@
      b. Is explicitly accepted by the user (state.yaml contains
      `quarantine_accepted: ["T-<N>", ...]`); for `autopilot` schema,
      quarantined tasks are treated as accepted automatically — no human gate.
-
-5c. AC verification with evidence (implement phase only):
-
-- If current phase is not implement: skip this step.
-- Read design.md (feature) or fix-plan.md (bugfix) for acceptance criteria,
-  using the format defined in the Format Contract Reference section below
-  (§ Design Format Contract or § Fix Plan Format Contract respectively).
-- **Patch schema:** when `design.md` is absent, read acceptance criteria from
-  `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ticket-context.md`
-  (`spec/changes/<slug>/ticket-context.md`) instead.
-  The ticket AC section is the contract — verify each checkbox item with evidence.
-- For each acceptance criterion:
-  a. Run the verification check (test, manual check, build gate, or file inspection).
-  b. Record pass/fail with evidence (command output, file check result, etc.).
-  c. If a criterion uses ALL/EVERY/EACH:
-  - Define scope: what "all" means for this criterion (e.g., "all .ts files in src/").
-  - Count programmatically: use grep/find/ast to get the total N.
-  - Verify each target with evidence.
-  - Report: "Verified N/N <target type>" (e.g., "Verified 47/47 API routes").
-  - If N differs from any earlier count in spec: note the discrepancy and
-    use the fresh count as authoritative.
-    d. If a criterion contains FIXED/RESOLVED/COMPLETE claims:
-  - Re-run the original search against the ENTIRE source tree from scratch.
-  - Do not trust earlier phase counts.
-  - Record fresh search result as evidence.
-- If any AC fails: treat as a critical finding in spec_compliance dimension.
-  5a. Write the full human-readable report to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/phase-review.md.
-
-6. If overall >= phase verify.metrics.review_score.min and no critical findings: PASS.
+6. AC verification with evidence (implement phase only):
+   - If current phase is not implement: skip this step.
+   - Read design.md for acceptance criteria, using the format contract owned by
+     design-and-draft-artifacts (§ Design Format Contract).
+   - **Patch schema:** when `design.md` is absent, read acceptance criteria from
+     `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ticket-context.md`
+     (`spec/changes/<slug>/ticket-context.md`) instead.
+     The ticket AC section is the contract — verify each checkbox item with evidence.
+   - For each acceptance criterion:
+     a. Run the verification check (test, manual check, build gate, or file inspection).
+     b. Record pass/fail with evidence (command output, file check result, etc.).
+     c. If a criterion uses ALL/EVERY/EACH:
+     - Define scope: what "all" means for this criterion (e.g., "all .ts files in src/").
+     - Count programmatically: use grep/find/ast to get the total N.
+     - Verify each target with evidence.
+     - Report: "Verified N/N <target type>" (e.g., "Verified 47/47 API routes").
+     - If N differs from any earlier count in spec: note the discrepancy and
+       use the fresh count as authoritative.
+       d. If a criterion contains FIXED/RESOLVED/COMPLETE claims:
+     - Re-run the original search against the ENTIRE source tree from scratch.
+     - Do not trust earlier phase counts.
+     - Record fresh search result as evidence.
+   - If any AC fails: treat as a critical finding in spec_compliance dimension.
+7. Write the full human-readable report to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/phase-review.md.
+8. If overall >= quality_bar.min_phase_review_score and no critical findings: PASS.
    Return COMPLETION:
    ```
    COMPLETION:
@@ -100,7 +93,7 @@
        dimensions: {spec_compliance: <N>, correctness: <N>, security: <N>, simplicity: <N>, code_quality: <N>}
      artifacts: [phase-review.md]
    ```
-7. If FAIL:
+9. If FAIL:
    a. Generate fix tasks: one fix task per finding, each with Finding, Scope, and Approach.
    Do NOT suggest refactoring or unrelated improvements.
    b. Append fix tasks to tasks.yaml:
@@ -137,10 +130,11 @@
 - Fix tasks must be minimal and scoped to the specific failure — no refactoring, no improvements.
 - Score of 10 is a first-pass bonus — only achievable when no retries were used this round.
 - Operate at staff-level review quality — catch architectural issues, not just surface bugs.
-- Artifact structural compliance with format contracts (see Format contract reference in prompt.md) is a review criterion.
+- Artifact structural compliance with format contracts (owned by each producer step's prompt.md) is a review criterion.
 - When a finding requires a new requirement, the fix MUST update design.md (AC + design) and tasks.yaml atomically — partial updates that sync only one artifact leave the feature in an inconsistent state and will fail re-review. <!-- learned: 2026-04-17, source: cross-repo-metrics-duckdb, cycle: 11, hits: 21, misses: 13, repo: orchestrator -->
 - For tasks that spec describes as a rewrite, projection, or byte-compatible replacement of an existing producer, AC verification MUST include a value/shape parity check against at least one real payload from the prior implementation — key-presence alone is insufficient. Reviewer must run both the old producer and the new one on a real archived fixture and diff the top-level output keys; any key reduction is an important finding. <!-- learned: 2026-04-20, source: single-source-metrics-via-step-events, cycle: 12, hits: 20, misses: 9, repo: orchestrator -->
 - Before scoring the phase, read tasks.yaml and check if any tasks still have `status: pending`. If any pending tasks exist and are not explicitly quarantined in state.yaml, write phase-review.md with verdict incomplete_phase listing the pending task IDs — return COMPLETION with `status: failed` and outputs.phase_review_report: {verdict: incomplete_phase}, and do NOT include review_score. `status: failed` is required so the `on_failure` edge fires back to implement-tasks — without it the dispatcher treats the step as completed and silently advances past the implement phase with tasks still pending. This guards against dispatcher bugs or manual advances that reach run-phase-review before all tasks are complete. <!-- learned: 2026-05-08, source: hl-303, cycle: 38, hits: 21, misses: 7, repo: orchestrator --> <!-- updated: 2026-05-25, source: orc-76, cycle: 1, repo: orchestrator -->
+- Spot audit: pick one `evidence.verified` entry from a completed `implement-tasks` step in step_history and re-run its `check` command. A mismatch with the recorded `result` is a critical correctness finding (fabricated evidence) — this is the only enforcement on self-reported evidence, so treat a mismatch as severe.
 
 ## Verify
 
@@ -149,63 +143,3 @@
 - When phase_review_report.verdict is incomplete_phase: review_score is omitted from step_history (nothing to score)
 - All critical findings have either a fix task or are resolved
 - phase-signoff will BLOCK if this step's entry is missing from step_history — this step is not optional
-
----
-
-## Format contract reference
-
-Artifact structural compliance is a review criterion. Use the format contracts
-below when verifying producer artifacts.
-
-### Discovery Brief Format Contract
-
-Full contract in `config/steps/explore/prompt.md` § Discovery Brief Format Contract.
-
-**Required sections:** Frontmatter (feature-id, linear-ticket), Feature Summary,
-Personas & Actors, Use Cases (min 2 happy path UC-N, min 1 error UC-EN), Scope
-(In Scope + Out of Scope), UI Direction, Open Questions (OQ-N format).
-
-### Diagnosis Format Contract
-
-Full contract in `config/steps/diagnose/prompt.md` § Diagnosis Format Contract.
-
-**Required sections:** Symptoms, Reproduction Steps (numbered, runnable), Expected
-vs Actual, Evidence Gathered, Data Flow Trace, Root Cause (with file:line), Severity
-(critical/high/medium/low), Affected Areas, Since When, Linear Ticket.
-
-### Design Format Contract
-
-Full contract in `config/steps/design-and-draft-artifacts/prompt.md` § Design Format Contract.
-
-**Required sections:** Frontmatter (feature-id, linear-ticket), Context, Goals,
-Non-Goals, Approaches Considered (min 2 with pros/cons), Selected Approach,
-Architecture Overview, Key Abstractions, Constraints, Trade-offs, Acceptance
-Criteria (each with `[traces: UC-N]`), Open Questions.
-
-**Traceability:** Every AC must reference a UC-N from discovery.md; every UC must
-be traced by at least one AC.
-
-### Tasks YAML Format Contract
-
-Full contract in `config/steps/design-and-draft-artifacts/prompt.md` § Tasks YAML Format Contract.
-
-**Required fields per task:** `id` (T-N or fix-N, unique), `title` (imperative verb),
-`files` (list), `verify` (list of commands). `version: 1` required at top level.
-`depends_on` references must resolve; no cycles.
-
-### Fix Plan Format Contract
-
-The `fix-plan.md` file is a structural contract between `create-or-refresh-artifacts`
-(producer and task consumer) and `run-phase-review` (consumer). Only produced in
-the bugfix schema.
-
-**Required sections:**
-
-| Section                        | Required | Format                                                     |
-| ------------------------------ | -------- | ---------------------------------------------------------- |
-| Fix Strategy                   | Yes      | Prose referencing discovery.md Root Cause                  |
-| Affected Files                 | Yes      | Bulleted list: `` `file_path:line_number` — description `` |
-| Regression Test                | Yes      | Test file, Test name, Asserts, fail-before/pass-after      |
-| Could This Break Other Things? | Yes      | Prose analysis or "No — isolated change"                   |
-| Rollback Plan                  | Yes      | Concrete revert steps or "git revert <commit>"             |
-| Out of Scope                   | Yes      | Bulleted list or "None — fix is self-contained"            |
