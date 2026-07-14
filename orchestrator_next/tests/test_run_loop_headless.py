@@ -20,19 +20,17 @@ sys.path.insert(0, str(_HERE.parents[1]))
 from orchestrator_next import run_loop  # noqa: E402
 
 
-def _script_contract(contracts: Path, step_id: str, *, pre=None) -> None:
+def _script_contract(contracts: Path, step_id: str) -> None:
     d = contracts / step_id
     d.mkdir(parents=True)
     body = {"id": step_id, "version": 2, "run": "script.sh", "outputs": []}
-    if pre:
-        body["pre"] = pre
     (d / "contract.yaml").write_text(yaml.safe_dump(body))
     s = d / "script.sh"
     s.write_text("#!/usr/bin/env bash\necho '{}'\n")
     s.chmod(0o755)
 
 
-def _state(repo: Path, nodes) -> Path:
+def _state(repo: Path, nodes, step_history=None) -> Path:
     sd = repo / ".orchestrator" / "h"
     sd.mkdir(parents=True)
     sy = sd / "20260101T000000_feature_state.yaml"
@@ -40,7 +38,7 @@ def _state(repo: Path, nodes) -> Path:
         "change_id": "h", "schema": "feature", "version": 1, "status": "active",
         "phase": "main", "repo_root": str(repo), "worktree_path": str(repo),
         "workflow_plan": {"main": {"nodes": nodes}},
-        "step_history": [],
+        "step_history": step_history or [],
     }))
     return sy
 
@@ -77,14 +75,19 @@ def _clear_headless_env(monkeypatch) -> None:
 def test_blocked_headless_commits_pushes_and_notifies(tmp_path, monkeypatch):
     repo = _repo(tmp_path)
     contracts = tmp_path / "c"
-    _script_contract(contracts, "step-h", pre=["exit 1"])
+    _script_contract(contracts, "step-h")
     payload_file = tmp_path / "notify.json"
     _clear_headless_env(monkeypatch)
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts))
     monkeypatch.setenv("REPO_ROOT", str(repo))
     monkeypatch.setenv("ORCHESTRATOR_HEADLESS", "1")
     monkeypatch.setenv("ORCHESTRATOR_NOTIFY_CMD", f"cat > {payload_file}")
-    sy = _state(repo, [{"id": "step-h", "status": "pending"}])
+    # A blocked terminal entry makes dispatch exit 2 (signoff/halt path).
+    sy = _state(repo, [{"id": "step-h", "status": "pending"}], step_history=[{
+        "step_id": "step-h", "phase": "main", "status": "blocked",
+        "agent": "developer", "attempt": 1,
+        "started_at": "2026-01-01T00:00:00Z", "ended_at": "2026-01-01T00:00:01Z",
+    }])
 
     code = run_loop.run_loop(str(sy), repo_root=str(repo), models_yaml="")
     assert code == 2
@@ -101,7 +104,7 @@ def test_blocked_headless_commits_pushes_and_notifies(tmp_path, monkeypatch):
     data = json.loads(payload_file.read_text())
     assert data["event"] == "blocked"
     assert data["change_id"] == "h"
-    assert "pre-hook" in data["reason"]
+    assert "blocked" in data["reason"]
     assert data["state_yaml_path"] == str(sy)
 
 

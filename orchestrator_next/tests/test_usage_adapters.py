@@ -74,24 +74,6 @@ class TestClaudeAdapter:
         assert "task_execution_result: done" in result["assistant_text"]
 
 
-class TestOmpAdapter:
-    def test_omp_jsonl_last_turn_end_usage_and_cost(self):
-        result = split_stdout("omp", _fixture("omp.jsonl"))
-
-        _assert_normalized_keys(result)
-        assert result["input_tokens"] == 53064
-        assert result["output_tokens"] == 23
-        assert result["cache_read_input_tokens"] == 0
-        assert result["cache_creation_input_tokens"] == 0
-        assert result["model"] == "gemini-2.0-flash"
-        assert result["cost_usd"] == pytest.approx(0.0053156)
-
-    def test_omp_assistant_text_contains_completion_block(self):
-        result = split_stdout("omp", _fixture("omp.jsonl"))
-        assert COMPLETION_SNIPPET in result["assistant_text"]
-        assert "task_execution_result: done" in result["assistant_text"]
-
-
 class TestCursorAgentAdapter:
     def test_cursor_agent_camel_case_tokens_no_cost_route_model(self):
         result = split_stdout(

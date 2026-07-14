@@ -1,6 +1,5 @@
 # Pricing table — USD per million tokens.
 # Fields: model_id, input_usd, output_usd, cache_read_usd, cache_creation_usd, effective_from
-# is_local: true means the model runs locally (zero cost).
 #
 # There is deliberately NO __default__ fallback row. A model with no row here
 # records no cost at all, rather than silently borrowing another model's rates —
@@ -62,7 +61,6 @@ models:
     output_usd: 0.0
     cache_read_usd: 0.0
     cache_creation_usd: 0.0
-    is_local: true
     effective_from: "2025-01-01T00:00:00"
 
   - model_id: qwen/qwen3-coder-30b-a3b-instruct

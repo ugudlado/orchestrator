@@ -33,8 +33,6 @@ def _usage() -> None:
         "  orchestrator next <state.yaml>\n"
         "  orchestrator done <state.yaml>   # JSON payload on stdin\n"
         "  orchestrator graph <schema>              # Mermaid flowchart of a workflow schema\n"
-        "  orchestrator graph <schema> <slug>      # Mermaid flowchart of a live run\n"
-        "  orchestrator graph <schema> [<slug>] --html  # open in browser\n"
         "  orchestrator validate-workflow <schema-name>\n"
         "  orchestrator config-path   # print the bundled/checkout config dir (for ORCHESTRATOR_CONFIG)\n"
         "  orchestrator doctor",
@@ -121,98 +119,19 @@ def _append_in_progress_state_entry_if_absent(
         pass  # pre-write bytes already restored by safe_write_yaml
 
 
-def _resolve_slug_state(schema_name: str, slug: str) -> str:
-    """Return the path to the most recent state.yaml for <schema>/<slug>.
-
-    State files live at <cwd>/.orchestrator/<slug>/*_<schema>_state.yaml,
-    mirroring the convention in seed-state.sh. Exits with code 3 on failure.
-    """
-    import glob as _glob
-    state_dir = os.path.join(os.getcwd(), ".orchestrator", slug)
-    pattern = os.path.join(state_dir, f"*_{schema_name}_state.yaml")
-    matches = sorted(_glob.glob(pattern))
-    if not matches:
-        # Fall back to any state file in the slug dir (schema may differ)
-        pattern_any = os.path.join(state_dir, "*_state.yaml")
-        matches = sorted(_glob.glob(pattern_any))
-    if not matches:
-        print(
-            f"error: no state file found for slug '{slug}' "
-            f"(looked in {state_dir})",
-            file=sys.stderr,
-        )
-        sys.exit(3)
-    return matches[-1]
-
-
 def _graph_verb(args: list[str]) -> None:
-    """`orchestrator graph` — print a Mermaid flowchart, exit 0.
+    """`orchestrator graph <schema>` — print a Mermaid flowchart, exit 0.
 
-    Modes:
-      graph <schema>               — static step topology (stdout)
-      graph <schema> <slug>        — schema DAG with cost/token overlay (stdout)
-      graph <schema> [<slug>] --html  — write .tmp/graph-<name>.html and open it
-
-    Read-only: no state.yaml write, no DuckDB.
+    Read-only: no state.yaml write.
     """
-    html_mode = "--html" in args
-    remaining = [a for a in args if a != "--html"]
-
-    schema_name = remaining[0] if remaining else ""
-    slug = remaining[1] if len(remaining) >= 2 else None
-
-    if slug:
-        state_yaml_path = _resolve_slug_state(schema_name, slug)
-        from orchestrator_next.graph import render_workflow_graph_with_overlay
-        state_dir = os.path.dirname(state_yaml_path)
-        try:
-            mermaid_src, step_data = render_workflow_graph_with_overlay(schema_name, state_dir)
-        except FileNotFoundError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            sys.exit(3)
-        title = f"{schema_name} / {slug} — cost overlay"
-    else:
-        from orchestrator_next.graph import render_workflow_graph
-        try:
-            mermaid_src, step_data = render_workflow_graph(schema_name)
-        except FileNotFoundError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            sys.exit(3)
-        title = f"{schema_name} workflow"
-
-    if html_mode:
-        import threading
-        import webbrowser
-        from http.server import HTTPServer, SimpleHTTPRequestHandler
-        from orchestrator_next.graph import render_html
-        html = render_html(mermaid_src, title, step_data)
-        name = f"{schema_name}-{slug}" if slug else schema_name
-        tmp_dir = os.path.join(os.getcwd(), ".tmp")
-        out_path = os.path.join(tmp_dir, f"graph-{name}.html")
-        os.makedirs(tmp_dir, exist_ok=True)
-        with open(out_path, "w", encoding="utf-8") as f:
-            f.write(html)
-
-        filename = os.path.basename(out_path)
-
-        class _QuietHandler(SimpleHTTPRequestHandler):
-            def __init__(self, *a, **kw):
-                super().__init__(*a, directory=tmp_dir, **kw)
-            def log_message(self, fmt, *args):
-                pass
-
-        server = HTTPServer(("", 0), _QuietHandler)  # port 0 → OS picks a free port
-        port = server.server_address[1]
-        url = f"http://localhost:{port}/{filename}"
-        print(f"serving at {url}  (Ctrl-C to stop)", file=sys.stderr)
-        threading.Timer(0.2, lambda: webbrowser.open(url)).start()
-        try:
-            server.serve_forever()
-        except KeyboardInterrupt:
-            pass
-        server.server_close()
-    else:
-        print(mermaid_src, end="")
+    schema_name = args[0] if args else ""
+    from orchestrator_next.graph import render_workflow_graph
+    try:
+        mermaid_src = render_workflow_graph(schema_name)
+    except FileNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(3)
+    print(mermaid_src, end="")
     sys.exit(0)
 
 
@@ -243,11 +162,9 @@ def main() -> None:
         from orchestrator_next.paths import bundled_config_root
         print(bundled_config_root())
         sys.exit(0)
-    # Stage C: ingest-driver and ingest-subagents removed from accepted verbs.
-    # 'record' kept for silent backward-compat (one cycle) but absent from the banner.
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
-        "next", "done", "record", "graph", "doctor", "models", "reset-step", "run", "validate-workflow",
+        "next", "done", "graph", "doctor", "models", "reset-step", "run", "validate-workflow",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
@@ -269,11 +186,11 @@ def main() -> None:
         from orchestrator_next.models_verb import main as _models_main
         sys.exit(_models_main(args[1:]))
 
-    if args[0] in ("record", "done"):
+    if args[0] == "done":
         from orchestrator_next.record import main as record_main
         sys.exit(record_main(sys.argv[1:]))
 
-    # ORC-63: read-only DAG-visibility verb — no state.yaml write, no DuckDB.
+    # ORC-63: read-only DAG-visibility verb — no state.yaml write.
     if args[0] == "graph":
         _graph_verb(args[1:])
 

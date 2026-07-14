@@ -180,18 +180,14 @@ def generate_plan(state_yaml_path: str) -> None:
 
     promoted: dict[str, Any] = {}
     for phase_name, phase_plan in state.raw.get("workflow_plan", {}).items():
-        if isinstance(phase_plan, dict):
-            if "nodes" in phase_plan:
-                active_step_ids = [
-                    str(n.get("id", ""))
-                    for n in (phase_plan.get("nodes") or [])
-                ]
-            else:
-                active_step_ids = list(phase_plan.get("active", []))
-            filtered = phase_plan.get("filtered", []) or []
+        # Idempotent re-run: a promoted phase has nodes, not active.
+        if "nodes" in phase_plan:
+            active_step_ids = [
+                str(n.get("id", "")) for n in (phase_plan.get("nodes") or [])
+            ]
         else:
-            active_step_ids = []
-            filtered = []
+            active_step_ids = list(phase_plan.get("active", []))
+        filtered = phase_plan.get("filtered", []) or []
 
         nodes = [_build_step_node(step_id, phase_def) for step_id in active_step_ids]
 
@@ -201,7 +197,7 @@ def generate_plan(state_yaml_path: str) -> None:
         }
         _topo_sort(nodes, filtered_ids)
 
-        verify_block = phase_plan.get("verify") if isinstance(phase_plan, dict) else None
+        verify_block = phase_plan.get("verify")
         if verify_block is None:
             base_verify = phase_def.get("verify")
             if base_verify is not None:

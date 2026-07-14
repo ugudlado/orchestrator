@@ -17,14 +17,9 @@ from typing import Any
 
 import yaml
 
-from pydantic import ValidationError
-from orchestrator_next.parser import AgentStepContract, ContractError, State, build_output_validator, compute_attempt, load_contract_for_step, safe_write_yaml as _safe_write_yaml_base
+from orchestrator_next.parser import AgentStepContract, ContractError, State, compute_attempt, load_contract_for_step, safe_write_yaml as _safe_write_yaml_base
 from orchestrator_next import readiness
 from orchestrator_next.pricing import _compute_cost_usd
-from orchestrator_next.payload import (
-    _coerce_payload_outputs,
-    _merge_evidence_block,
-)
 
 
 class _RecordError(Exception):
@@ -33,6 +28,48 @@ class _RecordError(Exception):
     def __init__(self, reason: dict[str, Any], code: int) -> None:
         self.reason = reason
         self.code = code
+
+
+def _coerce_payload_outputs(raw: Any) -> dict[str, Any]:
+    """Normalize payload.outputs to a mapping for step_history evidence."""
+    if isinstance(raw, dict):
+        return raw
+    if raw is not None:
+        sys.stderr.write(
+            f"[record] warning: outputs must be a mapping, got {type(raw).__name__}; "
+            "treating as empty\n"
+        )
+    return {}
+
+
+def _merge_evidence_block(
+    outputs: dict[str, Any],
+    raw_evidence: Any,
+) -> dict[str, Any]:
+    """Build step_history evidence from payload outputs + optional evidence block.
+
+    Drivers sometimes emit ``evidence`` as a YAML list of command records;
+    spreading that dict would raise TypeError. Lists are stored under
+    ``evidence.commands``; mappings are merged with payload outputs winning on
+    key overlap.
+    """
+    if raw_evidence is None:
+        return {"outputs": outputs}
+    if isinstance(raw_evidence, dict):
+        merged = dict(raw_evidence)
+        prior = merged.get("outputs")
+        if isinstance(prior, dict):
+            merged["outputs"] = {**prior, **outputs}
+        else:
+            merged["outputs"] = outputs
+        return merged
+    if isinstance(raw_evidence, list):
+        sys.stderr.write(
+            "[record] warning: evidence must be a mapping; "
+            "storing list under evidence.commands\n"
+        )
+        return {"outputs": outputs, "commands": raw_evidence}
+    return {"outputs": outputs, "detail": raw_evidence}
 
 
 # Optional fields copied from done payload into step_history[-1].
@@ -320,10 +357,10 @@ def _validate_shape(payload: dict[str, Any]) -> tuple[str, str, str]:
     return step_id, phase, status
 
 
-def _load_contract(step_id: str, state_yaml_path: str, workflow_plan: dict | None) -> Any:
+def _load_contract(step_id: str) -> Any:
     """Load a step contract, degrading to None on any missing/malformed file."""
     try:
-        return load_contract_for_step(step_id, state_yaml_path, workflow_plan=workflow_plan)
+        return load_contract_for_step(step_id)
     except (FileNotFoundError, ContractError) as _e:
         sys.stderr.write(f"[record] contract load failed for {step_id}: {_e}\n")
         return None
@@ -351,40 +388,11 @@ def _apply_default_outputs(
     return out
 
 
-def _validate_outputs_schema(
-    step_id: str, outputs: dict[str, Any], contract: Any,
-) -> None:
-    """Validate outputs against contract.output_schema using Pydantic."""
-    schema = getattr(contract, "output_schema", None) or {}
-    if not schema:
-        return
-    validator = build_output_validator(schema)
-    if validator is None:
-        return
-    try:
-        validator.model_validate(outputs)
-    except ValidationError as exc:
-        errors = exc.errors(include_url=False)
-        raise _RecordError(
-            {
-                "reason": "output_schema_validation_failed",
-                "step_id": step_id,
-                "errors": [
-                    {"field": ".".join(str(loc) for loc in e["loc"]), "msg": e["msg"]}
-                    for e in errors
-                ],
-            },
-            3,
-        ) from exc
-
-
-def _validate_outputs(step_id: str, status: str, outputs: dict[str, Any], contract: Any = None) -> None:
+def _validate_outputs(step_id: str, status: str, outputs: dict[str, Any]) -> None:
     if status != "completed":
         return
     _validate_phase_review_output(step_id, outputs)
     _validate_design_review_output(step_id, outputs)
-    if contract is not None:
-        _validate_outputs_schema(step_id, outputs, contract)
 
 
 def _validate_agent_usage(
@@ -422,15 +430,15 @@ def _validate_agent_usage(
 
 
 def _validate_payload(
-    payload: dict[str, Any], state_yaml_path: str, state_raw: dict[str, Any] | None = None
+    payload: dict[str, Any],
 ) -> tuple[str, str, str, dict[str, Any], Any, Any]:
     """Validate a done-payload end-to-end. Returns (step_id, phase, status, outputs, contract, agent)."""
     step_id, phase, status = _validate_shape(payload)
     outputs = _coerce_payload_outputs(payload.get("outputs"))
     status = _normalize_review_payload_status(step_id, status, outputs)
-    contract = _load_contract(step_id, state_yaml_path, (state_raw or {}).get("workflow_plan"))
+    contract = _load_contract(step_id)
     outputs = _apply_default_outputs(outputs, contract, status)
-    _validate_outputs(step_id, status, outputs, contract)
+    _validate_outputs(step_id, status, outputs)
     agent = _validate_agent_usage(payload, step_id, status, contract)
     return step_id, phase, status, outputs, contract, agent
 
@@ -673,9 +681,7 @@ def record(
     path = Path(state_yaml_path)
     try:
         state_raw, pre_write_bytes = _load_state_safe(path)
-        step_id, phase, status, outputs, contract, agent = _validate_payload(
-            payload, state_yaml_path, state_raw=state_raw
-        )
+        step_id, phase, status, outputs, contract, agent = _validate_payload(payload)
     except _RecordError as e:
         return (e.reason, e.code)
 

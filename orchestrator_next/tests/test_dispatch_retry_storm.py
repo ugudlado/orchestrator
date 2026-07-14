@@ -21,20 +21,27 @@ from orchestrator_next.dispatch import dispatch  # noqa: E402
 from orchestrator_next.parser import load_state  # noqa: E402
 
 
+# Every node id used across these tests gets its own directory-form contract.
+_TASK_STEP_IDS = (
+    "task-T-1", "task-T-2", "task-A", "task-B", "my-step", "next-step",
+)
+
+
 def _write_execute_one_task_contract(contracts_dir) -> None:
-    step_dir = contracts_dir / "execute-one-task"
-    step_dir.mkdir(parents=True)
-    (step_dir / "contract.yaml").write_text(textwrap.dedent("""\
-        id: execute-one-task
-        version: 1
-        kind: agent
-        agent: developer
-        inputs: []
-        outputs:
-          - task_execution_result
-        rules: []
-    """))
-    (step_dir / "prompt.md").write_text("Implement one task from step_context.task.\n")
+    for step_id in _TASK_STEP_IDS:
+        step_dir = contracts_dir / step_id
+        step_dir.mkdir(parents=True)
+        (step_dir / "contract.yaml").write_text(textwrap.dedent(f"""\
+            id: {step_id}
+            version: 1
+            kind: agent
+            agent: developer
+            inputs: []
+            outputs:
+              - task_execution_result
+            rules: []
+        """))
+        (step_dir / "prompt.md").write_text("Implement one task from step_context.task.\n")
 
 
 def _setup(
@@ -156,7 +163,6 @@ def _task_node(
         "id": node_id,
         "status": status,
         "agent": "developer",
-        "step_contract": "execute-one-task",
         "goal": f"Run {node_id}",
         "inputs": [],
         "outputs": ["task_execution_result"],
