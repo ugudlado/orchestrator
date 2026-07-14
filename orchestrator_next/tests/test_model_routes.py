@@ -61,7 +61,10 @@ def test_precedence_env_file_over_home_over_config(monkeypatch, tmp_path):
 
 
 def test_home_partial_tier_falls_through(monkeypatch, tmp_path):
-    """AC-3: home defines only sonnet → opus falls through to config-root."""
+    """AC-3: home defines only sonnet → opus falls through to config-root
+    (per-ALIAS fallthrough — an alias undefined in a higher layer defers to
+    the lower layer entirely). This is distinct from D3's wholesale-wins rule,
+    which governs what happens when the SAME alias is named in two layers."""
     config_root = tmp_path / "config"
     home = tmp_path / "home"
     routes_yaml = config_root / "models.yaml"
@@ -82,6 +85,34 @@ def test_home_partial_tier_falls_through(monkeypatch, tmp_path):
 
     assert resolve_field("opus", str(routes_yaml), "subprocess") == "claude"
     assert resolve_field("sonnet", str(routes_yaml), "subprocess") == "cursor"
+
+
+def test_wholesale_wins_no_partial_field_merge_within_same_alias(monkeypatch, tmp_path):
+    """D3 regression pin: BACK-COMPAT DELTA (intentional). Before D3, home
+    setting only `sonnet.subprocess` would inherit `model_id` from config_root
+    via dict.update() accumulation. D3 makes the highest layer that names an
+    alias own it WHOLESALE — home's partial {subprocess: cursor} entry for
+    `sonnet` no longer inherits model_id from config_root; model_id resolves
+    empty because home didn't state it. The higher layer must state the full
+    route now."""
+    config_root = tmp_path / "config"
+    home = tmp_path / "home"
+    routes_yaml = config_root / "models.yaml"
+    home_models = home / ".orchestrator" / "models.yaml"
+
+    _write_models(
+        routes_yaml,
+        {"sonnet": {"subprocess": "claude", "model_id": "claude-sonnet-4-6"}},
+    )
+    _write_models(home_models, {"sonnet": {"subprocess": "cursor"}})  # no model_id
+
+    _setup_home(monkeypatch, home)
+    monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
+    monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
+
+    assert resolve_field("sonnet", str(routes_yaml), "subprocess") == "cursor"
+    # THE BREAK: model_id does NOT fall back to config_root's "claude-sonnet-4-6".
+    assert resolve_field("sonnet", str(routes_yaml), "model_id") == ""
 
 
 def test_malformed_home_yaml_falls_through(monkeypatch, tmp_path):

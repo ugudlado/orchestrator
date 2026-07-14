@@ -247,11 +247,14 @@ def run_agent_step(
     step_id = action["step_id"]
     started_at = action.get("started_at") or datetime.now(timezone.utc).isoformat()
 
-    tool_name = model_routes.resolve_field(model, models_yaml, "subprocess")
+    # Resolve once (D3): subprocess + model_id must come from the SAME chosen
+    # candidate in a fallback chain, never mixed across candidates.
+    route = model_routes.resolve_route(model, models_yaml)
+    tool_name = route["subprocess"]
     if not tool_name:
         _log(f"ERROR: no route for model '{model}'")
         raise SystemExit(4)
-    model_id = model_routes.resolve_field(model, models_yaml, "model_id")
+    model_id = route["model_id"]
     binary, template = _resolve_tool_template(tool_name, models_yaml)
 
     meta = _workflow_meta(state_raw, state_yaml_path)
@@ -266,7 +269,8 @@ def run_agent_step(
 
     stdout_path = tmp_dir / f"out_{step_id}.txt"
     stderr_path = tmp_dir / f"err_{step_id}.txt"
-    _log(f"  invoking {tool_name} ({binary})" + (f"  model={model_id}" if model_id else ""))
+    fallback_note = f"  (fallback #{route['active_index']} for {model})" if route["is_fallback"] else ""
+    _log(f"  invoking {tool_name} ({binary})" + (f"  model={model_id}" if model_id else "") + fallback_note)
     rc = invoke_tool(tool_name, binary, template, prompt, str(prompt_file),
                      model_id, work_dir, stdout_path, stderr_path)
     if rc != 0:

@@ -167,11 +167,12 @@ def check_subprocesses_available(config_root: Path) -> CheckResult:
         data = yaml.safe_load(models_yaml.read_text()) or {}
     except Exception as exc:  # noqa: BLE001
         return CheckResult("subprocesses available", "WARN", f"models.yaml parse: {exc}")
-    subs = {
-        entry.get("subprocess")
-        for entry in (data.get("models") or {}).values()
-        if isinstance(entry, dict) and entry.get("subprocess")
-    }
+    subs: set[str] = set()
+    for entry in (data.get("models") or {}).values():
+        candidates = entry if isinstance(entry, list) else [entry]
+        for cand in candidates:
+            if isinstance(cand, dict) and cand.get("subprocess"):
+                subs.add(str(cand["subprocess"]))
     missing = sorted(s for s in subs if not shutil.which(s))
     if missing:
         return CheckResult(
@@ -180,6 +181,27 @@ def check_subprocesses_available(config_root: Path) -> CheckResult:
     return CheckResult(
         "subprocesses available", "PASS", f"all {len(subs)} subprocess backends on PATH"
     )
+
+
+def check_no_silent_fallback(config_root: Path) -> CheckResult:
+    """D3 guard rail: WARN whenever any alias is currently resolving to a
+    non-first candidate in its fallback chain — a tier is silently running
+    on a degraded route and someone should notice."""
+    from orchestrator_next.model_routes import resolve_all_with_source
+
+    routes_yaml = str(config_root / "models.yaml")
+    resolved = resolve_all_with_source(routes_yaml)
+    on_fallback = sorted(
+        f"{alias}→candidate#{entry['active_index']} ({entry['subprocess']})"
+        for alias, entry in resolved.items()
+        if entry.get("is_fallback")
+    )
+    if on_fallback:
+        return CheckResult(
+            "no silent fallback", "WARN",
+            f"aliases on a fallback candidate: {', '.join(on_fallback)}",
+        )
+    return CheckResult("no silent fallback", "PASS", "no alias is on a fallback candidate")
 
 
 def check_model_route_sources(config_root: Path) -> CheckResult:
@@ -233,6 +255,7 @@ def run_all() -> int:
         check_step_dispatch_kind(config_root),      # rule 2
         check_subprocesses_available(config_root),  # rule 3 (WARN)
         check_model_route_sources(config_root),
+        check_no_silent_fallback(config_root),      # D3 guard rail (WARN)
         check_symlinks(repo_root, orch_home),
     ]
     print(_format_table(results))
