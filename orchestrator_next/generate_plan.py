@@ -5,12 +5,9 @@ Public API: generate_plan(state_yaml_path: str) -> None
 Reads state.yaml + schema, topo-sorts the dependency graph, and rewrites
 state.yaml in place with `workflow_plan[phase] = {nodes, filtered, verify}`.
 No separate plan file is produced — workflow state lives in one file.
-
-Entry point: python -m orchestrator_next.generate_plan <state_yaml_path>
 """
 from __future__ import annotations
 
-import argparse
 import sys
 from pathlib import Path
 from typing import Any
@@ -34,38 +31,17 @@ def _load_schema(schema_name: str) -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
-def _resolve_phases(schema: dict[str, Any]) -> list[dict[str, Any]]:
-    """
-    Return a flat list of fully-resolved phase dicts from a schema.
-
-    Phase-less schemas (top-level `steps:` with no `phases:`) synthesize a
-    single phase named "main"; the rest of the engine treats them identically
-    to legacy multi-phase schemas.
-    """
-    raw_phases = schema.get("phases")
-    if not raw_phases:
-        steps = schema.get("steps")
-        if not steps:
-            return []
-        synthetic: dict[str, Any] = {
-            "name": "main",
-            "goal": schema.get("description", ""),
-            "steps": steps,
-        }
-        for key in ("verify", "outputs", "rules"):
-            if key in schema:
-                synthetic[key] = schema[key]
-        return [synthetic]
-
-    return list(raw_phases)
-
-
-def _find_phase_def(phases: list[dict[str, Any]], phase_name: str) -> dict[str, Any]:
-    """Return the phase dict for a given phase name, or raise."""
-    for p in phases:
-        if p.get("name") == phase_name:
-            return p
-    raise ValueError(f"Phase '{phase_name}' not found in resolved schema phases")
+def _synthetic_phase(schema: dict[str, Any]) -> dict[str, Any]:
+    """All schemas are phase-less (top-level `steps:`); synthesize the single
+    "main" phase the rest of the engine expects."""
+    phase: dict[str, Any] = {
+        "name": "main",
+        "goal": schema.get("description", ""),
+        "steps": schema.get("steps") or [],
+    }
+    if "verify" in schema:
+        phase["verify"] = schema["verify"]
+    return phase
 
 
 def _step_entry_for_id(phase_def: dict[str, Any], step_id: str) -> dict[str, Any] | None:
@@ -184,11 +160,6 @@ def _topo_sort(nodes: list[dict[str, Any]], filtered_ids: set[str]) -> None:
         )
 
 
-def _write_yaml_stable(obj: Any, path: Path) -> None:
-    content = yaml.safe_dump(obj, sort_keys=False, default_flow_style=False, allow_unicode=True)
-    path.write_text(content, encoding="utf-8")
-
-
 def generate_plan(state_yaml_path: str) -> None:
     """
     Read state.yaml, promote each phase's `active:[ids]` list into a
@@ -205,7 +176,7 @@ def generate_plan(state_yaml_path: str) -> None:
     schema_name = state.raw.get("schema", "")
 
     schema = _load_schema(schema_name)
-    resolved_phases = _resolve_phases(schema)
+    phase_def = _synthetic_phase(schema)
 
     promoted: dict[str, Any] = {}
     for phase_name, phase_plan in state.raw.get("workflow_plan", {}).items():
@@ -221,13 +192,6 @@ def generate_plan(state_yaml_path: str) -> None:
         else:
             active_step_ids = []
             filtered = []
-
-        try:
-            phase_def = _find_phase_def(resolved_phases, phase_name)
-        except ValueError as e:
-            print(f"WARNING: {e} — skipping phase", file=sys.stderr)
-            promoted[phase_name] = phase_plan
-            continue
 
         nodes = [_build_step_node(step_id, phase_def) for step_id in active_step_ids]
 
@@ -250,19 +214,8 @@ def generate_plan(state_yaml_path: str) -> None:
 
     state_raw = dict(state.raw)
     state_raw["workflow_plan"] = promoted
-    _write_yaml_stable(state_raw, Path(state_yaml_path))
-    print(f"state.yaml workflow_plan promoted to nodes shape: {state_yaml_path}", file=sys.stderr)
-
-
-def main() -> None:
-    """Entry point: python -m orchestrator_next.generate_plan <state_yaml_path>."""
-    ap = argparse.ArgumentParser(
-        description="Promote state.yaml workflow_plan into the DAG nodes shape",
+    Path(state_yaml_path).write_text(
+        yaml.safe_dump(state_raw, sort_keys=False, default_flow_style=False, allow_unicode=True),
+        encoding="utf-8",
     )
-    ap.add_argument("state_yaml_path", help="Path to state.yaml")
-    args = ap.parse_args()
-    generate_plan(args.state_yaml_path)
-
-
-if __name__ == "__main__":
-    main()
+    print(f"state.yaml workflow_plan promoted to nodes shape: {state_yaml_path}", file=sys.stderr)

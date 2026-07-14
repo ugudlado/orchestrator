@@ -27,17 +27,6 @@ from orchestrator_next.payload import (
 )
 
 
-def _resolve_base_dir(state_raw: dict[str, Any]) -> str:
-    """Return worktree_path if valid dir, else repo_root; empty string if neither."""
-    worktree = state_raw.get("worktree_path")
-    if isinstance(worktree, str) and worktree:
-        return os.path.expanduser(worktree)
-    repo_root = state_raw.get("repo_root")
-    if isinstance(repo_root, str) and repo_root:
-        return os.path.expanduser(repo_root)
-    return ""
-
-
 class _RecordError(Exception):
     """Internal: raised by validation helpers, caught in record()."""
 
@@ -72,29 +61,6 @@ _STATE_PATCH_KEYS = frozenset({
     "worktree_path",
     "branch",
 })
-
-def _resolve_append_retro_script(repo_root: str) -> str:
-    """Path to append-retro.sh for workflow_issues handling."""
-    candidates: list[str] = []
-    home = os.environ.get("ORCHESTRATOR_HOME", "")
-    if home:
-        candidates.append(
-            os.path.join(home, "orchestrator_next", "scripts", "complete", "append-retro.sh")
-        )
-    if repo_root:
-        candidates.append(
-            os.path.join(repo_root, "orchestrator_next", "scripts", "complete", "append-retro.sh")
-        )
-    for path in candidates:
-        if os.path.isfile(path):
-            return path
-    return ""
-
-def _resolve_agent_id(payload: dict[str, Any]) -> str | None:
-    """agent_id from explicit payload fields (shell-driver done payloads)."""
-    usage = payload.get("usage") or {}
-    return payload.get("agent_id") or usage.get("agent_id")
-
 
 _PHASE_REVIEW_VERDICTS = frozenset({"pass", "needs_work", "incomplete_phase"})
 _SUCCESS_STATUSES = frozenset({"completed", "recovered"})
@@ -159,11 +125,12 @@ def _normalize_review_payload_status(
     return status
 
 
-def _validate_design_review_output(
-    step_id: str, status: str, outputs: dict[str, Any]
-) -> None:
-    """Reject completed design-review payloads that are not a pass."""
-    if step_id != "design-review" or status != "completed":
+def _validate_design_review_output(step_id: str, outputs: dict[str, Any]) -> None:
+    """Reject completed design-review payloads that are not a pass.
+
+    Caller (_validate_outputs) guarantees status == "completed".
+    """
+    if step_id != "design-review":
         return
     result = outputs.get("design_review_result")
     if result != "pass":
@@ -312,23 +279,6 @@ def _utcnow_iso() -> str:
     return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _resolve_tasks_md(state_raw: dict[str, Any]) -> Path | None:
-    """Resolve tasks.md from tasks_path override, worktree, or repo_root."""
-    raw_path = state_raw.get("tasks_path")
-    if isinstance(raw_path, str) and raw_path:
-        return Path(os.path.expanduser(raw_path))
-
-    change_id = state_raw.get("change_id")
-    if not (isinstance(change_id, str) and change_id):
-        return None
-
-    base = _resolve_base_dir(state_raw)
-    if not base:
-        return None
-    return Path(base) / "spec" / "changes" / change_id / "tasks.md"
-
-
-
 def _state_from_raw(state_raw: dict[str, Any]) -> State:
     """Build an in-memory State view over a mutated `state_raw` dict.
 
@@ -392,7 +342,7 @@ def _apply_default_outputs(
         return outputs
     out = dict(outputs)
     for key, value in defaults.items():
-        if key not in out or out[key] is None or out[key] == "" or (hasattr(out[key], "__len__") and len(out[key]) == 0):
+        if key not in out or out[key] is None or (hasattr(out[key], "__len__") and len(out[key]) == 0):
             out[key] = value
             sys.stderr.write(
                 f"[record] supplemented outputs.{key} from contract default "
@@ -432,7 +382,7 @@ def _validate_outputs(step_id: str, status: str, outputs: dict[str, Any], contra
     if status != "completed":
         return
     _validate_phase_review_output(step_id, outputs)
-    _validate_design_review_output(step_id, status, outputs)
+    _validate_design_review_output(step_id, outputs)
     if contract is not None:
         _validate_outputs_schema(step_id, outputs, contract)
 
@@ -534,7 +484,7 @@ def _build_history_entry(
     # Compute cost_usd live when absent from the payload.
     # Work on a local copy so we never mutate the caller's dict.
     usage: dict[str, Any] = dict(payload.get("usage") or {})
-    agent_id = _resolve_agent_id(payload)
+    agent_id = payload.get("agent_id") or usage.get("agent_id")
     if agent_id:
         usage["agent_id"] = agent_id
 
@@ -604,14 +554,11 @@ def _apply_routing(
             node_status = "failed" if status == "failed" else "completed"
             readiness.mark_node_status(state_raw, phase, step_id, node_status)
             state_raw["status"] = "blocked"
-        elif routing == "advance":
-            readiness.mark_node_status(state_raw, phase, step_id, "completed")
-        elif status in _SUCCESS_STATUSES:
-            # routing is an explicit on_success target step_id (e.g.
-            # run-phase-review -> ticket-qa) — the step genuinely passed, so
-            # mark it completed like the "advance" case. next_ready_node()
-            # picks up the target via normal dependency satisfaction; nothing
-            # needs to be reset.
+        elif routing == "advance" or status in _SUCCESS_STATUSES:
+            # "advance", or routing is an explicit on_success target step_id
+            # (e.g. run-phase-review -> ticket-qa) — the step genuinely passed,
+            # so mark it completed; next_ready_node() picks up the target via
+            # normal dependency satisfaction. Nothing needs to be reset.
             readiness.mark_node_status(state_raw, phase, step_id, "completed")
         else:
             # routing is an on_failure target step_id — loop back: reset both
@@ -668,38 +615,6 @@ def _safe_write_yaml(path: Path, state_raw: dict[str, Any], pre_write_bytes: byt
             },
             4,
         ) from e
-
-
-def _run_retro(
-    state_raw: dict[str, Any],
-    phase: str,
-    step_id: str,
-    payload: dict[str, Any],
-) -> None:
-    """Best-effort append-retro.sh invocation for workflow_issues."""
-    # Workflow-issue retro: if the payload carries workflow_issues, append
-    # each one to spec/changes/<change_id>/retro.md. Best-effort — any
-    # failure here never blocks the record.
-    issues = payload.get("workflow_issues")
-    if isinstance(issues, list) and issues:
-        worktree = state_raw.get("worktree_path") or state_raw.get("repo_root") or ""
-        change_id = state_raw.get("change_id") or state_raw.get("slug") or ""
-        if worktree and change_id:
-            try:
-                script = _resolve_append_retro_script(str(state_raw.get("repo_root") or ""))
-                if script:
-                    for issue in issues:
-                        # per-issue phase/step fallback
-                        issue.setdefault("surfaced_at", f"{phase}/{step_id}")
-                    env = {
-                        **os.environ,
-                        "WORKTREE_PATH": os.path.expanduser(str(worktree)),
-                        "CHANGE_ID": str(change_id),
-                        "ISSUES_JSON": json.dumps(issues),
-                    }
-                    subprocess.run(["bash", script], env=env, capture_output=True, text=True)
-            except Exception as exc:  # noqa: BLE001 — retro logging is best-effort
-                sys.stderr.write(f"[record] retro append failed: {exc}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -790,8 +705,6 @@ def record(
         _safe_write_yaml(path, state_raw, pre_write_bytes)
     except _RecordError as e:
         return (e.reason, e.code)
-
-    _run_retro(state_raw, phase, step_id, payload)
 
     # Headless: state changed on disk — commit it; push once when the run
     # transitions to blocked (that's the resume-later case, incl. the

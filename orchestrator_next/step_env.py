@@ -10,8 +10,8 @@ when a value exists):
   STATE_YAML_PATH, ORCHESTRATOR_STATE_YAML_PATH
   REPO_ROOT, ORCHESTRATOR_REPO_ROOT
   CHANGE_ID, ORCHESTRATOR_CHANGE_ID
-  ORCHESTRATOR_HOME, ORCHESTRATOR_SCRIPTS_DIR
-  ORCHESTRATOR_STEP_DIR (set by step_runner; each script.sh resolves its own payload)
+  ORCHESTRATOR_HOME
+  ORCHESTRATOR_STEP_DIR (set by run_loop; each script.sh resolves its own payload)
   ORCHESTRATOR_PHASE, ORCHESTRATOR_STEP_ID, ORCHESTRATOR_ATTEMPT
   ORCHESTRATOR_WORKFLOW_DIR, ORCHESTRATOR_WORKTREE_ARTIFACT_DIR
   WORKTREE_PATH, WORKTREE_ROOT (when worktree_path in state)
@@ -20,9 +20,7 @@ when a value exists):
 
 from __future__ import annotations
 
-import json
 import os
-from pathlib import Path
 from typing import Any
 
 
@@ -39,46 +37,6 @@ def _apply_home_paths(env: dict[str, str]) -> None:
             env["ORCHESTRATOR_HOME"] = home
         except ConfigRootError:
             pass
-    # Engine shell drivers live inside the package in every layout (dev
-    # checkout and wheel install alike) — anchor on the package, not home.
-    env["ORCHESTRATOR_SCRIPTS_DIR"] = str(Path(__file__).resolve().parent / "scripts")
-
-
-def _resolve_prior_outputs(state: Any, step_id: str) -> dict[str, Any]:
-    """Collect declared inputs for step_id from completed step_history entries.
-
-    For each name in node["inputs"], find the most-recent completed step_history
-    entry whose evidence.outputs contains that key. Returns a flat dict of
-    {input_name: value} — only keys declared in inputs are included.
-    """
-    from orchestrator_next.parser import phase_nodes
-    from orchestrator_next.readiness import find_node
-
-    nodes = phase_nodes(state, state.phase)
-    node = find_node(nodes, step_id)
-    if node is None:
-        return {}
-    declared_inputs: list[str] = [str(k) for k in (node.get("inputs") or []) if k]
-    if not declared_inputs:
-        return {}
-
-    history = getattr(state, "step_history", []) or []
-    # Walk history most-recent-first to get the latest value for each input key.
-    result: dict[str, Any] = {}
-    remaining = set(declared_inputs)
-    for entry in reversed(history):
-        if not remaining:
-            break
-        if getattr(entry, "status", None) not in ("completed", "recovered"):
-            continue
-        raw = getattr(entry, "raw", {}) or {}
-        evidence = raw.get("evidence") or {}
-        outputs = evidence.get("outputs") or {}
-        for key in list(remaining):
-            if key in outputs:
-                result[key] = outputs[key]
-                remaining.discard(key)
-    return result
 
 
 def build_dispatch_env(
@@ -89,7 +47,6 @@ def build_dispatch_env(
 ) -> dict[str, str]:
     """ORCHESTRATOR_* block attached to dispatch actions (agent and inline)."""
     change_id = getattr(state, "change_id", "") or ""
-    prior_outputs = _resolve_prior_outputs(state, step_id)
     env: dict[str, str] = {
         "ORCHESTRATOR_CHANGE_ID": change_id,
         "ORCHESTRATOR_PHASE": getattr(state, "phase", "") or "main",
@@ -101,8 +58,6 @@ def build_dispatch_env(
     }
     if state_yaml_path:
         env["ORCHESTRATOR_STATE_YAML_PATH"] = state_yaml_path
-    if prior_outputs:
-        env["ORCHESTRATOR_PRIOR_OUTPUTS"] = json.dumps(prior_outputs)
     return env
 
 
@@ -153,26 +108,5 @@ def inline_script_env(
     if archive_path:
         env["ARCHIVE_PATH"] = str(archive_path)
 
-    _apply_home_paths(env)
-    return env
-
-
-def operator_script_env(
-    repo_root: str,
-    *,
-    state_yaml_path: str = "/dev/null",
-    step_id: str = "",
-) -> dict[str, str]:
-    """Env for operator workflows (telemetry, learn) without a feature state.yaml."""
-    env: dict[str, str] = {
-        **{k: str(v) for k, v in os.environ.items()},
-        "REPO_ROOT": repo_root,
-        "ORCHESTRATOR_REPO_ROOT": repo_root,
-        "STATE_YAML_PATH": state_yaml_path,
-        "ORCHESTRATOR_STATE_YAML_PATH": state_yaml_path,
-        "ORCHESTRATOR_WORKFLOW_DIR": repo_root,
-    }
-    if step_id:
-        env["ORCHESTRATOR_STEP_ID"] = step_id
     _apply_home_paths(env)
     return env

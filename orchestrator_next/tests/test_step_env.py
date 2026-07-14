@@ -49,7 +49,6 @@ def test_inline_script_env_sets_legacy_and_orchestrator_aliases():
     assert env["ORCHESTRATOR_STEP_ID"] == "mark-change-completed"
     assert env["ORCHESTRATOR_ATTEMPT"] == "2"
     assert env["ORCHESTRATOR_HOME"]
-    assert env["ORCHESTRATOR_SCRIPTS_DIR"].endswith("orchestrator_next/scripts")
 
 
 def test_inline_script_env_action_env_overrides_attempt(monkeypatch, tmp_path):

@@ -1,15 +1,11 @@
 """
 Mermaid DAG renderer for the orchestrator engine (ORC-63).
 
-`render_graph(state)` returns a Mermaid `flowchart TD` of the current phase's
-node graph — one node per `workflow_plan[phase].nodes` entry, coloured by
-status, with an edge per effective `depends_on` relationship.
-
 `render_workflow_graph(schema_name)` returns a static Mermaid `flowchart TD`
 of a workflow schema's step topology — linear chain + conditional routing
 edges (on_success / on_failure).
 
-`render_html(mermaid_src, title, step_data)` wraps either into a self-contained
+`render_html(mermaid_src, title, step_data)` wraps it into a self-contained
 HTML page with status colours, a click-to-inspect sidebar, and Mermaid CDN.
 
 Read-only: no state mutation, no DuckDB.
@@ -23,83 +19,10 @@ from typing import Any
 
 import yaml
 
-from orchestrator_next.parser import State, phase_nodes
-from orchestrator_next import readiness
-
-# Status → Mermaid classDef name
-_STATUS_CLASS = {
-    "completed":   "st_completed",
-    "in_progress": "st_in_progress",
-    "failed":      "st_failed",
-    "abandoned":   "st_abandoned",
-    "pending":     "st_pending",
-}
-
-_CLASS_DEFS = """
-  classDef st_completed   fill:#1a4731,stroke:#2ea043,color:#e6edf3
-  classDef st_in_progress fill:#1c2d42,stroke:#388bfd,color:#e6edf3
-  classDef st_failed      fill:#3d1c1c,stroke:#f85149,color:#e6edf3
-  classDef st_abandoned   fill:#2d2010,stroke:#d29922,color:#e6edf3
-  classDef st_pending     fill:#21262d,stroke:#484f58,color:#8b949e
-""".strip()
-
 
 def _safe_id(node_id: str) -> str:
     """Return a Mermaid-safe node identifier (alphanumerics + underscore)."""
     return re.sub(r"[^A-Za-z0-9_]", "_", node_id) or "node"
-
-
-def _last_history_by_step(state: State) -> dict[str, dict[str, Any]]:
-    """Return the last step_history entry per step_id (highest attempt wins)."""
-    best: dict[str, dict[str, Any]] = {}
-    for entry in state.step_history:
-        sid = entry.step_id
-        prev = best.get(sid)
-        if prev is None or (entry.attempt or 0) >= (prev.get("attempt") or 0):
-            best[sid] = entry.raw
-    return best
-
-
-def render_graph(state: State) -> tuple[str, dict[str, Any]]:
-    """Render the current phase's DAG as a Mermaid `flowchart TD` string.
-
-    Returns (mermaid_src, step_data) where step_data maps step_id → last
-    step_history entry (usage, agent, timestamps, etc.) for HTML rendering.
-    """
-    phase = state.phase
-    nodes = phase_nodes(state, phase)
-    step_data = _last_history_by_step(state)
-
-    lines = ["flowchart TD", f"  %% phase: {phase}"]
-
-    if not nodes:
-        lines.append('  empty["(no nodes)"]')
-        return "\n".join(lines) + "\n", {}
-
-    # Node declarations with status label and class
-    for node in nodes:
-        nid = str(node.get("id", ""))
-        status = str(node.get("status", "pending"))
-        cls = _STATUS_CLASS.get(status, "st_pending")
-        lines.append(f'  {_safe_id(nid)}["{nid}\\n{status}"]:::{cls}')
-
-    lines.append("")
-    lines.append(_CLASS_DEFS)
-    lines.append("")
-
-    # Edges
-    for node in nodes:
-        nid = str(node.get("id", ""))
-        for dep in readiness.effective_depends_on(nodes, nid):
-            lines.append(f"  {_safe_id(dep)} --> {_safe_id(nid)}")
-
-    # Click callbacks (node id → safe_id mapping for JS lookup)
-    lines.append("")
-    for node in nodes:
-        nid = str(node.get("id", ""))
-        lines.append(f'  click {_safe_id(nid)} showStep')
-
-    return "\n".join(lines) + "\n", step_data
 
 
 def _normalize_steps(schema: dict[str, Any]) -> list[dict[str, Any]]:
@@ -115,9 +38,16 @@ def _normalize_steps(schema: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
-def _aggregate_step_metrics(state_dir: str | Path) -> dict[str, dict[str, Any]]:
-    """Glob *_state.yaml files and collapse step_history by step_id."""
+def _scan_state_dir(
+    state_dir: str | Path,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Single pass over *_state.yaml files.
+
+    Returns (metrics, last_entry): step_id → summed tokens/cost + max attempt,
+    and step_id → last step_history entry (highest attempt wins).
+    """
     metrics: dict[str, dict[str, Any]] = {}
+    best: dict[str, dict[str, Any]] = {}
     for path in sorted(Path(state_dir).glob("*_state.yaml")):
         try:
             with open(path, encoding="utf-8") as f:
@@ -136,38 +66,14 @@ def _aggregate_step_metrics(state_dir: str | Path) -> dict[str, dict[str, Any]]:
             usage = entry.get("usage") or {}
             if not isinstance(usage, dict):
                 usage = {}
-            tokens = (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
-            cost = float(usage.get("cost_usd") or 0.0)
-            if step_id not in metrics:
-                metrics[step_id] = {"tokens": tokens, "cost": cost, "attempts": attempt}
-            else:
-                metrics[step_id]["tokens"] += tokens
-                metrics[step_id]["cost"] += cost
-                metrics[step_id]["attempts"] = max(metrics[step_id]["attempts"], attempt)
-    return metrics
-
-
-def _last_history_from_state_dir(state_dir: str | Path) -> dict[str, dict[str, Any]]:
-    """Return the last step_history entry per step_id across all state files."""
-    best: dict[str, dict[str, Any]] = {}
-    for path in sorted(Path(state_dir).glob("*_state.yaml")):
-        try:
-            with open(path, encoding="utf-8") as f:
-                state = yaml.safe_load(f)
-        except (OSError, yaml.YAMLError):
-            continue
-        if not isinstance(state, dict):
-            continue
-        for entry in state.get("step_history") or []:
-            if not isinstance(entry, dict):
-                continue
-            sid = entry.get("step_id") or ""
-            if not sid:
-                continue
-            prev = best.get(sid)
+            m = metrics.setdefault(step_id, {"tokens": 0, "cost": 0.0, "attempts": 1})
+            m["tokens"] += (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
+            m["cost"] += float(usage.get("cost_usd") or 0.0)
+            m["attempts"] = max(m["attempts"], attempt)
+            prev = best.get(step_id)
             if prev is None or (entry.get("attempt") or 0) >= (prev.get("attempt") or 0):
-                best[sid] = entry
-    return best
+                best[step_id] = entry
+    return metrics, best
 
 
 def _render_schema_graph(
@@ -232,66 +138,34 @@ def _render_schema_graph(
     return "\n".join(lines) + "\n", {}
 
 
+def _load_wf_schema(schema_name: str) -> dict[str, Any]:
+    """Load config/workflows/<name>.yaml or raise FileNotFoundError."""
+    from orchestrator_next.paths import config_root
+
+    schema_path = config_root() / "workflows" / f"{schema_name}.yaml"
+    if not schema_path.is_file():
+        raise FileNotFoundError(f"Workflow schema not found: {schema_path}")
+    with open(schema_path, encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
 def render_workflow_graph(schema_name: str) -> tuple[str, dict[str, Any]]:
     """Render a workflow schema's step topology as a Mermaid `flowchart TD` string.
 
     Returns (mermaid_src, step_data). step_data is empty for static schemas
     (no live run state).
     """
-    from orchestrator_next.paths import config_root
-
-    schema_path = config_root() / "workflows" / f"{schema_name}.yaml"
-    if not schema_path.is_file():
-        raise FileNotFoundError(f"Workflow schema not found: {schema_path}")
-
-    with open(schema_path, encoding="utf-8") as f:
-        schema = yaml.safe_load(f) or {}
-
-    return _render_schema_graph(schema_name, schema, {})
+    return _render_schema_graph(schema_name, _load_wf_schema(schema_name), {})
 
 
 def render_workflow_graph_with_overlay(
     schema_name: str, state_dir: str | Path
 ) -> tuple[str, dict[str, Any]]:
     """Render schema topology with per-step token/cost/retry overlay from run state."""
-    from orchestrator_next.paths import config_root
-
-    schema_path = config_root() / "workflows" / f"{schema_name}.yaml"
-    if not schema_path.is_file():
-        raise FileNotFoundError(f"Workflow schema not found: {schema_path}")
-
-    with open(schema_path, encoding="utf-8") as f:
-        schema = yaml.safe_load(f) or {}
-
-    metrics = _aggregate_step_metrics(state_dir)
+    schema = _load_wf_schema(schema_name)
+    metrics, step_data = _scan_state_dir(state_dir)
     mermaid_src, _ = _render_schema_graph(schema_name, schema, metrics)
-    step_data = _last_history_from_state_dir(state_dir)
     return mermaid_src, step_data
-
-
-def _fmt_duration(ms: Any) -> str:
-    if not ms:
-        return "—"
-    ms = int(ms)
-    if ms < 1000:
-        return f"{ms}ms"
-    s = ms / 1000
-    if s < 60:
-        return f"{s:.1f}s"
-    return f"{s/60:.1f}m"
-
-
-def _fmt_tokens(n: Any) -> str:
-    if not n:
-        return "—"
-    n = int(n)
-    return f"{n:,}"
-
-
-def _fmt_cost(usd: Any) -> str:
-    if not usd:
-        return "—"
-    return f"${float(usd):.4f}"
 
 
 def render_html(mermaid_src: str, title: str, step_data: dict[str, Any] | None = None) -> str:

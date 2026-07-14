@@ -60,10 +60,7 @@ def test_light_flag_drops_filtered_steps(tmp_path, monkeypatch):
     """Only active steps appear in nodes — filtered ones stay in filtered list."""
     schema = {
         "name": "feature", "version": 1,
-        "phases": [{
-            "name": "specify", "goal": "Produce spec artifacts.",
-            "steps": ["explore if discovery", "ux-design if ux_design", "design-and-draft-artifacts"],
-        }],
+        "steps": ["explore if discovery", "ux-design if ux_design", "design-and-draft-artifacts"],
     }
     workflow_plan = {
         "specify": {
@@ -89,7 +86,7 @@ def test_byte_stable_output(tmp_path, monkeypatch):
     """Running generate_plan twice on the same state.yaml produces identical bytes."""
     schema = {
         "name": "feature", "version": 1,
-        "phases": [{"name": "specify", "goal": "Specify things.", "steps": ["step-a", "step-b"]}],
+        "steps": ["step-a", "step-b"],
     }
     workflow_plan = {"specify": {"active": ["step-a", "step-b"], "filtered": []}}
     home = _setup_home(tmp_path, "feature", schema)
@@ -108,11 +105,8 @@ def test_phase_verify_attached_to_phase_block(tmp_path, monkeypatch):
     """verify block from schema phase is a sibling of `nodes`, not on any node."""
     schema = {
         "name": "feature", "version": 1,
-        "phases": [{
-            "name": "specify", "goal": "Specify.",
-            "verify": {"assertions": ["design.md exists"]},
-            "steps": ["step-first", "step-last"],
-        }],
+        "verify": {"assertions": ["design.md exists"]},
+        "steps": ["step-first", "step-last"],
     }
     workflow_plan = {"specify": {"active": ["step-first", "step-last"], "filtered": []}}
     home = _setup_home(tmp_path, "feature", schema)
@@ -132,7 +126,7 @@ def test_promotes_state_to_nodes_shape_no_plan_yaml(tmp_path, monkeypatch):
     """After generate_plan, workflow_plan.main is {nodes, filtered} and no plan.yaml."""
     schema = {
         "name": "feature", "version": 1,
-        "phases": [{"name": "main", "goal": "Do.", "steps": ["step-a", "step-b"]}],
+        "steps": ["step-a", "step-b"],
     }
     workflow_plan = {"main": {"active": ["step-a", "step-b"], "filtered": []}}
     home = _setup_home(tmp_path, "feature", schema)
@@ -156,7 +150,7 @@ def test_linear_schema_synthesizes_implicit_chain_depends_on(tmp_path, monkeypat
     """A linear schema yields implicit-chain depends_on on each node's predecessor."""
     schema = {
         "name": "feature", "version": 1,
-        "phases": [{"name": "main", "goal": "Do.", "steps": ["s1", "s2", "s3"]}],
+        "steps": ["s1", "s2", "s3"],
     }
     workflow_plan = {"main": {"active": ["s1", "s2", "s3"], "filtered": []}}
     home = _setup_home(tmp_path, "feature", schema)
@@ -175,10 +169,7 @@ def test_explicit_depends_on_lands_on_node(tmp_path, monkeypatch):
     """An explicit depends_on on a dict-form schema step entry lands on its node."""
     schema = {
         "name": "feature", "version": 1,
-        "phases": [{
-            "name": "main", "goal": "Do.",
-            "steps": ["explore", {"id": "design", "depends_on": ["explore"]}],
-        }],
+        "steps": ["explore", {"id": "design", "depends_on": ["explore"]}],
     }
     workflow_plan = {"main": {"active": ["explore", "design"], "filtered": []}}
     home = _setup_home(tmp_path, "feature", schema)
@@ -195,10 +186,7 @@ def test_cyclic_edges_raise_and_keep_pre_promotion_shape(tmp_path, monkeypatch):
     """Cyclic depends_on edges raise ValueError; state.yaml keeps its pre-promotion shape."""
     schema = {
         "name": "feature", "version": 1,
-        "phases": [{
-            "name": "main", "goal": "Do.",
-            "steps": [{"id": "a", "depends_on": ["b"]}, {"id": "b", "depends_on": ["a"]}],
-        }],
+        "steps": [{"id": "a", "depends_on": ["b"]}, {"id": "b", "depends_on": ["a"]}],
     }
     workflow_plan = {"main": {"active": ["a", "b"], "filtered": []}}
     home = _setup_home(tmp_path, "feature", schema)
@@ -217,10 +205,7 @@ def test_depends_on_to_filtered_step_dropped_with_warning(tmp_path, monkeypatch,
     """A depends_on edge targeting a filtered step is dropped with a stderr warning."""
     schema = {
         "name": "feature", "version": 1,
-        "phases": [{
-            "name": "main", "goal": "Do.",
-            "steps": ["ux-design", {"id": "design", "depends_on": ["ux-design"]}],
-        }],
+        "steps": ["ux-design", {"id": "design", "depends_on": ["ux-design"]}],
     }
     workflow_plan = {"main": {
         "active": ["design"],
@@ -241,10 +226,7 @@ def test_depends_on_unknown_id_raises(tmp_path, monkeypatch):
     """A depends_on to an unknown id raises ValueError."""
     schema = {
         "name": "feature", "version": 1,
-        "phases": [{
-            "name": "main", "goal": "Do.",
-            "steps": [{"id": "design", "depends_on": ["nonexistent"]}],
-        }],
+        "steps": [{"id": "design", "depends_on": ["nonexistent"]}],
     }
     workflow_plan = {"main": {"active": ["design"], "filtered": []}}
     home = _setup_home(tmp_path, "feature", schema)
