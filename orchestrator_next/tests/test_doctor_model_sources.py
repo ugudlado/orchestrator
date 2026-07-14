@@ -39,7 +39,7 @@ def test_run_all_includes_model_route_sources_check(monkeypatch, tmp_path, capsy
     monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(config_root))
     monkeypatch.delenv("ORCHESTRATOR_HOME", raising=False)
 
-    rc = run_all([])
+    rc = run_all()
     out = capsys.readouterr().out
 
     assert rc in (0, 2)

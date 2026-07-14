@@ -28,7 +28,7 @@ from orchestrator_next.parser import ContractError, load_contract_for_step
 _SKIP_EXPAND = {"complete"}
 
 
-def _load_schema(schema_name: str, repo_root: str) -> dict[str, Any]:
+def _load_schema(schema_name: str) -> dict[str, Any]:
     from orchestrator_next.paths import config_root
     path = config_root() / "workflows" / f"{schema_name}.yaml"
     if not path.is_file():
@@ -39,21 +39,13 @@ def _load_schema(schema_name: str, repo_root: str) -> dict[str, Any]:
 
 
 def _step_ids(schema: dict[str, Any]) -> list[str]:
-    """Extract step IDs from a flat or phased schema."""
-    steps = schema.get("steps") or []
+    """Extract step IDs from a schema's top-level steps list."""
     ids = []
-    for entry in steps:
+    for entry in schema.get("steps") or []:
         if isinstance(entry, dict):
             ids.append(str(entry.get("id", "")))
         else:
             ids.append(str(entry).split("#")[0].strip())
-    # Also walk phases if present
-    for phase in schema.get("phases") or []:
-        for entry in phase.get("steps") or []:
-            if isinstance(entry, dict):
-                ids.append(str(entry.get("id", "")))
-            else:
-                ids.append(str(entry).split(" if ")[0].strip().split("#")[0].strip())
     return [s for s in ids if s]
 
 
@@ -117,7 +109,7 @@ def validate_workflow(schema_name: str, repo_root: str) -> None:
     wf_path = config_root() / "workflows" / f"{schema_name}.yaml"
     print(f"Checking workflow: {wf_path}", file=sys.stderr)
 
-    schema = _load_schema(schema_name, repo_root)
+    schema = _load_schema(schema_name)
     step_ids = _step_ids(schema)
     _check_contracts(step_ids, repo_root)
 

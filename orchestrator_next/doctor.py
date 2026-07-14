@@ -7,15 +7,12 @@ Exit codes: 0 (all pass or warnings only), 2 (at least one failure).
 from __future__ import annotations
 
 import argparse
-import glob
 import os
 import sys
 from collections import namedtuple
 from pathlib import Path
 
 import yaml
-
-from orchestrator_next import parser as _parser
 
 CheckResult = namedtuple("CheckResult", "name status detail")
 
@@ -37,20 +34,6 @@ def _normalize_workflow_step_ref(item: object) -> str:
     return str(item).strip() if item else ""
 
 
-def _iter_step_contract_paths(repo_root: Path, orch_home: Path) -> dict[str, Path]:
-    """Step id -> contract path (override wins)."""
-    found: dict[str, Path] = {}
-    for root in (orch_home / "config" / "steps", repo_root / ".orchestrator" / "steps"):
-        if not root.is_dir():
-            continue
-        for child in sorted(root.iterdir()):
-            if child.is_dir() and (child / "contract.yaml").is_file():
-                found[child.name] = child / "contract.yaml"
-            elif child.is_file() and child.suffix == ".yaml":
-                found[child.stem] = child
-    return found
-
-
 def _collect_symlinks(root: Path) -> list[Path]:
     links: list[Path] = []
     if not root.exists():
@@ -65,105 +48,7 @@ def _collect_symlinks(root: Path) -> list[Path]:
 
 
 # ---------------------------------------------------------------------------
-# Check 1: state.yaml validity
-# ---------------------------------------------------------------------------
-
-def check_state_valid() -> CheckResult:
-    """Parse each ~/.workflows/*/state.yaml via parser.load_state(). FAIL if any fails."""
-    failures = []
-    for path in glob.glob(os.path.expanduser("~/.workflows/*/state.yaml")):
-        try:
-            _parser.load_state(path)
-        except Exception as exc:
-            failures.append(f"{path}: {exc}")
-    if failures:
-        return CheckResult("state.yaml validity", "FAIL", "; ".join(failures))
-    return CheckResult("state.yaml validity", "PASS", "all state files valid")
-
-
-# ---------------------------------------------------------------------------
-# Check 2: active vs archived
-# ---------------------------------------------------------------------------
-
-def check_active_vs_archive(orch_home: Path) -> CheckResult:
-    """WARN if any active change_id is a substring of an archive basename."""
-    active_ids = [
-        os.path.basename(p.rstrip("/"))
-        for p in glob.glob(os.path.expanduser("~/.workflows/*/"))
-    ]
-    archive_dir = orch_home / "spec" / "changes" / "archive"
-    archive_names = [f.name for f in archive_dir.iterdir()] if archive_dir.is_dir() else []
-    matches = []
-    for cid in active_ids:
-        for aname in archive_names:
-            if cid in aname:
-                matches.append(f"{cid} in archive/{aname}")
-    if matches:
-        return CheckResult("active vs archived", "WARN", "; ".join(matches))
-    return CheckResult("active vs archived", "PASS", "no stale active states")
-
-
-# ---------------------------------------------------------------------------
-# Check 3: contract invariants
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Check 4: inline scripts exist
-# ---------------------------------------------------------------------------
-
-def check_inline_scripts(orch_home: Path) -> CheckResult:
-    """FAIL if any inline contract's run: script is missing."""
-    failures = []
-    for path in glob.glob(str(orch_home / "config" / "steps" / "*.yaml")):
-        try:
-            with open(path) as f:
-                data = yaml.safe_load(f)
-            if data.get("inline") is True:
-                script = data.get("run", "")
-                resolved = orch_home / script
-                if not resolved.exists():
-                    cid = data.get("id", os.path.basename(path))
-                    failures.append(f"{cid}: missing {resolved}")
-        except Exception as exc:
-            failures.append(f"{path}: {exc}")
-    if failures:
-        return CheckResult("inline scripts exist", "FAIL", "; ".join(failures))
-    return CheckResult("inline scripts exist", "PASS", "all inline scripts present")
-
-
-# ---------------------------------------------------------------------------
-# Check 7: workflow plan consistency
-# ---------------------------------------------------------------------------
-
-def check_workflow_plans(orch_home: Path) -> CheckResult:
-    """WARN if any active workflow plan step has no corresponding contract."""
-    missing = []
-    for path in glob.glob(os.path.expanduser("~/.workflows/*/state.yaml")):
-        try:
-            state = _parser.load_state(path)
-        except Exception:
-            continue
-        plan = state.workflow_plan or {}
-        for phase_data in plan.values():
-            if not isinstance(phase_data, dict):
-                continue
-            for item in phase_data.get("active", []):
-                # Normalize: dict -> item["id"], "step if flag" -> "step", plain str -> itself
-                if isinstance(item, dict):
-                    step_id = item.get("id", "")
-                elif isinstance(item, str) and " if " in item:
-                    step_id = item.split(" if ")[0].strip()
-                else:
-                    step_id = item
-                if step_id and not (orch_home / "config" / "steps" / f"{step_id}.yaml").exists():
-                    missing.append(f"{state.change_id}: {step_id}")
-    if missing:
-        return CheckResult("workflow plan consistency", "WARN", "; ".join(missing))
-    return CheckResult("workflow plan consistency", "PASS", "all plan steps have contracts")
-
-
-# ---------------------------------------------------------------------------
-# Check 8: symlink validity
+# Symlink validity
 # ---------------------------------------------------------------------------
 
 def check_symlinks(repo_root: Path, orch_home: Path) -> CheckResult:
@@ -184,7 +69,7 @@ def check_symlinks(repo_root: Path, orch_home: Path) -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
-# Check 9: ORCHESTRATOR_HOME vs install symlink
+# Config root layout
 # ---------------------------------------------------------------------------
 
 def check_config_root(config_root: Path) -> CheckResult:
@@ -192,7 +77,7 @@ def check_config_root(config_root: Path) -> CheckResult:
 
     The config root (ORCHESTRATOR_CONFIG, else ORCHESTRATOR_HOME/config —
     see paths.config_root; explicit, no cwd fallback) must exist and hold workflows/,
-    steps/, and agents.yaml. This is the prerequisite for every config-content
+    steps/, and models.yaml. This is the prerequisite for every config-content
     check below: if the root is wrong, those checks have nothing to validate.
     """
     if not config_root.is_dir():
@@ -219,7 +104,7 @@ def check_config_root(config_root: Path) -> CheckResult:
 # ---------------------------------------------------------------------------
 
 def _iter_config_contracts(config_root: Path) -> dict[str, Path]:
-    """Step id -> contract path under <config_root>/steps/ (dir or flat form)."""
+    """Step id -> contract path under <config_root>/steps/ (directory form)."""
     found: dict[str, Path] = {}
     steps_root = config_root / "steps"
     if not steps_root.is_dir():
@@ -227,8 +112,6 @@ def _iter_config_contracts(config_root: Path) -> dict[str, Path]:
     for child in sorted(steps_root.iterdir()):
         if child.is_dir() and (child / "contract.yaml").is_file():
             found[child.name] = child / "contract.yaml"
-        elif child.is_file() and child.suffix == ".yaml":
-            found[child.stem] = child
     return found
 
 
@@ -319,34 +202,6 @@ def check_model_route_sources(config_root: Path) -> CheckResult:
 
 
 # ---------------------------------------------------------------------------
-# Check 11: contract → template graph
-# ---------------------------------------------------------------------------
-
-def check_contract_template_graph(repo_root: Path, orch_home: Path) -> CheckResult:
-    """FAIL when template_paths entries do not exist on disk."""
-    failures: list[str] = []
-    for step_id, path in sorted(_iter_step_contract_paths(repo_root, orch_home).items()):
-        try:
-            with open(path) as f:
-                data = yaml.safe_load(f) or {}
-        except Exception as exc:
-            failures.append(f"{step_id}: {exc}")
-            continue
-        for tpl in data.get("template_paths") or []:
-            if not tpl or not isinstance(tpl, str):
-                continue
-            tpl_path = Path(tpl)
-            resolved = tpl_path if tpl_path.is_absolute() else orch_home / tpl_path
-            if not resolved.is_file():
-                failures.append(
-                    f"template graph: {step_id} contract missing template {tpl}"
-                )
-    if failures:
-        return CheckResult("contract template graph", "FAIL", "; ".join(failures))
-    return CheckResult("contract template graph", "PASS", "all template paths exist")
-
-
-# ---------------------------------------------------------------------------
 # run_all + formatting
 # ---------------------------------------------------------------------------
 
@@ -362,9 +217,8 @@ def _format_table(results: list) -> str:
     return "\n".join(lines)
 
 
-def run_all(args) -> int:
+def run_all() -> int:
     """Run all checks and return exit code 0 (pass/warn) or 2 (any failure)."""
-    del args
     from orchestrator_next.paths import ConfigRootError, config_root as _config_root
 
     try:
@@ -381,13 +235,7 @@ def run_all(args) -> int:
         check_step_dispatch_kind(config_root),      # rule 2
         check_subprocesses_available(config_root),  # rule 3 (WARN)
         check_model_route_sources(config_root),
-        # Engine/state health (legacy anchor: orch_home = config_root.parent).
-        check_state_valid(),
-        check_active_vs_archive(orch_home),
-        check_inline_scripts(orch_home),
-        check_workflow_plans(orch_home),
         check_symlinks(repo_root, orch_home),
-        check_contract_template_graph(repo_root, orch_home),
     ]
     print(_format_table(results))
     if any(r.status == "FAIL" for r in results):
@@ -405,7 +253,7 @@ def _doctor_main(argv: list) -> int:
     """
     ap = argparse.ArgumentParser(prog="orchestrator doctor")
     ap.parse_args(argv)  # --help handled here; no flags in this iteration
-    return run_all(argv)
+    return run_all()
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ if _REPO_ROOT_STR not in sys.path:
     sys.path.insert(0, _REPO_ROOT_STR)
 
 from orchestrator_next.graph import (  # noqa: E402
-    _aggregate_step_metrics,
+    _scan_state_dir,
     render_workflow_graph,
     render_workflow_graph_with_overlay,
 )
@@ -103,7 +103,7 @@ def test_aggregate_step_metrics_globs_and_merges(tmp_path):
         schema="complete",
     )
 
-    metrics = _aggregate_step_metrics(state_dir)
+    metrics = _scan_state_dir(state_dir)[0]
 
     assert "implement-tasks" in metrics
     assert "run-learn-cycle" in metrics
@@ -122,7 +122,7 @@ def test_aggregate_step_metrics_sums_and_max_attempt(tmp_path):
         ],
     )
 
-    metrics = _aggregate_step_metrics(state_dir)
+    metrics = _scan_state_dir(state_dir)[0]
 
     assert metrics["implement-tasks"]["tokens"] == 96440
     assert metrics["implement-tasks"]["cost"] == pytest.approx(5.41)

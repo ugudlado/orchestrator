@@ -6,66 +6,10 @@ from __future__ import annotations
 
 import datetime as _dt
 import functools
-import os
 import re
 import sys
-from pathlib import Path
 
 import yaml
-
-
-# ---------------------------------------------------------------------------
-# Routes resolution
-# ---------------------------------------------------------------------------
-
-def _orchestrator_home() -> Path:
-    env = os.environ.get("ORCHESTRATOR_HOME")
-    if env:
-        return Path(env)
-    return Path(__file__).parent.parent.parent.parent
-
-
-@functools.lru_cache(maxsize=1)
-def _load_routes() -> dict:
-    from orchestrator_next.paths import ConfigRootError, config_root
-    try:
-        path = config_root() / "models.yaml"
-    except ConfigRootError:
-        path = _orchestrator_home() / "scripts" / "routes.yaml"
-    if not path.is_file():
-        path = _orchestrator_home() / "scripts" / "routes.yaml"
-    try:
-        with open(path) as f:
-            return yaml.safe_load(f) or {}
-    except (FileNotFoundError, OSError, yaml.YAMLError):
-        return {}
-
-
-def _model_id_from_route(routes: dict, route_entry: object) -> str | None:
-    if route_entry is None:
-        return None
-    if isinstance(route_entry, dict):
-        tier = route_entry.get("model")
-        if not isinstance(tier, str) or not tier:
-            return None
-        model_val = (routes.get("models") or {}).get(tier)
-        if isinstance(model_val, str):
-            return model_val
-        if isinstance(model_val, dict):
-            mid = model_val.get("model")
-            return str(mid) if mid else None
-        return None
-    backend = route_entry
-    backends_map = routes.get("backends") or {}
-    if backend in backends_map:
-        return backends_map[backend]
-    model_val = (routes.get("models") or {}).get(backend)
-    if isinstance(model_val, str):
-        return model_val
-    if isinstance(model_val, dict):
-        mid = model_val.get("model")
-        return str(mid) if mid else None
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -172,38 +116,26 @@ def _billable_token_units(usage: dict | None) -> int:
 def _compute_cost_usd(
     agent: str, usage: dict, *, now: "_dt.datetime | None" = None
 ) -> tuple[str | None, float | None]:
-    """Resolve agent → model_id and compute cost from token counts via config/pricing.yaml.
+    """Compute cost from usage.model + token counts via config/pricing.yaml.
 
     Returns (model_id, cost_usd) or (model_id, None) if pricing unavailable,
-    or (None, None) if model resolution fails.
+    or (None, None) if usage carries no model.
     """
-    routes = _load_routes()
-
     model_id: str | None = usage.get("model") if isinstance(usage, dict) else None
-    bills = _billable_token_units(usage)
 
     if not model_id:
-        route_entry = (routes.get("agents") or {}).get(agent)
-        if route_entry:
-            model_id = _model_id_from_route(routes, route_entry)
-            if not model_id and bills == 0:
-                sys.stderr.write(
-                    f"[record] cost_usd: route {route_entry!r} for agent {agent!r} "
-                    f"not resolved to a model_id; skipping cost computation\n"
-                )
-
-        if not model_id:
-            if bills > 0:
-                sys.stderr.write(
-                    f"[record] cost_usd: agent {agent!r} billed {bills} tokens but no "
-                    f"model_id resolved; recording no cost\n"
-                )
-            elif not route_entry and agent not in ("inline", None):
-                sys.stderr.write(
-                    f"[record] cost_usd: agent {agent!r} not in routes.yaml and "
-                    f"usage.model not set; skipping cost computation\n"
-                )
-            return None, None
+        bills = _billable_token_units(usage)
+        if bills > 0:
+            sys.stderr.write(
+                f"[record] cost_usd: agent {agent!r} billed {bills} tokens but no "
+                f"model_id resolved; recording no cost\n"
+            )
+        elif agent not in ("inline", None):
+            sys.stderr.write(
+                f"[record] cost_usd: agent {agent!r} has no usage.model set; "
+                f"skipping cost computation\n"
+            )
+        return None, None
 
     effective_at = now if now is not None else _dt.datetime.now(_dt.UTC).replace(tzinfo=None)
     price = _lookup_price(model_id, effective_at)
