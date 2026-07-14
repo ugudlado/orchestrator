@@ -45,7 +45,7 @@ def _step_ids(schema: dict[str, Any]) -> list[str]:
         if isinstance(entry, dict):
             ids.append(str(entry.get("id", "")))
         else:
-            ids.append(str(entry).split("#")[0].strip())
+            ids.append(str(entry).strip())
     return [s for s in ids if s]
 
 

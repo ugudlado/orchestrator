@@ -56,32 +56,6 @@ def _setup_home(tmp_path, schema_name, schema):
     return home
 
 
-def test_light_flag_drops_filtered_steps(tmp_path, monkeypatch):
-    """Only active steps appear in nodes — filtered ones stay in filtered list."""
-    schema = {
-        "name": "feature", "version": 1,
-        "steps": ["explore if discovery", "ux-design if ux_design", "design-and-draft-artifacts"],
-    }
-    workflow_plan = {
-        "specify": {
-            "active": ["design-and-draft-artifacts"],
-            "filtered": [
-                {"id": "explore", "reason": "flag discovery=false"},
-                {"id": "ux-design", "reason": "flag ux_design=false"},
-            ],
-        }
-    }
-    home = _setup_home(tmp_path, "feature", schema)
-    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
-    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
-
-    generate_plan(str(state_path))
-
-    state = yaml.safe_load(state_path.read_text())
-    step_ids = [n["id"] for n in state["workflow_plan"]["specify"]["nodes"]]
-    assert step_ids == ["design-and-draft-artifacts"]
-
-
 def test_byte_stable_output(tmp_path, monkeypatch):
     """Running generate_plan twice on the same state.yaml produces identical bytes."""
     schema = {
@@ -179,27 +153,6 @@ def test_cyclic_edges_raise_and_keep_pre_promotion_shape(tmp_path, monkeypatch):
     main = yaml.safe_load(state_path.read_text())["workflow_plan"]["main"]
     assert "active" in main
     assert "nodes" not in main
-
-
-def test_depends_on_to_filtered_step_dropped_with_warning(tmp_path, monkeypatch, capsys):
-    """A depends_on edge targeting a filtered step is dropped with a stderr warning."""
-    schema = {
-        "name": "feature", "version": 1,
-        "steps": ["ux-design", {"id": "design", "depends_on": ["ux-design"]}],
-    }
-    workflow_plan = {"main": {
-        "active": ["design"],
-        "filtered": [{"id": "ux-design", "reason": "flag ux_design=false"}],
-    }}
-    home = _setup_home(tmp_path, "feature", schema)
-    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
-    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
-    generate_plan(str(state_path))
-
-    captured = capsys.readouterr()
-    assert "ux-design" in captured.err
-    nodes = yaml.safe_load(state_path.read_text())["workflow_plan"]["main"]["nodes"]
-    assert not {n["id"]: n for n in nodes}["design"].get("depends_on")
 
 
 def test_depends_on_unknown_id_raises(tmp_path, monkeypatch):

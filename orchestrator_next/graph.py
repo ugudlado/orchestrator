@@ -26,8 +26,7 @@ def _normalize_steps(schema: dict[str, Any]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for entry in raw_steps:
         if isinstance(entry, str):
-            step_id = entry.split(" if ")[0].strip()
-            result.append({"id": step_id})
+            result.append({"id": entry.strip()})
         elif isinstance(entry, dict):
             result.append(entry)
     return result
