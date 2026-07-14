@@ -40,7 +40,7 @@ You MUST end your stdout with a COMPLETION: block. Fields must be indented under
 
 IMPORTANT: Output values are parsed as YAML. If a value contains a colon (:), quote the entire value with double quotes.
 
-Also emit a one-line briefing: field under outputs on every terminal status — a plain-English summary of what got done or what blocked.
+On status completed/recovered, also emit an evidence: block under outputs: `verified` maps 1:1 to this step prompt's `## Verify` items (each a check you ran and its real result — never fabricated); `decisions` lists non-obvious choices made and why (may be empty for mechanical steps). Upgrade the one-line briefing to 2-4 sentences: what was done, how, and which evidence above supports it.
 
 Success form:
 COMPLETION:
@@ -48,9 +48,16 @@ COMPLETION:
   status: completed
   outputs:
     key: value
-    briefing: "<one-line summary of outcome>"
+    evidence:
+      verified:
+        - check: "<a ## Verify item, run verbatim>"
+          result: "<real output>"
+      decisions:
+        - "<non-obvious choice and why>"
+    briefing: >
+      <what was done, how, and which evidence above supports it — 2-4 sentences>
 
-Failure/skip form:
+Failure/skip form (no evidence required — the step did not complete):
 COMPLETION:
   step_id: <this-step-id>
   status: abandoned
@@ -110,8 +117,12 @@ def build_prompt(
     load-ticket-context workflow step writes
     spec/changes/<id>/ticket-context.md for agents to read.
     """
+    learnings_instruction = (
+        "Before starting: read this repo's spec/project.yaml `learnings:` and "
+        "honor entries whose `step:` matches this step or is `any`."
+    )
     return (
-        f"{instruction}\n\n{workflow_meta}\n\n"
+        f"{instruction}\n\n{workflow_meta}\n\n{learnings_instruction}\n\n"
         f"Step context:\n{step_context}\n{_COMPLETION_CONTRACT}\n"
     )
 
