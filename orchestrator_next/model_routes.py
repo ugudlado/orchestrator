@@ -16,16 +16,24 @@ from typing import Any
 import yaml
 
 
-def _models_map(path: str | None) -> dict[str, Any]:
+def _load_yaml(path: str | None) -> dict[str, Any]:
     if not path or not Path(path).is_file():
         return {}
     try:
         with open(path) as f:
-            data = yaml.safe_load(f) or {}
+            return yaml.safe_load(f) or {}
     except yaml.YAMLError:
         return {}
-    models = data.get("models")
+
+
+def _models_map(path: str | None) -> dict[str, Any]:
+    models = _load_yaml(path).get("models")
     return models if isinstance(models, dict) else {}
+
+
+def _tools_map(path: str | None) -> dict[str, Any]:
+    tools = _load_yaml(path).get("tools")
+    return tools if isinstance(tools, dict) else {}
 
 
 def user_models_path() -> Path:
@@ -39,6 +47,26 @@ def _layer_chain(routes_yaml: str | None) -> list[tuple[str, str]]:
         ("user_home", str(user_models_path())),
         ("env_file", os.environ.get("ORCHESTRATOR_MODELS_CONFIG") or ""),
     ]
+
+
+def resolve_tool_template(tool_name: str, routes_yaml: str | None) -> tuple[str, list[str]]:
+    """Return (binary, args_template) for `tool_name` from the layered `tools:`
+    block (same `_layer_chain` precedence as `models:`).
+
+    Wholesale-wins: the highest-precedence layer that defines `tool_name` owns
+    its entire entry — no cross-layer field merge (same rule as D3's `models:`
+    resolution). Falls back to (tool_name, []) when no layer defines it, so
+    callers keep working with a bare binary name on PATH.
+    """
+    # _layer_chain is lowest-to-highest precedence; walk highest-first so the
+    # first layer that names the tool wins wholesale.
+    for _label, path in reversed(_layer_chain(routes_yaml)):
+        entry = _tools_map(path).get(tool_name)
+        if isinstance(entry, dict):
+            binary = entry.get("binary") or tool_name
+            template = entry.get("args_template") or []
+            return binary, list(template)
+    return tool_name, []
 
 
 def resolve_field(model: str, routes_yaml: str | None, field: str) -> str:
