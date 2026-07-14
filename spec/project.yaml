@@ -1,7 +1,7 @@
 version: 1
 
 ticketing: backlog # backlog | linear — drives skills/lib/tickets/ and /backlog-manager
-backlog_project: orchestrator # project id the backlog CLI / REST API scope task lookups to (default: orchestrator)
+project_id: # backlog project guid the REST API / MCP tools scope to. Supplied by the BACKLOG_PROJECT_ID secret, which overrides this; set a literal value here only for a non-secret project id/name.
 
 project:
   name: orchestrator
