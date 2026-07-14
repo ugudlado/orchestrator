@@ -3,18 +3,6 @@
   "evals": [
     {
       "id": 0,
-      "name": "session-bootstrap-context",
-      "prompt": "I want to start working on backlog tasks for this project. Get set up.",
-      "expected_output": "Calls the get_backlog_context MCP tool once first to load workflow instructions, valid statuses, and the board — before listing or editing anything.",
-      "files": [],
-      "expectations": [
-        "Called the get_backlog_context MCP tool as the first backlog action",
-        "Did not shell out to a `backlog` CLI (none exists)",
-        "Relied on get_backlog_context for the project's valid status-lane names rather than guessing"
-      ]
-    },
-    {
-      "id": 1,
       "name": "create-task-via-mcp",
       "prompt": "Add a backlog task titled 'Write release notes' to this project.",
       "expected_output": "Calls the task_create MCP tool (or POST /api/tasks) with title set and the resolved project; does NOT run a CLI or hand-write a task .md file.",
@@ -27,7 +15,7 @@
       ]
     },
     {
-      "id": 2,
+      "id": 1,
       "name": "list-tasks",
       "prompt": "Show me the tasks in this backlog project.",
       "expected_output": "Calls the task_list MCP tool (or GET /api/tasks) with the resolved project rather than reading task files or using a CLI.",
@@ -40,20 +28,21 @@
       ]
     },
     {
-      "id": 3,
+      "id": 2,
       "name": "edit-status-and-assignee",
-      "prompt": "Task 1's status should be 'In Progress' and it should be assigned to me. Update it.",
-      "expected_output": "Calls task_edit (or PUT /api/tasks/1) setting status and assignee; does NOT open or edit the task .md file, and does NOT use a CLI.",
+      "prompt": "Task 1's status should be 'In Progress' and it should be assigned to me (@claude). Update it.",
+      "expected_output": "Calls task_edit (or PUT /api/tasks/1) setting status and assignee=[\"@claude\"]; does NOT open or edit the task .md file, use a bare-string assignee, or use a CLI.",
       "files": [],
       "expectations": [
         "Used the task_edit MCP tool (or PUT /api/tasks/:id) to set status and assignee",
+        "Passed assignee as a single-element array (e.g. [\"@claude\"]) — not a bare string, which the server rejects",
         "Passed a project argument and the task id",
         "Did not open, read, or write the task markdown file to make the change",
         "Did not shell out to a `backlog` CLI"
       ]
     },
     {
-      "id": 4,
+      "id": 3,
       "name": "check-ac-array",
       "prompt": "Mark the first two acceptance criteria on task 1 as complete.",
       "expected_output": "Calls task_edit with acceptanceCriteriaCheck: [1, 2] (a single array of 1-based indices); does NOT edit checkboxes in the file, use repeated flags, or a CLI.",
@@ -65,7 +54,7 @@
       ]
     },
     {
-      "id": 5,
+      "id": 4,
       "name": "multiline-notes-array",
       "prompt": "Add implementation notes to task 1 with three separate lines: 'Investigated root cause', 'Added a regression test', and 'TODO: monitor staging'.",
       "expected_output": "Calls task_edit with notesAppend as an array of three strings (one per line); does NOT pass a single string with literal \\n, and does NOT use a CLI.",
@@ -78,7 +67,7 @@
       ]
     },
     {
-      "id": 6,
+      "id": 5,
       "name": "project-resolution-from-config",
       "prompt": "Using the backlog for THIS repo, list its open tasks. The repo's spec/project.yaml has `backlog_project: acme-web`.",
       "files": [],
@@ -90,15 +79,15 @@
       ]
     },
     {
-      "id": 7,
+      "id": 6,
       "name": "claim-next-ready-task",
       "prompt": "Claim the next ready backlog task and assign it to @claude.",
-      "expected_output": "Calls task_next (or get_backlog_context with claim/agent) with agent '@claude'; does NOT manually list-then-edit as a substitute, and does NOT use a CLI.",
+      "expected_output": "Calls task_next with agent '@claude' and the project, omitting status/taskId (defaults to the ready lane); does NOT invent a taskId, manually list-then-edit, or use a CLI.",
       "files": [],
       "expectations": [
-        "Used the task_next MCP tool (or get_backlog_context with claim=true) to atomically claim the next ready task",
-        "Passed the agent '@claude' so the claimed task is assigned",
-        "Passed a project argument",
+        "Used the task_next MCP tool to atomically claim the next ready task",
+        "Passed the agent '@claude' and a project argument",
+        "Omitted status and taskId (let it default to the project's ready lane) rather than inventing them",
         "Did not shell out to a `backlog` CLI"
       ]
     }

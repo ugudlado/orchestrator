@@ -8,8 +8,8 @@ description: Manage tasks, plans, and project state in Backlog.md through its MC
 Manage tasks in a repo where **Backlog.md** is the task system. Backlog is reached
 two ways — there is **no CLI**:
 
-- **MCP tools** — the interface for interactive agent work (`task_create`,
-  `task_list`, `task_view`, `task_edit`, `task_next`, `get_backlog_context`).
+- **MCP tools** — the interface for interactive agent work (`task_list`,
+  `task_view`, `task_create`, `task_edit`, `task_next`).
 - **REST API** — the same operations over HTTP, for scripts/automation
   (workflow step scripts already use this via `config/steps/lib/backlog-api.sh`).
 
@@ -21,8 +21,8 @@ two ways — there is **no CLI**:
 - **Every call needs a project.** A task display id (e.g. `BKG-541`) is unique
   only *within* a project, so a call with no project is rejected (HTTP 400). See
   [Project resolution](#project-resolution).
-- **Read before you write.** `task_view` (or `get_backlog_context`) before
-  editing; claim a task before working it.
+- **Read before you write.** `task_view` before editing; claim a task before
+  working it.
 
 ## Project resolution
 
@@ -36,19 +36,11 @@ are global; the *project* comes from each repo's config. Pass it explicitly as
 the `project` argument on MCP tools (`{"project": "<id>", ...}`) — do not rely on
 the connection's ambient default, which may point at a different project.
 
-## Session start
-
-Call `get_backlog_context` **once** at the start of a backlog session. It returns
-the workflow instructions, project state (valid statuses, milestones, Definition
-of Done defaults), and the current board in one call — so you learn the project's
-real status-lane names instead of guessing.
-
 ## MCP tools
 
 | Tool | Purpose | Key args (besides `project`) |
 | --- | --- | --- |
-| `get_backlog_context` | Session bootstrap: instructions + board + statuses | `claim`, `agent` |
-| `task_list` | List/filter tasks | `status`, `assignee`, `labels`, `search`, `limit` |
+| `task_list` | List/filter tasks; also how you see the board + status lanes in use | `status`, `assignee`, `labels`, `search`, `limit` |
 | `task_view` | Read one task | `id` (required) |
 | `task_create` | Create a task | `title` (required), `description`, `status`, `priority`, `labels`, `assignee`, `acceptanceCriteria` |
 | `task_edit` | Change any field | `id` (required) + fields below |
@@ -59,12 +51,13 @@ For a plain "claim the next ready task," call `task_next` with just `project` +
 `status` only selects a *different* lane to claim *from*; `taskId` claims one
 specific task. Don't invent a `taskId`.
 
-### `task_edit` — array params, not repeated flags
+### `task_edit` — arrays, not repeated flags
 
-Metadata is set directly: `status`, `priority`, `milestone` are strings, but
-`assignee` and `labels` are **arrays** — pass `assignee: ["@you"]`,
-`labels: ["backend"]` (not bare strings). Rich fields also use **arrays** (one
-element per line/item) — there is no `\n` or repeated-flag gotcha:
+Metadata is set directly: `status`, `priority`, `milestone` are strings. A task
+has a **single assignee**, but the `assignee` field is **array-typed** (the server
+rejects a bare string) — pass a one-element array: `assignee: ["@you"]`. `labels`
+is likewise an array. Rich fields also use **arrays** (one element per line/item) —
+there is no `\n` or repeated-flag gotcha:
 
 - Acceptance criteria: `acceptanceCriteriaCheck: [1, 2]`, `acceptanceCriteriaUncheck`,
   `acceptanceCriteriaAdd: ["New outcome"]`, `acceptanceCriteriaRemove`,
@@ -76,14 +69,14 @@ element per line/item) — there is no `\n` or repeated-flag gotcha:
 
 ## Workflow
 
-1. `get_backlog_context` — bootstrap; learn statuses (once per session).
-2. `task_list` (filter by `status`) or `task_next` — find work.
-3. `task_view` — read the task fully (description, ACs, refs).
-4. `task_edit` — **claim first**: set `status` (a real lane name) + `assignee`.
-5. `task_edit` `planSet` — add the plan; share it with the user before coding.
-6. Implement; `task_edit` `acceptanceCriteriaCheck` and `notesAppend` as you go.
-7. `task_edit` `finalSummary` — PR-style wrap-up.
-8. `task_edit` `status: "Done"` — only when every AC and DoD is checked, the final
+1. `task_list` — see the board and the status lanes in use; filter by `status` to
+   find work (or `task_next` to claim the next ready task).
+2. `task_view` — read the task fully (description, ACs, refs).
+3. `task_edit` — **claim first**: set `status` (a real lane name) + `assignee: ["@you"]`.
+4. `task_edit` `planSet` — add the plan; share it with the user before coding.
+5. Implement; `task_edit` `acceptanceCriteriaCheck` and `notesAppend` as you go.
+6. `task_edit` `finalSummary` — PR-style wrap-up.
+7. `task_edit` `status: "Done"` — only when every AC and DoD is checked, the final
    summary is set, and tests/docs/review pass.
 
 **Good acceptance criteria are outcomes, not steps:** "User can log in with valid
@@ -117,9 +110,10 @@ bearer-authenticated — the project is required there too.
 
 - **No CLI, no file edits.** If a change "won't take," you are reaching for a CLI
   or editing a file — use a tool/REST call instead.
-- **Status values are project-defined.** Use a lane name from `get_backlog_context`
-  (e.g. `To Do`, `Ready`, `In Progress`, `Done`) — don't invent one; an unknown
-  status is rejected.
+- **Status values are project-defined.** Use a lane name already in use (seen via
+  `task_list`) — don't invent one; an unknown status is rejected.
+- **`assignee` and `labels` are arrays.** One assignee → `["@you"]` (a bare string
+  is rejected).
 - **AC/DoD indices are 1-based** and operate on arrays: `acceptanceCriteriaCheck: [1, 2]`.
 - **Task images** live under `backlog/assets/`; reference as `![alt](assets/images/foo.png)`.
 
