@@ -183,6 +183,9 @@ def main() -> None:
         sys.exit(_doctor_main(args[1:]))
 
     if args[0] == "models":
+        if args[1:2] == ["init"]:
+            from orchestrator_next.models_init import main as _models_init_main
+            sys.exit(_models_init_main(args[2:]))
         from orchestrator_next.models_verb import main as _models_main
         sys.exit(_models_main(args[1:]))
 
