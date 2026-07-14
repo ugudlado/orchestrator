@@ -34,14 +34,7 @@ def _load_schema(schema_name: str) -> dict[str, Any]:
 def _synthetic_phase(schema: dict[str, Any]) -> dict[str, Any]:
     """All schemas are phase-less (top-level `steps:`); synthesize the single
     "main" phase the rest of the engine expects."""
-    phase: dict[str, Any] = {
-        "name": "main",
-        "goal": schema.get("description", ""),
-        "steps": schema.get("steps") or [],
-    }
-    if "verify" in schema:
-        phase["verify"] = schema["verify"]
-    return phase
+    return {"steps": schema.get("steps") or []}
 
 
 def _step_entry_for_id(phase_def: dict[str, Any], step_id: str) -> dict[str, Any] | None:
@@ -165,7 +158,7 @@ def generate_plan(state_yaml_path: str) -> None:
     Read state.yaml, promote each phase's `active:[ids]` list into a
     `nodes:[{...}]` graph, and rewrite state.yaml in place (ORC-63).
 
-    `workflow_plan[phase]` becomes `{nodes:[...], filtered, verify}`; the
+    `workflow_plan[phase]` becomes `{nodes:[...], filtered}`; the
     `active` key is removed. Topo-sort detects cycles before any write — on a
     cycle, state.yaml is left untouched. No plan.yaml is produced.
 
@@ -197,16 +190,7 @@ def generate_plan(state_yaml_path: str) -> None:
         }
         _topo_sort(nodes, filtered_ids)
 
-        verify_block = phase_plan.get("verify")
-        if verify_block is None:
-            base_verify = phase_def.get("verify")
-            if base_verify is not None:
-                verify_block = base_verify
-
-        phase_block: dict[str, Any] = {"nodes": nodes, "filtered": filtered}
-        if verify_block:
-            phase_block["verify"] = verify_block
-        promoted[phase_name] = phase_block
+        promoted[phase_name] = {"nodes": nodes, "filtered": filtered}
 
     state_raw = dict(state.raw)
     state_raw["workflow_plan"] = promoted

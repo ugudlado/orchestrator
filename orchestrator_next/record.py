@@ -93,8 +93,6 @@ _STATE_PATCH_KEYS = frozenset({
     "quarantine_events",
     "baseline",
     "refresh_artifacts",
-    "change_type",
-    "flag_adaptations",
     "worktree_path",
     "branch",
 })

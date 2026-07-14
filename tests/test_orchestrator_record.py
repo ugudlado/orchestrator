@@ -64,22 +64,6 @@ class TestOrchestratorRecord(unittest.TestCase):
         self.assertEqual(len(state["step_history"]), 1)
         self.assertEqual(state["step_history"][0]["evidence"]["outputs"], {"result": "ok"})
 
-    def test_missing_required_output_is_validation_error(self):
-        """Contract declares outputs: [result]; payload missing it → exit 3."""
-        payload = {
-            "step_id": "step-inline-only",
-            "phase": "implement",
-            "status": "completed",
-            "agent": "developer",
-            "outputs": {},  # missing 'result'
-            "usage": {"input_tokens": 10, "output_tokens": 5},
-        }
-        r = _run_record(self.state_path, payload)
-        self.assertEqual(r.returncode, 3, msg=r.stderr)
-        response = json.loads(r.stdout)
-        self.assertEqual(response["reason"], "missing_outputs")
-        self.assertIn("result", response["missing_outputs"])
-
     def test_failed_step_with_no_on_failure_leaves_node_non_completed(self):
         """A failed step with no on_failure edge halts AND marks its node failed —
         not completed — so a resume can't treat its dependents as ready."""

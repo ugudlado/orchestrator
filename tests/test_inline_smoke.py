@@ -66,7 +66,7 @@ def _find_inline_step_ids() -> list[tuple[str, str]]:
                 continue
         if not isinstance(data, dict):
             continue
-        if "run" not in data and "agent" in data:
+        if "run" not in data:
             step_id = data.get("id", entry.name)
             inline.append((step_id, contract))
     return inline
@@ -103,8 +103,8 @@ class TestInlineContractSmoke(unittest.TestCase):
             env=env,
         )
 
-    def test_all_agent_steps_dispatch_with_agent_field(self):
-        """Every agent step contract must dispatch to exit 0 with an 'agent' field in JSON."""
+    def test_all_agent_steps_dispatch_with_model_field(self):
+        """Every agent step contract must dispatch to exit 0 with a 'model' field in JSON."""
         agent_steps = _find_inline_step_ids()
         self.assertGreater(
             len(agent_steps), 0,
@@ -127,9 +127,9 @@ class TestInlineContractSmoke(unittest.TestCase):
                     f"  step={step_id}: non-JSON stdout: {result.stdout[:80]}"
                 )
                 continue
-            if not actual.get("agent"):
+            if not actual.get("model"):
                 failures.append(
-                    f"  step={step_id}: expected 'agent' field in dispatch JSON, "
+                    f"  step={step_id}: expected 'model' field in dispatch JSON, "
                     f"got: {list(actual.keys())}"
                 )
 
