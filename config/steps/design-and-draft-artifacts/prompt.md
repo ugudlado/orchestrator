@@ -70,9 +70,27 @@ APPROACH:
    a. Read the template:
    - design.md → $ORCHESTRATOR_HOME/config/steps/design-and-draft-artifacts/templates/$SCHEMA/design.md
    - tasks.yaml → $ORCHESTRATOR_HOME/config/steps/design-and-draft-artifacts/templates/$SCHEMA/tasks.yaml
-     b. Read the artifact's format contract from the relevant section below.
-     c. Generate using available context (discovery brief, design direction, change description).
-     d. Write to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/<file>.
+     b. Read the artifact's format contract before writing it (full section list,
+     field rules, and traceability/validation rules live there):
+     - Producing design.md? First Read
+       `$ORCHESTRATOR_CONFIG/steps/design-and-draft-artifacts/reference/design-format.md`.
+     - Producing tasks.yaml? First Read
+       `$ORCHESTRATOR_CONFIG/steps/design-and-draft-artifacts/reference/tasks-format.md`.
+       c. Generate using available context (discovery brief, design direction, change description).
+       d. Write to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/<file>.
+
+   **Required sections (degradation floor — even without reading the format
+   contract, produce these exact sections/fields so a skipped Read yields the
+   right structure with thinner content, never an invented format):**
+   - design.md sections, in order: frontmatter (`feature-id`, `linear-ticket`) →
+     Context → Goals / Non-Goals → Approaches Considered (≥2 + Selected Approach) →
+     High-Level Design (Architecture Overview, Key Abstractions) → Low-Level Design
+     (Components, Data Flow, State Management, Error Handling) → Constraints →
+     Trade-offs → Acceptance Criteria (each `AC-N` with `[traces: UC-N]`) →
+     Decisions → Open Questions.
+   - tasks.yaml top-level: `version: 1`, `tasks: [...]`. Per task, required fields:
+     `id` (`T-<N>`/`fix-<N>`), `title`, `files`, `verify`; optional: `depends_on`,
+     `test_scenarios`, `why`, `change`, `status`.
 
 7. Generate tasks.yaml:
    - Read design.md for approach, component breakdown, and acceptance criteria.
@@ -81,7 +99,8 @@ APPROACH:
      `spec/changes/<slug>/ticket-context.md` when present.)
    - If ux-artifacts.yaml exists: reference ux-prototype.html in UI task descriptions.
    - Generate the fewest tasks that cover all acceptance criteria.
-   - Write tasks.yaml using the Tasks YAML Format Contract below.
+   - Write tasks.yaml using the Tasks YAML Format Contract (Read
+     `$ORCHESTRATOR_CONFIG/steps/design-and-draft-artifacts/reference/tasks-format.md`).
    - When tdd_required: every implementation task has a preceding test task.
 
 8. Return COMPLETION (driver calls orchestrator done).
@@ -127,7 +146,7 @@ APPROACH:
 - Resolve major design decisions before implementation begins — do not defer to the implementation phase.
 - Tasks must be small, verifiable, and ordered.
 - Attach verification criteria per task.
-- Output MUST follow the Tasks YAML Format Contract in config/steps/design-and-draft-artifacts/prompt.md.
+- Output MUST follow the Tasks YAML Format Contract in `$ORCHESTRATOR_CONFIG/steps/design-and-draft-artifacts/reference/tasks-format.md`.
 - When flags.bugfix is true: first task MUST be the regression test, second task MUST be the fix. Order matters.
 - When spec or design introduces a new archive/state path for any producer (autopilot, sub-workflow), grep existing consumer globs (e.g., `spec/changes/archive/*/state.yaml`) and confirm the new path is matched before committing the artifact. Otherwise downstream consumers (telemetry, /learn) silently skip the new producer. <!-- learned: 2026-04-16, source: HL-278, cycle: 10, hits: 37, misses: 1, repo: orchestrator -->
 - SQL sketches in design.md that reference specific field names must be validated against a live row from the target DB (or schema file) before finalizing. Add an explicit note in the task or run a one-query T-0 validation — field name drift between sketch and schema is a common first-review failure. <!-- learned: 2026-04-17, source: learn-and-telemetry-on-duckdb, cycle: 12, hits: 35, misses: 1, repo: orchestrator -->
@@ -139,6 +158,7 @@ APPROACH:
 - In TDD workflows, every RED-phase task (a test task whose verify command is expected to fail until the paired GREEN task runs) MUST include in its `change:` field an explicit instruction to mark the tests with `@pytest.mark.xfail(strict=False)`. Without this annotation, the developer agent hits a contract contradiction: the verify command must exit 0 before commit, but RED tests are designed to fail. The xfail marker makes verify pass while the test is in expected-failure state; the xfail-cleanup-is-part-of-tdd-task rule ensures markers are removed at the phase gate. ORC-118: both implement-tasks attempts abandoned when this was missing. <!-- learned: 2026-06-02, source: orc-118, cycle: 1, hits: 3, misses: 0, repo: orchestrator -->
 - Before finalizing tasks.yaml, verify that each task's `verify` commands can be satisfied using only the files in that task's `files` list plus files in its `depends_on` chain. A verify command that imports or calls a file not covered by the task's file scope will block the developer agent: implement-tasks forbids touching unlisted files, so a failing import makes the verify exit non-zero and the task cannot be committed. ORC-118 T-2 was abandoned because its verify ran `pytest tests/test_parse_completion.py` which imported `orchestrator_next/scripts/workflow/parse-completion.py` — a file the task neither listed nor could touch. <!-- learned: 2026-06-02, source: orc-118, cycle: 76, hits: 3, misses: 0, repo: orchestrator -->
 - When design claims depend on data shapes, join keys, field names, or call-site behavior in existing code or archived run artifacts, verify them against live evidence before finalizing design.md — add a "Verified System Boundaries" section that records each claim and its verification source (grep result, archived state.yaml, or schema file). Unverified shape claims that prove false become critical findings at design-review, forcing a full re-spin. ORC-122: pre-verifying join keys (step_id alignment) and multi-state-file aggregation against real archives enabled a first-pass 9/10 design-review. <!-- learned: 2026-06-03, source: orc-122, cycle: 77, hits: 0, misses: 0, repo: orchestrator -->
+- Phase-gate tasks (tasks whose sole purpose is to verify the full suite passes before phase review) must scope their `verify` commands to the files changed by this feature, not the full test suite, unless the baseline test suite is known-clean. Before writing a phase-gate task with `pytest <full_suite_dir>`, run the suite and confirm it is green at HEAD. If pre-existing failures exist, narrow the verify command to the feature's targeted test file (e.g., `pytest orchestrator_next/tests/test_<feature_module>.py -v`). A phase-gate task with an unsatisfiable verify command blocks implement-tasks and forces a phase-review failure — the same outcome as no gate, but with two wasted implement-tasks spawns. ORC-119: T-3 required `pytest orchestrator_next/tests/ -q` green but 10 pre-existing failures existed; 2 implement-tasks abandons followed. <!-- learned: 2026-06-02, source: orc-119, cycle: 82, hits: 2, misses: 0, repo: orchestrator -->
 
 ## Verify
 
@@ -152,186 +172,3 @@ Before returning COMPLETION, confirm:
 - Every task has a verify field listing the behaviors its tests cover
 - No verify command in tasks.yaml contains an absolute path or cd /abs/path prefix
 - Key Decisions section populated in discovery.md
-
----
-
-## Design Format Contract
-
-The `design.md` file is the single feature artifact — it carries both the design
-("how") and the Acceptance Criteria. It is a structural contract between
-`create-or-refresh-artifacts` (producer and task consumer) and `run-phase-review`
-(consumer). The product-level "what & why" (motivation, impact, alternatives at
-the feature level) lives on the Linear/backlog ticket, not in this file.
-
-### Format
-
-```markdown
----
-feature-id: FEATURE-ID
-linear-ticket: HL-XXX
----
-
-# Design: {title}
-
-## Context
-
-{Problem space, constraints, and existing system boundaries.}
-
-## Goals / Non-Goals
-
-### Goals
-
-- {What this design achieves}
-
-### Non-Goals
-
-- {What this design explicitly does NOT do}
-
-## Approaches Considered
-
-### Approach 1: {name}
-
-{Brief description, pros, cons.}
-
-### Approach 2: {name}
-
-{Brief description, pros, cons.}
-
-### Selected Approach
-
-{Which approach was chosen and WHY. Reference constraints that ruled out alternatives.}
-
-## High-Level Design
-
-### Architecture Overview
-
-{System-level view — how components interact.}
-
-### Key Abstractions
-
-{Core interfaces, patterns, or concepts introduced.}
-
-## Low-Level Design
-
-### Components
-
-{Component breakdown with responsibilities, inputs, outputs, dependencies.}
-
-### Data Flow
-
-{How data moves through the system.}
-
-### State Management
-
-{What state exists, where it lives, how it changes.}
-
-### Error Handling
-
-{Error handling strategy — what can fail and how.}
-
-## Constraints
-
-{Technical and business constraints.}
-
-## Trade-offs
-
-{What was sacrificed and why it's acceptable.}
-
-## Acceptance Criteria
-
-- AC-1: {testable criterion using Given/When/Then} [traces: UC-N]
-- AC-2: {testable criterion} [traces: UC-N, UC-EN]
-
-## Decisions
-
-- {Decision} → {Rationale} → {Consequence}
-
-## Open Questions
-
-- {Unresolved questions that may affect implementation}
-```
-
-### Field rules
-
-| Field                 | Required   | Format                                                                         |
-| --------------------- | ---------- | ------------------------------------------------------------------------------ |
-| Frontmatter           | Yes        | YAML block with `feature-id` and `linear-ticket`                               |
-| Context               | Yes        | Prose describing problem space                                                 |
-| Goals                 | Yes        | Bulleted list, at least one                                                    |
-| Non-Goals             | Yes        | Bulleted list, at least one                                                    |
-| Approaches Considered | Yes        | At least 2 approaches with pros/cons                                           |
-| Selected Approach     | Yes        | References constraints that ruled out alternatives                             |
-| Architecture Overview | Yes        | System-level component interaction                                             |
-| Key Abstractions      | Yes        | Core interfaces or patterns introduced                                         |
-| Components            | Contextual | Required when >2 components involved                                           |
-| Data Flow             | Contextual | Required when data passes through >1 component                                 |
-| State Management      | Contextual | Required when mutable state exists                                             |
-| Error Handling        | Contextual | Required when external dependencies or user input involved                     |
-| Constraints           | Yes        | "None beyond standard project conventions" if genuinely none                   |
-| Trade-offs            | Yes        | At least one trade-off articulated                                             |
-| Acceptance Criteria   | Yes        | Bulleted list, each with `[traces: UC-N]` referencing discovery.md use case(s) |
-| Decisions             | Contextual | Populated when non-obvious choices made                                        |
-| Open Questions        | Yes        | Empty section means no blockers                                                |
-
-### Traceability rules
-
-- Every AC item MUST include `[traces: UC-N]` or `[traces: UC-N, UC-EN]`
-- The referenced UC-N must exist in the corresponding discovery.md
-- Every discovery.md use case (UC-N and UC-EN) should be traced by at least one AC
-- AC identifiers: `AC-1`, `AC-2`, ... sequential with no gaps
-
-### Consumers
-
-- `run-phase-review` — reads Acceptance Criteria for AC verification (implement phase) and verifies structural compliance and traceability
-
----
-
-## Tasks YAML Format Contract
-
-The `tasks.yaml` file is a machine-readable structural contract between
-`design-and-draft-artifacts` (producer) and `implement-tasks` (consumer).
-Both steps MUST use this exact format.
-
-The authoritative template is `$ORCHESTRATOR_HOME/config/steps/design-and-draft-artifacts/templates/$SCHEMA/tasks.yaml`
-— read it in step 6 and use it as the structural skeleton for generation.
-
-### Field rules
-
-| Field          | Required | Format                                                                             |
-| -------------- | -------- | ---------------------------------------------------------------------------------- |
-| version        | Yes      | Integer `1`                                                                        |
-| tasks          | Yes      | List of task objects                                                               |
-| id             | Yes      | `T-<N>` or `fix-<N>`, unique within the file                                       |
-| title          | Yes      | One line, imperative verb                                                          |
-| depends_on     | No       | List of other task ids; empty list or absent means no deps                         |
-| files          | Yes      | List of file paths the task is allowed to touch                                    |
-| verify         | Yes      | List of repo-root-relative commands (no absolute paths, no `cd /abs/path &&`)      |
-| test_scenarios | No       | List of human-readable test cases                                                  |
-| why            | No       | Which design.md AC this task serves                                                |
-| change         | No       | The mechanism — what edit, at which file:line                                      |
-| status         | No       | `pending` (default) or `completed`; updated by `implement-tasks` after each commit |
-| tokens_in      | No       | Input tokens used for this task; written by `implement-tasks` on completion        |
-| tokens_out     | No       | Output tokens used for this task; written by `implement-tasks` on completion       |
-| duration_s     | No       | Wall-clock seconds for this task; written by `implement-tasks` on completion       |
-
-### Validation rules
-
-- `id` values must be unique within the file (no duplicates).
-- `depends_on` references must resolve to another task `id` in the same file.
-- No dependency cycles.
-- Missing required fields (`id`, `title`, `files`, `verify`) are rejected by
-  `validate-tasks-yaml.sh`.
-- `verify` commands must be repo-root-relative — no absolute paths, no `cd /...` prefix.
-  The developer agent runs them from `$REPO_ROOT`. Absolute paths break worktrees
-  and other machines.
-
-### Validator
-
-`config/steps/design-and-draft-artifacts/validate-tasks-yaml.sh <path-to-tasks.yaml>` — exits 0
-on a well-formed file, exits non-zero with a diagnostic message otherwise.
-
-### Consumers
-
-- `implement-tasks` — reads this file, executes pending tasks in order, sets `status: completed` per task
-- `run-phase-review` (needs_work branch) — appends fix tasks with `status: pending` before re-dispatch
-- Phase-gate tasks (tasks whose sole purpose is to verify the full suite passes before phase review) must scope their `verify` commands to the files changed by this feature, not the full test suite, unless the baseline test suite is known-clean. Before writing a phase-gate task with `pytest <full_suite_dir>`, run the suite and confirm it is green at HEAD. If pre-existing failures exist, narrow the verify command to the feature's targeted test file (e.g., `pytest orchestrator_next/tests/test_<feature_module>.py -v`). A phase-gate task with an unsatisfiable verify command blocks implement-tasks and forces a phase-review failure — the same outcome as no gate, but with two wasted implement-tasks spawns. ORC-119: T-3 required `pytest orchestrator_next/tests/ -q` green but 10 pre-existing failures existed; 2 implement-tasks abandons followed. <!-- learned: 2026-06-02, source: orc-119, cycle: 82, hits: 2, misses: 0, repo: orchestrator -->

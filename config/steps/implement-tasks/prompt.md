@@ -7,18 +7,10 @@ task: implement the change, run verification, commit, then update `status: compl
 ## Inputs
 
 - `design.md` at `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/design.md` — design, acceptance
-  criteria, and component breakdown (optional for patch schema; see below).
+  criteria, and component breakdown.
 - `tasks.yaml` at `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/tasks.yaml` — ordered task list
-  with `status` field per task (optional on first pass for patch schema; create it
-  when tracking multiple work items).
-- **Patch workflow:** when `design.md` and `tasks.yaml` are both absent, read the
-  ticket body from `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ticket-context.md`
-  (`spec/changes/<slug>/ticket-context.md`, written by `load-ticket-context`).
-  That file is the spec — derive work items from its acceptance criteria and
-  description. Do not block or abandon because design artifacts are missing.
-  Create `tasks.yaml` in the artifact dir when you need to track multiple items
-  across commits; a single cohesive change may complete without ever writing
-  `design.md`.
+  with `status` field per task.
+- **Patch schema** runs may have neither file — see the Pre-flight stub below.
 
 ## Outputs
 
@@ -29,18 +21,15 @@ task: implement the change, run verification, commit, then update `status: compl
 
 ### Pre-flight
 
-1. Read `design.md` for context when present: goals, acceptance criteria, component
-   breakdown. For patch schema with no `design.md`, use
-   `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/ticket-context.md`
-   (`spec/changes/<slug>/ticket-context.md`) instead.
-2. Read `tasks.yaml` when present. Identify all tasks where `status` is `pending`
-   (or absent). Tasks with `status: completed` are done — skip them entirely. When
-   `tasks.yaml` is absent (patch first pass), derive tasks from the ticket-context.md
-   acceptance criteria, then create `tasks.yaml` if multiple commits are
-   needed to track progress.
-3. Resolve execution order: respect `depends_on` — do not start a task until all
+1. Read `design.md` for context: goals, acceptance criteria, component breakdown.
+2. **Both `design.md` and `tasks.yaml` absent (patch schema)? Do NOT block or abandon** —
+   Read `$ORCHESTRATOR_CONFIG/steps/implement-tasks/reference/edge-cases.md` before
+   proceeding; it tells you to derive work from `ticket-context.md` instead.
+3. Read `tasks.yaml`. Identify all tasks where `status` is `pending` (or absent).
+   Tasks with `status: completed` are done — skip them entirely.
+4. Resolve execution order: respect `depends_on` — do not start a task until all
    its dependencies have `status: completed`.
-4. **Shell capability probe**: before starting the first task, run `git status` and `echo ok` to confirm shell commands are not blocked. If either command fails or is rejected, record the failure in `known_concerns` and abandon immediately — do NOT attempt any task. This prevents wasting tool budget on a task loop that cannot commit. <!-- learned: 2026-06-02, source: orc-118, cycle: 76, hits: 4, misses: 2, repo: orchestrator -->
+5. **Shell capability probe**: before starting the first task, run `git status` and `echo ok` to confirm shell commands are not blocked. If either command fails or is rejected, record the failure in `known_concerns` and abandon immediately — do NOT attempt any task. This prevents wasting tool budget on a task loop that cannot commit. <!-- learned: 2026-06-02, source: orc-118, cycle: 76, hits: 4, misses: 2, repo: orchestrator -->
 
 ### Per-task loop
 
@@ -70,9 +59,7 @@ For each pending task in dependency order:
 
 ### After all tasks
 
-Return one of these COMPLETION forms:
-
-**All tasks committed and verified** (`status: completed`):
+**All tasks committed and verified** — return:
 
 ```
 COMPLETION:
@@ -84,29 +71,13 @@ COMPLETION:
     known_concerns: [<list or empty>]
 ```
 
-**Could not start — zero tasks attempted** (shell blocked, unresolvable blocker before T-1):
+Hit a non-mainline outcome — zero tasks attempted, or partial progress then an
+unrecoverable blocker? Read `$ORCHESTRATOR_CONFIG/steps/implement-tasks/reference/edge-cases.md`
+for the abandoned / partial completion forms.
 
-```
-COMPLETION:
-  status: abandoned
-  outputs:
-    reason: "<what prevented any work from starting>"
-    tasks_completed: 0
-```
-
-**Partial progress — some tasks committed, then unrecoverable blocker**:
-
-```
-COMPLETION:
-  status: completed
-  outputs:
-    implementation_result: partial
-    tasks_completed: <N of committed tasks>
-    tasks_skipped: <N remaining>
-    known_concerns: ["<blocker description>"]
-```
-
-Use `status: completed` whenever at least one task commit landed in `git log` — even partial progress is a completed pass. Only use `status: abandoned` when zero work was done.
+Facing a design contradiction, missing design coverage, or scope ambiguity? See
+`$ORCHESTRATOR_CONFIG/steps/implement-tasks/reference/edge-cases.md` for the
+escalation-to-architect protocol.
 
 ## Rules
 
@@ -123,28 +94,6 @@ Use `status: completed` whenever at least one task commit landed in `git log` �
 - `verify` commands are repo-root-relative — run them from `$REPO_ROOT`.
 - Never `git add -A` — stage only task files.
 - If git commit commands cannot be executed (shell rejected, permission error, or any failure that prevents the commit from landing in HEAD), do NOT return `implementation_result: completed` — record the failure in `known_concerns` AND stop implementation. A task is only complete when its commit is confirmed in `git log`. Returning completed with uncommitted work causes the phase reviewer to flag a critical finding (CF) that blocks the phase. <!-- learned: 2026-06-02, source: orc-87, cycle: 76, hits: 4, misses: 2, repo: orchestrator -->
-
-## Escalation
-
-Escalate to architect (`STATUS: escalate_to_architect`) only for:
-
-- **Design contradiction** — task instruction conflicts with `design.md`
-- **Missing design coverage** — task requires a decision `design.md` doesn't address
-- **Scope ambiguity** — unclear whether behavior is in/out of scope and wrong choice cascades
-
-Do NOT escalate for implementation details, test strategy, or retry failures.
-
-```
-STATUS: escalate_to_architect
-type: <contradiction|missing_coverage|scope_ambiguity>
-task_id: <T-N>
-context: |
-  <what the task requires, what design.md says, why they conflict>
-question: |
-  <single concrete question the architect must answer>
-attempted: |
-  <what you already tried or considered>
-```
 
 ## Verify
 

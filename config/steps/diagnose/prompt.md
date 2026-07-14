@@ -58,26 +58,33 @@ Check what else calls or depends on the buggy code:
 
 ### Step 4: Document
 
-Write a diagnosis document to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md using
-the template at $ORCHESTRATOR_HOME/config/steps/diagnose/templates/bugfix/discovery.md
-as structural guide, per the Diagnosis Format Contract below, containing:
+Producing `discovery.md`? First Read
+`$ORCHESTRATOR_CONFIG/steps/diagnose/reference/diagnosis-format.md` — it
+holds the required section structure, field rules, template pointer, and
+consumers. Write the diagnosis to `$WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md`
+with these sections (detail per that contract):
 
-- **Symptom**: What the user sees (from the bug report)
-- **Reproduction**: Runnable command/script with expected vs actual output
-- **Root cause**: File, line, and explanation of why it's wrong
-- **Impact**: Other callers/paths affected
-- **Proposed approach**: One-sentence fix direction (not implementation)
-- **Unresolved questions**: Anything that needs user input
+- **Symptoms** — what the user sees (from the bug report)
+- **Reproduction Steps** — runnable command/script with expected vs actual output
+- **Expected vs Actual**
+- **Investigation** — Evidence Gathered + Data Flow Trace
+- **Root Cause** — file, line, and why it's wrong
+- **Impact** — Severity + Affected Areas + Since When
+- **Linear Ticket**
 
-5. Return COMPLETION:
-   ```
-   COMPLETION:
-     status: completed
-     outputs:
-       discovery_result: {path: "discovery.md"}
-     artifacts: [discovery.md]
-   ```
-   Do not return the diagnosis as chat prose — the file is the artifact.
+List any unresolved questions explicitly. Do not propose a fix.
+
+Then return COMPLETION:
+
+```
+COMPLETION:
+  status: completed
+  outputs:
+    discovery_result: {path: "discovery.md"}
+  artifacts: [discovery.md]
+```
+
+Do not return the diagnosis as chat prose — the file is the artifact.
 
 ### Rules (constraints on how)
 
@@ -94,86 +101,3 @@ as structural guide, per the Diagnosis Format Contract below, containing:
 - Reproduction is a runnable command or script, not just prose
 - Unresolved questions explicitly listed (not hidden)
 - If pattern-based bug: catalog count matches `find + grep` count across entire source tree
-
----
-
-## Diagnosis Format Contract
-
-The bugfix phase-opening brief lives in `discovery.md` (same filename as feature/spike
-`explore` output). Internal structure follows this contract; `diagnose` is the producer
-and `design-and-draft-artifacts` / `run-phase-review` are consumers. Only produced in
-the bugfix schema.
-
-### Format
-
-```markdown
-# Diagnosis: {title}
-
-## Symptoms
-
-{What's broken — error messages, screenshots, logs.}
-
-## Reproduction Steps
-
-1. {Step 1}
-2. {Step 2}
-3. {Observed failure}
-
-## Expected vs Actual
-
-- **Expected**: {what should happen}
-- **Actual**: {what happens instead}
-
-## Investigation
-
-### Evidence Gathered
-
-- {What was checked — logs, git blame, recent changes, config diffs}
-
-### Data Flow Trace
-
-{Trace from input to error point. Where does it diverge from expected?}
-
-## Root Cause
-
-{The actual cause — not symptoms, not guesses.}
-Reference: `file_path:line_number`
-
-## Impact
-
-### Severity
-
-{One of: critical, high, medium, low}
-
-### Affected Areas
-
-{Users, features, or systems impacted.}
-
-### Since When
-
-{Commit, PR, or date when introduced. "Unknown" if not determinable.}
-
-## Linear Ticket
-
-{HL-XXX or "none"}
-```
-
-### Field rules
-
-| Field              | Required | Format                                              |
-| ------------------ | -------- | --------------------------------------------------- |
-| Symptoms           | Yes      | Prose with concrete evidence (error messages, logs) |
-| Reproduction Steps | Yes      | Numbered list, must be runnable/followable          |
-| Expected vs Actual | Yes      | Two items: `**Expected**:` and `**Actual**:`        |
-| Evidence Gathered  | Yes      | Bulleted list of what was checked                   |
-| Data Flow Trace    | Yes      | Prose tracing data path to error point              |
-| Root Cause         | Yes      | Prose with `file_path:line_number` reference        |
-| Severity           | Yes      | One of: `critical`, `high`, `medium`, `low`         |
-| Affected Areas     | Yes      | Prose or bulleted list                              |
-| Since When         | Yes      | Commit/PR/date or "Unknown"                         |
-| Linear Ticket      | Yes      | `HL-XXX` or `none`                                  |
-
-### Consumers
-
-- `create-or-refresh-artifacts` — reads Root Cause for fix-plan.md generation
-- `run-phase-review` — verifies structural compliance and root cause evidence
