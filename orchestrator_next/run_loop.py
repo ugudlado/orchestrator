@@ -145,14 +145,6 @@ def _resolve_tool_template(tool_name: str, models_yaml: str | None) -> tuple[str
     return binary, template
 
 
-def _pi_settings() -> dict[str, Any]:
-    path = Path.home() / ".pi" / "agent" / "settings.json"
-    try:
-        return json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError):
-        return {}
-
-
 def _build_argv(
     tool_name: str, binary: str, template: list[str],
     prompt: str, prompt_file: str, model_id: str,
@@ -176,15 +168,6 @@ def _build_argv(
     argv = [binary] + [expand(a) for a in template]
     if len(argv) == 1:  # no template
         argv += (["-p", prompt] if tool_name in ("claude", "pi") else [prompt])
-
-    # Pi: inject saved provider/model flags when template hasn't supplied them.
-    if tool_name == "pi" and "--provider" not in argv:
-        settings = _pi_settings()
-        flags: list[str] = []
-        for field, flag in (("provider", "--provider"), ("model", "--model"), ("thinking", "--thinking")):
-            if settings.get(field):
-                flags += [flag, str(settings[field])]
-        argv = [argv[0]] + flags + argv[1:]
     return argv
 
 

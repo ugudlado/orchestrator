@@ -57,8 +57,9 @@ tools:
 
   pi:
     binary: pi
-    # Non-interactive: use saved ~/.pi/agent/settings.json (provider/model) + @prompt file.
-    args_template: ["@{prompt_file}", "-p", "."]
+    # Single-shot JSON event stream (usage/cost parsed from the last turn_end).
+    # Provider/model come from pi's own ~/.pi/agent/settings.json defaults.
+    args_template: ["--mode", "json", "@{prompt_file}"]
     stdin: none
     capture: stdout
 
