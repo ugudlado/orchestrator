@@ -29,8 +29,6 @@ def _repo_root_from_env(orch_home: Path) -> Path:
 def _normalize_workflow_step_ref(item: object) -> str:
     if isinstance(item, dict):
         return str(item.get("id", "")).strip()
-    if isinstance(item, str) and " if " in item:
-        return item.split(" if ")[0].strip()
     return str(item).strip() if item else ""
 
 

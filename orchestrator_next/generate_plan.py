@@ -3,7 +3,7 @@ Promote a seeded state.yaml workflow_plan into the DAG `nodes` shape (ORC-63).
 
 Public API: generate_plan(state_yaml_path: str) -> None
 Reads state.yaml + schema, topo-sorts the dependency graph, and rewrites
-state.yaml in place with `workflow_plan[phase] = {nodes, filtered, verify}`.
+state.yaml in place with `workflow_plan[phase] = {nodes, filtered}`.
 No separate plan file is produced — workflow state lives in one file.
 """
 from __future__ import annotations
@@ -43,7 +43,6 @@ def _step_entry_for_id(phase_def: dict[str, Any], step_id: str) -> dict[str, Any
 
     Step entries may be:
     - Plain string: "design-and-draft-artifacts"
-    - String with gate: "explore if discovery"  (strip " if <flag>")
     - Dict: {id: ..., depends_on: ..., on_success: ...}
 
     Returns the dict form or an empty dict if the step is a plain string match.
@@ -53,10 +52,8 @@ def _step_entry_for_id(phase_def: dict[str, Any], step_id: str) -> dict[str, Any
         if isinstance(entry, dict):
             if entry.get("id") == step_id:
                 return entry
-        elif isinstance(entry, str):
-            bare = entry.split(" if ")[0].strip()
-            if bare == step_id:
-                return {}
+        elif isinstance(entry, str) and entry.strip() == step_id:
+            return {}
     return None
 
 
@@ -81,14 +78,13 @@ def _build_step_node(step_id: str, phase_def: dict[str, Any]) -> dict[str, Any]:
     return node
 
 
-def _topo_sort(nodes: list[dict[str, Any]], filtered_ids: set[str]) -> None:
+def _topo_sort(nodes: list[dict[str, Any]]) -> None:
     """Validate the node DAG via Kahn's algorithm (ORC-63).
 
     Builds the effective edge set: each node's authored `depends_on`, else an
     implicit chain edge on its declaration-order predecessor. Edges that
-    target a `filtered` step are dropped in place (with a stderr warning).
-    Edges that target an unknown id (not a node, not filtered) raise
-    ValueError. A cycle raises ValueError naming the cycle path.
+    target an unknown id raise ValueError. A cycle raises ValueError naming
+    the cycle path.
 
     Mutates each node's `depends_on` to its effective edge set so the promoted
     state.yaml carries explicit edges. The first node keeps no implicit edge.
@@ -107,24 +103,15 @@ def _topo_sort(nodes: list[dict[str, Any]], filtered_ids: set[str]) -> None:
         else:
             deps = []
 
-        kept: list[str] = []
         for dep in deps:
-            if dep in filtered_ids:
-                print(
-                    f"WARNING: step {nid!r} depends_on filtered step {dep!r} — "
-                    f"dropping the edge",
-                    file=sys.stderr,
-                )
-                continue
             if dep not in id_set:
                 raise ValueError(
                     f"step {nid!r} depends_on unknown step {dep!r} — "
-                    f"not a node in this phase and not filtered"
+                    f"not a node in this phase"
                 )
-            kept.append(dep)
-        effective[nid] = kept
-        if kept:
-            node["depends_on"] = kept
+        effective[nid] = deps
+        if deps:
+            node["depends_on"] = deps
         elif "depends_on" in node:
             del node["depends_on"]
 
@@ -180,17 +167,11 @@ def generate_plan(state_yaml_path: str) -> None:
             ]
         else:
             active_step_ids = list(phase_plan.get("active", []))
-        filtered = phase_plan.get("filtered", []) or []
 
         nodes = [_build_step_node(step_id, phase_def) for step_id in active_step_ids]
+        _topo_sort(nodes)
 
-        filtered_ids = {
-            (f.get("id") if isinstance(f, dict) else str(f))
-            for f in filtered
-        }
-        _topo_sort(nodes, filtered_ids)
-
-        promoted[phase_name] = {"nodes": nodes, "filtered": filtered}
+        promoted[phase_name] = {"nodes": nodes, "filtered": phase_plan.get("filtered", []) or []}
 
     state_raw = dict(state.raw)
     state_raw["workflow_plan"] = promoted
