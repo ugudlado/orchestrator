@@ -69,11 +69,11 @@
     {
       "id": 5,
       "name": "project-resolution-from-config",
-      "prompt": "Using the backlog for THIS repo, list its open tasks. The repo's spec/project.yaml has `backlog_project: acme-web`.",
+      "prompt": "Using the backlog for THIS repo, list its open tasks. The repo's spec/project.yaml has `project_id: acme-web`.",
       "files": [],
       "expected_output": "Calls task_list with project = 'acme-web' (resolved from spec/project.yaml), rather than omitting the project or using an unrelated default.",
       "expectations": [
-        "Passed project = 'acme-web' (the value from spec/project.yaml:backlog_project) on the call",
+        "Passed project = 'acme-web' (the value from spec/project.yaml:project_id) on the call",
         "Did not omit the project or rely on an ambient/default project",
         "Resolved the project from workflow config (spec/project.yaml), consistent with env override precedence"
       ]

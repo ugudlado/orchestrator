@@ -29,7 +29,7 @@ two ways — there is **no CLI**:
 Resolve the project once and pass it on every call. Precedence (first non-empty):
 
 1. `BACKLOG_PROJECT` / `BACKLOG_PROJECT_ID` — env override (id, guid, or name).
-2. `backlog_project` in the repo's `spec/project.yaml` — the per-repo default.
+2. `project_id` in the repo's `spec/project.yaml` — the per-repo default.
 
 This is what makes one Backlog server + token work across repos: the URL/token
 are global; the *project* comes from each repo's config. Pass it explicitly as
