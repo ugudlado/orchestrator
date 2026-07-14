@@ -4,16 +4,12 @@ Replaces the bash drivers (run-workflow.sh, orchestrator-run.sh, seed-state.sh's
 shell glue). `orchestrator run <id>` drives every step in-process: dispatch →
 execute (agent|script) → record → repeat. One canonical path per step kind.
 
-Seeding reuses the existing Python helpers (seed_parse_overrides, seed_write_state,
-generate_plan) — the shell only ever orchestrated them.
-
 Exit codes (protocol, unchanged):
   1 complete · 2 blocked · 3 contract/parse error · 4 unknown agent route ·
   6 tool subprocess failure (recorded) · 7 unexpected/usage.
 """
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import re
@@ -32,26 +28,11 @@ from orchestrator_next.dispatch import ContractDispatchError, dispatch
 # ContractNotFoundError(ValueError) for a missing script payload and
 # ContractError(ValueError) for a malformed contract. Catch all three so any
 # contract problem returns exit 3 instead of crashing the loop.
-from orchestrator_next.parser import ContractNotFoundError
-from orchestrator_next.parser import ContractError
-from orchestrator_next.parser import load_state
+from orchestrator_next.parse_completion import parse_completion
+from orchestrator_next.parser import ContractError, ContractNotFoundError, load_state
 from orchestrator_next.pricing import format_cost_so_far, format_last_step_usage
 from orchestrator_next.record import autocommit_state, record
 from orchestrator_next.usage_adapters import ZEROED_USAGE, split_stdout
-
-_LIB = Path(__file__).resolve().parent / "scripts" / "lib"
-
-
-def _import_by_path(mod_name: str, filename: str):
-    """Import a hyphenated/script-dir module (parse-completion.py) by path."""
-    spec = importlib.util.spec_from_file_location(mod_name, _LIB / filename)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
-    return mod
-
-
-_parse_completion_mod = _import_by_path("parse_completion", "parse-completion.py")
-parse_completion = _parse_completion_mod.parse_completion
 
 _COMPLETION_CONTRACT = """
 ---
@@ -279,11 +260,11 @@ def run_agent_step(
     started_at = action.get("started_at") or datetime.now(timezone.utc).isoformat()
     start_ms = _now_ms()
 
-    tool_name = model_routes.resolve_subprocess(model, models_yaml)
+    tool_name = model_routes.resolve_field(model, models_yaml, "subprocess")
     if not tool_name:
         _log(f"ERROR: no route for model '{model}'")
         raise SystemExit(4)
-    model_id = model_routes.resolve_model_id(model, models_yaml)
+    model_id = model_routes.resolve_field(model, models_yaml, "model_id")
     binary, template = _resolve_tool_template(tool_name, models_yaml)
 
     meta = _workflow_meta(state_raw, state_yaml_path)
@@ -337,28 +318,29 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
     For archive-completed-change: durable pre-write BEFORE running (state file
     moves), so the entry survives the relocation; returns (True, relocated_path).
     """
-    from orchestrator_next.parser import load_contract_for_step
+    from orchestrator_next.parser import ScriptStepContract, load_contract_for_step
     from orchestrator_next.paths import config_root
     from orchestrator_next.step_env import inline_script_env
-    from orchestrator_next.step_runner import apply_step_paths, build_step_command
     step_id = action["step_id"]
     phase = action.get("phase", "main")
     attempt = action.get("attempt", 1)
     if state is None:
         state = load_state(state_yaml_path)
-    from orchestrator_next.parser import ScriptStepContract
     contract = load_contract_for_step(step_id, state_yaml_path)
     if not isinstance(contract, ScriptStepContract):
         raise ContractDispatchError(f"run_script_step called on non-script contract: {step_id}")
     env = inline_script_env(state, state_yaml_path, action_env=action.get("env", {}))
-    croot = str(config_root())
-    env = apply_step_paths(env, step_id=step_id, contract=contract, config_root=croot)
+    # parser absolutizes run: relative to the contract dir, so the script's own
+    # directory IS the step dir.
+    env["ORCHESTRATOR_STEP_DIR"] = os.path.dirname(contract.run)
     _params_path = config_root() / "steps" / step_id / "contract.yaml"
     if _params_path.is_file():
         _raw = yaml.safe_load(_params_path.read_text(encoding="utf-8")) or {}
         for k, v in (_raw.get("params") or {}).items():
             env.setdefault(str(k), str(v))
-    run_cmd = build_step_command(step_id, contract, croot)
+    if not os.path.isfile(contract.run):
+        raise FileNotFoundError(f"step script not found: {contract.run}")
+    run_cmd = ["bash", contract.run]
 
     _log(f"→ {step_id}  phase={phase}  kind=inline script  attempt={attempt}")
     _log(f"  run: {' '.join(run_cmd)}")
@@ -413,7 +395,7 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
         record(state_yaml_path, payload)
     # Relocate state path if the script moved it (archive-completed-change emits
     # archive_record.archive_path when it succeeds).
-    new_state_path = _relocate_after_archive(outputs, state_yaml_path, new_state_path)
+    new_state_path = _relocate_after_archive(outputs, new_state_path)
 
     _log(f"✓ {step_id}  done  status=completed")
     _log_cost_so_far(new_state_path)
@@ -431,7 +413,7 @@ def _parse_stdout_outputs(proc) -> dict:
     return {}
 
 
-def _relocate_after_archive(outputs, state_yaml_path, default) -> str:
+def _relocate_after_archive(outputs, default) -> str:
     """Relocate state path when a script emits archive_record.archive_path."""
     archive_path = (outputs.get("archive_record") or {}).get("archive_path") or ""
     if not archive_path:
@@ -510,7 +492,7 @@ def _notify_blocked(state_yaml_path: str, state_raw: dict[str, Any], reason: str
 # ---------------------------------------------------------------------------
 # The loop
 # ---------------------------------------------------------------------------
-def run_loop(state_yaml_path: str, ticket_id: str, *, repo_root: str, models_yaml: str) -> int:
+def run_loop(state_yaml_path: str, *, repo_root: str, models_yaml: str) -> int:
     import tempfile
     tmp_dir = Path(tempfile.mkdtemp())
     try:
@@ -629,8 +611,61 @@ def _resolve_archived_state(slug: str, repo_root: str) -> str:
     return ""
 
 
-def _seed_state(slug: str, schema: str, repo_root: str, flag_overrides: list[str]) -> str:
-    """Seed a state file via the existing Python helpers; return its path.
+def _write_initial_state(
+    state_yaml: Path, *, slug: str, schema: str, repo_root: str,
+    active: list[str], prior_path: str,
+) -> None:
+    """Write the initial state.yaml, carrying identity fields from the most
+    recent prior state file when provided."""
+    prior_context: dict = {}
+    if prior_path:
+        try:
+            prior_raw = yaml.safe_load(Path(prior_path).read_text()) or {}
+            for key in ("worktree_path", "branch", "repo_root", "change_id", "slug",
+                        "ticket_id", "ticketing"):
+                if prior_raw.get(key):
+                    prior_context[key] = prior_raw[key]
+        except (OSError, yaml.YAMLError):
+            pass  # prior unreadable — start fresh
+
+    # Read ticketing backend from spec/project.yaml so ticket-sync steps work.
+    repo_root = prior_context.get("repo_root") or repo_root
+    ticketing = prior_context.get("ticketing") or ""
+    if not ticketing:
+        try:
+            project = yaml.safe_load((Path(repo_root) / "spec" / "project.yaml").read_text()) or {}
+            ticketing = str(project.get("ticketing") or "")
+        except (OSError, yaml.YAMLError):
+            pass
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    slug = prior_context.get("slug") or slug
+    state = {
+        "change_id": prior_context.get("change_id") or slug,
+        "slug": slug,
+        "ticket_id": prior_context.get("ticket_id") or slug,
+        "ticketing": ticketing,
+        "schema": schema,
+        "status": "active",
+        "repo_root": repo_root,
+        "workflow_plan": {"main": {"active": active, "filtered": []}},
+        "phase": "main",
+        "next_step": {"phase": "main", "step_id": active[0]},
+        "step_history": [],
+        "created_at": now,
+        "started_at": now,
+    }
+    if prior_context.get("worktree_path"):
+        state["worktree_path"] = prior_context["worktree_path"]
+    if prior_context.get("branch"):
+        state["branch"] = prior_context["branch"]
+
+    state_yaml.write_text(yaml.safe_dump(state, sort_keys=False, allow_unicode=True))
+    _log(f"seeded: {state_yaml}")
+
+
+def _seed_state(slug: str, schema: str, repo_root: str) -> str:
+    """Seed a state file; return its path.
     Idempotent: reuse the newest *_<schema>_state.yaml if present."""
     from orchestrator_next.paths import config_root
     schema_yaml = config_root() / "workflows" / f"{schema}.yaml"
@@ -647,19 +682,15 @@ def _seed_state(slug: str, schema: str, repo_root: str, flag_overrides: list[str
         _log(f"state file exists at {existing[-1]} (idempotent skip)")
         return str(existing[-1])
 
-    # scripts/lib is not a package (no __init__.py) — import by path.
-    seed_parse_overrides = _import_by_path("seed_parse_overrides", "seed_parse_overrides.py")
-    seed_write_state = _import_by_path("seed_write_state", "seed_write_state.py")
-
-    # seed_parse_overrides.main prints INIT_JSON to stdout; capture it.
-    import io
-    import contextlib
-    buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        rc = seed_parse_overrides.main([slug, schema, repo_root, str(schema_yaml), *flag_overrides])
-    if rc != 0:
+    # The steps list IS the plan — no gate-filtering (ORC-108).
+    schema_doc = yaml.safe_load(schema_yaml.read_text()) or {}
+    active = [
+        (entry.get("id", "") if isinstance(entry, dict) else str(entry))
+        for entry in schema_doc.get("steps", [])
+    ]
+    if not active:
+        _log(f"ERROR: schema '{schema}' declares no steps")
         raise SystemExit(1)
-    init_json = buf.getvalue().strip()
 
     state_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
@@ -667,9 +698,8 @@ def _seed_state(slug: str, schema: str, repo_root: str, flag_overrides: list[str
     prior = sorted(state_dir.glob("*_state.yaml"))
     prior_path = str(prior[-1]) if prior else ""
 
-    if seed_write_state.main([str(state_yaml), init_json, prior_path]) != 0:
-        state_yaml.unlink(missing_ok=True)
-        raise SystemExit(1)
+    _write_initial_state(state_yaml, slug=slug, schema=schema,
+                         repo_root=repo_root, active=active, prior_path=prior_path)
 
     from orchestrator_next import generate_plan as _gp
     try:
@@ -766,7 +796,7 @@ def run_cmd(argv: list[str]) -> int:
         if state_yaml_path:
             _log(f"Resuming complete on archived state: {state_yaml_path}")
     if not state_yaml_path:
-        state_yaml_path = _seed_state(slug, schema, repo_root, flag_overrides)
+        state_yaml_path = _seed_state(slug, schema, repo_root)
 
     # --seed-only: stop here. The caller (external driver) walks next/done itself.
     # Print the path on its own final line so callers can `tail -1` it.
@@ -789,7 +819,7 @@ def run_cmd(argv: list[str]) -> int:
                 break
 
     _log(f"Running workflow: ticket={ticket_id} schema={schema} state={state_yaml_path}")
-    return run_loop(state_yaml_path, ticket_id, repo_root=repo_root, models_yaml=models_yaml)
+    return run_loop(state_yaml_path, repo_root=repo_root, models_yaml=models_yaml)
 
 
 if __name__ == "__main__":

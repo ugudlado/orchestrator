@@ -86,7 +86,7 @@ def test_blocked_headless_commits_pushes_and_notifies(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_NOTIFY_CMD", f"cat > {payload_file}")
     sy = _state(repo, [{"id": "step-h", "status": "pending"}])
 
-    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), models_yaml="")
+    code = run_loop.run_loop(str(sy), repo_root=str(repo), models_yaml="")
     assert code == 2
 
     # State dir committed despite being gitignored.
@@ -115,7 +115,7 @@ def test_headless_run_commits_state_per_record(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_HEADLESS", "1")
     sy = _state(repo, [{"id": "step-h", "status": "pending"}])
 
-    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), models_yaml="")
+    code = run_loop.run_loop(str(sy), repo_root=str(repo), models_yaml="")
     assert code == 1
 
     log = _git(repo, "log", "--oneline").stdout
@@ -133,6 +133,6 @@ def test_not_headless_no_commits(tmp_path, monkeypatch):
     monkeypatch.setenv("REPO_ROOT", str(repo))
     sy = _state(repo, [{"id": "step-h", "status": "pending"}])
 
-    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), models_yaml="")
+    code = run_loop.run_loop(str(sy), repo_root=str(repo), models_yaml="")
     assert code == 1
     assert "orchestrator state" not in _git(repo, "log", "--oneline").stdout

@@ -63,7 +63,7 @@ def test_loop_advances_two_steps_and_completes(tmp_path, monkeypatch):
     }))
 
     code = run_loop.run_loop(
-        str(state_yaml), ticket_id="", repo_root=str(repo), models_yaml="",
+        str(state_yaml), repo_root=str(repo), models_yaml="",
     )
 
     # 1. The loop terminated cleanly (workflow complete).

@@ -79,9 +79,9 @@ def _run_seed(slug: str, schema: str, *, repo_root: Path, worktree_base: Path,
     driver = (
         "import sys; sys.path.insert(0, {scripts!r});\n"
         "from orchestrator_next.run_loop import _seed_state;\n"
-        "print(_seed_state({slug!r}, {schema!r}, {repo!r}, list({flags!r})))\n"
+        "print(_seed_state({slug!r}, {schema!r}, {repo!r}))\n"
     ).format(scripts=real_scripts_dir, slug=slug, schema=schema,
-             repo=str(repo_root), flags=flag_overrides or [])
+             repo=str(repo_root))
     return subprocess.run(
         [sys.executable, "-c", driver],
         capture_output=True, text=True, env=env,

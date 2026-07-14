@@ -119,10 +119,10 @@ def _run_seed(
     driver = (
         "import sys; sys.path.insert(0, {scripts!r});\n"
         "from orchestrator_next.run_loop import _seed_state;\n"
-        "print(_seed_state({slug!r}, {schema!r}, {repo!r}, list({flags!r})))\n"
+        "print(_seed_state({slug!r}, {schema!r}, {repo!r}))\n"
     ).format(
         scripts=real_scripts_dir, slug=slug, schema=schema,
-        repo=str(repo_root), flags=flag_overrides or [],
+        repo=str(repo_root),
     )
     return subprocess.run(
         [sys.executable, "-c", driver],
@@ -211,7 +211,6 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
     assert state_raw["started_at"] == state_raw["created_at"], (
         f"started_at ({state_raw.get('started_at')!r}) != created_at ({state_raw.get('created_at')!r})"
     )
-    assert state_raw.get("project_context_loaded") is True
     # ORC-116: worktree_path and branch are NOT written by seed — create-worktree step does it.
     assert "worktree_path" not in state_raw, (
         "seed-state.sh must NOT write worktree_path (ORC-116)"

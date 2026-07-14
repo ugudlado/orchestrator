@@ -70,7 +70,7 @@ def test_persistently_failing_agent_terminates(tmp_path, monkeypatch):
     }))
 
     # If the loop spins, this call never returns and pytest hangs (loud failure).
-    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), models_yaml=str(models_yaml))
+    code = run_loop.run_loop(str(sy), repo_root=str(repo), models_yaml=str(models_yaml))
 
     # TERMINATES. With no on_failure routing, a failed agent node is not
     # re-opened by readiness — the phase completes (exit 1). The point of this
@@ -118,7 +118,7 @@ def test_malformed_contract_returns_exit_3_not_crash(tmp_path, monkeypatch):
     }))
 
     # Must NOT raise — returns exit 3.
-    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), models_yaml="")
+    code = run_loop.run_loop(str(sy), repo_root=str(repo), models_yaml="")
     assert code == 3, f"malformed contract must return exit 3, got {code}"
 
 
@@ -170,7 +170,7 @@ def test_spawn_failure_cap_halts(tmp_path, monkeypatch):
     }))
 
     # Must terminate at the cap, not spin (pytest hang = loud failure).
-    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), models_yaml=str(models_yaml))
+    code = run_loop.run_loop(str(sy), repo_root=str(repo), models_yaml=str(models_yaml))
     assert code in (1, 2), f"spawn-failure path did not terminate cleanly: {code}"
     hist = yaml.safe_load(sy.read_text()).get("step_history") or []
     failed = [e for e in hist if e.get("step_id") == "spawner" and e.get("status") == "failed"]

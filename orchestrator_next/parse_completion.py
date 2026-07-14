@@ -1,18 +1,7 @@
-#!/usr/bin/env python3
-"""Parse a COMPLETION block from agent stdout and emit done-payload JSON.
-
-Usage:
-    parse-completion.py [file]      # reads file argument or stdin
-    echo "$output" | parse-completion.py
-
-Exit codes:
-    0  Success — valid COMPLETION block found, JSON written to stdout
-    1  Error   — no COMPLETION block found or block is invalid (diagnostic on stderr)
-"""
+"""Parse a COMPLETION block from agent stdout into a done-payload dict."""
 from __future__ import annotations
 
-import json
-import sys
+import re
 from typing import Any
 
 import yaml
@@ -41,10 +30,9 @@ def find_completion_block(text: str) -> str | None:
     Handles agents (e.g. Cursor) that emit COMPLETION: mid-line with no
     preceding newline by normalising the text first.
     """
-    import re as _re
     # Insert a newline before COMPLETION: when it appears mid-line
     # (i.e. not preceded by a newline or start-of-string).
-    text = _re.sub(r"(?<!\n)(COMPLETION:)", r"\n\1", text)
+    text = re.sub(r"(?<!\n)(COMPLETION:)", r"\n\1", text)
     lines = text.splitlines()
     start_idx = None
     for i, line in enumerate(lines):
@@ -107,30 +95,3 @@ def parse_completion(text: str) -> dict[str, Any]:
         )
 
     return completion
-
-
-def main() -> int:
-    # Read from file argument or stdin
-    if len(sys.argv) > 1:
-        path = sys.argv[1]
-        try:
-            with open(path) as f:
-                text = f.read()
-        except OSError as e:
-            print(f"ERROR: Cannot read file {path!r}: {e}", file=sys.stderr)
-            return 1
-    else:
-        text = sys.stdin.read()
-
-    try:
-        completion = parse_completion(text)
-    except ValueError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        return 1
-
-    print(json.dumps(completion, indent=2))
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

@@ -33,7 +33,6 @@ from orchestrator_next.parser import (
     phase_nodes,
     safe_write_yaml as _safe_write_yaml,
 )
-from orchestrator_next.step_runner import step_directory as _step_directory
 
 
 def _step_in_plan(state, phase: str, step_id: str) -> bool:
@@ -48,10 +47,6 @@ class ContractDispatchError(RuntimeError):
 # Blocking statuses: caller cannot proceed
 _BLOCKING_STATUSES = frozenset({"escalate_to_architect", "blocked"})
 _DEFAULT_MAX_SPAWN_FAILURES = 3
-
-
-def _compute_attempt(step_history: list[StepHistoryEntry], phase: str, step_id: str) -> int:
-    return compute_attempt(step_history, phase, step_id, include_in_progress=True)
 
 
 def _is_spawn_failure(entry: StepHistoryEntry) -> bool:
@@ -80,12 +75,6 @@ def _consecutive_spawn_failures(
     return count
 
 
-def _get_last_entry(step_history: list[StepHistoryEntry]) -> StepHistoryEntry | None:
-    return step_history[-1] if step_history else None
-
-
-
-
 def _node_step_context(state: State, step_id: str) -> dict[str, Any]:
     """Return the plan node dict for (current phase, step_id) as step_context."""
     node = readiness.find_node(phase_nodes(state, state.phase), step_id)
@@ -97,7 +86,6 @@ def _persist_node_status(
     state_yaml_path: str,
     phase: str,
     step_id: str,
-    status: str,
     state_raw: dict | None = None,
 ) -> None:
     """Mark a node's status to in_progress in state.yaml on disk."""
@@ -109,7 +97,7 @@ def _persist_node_status(
             state_raw = yaml.safe_load(pre_bytes.decode("utf-8")) or {}
     except (OSError, yaml.YAMLError):
         return
-    readiness.mark_node_status(state_raw, phase, step_id, status)
+    readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
     try:
         _safe_write_yaml(path, state_raw, pre_bytes)
     except yaml.YAMLError:
@@ -161,15 +149,18 @@ def _warn_if_more_phases_remain(state: State) -> None:
 
 
 def _resolve_step_contract_dir(step_id: str, contract: ScriptStepContract) -> str:
-    """Return the contract directory path for a script contract, or empty string."""
-    from orchestrator_next.paths import ConfigRootError, config_root
-    try:
-        return str(_step_directory(step_id, contract, str(config_root())))
-    except ConfigRootError:
-        pass
+    """Return the contract directory path for a script contract, or empty string.
+
+    parser absolutizes run: relative to the contract dir, so the script's own
+    directory IS the contract dir; fall back to config/steps/<id> otherwise.
+    """
     if os.path.isabs(contract.run):
         return os.path.dirname(contract.run)
-    return ""
+    from orchestrator_next.paths import ConfigRootError, config_root
+    try:
+        return str(config_root() / "steps" / step_id)
+    except ConfigRootError:
+        return ""
 
 
 def _handle_resume(
@@ -177,14 +168,14 @@ def _handle_resume(
 ) -> tuple[dict[str, Any], int]:
     """Resume an in-progress step.
 
-    Keeps the ORIGINAL attempt number — do not call _compute_attempt here
+    Keeps the ORIGINAL attempt number — do not recompute it via compute_attempt
     (that returns max+1, which is retry semantics, not resume semantics).
     """
     step_id = last.step_id
     attempt = last.attempt if last.attempt is not None else 1
     try:
         contract = load_contract_for_step(step_id, state_yaml_path, workflow_plan=state.workflow_plan)
-    except (FileNotFoundError, ContractDispatchError):
+    except FileNotFoundError:
         contract = AgentStepContract(id=step_id, model=last.agent, instruction="")
     action = _build_action_base(
         contract,
@@ -210,8 +201,7 @@ def _dispatch_fresh(
     spawn_failures = _consecutive_spawn_failures(
         state.step_history, state.phase, next_step_id
     )
-    max_spawn_failures = _DEFAULT_MAX_SPAWN_FAILURES
-    if spawn_failures >= max_spawn_failures:
+    if spawn_failures >= _DEFAULT_MAX_SPAWN_FAILURES:
         print(
             f"BLOCKED: spawn_failure_cap — {spawn_failures} consecutive zero-token "
             f"failures for {state.phase}/{next_step_id}",
@@ -219,7 +209,7 @@ def _dispatch_fresh(
         )
         return {"reason": "spawn_failure_cap"}, 2
 
-    attempt = _compute_attempt(state.step_history, state.phase, next_step_id)
+    attempt = compute_attempt(state.step_history, state.phase, next_step_id, include_in_progress=True)
 
     action = _build_action_base(
         contract,
@@ -239,7 +229,7 @@ def _dispatch_fresh(
         if step_contract_dir:
             action["step_contract_dir"] = step_contract_dir
 
-    _persist_node_status(state_yaml_path, state.phase, next_step_id, "in_progress", state_raw=state.raw)
+    _persist_node_status(state_yaml_path, state.phase, next_step_id, state_raw=state.raw)
     return action, 0
 
 
@@ -252,7 +242,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
     exit 2 → step blocked
     exit 3 → ContractDispatchError
     """
-    last = _get_last_entry(state.step_history)
+    last = state.step_history[-1] if state.step_history else None
 
     if last is not None and last.phase == state.phase and last.status in _BLOCKING_STATUSES:
         return {}, 2

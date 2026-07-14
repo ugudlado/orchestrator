@@ -100,9 +100,7 @@ def _make_state(tasks_md_path: str, phase: str = "implement") -> State:
     """
     Build a State with execute-next-task already completed in step_history.
 
-    state.raw includes tasks_path so _resolve_tasks_md finds the file using
-    the explicit-override path (the simplest resolution path, honored before
-    any worktree/repo_root derivation).
+    state.raw includes tasks_path (historical field; the tasks_md resolver is gone).
     """
     completed_entry = StepHistoryEntry(
         step_id="execute-next-task",
