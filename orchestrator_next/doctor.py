@@ -237,6 +237,7 @@ def run_all() -> int:
     ]
     print(_format_table(results))
     if any(r.status == "FAIL" for r in results):
+        print("See docs/pack-convention.md for the pack.yaml/contract.yaml convention.")
         return 2
     return 0
 
