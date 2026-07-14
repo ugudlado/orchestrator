@@ -27,7 +27,7 @@ def steps_dir(tmp_path):
 
 @pytest.fixture(autouse=True)
 def set_override(steps_dir, monkeypatch):
-    """Point _load_contract to the temp steps dir."""
+    """Point load_contract_for_step to the temp steps dir."""
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps_dir))
 
 

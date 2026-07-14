@@ -41,11 +41,8 @@ def effective_depends_on(nodes: list[dict], node_id: str) -> list[str]:
     generate_plan always writes explicit depends_on into state.yaml, so this
     just reads the authored list. Absent means no dependencies.
     """
-    for node in nodes:
-        if _node_id(node) == node_id:
-            authored = node.get("depends_on")
-            return [str(d) for d in authored] if authored else []
-    return []
+    authored = (find_node(nodes, node_id) or {}).get("depends_on")
+    return [str(d) for d in authored] if authored else []
 
 
 def _step_completed_in_history(state: State, node_id: str) -> bool:

@@ -135,16 +135,3 @@ def apply_spawn_failure_resume(state_yaml_path: str) -> bool:
         path.write_bytes(pre)
         raise
     return True
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = argv if argv is not None else sys.argv[1:]
-    if len(args) != 1:
-        print("Usage: python -m orchestrator_next.spawn_resume <state.yaml>", file=sys.stderr)
-        return 2
-    apply_spawn_failure_resume(args[0])
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
