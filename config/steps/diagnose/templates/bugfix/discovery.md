@@ -53,4 +53,4 @@ Reference: `file_path:line_number`
 
 {HL-XXX or "none"}
 
-<!-- Format contract: config/steps/diagnose/prompt.md § Diagnosis Format Contract -->
+<!-- Format contract: config/steps/diagnose/reference/diagnosis-format.md -->
