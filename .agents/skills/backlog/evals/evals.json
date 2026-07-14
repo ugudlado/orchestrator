@@ -3,84 +3,103 @@
   "evals": [
     {
       "id": 0,
-      "name": "create-task-via-cli",
-      "prompt": "Add a backlog task titled 'Write release notes' to this project.",
-      "expected_output": "Runs `backlog task create` via the CLI; does NOT hand-write a task .md file.",
+      "name": "session-bootstrap-context",
+      "prompt": "I want to start working on backlog tasks for this project. Get set up.",
+      "expected_output": "Calls the get_backlog_context MCP tool once first to load workflow instructions, valid statuses, and the board — before listing or editing anything.",
       "files": [],
       "expectations": [
-        "Used the `backlog task create` CLI command",
-        "Did not create or edit a task markdown file by hand",
-        "The task appears in `backlog task list`"
+        "Called the get_backlog_context MCP tool as the first backlog action",
+        "Did not shell out to a `backlog` CLI (none exists)",
+        "Relied on get_backlog_context for the project's valid status-lane names rather than guessing"
       ]
     },
     {
       "id": 1,
-      "name": "list-tasks-plain",
-      "prompt": "Show me the tasks in this backlog project.",
-      "expected_output": "Runs `backlog task list` (ideally --plain) rather than reading task files directly.",
+      "name": "create-task-via-mcp",
+      "prompt": "Add a backlog task titled 'Write release notes' to this project.",
+      "expected_output": "Calls the task_create MCP tool (or POST /api/tasks) with title set and the resolved project; does NOT run a CLI or hand-write a task .md file.",
       "files": [],
       "expectations": [
-        "Used the `backlog task list` CLI command",
-        "Did not enumerate tasks by reading the tasks directory directly"
+        "Used the task_create MCP tool (or POST /api/tasks REST) with title 'Write release notes'",
+        "Passed a project argument on the call",
+        "Did not shell out to a `backlog` CLI",
+        "Did not create or edit a task markdown file by hand"
       ]
     },
     {
       "id": 2,
-      "name": "switch-project",
-      "prompt": "Switch the active backlog project to one named 'eval-proj'.",
-      "expected_output": "Uses `backlog project switch eval-proj` (or `project list` to discover) rather than editing config.yml.",
+      "name": "list-tasks",
+      "prompt": "Show me the tasks in this backlog project.",
+      "expected_output": "Calls the task_list MCP tool (or GET /api/tasks) with the resolved project rather than reading task files or using a CLI.",
       "files": [],
       "expectations": [
-        "Used `backlog project switch` (and/or `backlog project list`)",
-        "Did not hand-edit config.yml to change the current project"
+        "Used the task_list MCP tool (or GET /api/tasks REST)",
+        "Passed a project argument",
+        "Did not enumerate tasks by reading the tasks directory directly",
+        "Did not shell out to a `backlog` CLI"
       ]
     },
     {
       "id": 3,
-      "name": "no-direct-file-edit",
+      "name": "edit-status-and-assignee",
       "prompt": "Task 1's status should be 'In Progress' and it should be assigned to me. Update it.",
-      "expected_output": "Runs `backlog task edit 1 -s \"In Progress\" -a @...`; does NOT open or edit the task .md file in backlog/tasks/.",
+      "expected_output": "Calls task_edit (or PUT /api/tasks/1) setting status and assignee; does NOT open or edit the task .md file, and does NOT use a CLI.",
       "files": [],
       "expectations": [
-        "Used `backlog task edit` to change status and assignee",
-        "Did not open, read, or write the task markdown file in backlog/tasks/ to make the change",
-        "Did not hand-edit the status or assignee in frontmatter"
+        "Used the task_edit MCP tool (or PUT /api/tasks/:id) to set status and assignee",
+        "Passed a project argument and the task id",
+        "Did not open, read, or write the task markdown file to make the change",
+        "Did not shell out to a `backlog` CLI"
       ]
     },
     {
       "id": 4,
-      "name": "check-ac-by-index",
+      "name": "check-ac-array",
       "prompt": "Mark the first two acceptance criteria on task 1 as complete.",
-      "expected_output": "Runs `backlog task edit 1 --check-ac 1 --check-ac 2` (repeated flags, not comma/range); does NOT change `- [ ]` to `- [x]` in the file.",
+      "expected_output": "Calls task_edit with acceptanceCriteriaCheck: [1, 2] (a single array of 1-based indices); does NOT edit checkboxes in the file, use repeated flags, or a CLI.",
       "files": [],
       "expectations": [
-        "Used `backlog task edit ... --check-ac` with the criteria index",
-        "Repeated the flag per index (`--check-ac 1 --check-ac 2`) rather than `--check-ac 1,2` or `--check-ac 1-2`",
+        "Used task_edit with acceptanceCriteriaCheck passed as an array of indices, e.g. [1, 2]",
+        "Used 1-based indices in a single array (not two separate calls, not a CLI repeated-flag form)",
         "Did not toggle the checkbox by editing the task markdown file"
       ]
     },
     {
       "id": 5,
-      "name": "multiline-notes-no-literal-backslash-n",
+      "name": "multiline-notes-array",
       "prompt": "Add implementation notes to task 1 with three separate lines: 'Investigated root cause', 'Added a regression test', and 'TODO: monitor staging'.",
-      "expected_output": "Uses repeated `--append-notes` (or real newlines inside the quoted string), NOT a single `--notes \"...\\n...\\n...\"` with literal backslash-n, which the CLI stores verbatim.",
+      "expected_output": "Calls task_edit with notesAppend as an array of three strings (one per line); does NOT pass a single string with literal \\n, and does NOT use a CLI.",
       "files": [],
       "expectations": [
-        "Used `backlog task edit` with `--notes`/`--append-notes` to add the notes",
-        "Produced three distinct lines, either via repeated `--append-notes` or real newlines inside the quoted argument",
-        "Did not rely on a literal `\\n` sequence inside double quotes to create line breaks"
+        "Used task_edit with notesAppend (or notesSet) to add the notes",
+        "Passed the three lines as an array of strings (one element per line)",
+        "Did not rely on a literal \\n sequence inside one string to create line breaks",
+        "Did not shell out to a `backlog` CLI"
       ]
     },
     {
       "id": 6,
-      "name": "create-project-via-cli",
-      "prompt": "Create a new backlog project named 'newproj'.",
-      "expected_output": "Runs `backlog project create newproj`; does NOT hand-create a slot directory or write config.yml by hand. (`backlog init` no longer exists.)",
+      "name": "project-resolution-from-config",
+      "prompt": "Using the backlog for THIS repo, list its open tasks. The repo's spec/project.yaml has `backlog_project: acme-web`.",
+      "files": [],
+      "expected_output": "Calls task_list with project = 'acme-web' (resolved from spec/project.yaml), rather than omitting the project or using an unrelated default.",
+      "expectations": [
+        "Passed project = 'acme-web' (the value from spec/project.yaml:backlog_project) on the call",
+        "Did not omit the project or rely on an ambient/default project",
+        "Resolved the project from workflow config (spec/project.yaml), consistent with env override precedence"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "claim-next-ready-task",
+      "prompt": "Claim the next ready backlog task and assign it to @claude.",
+      "expected_output": "Calls task_next (or get_backlog_context with claim/agent) with agent '@claude'; does NOT manually list-then-edit as a substitute, and does NOT use a CLI.",
       "files": [],
       "expectations": [
-        "Used `backlog project create <name>` to create the project",
-        "Did not run `backlog init` (that command was removed)",
-        "Did not hand-create the slot directory or write config.yml directly"
+        "Used the task_next MCP tool (or get_backlog_context with claim=true) to atomically claim the next ready task",
+        "Passed the agent '@claude' so the claimed task is assigned",
+        "Passed a project argument",
+        "Did not shell out to a `backlog` CLI"
       ]
     }
   ]

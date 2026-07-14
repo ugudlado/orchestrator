@@ -1,147 +1,130 @@
 ---
 name: backlog
-description: This skill should be used when the user asks to "create a backlog task", "list backlog tasks", "edit a task", "manage backlog", "open the backlog UI", or "switch backlog projects". Manages tasks, plans, and project state with backlog.md (a CLI + MCP task management tool), preferring the CLI over MCP when both are available.
+description: Manage tasks, plans, and project state in Backlog.md through its MCP tools (interactive agent work) and REST API (scripts/automation). Use when the user asks to create, list, view, or edit a backlog task, manage the backlog, or work tickets. There is no CLI — never shell out to `backlog` or hand-edit task files.
 ---
 
 # backlog
 
-Manage tasks, plans, and project state in a repo where **backlog.md** is the
-task management system.
+Manage tasks in a repo where **Backlog.md** is the task system. Backlog is reached
+two ways — there is **no CLI**:
 
-`--help` is the source of truth for flags. Run `backlog <command> --help`
-(e.g. `backlog task create --help`, `backlog task edit --help`) for the exact,
-current options. This skill covers the rules and judgment `--help` can't.
+- **MCP tools** — the interface for interactive agent work (`task_create`,
+  `task_list`, `task_view`, `task_edit`, `task_next`, `get_backlog_context`).
+- **REST API** — the same operations over HTTP, for scripts/automation
+  (workflow step scripts already use this via `config/steps/lib/backlog-api.sh`).
 
-## The golden rule
+## Golden rules
 
-**The CLI is the only way to write.** Read with `backlog task <id> --plain`;
-change only with `backlog task edit ...`. Editing the `.md` files in
-`backlog/tasks/` directly breaks metadata sync, Git tracking, and task
-relationships. If a change won't take, you're editing files — use the CLI.
+- **Never shell out to a `backlog` CLI** — it does not exist. **Never hand-edit
+  task `.md` files** — that breaks metadata sync. All writes go through the MCP
+  tools (or REST).
+- **Every call needs a project.** A task display id (e.g. `BKG-541`) is unique
+  only *within* a project, so a call with no project is rejected (HTTP 400). See
+  [Project resolution](#project-resolution).
+- **Read before you write.** `task_view` (or `get_backlog_context`) before
+  editing; claim a task before working it.
 
-Prefer the CLI over the backlog MCP server when both exist; use MCP only where
-there's no shell. Always pass `--plain` when listing/viewing — clean,
-AI-readable output.
+## Project resolution
 
-## When to invoke
+Resolve the project once and pass it on every call. Precedence (first non-empty):
 
-"manage backlog tasks", "list/create/edit a backlog task", "open the backlog
-UI", "switch backlog projects".
+1. `BACKLOG_PROJECT` / `BACKLOG_PROJECT_ID` — env override (id, guid, or name).
+2. `backlog_project` in the repo's `spec/project.yaml` — the per-repo default.
+
+This is what makes one Backlog server + token work across repos: the URL/token
+are global; the *project* comes from each repo's config. Pass it explicitly as
+the `project` argument on MCP tools (`{"project": "<id>", ...}`) — do not rely on
+the connection's ambient default, which may point at a different project.
+
+## Session start
+
+Call `get_backlog_context` **once** at the start of a backlog session. It returns
+the workflow instructions, project state (valid statuses, milestones, Definition
+of Done defaults), and the current board in one call — so you learn the project's
+real status-lane names instead of guessing.
+
+## MCP tools
+
+| Tool | Purpose | Key args (besides `project`) |
+| --- | --- | --- |
+| `get_backlog_context` | Session bootstrap: instructions + board + statuses | `claim`, `agent` |
+| `task_list` | List/filter tasks | `status`, `assignee`, `labels`, `search`, `limit` |
+| `task_view` | Read one task | `id` (required) |
+| `task_create` | Create a task | `title` (required), `description`, `status`, `priority`, `labels`, `assignee`, `acceptanceCriteria` |
+| `task_edit` | Change any field | `id` (required) + fields below |
+| `task_next` | Atomically claim the next ready task | `agent`; (optional) `status`, `taskId` |
+
+For a plain "claim the next ready task," call `task_next` with just `project` +
+`agent` — **omit `status` and `taskId`** (it defaults to the project's ready lane).
+`status` only selects a *different* lane to claim *from*; `taskId` claims one
+specific task. Don't invent a `taskId`.
+
+### `task_edit` — array params, not repeated flags
+
+Metadata is set directly: `status`, `priority`, `milestone` are strings, but
+`assignee` and `labels` are **arrays** — pass `assignee: ["@you"]`,
+`labels: ["backend"]` (not bare strings). Rich fields also use **arrays** (one
+element per line/item) — there is no `\n` or repeated-flag gotcha:
+
+- Acceptance criteria: `acceptanceCriteriaCheck: [1, 2]`, `acceptanceCriteriaUncheck`,
+  `acceptanceCriteriaAdd: ["New outcome"]`, `acceptanceCriteriaRemove`,
+  `acceptanceCriteriaSet`. Indices are 1-based against the task's AC list.
+- Notes: `notesAppend: ["line 1", "line 2"]` (or `notesSet`, `notesClear`).
+- Plan: `planSet: "..."` / `planAppend: [...]` / `planClear`.
+- Final summary: `finalSummary: "..."` (PR-style).
+- Definition of Done: `definitionOfDoneCheck: [1]`, `definitionOfDoneAdd`, etc.
 
 ## Workflow
 
+1. `get_backlog_context` — bootstrap; learn statuses (once per session).
+2. `task_list` (filter by `status`) or `task_next` — find work.
+3. `task_view` — read the task fully (description, ACs, refs).
+4. `task_edit` — **claim first**: set `status` (a real lane name) + `assignee`.
+5. `task_edit` `planSet` — add the plan; share it with the user before coding.
+6. Implement; `task_edit` `acceptanceCriteriaCheck` and `notesAppend` as you go.
+7. `task_edit` `finalSummary` — PR-style wrap-up.
+8. `task_edit` `status: "Done"` — only when every AC and DoD is checked, the final
+   summary is set, and tests/docs/review pass.
+
+**Good acceptance criteria are outcomes, not steps:** "User can log in with valid
+credentials" ✓; "Add handleLogin() in auth.ts" ✗. Implement only what an AC states —
+to do more, add an AC (`acceptanceCriteriaAdd`) or create a follow-up task first.
+
+## REST API (scripts / automation)
+
+Same operations over HTTP; auth via `BACKLOG_URL` + `BACKLOG_TOKEN` and the resolved
+project as a `?project=<id>` query. Used by workflow step scripts through
+`config/steps/lib/backlog-api.sh` (`backlog_api_get_task`, `backlog_api_put_status`).
+
+| Method & path | Purpose |
+| --- | --- |
+| `GET /api/tasks?project=<id>` | List tasks (filters as query params) |
+| `GET /api/tasks/:id?project=<id>` | View one task |
+| `POST /api/tasks?project=<id>` | Create (`{"title": ..., "description": ...}`) |
+| `PUT /api/tasks/:id?project=<id>` | Partial update (`{"status": "In Progress"}`) |
+| `DELETE /api/tasks/:id?project=<id>` | Delete |
+
 ```bash
-backlog task list -s "To Do" --plain          # 1. find work
-backlog task 42 --plain                        # 2. read details (+ any refs/docs)
-backlog task edit 42 -s "In Progress" -a @you  # 3. claim it — FIRST thing you do
-                                               #    (-a stores the literal string; use your own handle)
-backlog task edit 42 --plan "1. Analyze        # 4. add plan (real newlines, not \n)
-2. Build
-3. Test"
-# 5. share plan with the user, wait for approval before coding
-backlog task edit 42 --check-ac 1 --check-ac 2 # 6. implement; check AC as you go
-backlog task edit 42 --final-summary "..."     # 7. PR-style summary
-backlog task edit 42 -s Done                   # 8. done
+curl -fsS -H "Authorization: Bearer $BACKLOG_TOKEN" \
+  "$BACKLOG_URL/api/tasks/BKG-1?project=$BACKLOG_PROJECT_ID"
 ```
 
-**Phase discipline:**
+The **MCP HTTP endpoint** for the same server is
+`${BACKLOG_URL}/projects/${BACKLOG_PROJECT_ID}/mcp` (or `${BACKLOG_URL}/mcp?project=<id>`),
+bearer-authenticated — the project is required there too.
 
-- _Creation_ — Title, Description, Acceptance Criteria, labels/priority/assignee.
-  **No Implementation Plan at creation.**
-- _Implementation_ — claim it (status + assignee) first, _then_ add the Plan;
-  append Notes (`--append-notes`) as you go.
-- _Wrap-up_ — Final Summary, then verify every AC and DoD is checked.
+## Gotchas
 
-A task is **Done** only when all AC checked, all DoD checked, Final Summary
-added, status `Done`, _and_ tests/docs/review pass.
+- **No CLI, no file edits.** If a change "won't take," you are reaching for a CLI
+  or editing a file — use a tool/REST call instead.
+- **Status values are project-defined.** Use a lane name from `get_backlog_context`
+  (e.g. `To Do`, `Ready`, `In Progress`, `Done`) — don't invent one; an unknown
+  status is rejected.
+- **AC/DoD indices are 1-based** and operate on arrays: `acceptanceCriteriaCheck: [1, 2]`.
+- **Task images** live under `backlog/assets/`; reference as `![alt](assets/images/foo.png)`.
 
-## Gotchas `--help` won't tell you
+## Task shape (read-only reference)
 
-- **Index flags repeat, not list.** `--check-ac 1 --check-ac 2` ✓ —
-  `--check-ac 1,2` ✗, `--check-ac 1-2` ✗. Same for `--uncheck-*`, `--remove-*`.
-- **`\n` stays literal.** The CLI stores input verbatim; `\n` inside quotes does
-  _not_ become a newline. For multi-line notes/plans, repeat `--append-notes`
-  per line, or put real newlines inside the quotes. Avoid `$'...'`,
-  `$(printf ...)`, and heredocs — agent harnesses (Claude Code, Codex) reject
-  them ([#595](https://github.com/MrLesk/Backlog.md/issues/595)).
-- **Good ACs are outcomes, not steps.** "User can log in with valid
-  credentials" ✓; "Add handleLogin() in auth.ts" ✗. Implement only what's in
-  the AC — to do more, `--ac "New requirement"` first or create a follow-up task.
-- **Final Summary is a PR description** — outcome first, then key changes, why,
-  user impact, tests, risks. Not a one-liner unless truly trivial.
-- **Task images** live under `backlog/assets/`; reference as
-  `![alt](assets/images/foo.png)` (path starts with `assets/`, not the backlog
-  dir name). Served by `backlog server`.
-
-## Task file format (read-only)
-
-What you'll _see_ in `backlog/tasks/task-<id> - <title>.md`. **Never edit it by
-hand** — every field has a CLI flag (`backlog task edit --help`).
-
-```markdown
----
-id: task-42
-title: Add GraphQL resolver
-status: To Do
-assignee: [@sara]
-labels: [backend, api]
----
-
-## Description
-
-Brief explanation of the task purpose.
-
-## Acceptance Criteria
-
-<!-- AC:BEGIN -->
-
-- [ ] #1 First criterion
-- [x] #2 Second criterion (completed)
-<!-- AC:END -->
-
-## Definition of Done
-
-<!-- DOD:BEGIN -->
-
-- [ ] #1 Tests pass
-<!-- DOD:END -->
-```
-
-The `AC:BEGIN`/`DOD:BEGIN` markers are CLI-managed — `--check-ac`/`--check-dod`
-index flags operate on the numbered items inside them. Don't touch the markers
-or renumber by hand. (Plan, Notes, and Final Summary follow as their own
-sections, all set via `backlog task edit`.)
-
-## Projects
-
-Each project is one slot in a configured **global store** (`globalStore` in
-`~/.config/backlog/config.yml`; override the config dir with
-`BACKLOG_MACHINE_CONFIG_DIR`). Slots live at `<globalStore>/<name>/` (flat
-`config.yml` + `tasks/`), keyed by name — **not** tied to repos. The machine
-config's `current` pointer is what the long-running server / MCP fall back to;
-switch via the CLI, don't hand-edit it.
-
-- Create: `backlog project create <name>`
-- List: `backlog project list` (`--plain` → `{"current", "projects":[{"id","name"}]}`)
-- Switch: `backlog project switch <name>`
-- One-off override: `backlog <cmd> --project <name>`
-- Delete (soft, recoverable): `backlog project delete <name>`
-
-Most commands act on the current project — run `backlog task list --plain` to
-confirm you're targeting the right one.
-
-## Server & remote
-
-- `backlog server` — web UI in foreground (`http://localhost:3000`, `--open`
-  launches the browser). `backlog browser` is a deprecated alias.
-- `backlog service start|stop|status|logs|uninstall` — **macOS-only** launchd
-  daemon so the UI outlives the terminal. Linux/Windows: use `backlog server`.
-- A running server can create a project with no shell:
-  `POST /api/projects {"name": "..."}`.
-- **Remote server:** set `backlog_url` (+ optional `client_token`) in
-  `~/.config/backlog/config.yml`. CLI, MCP, and web UI send `client_token` (or
-  `BACKLOG_TOKEN`, which overrides it) as a bearer token; the server accepts any
-  token in its `server_tokens` list. `BACKLOG_URL`/`BACKLOG_TOKEN` env vars
-  override config.
-- **Wire up an AI client:** `backlog mcp install <claude|codex|gemini|kiro>`
-  configures the client to talk to the Backlog MCP server.
+`task_view` returns fields like: `id`, `title`, `status`, `priority`, `labels`,
+`assignee`, `description`, and `acceptanceCriteriaItems`
+(`[{index, checked, text}]`). Treat this as data to read — never write it back as a file.
