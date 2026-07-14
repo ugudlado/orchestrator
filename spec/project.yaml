@@ -330,6 +330,7 @@ verify_commands:
 
 quality_bar:
   min_phase_review_score: 9
+  min_design_review_score: 7
   max_retry_rounds: 8
   max_spawn_failures: 3
   scoring:
