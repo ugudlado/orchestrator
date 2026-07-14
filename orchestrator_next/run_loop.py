@@ -146,14 +146,10 @@ def _workflow_meta(state_raw: dict[str, Any], state_yaml_path: str) -> str:
 # Tool invocation — faithful port of run-workflow.sh invoke_tool()
 # ---------------------------------------------------------------------------
 def _resolve_tool_template(tool_name: str, models_yaml: str | None) -> tuple[str, list[str]]:
-    """Return (binary, args_template) from the tools: block of models.yaml."""
-    binary, template = tool_name, []
-    if models_yaml and Path(models_yaml).is_file():
-        cfg = yaml.safe_load(Path(models_yaml).read_text()) or {}
-        entry = (cfg.get("tools") or {}).get(tool_name) or {}
-        binary = entry.get("binary") or tool_name
-        template = entry.get("args_template") or []
-    return binary, template
+    """Return (binary, args_template) for `tool_name`, resolved through the
+    layered `tools:` block (D1) — same layer chain/precedence as `models:`.
+    """
+    return model_routes.resolve_tool_template(tool_name, models_yaml)
 
 
 def _build_argv(
