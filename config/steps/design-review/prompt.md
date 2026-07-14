@@ -16,6 +16,17 @@ begins. On pass, implementation proceeds. On fail, resets back to
 
 ## Instructions
 
+### 0. Run the deterministic gate
+
+Run:
+
+```
+bash $ORCHESTRATOR_CONFIG/steps/design-review/eval.sh <design.md> <tasks.yaml>
+```
+
+Non-zero exit → skip scoring, return `status: failed` / `design_review_result: needs_work`
+immediately with the script's stderr as the findings.
+
 ### 1. Read artifacts
 
 Read `design.md` and `tasks.yaml` in full before evaluating anything.
@@ -36,7 +47,7 @@ Read `design.md` and `tasks.yaml` in full before evaluating anything.
 
 ### 3. Decide verdict
 
-- Overall >= 7 and no critical findings → **pass**
+- Overall >= project.yaml `quality_bar.min_design_review_score` and no critical findings → **pass**
 - Otherwise → **needs_work**
 
 ### 4a. On pass
