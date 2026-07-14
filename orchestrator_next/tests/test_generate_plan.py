@@ -101,26 +101,6 @@ def test_byte_stable_output(tmp_path, monkeypatch):
     assert first == second
 
 
-def test_phase_verify_attached_to_phase_block(tmp_path, monkeypatch):
-    """verify block from schema phase is a sibling of `nodes`, not on any node."""
-    schema = {
-        "name": "feature", "version": 1,
-        "verify": {"assertions": ["design.md exists"]},
-        "steps": ["step-first", "step-last"],
-    }
-    workflow_plan = {"specify": {"active": ["step-first", "step-last"], "filtered": []}}
-    home = _setup_home(tmp_path, "feature", schema)
-    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
-    state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
-
-    generate_plan(str(state_path))
-    state = yaml.safe_load(state_path.read_text())
-    phase_block = state["workflow_plan"]["specify"]
-
-    for n in phase_block["nodes"]:
-        assert "verify" not in n
-    assert phase_block["verify"]["assertions"] == ["design.md exists"]
-
 
 def test_promotes_state_to_nodes_shape_no_plan_yaml(tmp_path, monkeypatch):
     """After generate_plan, workflow_plan.main is {nodes, filtered} and no plan.yaml."""

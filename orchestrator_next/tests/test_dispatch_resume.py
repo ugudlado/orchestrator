@@ -114,7 +114,6 @@ def _make_state_with_inprogress(
         started_at=started_at,
         ended_at=None,
         usage={},
-        escalation=None,
         raw={
             "step_id": step_id, "phase": phase, "status": "in_progress",
             "agent": agent, "attempt": attempt, "started_at": started_at,
@@ -238,7 +237,6 @@ class TestResumeStepActionShape:
             started_at="2026-01-01T00:00:00Z",
             ended_at="2026-01-01T01:00:00Z",
             usage={},
-            escalation=None,
             raw={"step_id": "my-resume-step", "phase": "implement", "status": "completed",
                  "agent": "developer", "attempt": 1},
         )
@@ -251,7 +249,6 @@ class TestResumeStepActionShape:
             started_at="2026-01-01T02:00:00Z",
             ended_at="2026-01-01T03:00:00Z",
             usage={},
-            escalation=None,
             raw={"step_id": "my-resume-step", "phase": "implement", "status": "failed",
                  "agent": "developer", "attempt": 2},
         )
@@ -264,7 +261,6 @@ class TestResumeStepActionShape:
             started_at="2026-01-01T04:00:00Z",
             ended_at=None,
             usage={},
-            escalation=None,
             raw={"step_id": "my-resume-step", "phase": "implement", "status": "in_progress",
                  "agent": "developer", "attempt": 2},
         )

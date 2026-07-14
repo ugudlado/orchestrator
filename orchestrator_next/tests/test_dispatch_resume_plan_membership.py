@@ -34,7 +34,6 @@ def _state_with_last(step_id: str) -> State:
                 started_at="2024-01-01T00:00:00Z",
                 ended_at=None,
                 usage={},
-                escalation=None,
                 raw={
                     "step_id": step_id,
                     "phase": "implement",

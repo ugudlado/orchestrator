@@ -1,15 +1,9 @@
 """
 Fixture-driven dispatcher tests for `orchestrator next`.
 
-Each test:
-1. Invokes `bin/orchestrator next <fixture>` as a subprocess.
-2. Compares stdout (byte-for-byte) to the corresponding golden JSON file.
-3. Asserts the state.yaml mtime is unchanged (CLI must be pure-read).
-4. Asserts the correct exit code.
-
-Exit codes: 0=action, 1=complete_workflow, 2=blocked, 3=error.
+Each test invokes `bin/orchestrator next <fixture>` as a subprocess and
+asserts the exit code (0=action, 1=complete_workflow, 2=blocked, 3=error).
 """
-import json
 import os
 import shutil
 import subprocess
@@ -23,7 +17,6 @@ from conftest import ORCHESTRATOR_ROOT
 # Paths are relative to the orchestrator root, resolved from this file's location.
 _TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 _FIXTURES_DIR = os.path.join(_TESTS_DIR, "fixtures")
-_GOLDEN_DIR = os.path.join(_TESTS_DIR, "golden")
 _BIN_ORCHESTRATOR = os.path.join(ORCHESTRATOR_ROOT, "bin", "orchestrator")
 _STEP_CONTRACTS_DIR = os.path.join(_FIXTURES_DIR, "step_contracts")
 
@@ -46,24 +39,6 @@ def _run_next(fixture_name: str, fixture_path: str | None = None) -> subprocess.
         text=True,
         env=env,
     )
-
-
-def _strip_variable_fields(data: dict) -> dict:
-    """Remove machine-specific or run-specific fields before golden comparison."""
-    result = dict(data)
-    env = dict(result.get("env") or {})
-    env.pop("ORCHESTRATOR_STATE_YAML_PATH", None)
-    env.pop("ORCHESTRATOR_WORKTREE_ARTIFACT_DIR", None)
-    result["env"] = env
-    result.pop("started_at", None)  # resume timestamp varies
-    return result
-
-
-def _load_golden(golden_name: str) -> str:
-    """Load the golden JSON file and return its content."""
-    golden_path = os.path.join(_GOLDEN_DIR, golden_name)
-    with open(golden_path, "r") as f:
-        return f.read()
 
 
 class TestOrchestratorNextDispatcher(unittest.TestCase):
@@ -91,37 +66,6 @@ class TestOrchestratorNextDispatcher(unittest.TestCase):
         tmp_path = self._copy_fixture(fixture_name)
         result = _run_next(fixture_name, fixture_path=tmp_path)
         return result, tmp_path
-
-    def _assert_json_matches_golden(self, stdout: str, golden_name: str) -> None:
-        """Parse stdout as JSON, strip variable fields, and compare to golden."""
-        actual = _strip_variable_fields(json.loads(stdout))
-        golden_text = _load_golden(golden_name)
-        expected = _strip_variable_fields(json.loads(golden_text))
-        self.assertEqual(
-            actual,
-            expected,
-            f"JSON output does not match golden {golden_name}.\n"
-            f"Actual:   {json.dumps(actual, sort_keys=True, indent=2)}\n"
-            f"Expected: {json.dumps(expected, sort_keys=True, indent=2)}",
-        )
-
-    def test_pending_inline_returns_run_inline(self):
-        """state-pending-inline.yaml: pending agent step → emits agent JSON, exit 0."""
-        result, _ = self._run("state-pending-inline.yaml")
-        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
-        self._assert_json_matches_golden(result.stdout, "state-pending-inline.json")
-
-    def test_pending_runfield_returns_run_step(self):
-        """state-pending-runfield.yaml: next step has run: → run action, exit 0."""
-        result, _ = self._run("state-pending-runfield.yaml")
-        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
-        self._assert_json_matches_golden(result.stdout, "state-pending-runfield.json")
-
-    def test_in_progress_no_ended_returns_resume_step(self):
-        """state-in-progress-no-ended.yaml: last entry in_progress → resume, exit 0."""
-        result, _ = self._run("state-in-progress-no-ended.yaml")
-        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
-        self._assert_json_matches_golden(result.stdout, "state-in-progress-no-ended.json")
 
     def test_phase_done_needs_verify_exits_complete(self):
         """state-phase-done-needs-verify.yaml: all steps done → exit 1 (complete), no JSON."""

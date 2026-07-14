@@ -84,16 +84,14 @@ def _persist_node_status(
     state_yaml_path: str,
     phase: str,
     step_id: str,
-    state_raw: dict | None = None,
+    state_raw: dict,
 ) -> None:
     """Mark a node's status to in_progress in state.yaml on disk."""
     path = Path(state_yaml_path)
     try:
         with open(path, "rb") as f:
             pre_bytes = f.read()
-        if state_raw is None:
-            state_raw = yaml.safe_load(pre_bytes.decode("utf-8")) or {}
-    except (OSError, yaml.YAMLError):
+    except OSError:
         return
     readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
     try:

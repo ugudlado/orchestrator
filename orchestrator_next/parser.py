@@ -58,7 +58,6 @@ class StepHistoryEntry:
     started_at: str | None
     ended_at: str | None  # accepts completed_at as fallback
     usage: dict[str, Any]
-    escalation: dict[str, Any] | None
     raw: dict[str, Any]  # full entry for upsert
 
 
@@ -176,7 +175,6 @@ def _parse_history_entry(raw: dict[str, Any]) -> StepHistoryEntry:
         started_at=raw.get("started_at"),
         ended_at=str(ended_at) if ended_at is not None else None,
         usage=raw.get("usage", {}),
-        escalation=raw.get("escalation"),
         raw=raw,
     )
 

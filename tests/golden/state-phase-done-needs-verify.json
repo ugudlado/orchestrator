@@ -1,6 +1,0 @@
-{
-  "action": "verify_phase",
-  "assertions": ["All steps completed successfully"],
-  "commands": ["echo check"],
-  "phase": "implement"
-}

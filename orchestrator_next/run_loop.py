@@ -188,7 +188,7 @@ def invoke_tool(
 # ---------------------------------------------------------------------------
 # Agent step execution
 # ---------------------------------------------------------------------------
-def _failed_payload(action: dict, exit_code: int, duration_ms: int) -> dict:
+def _failed_payload(action: dict, exit_code: int) -> dict:
     # usage carries model="none" + zero tokens so dispatch._is_spawn_failure
     # counts this toward the spawn-failure cap (quality_bar.max_spawn_failures).
     # Termination of a failing step is handled by record's on_failure routing +
@@ -204,11 +204,10 @@ def _failed_payload(action: dict, exit_code: int, duration_ms: int) -> dict:
         "agent": action.get("model", ""),
         "outputs": {"task_execution_result": {"status": "failed", "exit_code": exit_code}},
         "usage": {**dict(_EMPTY_USAGE), "model": "none"},
-        "duration_ms": duration_ms,
     }
 
 
-def _agent_payload(action: dict, completion: dict, usage: dict, started_at, duration_ms: int) -> dict:
+def _agent_payload(action: dict, completion: dict, usage: dict, started_at) -> dict:
     payload = dict(completion)
     payload["step_id"] = action["step_id"]
     payload["phase"] = action.get("phase", "main")
@@ -221,7 +220,6 @@ def _agent_payload(action: dict, completion: dict, usage: dict, started_at, dura
     payload["usage"] = {**dict(_EMPTY_USAGE), **(usage or {})}
     if started_at:
         payload["started_at"] = started_at
-    payload["duration_ms"] = duration_ms
     return payload
 
 
@@ -241,7 +239,6 @@ def run_agent_step(
     model = action["model"]
     step_id = action["step_id"]
     started_at = action.get("started_at") or datetime.now(timezone.utc).isoformat()
-    start_ms = _now_ms()
 
     tool_name = model_routes.resolve_field(model, models_yaml, "subprocess")
     if not tool_name:
@@ -270,7 +267,7 @@ def run_agent_step(
         _log(f"WARN: tool '{binary}' exited {rc}")
         if stderr_tail.strip():
             _log(f"  stderr: {stderr_tail.strip()}")
-        return _failed_payload(action, rc, _now_ms() - start_ms)
+        return _failed_payload(action, rc)
 
     adapter_tool = "cursor-agent" if tool_name == "cursor" else tool_name
     norm = split_stdout(adapter_tool, stdout_path, route_model=model_id or None)
@@ -280,9 +277,9 @@ def run_agent_step(
     except ValueError as exc:
         # LOCKED policy: malformed COMPLETION is recoverable, not fatal.
         _log(f"WARN: malformed COMPLETION for {step_id} — recording failed (retryable): {exc}")
-        return _failed_payload(action, 5, _now_ms() - start_ms)
+        return _failed_payload(action, 5)
 
-    return _agent_payload(action, completion, usage, started_at, _now_ms() - start_ms)
+    return _agent_payload(action, completion, usage, started_at)
 
 
 # ---------------------------------------------------------------------------
@@ -484,7 +481,7 @@ def run_loop(state_yaml_path: str, *, repo_root: str, models_yaml: str) -> int:
                 if rc == 3:
                     # bad payload shape → record as failed (retryable), not fatal.
                     _log(f"WARN: record rejected payload for {action['step_id']} — recording failed")
-                    record(state_yaml_path, _failed_payload(action, 3, payload.get("duration_ms", 0)))
+                    record(state_yaml_path, _failed_payload(action, 3))
                 else:
                     _log(f"✓ {action['step_id']}  done  status={payload.get('status','completed')}")
                     _log_cost_so_far(state_yaml_path)

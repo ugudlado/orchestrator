@@ -111,7 +111,6 @@ def _make_state(tasks_md_path: str, phase: str = "implement") -> State:
         started_at="2026-05-01T10:00:00Z",
         ended_at="2026-05-01T11:00:00Z",
         usage={"total_tokens": 100},
-        escalation=None,
         raw={
             "step_id": "execute-next-task",
             "phase": phase,
