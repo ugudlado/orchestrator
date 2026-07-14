@@ -1,4 +1,8 @@
-"""ORC-125: ticket context via workflow config REST, not the run loop."""
+"""Backlog REST integration: ticket context, project resolution, and API helpers.
+
+Covers config/steps/lib/backlog-api.sh and the load-ticket-context step, and
+asserts the run loop no longer fetches tickets itself (originally ORC-125).
+"""
 from __future__ import annotations
 
 import inspect
