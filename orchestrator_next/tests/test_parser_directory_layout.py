@@ -90,7 +90,7 @@ class TestAgentKindContractLoad:
         }, prompt_text=prompt_text)
 
         from orchestrator_next.parser import load_contract_for_step, AgentStepContract
-        contract = load_contract_for_step("explore", "")
+        contract = load_contract_for_step("explore")
         assert isinstance(contract, AgentStepContract)
         assert contract.instruction == prompt_text
 
@@ -115,7 +115,7 @@ class TestAgentKindContractLoad:
 
         from orchestrator_next.parser import load_contract_for_step, ContractError
         with pytest.raises(ContractError, match="missing prompt.md"):
-            load_contract_for_step("no-prompt", "")
+            load_contract_for_step("no-prompt")
 
 
 
@@ -159,7 +159,7 @@ class TestScriptKindContractLoad:
         expected_run = str(step_dir / "script.sh")
 
         from orchestrator_next.parser import load_contract_for_step, ScriptStepContract
-        contract = load_contract_for_step("inline-step", "")
+        contract = load_contract_for_step("inline-step")
         assert isinstance(contract, ScriptStepContract)
         assert contract.run == expected_run
 
@@ -189,7 +189,7 @@ class TestScriptKindContractLoad:
 
         from orchestrator_next.parser import load_contract_for_step, ContractNotFoundError as ContractDispatchError
         with pytest.raises(ContractDispatchError, match="script"):
-            load_contract_for_step("no-script", "")
+            load_contract_for_step("no-script")
 
     def test_dir_contract_missing_kind_raises_contract_error(self, steps_dir):
         """Scenario 3: contract.yaml missing kind: field raises ContractError naming the field.
@@ -217,4 +217,4 @@ class TestScriptKindContractLoad:
 
         from orchestrator_next.parser import load_contract_for_step, ContractError
         with pytest.raises(ContractError, match="kind"):
-            load_contract_for_step("no-kind", "")
+            load_contract_for_step("no-kind")

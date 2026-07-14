@@ -13,8 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import create_model
-
 
 
 class ContractError(ValueError):
@@ -25,55 +23,14 @@ class ContractNotFoundError(ValueError):
     """Raised when a step contract script payload is missing or invalid."""
 
 
-_SCHEMA_TYPE_MAP: dict[str, Any] = {
-    "str": str,
-    "int": int,
-    "float": float,
-    "bool": bool,
-    "list": list,
-    "dict": dict,
-}
-
-
-def build_output_validator(schema: dict[str, Any]):
-    """Build a Pydantic model from a contract output_schema dict.
-
-    Schema format (YAML):
-      output_schema:
-        verdict: {type: str, required: true}
-        score:   {type: int}
-
-    Returns a pydantic model class, or None if schema is empty.
-    """
-    if not schema:
-        return None
-    fields: dict[str, Any] = {}
-    for name, spec in schema.items():
-        if not isinstance(spec, dict):
-            continue
-        type_name = spec.get("type", "str")
-        py_type = _SCHEMA_TYPE_MAP.get(type_name, Any)
-        required = bool(spec.get("required", False))
-        if required:
-            fields[name] = (py_type, ...)
-        else:
-            fields[name] = (py_type | None, None)
-    if not fields:
-        return None
-    return create_model("OutputSchema", **fields)
-
-
 @dataclass
 class AgentStepContract:
     """Contract for steps dispatched to an agent subprocess."""
     id: str
     model: str | None
     instruction: str
-    pre: list[str] = field(default_factory=list)
-    post: list[str] = field(default_factory=list)
     state_mutating: bool = False
     default_outputs: dict = field(default_factory=dict)
-    output_schema: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -81,8 +38,6 @@ class ScriptStepContract:
     """Contract for steps executed as inline scripts."""
     id: str
     run: str
-    pre: list[str] = field(default_factory=list)
-    post: list[str] = field(default_factory=list)
     # When true, the driver records the step BEFORE running the script so
     # state.yaml is consistent even if the script moves or rewrites it.
     state_mutating: bool = False
@@ -144,14 +99,6 @@ def _contract_search_dirs() -> list[str]:
 
 
 
-def _as_str_list(value: Any) -> list[str]:
-    if not value:
-        return []
-    if isinstance(value, str):
-        return [value]
-    return [str(v) for v in value]
-
-
 def _make_contract(
     step_id: str,
     data: dict[str, Any],
@@ -160,82 +107,30 @@ def _make_contract(
 ) -> StepContract:
     shared = dict(
         id=data.get("id", step_id),
-        pre=_as_str_list(data.get("pre")),
-        post=_as_str_list(data.get("post")),
         state_mutating=bool(data.get("state_mutating", False)),
     )
     if run is None:
         raw_defaults = data.get("default_outputs")
         default_outputs = raw_defaults if isinstance(raw_defaults, dict) else {}
-        raw_schema = data.get("output_schema")
-        output_schema = raw_schema if isinstance(raw_schema, dict) else {}
         return AgentStepContract(
             **shared,
             model=data.get("model") or None,
             instruction=instruction,
             default_outputs=default_outputs,
-            output_schema=output_schema,
         )
     return ScriptStepContract(**shared, run=run)
 
 
-def _contract_lookup_id(
-    step_id: str,
-    state_yaml_path: str,
-    workflow_plan: dict | None = None,
-) -> str:
-    """Return the contract file id for step_id, following step_contract overrides.
-
-    Task nodes use ids like ``task-T-1`` but declare ``step_contract:
-    execute-one-task`` on the node. Without this indirection, dispatch would
-    miss the contract and fall back to agent ``inline``.
-
-    When ``workflow_plan`` is provided it is used directly, avoiding a
-    redundant read of state.yaml.
-    """
-    plan = workflow_plan
-    if plan is None:
-        try:
-            with open(state_yaml_path, "r") as f:
-                raw = yaml.safe_load(f) or {}
-        except (OSError, yaml.YAMLError):
-            return step_id
-        plan = raw.get("workflow_plan") or {}
-
-    if not isinstance(plan, dict):
-        return step_id
-
-    for phase_plan in plan.values():
-        if not isinstance(phase_plan, dict):
-            continue
-        nodes = phase_plan.get("nodes")
-        if not nodes:
-            continue
-        for node in nodes:
-            if not isinstance(node, dict) or str(node.get("id", "")) != step_id:
-                continue
-            step_contract = node.get("step_contract")
-            if isinstance(step_contract, str) and step_contract.strip():
-                return step_contract.strip()
-            return step_id
-    return step_id
-
-
-def load_contract_for_step(
-    step_id: str,
-    state_yaml_path: str,
-    workflow_plan: dict | None = None,
-) -> StepContract:
+def load_contract_for_step(step_id: str) -> StepContract:
     """Load and parse a step contract YAML.
 
     Searches each configured directory for <id>/contract.yaml (directory form).
     """
-    lookup_id = _contract_lookup_id(step_id, state_yaml_path, workflow_plan=workflow_plan)
     search_dirs = _contract_search_dirs()
     for d in search_dirs:
-        dir_contract = os.path.join(d, lookup_id, "contract.yaml")
+        dir_contract = os.path.join(d, step_id, "contract.yaml")
         if os.path.isfile(dir_contract):
-            contract_dir = os.path.join(d, lookup_id)
+            contract_dir = os.path.join(d, step_id)
             with open(dir_contract, "r") as f:
                 data = yaml.safe_load(f)
 
@@ -264,9 +159,7 @@ def load_contract_for_step(
             return _make_contract(step_id, data, run, instruction)
 
     raise FileNotFoundError(
-        f"Step contract not found for '{step_id}'"
-        + (f" (lookup '{lookup_id}')" if lookup_id != step_id else "")
-        + f". Searched: {search_dirs}"
+        f"Step contract not found for '{step_id}'. Searched: {search_dirs}"
     )
 
 

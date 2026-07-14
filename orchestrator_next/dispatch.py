@@ -13,7 +13,6 @@ No action field. No signal field. No verify_phase.
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -24,7 +23,6 @@ from orchestrator_next import readiness
 from orchestrator_next.step_env import build_dispatch_env as _build_dispatch_env
 from orchestrator_next.parser import (
     AgentStepContract,
-    ScriptStepContract,
     State,
     StepContract,
     StepHistoryEntry,
@@ -114,8 +112,8 @@ def _build_action_base(
 ) -> dict[str, Any]:
     """Build the base keys shared by both resume and fresh-dispatch action dicts.
 
-    Resume path adds: is_resume, started_at, agent, learnings.
-    Fresh path adds: pre, post, then agent+learnings or run+step_contract_dir.
+    Resume path adds: is_resume, started_at, model.
+    Fresh path adds: model (agent step) or run (script step).
     """
     return {
         "step_id": step_id,
@@ -125,42 +123,6 @@ def _build_action_base(
         "env": _build_dispatch_env(state, step_id, attempt, state_yaml_path),
         "step_context": _node_step_context(state, step_id),
     }
-
-
-def _warn_if_more_phases_remain(state: State) -> None:
-    """Emit a stderr warning when the current phase is complete but the plan has more phases.
-
-    The driver must manually advance state.yaml's `phase` field before re-running
-    `orchestrator next`. Without this warning, phase-complete looks identical to
-    workflow-complete from the outside.
-    """
-    plan = state.workflow_plan or {}
-    phase_names = list(plan.keys())
-    if len(phase_names) > 1 and state.phase in phase_names:
-        remaining = phase_names[phase_names.index(state.phase) + 1:]
-        if remaining:
-            print(
-                f"WARNING: phase '{state.phase}' is complete but "
-                f"workflow_plan has other phases ({', '.join(remaining)}). "
-                f"Driver must advance state.yaml 'phase' field and re-run "
-                f"'orchestrator next' before completing workflow.",
-                file=sys.stderr,
-            )
-
-
-def _resolve_step_contract_dir(step_id: str, contract: ScriptStepContract) -> str:
-    """Return the contract directory path for a script contract, or empty string.
-
-    parser absolutizes run: relative to the contract dir, so the script's own
-    directory IS the contract dir; fall back to config/steps/<id> otherwise.
-    """
-    if os.path.isabs(contract.run):
-        return os.path.dirname(contract.run)
-    from orchestrator_next.paths import ConfigRootError, config_root
-    try:
-        return str(config_root() / "steps" / step_id)
-    except ConfigRootError:
-        return ""
 
 
 def _handle_resume(
@@ -174,7 +136,7 @@ def _handle_resume(
     step_id = last.step_id
     attempt = last.attempt if last.attempt is not None else 1
     try:
-        contract = load_contract_for_step(step_id, state_yaml_path, workflow_plan=state.workflow_plan)
+        contract = load_contract_for_step(step_id)
     except FileNotFoundError:
         contract = AgentStepContract(id=step_id, model=last.agent, instruction="")
     action = _build_action_base(
@@ -196,7 +158,7 @@ def _dispatch_fresh(
     state: State, state_yaml_path: str, next_step_id: str
 ) -> tuple[dict[str, Any], int]:
     """Dispatch a fresh (non-resume) step node."""
-    contract = load_contract_for_step(next_step_id, state_yaml_path, workflow_plan=state.workflow_plan)
+    contract = load_contract_for_step(next_step_id)
 
     spawn_failures = _consecutive_spawn_failures(
         state.step_history, state.phase, next_step_id
@@ -219,15 +181,10 @@ def _dispatch_fresh(
         state,
         state_yaml_path,
     )
-    action["pre"] = contract.pre
-    action["post"] = contract.post
     if isinstance(contract, AgentStepContract):
         action["model"] = contract.model
     else:
         action["run"] = contract.run
-        step_contract_dir = _resolve_step_contract_dir(next_step_id, contract)
-        if step_contract_dir:
-            action["step_contract_dir"] = step_contract_dir
 
     _persist_node_status(state_yaml_path, state.phase, next_step_id, state_raw=state.raw)
     return action, 0
@@ -266,7 +223,6 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
     next_step_id = readiness.next_ready_node(state)
 
     if next_step_id is None:
-        _warn_if_more_phases_remain(state)
         return {}, 1
 
     return _dispatch_fresh(state, state_yaml_path, next_step_id)

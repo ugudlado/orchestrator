@@ -49,17 +49,13 @@ def _step_ids(schema: dict[str, Any]) -> list[str]:
     return [s for s in ids if s]
 
 
-def _check_contracts(step_ids: list[str], repo_root: str) -> None:
+def _check_contracts(step_ids: list[str]) -> None:
     """Load each step contract via the parser; report missing or invalid contracts."""
-    # Use a dummy state path — _contract_lookup_id gets workflow_plan={} so it
-    # never reads the file, but the path must be under repo_root so config_root()
-    # resolves the right steps/ directory.
-    dummy_state = os.path.join(repo_root, "state.yaml")
     missing = []
     invalid = []
     for step_id in step_ids:
         try:
-            load_contract_for_step(step_id, dummy_state, workflow_plan={})
+            load_contract_for_step(step_id)
         except FileNotFoundError:
             missing.append(step_id)
         except ContractError as exc:
@@ -111,7 +107,7 @@ def validate_workflow(schema_name: str, repo_root: str) -> None:
 
     schema = _load_schema(schema_name)
     step_ids = _step_ids(schema)
-    _check_contracts(step_ids, repo_root)
+    _check_contracts(step_ids)
 
     if schema_name in _SKIP_EXPAND:
         print(f"OK: contracts valid ({schema_name} — expand-plan smoke skipped)", file=sys.stderr)

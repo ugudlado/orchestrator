@@ -15,7 +15,7 @@ def _run_record(state_path: str, payload: dict) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     env["ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE"] = _CONTRACTS
     return subprocess.run(
-        [sys.executable, _BIN, "record", state_path],
+        [sys.executable, _BIN, "done", state_path],
         input=json.dumps(payload), capture_output=True, text=True, env=env,
     )
 

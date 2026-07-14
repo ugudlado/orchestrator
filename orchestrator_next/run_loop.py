@@ -326,7 +326,7 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
     attempt = action.get("attempt", 1)
     if state is None:
         state = load_state(state_yaml_path)
-    contract = load_contract_for_step(step_id, state_yaml_path)
+    contract = load_contract_for_step(step_id)
     if not isinstance(contract, ScriptStepContract):
         raise ContractDispatchError(f"run_script_step called on non-script contract: {step_id}")
     env = inline_script_env(state, state_yaml_path, action_env=action.get("env", {}))
@@ -427,40 +427,6 @@ def _relocate_after_archive(outputs, default) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Per-step lifecycle hooks (contract pre: / post:)
-# ---------------------------------------------------------------------------
-def _run_hooks(
-    hooks: list[str], kind: str, action: dict,
-    state_yaml_path: str, repo_root: str, state_raw: dict,
-) -> bool:
-    """Run a step's pre/post hook commands. Returns True if all succeeded.
-
-    Each hook runs via `bash -c` with the state path and step id in the env
-    (ORCHESTRATOR_STATE_YAML, ORCHESTRATOR_STEP_ID) plus REPO_ROOT, cwd=repo.
-    A pre-hook caller treats False as a block; a post-hook caller ignores it.
-    """
-    if not hooks:
-        return True
-    env = os.environ.copy()
-    env["REPO_ROOT"] = repo_root
-    env["ORCHESTRATOR_STATE_YAML"] = state_yaml_path
-    env["ORCHESTRATOR_STEP_ID"] = action.get("step_id", "")
-    cwd = state_raw.get("worktree_path") or repo_root
-    if not Path(cwd).is_dir():
-        cwd = repo_root
-    for cmd in hooks:
-        _log(f"  {kind}-hook: {cmd}")
-        proc = subprocess.run(["bash", "-c", cmd], env=env, cwd=cwd,
-                              capture_output=True, text=True)
-        if proc.stderr:
-            sys.stderr.write(proc.stderr)
-        if proc.returncode != 0:
-            _log(f"  {kind}-hook exited {proc.returncode}: {cmd}")
-            return False
-    return True
-
-
-# ---------------------------------------------------------------------------
 # Exit-2 notification — unattended runs need a human channel for signoffs
 # ---------------------------------------------------------------------------
 def _notify_blocked(state_yaml_path: str, state_raw: dict[str, Any], reason: str) -> None:
@@ -523,16 +489,6 @@ def run_loop(state_yaml_path: str, *, repo_root: str, models_yaml: str) -> int:
                                 (action or {}).get("reason") or "blocked (signoff or halt)")
                 return 2
 
-            # pre hooks: run before the step body. A nonzero pre hook blocks
-            # the workflow (exit 2) — the step's precondition isn't met.
-            if not _run_hooks(action.get("pre") or [], "pre", action,
-                              state_yaml_path, repo_root, state.raw):
-                _log(f"Workflow blocked: pre-hook failed for {action['step_id']}.")
-                autocommit_state(state_yaml_path, push=True)
-                _notify_blocked(state_yaml_path, state.raw,
-                                f"pre-hook failed for {action['step_id']}")
-                return 2
-
             if action.get("model"):
                 _log(f"→ {action['step_id']}  phase={action.get('phase','main')}  "
                      f"kind=agent  model={action['model']}  attempt={action.get('attempt',1)}")
@@ -557,12 +513,6 @@ def run_loop(state_yaml_path: str, *, repo_root: str, models_yaml: str) -> int:
                     return 3
             else:
                 _log("dispatch returned no actionable step; continuing")
-                continue
-
-            # post hooks: run after a successful step body. A nonzero post hook
-            # is logged but never fails the step (teardown is best-effort).
-            _run_hooks(action.get("post") or [], "post", action,
-                       state_yaml_path, repo_root, state.raw)
     finally:
         import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)

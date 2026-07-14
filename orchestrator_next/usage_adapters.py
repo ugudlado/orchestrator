@@ -145,47 +145,6 @@ def _adapt_codex(raw: str, route_model: str | None) -> NormalizedResult:
     }
 
 
-def _extract_omp_assistant_text(events: list[dict[str, Any]]) -> str:
-    parts: list[str] = []
-    for event in events:
-        if event.get("type") not in ("message_start", "turn_end"):
-            continue
-        message = event.get("message") or {}
-        for block in message.get("content") or []:
-            if block.get("type") == "text" and block.get("text"):
-                parts.append(str(block["text"]))
-    return "".join(parts)
-
-
-def _adapt_omp(raw: str, route_model: str | None) -> NormalizedResult:
-    del route_model
-    events = _parse_jsonl(raw)
-    if not events:
-        raise ValueError("invalid omp JSONL")
-
-    turn_end: dict[str, Any] | None = None
-    for event in events:
-        if event.get("type") == "turn_end":
-            turn_end = event
-
-    if turn_end is None:
-        raise ValueError("omp JSONL missing turn_end")
-
-    message = turn_end.get("message") or {}
-    usage = message.get("usage") or {}
-    cost = usage.get("cost") or {}
-
-    return {
-        "assistant_text": _extract_omp_assistant_text(events),
-        "input_tokens": int(usage.get("input") or 0),
-        "output_tokens": int(usage.get("output") or 0),
-        "cache_read_input_tokens": int(usage.get("cacheRead") or 0),
-        "cache_creation_input_tokens": int(usage.get("cacheWrite") or 0),
-        "model": message.get("model"),
-        "cost_usd": cost.get("total"),
-    }
-
-
 def _adapt_passthrough(raw: str, route_model: str | None) -> NormalizedResult:
     del route_model
     return _empty_result(assistant_text=raw)
@@ -195,7 +154,6 @@ TOOL_ADAPTERS: dict[str, AdapterFn] = {
     "claude": _adapt_claude,
     "cursor-agent": _adapt_cursor_agent,
     "codex": _adapt_codex,
-    "omp": _adapt_omp,
 }
 
 
