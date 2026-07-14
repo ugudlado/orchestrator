@@ -11,7 +11,7 @@
 # Project resolution precedence (first non-empty wins):
 #   1. BACKLOG_PROJECT      — env alias (name); takes precedence, see note below.
 #   2. BACKLOG_PROJECT_ID   — env (id/guid/name); the machine-level default.
-#   3. spec/project.yaml:backlog_project under $REPO_ROOT — per-repo workflow config.
+#   3. spec/project.yaml:project_id under $REPO_ROOT — per-repo workflow config.
 # This makes the project a per-repo setting driven by workflow config: a single
 # installed engine + shared BACKLOG_URL/BACKLOG_TOKEN drives any repo, and each
 # repo names its own backlog project in spec/project.yaml — no global env change
@@ -26,10 +26,10 @@ backlog_api_project() {
     printf '%s' "$from_env"
     return 0
   fi
-  # Fall back to the repo's workflow config (spec/project.yaml:backlog_project).
+  # Fall back to the repo's workflow config (spec/project.yaml:project_id).
   local project_yaml="${REPO_ROOT:-}/spec/project.yaml"
   if [ -n "${REPO_ROOT:-}" ] && [ -f "$project_yaml" ]; then
-    python3 -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1])) or {}; print(d.get("backlog_project") or "")' "$project_yaml" 2>/dev/null
+    python3 -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1])) or {}; print(d.get("project_id") or "")' "$project_yaml" 2>/dev/null
   fi
 }
 

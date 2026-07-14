@@ -136,12 +136,12 @@ def _resolve_project(env_overrides: dict, repo_root: str | None) -> str:
     return proc.stdout.strip()
 
 
-def _write_project_yaml(tmp_path: Path, backlog_project) -> str:
+def _write_project_yaml(tmp_path: Path, project_id) -> str:
     spec = tmp_path / "spec"
     spec.mkdir(parents=True, exist_ok=True)
     doc = {"version": 1, "ticketing": "backlog"}
-    if backlog_project is not None:
-        doc["backlog_project"] = backlog_project
+    if project_id is not None:
+        doc["project_id"] = project_id
     (spec / "project.yaml").write_text(yaml.safe_dump(doc))
     return str(tmp_path)
 
@@ -161,13 +161,13 @@ def test_backlog_api_project_env_name_beats_id(tmp_path):
 
 
 def test_backlog_api_project_falls_back_to_config(tmp_path):
-    """No env project → read backlog_project from spec/project.yaml under REPO_ROOT."""
+    """No env project → read project_id from spec/project.yaml under REPO_ROOT."""
     repo = _write_project_yaml(tmp_path, "orchestrator")
     assert _resolve_project({}, repo) == "orchestrator"
 
 
 def test_backlog_api_project_empty_when_no_env_no_config(tmp_path):
-    """No env project and no backlog_project key → empty (base() then fails cleanly)."""
+    """No env project and no project_id key → empty (base() then fails cleanly)."""
     repo = _write_project_yaml(tmp_path, None)
     assert _resolve_project({}, repo) == ""
 
