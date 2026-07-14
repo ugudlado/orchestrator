@@ -5,14 +5,12 @@ from __future__ import annotations
 import pytest
 
 
-@pytest.mark.xfail(strict=False)
 def test_parse_completion_importable():
     from orchestrator_next.parse_completion import parse_completion
 
     assert callable(parse_completion)
 
 
-@pytest.mark.xfail(strict=False)
 def test_parse_completion_valid_block():
     from orchestrator_next.parse_completion import parse_completion
 
@@ -37,7 +35,6 @@ COMPLETION:
         "COMPLETION:\n  status: completed\n  outputs: {bad\n",
     ],
 )
-@pytest.mark.xfail(strict=False)
 def test_parse_completion_invalid_inputs(text: str):
     from orchestrator_next.parse_completion import parse_completion
 

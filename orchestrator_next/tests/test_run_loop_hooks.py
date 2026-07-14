@@ -68,7 +68,7 @@ def test_pre_and_post_hooks_run(tmp_path, monkeypatch):
     monkeypatch.setenv("REPO_ROOT", str(repo))
     sy = _state(repo, [{"id": "step-h", "status": "pending"}])
 
-    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), models_yaml="")
+    code = run_loop.run_loop(str(sy), repo_root=str(repo), models_yaml="")
     assert code == 1
     assert (marker / "pre.txt").exists(), "pre hook did not run"
     assert (marker / "post.txt").exists(), "post hook did not run"
@@ -82,7 +82,7 @@ def test_failing_pre_hook_blocks(tmp_path, monkeypatch):
     monkeypatch.setenv("REPO_ROOT", str(repo))
     sy = _state(repo, [{"id": "step-h", "status": "pending"}])
 
-    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), models_yaml="")
+    code = run_loop.run_loop(str(sy), repo_root=str(repo), models_yaml="")
     assert code == 2, f"failing pre hook must block (exit 2), got {code}"
     # Step body must NOT have recorded completed.
     hist = yaml.safe_load(sy.read_text()).get("step_history") or []
@@ -97,7 +97,7 @@ def test_failing_post_hook_is_non_fatal(tmp_path, monkeypatch):
     monkeypatch.setenv("REPO_ROOT", str(repo))
     sy = _state(repo, [{"id": "step-h", "status": "pending"}])
 
-    code = run_loop.run_loop(str(sy), "", repo_root=str(repo), models_yaml="")
+    code = run_loop.run_loop(str(sy), repo_root=str(repo), models_yaml="")
     assert code == 1, f"failing post hook must NOT fail the workflow, got {code}"
     hist = yaml.safe_load(sy.read_text()).get("step_history") or []
     assert any(e.get("step_id") == "step-h" and e.get("status") == "completed" for e in hist)
