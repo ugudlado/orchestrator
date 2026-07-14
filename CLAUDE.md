@@ -69,8 +69,8 @@ orchestrator next state.yaml
 # Append step event as JSON (payload on stdin, path as arg)
 echo '{"step_id":"specify","phase":"specify","status":"completed"}' | orchestrator done state.yaml
 
-# Visualize workflow DAG
-orchestrator graph state.yaml
+# Visualize a workflow schema's DAG (takes a schema name, not a state file)
+orchestrator graph feature
 ```
 
 ### Headless Runs (servers / CI)
@@ -171,9 +171,9 @@ quality_bar:
 | `orchestrator complete <id>`                  | Run the "complete" workflow schema (verify, sign-off, merge, archive) — same dispatch path as `run`, not a distinct verb |
 | `orchestrator next <state.yaml>`              | Dispatch next step                                                                                                       |
 | `orchestrator done <state.yaml>`              | Append step event (JSON on stdin)                                                                                        |
-| `orchestrator graph <state.yaml>`             | Render Mermaid DAG                                                                                                       |
+| `orchestrator graph <schema>`                 | Render Mermaid DAG of a workflow schema                                                                                  |
 | `orchestrator validate-workflow <schema>`     | Validate a workflow schema file                                                                                          |
-| `orchestrator reset-step <state.yaml> <step>` | Reset a step for re-run                                                                                                  |
+| `orchestrator reset-step <step> <state.yaml>` | Reset a step for re-run                                                                                                  |
 | `orchestrator doctor`                         | Run diagnostics                                                                                                          |
 
 ### Skills Entry Points
