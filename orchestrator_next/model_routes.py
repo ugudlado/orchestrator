@@ -69,49 +69,138 @@ def resolve_tool_template(tool_name: str, routes_yaml: str | None) -> tuple[str,
     return tool_name, []
 
 
+def _winning_alias_entry(alias: str, routes_yaml: str | None) -> tuple[Any, str]:
+    """Return (raw entry, source label) for `alias` from the highest-precedence
+    FILE layer that names it — dict (scalar route) or list (fallback chain).
+
+    LOCKED wholesale-wins rule (D3): the highest layer that names an alias owns
+    it entirely, list or scalar — lower layers are fully ignored for that
+    alias. No cross-layer field merging, no element-wise list merging. This is
+    a deliberate behavior change from the old resolver, which accumulated
+    fields across layers with dict.update() — harmless for scalar routes, but
+    that would silently corrupt a list-shaped candidate (dict.update() on a
+    list of 2-key dicts unpacks into {key: value} garbage) or crash outright.
+    A scalar alias defined in exactly one layer still resolves unchanged;
+    what stops working is a *higher* layer partially overriding a *lower*
+    layer's fields for the same alias (e.g. home sets only model_id and
+    expects to inherit subprocess from config_root) — that partial merge was
+    undocumented/untested and is intentionally not preserved.
+    """
+    # _layer_chain is lowest-to-highest precedence; walk highest-first so the
+    # first layer that names the alias wins wholesale.
+    for label, path in reversed(_layer_chain(routes_yaml)):
+        entry = _models_map(path).get(alias)
+        if entry is not None:
+            return entry, label
+    return None, ""
+
+
+def _binary_on_path(subprocess_name: str, routes_yaml: str | None) -> bool:
+    import shutil
+    binary, _template = resolve_tool_template(subprocess_name, routes_yaml)
+    return bool(shutil.which(binary))
+
+
+def resolve_route(alias: str, routes_yaml: str | None) -> dict[str, Any]:
+    """Resolve `alias` to a single concrete route, as one unit (D3).
+
+    Returns a dict:
+      subprocess, model_id   — the chosen candidate's fields ("" if unresolved)
+      source                 — layer label that supplied the winning alias entry
+      active_index            — 0-based index of the chosen candidate within
+                                its chain (0 for a scalar route or the first
+                                chain candidate)
+      num_candidates          — length of the alias's candidate chain (1 for scalar)
+      is_fallback              — True iff active_index > 0 (only chains can trip this)
+
+    Selection semantics:
+      - scalar route (dict)  → NOT PATH-gated; always returned as-is. A scalar
+        pointed at a missing binary still dispatches (and fails at invoke) —
+        it must never silently become "no route" (exit 4). This preserves
+        today's behavior for every alias that hasn't opted into a chain.
+      - list route (chain)   → PATH-gated; the first candidate whose
+        `subprocess`'s tools:-resolved binary is on PATH wins. If every
+        candidate's binary is absent, subprocess/model_id come back "" so the
+        run_loop caller raises the existing no-route error (exit 4).
+
+    ORCHESTRATOR_MODEL_ROUTE_OVERRIDES (JSON env) and CLI model.<alias>.<field>=
+    overrides are NOT part of the wholesale-wins rule — they are a separate,
+    higher-precedence field-level override applied on top of the selected
+    candidate (so a partial override like {"model_id": "..."} still works,
+    inheriting subprocess from whichever candidate PATH-selected).
+    """
+    raw, source = _winning_alias_entry(alias, routes_yaml)
+
+    if isinstance(raw, list):
+        candidates = [c for c in raw if isinstance(c, dict)]
+        chosen, chosen_idx = None, -1
+        for idx, cand in enumerate(candidates):
+            sub = cand.get("subprocess")
+            if sub and _binary_on_path(str(sub), routes_yaml):
+                chosen, chosen_idx = cand, idx
+                break
+        entry = chosen or {}
+        active_index = max(chosen_idx, 0)
+        num_candidates = len(candidates)
+    else:
+        entry = raw if isinstance(raw, dict) else {}
+        active_index = 0
+        num_candidates = 1
+
+    overrides = json.loads(os.environ.get("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES") or "{}")
+    ov = overrides.get(alias) or {}
+
+    subprocess_val = str(ov.get("subprocess") or entry.get("subprocess") or "")
+    model_id_val = str(ov.get("model_id") or entry.get("model_id") or "")
+
+    return {
+        "subprocess": subprocess_val,
+        "model_id": model_id_val,
+        "source": "$ORCHESTRATOR_MODEL_ROUTE_OVERRIDES" if ov else source,
+        "active_index": active_index,
+        "num_candidates": num_candidates,
+        "is_fallback": num_candidates > 1 and active_index > 0,
+    }
+
+
 def resolve_field(model: str, routes_yaml: str | None, field: str) -> str:
-    """Return one route field for `model` ("" if unset)."""
+    """Return one route field for `model` ("" if unset). Thin wrapper over
+    resolve_route so subprocess/model_id are always resolved from the SAME
+    chosen candidate (never mixed across candidates)."""
+    return str(resolve_route(model, routes_yaml).get(field) or "")
+
+
+def resolve_all_with_source(routes_yaml: str) -> dict[str, dict[str, Any]]:
+    """Return every alias with resolved fields, source, and chain metadata.
+
+    Keeps the original flat subprocess/model_id/*_source keys (both sourced
+    from the one winning layer+candidate per alias, per the wholesale-wins
+    rule) so existing consumers (doctor, models verb) keep working unchanged.
+    Adds candidates/active_index/num_candidates/is_fallback for chain-aware
+    rendering (D2/D3 verb + doctor WARN).
+    """
     overrides = json.loads(os.environ.get("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES") or "{}")
 
-    entry: dict[str, Any] = {}
+    aliases: set[str] = set()
     for _label, path in _layer_chain(routes_yaml):
-        entry.update(_models_map(path).get(model) or {})
-    ov = overrides.get(model) or {}
-    return str(ov.get(field) or entry.get(field) or "")
+        aliases.update(_models_map(path).keys())
+    aliases.update(overrides.keys())
 
+    result: dict[str, dict[str, Any]] = {}
+    for alias in sorted(aliases):
+        route = resolve_route(alias, routes_yaml)
+        raw, _source = _winning_alias_entry(alias, routes_yaml)
+        candidates = raw if isinstance(raw, list) else ([raw] if isinstance(raw, dict) else [])
 
-def resolve_all_with_source(routes_yaml: str) -> dict[str, dict[str, str]]:
-    """Return every tier with resolved fields and per-field source labels."""
-    overrides = json.loads(os.environ.get("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES") or "{}")
-
-    tiers: set[str] = set()
-    for _label, path in _layer_chain(routes_yaml):
-        tiers.update(_models_map(path).keys())
-    tiers.update(overrides.keys())
-
-    result: dict[str, dict[str, str]] = {}
-    for tier in sorted(tiers):
-        entry: dict[str, Any] = {}
-        sources: dict[str, str] = {}
-
-        for label, path in _layer_chain(routes_yaml):
-            tier_data = _models_map(path).get(tier) or {}
-            for fld in ("subprocess", "model_id"):
-                if fld in tier_data and tier_data[fld] is not None:
-                    entry[fld] = tier_data[fld]
-                    sources[f"{fld}_source"] = label
-
-        ov = overrides.get(tier) or {}
-        for fld in ("subprocess", "model_id"):
-            if fld in ov and ov[fld] is not None:
-                entry[fld] = ov[fld]
-                sources[f"{fld}_source"] = "$ORCHESTRATOR_MODEL_ROUTE_OVERRIDES"
-
-        result[tier] = {
-            "subprocess": str(entry.get("subprocess") or ""),
-            "subprocess_source": sources.get("subprocess_source", ""),
-            "model_id": str(entry.get("model_id") or ""),
-            "model_id_source": sources.get("model_id_source", ""),
+        result[alias] = {
+            "subprocess": route["subprocess"],
+            "subprocess_source": route["source"],
+            "model_id": route["model_id"],
+            "model_id_source": route["source"],
+            "candidates": candidates,
+            "active_index": route["active_index"],
+            "num_candidates": route["num_candidates"],
+            "is_fallback": route["is_fallback"],
         }
 
     return result
