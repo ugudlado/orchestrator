@@ -111,7 +111,9 @@ For an agent step:
 1. Read `instruction` — this is your task. Read files, edit code, run tests **as it
    says.** Honor any "Verify" section: do not mark complete until verification passes.
    (Project rule: evidence-based — never claim completion without verification.)
-2. Record the result (step 4).
+2. Also read the target repo's `spec/project.yaml` `learnings:` and honor entries
+   whose `step:` matches this step or is `any`.
+3. Record the result (step 4).
 
 ## 4. Record each agent step
 
@@ -124,7 +126,14 @@ echo '{
   "status":  "completed",
   "agent":   "<your model id, e.g. claude-opus-4-8>",
   "usage":   {"input_tokens": <real if known else 0>, "output_tokens": <real if known else 0>},
-  "outputs": { ... any outputs the step contract requires ... }
+  "outputs": {
+    "evidence": {
+      "verified": [{"check": "<a ## Verify item, run verbatim>", "result": "<real output>"}],
+      "decisions": ["<non-obvious choice and why, if any>"]
+    },
+    "briefing": "<what was done, how, and which evidence above supports it — 2-4 sentences>"
+    ... any other outputs the step contract requires ...
+  }
 }' | orchestrator done "$STATE"
 ```
 
@@ -132,6 +141,8 @@ echo '{
 - `usage`: report the real token counts your harness shows if you can — that keeps cost
   metrics correct. If you can't, `0`/`0` is accepted because `ORCHESTRATOR_SKIP_USAGE_CHECK`
   is set (cost will record as $0 for that step).
+- `evidence` is required on `status: completed` (and `recovered`) — never on engine-synthesized
+  failure payloads. Fabricating results is worse than omitting them.
 - If `done` returns a validation error (exit 3), read the `hint` — usually a missing
   required `output`. Add it and re-run `done`.
 - Then loop back to step 3 (`next`).
