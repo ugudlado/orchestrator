@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from orchestrator_next.model_routes import resolve_field, resolve_subprocess
+from orchestrator_next.model_routes import resolve_field
 
 
 def _write_models(path: Path, models: dict) -> None:
@@ -31,7 +31,7 @@ def test_home_file_overrides_config_root(monkeypatch, tmp_path):
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
 
-    assert resolve_subprocess("opus", str(routes_yaml)) == "cursor"
+    assert resolve_field("opus", str(routes_yaml), "subprocess") == "cursor"
 
 
 def test_precedence_env_file_over_home_over_config(monkeypatch, tmp_path):
@@ -50,14 +50,14 @@ def test_precedence_env_file_over_home_over_config(monkeypatch, tmp_path):
     monkeypatch.setenv("ORCHESTRATOR_MODELS_CONFIG", str(env_file))
     monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
 
-    assert resolve_subprocess("opus", str(routes_yaml)) == "codex"
+    assert resolve_field("opus", str(routes_yaml), "subprocess") == "codex"
     assert resolve_field("opus", str(routes_yaml), "model_id") == "c"
 
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
-    assert resolve_subprocess("opus", str(routes_yaml)) == "cursor"
+    assert resolve_field("opus", str(routes_yaml), "subprocess") == "cursor"
 
     home_models.unlink()
-    assert resolve_subprocess("opus", str(routes_yaml)) == "claude"
+    assert resolve_field("opus", str(routes_yaml), "subprocess") == "claude"
 
 
 def test_home_partial_tier_falls_through(monkeypatch, tmp_path):
@@ -80,8 +80,8 @@ def test_home_partial_tier_falls_through(monkeypatch, tmp_path):
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
 
-    assert resolve_subprocess("opus", str(routes_yaml)) == "claude"
-    assert resolve_subprocess("sonnet", str(routes_yaml)) == "cursor"
+    assert resolve_field("opus", str(routes_yaml), "subprocess") == "claude"
+    assert resolve_field("sonnet", str(routes_yaml), "subprocess") == "cursor"
 
 
 def test_malformed_home_yaml_falls_through(monkeypatch, tmp_path):
@@ -99,7 +99,7 @@ def test_malformed_home_yaml_falls_through(monkeypatch, tmp_path):
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
 
-    assert resolve_subprocess("opus", str(routes_yaml)) == "claude"
+    assert resolve_field("opus", str(routes_yaml), "subprocess") == "claude"
 
 
 def test_resolve_all_with_source_labels(monkeypatch, tmp_path):

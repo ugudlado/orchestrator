@@ -87,13 +87,3 @@ def resolve_all_with_source(routes_yaml: str) -> dict[str, dict[str, str]]:
         }
 
     return result
-
-
-def resolve_subprocess(model: str, routes_yaml: str | None) -> str:
-    """Tool binary key (e.g. 'claude', 'cursor') for a model tier."""
-    return resolve_field(model, routes_yaml, "subprocess")
-
-
-def resolve_model_id(model: str, routes_yaml: str | None) -> str:
-    """Concrete model_id (e.g. 'claude-opus-4-7') for a model tier; '' if unset."""
-    return resolve_field(model, routes_yaml, "model_id")

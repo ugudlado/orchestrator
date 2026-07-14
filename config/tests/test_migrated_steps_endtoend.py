@@ -45,7 +45,7 @@ def _discover_step_dirs() -> list[str]:
 def _step_kind(step_id: str) -> str:
     """Return a step's kind: explicit `kind:` when declared, else inferred from
     `run:`/`agent:` presence (ORC-104 stripped contracts omit `kind:`). Mirrors
-    parser._load_contract inference so this test guards that logic.
+    parser.load_contract_for_step inference so this test guards that logic.
     """
     contract_yaml_path = os.path.join(_STEPS_DIR, step_id, "contract.yaml")
     with open(contract_yaml_path) as f:
@@ -63,20 +63,20 @@ _SCRIPT_STEP_IDS = [sid for sid in _ALL_STEP_IDS if _step_kind(sid) == "script"]
 
 @pytest.fixture(autouse=True)
 def point_parser_at_real_steps(monkeypatch):
-    """Point _load_contract at the real config/steps/ directory."""
+    """Point load_contract_for_step at the real config/steps/ directory."""
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", _STEPS_DIR)
 
 
 @pytest.mark.parametrize("step_id", _ALL_STEP_IDS)
 def test_contract_kind_matches_yaml(step_id: str):
-    """For every migrated step dir, parser._load_contract returns kind matching contract.yaml."""
+    """For every migrated step dir, parser.load_contract_for_step returns kind matching contract.yaml."""
     expected_kind = _step_kind(step_id)
     assert expected_kind in ("agent", "script"), (
         f"{step_id}/contract.yaml declares kind={expected_kind!r}; must be 'agent' or 'script'"
     )
 
-    from orchestrator_next.parser import _load_contract
-    contract = _load_contract(step_id, "")
+    from orchestrator_next.parser import load_contract_for_step
+    contract = load_contract_for_step(step_id, "")
 
     assert contract.kind == expected_kind, (
         f"{step_id}: expected kind={expected_kind!r}, got kind={contract.kind!r}"
@@ -86,8 +86,8 @@ def test_contract_kind_matches_yaml(step_id: str):
 @pytest.mark.parametrize("step_id", _AGENT_STEP_IDS)
 def test_agent_instruction_non_empty(step_id: str):
     """For every agent step, contract.instruction is non-empty (loaded from prompt.md)."""
-    from orchestrator_next.parser import _load_contract
-    contract = _load_contract(step_id, "")
+    from orchestrator_next.parser import load_contract_for_step
+    contract = load_contract_for_step(step_id, "")
 
     assert contract.instruction, (
         f"{step_id}: contract.instruction is empty; prompt.md may be missing or blank"
@@ -101,8 +101,8 @@ def test_agent_instruction_non_empty(step_id: str):
 @pytest.mark.parametrize("step_id", _SCRIPT_STEP_IDS)
 def test_script_run_path_exists(step_id: str):
     """For every script step, the resolved run path exists on disk and is readable."""
-    from orchestrator_next.parser import _load_contract
-    contract = _load_contract(step_id, "")
+    from orchestrator_next.parser import load_contract_for_step
+    contract = load_contract_for_step(step_id, "")
 
     assert contract.run, (
         f"{step_id}: contract.run is empty after loading script contract"

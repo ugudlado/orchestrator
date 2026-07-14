@@ -120,7 +120,7 @@ class State:
     worktree_artifact_dir: str = ""  # base path for tracked artifacts (spec/design/tasks/diagnose)
 
 
-def _contract_search_dirs(state_yaml_path: str) -> list[str]:
+def _contract_search_dirs() -> list[str]:
     """Return ordered list of directories to search for step contracts."""
     dirs: list[str] = []
 
@@ -221,7 +221,7 @@ def _contract_lookup_id(
     return step_id
 
 
-def _load_contract(
+def load_contract_for_step(
     step_id: str,
     state_yaml_path: str,
     workflow_plan: dict | None = None,
@@ -231,7 +231,7 @@ def _load_contract(
     Searches each configured directory for <id>/contract.yaml (directory form).
     """
     lookup_id = _contract_lookup_id(step_id, state_yaml_path, workflow_plan=workflow_plan)
-    search_dirs = _contract_search_dirs(state_yaml_path)
+    search_dirs = _contract_search_dirs()
     for d in search_dirs:
         dir_contract = os.path.join(d, lookup_id, "contract.yaml")
         if os.path.isfile(dir_contract):
@@ -335,15 +335,6 @@ def load_state(state_yaml_path: str) -> State:
     )
 
 
-def load_contract_for_step(
-    step_id: str,
-    state_yaml_path: str,
-    workflow_plan: dict | None = None,
-) -> StepContract:
-    """Public convenience wrapper around _load_contract."""
-    return _load_contract(step_id, state_yaml_path, workflow_plan=workflow_plan)
-
-
 def safe_write_yaml(path: Path, state_raw: dict, pre_write_bytes: bytes) -> None:
     """Write state_raw to path as YAML, restoring pre_write_bytes on parse error.
 
@@ -390,19 +381,15 @@ def compute_attempt(
     """
     attempts: list[int] = []
     for e in history:
-        if isinstance(e, StepHistoryEntry):
-            if e.phase != phase or e.step_id != step_id or e.attempt is None:
-                continue
-            if not include_in_progress and e.status == "in_progress":
-                continue
-            attempts.append(e.attempt)
-        elif isinstance(e, dict):
-            if e.get("phase") != phase or e.get("step_id") != step_id:
-                continue
-            attempt_val = e.get("attempt")
-            if not attempt_val:
-                continue
-            if not include_in_progress and e.get("status") == "in_progress":
-                continue
-            attempts.append(attempt_val)
+        d = e.raw if isinstance(e, StepHistoryEntry) else e
+        if not isinstance(d, dict):
+            continue
+        if d.get("phase") != phase or d.get("step_id") != step_id:
+            continue
+        attempt_val = d.get("attempt")
+        if not attempt_val:
+            continue
+        if not include_in_progress and d.get("status") == "in_progress":
+            continue
+        attempts.append(attempt_val)
     return (max(attempts) + 1) if attempts else 1

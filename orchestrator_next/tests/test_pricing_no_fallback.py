@@ -58,7 +58,7 @@ def test_every_routed_tier_has_a_price():
 
     unpriced = []
     for tier in tiers:
-        model_id = model_routes.resolve_model_id(tier, routes)
+        model_id = model_routes.resolve_field(tier, routes, "model_id")
         if not model_id or _lookup_price(model_id, _NOW) is None:
             unpriced.append(f"{tier} -> {model_id or '<unresolved>'}")
     assert not unpriced, f"tiers with no pricing.yaml row: {unpriced}"

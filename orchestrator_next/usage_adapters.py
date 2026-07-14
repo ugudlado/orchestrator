@@ -32,27 +32,6 @@ def _empty_result(*, assistant_text: str = "") -> NormalizedResult:
     return {"assistant_text": assistant_text, **ZEROED_USAGE}
 
 
-def _result(
-    *,
-    assistant_text: str,
-    input_tokens: int,
-    output_tokens: int,
-    cache_read_input_tokens: int,
-    cache_creation_input_tokens: int,
-    model: str | None,
-    cost_usd: float | None,
-) -> NormalizedResult:
-    return {
-        "assistant_text": assistant_text,
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "cache_read_input_tokens": cache_read_input_tokens,
-        "cache_creation_input_tokens": cache_creation_input_tokens,
-        "model": model,
-        "cost_usd": cost_usd,
-    }
-
-
 def _read_text(stdout_path: os.PathLike[str] | str) -> str | None:
     path = Path(stdout_path)
     try:
@@ -97,15 +76,15 @@ def _adapt_claude(raw: str, route_model: str | None) -> NormalizedResult:
     model_usage = data.get("modelUsage") or {}
     model = next(iter(model_usage), None) if model_usage else None
 
-    return _result(
-        assistant_text=str(data.get("result") or ""),
-        input_tokens=int(usage.get("input_tokens") or 0),
-        output_tokens=int(usage.get("output_tokens") or 0),
-        cache_read_input_tokens=int(usage.get("cache_read_input_tokens") or 0),
-        cache_creation_input_tokens=int(usage.get("cache_creation_input_tokens") or 0),
-        model=model,
-        cost_usd=data.get("total_cost_usd"),
-    )
+    return {
+        "assistant_text": str(data.get("result") or ""),
+        "input_tokens": int(usage.get("input_tokens") or 0),
+        "output_tokens": int(usage.get("output_tokens") or 0),
+        "cache_read_input_tokens": int(usage.get("cache_read_input_tokens") or 0),
+        "cache_creation_input_tokens": int(usage.get("cache_creation_input_tokens") or 0),
+        "model": model,
+        "cost_usd": data.get("total_cost_usd"),
+    }
 
 
 def _adapt_cursor_agent(raw: str, route_model: str | None) -> NormalizedResult:
@@ -116,15 +95,15 @@ def _adapt_cursor_agent(raw: str, route_model: str | None) -> NormalizedResult:
     usage = data.get("usage") or {}
     model = data.get("model") or route_model
 
-    return _result(
-        assistant_text=str(data.get("result") or ""),
-        input_tokens=int(usage.get("inputTokens") or 0),
-        output_tokens=int(usage.get("outputTokens") or 0),
-        cache_read_input_tokens=int(usage.get("cacheReadTokens") or 0),
-        cache_creation_input_tokens=int(usage.get("cacheWriteTokens") or 0),
-        model=model,
-        cost_usd=None,
-    )
+    return {
+        "assistant_text": str(data.get("result") or ""),
+        "input_tokens": int(usage.get("inputTokens") or 0),
+        "output_tokens": int(usage.get("outputTokens") or 0),
+        "cache_read_input_tokens": int(usage.get("cacheReadTokens") or 0),
+        "cache_creation_input_tokens": int(usage.get("cacheWriteTokens") or 0),
+        "model": model,
+        "cost_usd": None,
+    }
 
 
 def _extract_codex_assistant_text(events: list[dict[str, Any]]) -> str:
@@ -155,15 +134,15 @@ def _adapt_codex(raw: str, route_model: str | None) -> NormalizedResult:
         raise ValueError("codex JSONL missing turn.completed")
 
     usage = usage_event.get("usage") or {}
-    return _result(
-        assistant_text=_extract_codex_assistant_text(events),
-        input_tokens=int(usage.get("input_tokens") or 0),
-        output_tokens=int(usage.get("output_tokens") or 0),
-        cache_read_input_tokens=int(usage.get("cached_input_tokens") or 0),
-        cache_creation_input_tokens=0,
-        model=route_model,
-        cost_usd=None,
-    )
+    return {
+        "assistant_text": _extract_codex_assistant_text(events),
+        "input_tokens": int(usage.get("input_tokens") or 0),
+        "output_tokens": int(usage.get("output_tokens") or 0),
+        "cache_read_input_tokens": int(usage.get("cached_input_tokens") or 0),
+        "cache_creation_input_tokens": 0,
+        "model": route_model,
+        "cost_usd": None,
+    }
 
 
 def _extract_omp_assistant_text(events: list[dict[str, Any]]) -> str:
@@ -196,15 +175,15 @@ def _adapt_omp(raw: str, route_model: str | None) -> NormalizedResult:
     usage = message.get("usage") or {}
     cost = usage.get("cost") or {}
 
-    return _result(
-        assistant_text=_extract_omp_assistant_text(events),
-        input_tokens=int(usage.get("input") or 0),
-        output_tokens=int(usage.get("output") or 0),
-        cache_read_input_tokens=int(usage.get("cacheRead") or 0),
-        cache_creation_input_tokens=int(usage.get("cacheWrite") or 0),
-        model=message.get("model"),
-        cost_usd=cost.get("total"),
-    )
+    return {
+        "assistant_text": _extract_omp_assistant_text(events),
+        "input_tokens": int(usage.get("input") or 0),
+        "output_tokens": int(usage.get("output") or 0),
+        "cache_read_input_tokens": int(usage.get("cacheRead") or 0),
+        "cache_creation_input_tokens": int(usage.get("cacheWrite") or 0),
+        "model": message.get("model"),
+        "cost_usd": cost.get("total"),
+    }
 
 
 def _adapt_passthrough(raw: str, route_model: str | None) -> NormalizedResult:
@@ -232,9 +211,6 @@ def split_stdout(
         return _empty_result()
 
     adapter = TOOL_ADAPTERS.get(tool, _adapt_passthrough)
-    if adapter is _adapt_passthrough:
-        return adapter(raw, route_model)
-
     try:
         return adapter(raw, route_model)
     except (ValueError, TypeError, KeyError) as exc:

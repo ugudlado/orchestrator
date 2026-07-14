@@ -12,8 +12,6 @@ Public API: reset_step(step_id, state_yaml_path) -> None
 """
 from __future__ import annotations
 
-import argparse
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -86,24 +84,3 @@ def reset_step(step_id: str, state_yaml_path: str) -> None:
         with open(path, "wb") as f:
             f.write(pre_write_bytes)
         raise
-
-
-def main() -> None:
-    ap = argparse.ArgumentParser(
-        prog="orchestrator reset-step",
-        description="Reset a step and all subsequent steps to pending.",
-    )
-    ap.add_argument("step_id", help="Step id to reset from (inclusive)")
-    ap.add_argument("state_yaml", help="Path to state.yaml")
-    args = ap.parse_args()
-
-    try:
-        reset_step(args.step_id, args.state_yaml)
-        print(f"reset: {args.step_id} and subsequent steps reset to pending", file=sys.stderr)
-    except (ValueError, FileNotFoundError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

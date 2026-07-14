@@ -20,16 +20,6 @@ from __future__ import annotations
 import os
 import sys
 
-import re as _re
-_SLUG_RE_BIN = _re.compile(r"^[a-z0-9][a-z0-9-]*$")
-
-
-def _inline_script_env(state, state_yaml_path: str, action_env: dict) -> dict:
-    """Env for inline step scripts — see orchestrator_next.step_env.inline_script_env."""
-    from orchestrator_next.step_env import inline_script_env
-
-    return inline_script_env(state, state_yaml_path, action_env=action_env)
-
 
 def _usage() -> None:
     print(
@@ -51,19 +41,6 @@ def _usage() -> None:
         file=sys.stderr,
     )
     sys.exit(3)
-
-
-def _shell_workflow_verb(argv: list[str], script_name: str) -> None:
-    """Delegate to an orchestrator_next/scripts/*.sh driver (package files)."""
-    import subprocess as _sp
-
-    _sh = os.path.join(os.path.dirname(os.path.realpath(__file__)), "scripts", script_name)
-    if not os.path.isfile(_sh):
-        print(f"error: {script_name} not found at {_sh}", file=sys.stderr)
-        sys.exit(7)
-    _proc = _sp.run(["bash", _sh, *argv])
-    raise SystemExit(_proc.returncode)
-
 
 
 def _run_verb(argv: list[str]) -> None:
@@ -90,12 +67,15 @@ def _append_in_progress_state_entry_if_absent(
 
     Checks for an existing entry matching (step_id, phase, status='in_progress').
     If one already exists, returns without writing. Otherwise appends the new entry
-    and writes back using the pre-write-bytes corruption guard (mirrored from
-    record.py:399-414) to prevent corruption on write failure.
+    and writes back via parser.safe_write_yaml (pre-write-bytes corruption guard).
 
     This is a narrow state.yaml writer — separate from the main `record` writer.
     """
+    from pathlib import Path as _Path
+
     import yaml as _yaml  # noqa: PLC0415 — lazily import; record already imported at top of its module
+
+    from orchestrator_next.parser import safe_write_yaml as _safe_write_yaml
 
     with open(state_yaml_path, "rb") as _f:
         _pre_write_bytes = _f.read()
@@ -135,17 +115,10 @@ def _append_in_progress_state_entry_if_absent(
     })
     _state_raw["step_history"] = _history
 
-    with open(state_yaml_path, "w") as _f:
-        _yaml.safe_dump(_state_raw, _f, sort_keys=False, default_flow_style=False)
-
-    # Post-write corruption guard: verify the written file is parseable.
-    # If not, restore from pre-write bytes.
     try:
-        with open(state_yaml_path) as _f:
-            _yaml.safe_load(_f)
+        _safe_write_yaml(_Path(state_yaml_path), _state_raw, _pre_write_bytes)
     except _yaml.YAMLError:
-        with open(state_yaml_path, "wb") as _f:
-            _f.write(_pre_write_bytes)
+        pass  # pre-write bytes already restored by safe_write_yaml
 
 
 def _resolve_slug_state(schema_name: str, slug: str) -> str:
@@ -208,7 +181,6 @@ def _graph_verb(args: list[str]) -> None:
         title = f"{schema_name} workflow"
 
     if html_mode:
-        import socket
         import threading
         import webbrowser
         from http.server import HTTPServer, SimpleHTTPRequestHandler
@@ -221,11 +193,6 @@ def _graph_verb(args: list[str]) -> None:
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(html)
 
-        # Pick a free port
-        with socket.socket() as s:
-            s.bind(("", 0))
-            port = s.getsockname()[1]
-
         filename = os.path.basename(out_path)
 
         class _QuietHandler(SimpleHTTPRequestHandler):
@@ -234,7 +201,8 @@ def _graph_verb(args: list[str]) -> None:
             def log_message(self, fmt, *args):
                 pass
 
-        server = HTTPServer(("", port), _QuietHandler)
+        server = HTTPServer(("", 0), _QuietHandler)  # port 0 → OS picks a free port
+        port = server.server_address[1]
         url = f"http://localhost:{port}/{filename}"
         print(f"serving at {url}  (Ctrl-C to stop)", file=sys.stderr)
         threading.Timer(0.2, lambda: webbrowser.open(url)).start()
@@ -283,9 +251,8 @@ def main() -> None:
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
-    if len(args) < 2 and args[0] in (
-        "next", "record", "done", "graph", "reset-step", "run", "validate-workflow",
-    ) or (len(args) < 2 and args[0] in _wf_subcommands):
+    # Every verb except doctor/models needs a second argument.
+    if len(args) < 2 and args[0] not in ("doctor", "models"):
         _usage()
     # ORC-108: each config/workflows/<name>.yaml is a CLI subcommand → orchestrator-run.sh.
     if args[0] in _wf_subcommands:
