@@ -24,10 +24,20 @@ Run the workflow learning pipeline for this completed change.
 2. Run the full evaluation, finding classification, rule routing, hit/miss
    update, decay evaluation, and quality bar adjustment.
 
-3. If learning fails for any reason: log learn_skipped: true and return success.
+3. For each durable learning that should change a specific step's future
+   behavior: append it to `$ORCHESTRATOR_CONFIG/steps/<step_id>/learnings.md`
+   (create the file if absent) as a short markdown bullet with a
+   `<!-- learned: YYYY-MM-DD, source: <change_id>, cycle: N -->` trailer —
+   same format already used inline in this file's own Rules section. This
+   file is separate from `contract.yaml`/`prompt.md` so a future
+   `pack add --force` upgrade (which overwrites the pack's own prompt/contract)
+   never clobbers it. Do NOT write to spec/project.yaml `learnings:` — that
+   key is not read by the dispatcher.
+
+4. If learning fails for any reason: log learn_skipped: true and return success.
    Learning is best-effort and must not fail the complete phase.
 
-4. Return COMPLETION:
+5. Return COMPLETION:
    ```
    COMPLETION:
      status: completed
