@@ -74,9 +74,14 @@ def check_config_root(config_root: Path) -> CheckResult:
     """FAIL when the resolved config root is missing or lacks the required layout.
 
     The config root (ORCHESTRATOR_CONFIG, else ORCHESTRATOR_HOME/config —
-    see paths.config_root; explicit, no cwd fallback) must exist and hold workflows/,
-    steps/, and models.yaml. This is the prerequisite for every config-content
+    see paths.config_root; explicit, no cwd fallback) must exist and hold
+    workflows/ and steps/. This is the prerequisite for every config-content
     check below: if the root is wrong, those checks have nothing to validate.
+
+    D4: models.yaml presence is intentionally NOT required here — a
+    workflow-only pack root has no models.yaml of its own (routing can come
+    from ~/.orchestrator/models.yaml or an env-file layer instead). See
+    check_models_layer_present for the loosened WARN-only check.
     """
     if not config_root.is_dir():
         return CheckResult(
@@ -84,8 +89,8 @@ def check_config_root(config_root: Path) -> CheckResult:
         )
     missing = [
         name
-        for name, is_dir in (("workflows", True), ("steps", True), ("models.yaml", False))
-        if not ((config_root / name).is_dir() if is_dir else (config_root / name).is_file())
+        for name in ("workflows", "steps")
+        if not (config_root / name).is_dir()
     ]
     if missing:
         return CheckResult(
@@ -94,6 +99,29 @@ def check_config_root(config_root: Path) -> CheckResult:
             f"{config_root} missing: {', '.join(missing)}",
         )
     return CheckResult("config root", "PASS", f"valid config root: {config_root}")
+
+
+def check_models_layer_present(config_root: Path) -> CheckResult:
+    """D4: WARN only if NO layer (user home, env file, config root) yields a
+    `models:` block — report which layers were checked. Loosened from the old
+    hard requirement that config_root/models.yaml itself exist, which broke
+    on a workflow-only pack root (Phase R) even when the user's
+    ~/.orchestrator/models.yaml fully covers routing.
+    """
+    from orchestrator_next.model_routes import _layer_chain, _models_map  # noqa: SLF001
+
+    routes_yaml = str(config_root / "models.yaml")
+    checked: list[str] = []
+    for label, path in _layer_chain(routes_yaml):
+        checked.append(f"{label}={path or '<unset>'}")
+        if _models_map(path):
+            return CheckResult(
+                "models layer present", "PASS", f"models: found via {label} ({path})"
+            )
+    return CheckResult(
+        "models layer present", "WARN",
+        f"no layer defines a models: block — checked: {', '.join(checked)}",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -167,11 +195,12 @@ def check_subprocesses_available(config_root: Path) -> CheckResult:
         data = yaml.safe_load(models_yaml.read_text()) or {}
     except Exception as exc:  # noqa: BLE001
         return CheckResult("subprocesses available", "WARN", f"models.yaml parse: {exc}")
-    subs = {
-        entry.get("subprocess")
-        for entry in (data.get("models") or {}).values()
-        if isinstance(entry, dict) and entry.get("subprocess")
-    }
+    subs: set[str] = set()
+    for entry in (data.get("models") or {}).values():
+        candidates = entry if isinstance(entry, list) else [entry]
+        for cand in candidates:
+            if isinstance(cand, dict) and cand.get("subprocess"):
+                subs.add(str(cand["subprocess"]))
     missing = sorted(s for s in subs if not shutil.which(s))
     if missing:
         return CheckResult(
@@ -180,6 +209,74 @@ def check_subprocesses_available(config_root: Path) -> CheckResult:
     return CheckResult(
         "subprocesses available", "PASS", f"all {len(subs)} subprocess backends on PATH"
     )
+
+
+def check_contract_aliases_resolve(config_root: Path) -> CheckResult:
+    """D4: every model: alias referenced by an installed step contract must
+    resolve to at least one available route (subprocess with a binary on
+    PATH) somewhere in the layer chain. This is what makes updating packs
+    and agent config independently safe in practice — a pack that invents an
+    alias no layer defines, or a machine missing the binary for an alias a
+    pack requires, is caught here instead of at dispatch time (exit 4).
+    """
+    import shutil
+
+    from orchestrator_next.model_routes import resolve_route, resolve_tool_template
+
+    routes_yaml = str(config_root / "models.yaml")
+    aliases: set[str] = set()
+    for step_id, path in _iter_config_contracts(config_root).items():
+        try:
+            data = yaml.safe_load(path.read_text()) or {}
+        except Exception:  # noqa: BLE001
+            continue
+        model = data.get("model")
+        if model:
+            aliases.add(str(model))
+
+    if not aliases:
+        return CheckResult("contract aliases resolve", "PASS", "0 agent-step aliases to check")
+
+    unresolved: list[str] = []
+    for alias in sorted(aliases):
+        route = resolve_route(alias, routes_yaml)
+        subprocess_name = route.get("subprocess") or ""
+        if not subprocess_name:
+            unresolved.append(f"{alias} (no route in any layer)")
+            continue
+        binary, _template = resolve_tool_template(subprocess_name, routes_yaml)
+        if not shutil.which(binary):
+            unresolved.append(f"{alias} -> {subprocess_name} ({binary} not on PATH)")
+
+    if unresolved:
+        return CheckResult(
+            "contract aliases resolve", "WARN",
+            f"{len(unresolved)} alias(es) unresolved: {', '.join(unresolved)}",
+        )
+    return CheckResult(
+        "contract aliases resolve", "PASS", f"all {len(aliases)} contract aliases resolve"
+    )
+
+
+def check_no_silent_fallback(config_root: Path) -> CheckResult:
+    """D3 guard rail: WARN whenever any alias is currently resolving to a
+    non-first candidate in its fallback chain — a tier is silently running
+    on a degraded route and someone should notice."""
+    from orchestrator_next.model_routes import resolve_all_with_source
+
+    routes_yaml = str(config_root / "models.yaml")
+    resolved = resolve_all_with_source(routes_yaml)
+    on_fallback = sorted(
+        f"{alias}→candidate#{entry['active_index']} ({entry['subprocess']})"
+        for alias, entry in resolved.items()
+        if entry.get("is_fallback")
+    )
+    if on_fallback:
+        return CheckResult(
+            "no silent fallback", "WARN",
+            f"aliases on a fallback candidate: {', '.join(on_fallback)}",
+        )
+    return CheckResult("no silent fallback", "PASS", "no alias is on a fallback candidate")
 
 
 def check_model_route_sources(config_root: Path) -> CheckResult:
@@ -229,10 +326,13 @@ def run_all() -> int:
     results = [
         # Config-folder validation (the 4 portability rules) — anchored on config_root().
         check_config_root(config_root),
+        check_models_layer_present(config_root),     # D4: loosened models.yaml presence (WARN)
         check_workflow_steps_resolve(config_root),  # rule 1
         check_step_dispatch_kind(config_root),      # rule 2
         check_subprocesses_available(config_root),  # rule 3 (WARN)
         check_model_route_sources(config_root),
+        check_no_silent_fallback(config_root),      # D3 guard rail (WARN)
+        check_contract_aliases_resolve(config_root),  # D4: pack/agent-config safety net (WARN)
         check_symlinks(repo_root, orch_home),
     ]
     print(_format_table(results))

@@ -1,13 +1,48 @@
-# Runtime model routing overlay (optional).
-# Pass to orchestrator run:
-#   orchestrator run ORC-84 --agents-config ./models.example.yaml
-#   orchestrator run ORC-84 agents.config=./models.example.yaml
+# Bootstrap seed for `orchestrator models init` (D2).
 #
-# Same shape as the `models:` block in config/models.yaml.
-# Fields here override models.yaml for this run only; CLI model.<tier>.<field>=
-# flags still win over this file.
+# Used ONLY as a fallback: when no layer (config root, user home, env file)
+# defines a `tools:` block yet — the normal fresh-machine / slim-pack-root
+# case. `models init` scans PATH for these binaries and writes
+# ~/.orchestrator/models.yaml binding each core alias to a fallback chain
+# (D3) of the candidates it found, best-available first.
+#
+# Also usable as a one-off run overlay (unrelated to init):
+#   orchestrator run ORC-84 --agents-config ./models.example.yaml
+# Same shape as the `models:`/`tools:` blocks in config/models.yaml.
 
+tools:
+  claude:
+    binary: claude
+    args_template:
+      ["--model", "{model_id}", "-p", "--output-format", "json", "{prompt}"]
+  cursor:
+    binary: cursor-agent
+    args_template:
+      [
+        "-p",
+        "--output-format",
+        "json",
+        "--model",
+        "{model_id}",
+        "--force",
+        "{prompt}",
+      ]
+  codex:
+    binary: codex
+    args_template: ["exec", "--json", "--prompt", "{prompt}"]
+  pi:
+    binary: pi
+    args_template: ["--mode", "json", "@{prompt_file}"]
+
+# Each core alias as a candidate chain (D3), most-capable/preferred first.
+# `models init` keeps only the candidates whose binary it found on PATH.
 models:
-  auto: { model_id: auto, subprocess: cursor }
-  # auto: { model_id: auto, subprocess: pi }
-  sonnet: { model_id: claude-sonnet-4-6, subprocess: claude }
+  opus:
+    - { subprocess: claude, model_id: claude-opus-4-7 }
+  sonnet:
+    - { subprocess: claude, model_id: claude-sonnet-4-6 }
+  haiku:
+    - { subprocess: claude, model_id: claude-haiku-4-5 }
+  composer:
+    - { subprocess: cursor, model_id: composer-2.5 }
+    - { subprocess: claude, model_id: claude-sonnet-4-6 }

@@ -23,15 +23,25 @@ def _load_pricing_table() -> dict[str, list]:
     Each value is a list of (effective_from_dt, input, output, cache_read, cache_creation)
     tuples sorted descending by effective_from so _pick_row can do a simple linear scan.
     """
-    from orchestrator_next.paths import ConfigRootError, config_root
+    from orchestrator_next.paths import ConfigRootError, bundled_config_root, config_root
     try:
         path = config_root() / "pricing.yaml"
     except ConfigRootError as exc:
         sys.stderr.write(f"[record] pricing: {exc}\n")
         return {}
     if not path.is_file():
-        sys.stderr.write(f"[record] pricing: config/pricing.yaml not found at {path}\n")
-        return {}
+        # D4: a workflow-only pack root (Phase R) has no pricing.yaml —
+        # pricing.yaml stays engine-owned, so fall back to the bundled copy
+        # rather than losing cost accounting entirely.
+        bundled_path = bundled_config_root() / "pricing.yaml"
+        if bundled_path.is_file():
+            sys.stderr.write(
+                f"[record] pricing: {path} not found; falling back to bundled {bundled_path}\n"
+            )
+            path = bundled_path
+        else:
+            sys.stderr.write(f"[record] pricing: pricing.yaml not found at {path} or {bundled_path}\n")
+            return {}
     try:
         data = yaml.safe_load(path.read_text()) or {}
     except (OSError, yaml.YAMLError) as exc:

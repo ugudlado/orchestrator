@@ -146,14 +146,10 @@ def _workflow_meta(state_raw: dict[str, Any], state_yaml_path: str) -> str:
 # Tool invocation — faithful port of run-workflow.sh invoke_tool()
 # ---------------------------------------------------------------------------
 def _resolve_tool_template(tool_name: str, models_yaml: str | None) -> tuple[str, list[str]]:
-    """Return (binary, args_template) from the tools: block of models.yaml."""
-    binary, template = tool_name, []
-    if models_yaml and Path(models_yaml).is_file():
-        cfg = yaml.safe_load(Path(models_yaml).read_text()) or {}
-        entry = (cfg.get("tools") or {}).get(tool_name) or {}
-        binary = entry.get("binary") or tool_name
-        template = entry.get("args_template") or []
-    return binary, template
+    """Return (binary, args_template) for `tool_name`, resolved through the
+    layered `tools:` block (D1) — same layer chain/precedence as `models:`.
+    """
+    return model_routes.resolve_tool_template(tool_name, models_yaml)
 
 
 def _build_argv(
@@ -251,11 +247,14 @@ def run_agent_step(
     step_id = action["step_id"]
     started_at = action.get("started_at") or datetime.now(timezone.utc).isoformat()
 
-    tool_name = model_routes.resolve_field(model, models_yaml, "subprocess")
+    # Resolve once (D3): subprocess + model_id must come from the SAME chosen
+    # candidate in a fallback chain, never mixed across candidates.
+    route = model_routes.resolve_route(model, models_yaml)
+    tool_name = route["subprocess"]
     if not tool_name:
         _log(f"ERROR: no route for model '{model}'")
         raise SystemExit(4)
-    model_id = model_routes.resolve_field(model, models_yaml, "model_id")
+    model_id = route["model_id"]
     binary, template = _resolve_tool_template(tool_name, models_yaml)
 
     meta = _workflow_meta(state_raw, state_yaml_path)
@@ -270,7 +269,8 @@ def run_agent_step(
 
     stdout_path = tmp_dir / f"out_{step_id}.txt"
     stderr_path = tmp_dir / f"err_{step_id}.txt"
-    _log(f"  invoking {tool_name} ({binary})" + (f"  model={model_id}" if model_id else ""))
+    fallback_note = f"  (fallback #{route['active_index']} for {model})" if route["is_fallback"] else ""
+    _log(f"  invoking {tool_name} ({binary})" + (f"  model={model_id}" if model_id else "") + fallback_note)
     rc = invoke_tool(tool_name, binary, template, prompt, str(prompt_file),
                      model_id, work_dir, stdout_path, stderr_path)
     if rc != 0:
