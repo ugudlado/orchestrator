@@ -8,6 +8,7 @@ pushes it to origin, and pipes a blocked event to ORCHESTRATOR_NOTIFY_CMD;
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -18,6 +19,11 @@ _HERE = Path(__file__).resolve()
 sys.path.insert(0, str(_HERE.parents[1]))
 
 from orchestrator_next import run_loop  # noqa: E402
+
+# ponytail: GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE leak in from an ambient git
+# hook (e.g. pre-commit) and override -C, redirecting these calls at the
+# real repo instead of the tmp fixture. Strip them so -C always wins.
+_GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 
 
 def _script_contract(contracts: Path, step_id: str) -> None:
@@ -45,7 +51,7 @@ def _state(repo: Path, nodes, step_history=None) -> Path:
 
 def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(repo), *args],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, env=_GIT_ENV)
 
 
 def _repo(tmp_path: Path) -> Path:
@@ -62,7 +68,7 @@ def _repo(tmp_path: Path) -> Path:
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", "init")
     origin = tmp_path / "origin.git"
-    subprocess.run(["git", "init", "--bare", str(origin)], capture_output=True)
+    subprocess.run(["git", "init", "--bare", str(origin)], capture_output=True, env=_GIT_ENV)
     _git(repo, "remote", "add", "origin", str(origin))
     return repo
 
@@ -98,7 +104,7 @@ def test_blocked_headless_commits_pushes_and_notifies(tmp_path, monkeypatch):
     # Pushed to origin.
     remote_log = subprocess.run(
         ["git", "-C", str(tmp_path / "origin.git"), "log", "--oneline", "main"],
-        capture_output=True, text=True).stdout
+        capture_output=True, text=True, env=_GIT_ENV).stdout
     assert "orchestrator state for h" in remote_log
     # Notification payload delivered on stdin.
     data = json.loads(payload_file.read_text())

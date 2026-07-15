@@ -39,6 +39,11 @@ _HERE = Path(__file__).parent.resolve()
 _REPO_ROOT = _HERE.parents[1]
 _ORCHESTRATOR_HOME = os.environ.get("ORCHESTRATOR_HOME", str(Path.home() / ".config" / "orchestrator"))
 
+# ponytail: GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE leak in from an ambient git
+# hook (e.g. pre-commit) and override -C, redirecting these calls at the
+# real repo instead of the tmp fixture. Strip them so -C always wins.
+_GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -68,14 +73,14 @@ def _init_git_repo(repo_root: Path) -> None:
     real repo with at least one commit.
     """
     repo_root.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "-C", str(repo_root), "init", "-q"], check=True)
-    subprocess.run(["git", "-C", str(repo_root), "config", "user.email", "t@t.com"], check=True)
-    subprocess.run(["git", "-C", str(repo_root), "config", "user.name", "t"], check=True)
+    subprocess.run(["git", "-C", str(repo_root), "init", "-q"], check=True, env=_GIT_ENV)
+    subprocess.run(["git", "-C", str(repo_root), "config", "user.email", "t@t.com"], check=True, env=_GIT_ENV)
+    subprocess.run(["git", "-C", str(repo_root), "config", "user.name", "t"], check=True, env=_GIT_ENV)
 
 
 def _commit_all(repo_root: Path) -> None:
-    subprocess.run(["git", "-C", str(repo_root), "add", "-A"], check=True)
-    subprocess.run(["git", "-C", str(repo_root), "commit", "-qm", "init"], check=True)
+    subprocess.run(["git", "-C", str(repo_root), "add", "-A"], check=True, env=_GIT_ENV)
+    subprocess.run(["git", "-C", str(repo_root), "commit", "-qm", "init"], check=True, env=_GIT_ENV)
 
 
 def _run_seed(
