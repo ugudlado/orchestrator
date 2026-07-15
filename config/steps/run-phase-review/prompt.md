@@ -23,8 +23,10 @@
 2. Run the target repo's `verify_commands` map from its `spec/project.yaml`
    (top-level, not under quality_bar). Execute every command listed. Any
    non-zero exit is a critical correctness finding — cannot pass this round.
-   If `verify_commands` is not configured: for this migration release, note
-   it as a warning in phase-review.md and continue; do not hard-fail yet.
+   If `verify_commands` is not configured: this is itself a critical finding
+   in spec_compliance (missing quality gate) — cannot pass this round. Write
+   phase-review.md noting the missing map and what to add, and return
+   COMPLETION with `status: failed` per step 9 below.
 3. Score each dimension separately on 1-10 using the same caps and rubric:
    - Dimensions: spec_compliance, correctness, security, simplicity, code_quality
    - For each dimension:
