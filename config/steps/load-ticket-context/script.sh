@@ -17,7 +17,7 @@ _read_state_field() {
 }
 
 ticket_id="$(_read_state_field ticket_id)"
-ticketing="$(_read_state_field ticketing)"
+ticketing="$(backlog_api_ticketing)"
 change_id="${CHANGE_ID:-${ORCHESTRATOR_CHANGE_ID:-$(_read_state_field change_id)}}"
 slug="$(_read_state_field slug)"
 if [ -z "$change_id" ] && [ -n "$slug" ]; then

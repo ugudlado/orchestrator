@@ -8,28 +8,27 @@
 # "BKG-541" alone is not an address. The server used to fill the missing half from an ambient
 # default, which could silently resolve to the WRONG project; it now returns 400 instead.
 #
-# Project resolution precedence (first non-empty wins):
+# Project resolution (first non-empty wins) — env-only, no config file read:
 #   1. BACKLOG_PROJECT      — env alias (name); takes precedence, see note below.
-#   2. BACKLOG_PROJECT_ID   — env (id/guid/name); the machine-level default.
-#   3. spec/project.yaml:project_id under $REPO_ROOT — per-repo workflow config.
-# This makes the project a per-repo setting driven by workflow config: a single
-# installed engine + shared BACKLOG_URL/BACKLOG_TOKEN drives any repo, and each
-# repo names its own backlog project in spec/project.yaml — no global env change
-# needed to switch repos. An explicit env var still overrides the config.
-# Any value may be an id, guid, or project name.
+#   2. BACKLOG_PROJECT_ID   — env (id/guid/name).
+# Any value may be an id, guid, or project name. Keeping this env-only (no
+# spec/project.yaml fallback) means the CLI's ticketing behavior never
+# depends on repo-committed config — only on the environment it's invoked in.
 
 backlog_api_project() {
   # BACKLOG_PROJECT (name) takes precedence: the REST API doesn't resolve the
   # guid until the server ships the guid migration (tasks/project-guid-column).
-  local from_env="${BACKLOG_PROJECT:-${BACKLOG_PROJECT_ID:-}}"
-  if [ -n "$from_env" ]; then
-    printf '%s' "$from_env"
-    return 0
-  fi
-  # Fall back to the repo's workflow config (spec/project.yaml:project_id).
+  printf '%s' "${BACKLOG_PROJECT:-${BACKLOG_PROJECT_ID:-}}"
+}
+
+# Which ticketing backend this repo uses (e.g. "backlog"), read directly from
+# spec/project.yaml:ticketing under $REPO_ROOT — the engine has no notion of
+# ticketing and never writes this into state.yaml; ticket-sync steps read it
+# straight from repo config, same as any other workflow-content concern.
+backlog_api_ticketing() {
   local project_yaml="${REPO_ROOT:-}/spec/project.yaml"
   if [ -n "${REPO_ROOT:-}" ] && [ -f "$project_yaml" ]; then
-    python3 -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1])) or {}; print(d.get("project_id") or "")' "$project_yaml" 2>/dev/null
+    python3 -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1])) or {}; print(d.get("ticketing") or "")' "$project_yaml" 2>/dev/null
   fi
 }
 

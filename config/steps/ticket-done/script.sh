@@ -18,7 +18,7 @@ _read_state_field() {
 }
 
 ticket_id="$(_read_state_field ticket_id)"
-ticketing="$(_read_state_field ticketing)"
+ticketing="$(backlog_api_ticketing)"
 synced=""
 if [ -n "$ticket_id" ]; then
   ticket_id="$(printf '%s' "$ticket_id" | tr '[:lower:]' '[:upper:]')"
