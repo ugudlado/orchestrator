@@ -4,7 +4,7 @@ The `tasks.yaml` file is a machine-readable structural contract between
 `design-and-draft-artifacts` (producer) and `implement-tasks` (consumer).
 Both steps MUST use this exact format.
 
-The authoritative template is `$ORCHESTRATOR_HOME/config/steps/design-and-draft-artifacts/templates/$SCHEMA/tasks.yaml`
+The authoritative template is `$ORCHESTRATOR_CONFIG/steps/design-and-draft-artifacts/templates/$SCHEMA/tasks.yaml`
 — read it in the artifact-generation step and use it as the structural skeleton for generation.
 
 ## Field rules

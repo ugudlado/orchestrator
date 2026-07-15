@@ -40,8 +40,8 @@ def main() -> int:
     if not state_path or not Path(state_path).is_file():
         print(json.dumps({"error": "STATE_YAML_PATH must point to existing state.yaml"}))
         return 3
-    if not os.environ.get("ORCHESTRATOR_HOME"):
-        print("error: ORCHESTRATOR_HOME required", file=sys.stderr)
+    if not os.environ.get("ORCHESTRATOR_CONFIG"):
+        print("error: ORCHESTRATOR_CONFIG required", file=sys.stderr)
         return 3
 
     path = Path(state_path)

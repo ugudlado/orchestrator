@@ -35,7 +35,7 @@
 3. Identify key constraints, integration points, and affected components.
 4. List unresolved questions that will inform design choices.
 5. Write discovery brief to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md, using the
-   template at $ORCHESTRATOR_HOME/config/steps/explore/templates/$SCHEMA/discovery.md as
+   template at $ORCHESTRATOR_CONFIG/steps/explore/templates/$SCHEMA/discovery.md as
    structural guide. All required sections must be populated (use "N/A" for irrelevant
    sections). Required sections, in order: Frontmatter (`feature-id`, `linear-ticket`),
    Feature Summary, Personas & Actors, Use Cases (Happy Path + Error & Edge Cases),
