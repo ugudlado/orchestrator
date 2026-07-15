@@ -68,8 +68,8 @@ APPROACH:
 
 6. For each file needing generation:
    a. Read the template:
-   - design.md → $ORCHESTRATOR_HOME/config/steps/design-and-draft-artifacts/templates/$SCHEMA/design.md
-   - tasks.yaml → $ORCHESTRATOR_HOME/config/steps/design-and-draft-artifacts/templates/$SCHEMA/tasks.yaml
+   - design.md → $ORCHESTRATOR_CONFIG/steps/design-and-draft-artifacts/templates/$SCHEMA/design.md
+   - tasks.yaml → $ORCHESTRATOR_CONFIG/steps/design-and-draft-artifacts/templates/$SCHEMA/tasks.yaml
      b. Read the artifact's format contract before writing it (full section list,
      field rules, and traceability/validation rules live there):
      - Producing design.md? First Read

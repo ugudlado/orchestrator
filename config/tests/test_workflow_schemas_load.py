@@ -135,7 +135,7 @@ def test_real_schema_generates_plan(tmp_path, monkeypatch, schema_name):
     _write_stub_project(repo_root)
     state_path = _write_state(repo_root / ".state" / schema_name, schema_name, schema)
 
-    monkeypatch.setenv("ORCHESTRATOR_HOME", str(_REPO_ROOT))
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(_REAL_HOME))
 
     generate_plan(str(state_path))
 
