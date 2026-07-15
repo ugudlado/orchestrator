@@ -25,6 +25,11 @@ _ORCHESTRATOR_HOME = os.environ.get(
     "ORCHESTRATOR_HOME", str(Path.home() / ".config" / "orchestrator")
 )
 
+# ponytail: GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE leak in from an ambient git
+# hook (e.g. pre-commit) and override -C, redirecting these calls at the
+# real repo instead of the tmp fixture. Strip them so -C always wins.
+_GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -60,7 +65,7 @@ def _run_seed(slug: str, schema: str, *, repo_root: Path, worktree_base: Path,
     fake_home overrides HOME so state.yaml writes land under tmp_path instead
     of the real ~/.config/orchestrator.
     """
-    env = os.environ.copy()
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env["REPO_ROOT"] = str(repo_root)
     env["ORCHESTRATOR_HOME"] = _ORCHESTRATOR_HOME
     env["WORKTREE_BASE_DIR"] = str(worktree_base)
@@ -107,12 +112,12 @@ def test_seed_state_writes_to_spec_changes(tmp_path):
     worktree_base = tmp_path / "wt"
     fake_home = tmp_path / "home"
     fake_repo.mkdir(parents=True)
-    subprocess.run(["git", "-C", str(fake_repo), "init", "-q"], check=True)
-    subprocess.run(["git", "-C", str(fake_repo), "config", "user.email", "t@t.com"], check=True)
-    subprocess.run(["git", "-C", str(fake_repo), "config", "user.name", "t"], check=True)
+    subprocess.run(["git", "-C", str(fake_repo), "init", "-q"], check=True, env=_GIT_ENV)
+    subprocess.run(["git", "-C", str(fake_repo), "config", "user.email", "t@t.com"], check=True, env=_GIT_ENV)
+    subprocess.run(["git", "-C", str(fake_repo), "config", "user.name", "t"], check=True, env=_GIT_ENV)
     _write_project_yaml(fake_repo)
-    subprocess.run(["git", "-C", str(fake_repo), "add", "-A"], check=True)
-    subprocess.run(["git", "-C", str(fake_repo), "commit", "-qm", "init"], check=True)
+    subprocess.run(["git", "-C", str(fake_repo), "add", "-A"], check=True, env=_GIT_ENV)
+    subprocess.run(["git", "-C", str(fake_repo), "commit", "-qm", "init"], check=True, env=_GIT_ENV)
 
     result = _run_seed(
         slug,
