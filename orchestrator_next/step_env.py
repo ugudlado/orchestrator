@@ -1,8 +1,9 @@
 """Orchestrator-injected environment for workflow step scripts.
 
 All variables below are set by the driver before ``bash config/steps/*/script.sh``
-runs. Step scripts must not resolve REPO_ROOT via git, derive ORCHESTRATOR_HOME
-from ``BASH_SOURCE``, or read state.yaml for fields the driver already exports.
+runs. Step scripts must not resolve REPO_ROOT via git, derive their config
+root from ``BASH_SOURCE``, or read state.yaml for fields the driver already
+exports.
 
 Canonical names (both legacy and ORCHESTRATOR_* aliases are always set together
 when a value exists):
@@ -10,33 +11,20 @@ when a value exists):
   STATE_YAML_PATH, ORCHESTRATOR_STATE_YAML_PATH
   REPO_ROOT, ORCHESTRATOR_REPO_ROOT
   CHANGE_ID, ORCHESTRATOR_CHANGE_ID
-  ORCHESTRATOR_HOME
   ORCHESTRATOR_STEP_DIR (set by run_loop; each script.sh resolves its own payload)
   ORCHESTRATOR_PHASE, ORCHESTRATOR_STEP_ID, ORCHESTRATOR_ATTEMPT
   ORCHESTRATOR_WORKFLOW_DIR, ORCHESTRATOR_WORKTREE_ARTIFACT_DIR
   WORKTREE_PATH, WORKTREE_ROOT (when worktree_path in state)
   ARCHIVE_PATH, BRANCH (when present in state)
+
+Step scripts/prompts needing the config root read $ORCHESTRATOR_CONFIG
+directly (see paths.config_root) — not derived here.
 """
 
 from __future__ import annotations
 
 import os
 from typing import Any
-
-
-def _apply_home_paths(env: dict[str, str]) -> None:
-    home = env.get("ORCHESTRATOR_HOME", "")
-    if not home:
-        # Steps reference $ORCHESTRATOR_HOME/config/... — derive home from the
-        # explicit config root. ponytail: assumes the config dir is literally
-        # named config/ (true for the repo and the bundled package layout);
-        # rename step prompts to $ORCHESTRATOR_CONFIG if that ever breaks.
-        from orchestrator_next.paths import ConfigRootError, config_root
-        try:
-            home = str(config_root().parent)
-            env["ORCHESTRATOR_HOME"] = home
-        except ConfigRootError:
-            pass
 
 
 def build_dispatch_env(
@@ -108,5 +96,4 @@ def inline_script_env(
     if archive_path:
         env["ARCHIVE_PATH"] = str(archive_path)
 
-    _apply_home_paths(env)
     return env

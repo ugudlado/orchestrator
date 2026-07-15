@@ -73,7 +73,7 @@ def check_symlinks(repo_root: Path, orch_home: Path) -> CheckResult:
 def check_config_root(config_root: Path) -> CheckResult:
     """FAIL when the resolved config root is missing or lacks the required layout.
 
-    The config root (ORCHESTRATOR_CONFIG, else ORCHESTRATOR_HOME/config —
+    The config root (ORCHESTRATOR_CONFIG, else <repo>/.orchestrator/config —
     see paths.config_root; explicit, no cwd fallback) must exist and hold
     workflows/ and steps/. This is the prerequisite for every config-content
     check below: if the root is wrong, those checks have nothing to validate.
@@ -345,10 +345,10 @@ def run_all() -> int:
 def _doctor_main(argv: list) -> int:
     """Entry point for `orchestrator doctor`. Runs all checks.
 
-    No ORCHESTRATOR_HOME guard: the config root resolves via paths.config_root
-    (ORCHESTRATOR_CONFIG → ORCHESTRATOR_HOME/config; explicit, no cwd fallback).
-    A wrong, unset, or missing config root surfaces as the `config root` FAIL
-    check, not a crash.
+    The config root resolves via paths.config_root (ORCHESTRATOR_CONFIG →
+    <repo>/.orchestrator/config; explicit, no cwd fallback). A wrong, unset,
+    or missing config root surfaces as the `config root` FAIL check, not a
+    crash.
     """
     ap = argparse.ArgumentParser(prog="orchestrator doctor")
     ap.parse_args(argv)  # --help handled here; no flags in this iteration

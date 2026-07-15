@@ -2,7 +2,7 @@
 Parser for state.yaml and step contracts.
 
 Produces a State dataclass from a state.yaml path. Resolves step contracts
-from ORCHESTRATOR_HOME/config/steps/<step_id>.yaml with a test override
+from $ORCHESTRATOR_CONFIG/steps/<step_id>.yaml with a test override
 via ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE env var.
 """
 from __future__ import annotations
@@ -90,7 +90,7 @@ def _contract_search_dirs() -> list[str]:
         dirs.append(os.path.join(workflow_dir, "config", "steps"))
 
     # Canonical: the config root's steps/ dir (ORCHESTRATOR_CONFIG, else
-    # ORCHESTRATOR_HOME/config, else <cwd>/config — see paths.config_root).
+    # <repo>/.orchestrator/config — see paths.config_root).
     from orchestrator_next.paths import config_root
     dirs.append(str(config_root() / "steps"))
 
@@ -153,6 +153,16 @@ def load_contract_for_step(step_id: str) -> StepContract:
                     )
                 with open(prompt_path, "r") as f:
                     instruction = f.read()
+                # learnings.md is separate from prompt.md so a pack upgrade
+                # (pack add --force) can overwrite prompt.md without clobbering
+                # accumulated per-step learnings — same "never overwrite what a
+                # repo owns" rule already applied to a vendored models.yaml.
+                learnings_path = os.path.join(contract_dir, "learnings.md")
+                if os.path.isfile(learnings_path):
+                    with open(learnings_path, "r") as f:
+                        learnings = f.read().strip()
+                    if learnings:
+                        instruction = f"{instruction}\n\n{learnings}\n"
                 run = None
 
             return _make_contract(step_id, data, run, instruction)
