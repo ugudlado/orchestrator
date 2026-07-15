@@ -18,7 +18,7 @@ from orchestrator_next.generate_plan import generate_plan  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def _clear_explicit_config_for_home_fixtures(monkeypatch):
-    """These tests install schemas under ORCHESTRATOR_HOME — ORCHESTRATOR_CONFIG wins."""
+    """Each test sets its own ORCHESTRATOR_CONFIG via _setup_home — clear any ambient default first."""
     monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
 
 
@@ -49,11 +49,11 @@ def _make_schema_yaml(workflows_dir: Path, name: str, schema: dict) -> None:
 
 
 def _setup_home(tmp_path, schema_name, schema):
-    home = tmp_path / "orchestrator_home"
-    workflows_dir = home / "config" / "workflows"
+    config_root = tmp_path / "orchestrator_home" / "config"
+    workflows_dir = config_root / "workflows"
     workflows_dir.mkdir(parents=True)
     _make_schema_yaml(workflows_dir, schema_name, schema)
-    return home
+    return config_root
 
 
 def test_byte_stable_output(tmp_path, monkeypatch):
@@ -64,7 +64,7 @@ def test_byte_stable_output(tmp_path, monkeypatch):
     }
     workflow_plan = {"specify": {"active": ["step-a", "step-b"], "filtered": []}}
     home = _setup_home(tmp_path, "feature", schema)
-    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(home))
     state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
 
     generate_plan(str(state_path))
@@ -84,7 +84,7 @@ def test_promotes_state_to_nodes_shape_no_plan_yaml(tmp_path, monkeypatch):
     }
     workflow_plan = {"main": {"active": ["step-a", "step-b"], "filtered": []}}
     home = _setup_home(tmp_path, "feature", schema)
-    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(home))
     state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
 
     generate_plan(str(state_path))
@@ -108,7 +108,7 @@ def test_linear_schema_synthesizes_implicit_chain_depends_on(tmp_path, monkeypat
     }
     workflow_plan = {"main": {"active": ["s1", "s2", "s3"], "filtered": []}}
     home = _setup_home(tmp_path, "feature", schema)
-    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(home))
     state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
     generate_plan(str(state_path))
 
@@ -127,7 +127,7 @@ def test_explicit_depends_on_lands_on_node(tmp_path, monkeypatch):
     }
     workflow_plan = {"main": {"active": ["explore", "design"], "filtered": []}}
     home = _setup_home(tmp_path, "feature", schema)
-    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(home))
     state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
     generate_plan(str(state_path))
 
@@ -144,7 +144,7 @@ def test_cyclic_edges_raise_and_keep_pre_promotion_shape(tmp_path, monkeypatch):
     }
     workflow_plan = {"main": {"active": ["a", "b"], "filtered": []}}
     home = _setup_home(tmp_path, "feature", schema)
-    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(home))
     state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
 
     with pytest.raises(ValueError, match="cycle"):
@@ -163,7 +163,7 @@ def test_depends_on_unknown_id_raises(tmp_path, monkeypatch):
     }
     workflow_plan = {"main": {"active": ["design"], "filtered": []}}
     home = _setup_home(tmp_path, "feature", schema)
-    monkeypatch.setenv("ORCHESTRATOR_HOME", str(home))
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(home))
     state_path = _make_state_yaml(tmp_path, "feature", workflow_plan)
 
     with pytest.raises(ValueError):

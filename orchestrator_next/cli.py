@@ -157,6 +157,26 @@ def _workflow_subcommands() -> set[str]:
         return set()
 
 
+def _default_repo_root_env() -> None:
+    """config_root()'s repo-local fallback (<repo>/.orchestrator/config/) needs
+    a repo root to check. `run` derives one from --repo/spec/project.yaml;
+    other verbs (doctor, pack, models) have no such flag, so default REPO_ROOT
+    to the git toplevel (else cwd) whenever it isn't already set — a no-op if
+    the repo has no vendored config, since config_root() only uses it when
+    <repo>/.orchestrator/config/workflows/ actually exists.
+    """
+    if os.environ.get("REPO_ROOT") or os.environ.get("ORCHESTRATOR_REPO_ROOT"):
+        return
+    import subprocess
+    try:
+        top = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+        ).stdout.strip()
+    except Exception:
+        top = ""
+    os.environ["REPO_ROOT"] = top or os.getcwd()
+
+
 def main() -> None:
     args = sys.argv[1:]
     # config-path needs no config root set — it's how you discover the value
@@ -165,6 +185,7 @@ def main() -> None:
         from orchestrator_next.paths import bundled_config_root
         print(bundled_config_root())
         sys.exit(0)
+    _default_repo_root_env()
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
         "next", "done", "graph", "doctor", "models", "reset-step", "run", "validate-workflow",

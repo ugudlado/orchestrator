@@ -94,6 +94,34 @@ class TestAgentKindContractLoad:
         assert isinstance(contract, AgentStepContract)
         assert contract.instruction == prompt_text
 
+    def test_agent_dir_contract_inlines_sibling_learnings_md(self, steps_dir):
+        """A sibling learnings.md is appended to the loaded instruction, separate
+        from prompt.md so a pack upgrade overwriting prompt.md doesn't clobber it."""
+        prompt_text = "You are the discoverer agent. Explore the codebase.\n"
+        step_dir = _write_dir_contract(steps_dir, "explore", {
+            "id": "explore", "version": 1, "kind": "agent", "agent": "discoverer",
+            "inputs": [], "outputs": ["discovery_result"], "rules": [],
+        }, prompt_text=prompt_text)
+        learnings_text = "- Prefer README-derived scope when no ticket body exists.\n"
+        (step_dir / "learnings.md").write_text(learnings_text)
+
+        from orchestrator_next.parser import load_contract_for_step
+        contract = load_contract_for_step("explore")
+        assert prompt_text in contract.instruction
+        assert learnings_text.strip() in contract.instruction
+
+    def test_agent_dir_contract_no_learnings_md_is_unaffected(self, steps_dir):
+        """Absence of learnings.md leaves instruction exactly as prompt.md wrote it."""
+        prompt_text = "You are the discoverer agent. Explore the codebase.\n"
+        _write_dir_contract(steps_dir, "explore", {
+            "id": "explore", "version": 1, "kind": "agent", "agent": "discoverer",
+            "inputs": [], "outputs": ["discovery_result"], "rules": [],
+        }, prompt_text=prompt_text)
+
+        from orchestrator_next.parser import load_contract_for_step
+        contract = load_contract_for_step("explore")
+        assert contract.instruction == prompt_text
+
     def test_agent_dir_contract_missing_prompt_raises_contract_error(self, steps_dir):
         """Scenario 2: directory form with kind: agent but missing prompt.md raises ContractError.
 

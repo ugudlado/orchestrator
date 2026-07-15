@@ -36,12 +36,12 @@ def config_root() -> Path:
     """Resolve the workflow-config root: the directory holding workflows/,
     steps/, and agents.yaml.
 
-    Resolution is EXPLICIT — there is no cwd or bundled fallback, so an engine
-    install and its config can live and version independently:
+    Resolution order (first hit wins, no layering/merging):
       1. ORCHESTRATOR_CONFIG  — points at the config/ dir directly
-      2. ORCHESTRATOR_HOME/config  — legacy: var is the repo root, config/ is a subdir
+      2. <repo_root>/.orchestrator/config/ — vendored pack, if it has workflows/
+         (repo_root from ORCHESTRATOR_REPO_ROOT or REPO_ROOT env)
 
-    Neither set → ConfigRootError.
+    Neither hit → ConfigRootError.
 
     INVARIANT: this function owns the trailing `config` segment. Callers must
     join only what's *below* it (e.g. config_root() / "steps"), NOT
@@ -51,9 +51,11 @@ def config_root() -> Path:
     explicit = os.environ.get("ORCHESTRATOR_CONFIG")
     if explicit:
         return Path(explicit)
-    home = os.environ.get("ORCHESTRATOR_HOME")
-    if home:
-        return Path(home) / "config"
+    repo_root = os.environ.get("ORCHESTRATOR_REPO_ROOT") or os.environ.get("REPO_ROOT")
+    if repo_root:
+        vendored = Path(repo_root) / ".orchestrator" / "config"
+        if (vendored / "workflows").is_dir():
+            return vendored
     raise ConfigRootError(
         "config root not set — export ORCHESTRATOR_CONFIG=$(orchestrator config-path) "
         "for the bundled config, or point it at a config checkout's config/ dir"

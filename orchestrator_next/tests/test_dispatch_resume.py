@@ -143,7 +143,7 @@ class TestResumeStepActionShape:
         (a) State has one in_progress entry (attempt=1).
         dispatch() must return action='resume_step' with is_resume=True.
         """
-        monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
+        monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read", "Grep"])
         _write_contract(steps_dir, "my-resume-step", {
             "id": "my-resume-step", "agent": "developer",
@@ -169,7 +169,7 @@ class TestResumeStepActionShape:
         AC-2: attempt=1 in_progress entry → resume returns attempt=1 (unchanged).
         Resume MUST NOT call _compute_attempt (which would return 2 = max+1).
         """
-        monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
+        monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read", "Grep"])
         _write_contract(steps_dir, "my-resume-step", {
             "id": "my-resume-step", "agent": "developer",
@@ -194,7 +194,7 @@ class TestResumeStepActionShape:
         (b) The started_at from the in_progress entry is preserved in action['started_at'].
         """
         original_started_at = "2026-03-15T08:00:00Z"
-        monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
+        monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read"])
         _write_contract(steps_dir, "my-resume-step", {
             "id": "my-resume-step", "agent": "developer",
@@ -219,7 +219,7 @@ class TestResumeStepActionShape:
         (a extension) in_progress entry with attempt=2 → resume returns attempt=2 unchanged.
         This mirrors state-crash-midstep.yaml where history has [1:completed, 2:failed, 2:in_progress].
         """
-        monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
+        monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read"])
         _write_contract(steps_dir, "my-resume-step", {
             "id": "my-resume-step", "agent": "developer",
@@ -289,7 +289,7 @@ class TestResumeStepActionShape:
         self, steps_dir, agents_dir, state_dir, monkeypatch
     ):
         """step_context is populated from plan.yaml for the in_progress step_id."""
-        monkeypatch.setenv("ORCHESTRATOR_HOME", str(agents_dir.parent))
+        monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(agents_dir.parent))
         _write_agent(agents_dir, "developer", ["Read"])
         _write_contract(steps_dir, "ctx-step", {
             "id": "ctx-step", "agent": "developer",

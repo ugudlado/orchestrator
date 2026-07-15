@@ -238,38 +238,6 @@ def validate_pack(pack_root: Path, repo_root: str) -> PackValidationResult:
 
 
 # --------------------------------------------------------------------------
-# Safety: refuse to operate on a tracked config root
-# --------------------------------------------------------------------------
-
-def _is_git_tracked_dir(path: Path) -> bool:
-    """True if `path` is inside a git work tree AND has tracked files at that path.
-
-    Uses `git ls-files --error-unmatch .` on the directory itself: exit 0 means
-    at least one tracked file resolves under it; nonzero (not a repo, or no
-    tracked files there) means safe to use for pack ops.
-    """
-    if not path.is_dir():
-        return False
-    result = subprocess.run(
-        ["git", "-C", str(path), "ls-files", "--error-unmatch", "."],
-        capture_output=True,
-        text=True,
-        env=_clean_git_env(),
-    )
-    return result.returncode == 0 and bool(result.stdout.strip())
-
-
-def _assert_untracked_config_root(root: Path) -> None:
-    if _is_git_tracked_dir(root):
-        raise PackError(
-            f"config root {root} is inside a git work tree with tracked files — "
-            "pack add/remove refuse to run here to avoid mutating tracked source. "
-            "Point ORCHESTRATOR_CONFIG at a dedicated untracked root, e.g. "
-            "~/.orchestrator/config"
-        )
-
-
-# --------------------------------------------------------------------------
 # Receipts
 # --------------------------------------------------------------------------
 
@@ -311,14 +279,44 @@ def _relative_files(src_dir: Path) -> list[Path]:
     return sorted(p.relative_to(src_dir) for p in src_dir.rglob("*") if p.is_file())
 
 
-def pack_add(source: str, *, repo_root: str | None = None) -> str:
-    """Validate then install a pack from a local path or git URL.
+def _git_head_sha(path: Path) -> str | None:
+    result = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "HEAD"],
+        capture_output=True, text=True, env=_clean_git_env(),
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def _warn_if_gitignored(repo: Path, relpath: Path) -> None:
+    """pack add vendors files meant to be committed; warn if the repo's
+    .gitignore would silently swallow `git add` on them (e.g. the common
+    blanket `.orchestrator/` ignore pattern used for state dirs)."""
+    result = subprocess.run(
+        ["git", "-C", str(repo), "check-ignore", "-q", str(relpath)],
+        capture_output=True, env=_clean_git_env(),
+    )
+    if result.returncode == 0:
+        print(
+            f"warning: {relpath} is covered by {repo}/.gitignore — "
+            f"`git add` won't pick it up. Use `git add -f {relpath}` or add a "
+            f"`!{relpath}` negation to .gitignore.",
+            file=sys.stderr,
+        )
+
+
+def pack_add(source: str, *, repo_root: str | None = None, force: bool = False) -> str:
+    """Validate then install a pack from a local path or git URL into
+    `<cwd>/.orchestrator/config/` — vendored and meant to be committed into
+    whatever repo `pack add` was run from.
+
+    `force`: overwrite an already-installed pack (upgrade) instead of
+    refusing on receipt/collision conflicts.
 
     Returns the installed pack name.
     """
     repo_root = repo_root or os.getcwd()
-    root = config_root()
-    _assert_untracked_config_root(root)
+    root = Path.cwd() / ".orchestrator" / "config"
+    root.mkdir(parents=True, exist_ok=True)
 
     clone_dir_ctx: tempfile.TemporaryDirectory | None = None
     try:
@@ -331,6 +329,8 @@ def pack_add(source: str, *, repo_root: str | None = None) -> str:
             if not pack_root.is_dir():
                 raise PackError(f"pack source not found: {pack_root}")
 
+        commit = _git_head_sha(pack_root)
+
         result = validate_pack(pack_root, repo_root)
         if not result.ok:
             raise PackError(
@@ -341,10 +341,11 @@ def pack_add(source: str, *, repo_root: str | None = None) -> str:
             print(f"warning: {w}", file=sys.stderr)
 
         receipts = _load_receipts(root)
-        if result.name in receipts:
+        if result.name in receipts and not force:
             raise PackError(
                 f"pack '{result.name}' is already installed — run "
-                f"`orchestrator pack remove {result.name}` first to upgrade"
+                f"`orchestrator pack remove {result.name}` first to upgrade, "
+                f"or pass --force"
             )
 
         # Conflict check across both workflows/ and steps/ before copying anything.
@@ -353,12 +354,17 @@ def pack_add(source: str, *, repo_root: str | None = None) -> str:
 
         existing_workflows = _existing_workflow_names(root)
         existing_steps = _existing_step_ids(root)
+        if force:
+            # Re-installing the same pack shouldn't collide with its own
+            # previously-installed files.
+            existing_workflows -= new_workflow_names
+            existing_steps -= new_step_ids
 
         collisions = sorted(
             (new_workflow_names & existing_workflows)
             | (new_step_ids & existing_steps)
         )
-        if collisions:
+        if collisions and not force:
             raise PackError(
                 f"pack '{result.name}' conflicts with already-installed workflows/steps: "
                 + ", ".join(collisions)
@@ -391,13 +397,25 @@ def pack_add(source: str, *, repo_root: str | None = None) -> str:
                 shutil.copy2(src_file, dest_file)
                 installed_files.append(str((Path("steps") / rel).as_posix()))
 
+        # models.yaml is a starter only — never overwrite a repo's own routing.
+        models_src = pack_root / "models.yaml"
+        dest_models = root / "models.yaml"
+        if models_src.is_file() and not dest_models.exists():
+            shutil.copy2(models_src, dest_models)
+            installed_files.append("models.yaml")
+
         receipts[result.name] = {
             "version": result.version,
             "protocol": result.protocol,
             "source": source,
+            "commit": commit,
             "files": installed_files,
         }
         _save_receipts(root, receipts)
+
+        rel_root = root.relative_to(Path.cwd())
+        _warn_if_gitignored(Path.cwd(), rel_root)
+        print(f"next: git add {rel_root} && git commit")
 
         return result.name
     finally:
@@ -410,8 +428,7 @@ def pack_add(source: str, *, repo_root: str | None = None) -> str:
 # --------------------------------------------------------------------------
 
 def pack_remove(name: str) -> None:
-    root = config_root()
-    _assert_untracked_config_root(root)
+    root = Path.cwd() / ".orchestrator" / "config"
 
     receipts = _load_receipts(root)
     if name not in receipts:
@@ -493,11 +510,23 @@ def pack_list() -> list[dict]:
 # CLI entry point
 # --------------------------------------------------------------------------
 
+def _parse_flags(argv: list[str]) -> tuple[list[str], bool]:
+    """Split --force out of positional args."""
+    positional: list[str] = []
+    force = False
+    for arg in argv:
+        if arg == "--force":
+            force = True
+        else:
+            positional.append(arg)
+    return positional, force
+
+
 def main(argv: list[str]) -> int:
     if not argv:
         print(
             "usage: orchestrator pack <add|remove|list> [args]\n"
-            "  orchestrator pack add <path|git-url>\n"
+            "  orchestrator pack add <path|git-url> [--force]\n"
             "  orchestrator pack remove <name>\n"
             "  orchestrator pack list",
             file=sys.stderr,
@@ -507,19 +536,21 @@ def main(argv: list[str]) -> int:
     subcmd = argv[0]
     try:
         if subcmd == "add":
-            if len(argv) < 2:
-                print("usage: orchestrator pack add <path|git-url>", file=sys.stderr)
+            rest, force = _parse_flags(argv[1:])
+            if len(rest) < 1:
+                print("usage: orchestrator pack add <path|git-url> [--force]", file=sys.stderr)
                 return 1
-            name = pack_add(argv[1])
+            name = pack_add(rest[0], force=force)
             print(f"installed pack '{name}'")
             return 0
 
         if subcmd == "remove":
-            if len(argv) < 2:
+            rest, _force = _parse_flags(argv[1:])
+            if len(rest) < 1:
                 print("usage: orchestrator pack remove <name>", file=sys.stderr)
                 return 1
-            pack_remove(argv[1])
-            print(f"removed pack '{argv[1]}'")
+            pack_remove(rest[0])
+            print(f"removed pack '{rest[0]}'")
             return 0
 
         if subcmd == "list":

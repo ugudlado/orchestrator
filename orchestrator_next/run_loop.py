@@ -116,13 +116,12 @@ def build_prompt(
     """Assemble the agent prompt. Ticket body is not injected here — the
     load-ticket-context workflow step writes
     spec/changes/<id>/ticket-context.md for agents to read.
+
+    `instruction` already carries this step's own learnings.md content, if
+    any (parser.load_contract_for_step inlines it — see steps/<id>/learnings.md).
     """
-    learnings_instruction = (
-        "Before starting: read this repo's spec/project.yaml `learnings:` and "
-        "honor entries whose `step:` matches this step or is `any`."
-    )
     return (
-        f"{instruction}\n\n{workflow_meta}\n\n{learnings_instruction}\n\n"
+        f"{instruction}\n\n{workflow_meta}\n\n"
         f"Step context:\n{step_context}\n{_COMPLETION_CONTRACT}\n"
     )
 
@@ -563,21 +562,13 @@ def _write_initial_state(
         try:
             prior_raw = yaml.safe_load(Path(prior_path).read_text()) or {}
             for key in ("worktree_path", "branch", "repo_root", "change_id", "slug",
-                        "ticket_id", "ticketing"):
+                        "ticket_id"):
                 if prior_raw.get(key):
                     prior_context[key] = prior_raw[key]
         except (OSError, yaml.YAMLError):
             pass  # prior unreadable — start fresh
 
-    # Read ticketing backend from spec/project.yaml so ticket-sync steps work.
     repo_root = prior_context.get("repo_root") or repo_root
-    ticketing = prior_context.get("ticketing") or ""
-    if not ticketing:
-        try:
-            project = yaml.safe_load((Path(repo_root) / "spec" / "project.yaml").read_text()) or {}
-            ticketing = str(project.get("ticketing") or "")
-        except (OSError, yaml.YAMLError):
-            pass
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     slug = prior_context.get("slug") or slug
@@ -585,7 +576,6 @@ def _write_initial_state(
         "change_id": prior_context.get("change_id") or slug,
         "slug": slug,
         "ticket_id": prior_context.get("ticket_id") or slug,
-        "ticketing": ticketing,
         "schema": schema,
         "status": "active",
         "repo_root": repo_root,
