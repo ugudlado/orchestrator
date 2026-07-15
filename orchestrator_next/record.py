@@ -650,9 +650,13 @@ def autocommit_state(state_yaml_path: str, *, push: bool = False) -> None:
     state_dir = str(Path(state_yaml_path).resolve().parent)
     slug = Path(state_dir).name
 
+    # Ambient GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE (e.g. leaked from a pre-commit
+    # hook subprocess) override -C and redirect these calls at the wrong repo.
+    git_env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
     def _git(*args: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            ["git", "-C", state_dir, *args], capture_output=True, text=True
+            ["git", "-C", state_dir, *args], capture_output=True, text=True, env=git_env
         )
 
     try:

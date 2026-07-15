@@ -8,7 +8,6 @@ single-layer scalar, and exit-4 when a chain is fully exhausted.
 """
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import pytest
