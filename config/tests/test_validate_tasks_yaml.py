@@ -14,8 +14,8 @@ import yaml
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
 # ORC-106: validate-tasks-yaml.sh moved into its owning step dir.
-_VALIDATOR = os.path.join(_REPO_ROOT, "config", "steps", "design-and-draft-artifacts", "validate-tasks-yaml.sh")
-_ARTIFACT_FORMATS = os.path.join(_REPO_ROOT, "config", "steps", "design-and-draft-artifacts", "prompt.md")
+_VALIDATOR = os.path.join(_REPO_ROOT, "config", "steps", "design-and-draft-artifacts", "pack", "validate-tasks-yaml.sh")
+_ARTIFACT_FORMATS = os.path.join(_REPO_ROOT, "config", "steps", "design-and-draft-artifacts", "pack", "reference", "tasks-format.md")
 
 
 def _write_tasks_yaml(tmp_path, content: dict) -> str:
@@ -60,17 +60,17 @@ VALID_TASKS_YAML = {
 
 
 # ---------------------------------------------------------------------------
-# Tasks YAML Format Contract section (now in design-and-draft-artifacts/prompt.md)
+# Tasks YAML Format Contract section (now in pack/reference/tasks-format.md)
 # ---------------------------------------------------------------------------
 
 class TestArtifactFormatsTasksYamlSection:
 
     def test_artifact_formats_has_tasks_yaml_section(self):
-        """design-and-draft-artifacts/prompt.md must contain a 'Tasks YAML Format Contract' section."""
+        """tasks-format.md must contain the 'Tasks YAML Format Contract' section."""
         with open(_ARTIFACT_FORMATS, "r") as f:
             content = f.read()
-        assert "## Tasks YAML Format Contract" in content, (
-            "design-and-draft-artifacts/prompt.md missing '## Tasks YAML Format Contract' section"
+        assert "# Tasks YAML Format Contract" in content, (
+            "tasks-format.md missing '# Tasks YAML Format Contract' section"
         )
 
     def test_tasks_yaml_section_documents_required_fields(self):
@@ -78,7 +78,7 @@ class TestArtifactFormatsTasksYamlSection:
         with open(_ARTIFACT_FORMATS, "r") as f:
             content = f.read()
         # Find the section
-        idx = content.find("## Tasks YAML Format Contract")
+        idx = content.find("# Tasks YAML Format Contract")
         assert idx >= 0
         section = content[idx:]
         for field in ("id", "title", "files", "verify", "depends_on"):
@@ -90,7 +90,7 @@ class TestArtifactFormatsTasksYamlSection:
         """Tasks YAML Format Contract must document 'version: 1'."""
         with open(_ARTIFACT_FORMATS, "r") as f:
             content = f.read()
-        idx = content.find("## Tasks YAML Format Contract")
+        idx = content.find("# Tasks YAML Format Contract")
         assert idx >= 0
         section = content[idx:]
         assert "version" in section, (

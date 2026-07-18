@@ -1,0 +1,10 @@
+# This step is also a prompt-optimizer pack: point --pack/$PROMPT_PACK here to
+# eval and tune prompt.md. Learnings record directly as train scenarios.
+name: explore
+extends: ../../../../../prompt-packs/explorer
+prompt: prompt.md
+metrics: metrics.md
+scenarios:
+  train: scenarios/train.jsonl
+  dev: scenarios/dev.jsonl
+  holdout: scenarios/holdout.jsonl

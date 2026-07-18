@@ -16,7 +16,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
 _STEP_DIR = os.path.join(_REPO_ROOT, "config", "steps", "design-and-draft-artifacts")
 _STEP_FILE = os.path.join(_STEP_DIR, "contract.yaml")
-_PROMPT_FILE = os.path.join(_STEP_DIR, "prompt.md")
+_PROMPT_FILE = os.path.join(_STEP_DIR, "pack", "prompt.md")
 
 
 def _load_step() -> dict:

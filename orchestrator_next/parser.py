@@ -146,7 +146,11 @@ def load_contract_for_step(step_id: str) -> StepContract:
                     )
                 instruction = ""
             else:
-                prompt_path = os.path.join(contract_dir, "prompt.md")
+                # ponytail: pack/prompt.md is the new home (step-as-pack); root
+                # prompt.md fallback stays for vendored configs that migrate lazily
+                prompt_path = os.path.join(contract_dir, "pack", "prompt.md")
+                if not os.path.isfile(prompt_path):
+                    prompt_path = os.path.join(contract_dir, "prompt.md")
                 if not os.path.isfile(prompt_path):
                     raise ContractError(
                         f"step contract {step_id} missing prompt.md"
@@ -157,7 +161,9 @@ def load_contract_for_step(step_id: str) -> StepContract:
                 # (pack add --force) can overwrite prompt.md without clobbering
                 # accumulated per-step learnings — same "never overwrite what a
                 # repo owns" rule already applied to a vendored models.yaml.
-                learnings_path = os.path.join(contract_dir, "learnings.md")
+                learnings_path = os.path.join(contract_dir, "pack", "learnings.md")
+                if not os.path.isfile(learnings_path):
+                    learnings_path = os.path.join(contract_dir, "learnings.md")
                 if os.path.isfile(learnings_path):
                     with open(learnings_path, "r") as f:
                         learnings = f.read().strip()
