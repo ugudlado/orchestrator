@@ -29,7 +29,7 @@ task: implement the change, run verification, commit, then update `status: compl
    Tasks with `status: completed` are done — skip them entirely.
 4. Resolve execution order: respect `depends_on` — do not start a task until all
    its dependencies have `status: completed`.
-5. **Shell capability probe**: before starting the first task, run `git status` and `echo ok` to confirm shell commands are not blocked. If either command fails or is rejected, record the failure in `known_concerns` and abandon immediately — do NOT attempt any task. This prevents wasting tool budget on a task loop that cannot commit. <!-- learned: 2026-06-02, source: orc-118, cycle: 76, hits: 4, misses: 2, repo: orchestrator -->
+5. **Shell capability probe**: before starting the first task, run `git status` and `echo ok` to confirm shell commands are not blocked. If either command fails or is rejected, record the failure in `known_concerns` and abandon immediately — do NOT attempt any task. This prevents wasting tool budget on a task loop that cannot commit.
 
 ### Per-task loop
 
@@ -93,7 +93,7 @@ escalation-to-architect protocol.
   atomically — stale docstrings cap `code_quality` to 7 at phase review.
 - `verify` commands are repo-root-relative — run them from `$REPO_ROOT`.
 - Never `git add -A` — stage only task files.
-- If git commit commands cannot be executed (shell rejected, permission error, or any failure that prevents the commit from landing in HEAD), do NOT return `implementation_result: completed` — record the failure in `known_concerns` AND stop implementation. A task is only complete when its commit is confirmed in `git log`. Returning completed with uncommitted work causes the phase reviewer to flag a critical finding (CF) that blocks the phase. <!-- learned: 2026-06-02, source: orc-87, cycle: 76, hits: 4, misses: 2, repo: orchestrator -->
+- If git commit commands cannot be executed (shell rejected, permission error, or any failure that prevents the commit from landing in HEAD), do NOT return `implementation_result: completed` — record the failure in `known_concerns` AND stop implementation. A task is only complete when its commit is confirmed in `git log`. Returning completed with uncommitted work causes the phase reviewer to flag a critical finding (CF) that blocks the phase.
 
 ## Verify
 
