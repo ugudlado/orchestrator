@@ -15,7 +15,7 @@ orchestrator/
 ├── bin/orchestrator              # CLI entry point (Python)
 ├── config/
 │   ├── scripts/                  # Workflow driver scripts
-│   ├── steps/                    # Step directories (contract.yaml + prompt.md or script.sh)
+│   ├── steps/                    # Step dirs (contract.yaml + pack/prompt.md or script.sh)
 │   └── workflows/*.yaml          # Workflow schemas
 ├── skills/*/SKILL.md             # Skills (entry points + agent definitions)
 ├── spec/

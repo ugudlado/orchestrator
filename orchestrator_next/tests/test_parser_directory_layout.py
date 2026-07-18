@@ -94,6 +94,21 @@ class TestAgentKindContractLoad:
         assert isinstance(contract, AgentStepContract)
         assert contract.instruction == prompt_text
 
+    def test_agent_dir_contract_prefers_pack_prompt_md(self, steps_dir):
+        """pack/prompt.md wins over a root prompt.md — steps-as-packs layout;
+        root prompt.md remains as a fallback for unmigrated vendored configs."""
+        step_dir = _write_dir_contract(steps_dir, "explore", {
+            "id": "explore", "version": 1, "kind": "agent", "agent": "discoverer",
+            "inputs": [], "outputs": ["discovery_result"], "rules": [],
+        }, prompt_text="Legacy root prompt.\n")
+        pack_dir = step_dir / "pack"
+        pack_dir.mkdir()
+        (pack_dir / "prompt.md").write_text("Pack prompt.\n")
+
+        from orchestrator_next.parser import load_contract_for_step
+        contract = load_contract_for_step("explore")
+        assert contract.instruction == "Pack prompt.\n"
+
     def test_agent_dir_contract_inlines_sibling_learnings_md(self, steps_dir):
         """A sibling learnings.md is appended to the loaded instruction, separate
         from prompt.md so a pack upgrade overwriting prompt.md doesn't clobber it."""

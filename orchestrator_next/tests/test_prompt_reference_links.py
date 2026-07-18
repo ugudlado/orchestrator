@@ -13,7 +13,8 @@ _PATH_RE = re.compile(r"\$ORCHESTRATOR_CONFIG/steps/[A-Za-z0-9_\-./]+\.md")
 def test_referenced_step_paths_exist():
     root = config_root()
     missing = []
-    for prompt_path in sorted((root / "steps").glob("*/prompt.md")):
+    prompts = [*(root / "steps").glob("*/prompt.md"), *(root / "steps").glob("*/pack/prompt.md")]
+    for prompt_path in sorted(prompts):
         text = prompt_path.read_text()
         for match in _PATH_RE.findall(text):
             rel = match.removeprefix("$ORCHESTRATOR_CONFIG/")
