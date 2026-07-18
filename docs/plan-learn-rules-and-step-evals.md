@@ -2,6 +2,11 @@
 
 Status: proposed · 2026-07-15 · revised after subagent review (premises verified against repo)
 
+> **Partially superseded** (2026-07-18): the learning pipeline changed — no
+> `<!-- learned: -->` metadata, no learnings.md; the learn cycle appends eval
+> scenarios directly to the step pack's `scenarios/train.jsonl`, and retention
+> is judged from per-scenario eval scores (prompt-optimizer `report`).
+
 ## Problems
 
 1. **Rule routing is unspecified.** `run-learn-cycle/prompt.md:24-25` says "rule

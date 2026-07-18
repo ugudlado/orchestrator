@@ -94,7 +94,7 @@ The core schemas are `design`, `implement`, `feature`, and `bugfix`; each embeds
 automated review gate. Other schemas (`patch`, `autopilot`) are step-list variants of these.
 
 1. **Design** (`explore` → `design-and-draft-artifacts` → `design-review`) → design.md + tasks.yaml
-2. **Implement** (`implement-tasks` → `ticket-review` → `run-phase-review` → `ticket-qa` → `run-learn-cycle`) → code + quality gate + learnings
+2. **Implement** (`implement-tasks` → `ticket-review` → `run-phase-review` → `ticket-qa` → `run-learn-cycle`) → code + quality gate + learned train scenarios
 3. **Feature/Bugfix** chain both phases in one run (`bugfix` starts with `diagnose` instead of `explore`)
 
 `complete` is a separate teardown schema (archive, merge, worktree removal) run after review passes.
