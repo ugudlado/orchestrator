@@ -25,16 +25,19 @@ Run the workflow learning pipeline for this completed change.
    update, decay evaluation, and quality bar adjustment.
 
 3. For each durable learning that should change a specific step's future
-   behavior: append it to `$ORCHESTRATOR_CONFIG/steps/<step_id>/learnings.md`
-   (create the file if absent) as a short plain markdown bullet — no metadata
-   trailer or comment. Whether a learning stays is decided by eval evidence,
-   not counters: each bullet becomes a prompt-optimizer train scenario
-   (`run.py sync`), and its per-scenario scores in the pack's runs ledger show
-   whether the rule is still catching failures or has been internalized. This
-   file is separate from `contract.yaml`/`prompt.md` so a future
-   `pack add --force` upgrade (which overwrites the pack's own prompt/contract)
-   never clobbers it. Do NOT write to spec/project.yaml `learnings:` — that
-   key is not read by the dispatcher.
+   behavior: convert it directly into an eval scenario and append it as one
+   JSON line to `$ORCHESTRATOR_CONFIG/steps/<step_id>/scenarios/train.jsonl`
+   (create the file if absent; never touch dev/holdout — they are held out
+   for validation). Format:
+   `{"id": "<short-kebab-slug>", "scenario": "<the situation>", "expect": ["...", "..."]}`
+   The scenario recreates the situation the learning guards against, phrased
+   as a fresh task with no hint of the rule; `expect` lists 3-4 observable
+   staff-level behaviors the rule demands. Skip it if an existing scenario in
+   the step's scenarios/ already covers the same failure mode. Whether a
+   learning stays is decided by eval evidence: the prompt-optimizer per-
+   scenario report shows whether it still catches failures or has been
+   internalized. Do NOT write to spec/project.yaml `learnings:` — that key is
+   not read by the dispatcher.
 
 4. If learning fails for any reason: log learn_skipped: true and return success.
    Learning is best-effort and must not fail the complete phase.
