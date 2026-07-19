@@ -1,0 +1,77 @@
+{
+  "baseline_charter": "/Users/spidey/code/orchestrator/config/steps/diagnose/pack/prompt.md",
+  "candidate_charter": "/Users/spidey/code/orchestrator/config/steps/diagnose/pack/runs/gepa-diagnose-20260719/candidate.md",
+  "candidate_hash": "b3df41b892dc3e84c964305f6b122bec79dae679e4aefff830a68bdbb1f084ad",
+  "command": {
+    "cmd": "gepa",
+    "in_place": false,
+    "judge_model": "sonnet",
+    "max_metric_calls": 40,
+    "model": "sonnet",
+    "out": null,
+    "pack": "/Users/spidey/code/orchestrator/config/steps/diagnose/pack",
+    "reflection_model": "opus",
+    "run_id": "gepa-diagnose-20260719"
+  },
+  "created_at": "2026-07-18T20:26:38+00:00",
+  "role": "diagnose",
+  "routes": {
+    "opus": {
+      "alias": "opus",
+      "args_template": [
+        "-p",
+        "{prompt}",
+        "--model",
+        "{model_id}",
+        "--setting-sources",
+        ""
+      ],
+      "binary": "claude",
+      "model_id": "claude-opus-4-7",
+      "parse": "",
+      "source": "repo",
+      "system_args_template": ["--system-prompt", "{system}"],
+      "system_mode": "",
+      "tool": "claude"
+    },
+    "sonnet": {
+      "alias": "sonnet",
+      "args_template": [
+        "-p",
+        "{prompt}",
+        "--model",
+        "{model_id}",
+        "--setting-sources",
+        ""
+      ],
+      "binary": "claude",
+      "model_id": "claude-sonnet-4-6",
+      "parse": "",
+      "source": "repo",
+      "system_args_template": ["--system-prompt", "{system}"],
+      "system_mode": "",
+      "tool": "claude"
+    }
+  },
+  "run_id": "gepa-diagnose-20260719",
+  "scenario_count": 10,
+  "source_hashes": {
+    "/Users/spidey/code/orchestrator/config/steps/diagnose/pack/metrics.md": "c774306d68001a6efeb0735e479d819e6e6c55a9485099fbd092096e8e7034e4",
+    "/Users/spidey/code/orchestrator/config/steps/diagnose/pack/prompt.md": "77c032f47287d63e6a182ad1a84cbb97965348658bc931dba8ec74ce25fb6843",
+    "/Users/spidey/code/orchestrator/config/steps/diagnose/pack/scenarios/dev.jsonl": "88c9fb70e6f289ab98a9d6e7c310df2c68b5c7fb328c6f78515baa260a39abb9",
+    "/Users/spidey/code/orchestrator/config/steps/diagnose/pack/scenarios/holdout.jsonl": "c926c81e6ffd8d3911b612cdeeebc22e211a3666eaef4e851dc2f0f8710fec47",
+    "/Users/spidey/code/orchestrator/config/steps/diagnose/pack/scenarios/train.jsonl": "a7da073957705f0a201c1df45c4cbc4765e7d8fddd2e69316e3d4a5da5479bfb",
+    "/Users/spidey/code/prompt-optimizer/src/config/models.yaml": "359ae04e5ebede32cd4c5101d1ca4aec293eeb7219691b60dd02b297a79acc08",
+    "/Users/spidey/code/prompt-packs/explorer/prompts/prompt.md": "a051a60e0f767e442560c7a24ed48c7aaed19431f5b06210c64510072e09aa8e",
+    "/Users/spidey/code/prompt-packs/explorer/scenarios/dev.jsonl": "d66204f1c3eba15530eb445675dcc6252879bddf2b60513a2adc33c98f609baf",
+    "/Users/spidey/code/prompt-packs/explorer/scenarios/holdout.jsonl": "a6394fbec28b1dcf1b208b86a981344d5eb23038c6bafa5b7c0c421337a4c62c",
+    "/Users/spidey/code/prompt-packs/explorer/scenarios/train.jsonl": "cebc80ac3c52ab92e97f01867d4214ff8d97eec5d7ea5e8ed184aeb20dc1a07d"
+  },
+  "split_counts": {
+    "dev": 3,
+    "holdout": 3,
+    "train": 4
+  },
+  "status": "gepa-completed",
+  "version": 1
+}
