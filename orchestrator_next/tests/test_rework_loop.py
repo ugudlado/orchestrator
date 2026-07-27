@@ -1,8 +1,8 @@
-"""Statechart routing: on_failure rework loop for run-phase-review.
+"""Statechart routing: on_failure rework loop for review.
 
 Tests cover end-to-end record() behavior with on_failure edges declared on
 workflow nodes. Review steps emit status: failed + verdict: needs_work —
-_resolve_routing picks on_failure → implement-tasks.
+_resolve_routing picks on_failure → implement.
 """
 from __future__ import annotations
 
@@ -94,7 +94,7 @@ from orchestrator_next.parser import load_state  # noqa: E402
 
 
 _RUN_PHASE_REVIEW_CONTRACT = (
-    "id: run-phase-review\n"
+    "id: review\n"
     "agent: reviewer\n"
     "instruction: Run phase review.\n"
     "rules: []\n"
@@ -105,8 +105,8 @@ _RUN_PHASE_REVIEW_CONTRACT = (
 
 
 def _nodes_state(tmp_path) -> dict:
-    """ORC-63 nodes-shape state.yaml: execute-next-task → run-ux-critique →
-    run-phase-review, all `completed` except run-phase-review which is the
+    """ORC-63 nodes-shape state.yaml: execute-next-task → ux-critique →
+    review, all `completed` except review which is the
     just-completed step being recorded. on_failure loops back to execute-next-task."""
     return {
         "change_id": "orc-67-fixture",
@@ -120,10 +120,10 @@ def _nodes_state(tmp_path) -> dict:
                     {"id": "execute-next-task", "status": "completed",
                      "agent": "developer", "goal": "", "inputs": [],
                      "outputs": ["task_execution_result"], "rules": []},
-                    {"id": "run-ux-critique", "status": "completed",
+                    {"id": "ux-critique", "status": "completed",
                      "agent": "ux-critic", "goal": "", "inputs": [],
                      "outputs": ["ux_critique_report"], "rules": []},
-                    {"id": "run-phase-review", "status": "in_progress",
+                    {"id": "review", "status": "in_progress",
                      "on_failure": "execute-next-task",
                      "agent": "reviewer", "goal": "", "inputs": [],
                      "outputs": ["phase_review_report"], "rules": []},
@@ -132,7 +132,7 @@ def _nodes_state(tmp_path) -> dict:
             }
         },
         "step_history": [
-            {"step_id": "run-phase-review", "phase": "implement",
+            {"step_id": "review", "phase": "implement",
              "status": "in_progress", "agent": "reviewer", "attempt": 1,
              "started_at": "2026-05-22T10:00:00Z", "ended_at": None},
         ],
@@ -141,7 +141,7 @@ def _nodes_state(tmp_path) -> dict:
 
 
 def _review_payload(verdict: str, retries_count: int | None = None) -> dict:
-    """A run-phase-review `done` payload.
+    """A review `done` payload.
 
     pass → status: completed; needs_work/incomplete_phase → status: failed.
     The reviewer agent emits failed directly (parse-completion.py accepts it).
@@ -149,7 +149,7 @@ def _review_payload(verdict: str, retries_count: int | None = None) -> dict:
     """
     status = "completed" if verdict == "pass" else "failed"
     return {
-        "step_id": "run-phase-review",
+        "step_id": "review",
         "phase": "implement",
         "status": status,
         "agent": "reviewer",
@@ -163,7 +163,7 @@ def _setup(tmp_path, monkeypatch, state: dict) -> str:
     """Write contract override, tasks.md, state.yaml; return path."""
     contracts_dir = tmp_path / "contracts"
     contracts_dir.mkdir(exist_ok=True)
-    step_dir = contracts_dir / "run-phase-review"
+    step_dir = contracts_dir / "review"
     step_dir.mkdir(exist_ok=True)
     (step_dir / "contract.yaml").write_text(_RUN_PHASE_REVIEW_CONTRACT)
     (step_dir / "prompt.md").write_text("Run phase review.")
@@ -188,33 +188,33 @@ def _node_status(state_path: str, node_id: str) -> str:
 class TestReworkRecordNodeReopen:
 
     def test_needs_work_routes_to_on_failure_target(self, tmp_path, monkeypatch):
-        """status: failed + on_failure edge: both run-phase-review and its
+        """status: failed + on_failure edge: both review and its
         fixer target reset to pending, so the gate re-verifies once the fixer completes."""
         state_path = _setup(tmp_path, monkeypatch, _nodes_state(tmp_path))
         record.record(state_path, _review_payload("needs_work"))
 
-        # run-phase-review is reset (re-runs once execute-next-task completes again)
-        assert _node_status(state_path, "run-phase-review") == "reset"
+        # review is reset (re-runs once execute-next-task completes again)
+        assert _node_status(state_path, "review") == "reset"
         # on_failure target (execute-next-task) is reset to pending for re-dispatch
         assert _node_status(state_path, "execute-next-task") == "reset"
-        # intermediate node (run-ux-critique) is NOT touched
-        assert _node_status(state_path, "run-ux-critique") == "completed"
+        # intermediate node (ux-critique) is NOT touched
+        assert _node_status(state_path, "ux-critique") == "completed"
 
     def test_incomplete_phase_routes_same_as_needs_work(self, tmp_path, monkeypatch):
         """incomplete_phase is also a failure — routes via on_failure."""
         state_path = _setup(tmp_path, monkeypatch, _nodes_state(tmp_path))
         record.record(state_path, _review_payload("incomplete_phase"))
 
-        assert _node_status(state_path, "run-phase-review") == "reset"
+        assert _node_status(state_path, "review") == "reset"
         assert _node_status(state_path, "execute-next-task") == "reset"
 
     def test_pass_verdict_advances_normally(self, tmp_path, monkeypatch):
-        """pass verdict: run-phase-review node marked completed, no regression."""
+        """pass verdict: review node marked completed, no regression."""
         state_path = _setup(tmp_path, monkeypatch, _nodes_state(tmp_path))
         result, exit_code = record.record(state_path, _review_payload("pass"))
 
         assert exit_code == 0
-        assert _node_status(state_path, "run-phase-review") == "completed"
+        assert _node_status(state_path, "review") == "completed"
         # on_failure target is NOT touched on success
         assert _node_status(state_path, "execute-next-task") == "completed"
 
@@ -242,13 +242,13 @@ class TestReworkRecordEscalation:
         assert exit_code == 2
 
     def test_escalation_leaves_review_node_completed(self, tmp_path, monkeypatch):
-        """On cap exhaustion run-phase-review is marked completed (not pending)."""
+        """On cap exhaustion review is marked completed (not pending)."""
         state = _nodes_state(tmp_path)
         state["workflow_plan"]["implement"]["nodes"][-1]["max_retries"] = 1
         state_path = _setup(tmp_path, monkeypatch, state)
         record.record(state_path, _review_payload("needs_work"))  # retry 1
         record.record(state_path, _review_payload("needs_work"))  # cap hit → halt
-        assert _node_status(state_path, "run-phase-review") == "completed"
+        assert _node_status(state_path, "review") == "completed"
 
 
 class TestOnFailureResetReadiness:

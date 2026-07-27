@@ -257,7 +257,7 @@ def _write_stub_agent_contracts(tmp_path: Path) -> Path:
     which is the arm that injects estimated_cost_so_far."""
     contracts = tmp_path / "stub-steps"
     contracts.mkdir(exist_ok=True)
-    for sid, model in (("explore", "sonnet"), ("design-and-draft-artifacts", "opus")):
+    for sid, model in (("explore", "sonnet"), ("design", "opus")):
         step_dir = contracts / sid
         step_dir.mkdir(exist_ok=True)
         (step_dir / "contract.yaml").write_text(yaml.safe_dump({
@@ -303,7 +303,7 @@ def test_next_action_injects_estimated_cost_so_far(tmp_path):
                 "nodes": [
                     {"id": "explore", "status": "completed", "agent": "discoverer",
                      "goal": "explore", "inputs": [], "outputs": [], "rules": []},
-                    {"id": "design-and-draft-artifacts", "status": "pending",
+                    {"id": "design", "status": "pending",
                      "agent": "architect", "goal": "design", "inputs": [],
                      "outputs": [], "rules": []},
                 ],
@@ -328,7 +328,7 @@ def test_next_action_injects_estimated_cost_so_far(tmp_path):
     action = _run_next(tmp_path, state_path, contracts)
 
     # Dispatched the pending agent step, and injected the summed running total.
-    assert action["step_id"] == "design-and-draft-artifacts"
+    assert action["step_id"] == "design"
     assert action["estimated_cost_so_far"] == pytest.approx(0.03)
 
 
@@ -380,7 +380,7 @@ def test_next_cli_emits_estimated_cost_so_far(tmp_path):
                 "nodes": [
                     {"id": "explore", "status": "completed", "agent": "discoverer",
                      "goal": "explore", "inputs": [], "outputs": [], "rules": []},
-                    {"id": "design-and-draft-artifacts", "status": "pending",
+                    {"id": "design", "status": "pending",
                      "agent": "architect", "goal": "design", "inputs": [],
                      "outputs": [], "rules": []},
                 ],
@@ -418,7 +418,7 @@ def test_next_cli_emits_estimated_cost_so_far(tmp_path):
     assert proc.returncode == 0, f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
 
     action = json.loads(proc.stdout)
-    assert action["step_id"] == "design-and-draft-artifacts"
+    assert action["step_id"] == "design"
     assert action["estimated_cost_so_far"] == pytest.approx(0.27)
     # Human-readable running total surfaced on stderr for the self-driven caller.
     assert "[cost so far: $0.27]" in proc.stderr

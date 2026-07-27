@@ -12,7 +12,7 @@ args:
 
 1. Resolve the change ID from `$ARGUMENTS` or the current git branch name.
 2. Run `orchestrator complete <change-id>` — the `complete` workflow
-   (`config/workflows/complete.yaml`): run-learn-cycle →
+   (`config/workflows/complete.yaml`): learn →
    mark-change-completed → workflow-report →
    archive-completed-change → ticket-done → merge → teardown.
 3. Report: archived, merged to main, branch deleted (or any warnings).

@@ -1,0 +1,10 @@
+# This step is also a prompt-optimizer pack: point --pack at skills/review (or $PROMPT_PACK) to
+# eval and tune SKILL.md. Learnings record directly as train scenarios.
+name: review
+extends: ../../../../../prompt-packs/reviewer
+prompt: SKILL.md
+metrics: metrics.md
+scenarios:
+  train: scenarios/train.jsonl
+  dev: scenarios/dev.jsonl
+  holdout: scenarios/holdout.jsonl

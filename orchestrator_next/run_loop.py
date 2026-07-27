@@ -614,10 +614,13 @@ def _seed_state(slug: str, schema: str, repo_root: str) -> str:
         return str(existing[-1])
 
     # The steps list IS the plan — no gate-filtering (ORC-108).
+    from orchestrator_next.workflow_steps import step_id_of
+
     schema_doc = yaml.safe_load(schema_yaml.read_text()) or {}
     active = [
-        (entry.get("id", "") if isinstance(entry, dict) else str(entry))
+        sid
         for entry in schema_doc.get("steps", [])
+        if (sid := step_id_of(entry))
     ]
     if not active:
         _log(f"ERROR: schema '{schema}' declares no steps")

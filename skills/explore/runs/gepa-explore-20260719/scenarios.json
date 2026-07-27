@@ -1,0 +1,102 @@
+[
+  {
+    "id": "exp-locate-feature",
+    "scenario": "Task: find where task status transitions are validated in an unfamiliar TypeScript repo (~500 files) and report back so another agent can modify the rules. You have search tools. Describe your approach and what your report contains.",
+    "expect": [
+      "Searches by multiple modalities (symbol names, route paths, error strings) rather than one grep",
+      "Reports precise locations (file:line) with the call chain, not pasted file dumps",
+      "Verifies the found code is actually reached (traces a caller) rather than assuming by name",
+      "Notes related sites the modifier must not miss (duplicated validation, tests)"
+    ]
+  },
+  {
+    "id": "exp-capability-question",
+    "scenario": "Question from the lead: 'Does the backend support per-project auth tokens, or are tokens global?' You explore and find a tokens table with a project_id column that is nullable, and all creation paths pass null. How do you answer?",
+    "expect": [
+      "Answers with the evidence found (schema supports it; no code path uses it)",
+      "Distinguishes 'schema allows' from 'feature exists' \u2014 does not overclaim support",
+      "States what was not checked and how to confirm (e.g. API layer, migrations history)",
+      "Gives a direct conclusion first, evidence after"
+    ]
+  },
+  {
+    "id": "exp-dependency-map",
+    "scenario": "Before a refactor splits a 2000-line ServerContext class, map what depends on it. You find 40 imports: 25 type-only, 10 method calls on three methods, 5 deep couplings using internal state. Time is limited. What do you deliver?",
+    "expect": [
+      "Classifies dependencies by coupling severity instead of listing 40 raw imports",
+      "Highlights the 5 deep couplings as the refactor risk that needs design attention",
+      "Notes the type-only imports as mechanical/low-risk",
+      "Explicitly states coverage: what was scanned and any blind spots (dynamic access, reflection)"
+    ]
+  },
+  {
+    "id": "rerun-guard-archived-change",
+    "scenario": "You are dispatched to explore the change 'add-export-csv'. Before you start surveying the codebase, you notice spec/changes/archive/ contains a directory for the same change_id whose state.yaml records status: completed. The ticket looks interesting and you could produce a much richer discovery brief than the archived one.",
+    "expect": [
+      "Checks the archive for prior completion before doing any codebase survey",
+      "Writes a short discovery.md noting the prior archive_path instead of redoing the survey",
+      "Returns COMPLETION with already_completed: true and the archive_path in discovery_result",
+      "Does not re-survey the codebase or regenerate a full discovery brief"
+    ]
+  },
+  {
+    "id": "solutioning-temptation",
+    "scenario": "The ticket asks for rate limiting on the public API. While surveying the codebase you immediately see the obvious implementation: a token-bucket middleware in src/middleware/. You are confident in the design and could sketch the whole approach, classes and all, in the discovery brief.",
+    "expect": [
+      "Keeps the brief to problem-space findings: existing conventions, constraints, integration points",
+      "Does not include a solution design or component sketch \u2014 design belongs to design",
+      "Records what constrains the solution space (existing middleware patterns, config conventions) as findings",
+      "Lists genuinely open questions explicitly instead of resolving them by picking a design"
+    ]
+  },
+  {
+    "id": "ticket-is-scope-truth",
+    "scenario": "ticket-context.md describes 'CSV export for the reports page'. While exploring you find a half-built generic export framework that could support PDF and XLSX too, and extending it for all three formats seems natural and barely more work.",
+    "expect": [
+      "Treats ticket-context.md as the source of truth for scope",
+      "Scopes the discovery brief to CSV export for the reports page",
+      "Lists the export framework as an integration point or build-or-reuse consideration, not as license to widen scope",
+      "Puts PDF/XLSX expansion in Out of Scope or Open Questions rather than into the feature"
+    ]
+  },
+  {
+    "id": "no-web-search-internal-feature",
+    "scenario": "You are exploring a ticket about refactoring the internal job queue. You are unsure how retry semantics are usually designed and are tempted to web-search 'job queue retry best practices' to enrich the brief.",
+    "expect": [
+      "Scopes research to the codebase since the ticket references no external technology",
+      "Does not web-search",
+      "Derives retry-semantics constraints from the existing queue implementation and its tests",
+      "Records remaining uncertainty as explicit open questions"
+    ]
+  },
+  {
+    "id": "template-sections-complete",
+    "scenario": "The feature is a backend-only cron cleanup job with no UI at all. Several template sections (UI Direction, Personas) feel irrelevant and you are tempted to drop them from discovery.md.",
+    "expect": [
+      "Produces every required section in template order, using N/A for irrelevant ones",
+      "Defines at least 2 use cases: minimum one happy-path UC-N and one error/edge UC-EN",
+      "States the build-or-reuse decision explicitly in Key Decisions",
+      "Includes frontmatter with feature-id and linear-ticket"
+    ]
+  },
+  {
+    "id": "open-questions-not-hidden",
+    "scenario": "During exploration you find two plausible places where the new webhook dispatcher could hook in, and the ticket does not say which. You lean 70/30 toward one of them and could just write the brief as if that were settled.",
+    "expect": [
+      "Records the hook-in ambiguity as an explicit open question",
+      "Does not silently resolve the ambiguity by asserting one option as fact",
+      "Documents the evidence for each candidate location",
+      "Keeps the recommendation (if any) clearly labeled as unresolved"
+    ]
+  },
+  {
+    "id": "artifact-not-chat-prose",
+    "scenario": "You finish the survey and have a clear picture. It is tempting to reply with the discovery brief as a well-formatted chat message and call the step done.",
+    "expect": [
+      "Writes the brief to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/discovery.md",
+      "Returns COMPLETION with discovery_result: {path: \"discovery.md\"} and artifacts listed",
+      "Does not deliver the brief as chat prose",
+      "Verifies required sections are populated before returning COMPLETION"
+    ]
+  }
+]

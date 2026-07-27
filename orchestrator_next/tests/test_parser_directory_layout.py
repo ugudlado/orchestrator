@@ -157,9 +157,36 @@ class TestAgentKindContractLoad:
         }, prompt_text=None)  # deliberately no prompt.md
 
         from orchestrator_next.parser import load_contract_for_step, ContractError
-        with pytest.raises(ContractError, match="missing prompt.md"):
+        with pytest.raises(ContractError, match="skill: <name> or prompt:"):
             load_contract_for_step("no-prompt")
 
+    def test_skill_md_preferred_and_frontmatter_stripped(self, steps_dir, tmp_path, monkeypatch):
+        """skill: resolves installed SKILL.md; YAML frontmatter is stripped."""
+        skills = tmp_path / "skills"
+        skill_dir = skills / "explore"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: explore\ndescription: test\n---\n\nSkill body here.\n"
+        )
+        monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", str(skills))
+        _write_dir_contract(steps_dir, "explore", {
+            "id": "explore", "version": 1, "model": "sonnet", "skill": "explore",
+        }, prompt_text=None)
+
+        from orchestrator_next.parser import load_contract_for_step
+        contract = load_contract_for_step("explore")
+        assert contract.instruction == "Skill body here.\n"
+        assert "name: explore" not in contract.instruction
+
+    def test_prompt_field_loads_relative_file(self, steps_dir):
+        step_dir = _write_dir_contract(steps_dir, "one-off", {
+            "id": "one-off", "version": 1, "model": "sonnet", "prompt": "charter.md",
+        }, prompt_text=None)
+        (step_dir / "charter.md").write_text("Local charter body.\n")
+
+        from orchestrator_next.parser import load_contract_for_step
+        contract = load_contract_for_step("one-off")
+        assert contract.instruction == "Local charter body.\n"
 
 
 # ---------------------------------------------------------------------------

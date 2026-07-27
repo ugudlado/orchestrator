@@ -1,7 +1,7 @@
 """orc-103 RED: readiness-layer verdict-aware completion for rework re-entry.
 
 Pins the bug at readiness._effective_node_status / next_ready_node: a
-run-phase-review step_history entry with status=completed and a needs_work
+review step_history entry with status=completed and a needs_work
 verdict must NOT make the node terminal when the plan re-arms it to in_progress.
 
 These tests fail on HEAD because _step_completed_in_history counts any
@@ -58,7 +58,7 @@ def _phase_review_history_entry(
 ) -> dict:
     """History entry as record.py writes it (verdict nested under evidence.outputs)."""
     entry: dict = {
-        "step_id": "run-phase-review",
+        "step_id": "review",
         "phase": phase,
         "status": status,
         "agent": "reviewer",
@@ -76,7 +76,7 @@ def _phase_review_history_entry(
 def _malformed_review_history_entry() -> dict:
     """Completed review entry with unreadable verdict (fail-safe case)."""
     return {
-        "step_id": "run-phase-review",
+        "step_id": "review",
         "phase": "implement",
         "status": "completed",
         "agent": "reviewer",
@@ -117,7 +117,7 @@ def _rework_dag_state(
     step_history: list[dict],
     phase: str = "implement",
 ) -> dict:
-    """DAG: execute-next-task → task-fix-1 → run-phase-review → run-learn-cycle."""
+    """DAG: execute-next-task → task-fix-1 → review → learn."""
     return {
         "change_id": "orc-103-fixture",
         "phase": phase,
@@ -134,16 +134,16 @@ def _rework_dag_state(
                         depends_on=["execute-next-task"],
                     ),
                     _plain_node(
-                        "run-phase-review",
+                        "review",
                         status=review_status,
                         depends_on=review_depends_on or ["task-fix-1"],
                         agent="reviewer",
                         outputs=["phase_review_report"],
                     ),
                     _plain_node(
-                        "run-learn-cycle",
+                        "learn",
                         status="pending",
-                        depends_on=["run-phase-review"],
+                        depends_on=["review"],
                         agent=None,
                         outputs=[],
                     ),
@@ -157,7 +157,7 @@ def _rework_dag_state(
 
 def _review_node(state) -> dict:
     nodes = phase_nodes(state, state.phase)
-    return next(n for n in nodes if n["id"] == "run-phase-review")
+    return next(n for n in nodes if n["id"] == "review")
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +197,7 @@ class TestEffectiveNodeStatus:
             review_status=None,  # no explicit status — step_history inference applies
             step_history=[
                 {
-                    "step_id": "run-phase-review",
+                    "step_id": "review",
                     "phase": "implement",
                     "status": "recovered",
                     "agent": "reviewer",
@@ -232,11 +232,11 @@ class TestNextReadyNodeReworkReentry:
         state_path = _setup(tmp_path, monkeypatch, state_raw)
         state = load_state(state_path)
 
-        assert readiness.next_ready_node(state) == "run-phase-review"
-        assert readiness.next_ready_node(state) != "run-learn-cycle"
+        assert readiness.next_ready_node(state) == "review"
+        assert readiness.next_ready_node(state) != "learn"
 
     def test_after_pass_review_next_ready_is_compute(self, tmp_path, monkeypatch):
-        """AC-2: pass verdict advances to run-learn-cycle."""
+        """AC-2: pass verdict advances to learn."""
         state_raw = _rework_dag_state(
             tmp_path,
             review_status="completed",
@@ -249,7 +249,7 @@ class TestNextReadyNodeReworkReentry:
         state_path = _setup(tmp_path, monkeypatch, state_raw)
         state = load_state(state_path)
 
-        assert readiness.next_ready_node(state) == "run-learn-cycle"
+        assert readiness.next_ready_node(state) == "learn"
 
 
 # ---------------------------------------------------------------------------
@@ -260,15 +260,15 @@ class TestNextReadyNodeReworkReentry:
 def _nodes_state_with_compute(tmp_path, max_retries: int = 8) -> dict:
     """_nodes_state plus downstream compute node (for dispatch non-advance checks)."""
     state = _nodes_state(tmp_path)
-    # Override max_retries on run-phase-review so tests can control the cap.
+    # Override max_retries on review so tests can control the cap.
     for node in state["workflow_plan"]["implement"]["nodes"]:
-        if node["id"] == "run-phase-review":
+        if node["id"] == "review":
             node["max_retries"] = max_retries
     state["workflow_plan"]["implement"]["nodes"].append(
         {
-            "id": "run-learn-cycle",
+            "id": "learn",
             "status": "pending",
-            "depends_on": ["run-phase-review"],
+            "depends_on": ["review"],
             "agent": None,
             "goal": "",
             "inputs": [],
@@ -282,7 +282,7 @@ def _nodes_state_with_compute(tmp_path, max_retries: int = 8) -> dict:
 def _state_retries(state_path: str) -> int:
     raw = yaml.safe_load(open(state_path).read())
     retries = raw.get("retries") or {}
-    return int(retries.get("run-phase-review", 0))
+    return int(retries.get("review", 0))
 
 
 def _node_status(state_path: str, node_id: str) -> str:
@@ -313,7 +313,7 @@ class TestReworkRecordCounterClimb:
 
         raw = yaml.safe_load(open(state_path).read())
         last = raw["step_history"][-1]
-        assert last["step_id"] == "run-phase-review"
+        assert last["step_id"] == "review"
         assert last["status"] == "failed"
         assert raw.get("status") != "blocked"
         # on_failure target (execute-next-task) is reset to pending
@@ -378,18 +378,18 @@ class TestReworkRecordComposition:
         record.record(state_path, _review_payload("needs_work"))
         state = load_state(state_path)
         assert readiness.next_ready_node(state) == "execute-next-task"
-        assert readiness.next_ready_node(state) != "run-learn-cycle"
+        assert readiness.next_ready_node(state) != "learn"
 
-        # Simulate re-running execute-next-task + run-phase-review with pass
+        # Simulate re-running execute-next-task + review with pass
         _node_status_raw = yaml.safe_load(open(state_path).read())
         for node in _node_status_raw["workflow_plan"]["implement"]["nodes"]:
             if node["id"] == "execute-next-task":
                 node["status"] = "completed"
-            if node["id"] == "run-phase-review":
+            if node["id"] == "review":
                 node["status"] = "in_progress"
         import yaml as _yaml
         open(state_path, "w").write(_yaml.safe_dump(_node_status_raw, sort_keys=False))
 
         record.record(state_path, _review_payload("pass"))
         state = load_state(state_path)
-        assert readiness.next_ready_node(state) == "run-learn-cycle"
+        assert readiness.next_ready_node(state) == "learn"

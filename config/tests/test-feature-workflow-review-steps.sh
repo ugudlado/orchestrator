@@ -5,7 +5,7 @@
 #   - Contain exactly one 'run-implement-review' entry
 #   - Contain zero 'run-simplify' entries
 #   - Contain zero 'run-feature-verification' entries
-#   - Keep 'run-ux-critique' as a step (now unconditional — ORC-108 removed the gate)
+#   - Keep 'ux-critique' as a step (now unconditional — ORC-108 removed the gate)
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -51,12 +51,12 @@ echo ""
 COUNT_IMPLEMENT_REVIEW=$(echo "$IMPLEMENT_SECTION" | grep -c 'run-implement-review' || true)
 COUNT_SIMPLIFY=$(echo "$IMPLEMENT_SECTION" | grep -c 'run-simplify' || true)
 COUNT_VERIFICATION=$(echo "$IMPLEMENT_SECTION" | grep -c 'run-feature-verification' || true)
-COUNT_UX=$(echo "$IMPLEMENT_SECTION" | grep -c 'run-ux-critique' || true)
+COUNT_UX=$(echo "$IMPLEMENT_SECTION" | grep -c 'ux-critique' || true)
 
 echo "run-implement-review count: $COUNT_IMPLEMENT_REVIEW"
 echo "run-simplify count: $COUNT_SIMPLIFY"
 echo "run-feature-verification count: $COUNT_VERIFICATION"
-echo "run-ux-critique count: $COUNT_UX"
+echo "ux-critique count: $COUNT_UX"
 
 # Assertions
 [[ "$COUNT_IMPLEMENT_REVIEW" -eq 1 ]]
@@ -68,10 +68,10 @@ check "implement phase contains zero run-simplify entries" $?
 [[ "$COUNT_VERIFICATION" -eq 0 ]]
 check "implement phase contains zero run-feature-verification entries" $?
 
-# ORC-108: run-ux-critique is unconditional in feature.yaml (the ux_design gate
+# ORC-108: ux-critique is unconditional in feature.yaml (the ux_design gate
 # was removed; a workflow that lists the step runs it).
 [[ "$COUNT_UX" -ge 1 ]]
-check "implement phase contains run-ux-critique step" $?
+check "implement phase contains ux-critique step" $?
 
 echo ""
 echo "Results: $pass passed, $fail failed"

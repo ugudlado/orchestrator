@@ -1,7 +1,7 @@
 """T-1 tests: validate-tasks-yaml.sh validator and Tasks YAML Format Contract section.
 
 These tests run the validator script and check the Tasks YAML Format Contract in
-design-and-draft-artifacts/prompt.md (moved from artifact-formats.md in T-23).
+design/prompt.md (moved from artifact-formats.md in T-23).
 RED phase: tests fail before T-1 implementation.
 """
 from __future__ import annotations
@@ -13,9 +13,9 @@ import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
-# ORC-106: validate-tasks-yaml.sh moved into its owning step dir.
-_VALIDATOR = os.path.join(_REPO_ROOT, "config", "steps", "design-and-draft-artifacts", "pack", "validate-tasks-yaml.sh")
-_ARTIFACT_FORMATS = os.path.join(_REPO_ROOT, "config", "steps", "design-and-draft-artifacts", "pack", "reference", "tasks-format.md")
+# Validator + format contract live with the design skill.
+_VALIDATOR = os.path.join(_REPO_ROOT, "skills", "design", "validate-tasks-yaml.sh")
+_ARTIFACT_FORMATS = os.path.join(_REPO_ROOT, "skills", "design", "reference", "tasks-format.md")
 
 
 def _write_tasks_yaml(tmp_path, content: dict) -> str:

@@ -1,0 +1,48 @@
+# Template: tasks.yaml for bugfix schema
+# This file is the structural skeleton for tasks.yaml generation.
+# Field rules and validation rules: skills/design/prompt.md § Tasks YAML Format Contract
+# Replace all {placeholders} with bug-specific content.
+# verify commands must be repo-root-relative — no absolute paths, no `cd /abs/path &&`.
+version: 1
+tasks:
+  - id: T-1
+    title: "Write regression test that captures the bug (RED)"
+    status: pending
+    depends_on: []
+    files:
+      - tests/test_{slug}.py
+    verify:
+      - pytest tests/test_{slug}.py -v
+    test_scenarios:
+      - "test FAILS before the fix — proves it catches the bug"
+      - "failure message matches the documented root cause"
+    why: "proves the bug exists in an automated, repeatable way"
+    change: "Append test function asserting the correct (post-fix) behavior; must fail now because {root cause}."
+
+  - id: T-2
+    title: "Implement fix targeting root cause: {description} (GREEN)"
+    status: pending
+    depends_on: [T-1]
+    files:
+      - src/{file}.py
+    verify:
+      - pytest tests/test_{slug}.py -v
+      - pytest
+    test_scenarios:
+      - "regression test from T-1 now PASSES"
+      - "full test suite passes — zero new failures"
+    why: "fix the root cause, not symptoms"
+    change: "Edit {file}:{line} to {mechanism}."
+
+  - id: T-3
+    title: "Review checkpoint (phase gate)"
+    status: pending
+    depends_on: [T-2]
+    files: []
+    verify:
+      - pytest
+    test_scenarios:
+      - "type-check clean"
+      - "full test suite green"
+      - "build passes"
+    why: "phase gate — confirm fix integrates cleanly"

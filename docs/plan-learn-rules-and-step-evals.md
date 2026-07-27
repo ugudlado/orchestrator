@@ -9,22 +9,22 @@ Status: proposed · 2026-07-15 · revised after subagent review (premises verifi
 
 ## Problems
 
-1. **Rule routing is unspecified.** `run-learn-cycle/prompt.md:24-25` says "rule
+1. **Rule routing is unspecified.** `learn/prompt.md:24-25` says "rule
    routing, hit/miss update, decay evaluation" but never defines them. Rules with
-   `<!-- learned: -->` metadata exist in 4 step prompts (design-and-draft-artifacts
-   ×11, run-phase-review ×3, implement-tasks ×2, run-learn-cycle ×1) — routed by an
+   `<!-- learned: -->` metadata exist in 4 step prompts (design
+   ×11, review ×3, implement ×2, learn ×1) — routed by an
    agent improvising, not by contract. Only 9 steps are prompt-based (the rest are
    scripts), so the unrouted population is 5 steps — worth fixing, but the payoff
    is the contract, not coverage.
-2. **Gates can pass without meeting criteria.** `run-phase-review` references
+2. **Gates can pass without meeting criteria.** `review` references
    schema `verify.*` blocks deleted in the June/July simplification — steps 2–4,
    plus a stray `verify.metrics.review_score.min` at line 91. `design-review` has
    no deterministic checks and a hardcoded pass bar (7, prompt.md:39) that ignores
    `quality_bar.min_phase_review_score` (9, project.yaml:332).
 3. **Prompts are bloated and always fully loaded.** `parser.py:149-156` inlines the
-   whole prompt.md into every spawn. design-and-draft-artifacts is 337 lines,
-   run-phase-review 211 — much of it reference material irrelevant to most runs,
-   and run-phase-review duplicates contracts owned by producer prompts.
+   whole prompt.md into every spawn. design is 337 lines,
+   review 211 — much of it reference material irrelevant to most runs,
+   and review duplicates contracts owned by producer prompts.
 4. **Self-review has no evidence contract.** Steps claim completion; nothing forces
    "these commands ran with these results, this decision was made for these
    reasons". The one-line `briefing` exists but carries no verification backing.
@@ -35,10 +35,10 @@ These steps execute against **any target repo**, not just orchestrator. A lesson
 learned while running in repo X is one of two kinds, and they evolve different
 files:
 
-| Tier                 | What it's about                                   | Where it lives                                                                                       | Example                                                    |
-| -------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| **Workflow-generic** | The step procedure itself — true in any repo      | `config/steps/<step>/prompt.md` in the engine config checkout                                        | "run-phase-review must check pending tasks before scoring" |
-| **Repo-specific**    | This codebase's constraints, gotchas, conventions | target repo's `spec/project.yaml` `learnings:`, each entry tagged `step: <step_id>` (or `step: any`) | "in repo X, migrations need `make db-reset` before tests"  |
+| Tier                 | What it's about                                   | Where it lives                                                                                       | Example                                                   |
+| -------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| **Workflow-generic** | The step procedure itself — true in any repo      | `config/steps/<step>/prompt.md` in the engine config checkout                                        | "review must check pending tasks before scoring"          |
+| **Repo-specific**    | This codebase's constraints, gotchas, conventions | target repo's `spec/project.yaml` `learnings:`, each entry tagged `step: <step_id>` (or `step: any`) | "in repo X, migrations need `make db-reset` before tests" |
 
 Mechanics:
 
@@ -78,9 +78,9 @@ Mechanics:
 - **workflow-report already surfaces briefings** per attempt (stderr table +
   JSON). No report change needed.
 
-## Part A — rule routing contract in run-learn-cycle
+## Part A — rule routing contract in learn
 
-Changes: `config/steps/run-learn-cycle/prompt.md` + one small commit script.
+Changes: `config/steps/learn/prompt.md` + one small commit script.
 **Gate (from review F1/F2): A0 and A3 must land before any routing does.**
 
 **A0. Write-target guard.** Before routing, verify `$ORCHESTRATOR_CONFIG` resolves
@@ -111,7 +111,7 @@ how)` (create if missing). Rules live in prompt.md core — never in
    (origin repo recorded so a generic rule's birthplace is auditable). No
    hit/miss counters — staleness is judged, not counted.
 
-**A2. Rule cleanup — inside run-learn-cycle, but NOT every run.**
+**A2. Rule cleanup — inside learn, but NOT every run.**
 Sweep only when the completed schema is `implement`, `feature`, or `bugfix`
 (design-only runs skip it — otherwise the sweep fires on every schema of every
 ticket, maximizing the self-modification race window). The sweep:
@@ -144,7 +144,7 @@ cycle (promotions excepted, see A2):
 - engine config checkout: `git add config/steps && git commit` (generic rules)
 - target repo: `git add spec/project.yaml && git commit` (repo-specific rules)
 
-run-learn-cycle's prompt instructs the agent to run it as its final act; no
+learn's prompt instructs the agent to run it as its final act; no
 edits may be left uncommitted on either side.
 
 ## Part B — minimal deterministic evals at the main gates
@@ -163,12 +163,12 @@ Prose restating what the script checks gets deleted, not moved.
 - `[traces: UC-N]` check is **conditional on discovery.md existing** next to
   design.md (bugfix schema has diagnose, not explore — unconditional grep would
   fail every bugfix; review F7).
-- Runs the existing `design-and-draft-artifacts/validate-tasks-yaml.sh` (takes an
+- Runs the existing `design/validate-tasks-yaml.sh` (takes an
   explicit path arg, cwd-agnostic — confirmed reusable).
 - prompt.md: run eval.sh as step 0; non-zero exit → automatic `needs_work`
   regardless of scores, script output becomes the findings.
 
-**B2. `run-phase-review` slims down**:
+**B2. `review` slims down**:
 
 - Delete ALL dead schema-verify text: instruction steps 2–4, the
   `verify.metrics.review_score.min` reference in step 6 (line 91 — the live rule
@@ -209,7 +209,7 @@ config/steps/<step>/
   the target-repo worktree — a bare relative `reference/...` path resolves against
   the wrong tree and the agent silently improvises; review F4):
   "Producing design.md? First Read
-  `$ORCHESTRATOR_CONFIG/steps/design-and-draft-artifacts/reference/design-format.md`."
+  `$ORCHESTRATOR_CONFIG/steps/design/reference/design-format.md`."
 - **Graceful degradation**: the required-section _list_ stays in prompt.md core;
   only per-section detail moves to reference files. A skipped Read then degrades
   to "right sections, thinner content" instead of "invented format".
@@ -217,8 +217,8 @@ config/steps/<step>/
   not split.
 
 **C2. Contract ownership**: each format contract lives in exactly one `reference/`
-file owned by its producer step. Consumers (run-phase-review, design-review) Read
-the producer's file; run-phase-review's duplicated § Format Contract Reference is
+file owned by its producer step. Consumers (review, design-review) Read
+the producer's file; review's duplicated § Format Contract Reference is
 deleted.
 
 **C3. Link integrity test** (kills the rename hazard from cross-step Reads —
@@ -228,13 +228,13 @@ as the first split.
 
 **C4. Split targets, in order of payoff** (line counts verified):
 
-| Step                       | Now | Moves to reference/                                                                       |
-| -------------------------- | --- | ----------------------------------------------------------------------------------------- |
-| design-and-draft-artifacts | 337 | design-format.md, tasks-format.md, templates usage                                        |
-| run-phase-review           | 211 | quarantine.md, baseline-comparison.md, ac-verification.md (+ delete contract duplication) |
-| diagnose                   | 179 | diagnosis-format.md                                                                       |
-| implement-tasks            | 153 | edge-case procedures                                                                      |
-| explore                    | 151 | discovery-format.md                                                                       |
+| Step      | Now | Moves to reference/                                                                       |
+| --------- | --- | ----------------------------------------------------------------------------------------- |
+| design    | 337 | design-format.md, tasks-format.md, templates usage                                        |
+| review    | 211 | quarantine.md, baseline-comparison.md, ac-verification.md (+ delete contract duplication) |
+| diagnose  | 179 | diagnosis-format.md                                                                       |
+| implement | 153 | edge-case procedures                                                                      |
+| explore   | 151 | discovery-format.md                                                                       |
 
 Steps already ≤~90 lines are left alone.
 
@@ -274,7 +274,7 @@ COMPLETION:
 
 **D2. Spot audit (anti-fabrication — review F5).** Self-reported evidence is
 enforced by nobody; agents under retry pressure will emit plausible fake results.
-run-phase-review gains one instruction: pick one `evidence.verified` entry from a
+review gains one instruction: pick one `evidence.verified` entry from a
 completed implement step in step_history and re-run its `check` — a mismatch with
 the recorded `result` is a critical correctness finding. Fabrication goes from
 safe to detectable for the cost of one command per review.
@@ -297,11 +297,11 @@ splits.
 | #   | Change                                                                                                                                                                                                                                     | Files                                                                   |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
 | 1   | D1: evidence + briefing in completion contract + repo-learnings loader line in build_prompt + DRIVE.md payload example                                                                                                                     | `run_loop.py`, `DRIVE.md`                                               |
-| 2   | B2+C2: slim run-phase-review, wire existing verify_commands (fix its value), delete contract duplication, D2 spot audit                                                                                                                    | `run-phase-review/prompt.md`, `spec/project.yaml`                       |
+| 2   | B2+C2: slim review, wire existing verify_commands (fix its value), delete contract duplication, D2 spot audit                                                                                                                              | `review/prompt.md`, `spec/project.yaml`                                 |
 | 3   | B1+B3: design-review eval.sh + threshold                                                                                                                                                                                                   | `design-review/eval.sh`, `design-review/prompt.md`, `spec/project.yaml` |
 | 4   | C1+C3+C4+D3: split the 5 big prompts, link-integrity pytest, tighten Verify sections                                                                                                                                                       | `config/steps/*/prompt.md` → `reference/`, CLAUDE.md, tests             |
 | 5   | A0+A3: write-target guard + rebuilt commit chokepoint (MUST precede routing)                                                                                                                                                               | commit script, revive/replace dangling bats test                        |
-| 6   | A1+A2: routing contract + guarded cleanup/promotion                                                                                                                                                                                        | `run-learn-cycle/prompt.md`                                             |
+| 6   | A1+A2: routing contract + guarded cleanup/promotion                                                                                                                                                                                        | `learn/prompt.md`                                                       |
 | 7   | Canary: one ticket through `--schema design`, one through `implement` — eval evidence in review artifacts, briefings in step_history, on-demand reference reads observed, a synthetic finding routes a rule, learn commit lands atomically | —                                                                       |
 | 8   | Genericity canary: run one ticket in a **different target repo** (e.g. backlog) — repo-specific rule lands in THAT repo's project.yaml and is loaded on the next run there; orchestrator's prompts untouched by the repo-specific finding  | —                                                                       |
 

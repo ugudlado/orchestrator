@@ -113,7 +113,7 @@ def _validate_phase_review_output(step_id: str, outputs: dict[str, Any]) -> None
 
     Raises _RecordError on invalid input; returns None on success.
     """
-    if step_id != "run-phase-review":
+    if step_id != "review":
         return
     report = outputs.get("phase_review_report")
     if not isinstance(report, dict):
@@ -184,7 +184,7 @@ def _validate_design_review_output(step_id: str, outputs: dict[str, Any]) -> Non
 
 
 # ---------------------------------------------------------------------------
-# run-phase-review needs_work rework loop
+# review needs_work rework loop
 # ---------------------------------------------------------------------------
 
 _DEFAULT_MAX_RETRY_ROUNDS = 3
@@ -562,7 +562,7 @@ def _apply_routing(
             state_raw["status"] = "blocked"
         elif routing == "advance" or status in _SUCCESS_STATUSES:
             # "advance", or routing is an explicit on_success target step_id
-            # (e.g. run-phase-review -> ticket-qa) — the step genuinely passed,
+            # (e.g. review -> ticket-qa) — the step genuinely passed,
             # so mark it completed; next_ready_node() picks up the target via
             # normal dependency satisfaction. Nothing needs to be reset.
             readiness.mark_node_status(state_raw, phase, step_id, "completed")

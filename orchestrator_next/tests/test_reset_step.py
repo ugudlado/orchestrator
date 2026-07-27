@@ -38,68 +38,68 @@ def _load(p: Path) -> dict:
 
 def test_resets_target_and_subsequent_nodes(tmp_path):
     p = _write_state(tmp_path, [
-        {"id": "design-and-draft-artifacts", "status": "completed"},
+        {"id": "design", "status": "completed"},
         {"id": "design-review", "status": "completed"},
-        {"id": "implement-tasks", "status": "in_progress"},
+        {"id": "implement", "status": "in_progress"},
     ])
-    reset_step("design-and-draft-artifacts", str(p))
+    reset_step("design", str(p))
     state = _load(p)
     nodes = {n["id"]: n["status"] for n in state["workflow_plan"]["implement"]["nodes"]}
-    assert nodes["design-and-draft-artifacts"] == "pending"
+    assert nodes["design"] == "pending"
     assert nodes["design-review"] == "pending"
-    assert nodes["implement-tasks"] == "pending"
+    assert nodes["implement"] == "pending"
 
 
 def test_does_not_reset_nodes_before_target(tmp_path):
     p = _write_state(tmp_path, [
         {"id": "explore", "status": "completed"},
-        {"id": "design-and-draft-artifacts", "status": "completed"},
+        {"id": "design", "status": "completed"},
         {"id": "design-review", "status": "completed"},
     ])
-    reset_step("design-and-draft-artifacts", str(p))
+    reset_step("design", str(p))
     state = _load(p)
     nodes = {n["id"]: n["status"] for n in state["workflow_plan"]["implement"]["nodes"]}
     assert nodes["explore"] == "completed"
-    assert nodes["design-and-draft-artifacts"] == "pending"
+    assert nodes["design"] == "pending"
     assert nodes["design-review"] == "pending"
 
 
 def test_strips_step_history_for_reset_nodes(tmp_path):
     history = [
         {"step_id": "explore", "phase": "implement", "status": "completed"},
-        {"step_id": "design-and-draft-artifacts", "phase": "implement", "status": "completed"},
+        {"step_id": "design", "phase": "implement", "status": "completed"},
         {"step_id": "design-review", "phase": "implement", "status": "completed"},
     ]
     p = _write_state(tmp_path, [
         {"id": "explore", "status": "completed"},
-        {"id": "design-and-draft-artifacts", "status": "completed"},
+        {"id": "design", "status": "completed"},
         {"id": "design-review", "status": "completed"},
     ], history=history)
-    reset_step("design-and-draft-artifacts", str(p))
+    reset_step("design", str(p))
     state = _load(p)
     remaining_ids = [e["step_id"] for e in state["step_history"]]
     assert "explore" in remaining_ids
-    assert "design-and-draft-artifacts" not in remaining_ids
+    assert "design" not in remaining_ids
     assert "design-review" not in remaining_ids
 
 
 def test_clears_next_step_when_pointing_at_reset_node(tmp_path):
     p = _write_state(tmp_path, [
-        {"id": "design-and-draft-artifacts", "status": "completed"},
+        {"id": "design", "status": "completed"},
         {"id": "design-review", "status": "completed"},
     ])
     state = yaml.safe_load(p.read_text()) or {}
     state["next_step"] = {"step_id": "design-review", "phase": "implement"}
     p.write_text(yaml.safe_dump(state))
 
-    reset_step("design-and-draft-artifacts", str(p))
+    reset_step("design", str(p))
     result = _load(p)
     assert "next_step" not in result
 
 
 def test_unknown_step_id_raises(tmp_path):
     p = _write_state(tmp_path, [
-        {"id": "design-and-draft-artifacts", "status": "completed"},
+        {"id": "design", "status": "completed"},
     ])
     with pytest.raises(ValueError, match="not found"):
         reset_step("nonexistent-step", str(p))
@@ -107,11 +107,11 @@ def test_unknown_step_id_raises(tmp_path):
 
 def test_idempotent_on_already_pending(tmp_path):
     p = _write_state(tmp_path, [
-        {"id": "design-and-draft-artifacts", "status": "pending"},
+        {"id": "design", "status": "pending"},
         {"id": "design-review", "status": "pending"},
     ])
-    reset_step("design-and-draft-artifacts", str(p))
+    reset_step("design", str(p))
     state = _load(p)
     nodes = {n["id"]: n["status"] for n in state["workflow_plan"]["implement"]["nodes"]}
-    assert nodes["design-and-draft-artifacts"] == "pending"
+    assert nodes["design"] == "pending"
     assert nodes["design-review"] == "pending"

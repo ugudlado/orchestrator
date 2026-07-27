@@ -24,13 +24,13 @@ def test_render_workflow_graph_produces_mermaid(schema_name):
 def test_render_workflow_graph_feature_has_steps():
     src = render_workflow_graph("feature")
     assert "check-rerun" in src
-    assert "implement-tasks" in src
-    assert "run-learn-cycle" in src
+    assert "implement" in src
+    assert "learn" in src
 
 
 def test_render_workflow_graph_feature_has_retry_edge():
     src = render_workflow_graph("feature")
-    assert "run_phase_review -->|retry| implement_tasks" in src
+    assert "review -->|retry| implement" in src
 
 
 def test_render_workflow_graph_linear_chain():

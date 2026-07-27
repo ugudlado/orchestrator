@@ -42,17 +42,19 @@ def _step_entry_for_id(phase_def: dict[str, Any], step_id: str) -> dict[str, Any
     Find the schema step entry matching step_id in a phase definition.
 
     Step entries may be:
-    - Plain string: "design-and-draft-artifacts"
-    - Dict: {id: ..., depends_on: ..., on_success: ...}
+    - Plain string: "design"
+    - Dict: {id: ...} / {skill: ...} / {prompt: ..., id: ...}
 
-    Returns the dict form or an empty dict if the step is a plain string match.
-    Returns None if no match found.
+    Returns the dict form (normalized with id) or an empty dict if the step is a
+    plain string match. Returns None if no match found.
     """
+    from orchestrator_next.workflow_steps import normalize_step_entry, step_id_of
+
     for entry in phase_def.get("steps", []):
-        if isinstance(entry, dict):
-            if entry.get("id") == step_id:
-                return entry
-        elif isinstance(entry, str) and entry.strip() == step_id:
+        sid = step_id_of(entry)
+        if sid == step_id:
+            if isinstance(entry, dict):
+                return normalize_step_entry(entry)
             return {}
     return None
 

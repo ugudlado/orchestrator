@@ -1,3 +1,4 @@
 id: diagnose
 version: 4
+skill: diagnose
 model: sonnet

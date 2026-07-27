@@ -109,7 +109,7 @@ mid-run total. On success (exit 1), read `step_history` for `cost-report`
 outputs (`tail_summary`, `cost_summary_path`) and include `cost-summary.md` in
 the final message when present.
 
-Wrapper skills (`/specify`, `/implement`) invoke this skill with extra arguments;
+Wrapper skills (`/specify`, `/run-implement`) invoke this skill with extra arguments;
 forward those arguments unchanged on the `orchestrator run` line so they land in
 `state.flags` (same as CLI `flag=value` passthrough today).
 

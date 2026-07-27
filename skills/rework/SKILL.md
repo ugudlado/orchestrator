@@ -26,4 +26,4 @@ QA findings.
 
 Do not delete the branch or worktree. After fixes, the developer re-runs the
 workflow from the existing branch (typically `orchestrator feature <slug>` or
-`/implement` to continue implementation).
+`/run-implement` or `orchestrator run … --schema implement` to continue implementation).

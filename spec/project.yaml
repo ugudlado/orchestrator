@@ -144,7 +144,7 @@ learnings:
     learned: 2026-04-20
     source: single-source-metrics-via-step-events
     rule: >
-      Autopilot must never skip run-learn-cycle or retro steps for 'session
+      Autopilot must never skip learn or retro steps for 'session
       budget' reasons. These feed the self-improving loop; skipping them
       defeats autopilot's purpose. Budget pressure is a signal to stop
       earlier, not to skip learning.
@@ -167,7 +167,7 @@ learnings:
     rule: >
       Step contracts that declare inputs: must use the key name that matches the
       producing step's declared outputs: for the target schema. When a step
-      (e.g. design-and-draft-artifacts) is used by multiple schemas (feature,
+      (e.g. design) is used by multiple schemas (feature,
       bugfix), and those schemas have different upstream producers with different
       output key names (discovery_result vs diagnosis_result), the contract may
       declare the wrong key and the mismatch is silent at plan time — the
@@ -180,7 +180,7 @@ learnings:
     source: orc-66
     rule: >
       When the user clarifies or changes scope during the artifact review loop
-      of design-and-draft-artifacts (auto=false), each revision cycle adds
+      of design (auto=false), each revision cycle adds
       significant architect-model cost — ORC-66 had 4 review rounds, spending
       ~$74 on specify vs ~$66 on 18 implement tasks. In interactive mode,
       cost-conscious users should front-load scope constraints in the initial
@@ -381,9 +381,9 @@ rules:
     learned: 2026-05-23
     source: orc-71
     rule: >
-      Non-blocking suggestions raised by run-phase-review (e.g. deprecation cleanup,
+      Non-blocking suggestions raised by review (e.g. deprecation cleanup,
       follow-up sweeps) have no defined step in the feature workflow. When acted on,
-      commit them as separate chore(<change_id>) commits after run-phase-review passes
+      commit them as separate chore(<change_id>) commits after review passes
       and outside the task loop — never fold them into a task's diff or treat them as
       silent ground-truth changes. The phase review verdict still reflects pre-cleanup
       state.
@@ -423,10 +423,10 @@ rules:
       @pytest.mark.xfail(strict=False). Without this, the developer agent hits a
       contract contradiction: step rules require verify commands to exit 0 before
       commit, but RED tests fail by design. The xfail marker makes verify pass while
-      the test is in expected-failure state. ORC-118: both implement-tasks attempts
+      the test is in expected-failure state. ORC-118: both implement attempts
       abandoned because this annotation was missing from the 15-task TDD sequence.
       The architect is responsible for encoding this in tasks.yaml during
-      design-and-draft-artifacts — the implement-tasks step cannot resolve the
+      design — the implement step cannot resolve the
       contradiction unilaterally.
   - id: capture-test-baseline-path-must-match-project-yaml
     learned: 2026-05-31
@@ -446,7 +446,7 @@ rules:
     superseded_by: b0165d6
     rule: >
       feature.yaml and bugfix.yaml pause at ticket-qa; the complete-phase tail
-      (run-learn-cycle through ticket-done) lives in complete.yaml and runs as a
+      (learn through ticket-done) lives in complete.yaml and runs as a
       SEPARATE `orchestrator complete <slug>` invocation — it is NOT appended to
       the feature/bugfix schema tails. (ORC-108 briefly declared the tail
       statically in feature/bugfix, but b0165d6 reverted that: a re-run of a
@@ -460,9 +460,9 @@ rules:
     confirmed_by: [orc-117]
     rule: >
       The Cursor agent environment blocks shell commands including pytest, git
-      commit, and other verification tools. When implement-tasks runs in Cursor,
+      commit, and other verification tools. When implement runs in Cursor,
       the developer agent cannot execute verify commands or commit task work,
-      forcing abandon. Workaround: run implement-tasks via Claude Code (not
+      forcing abandon. Workaround: run implement via Claude Code (not
       Cursor) which has shell access. This is a deployment environment constraint,
       not a code bug — the workflow correctly abandons when verification cannot
       complete rather than claiming false completion.
@@ -473,7 +473,7 @@ rules:
     learned: 2026-06-02
     source: orc-117
     rule: >
-      When implement-tasks abandons due to a shell capability probe failure
+      When implement abandons due to a shell capability probe failure
       (git status / echo ok rejected), retrying in the same agent session is
       futile — the environment constraint is session-level, not transient.
       The incomplete-phase-guard correctly routes to a second attempt, but if
@@ -490,7 +490,7 @@ rules:
       commands transitively depend on (imports, subprocess calls, shim paths).
       If a verify command runs a test that imports a module not yet in the repo,
       that module's target path must appear in the task's `files` list (or in a
-      preceding dependency task's `files`). implement-tasks forbids touching
+      preceding dependency task's `files`). implement forbids touching
       unlisted files, so a verify failure caused by a missing dependency file
       cannot be fixed without violating the per-task scope rule — resulting in
       abandoned tasks. ORC-118 T-2 failed because its verify ran
@@ -523,7 +523,7 @@ rules:
       it, and (c) document the pre-committed commits by hash in the task's
       `change:` field or header comment. Do not re-implement or overwrite
       already-committed work. This is the architect's task-level application of
-      `check-rerun-blind-to-pre-impl-commits` during design-and-draft-artifacts.
+      `check-rerun-blind-to-pre-impl-commits` during design.
   - id: ac-naming-follow-on-schema-must-match-actual-resume-path
     learned: 2026-06-02
     source: orc-123
@@ -534,7 +534,7 @@ rules:
       When a ticket's AC names a follow-on schema (e.g. `patch`) as the resume
       target, verify that the named schema actually exercises the design steps
       that would be skipped. If the named schema has no overlap with those steps
-      (e.g. `patch.yaml` has no `explore` or `design-and-draft-artifacts` steps),
+      (e.g. `patch.yaml` has no `explore` or `design` steps),
       the resume AC is a no-op for that schema. In that case: (a) write the AC
       against the schema that actually demonstrates the skip behavior
       (`feature`/`bugfix`), (b) document the discrepancy in the Decisions section,
@@ -569,7 +569,7 @@ rules:
       AND the test suite includes tests that invoke git or operate on nested git repos.
       SKIP=pytest is an acceptable workaround ONLY when the task-scoped verify command
       (pytest <specific-test-files> -v) was confirmed green immediately before the commit.
-      Document the SKIP in the known_concerns field of the implement-tasks evidence.
+      Document the SKIP in the known_concerns field of the implement evidence.
       Never skip the pre-commit hook before the task verify command has passed.
       Long-term fix: patch the pre-commit hook to unset GIT_DIR before invoking pytest.
   - id: ticketing-none-skips-integration-steps

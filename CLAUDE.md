@@ -53,7 +53,7 @@ orchestrator run HL-287 --repo /path/to/repo
 # Or run phases as separate, independently-resumable invocations on the same
 # ticket (same change_id carries worktree/branch/artifacts across runs):
 orchestrator run HL-287 --schema design      # explore -> design.md/tasks.yaml -> design-review
-orchestrator run HL-287 --schema implement   # implement-tasks -> review gate -> QA -> learn
+orchestrator run HL-287 --schema implement   # implement -> review gate -> QA -> learn
 
 # Complete phase only (after implementation) — "complete" is a workflow schema name,
 # dispatched via the same <workflow> <ticket-id> form as "feature"/"bugfix"
@@ -93,8 +93,8 @@ state resolution is idempotent and picks up the existing state file.
 The core schemas are `design`, `implement`, `feature`, and `bugfix`; each embeds its own
 automated review gate. Other schemas (`patch`, `autopilot`) are step-list variants of these.
 
-1. **Design** (`explore` → `design-and-draft-artifacts` → `design-review`) → design.md + tasks.yaml
-2. **Implement** (`implement-tasks` → `ticket-review` → `run-phase-review` → `ticket-qa` → `run-learn-cycle`) → code + quality gate + learned train scenarios
+1. **Design** (`explore` → `design` → `design-review`) → design.md + tasks.yaml
+2. **Implement** (`implement` → `ticket-review` → `review` → `ticket-qa` → `learn`) → code + quality gate + learned train scenarios
 3. **Feature/Bugfix** chain both phases in one run (`bugfix` starts with `diagnose` instead of `explore`)
 
 `complete` is a separate teardown schema (archive, merge, worktree removal) run after review passes.
@@ -134,6 +134,7 @@ step_history: # Terminal steps recorded in metrics
 - worktree-branch-sync: Check branch divergence before merge phase
 - bash-fragility-prefer-python-for-new-code: Python for YAML/state logic
 - orchestrator-next-simplified (Jun 2026): No typed I/O, no repeat_until loop, no flat-file contracts — all 21 step contracts are directory-form (contract.yaml + prompt.md or script.sh). See docs/simplification-june-2026.md.
+- steps-as-skills (Jul 2026): Workflow/contract declares `run:` | `skill:+model:` | `prompt:+model:`. Skills live under `skills/`; prompt-optimizer optimizes whatever `pack.yaml` `prompt:` names. See docs/pack-convention.md.
 ```
 
 ### Quality Gates

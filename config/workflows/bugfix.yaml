@@ -1,22 +1,25 @@
 steps:
-  - check-rerun # halt if this fix is already archived (workflow's own decision)
-  - create-worktree # creates worktree + branch; writes worktree_path+branch to state
+  - check-rerun
+  - create-worktree
   - load-ticket-context
-  - diagnose
-  - design-and-draft-artifacts
+  - skill: diagnose
+  - skill: design
   - id: design-review
     on_success: ticket-start
-    on_failure: design-and-draft-artifacts
+    on_failure: design
     max_retries: 3
-  - ticket-start # ticket -> In Progress (implement entry)
-  - id: implement-tasks
-    on_failure: design-and-draft-artifacts
+    skill: design-review
+  - ticket-start
+  - id: implement
+    on_failure: design
     max_retries: 3
-  - ticket-review # ticket -> Review
-  - id: run-phase-review
+    skill: implement
+  - ticket-review
+  - id: review
     on_success: ticket-qa
-    on_failure: implement-tasks
+    on_failure: implement
     max_retries: 8
-  - ticket-qa # ticket -> Verify
-  - run-learn-cycle
+    skill: review
+  - ticket-qa
+  - skill: learn
   - workflow-report

@@ -46,6 +46,155 @@ class ScriptStepContract:
 StepContract = AgentStepContract | ScriptStepContract
 
 
+_FRONTMATTER_DELIM = "---"
+
+
+def strip_skill_frontmatter(text: str) -> str:
+    """Return the body of a SKILL.md (or any markdown) after YAML frontmatter.
+
+    If the file does not start with a frontmatter block, return text unchanged.
+    """
+    if not text.startswith(_FRONTMATTER_DELIM):
+        return text
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].strip() != _FRONTMATTER_DELIM:
+        return text
+    for i in range(1, len(lines)):
+        if lines[i].strip() == _FRONTMATTER_DELIM:
+            return "".join(lines[i + 1 :]).lstrip("\n")
+    return text
+
+
+def _repo_root_from_config() -> Path | None:
+    """Best-effort checkout root when ORCHESTRATOR_CONFIG points at <repo>/config."""
+    try:
+        from orchestrator_next.paths import config_root
+
+        root = config_root()
+    except Exception:
+        return None
+    if root.name == "config":
+        return root.parent
+    return None
+
+
+def skill_search_dirs() -> list[Path]:
+    """Ordered dirs that may contain installable skills (<name>/SKILL.md)."""
+    dirs: list[Path] = []
+    override = os.environ.get("ORCHESTRATOR_SKILLS_TEST_OVERRIDE")
+    if override:
+        dirs.append(Path(override))
+        return dirs
+
+    repo = _repo_root_from_config()
+    if repo is not None:
+        dirs.append(repo / "skills")
+
+    # Engine checkout (when installed as a package, this is the wheel data root's sibling).
+    here = Path(__file__).resolve().parent.parent
+    skills_here = here / "skills"
+    if skills_here not in dirs:
+        dirs.append(skills_here)
+
+    home = Path.home()
+    for extra in (
+        home / ".claude" / "skills",
+        home / ".codex" / "skills",
+        home / ".agents" / "skills",
+        Path(os.environ.get("PI_CODING_AGENT_DIR", str(home / ".pi" / "agent"))) / "skills",
+    ):
+        if extra not in dirs:
+            dirs.append(extra)
+    return dirs
+
+
+def resolve_skill_path(skill_name: str) -> Path:
+    """Return path to SKILL.md for an installed skill, or raise ContractError."""
+    for root in skill_search_dirs():
+        candidate = root / skill_name / "SKILL.md"
+        if candidate.is_file():
+            return candidate
+        # Install may link the pack dir (SKILL.md at link root).
+        linked = root / skill_name
+        if linked.is_dir() and (linked / "SKILL.md").is_file():
+            return linked / "SKILL.md"
+    raise ContractError(
+        f"skill {skill_name!r} not found (searched: "
+        + ", ".join(str(d) for d in skill_search_dirs())
+        + ")"
+    )
+
+
+def _load_prompt_file(path: Path, *, strip_frontmatter: bool) -> str:
+    raw = path.read_text(encoding="utf-8")
+    if strip_frontmatter or path.name == "SKILL.md":
+        return strip_skill_frontmatter(raw)
+    return raw
+
+
+def _append_learnings(contract_dir: str, instruction: str) -> str:
+    learnings_path = os.path.join(contract_dir, "pack", "learnings.md")
+    if not os.path.isfile(learnings_path):
+        learnings_path = os.path.join(contract_dir, "learnings.md")
+    if os.path.isfile(learnings_path):
+        with open(learnings_path, "r", encoding="utf-8") as f:
+            learnings = f.read().strip()
+        if learnings:
+            return f"{instruction}\n\n{learnings}\n"
+    return instruction
+
+
+def _resolve_agent_instruction(contract_dir: str, step_id: str, data: dict[str, Any]) -> str:
+    """Load instruction from ``skill:`` or ``prompt:`` (exactly one required)."""
+    skill = data.get("skill")
+    prompt = data.get("prompt")
+    if skill and prompt:
+        raise ContractError(
+            f"step contract {step_id} must not declare both skill: and prompt:"
+        )
+    if not skill and not prompt:
+        # Legacy fallback: pack/SKILL.md or pack/prompt.md (pre-skill:/prompt: contracts).
+        for rel in ("pack/SKILL.md", "SKILL.md", "pack/prompt.md", "prompt.md"):
+            path = Path(contract_dir) / rel
+            if path.is_file():
+                return _append_learnings(
+                    contract_dir,
+                    _load_prompt_file(path, strip_frontmatter=rel.endswith("SKILL.md")),
+                )
+        raise ContractError(
+            f"step contract {step_id} must declare skill: <name> or prompt: <file> "
+            "(or run: for shell steps)"
+        )
+
+    if not data.get("model"):
+        raise ContractError(
+            f"step contract {step_id} with skill:/prompt: requires model: <alias>"
+        )
+
+    if skill:
+        if not isinstance(skill, str) or not skill.strip():
+            raise ContractError(f"step contract {step_id} skill: must be a non-empty string")
+        path = resolve_skill_path(skill.strip())
+        return _append_learnings(
+            contract_dir, _load_prompt_file(path, strip_frontmatter=True)
+        )
+
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ContractError(f"step contract {step_id} prompt: must be a non-empty string")
+    rel = Path(prompt.strip())
+    if rel.is_absolute() or ".." in rel.parts:
+        raise ContractError(
+            f"step contract {step_id} prompt: must be a relative path within the step dir"
+        )
+    path = Path(contract_dir) / rel
+    if not path.is_file():
+        raise ContractError(
+            f"step contract {step_id} prompt file missing: {path}"
+        )
+    return _append_learnings(
+        contract_dir, _load_prompt_file(path, strip_frontmatter=path.name == "SKILL.md")
+    )
+
 
 @dataclass
 class StepHistoryEntry:
@@ -135,6 +284,10 @@ def load_contract_for_step(step_id: str) -> StepContract:
 
             is_script = bool(data.get("run"))
             if is_script:
+                if data.get("skill") or data.get("prompt"):
+                    raise ContractError(
+                        f"step contract {step_id} with run: must not declare skill: or prompt:"
+                    )
                 run_rel = data.get("run")
                 if os.path.isabs(run_rel):
                     run = run_rel
@@ -146,29 +299,7 @@ def load_contract_for_step(step_id: str) -> StepContract:
                     )
                 instruction = ""
             else:
-                # ponytail: pack/prompt.md is the new home (step-as-pack); root
-                # prompt.md fallback stays for vendored configs that migrate lazily
-                prompt_path = os.path.join(contract_dir, "pack", "prompt.md")
-                if not os.path.isfile(prompt_path):
-                    prompt_path = os.path.join(contract_dir, "prompt.md")
-                if not os.path.isfile(prompt_path):
-                    raise ContractError(
-                        f"step contract {step_id} missing prompt.md"
-                    )
-                with open(prompt_path, "r") as f:
-                    instruction = f.read()
-                # learnings.md is separate from prompt.md so a pack upgrade
-                # (pack add --force) can overwrite prompt.md without clobbering
-                # accumulated per-step learnings — same "never overwrite what a
-                # repo owns" rule already applied to a vendored models.yaml.
-                learnings_path = os.path.join(contract_dir, "pack", "learnings.md")
-                if not os.path.isfile(learnings_path):
-                    learnings_path = os.path.join(contract_dir, "learnings.md")
-                if os.path.isfile(learnings_path):
-                    with open(learnings_path, "r") as f:
-                        learnings = f.read().strip()
-                    if learnings:
-                        instruction = f"{instruction}\n\n{learnings}\n"
+                instruction = _resolve_agent_instruction(contract_dir, step_id, data)
                 run = None
 
             return _make_contract(step_id, data, run, instruction)

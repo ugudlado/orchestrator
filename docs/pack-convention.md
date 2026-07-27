@@ -15,71 +15,102 @@ the enforcement.
   pack.yaml              # name, version, description, protocol: 1
   workflows/*.yaml        # workflow schema definitions
   steps/<id>/
-    contract.yaml         # id, version, model|run, optional flags
-    prompt.md              # agent steps
-    script.sh               # script steps
+    contract.yaml         # id, version, run|skill|prompt (+ model)
+    script.sh             # shell steps only
   steps/lib/              # optional, shared shell helpers (this pack only)
+
+# Installable skills live outside the pack (repo skills/ + agent skill dirs):
+skills/<name>/
+  SKILL.md                # charter (any filename ok for prompt-optimizer via pack.yaml)
+  pack.yaml               # optional — prompt-optimizer pack (prompt: SKILL.md)
+  metrics.md / scenarios/ # optional eval banks
 ```
 
 A pack may ship its own `steps/lib/`. Depending on another pack's `lib/`
 (including the bundled `core` pack's) is undocumented and unsupported.
 
-## 2. `contract.yaml` keys
+## 2. Dispatch kinds (shell | skill | prompt)
 
-The minimal shape dispatch reads:
+The orchestrator executes **three** kinds of steps:
+
+| Kind       | Contract                    | Charter source                     | Role                                        |
+| ---------- | --------------------------- | ---------------------------------- | ------------------------------------------- |
+| **Shell**  | `run: script.sh`            | —                                  | Deterministic plumbing                      |
+| **Skill**  | `model:` + `skill: <name>`  | installed `skills/<name>/SKILL.md` | Reusable capability (workflow + standalone) |
+| **Prompt** | `model:` + `prompt: <file>` | markdown file under the step dir   | One-off / pack-local procedure              |
+
+Prompt-optimizer does **not** care what the charter file is named — it optimizes
+whatever path `pack.yaml` `prompt:` points at (body only when YAML frontmatter
+is present).
+
+### Naming
+
+| Kind                      | Pattern                | Examples                             |
+| ------------------------- | ---------------------- | ------------------------------------ |
+| Skill id / name           | capability noun/verb   | `ux-critique`, `implement`, `review` |
+| Agent role (mental model) | skill + `-er`/`-or`    | ux-critiquer, implementer, reviewer  |
+| Shell id                  | imperative verb-object | `create-worktree`, `ticket-start`    |
+| Prompt step id            | kebab-case outcome     | `workflow-report-summary`            |
+
+**One capability → one skill directory** under `skills/`. Step contracts for
+skills are thin (`skill:` + `model:`). Install links `skills/*` into agent
+skill dirs.
+
+## 3. Workflow step entries
+
+`workflows/<schema>.yaml` `steps:` may use:
+
+```yaml
+steps:
+  - create-worktree # shell (contract run:)
+  - skill: explore # id defaults to skill name
+  - id: design
+    skill: design
+    model: opus # optional; contract model wins if omitted here
+  - id: design-review
+    skill: design-review
+    on_failure: design
+  - id: one-off
+    prompt: pack/charter.md # local prompt file (contract still required today)
+    model: sonnet
+  - ticket-start
+```
+
+Plain string ids still work and resolve via `steps/<id>/contract.yaml`.
+
+## 4. `contract.yaml` keys
 
 - `id` — must match the step's directory name.
-- `version` — integer, bumped on any change to the contract's behavior.
+- `version` — integer, bumped on behavior change.
 - Exactly one of:
-  - `model: <alias>` — agent step. **Required for agent steps; there is no
-    engine default.** The alias must be one of the vocabulary names (e.g.
-    `opus`, `sonnet`, `composer`) — never a concrete model id.
-  - `run: script.sh` — script step. Dispatch keys off `run:` alone; a
-    `kind: script` field, if present, is decorative and ignored.
+  - `run: script.sh` — **shell**
+  - `skill: <name>` + `model: <alias>` — **skill** (name resolves via skill search path)
+  - `prompt: <relpath>` + `model: <alias>` — **prompt** (path relative to the step dir; no `..`)
 
 Optional: `state_mutating`, `default_outputs`. Any other key is ignored by
 the engine.
 
-## 3. Step protocol
+Skill search order: `$ORCHESTRATOR_SKILLS_TEST_OVERRIDE` (tests) →
+`<repo>/skills` → engine checkout `skills/` → `~/.claude/skills` →
+`~/.codex/skills` → `~/.agents/skills` → Pi skills dir.
 
-**Script steps**
+## 5. Step protocol
 
-- Exit 0 = success, nonzero = failure (retried per routing policy).
-- Environment provided: `REPO_ROOT`, `CHANGE_ID`, `STATE_YAML_PATH`, and
-  others per the engine's step-env contract.
-- **The last line of stdout must be a JSON object** — its keys become step
-  outputs.
-- Caveat — `state_mutating` steps are recorded `completed` _before_ they
-  run. A nonzero exit there aborts the run (exit 3) instead of recording a
-  retryable `failed`. Don't put fallible logic behind `state_mutating`; keep
-  it for deterministic teardown/bookkeeping only.
+**Shell steps** — exit 0 success; last stdout line JSON object → outputs.
+`state_mutating` caveat unchanged (see prior docs).
 
-**Agent steps**
+**Skill / prompt steps** — instruction is the charter body (frontmatter
+stripped for `SKILL.md`). Agent must end with `COMPLETION:` YAML when run
+inside the orchestrator. Standalone skill invocation may omit it.
 
-- The prompt is assembled from `prompt.md` plus step context.
-- The agent must end its output with a `COMPLETION:` YAML block.
-- A malformed/missing block, or a nonzero subprocess exit, both become a
-  retryable `failed` step — never a hang, never a silent pass. A
-  non-conforming pack cannot hang the engine.
+**Exit codes**: `1` complete, `2` blocked, `3` error.
 
-**Exit codes surfaced by `orchestrator run`**: `1` complete, `2` blocked
-(needs user action), `3` error.
-
-## 4. Aliases
+## 6. Aliases
 
 Packs speak in capability-tier aliases (`opus`, `sonnet`, `composer`, …),
-never concrete model ids. What an alias resolves to on a given machine is an
-agent-config concern (`~/.orchestrator/models.yaml`), not the pack's.
+never concrete model ids. Unroutable alias → exit 4.
 
-Dispatch refuses to run a step whose alias has no route on the current
-machine. That refusal (exit 4) is the documented behavior — not a bug in the
-pack.
+## 7. Protocol versioning
 
-## 5. Protocol versioning
-
-`pack.yaml` declares `protocol: 1`. The pack manager (`orchestrator pack
-add`) refuses to install a pack whose protocol the engine doesn't support.
-
-Bump the protocol integer only on a breaking change to section 2 or 3 above
-(contract keys or step protocol semantics) — not for adding new workflows,
-steps, or optional fields.
+`pack.yaml` declares `protocol: 1`. Bump only on breaking changes to contract
+keys or step protocol semantics.

@@ -28,7 +28,7 @@ _BIN_ORCHESTRATOR = _REPO_ROOT / "bin" / "orchestrator"
 
 def _write_state_with_completed_step(tmp_path: Path) -> Path:
     """Build a state.yaml (ORC-63 nodes shape) where 'explore' is completed
-    and the next ready step is 'design-and-draft-artifacts'."""
+    and the next ready step is 'design'."""
     state = {
         "schema": "feature",
         "change_id": "demo",
@@ -36,14 +36,14 @@ def _write_state_with_completed_step(tmp_path: Path) -> Path:
         "status": "active",
         "repo_root": str(tmp_path),
         "phase": "specify",
-        "next_step": {"phase": "specify", "step_id": "design-and-draft-artifacts"},
+        "next_step": {"phase": "specify", "step_id": "design"},
         "workflow_plan": {
             "specify": {
                 "nodes": [
                     {"id": "explore", "status": "completed", "agent": "discoverer",
                      "goal": "explore", "inputs": [], "outputs": ["discovery_result"],
                      "rules": []},
-                    {"id": "design-and-draft-artifacts", "status": "pending",
+                    {"id": "design", "status": "pending",
                      "agent": "architect", "goal": "design", "inputs": [],
                      "outputs": [], "rules": []},
                 ],
@@ -74,7 +74,7 @@ def _write_stub_contracts(tmp_path: Path) -> Path:
     real (pre/post-prune) contract content. Returns the contracts dir."""
     contracts = tmp_path / "stub-steps"
     contracts.mkdir(exist_ok=True)
-    for sid, model in (("explore", "sonnet"), ("design-and-draft-artifacts", "opus")):
+    for sid, model in (("explore", "sonnet"), ("design", "opus")):
         step_dir = contracts / sid
         step_dir.mkdir(exist_ok=True)
         (step_dir / "contract.yaml").write_text(yaml.safe_dump({
@@ -92,7 +92,7 @@ def test_pre_stamp_does_not_orphan_completed_attempt(tmp_path):
     contracts = _write_stub_contracts(tmp_path)
 
     # Run `orchestrator next` against the state. The dispatcher should pick the
-    # next ready step (design-and-draft-artifacts) and pre-stamp it. The
+    # next ready step (design) and pre-stamp it. The
     # already-completed 'explore' must not be re-stamped.
     env = {
         **os.environ,
@@ -161,7 +161,7 @@ def test_pre_stamp_still_writes_for_new_step(tmp_path):
 
     design_in_progress = [
         e for e in history
-        if e.get("step_id") == "design-and-draft-artifacts"
+        if e.get("step_id") == "design"
         and e.get("phase") == "specify"
         and e.get("status") == "in_progress"
     ]

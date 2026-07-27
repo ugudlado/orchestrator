@@ -2,16 +2,18 @@ steps:
   - check-rerun
   - create-worktree
   - load-ticket-context
-  - design-and-draft-artifacts
+  - skill: design
   - ticket-start
-  - id: implement-tasks
-    on_failure: implement-tasks
+  - id: implement
+    on_failure: implement
     max_retries: 3
+    skill: implement
   - ticket-review
-  - id: run-phase-review
+  - id: review
     on_success: ticket-qa
-    on_failure: implement-tasks
+    on_failure: implement
     max_retries: 8
+    skill: review
   - ticket-qa
-  - run-learn-cycle
+  - skill: learn
   - workflow-report

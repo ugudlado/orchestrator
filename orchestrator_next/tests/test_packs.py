@@ -41,7 +41,9 @@ def _make_minimal_pack(root: Path, *, name: str = "widgets", protocol: int = 1,
     agent_step_id = f"{step_id}-agent"
     agent_dir = root / "steps" / agent_step_id
     agent_dir.mkdir(parents=True)
-    _write_yaml(agent_dir / "contract.yaml", {"id": agent_step_id, "version": 1, "model": model})
+    _write_yaml(agent_dir / "contract.yaml", {
+        "id": agent_step_id, "version": 1, "model": model, "prompt": "prompt.md",
+    })
     (agent_dir / "prompt.md").write_text("Do the thing.\n")
 
     # workflow referencing both steps

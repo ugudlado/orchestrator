@@ -3,10 +3,10 @@ name: workflow-creator
 description: >-
   Create orchestrator workflows from any user goal. Web-searches how similar
   real-world workflows are structured, breaks them into steps, classifies each step
-  as deterministic (shell script) or probabilistic (agent prompt), then scaffolds
-  config/workflows and config/steps. Use when the user asks to create a workflow,
-  design a pipeline, build a multi-step process (course creator, content, dev,
-  ops, research), or says workflow-creator or custom orchestrator schema.
+  as shell (script) or skill (SKILL.md), then scaffolds config/workflows and
+  config/steps. Use when the user asks to create a workflow, design a pipeline,
+  build a multi-step process (course creator, content, dev, ops, research), or
+  says workflow-creator or custom orchestrator schema.
 user-invocable: true
 args:
   - name: requirement
@@ -20,7 +20,7 @@ args:
 Turn a user goal into orchestrator config:
 
 ```
-user ask → scan existing → improve or create → web search → I/O contract → steps → shell/prompt → scaffold → hand-off
+user ask → scan existing → improve or create → web search → I/O contract → steps → shell|skill → scaffold → hand-off
 ```
 
 ---
@@ -108,41 +108,43 @@ The **first step is always an intake shell step** (`intake-<schema>`). It transl
 #   Parse config file  → write spec/changes/<slug>/config.yaml
 ```
 
-The **last step is always named exactly `workflow-improve`** (reuse the existing step at `config/steps/workflow-improve/` if it exists — check with `ls "$ORCH_CONFIG/steps/workflow-improve/"` before creating). Never rename it `<schema>-improve` or similar — the shared name is intentional so every workflow feeds into the same improvement loop.
+The **last step should reuse `learn`** when the workflow should reflect and propose improvements (`ls "$ORCH_CONFIG/steps/learn/"`). Prefer the shared skill name so every workflow feeds the same improvement loop.
 
-Middle steps: one clear outcome each, verb-led kebab-case ids, split at natural artifact boundaries.
+Middle steps: one clear outcome each, skill-noun or shell verb-object ids, split at natural artifact boundaries.
 
-### 5. Classify each step
+### 5. Classify each step — shell | skill | prompt
 
-**Shell (deterministic)** — same inputs → same action every time, no judgment needed:
+The orchestrator dispatches **three** kinds:
 
-- File ops, format conversion (pandoc/ffmpeg with fixed flags), run linter/tests
-- Ticket/webhook sync with fixed payload, git ops with template args, metrics rollup
+**Shell (deterministic)** — `run: script.sh`
 
-**Prompt (probabilistic)** — requires reading for meaning, judgment, or creativity:
+**Skill (reusable)** — `model:` + `skill: <name>`; charter in `skills/<name>/SKILL.md`
 
-- Research, summarize, write, edit, review, plan, diagnose, prioritize
+**Prompt (local)** — `model:` + `prompt: <file>`; charter file under the step dir
 
-When unsure: can you write a bash script that completes it _without_ calling an LLM? → shell. Does it need "read context and decide"? → prompt. See [references/classification.md](references/classification.md) for edge cases.
+When unsure: reusable outside workflows → skill; one-off → prompt; no LLM → shell.
+See [references/classification.md](references/classification.md).
 
-**Reuse:** Check `ls "$ORCH_CONFIG/steps/"` before creating — reference existing steps when I/O and behavior match.
+**Reuse:** scan `skills/` and `$ORCH_CONFIG/steps/` before creating. Never clone a
+skill charter into `config/steps/`.
 
 ### 6. Propose and confirm — BEFORE writing any files
 
-Show the I/O contract, then the step table, then wait for confirmation:
+| #   | Step id         | Route        | Agent role (if skill) | Rationale       | Inputs     | Outputs |
+| --- | --------------- | ------------ | --------------------- | --------------- | ---------- | ------- |
+| 1   | intake-<schema> | shell        | —                     | Translates id   | $CHANGE_ID | …       |
+| …   | …               | skill/prompt | <id>-er               | …               | …          | …       |
+| N   | learn           | skill        | learner               | Reflects on run | …          | …       |
 
-```
-Workflow: <schema>
-Input:  <what the user passes as <id>, what must exist beforehand>
-Output: <artifacts produced, external state changes>
-Sources: <1-3 cited sources>
-```
+Workflow entries for skills:
 
-| #   | Step id          | Route  | Rationale                                | Inputs                   | Outputs                 |
-| --- | ---------------- | ------ | ---------------------------------------- | ------------------------ | ----------------------- |
-| 1   | intake-<schema>  | shell  | Translates <id> into context files       | $CHANGE_ID               | spec/changes/<slug>/... |
-| …   | …                | …      | …                                        | …                        | …                       |
-| N   | workflow-improve | prompt | Reflects on run, proposes workflow edits | step_history, state.yaml | improvement proposals   |
+```yaml
+steps:
+  - skill: explore
+  - id: design-review
+    skill: design-review
+    on_failure: design
+```
 
 Apply edits; then scaffold.
 
@@ -152,52 +154,35 @@ Apply edits; then scaffold.
 
 ```yaml
 description: >-
-  <One sentence: what this workflow does and when to use it.
-  This is the canonical intent — used to match against future requests
-  and to evaluate gaps in workflow-improve.>
-
-# Input:  <what <id> represents, what must exist>
-# Output: <artifacts and state changes>
+  <One sentence intent>
 steps:
   - intake-<schema>
-  - step-two
-  - workflow-improve
+  - skill: <capability>
+  - learn
 ```
 
-**Shell step** (`$ORCH_CONFIG/steps/<id>/contract.yaml` + `script.sh`):
+**Shell step** — `contract.yaml` with `run: script.sh` + `script.sh`.
+
+**Skill step** — thin `config/steps/<id>/contract.yaml`:
 
 ```yaml
 id: <id>
 version: 1
-kind: script
-run: script.sh
+skill: <id>
+model: sonnet
 ```
 
-Script: `set -euo pipefail`, read env vars, emit `{"status":"completed","outputs":{...}}` on stdout.
+Charter in `skills/<id>/SKILL.md` (frontmatter + body). Optional optimizer pack
+files (`pack.yaml`, `metrics.md`, `scenarios/`) live beside the skill.
 
-**Prompt step** (`$ORCH_CONFIG/steps/<id>/contract.yaml` + `prompt.md`):
-
-```yaml
-id: <id>
-version: 1
-agent: discoverer # or architect, reviewer, ideator
-```
-
-Prompt: `# Title` → `## Inputs` → `## Outputs` → `## Instructions` → `## Verify`. Return COMPLETION block.
-
-For `workflow-improve`: agent is `architect`. Prompt instructs it to:
-
-1. Read `state.yaml` step history — identify steps that failed, were retried, or produced thin output
-2. Read the workflow's `description:` field — check whether the completed run actually fulfilled the stated intent, or whether gaps exist (missing phases, wrong classifications, weak prompts)
-3. Write concrete improvement proposals to `spec/changes/<slug>/workflow-improvements.md` — specific edits to workflow YAML, step contracts, or prompt.md files, not vague suggestions
-
-Follow existing steps in `$ORCH_CONFIG/steps/` for exact env var names and JSON shape.
+**Prompt step** — `contract.yaml` with `prompt: <file>` + `model:`; markdown file
+under the step dir (any name).
 
 ### 8. Validate
 
 ```bash
 orchestrator validate-workflow <schema>
-pytest "$ORCH_CONFIG/steps/__tests__/test_all_contracts_have_agent_or_run.py" -q
+pytest "$ORCH_CONFIG/tests/test_all_contracts_have_agent_or_run.py" -q
 ```
 
 ### 9. Hand off
@@ -217,7 +202,7 @@ What happens:
   1. intake-<schema> pulls <source> using <id> and writes context to spec/changes/<id>/
   2. <next step> reads <artifact> and produces <output>
   …
-  N. workflow-improve reflects on the run and logs improvement proposals
+  N. learn reflects on the run and logs improvement proposals
 
 Output artifacts:
   spec/changes/<id>/<key-artifact>
@@ -231,5 +216,7 @@ Output artifacts:
 - Flat `steps:` list — order is execution order
 - No LLM tool names in YAML or contracts (agent-agnostic)
 - Never scaffold before the user confirms the I/O contract and step table
-- Never put probabilistic work in shell or deterministic work in prompt
-- Every workflow starts with `intake-<schema>` (named for the schema) and ends with `workflow-improve` (exact name, shared step)
+- Classify **shell | skill | prompt**
+- Never put probabilistic work in shell or deterministic work in skill/prompt
+- Skills live under `skills/`; step contracts for skills are thin (`skill:` + `model:`)
+- Every workflow starts with `intake-<schema>` and preferably ends with `learn`

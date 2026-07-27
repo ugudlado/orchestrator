@@ -33,7 +33,7 @@ _CONTRACT_EXECUTE_NEXT_TASK = textwrap.dedent("""\
 """)
 
 _CONTRACT_RUN_PHASE_REVIEW = textwrap.dedent("""\
-    id: run-phase-review
+    id: review
     agent: developer
     instruction: Review the completed phase.
     rules: []
@@ -59,7 +59,7 @@ def _write_dir_contract(steps_dir, step_id: str, content: str) -> None:
 def _write_contracts(steps_dir) -> None:
     """Write both step contracts to steps_dir."""
     _write_dir_contract(steps_dir, "execute-next-task", _CONTRACT_EXECUTE_NEXT_TASK)
-    _write_dir_contract(steps_dir, "run-phase-review", _CONTRACT_RUN_PHASE_REVIEW)
+    _write_dir_contract(steps_dir, "review", _CONTRACT_RUN_PHASE_REVIEW)
 
 
 def _write_plan_yaml(state_dir, phase: str = "implement") -> None:
@@ -82,7 +82,7 @@ def _write_plan_yaml(state_dir, phase: str = "implement") -> None:
                         "rules": [],
                     },
                     {
-                        "id": "run-phase-review",
+                        "id": "review",
                         "agent": "developer",
                         "goal": "Review the completed phase.",
                         "inputs": [],
@@ -133,7 +133,7 @@ def _make_state(tasks_md_path: str, phase: str = "implement") -> State:
         workflow_dir="/workflow",
         workflow_plan={
             phase: {
-                "active": ["execute-next-task", "run-phase-review"],
+                "active": ["execute-next-task", "review"],
             }
         },
         step_history=[completed_entry],

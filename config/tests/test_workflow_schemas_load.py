@@ -44,13 +44,10 @@ _STEP_REF_RE = re.compile(r"^([a-zA-Z0-9_-]+)(?:\s+if\s+(?:not\s+)?[a-zA-Z0-9_]+
 
 
 def _step_id_of(entry):
-    """Extract the step id from a schema step entry (string form or dict form)."""
-    if isinstance(entry, str):
-        m = _STEP_REF_RE.match(entry.strip())
-        return m.group(1) if m else entry.strip()
-    if isinstance(entry, dict):
-        return entry.get("id") or entry.get("include")
-    return None
+    """Extract the step id from a schema step entry (string / skill / prompt / id)."""
+    from orchestrator_next.workflow_steps import step_id_of
+
+    return step_id_of(entry)
 
 
 def _resolve_phases_for_test(schema):
@@ -178,7 +175,7 @@ def test_real_schema_generates_plan(tmp_path, monkeypatch, schema_name):
 
 
 # ---------------------------------------------------------------------------
-# Terminal steps — develop schemas end at run-learn-cycle; complete/autopilot
+# Terminal steps — develop schemas end at learn; complete/autopilot
 # own their tails.
 # ---------------------------------------------------------------------------
 
@@ -201,10 +198,11 @@ def _schema_step_entry(schema_name, step_id):
 
 
 _SCHEMA_TERMINAL_STEP = {
-    "feature": "run-learn-cycle",
-    "bugfix": "run-learn-cycle",
-    "patch": "run-learn-cycle",
-    "design": "run-learn-cycle",
+    "feature": "workflow-report",
+    "bugfix": "workflow-report",
+    "patch": "workflow-report",
+    "design": "workflow-report",
+    "implement": "workflow-report",
     "autopilot": "workflow-report",
     "complete": "workflow-report",
 }
@@ -238,22 +236,22 @@ def test_complete_schema_merge_teardown_order():
 
 
 def test_patch_schema_retry_edges():
-    """patch.yaml: implement-tasks and run-phase-review carry ORC-120 retry routing."""
-    implement = _schema_step_entry("patch", "implement-tasks")
-    review = _schema_step_entry("patch", "run-phase-review")
+    """patch.yaml: implement and review carry ORC-120 retry routing."""
+    implement = _schema_step_entry("patch", "implement")
+    review = _schema_step_entry("patch", "review")
     assert isinstance(implement, dict)
-    assert implement.get("on_failure") == "implement-tasks"
+    assert implement.get("on_failure") == "implement"
     assert implement.get("max_retries") == 3
     assert isinstance(review, dict)
     assert review.get("on_success") == "ticket-qa"
-    assert review.get("on_failure") == "implement-tasks"
+    assert review.get("on_failure") == "implement"
     assert review.get("max_retries") == 8
 
 
 def test_patch_schema_has_light_design_only():
     """patch.yaml carries a light design step but skips the heavy design phase.
 
-    patch is the lightweight path: it keeps `design-and-draft-artifacts`
+    patch is the lightweight path: it keeps `design`
     (added in ec0c2a5) but skips the heavy steps — explore, diagnose,
     design-review, ux-design.
     """
@@ -262,6 +260,6 @@ def test_patch_schema_has_light_design_only():
     assert heavy_design_steps.isdisjoint(set(steps)), (
         f"patch.yaml must skip the heavy design phase; found {heavy_design_steps & set(steps)}"
     )
-    assert "design-and-draft-artifacts" in steps
-    assert "implement-tasks" in steps
-    assert steps.index("create-worktree") < steps.index("implement-tasks")
+    assert "design" in steps
+    assert "implement" in steps
+    assert steps.index("create-worktree") < steps.index("implement")

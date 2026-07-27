@@ -74,36 +74,22 @@ def test_fr5_skill_shell_driver():
 
 
 # ---------------------------------------------------------------------------
-# FR-6: developer.md prohibits direct state.yaml edits
+# FR-6: skill-steps complete via COMPLETION / orchestrator done
 # ---------------------------------------------------------------------------
 
-def test_fr6_agents_forbid_state_edits():
-    """developer.md must contain `orchestrator done` and a prohibition phrase
-    (NOT) near state.yaml edits.
+def test_fr6_skill_steps_use_orchestrator_done():
+    """Skill charters must document COMPLETION / orchestrator done as the
+    completion protocol (replaces the removed skills/developer agent).
     """
-    for agent_file in ("skills/developer/SKILL.md",):
-        content = _read(agent_file)
-
-        assert "orchestrator done" in content, (
-            f"{agent_file} does not contain 'orchestrator done'. "
-            "Update the State Updates section to reference 'orchestrator done' (FR-9 Stage B migration)."
-        )
-
-        # Check for a prohibition: "NOT" or "MUST NOT" near state.yaml
-        # Pattern: "NOT" within 120 chars of "state.yaml" (same sentence/clause)
-        # We scan for occurrences of "state.yaml" and check surrounding context
-        found_prohibition = False
-        for m in re.finditer(r"state\.yaml", content, re.IGNORECASE):
-            start = max(0, m.start() - 120)
-            end = min(len(content), m.end() + 120)
-            snippet = content[start:end]
-            if re.search(r"\bNOT\b", snippet):
-                found_prohibition = True
-                break
-
-        assert found_prohibition, (
-            f"{agent_file} does not contain a prohibition (NOT) near 'state.yaml'. "
-            "Add 'MUST NOT directly edit state.yaml' to the State Updates section."
+    for skill_file in (
+        "skills/design/SKILL.md",
+        "skills/implement/SKILL.md",
+        "skills/ux-design/SKILL.md",
+    ):
+        content = _read(skill_file)
+        assert "orchestrator done" in content or "COMPLETION:" in content, (
+            f"{skill_file} must document COMPLETION / orchestrator done "
+            "(skill-step completion protocol)."
         )
 
 
@@ -151,15 +137,15 @@ def test_fr10_workflow_report_path():
 
 # The nine contracts ORC-63 prunes/normalizes (design.md Component 7, AC-6).
 _ORC63_PRUNED_CONTRACTS = [
-    "design-and-draft-artifacts",
+    "design",
     "explore",
     "diagnose",
     # execute-next-task removed in ORC-65 T-9; no longer a step contract.
     "ux-design",
-    "run-phase-review",
+    "review",
     "generate-project-yaml",
     "install-tooling",
-    "run-ux-critique",
+    "ux-critique",
 ]
 
 # Known top-level state.raw bootstrap keys an input may resolve against.
