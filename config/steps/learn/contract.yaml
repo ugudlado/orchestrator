@@ -1,0 +1,7 @@
+id: learn
+version: 3
+skill: learn
+model: sonnet
+default_outputs:
+  learn_result: { completed: true }
+  backlog_tickets_synced: []

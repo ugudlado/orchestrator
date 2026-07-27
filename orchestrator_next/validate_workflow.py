@@ -40,13 +40,14 @@ def _load_schema(schema_name: str) -> dict[str, Any]:
 
 def _step_ids(schema: dict[str, Any]) -> list[str]:
     """Extract step IDs from a schema's top-level steps list."""
+    from orchestrator_next.workflow_steps import step_id_of
+
     ids = []
     for entry in schema.get("steps") or []:
-        if isinstance(entry, dict):
-            ids.append(str(entry.get("id", "")))
-        else:
-            ids.append(str(entry).strip())
-    return [s for s in ids if s]
+        sid = step_id_of(entry)
+        if sid:
+            ids.append(sid)
+    return ids
 
 
 def _check_contracts(step_ids: list[str]) -> None:

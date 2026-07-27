@@ -1,71 +1,53 @@
 """
-T-6: Regression test — all step contracts referenced in any workflow must declare
-either `agent:` or `run:`.
-
-This test FAILS against unmigrated contracts (T-7 + T-8 will fix them).
-After T-7 and T-8, the test PASSES (verified in T-10).
-
-Excluded by design: select-workflow (per design.md Non-Goals).
+Regression — every workflow step must have a contract with run: | skill:+model: | prompt:+model:.
 """
 from __future__ import annotations
 
-import os
 import glob
+import os
 from typing import Set
 
-import pytest
 import yaml
 
-_CONFIG_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..")
-)
+from orchestrator_next.workflow_steps import step_id_of
+
+_CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _STEPS_DIR = os.path.join(_CONFIG_DIR, "steps")
+_SKILLS_DIR = os.path.abspath(os.path.join(_CONFIG_DIR, "..", "skills"))
 _WORKFLOWS_DIR = os.path.join(_CONFIG_DIR, "workflows")
 
-# Per design.md Non-Goals: select-workflow is never dispatched and excluded.
 _EXCLUDED_STEPS: Set[str] = {"select-workflow"}
 
 
 def _collect_workflow_steps() -> Set[str]:
-    """Return set of step IDs referenced in any workflow YAML."""
     step_ids: Set[str] = set()
     for wf_path in glob.glob(os.path.join(_WORKFLOWS_DIR, "*.yaml")):
         with open(wf_path) as f:
             data = yaml.safe_load(f)
         if not data:
             continue
-        steps = data.get("steps") or []
-        for entry in steps:
-            if isinstance(entry, dict):
-                sid = entry.get("id", "")
-            else:
-                sid = str(entry).split(" if ")[0].strip()
+        for entry in data.get("steps") or []:
+            sid = step_id_of(entry)
             if sid:
                 step_ids.add(sid)
     return step_ids
 
 
 def _load_contract(step_id: str) -> dict | None:
-    """Load a step contract YAML, return None if not found."""
     dir_path = os.path.join(_STEPS_DIR, step_id, "contract.yaml")
-    flat_path = os.path.join(_STEPS_DIR, f"{step_id}.yaml")
-    if os.path.isfile(dir_path):
-        path = dir_path
-    elif os.path.isfile(flat_path):
-        path = flat_path
-    else:
+    if not os.path.isfile(dir_path):
         return None
-    with open(path) as f:
+    with open(dir_path) as f:
         return yaml.safe_load(f)
 
 
-def test_all_workflow_steps_have_agent_or_run():
-    """Every step referenced in any workflow must declare agent: or run:."""
+def test_all_workflow_steps_have_run_skill_or_prompt():
     step_ids = _collect_workflow_steps()
-    assert step_ids, "No step IDs found in any workflow — check workflow YAML format"
+    assert step_ids, "No step IDs found in any workflow"
 
     violations: list[str] = []
     missing_contracts: list[str] = []
+    missing_charter: list[str] = []
 
     for step_id in sorted(step_ids):
         if step_id in _EXCLUDED_STEPS:
@@ -76,21 +58,40 @@ def test_all_workflow_steps_have_agent_or_run():
             missing_contracts.append(step_id)
             continue
 
-        has_agent = bool(contract.get("agent"))
         has_run = bool(contract.get("run"))
+        has_skill = bool(contract.get("skill"))
+        has_prompt = bool(contract.get("prompt"))
+        has_model = bool(contract.get("model"))
 
-        if not has_agent and not has_run:
+        kinds = sum(bool(x) for x in (has_run, has_skill, has_prompt))
+        if kinds != 1:
             violations.append(step_id)
+            continue
+        if (has_skill or has_prompt) and not has_model:
+            violations.append(step_id)
+            continue
+
+        if has_skill:
+            skill_path = os.path.join(_SKILLS_DIR, contract["skill"], "SKILL.md")
+            if not os.path.isfile(skill_path):
+                missing_charter.append(f"{step_id} -> {skill_path}")
+        elif has_prompt:
+            prompt_path = os.path.join(_STEPS_DIR, step_id, contract["prompt"])
+            if not os.path.isfile(prompt_path):
+                missing_charter.append(f"{step_id} -> {prompt_path}")
 
     error_lines = []
     if missing_contracts:
-        error_lines.append(
-            f"Contracts not found (need creation): {missing_contracts}"
-        )
+        error_lines.append(f"Contracts not found: {missing_contracts}")
     if violations:
         error_lines.append(
-            f"Contracts missing both agent: and run: ({len(violations)} unmigrated):\n"
+            "Contracts must declare exactly one of run: | skill:+model: | prompt:+model:\n"
             + "\n".join(f"  - {s}" for s in violations)
+        )
+    if missing_charter:
+        error_lines.append(
+            "Missing skill/prompt charter files:\n"
+            + "\n".join(f"  - {s}" for s in missing_charter)
         )
 
     assert not error_lines, "\n".join(error_lines)
@@ -102,7 +103,6 @@ _BANNED_SCRIPT_PROTOCOL_KEYS = frozenset(
 
 
 def test_script_contracts_have_no_agent_protocol_fields():
-    """Script-kind contracts must not declare agent-protocol surface keys."""
     violations: list[tuple[str, list[str]]] = []
 
     for contract_path in sorted(
@@ -111,7 +111,7 @@ def test_script_contracts_have_no_agent_protocol_fields():
         with open(contract_path) as f:
             contract = yaml.safe_load(f) or {}
 
-        if contract.get("kind") != "script":
+        if not contract.get("run"):
             continue
 
         contract_id = contract.get("id") or os.path.basename(
@@ -123,7 +123,7 @@ def test_script_contracts_have_no_agent_protocol_fields():
 
     if violations:
         lines = [
-            "Script-kind contracts must not declare agent-protocol fields "
+            "Shell contracts must not declare agent-protocol fields "
             f"{sorted(_BANNED_SCRIPT_PROTOCOL_KEYS)}:",
         ]
         for contract_id, keys in violations:

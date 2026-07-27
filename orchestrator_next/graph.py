@@ -22,13 +22,14 @@ def _safe_id(node_id: str) -> str:
 
 def _normalize_steps(schema: dict[str, Any]) -> list[dict[str, Any]]:
     """Return a flat list of step dicts from a schema's top-level steps list."""
+    from orchestrator_next.workflow_steps import normalize_step_entry
+
     raw_steps = schema.get("steps", [])
     result: list[dict[str, Any]] = []
     for entry in raw_steps:
-        if isinstance(entry, str):
-            result.append({"id": entry.strip()})
-        elif isinstance(entry, dict):
-            result.append(entry)
+        normalized = normalize_step_entry(entry)
+        if normalized.get("id"):
+            result.append(normalized)
     return result
 
 

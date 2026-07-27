@@ -1,11 +1,11 @@
-"""run-phase-review on_success routing — regression for the reset-both bug.
+"""review on_success routing — regression for the reset-both bug.
 
-run-phase-review is the only workflow node with an explicit on_success edge
+review is the only workflow node with an explicit on_success edge
 to a non-adjacent step (ticket-qa). _apply_routing's loop-back branch (added
 in 2ff6ade to re-verify failed gates after their fixer) matched on
 "routing is a named step_id" without checking success/failure, so a genuine
 PASS was reset back to pending instead of marked completed — the workflow
-looped run-phase-review <-> implement-tasks forever.
+looped review <-> implement forever.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from orchestrator_next import readiness, record  # noqa: E402
 from orchestrator_next.parser import load_state  # noqa: E402
 
 _CONTRACT = (
-    "id: run-phase-review\n"
+    "id: review\n"
     "agent: reviewer\n"
     "instruction: Run phase review.\n"
     "rules: []\n"
@@ -35,16 +35,16 @@ _CONTRACT = (
 
 def _nodes() -> list[dict]:
     return [
-        {"id": "implement-tasks", "status": "completed", "depends_on": []},
+        {"id": "implement", "status": "completed", "depends_on": []},
         {
-            "id": "run-phase-review",
+            "id": "review",
             "status": "in_progress",
-            "depends_on": ["implement-tasks"],
+            "depends_on": ["implement"],
             "on_success": "ticket-qa",
-            "on_failure": "implement-tasks",
+            "on_failure": "implement",
             "max_retries": 8,
         },
-        {"id": "ticket-qa", "status": "pending", "depends_on": ["run-phase-review"]},
+        {"id": "ticket-qa", "status": "pending", "depends_on": ["review"]},
     ]
 
 
@@ -58,7 +58,7 @@ def _state(tmp_path) -> dict:
         "workflow_plan": {"main": {"nodes": _nodes(), "filtered": []}},
         "step_history": [
             {
-                "step_id": "run-phase-review",
+                "step_id": "review",
                 "phase": "main",
                 "status": "in_progress",
                 "agent": "reviewer",
@@ -71,7 +71,7 @@ def _state(tmp_path) -> dict:
 
 def _setup(tmp_path, monkeypatch) -> str:
     contracts_dir = tmp_path / "contracts"
-    step_dir = contracts_dir / "run-phase-review"
+    step_dir = contracts_dir / "review"
     step_dir.mkdir(parents=True, exist_ok=True)
     (step_dir / "contract.yaml").write_text(_CONTRACT)
     (step_dir / "prompt.md").write_text("Run phase review.")
@@ -89,7 +89,7 @@ def _node_status(state_path: str, node_id: str) -> str:
 
 def _payload(*, status: str, verdict: str) -> dict:
     return {
-        "step_id": "run-phase-review",
+        "step_id": "review",
         "phase": "main",
         "status": status,
         "agent": "reviewer",
@@ -113,7 +113,7 @@ class TestPhaseReviewSuccessRouting:
             state_path, _payload(status="completed", verdict="pass")
         )
         assert code == 0, result
-        assert _node_status(state_path, "run-phase-review") == "completed"
+        assert _node_status(state_path, "review") == "completed"
 
     def test_pass_advances_to_ticket_qa(self, tmp_path, monkeypatch):
         state_path = _setup(tmp_path, monkeypatch)
@@ -130,7 +130,7 @@ class TestPhaseReviewSuccessRouting:
         record.record(
             state_path, _payload(status="failed", verdict="needs_work")
         )
-        assert _node_status(state_path, "run-phase-review") == "reset"
-        assert _node_status(state_path, "implement-tasks") == "reset"
+        assert _node_status(state_path, "review") == "reset"
+        assert _node_status(state_path, "implement") == "reset"
         state = load_state(state_path)
-        assert readiness.next_ready_node(state) == "implement-tasks"
+        assert readiness.next_ready_node(state) == "implement"

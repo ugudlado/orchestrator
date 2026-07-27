@@ -2,22 +2,25 @@ steps:
   - check-rerun # halt if this feature is already archived (workflow's own decision)
   - create-worktree # creates worktree + branch; writes worktree_path+branch to state
   - load-ticket-context # REST fetch ticket body → ticket-context.md (loop stays agnostic)
-  - explore
-  - ux-design
-  - design-and-draft-artifacts
+  - skill: explore
+  - skill: ux-design
+  - skill: design
   - id: design-review
-    on_failure: design-and-draft-artifacts
+    skill: design-review
+    on_failure: design
     max_retries: 3
   - ticket-start # ticket -> In Progress (implement entry)
-  - run-ux-critique
-  - id: implement-tasks
-    on_failure: design-and-draft-artifacts
+  - skill: ux-critique
+  - id: implement
+    skill: implement
+    on_failure: design
     max_retries: 3
   - ticket-review # ticket -> Review
-  - id: run-phase-review
+  - id: review
+    skill: review
     on_success: ticket-qa
-    on_failure: implement-tasks
+    on_failure: implement
     max_retries: 8
   - ticket-qa # ticket -> Verify
-  - run-learn-cycle
+  - skill: learn
   - workflow-report

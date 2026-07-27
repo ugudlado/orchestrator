@@ -425,12 +425,12 @@ class TestResumeLogDriverContract(_unittest.TestCase):
     def test_resume_step_emits_resuming_log(self):
         result = self._run_fixture({
             "is_resume": True,  # ORC-45: check is_resume instead of action field,
-            "step_id": "design-and-draft-artifacts",
+            "step_id": "design",
             "attempt": 2,
         })
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         self.assertIn(
-            "RESUMING step design-and-draft-artifacts (attempt 2)",
+            "RESUMING step design (attempt 2)",
             result.stderr,
             msg=f"expected RESUMING log in stderr, got: {result.stderr!r}",
         )

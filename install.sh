@@ -122,7 +122,7 @@ setup_core() {
 setup_claude() {
   echo "Syncing Claude Code..."
 
-  # Skills: directory-level symlinks (agents are now skills)
+  # Skills: directory-level symlinks (meta + capability skills under skills/)
   mkdir -p "${CLAUDE_DIR}/skills"
   [ -L "${CLAUDE_DIR}/skills" ] && rm "${CLAUDE_DIR}/skills" && mkdir -p "${CLAUDE_DIR}/skills"
   for d in "$ORCHESTRATOR_DIR/skills"/*/; do

@@ -1,7 +1,7 @@
 """design-review on_failure routing — regression for ORC-117 / ORC-119 class bugs.
 
 When design-review fails (needs_work), the engine must re-queue
-design-and-draft-artifacts — not advance to ticket-start / implement.
+design — not advance to ticket-start / implement.
 
 Covers the agent mistake where status: completed is emitted alongside
 design_review_result: needs_work (routing keys off status, not the output).
@@ -38,15 +38,15 @@ def _feature_nodes_at_design_review() -> list[dict]:
         {"id": "explore", "status": "completed", "depends_on": []},
         {"id": "ux-design", "status": "completed", "depends_on": ["explore"]},
         {
-            "id": "design-and-draft-artifacts",
+            "id": "design",
             "status": "completed",
             "depends_on": ["ux-design"],
         },
         {
             "id": "design-review",
             "status": "in_progress",
-            "depends_on": ["design-and-draft-artifacts"],
-            "on_failure": "design-and-draft-artifacts",
+            "depends_on": ["design"],
+            "on_failure": "design",
             "max_retries": 3,
         },
         {"id": "ticket-start", "status": "pending", "depends_on": ["design-review"]},
@@ -76,7 +76,7 @@ def _state_at_design_review(tmp_path, *, with_stale_architect_history: bool = Fa
         state["step_history"].insert(
             0,
             {
-                "step_id": "design-and-draft-artifacts",
+                "step_id": "design",
                 "phase": "main",
                 "status": "completed",
                 "agent": "architect",
@@ -129,9 +129,9 @@ class TestDesignReviewFailureRouting:
         )
         assert code == 0, result
         assert _node_status(state_path, "design-review") == "reset"
-        assert _node_status(state_path, "design-and-draft-artifacts") == "reset"
+        assert _node_status(state_path, "design") == "reset"
         state = load_state(state_path)
-        assert readiness.next_ready_node(state) == "design-and-draft-artifacts"
+        assert readiness.next_ready_node(state) == "design"
 
     def test_completed_needs_work_coerced_to_failed_and_requeues_architect(
         self, tmp_path, monkeypatch
@@ -144,9 +144,9 @@ class TestDesignReviewFailureRouting:
         assert code == 0, result
         raw = yaml.safe_load(open(state_path).read())
         assert raw["step_history"][-1]["status"] == "failed"
-        assert _node_status(state_path, "design-and-draft-artifacts") == "reset"
+        assert _node_status(state_path, "design") == "reset"
         state = load_state(state_path)
-        assert readiness.next_ready_node(state) == "design-and-draft-artifacts"
+        assert readiness.next_ready_node(state) == "design"
         assert readiness.next_ready_node(state) != "ticket-start"
 
     def test_completed_pass_advances_to_ticket_start(self, tmp_path, monkeypatch):
@@ -169,24 +169,24 @@ class TestDesignReviewFailureRouting:
             state_path, _design_review_payload(status="failed", result="needs_work")
         )
         state = load_state(state_path)
-        assert readiness.next_ready_node(state) == "design-and-draft-artifacts"
+        assert readiness.next_ready_node(state) == "design"
 
     def test_fixer_completion_requeues_review_not_ticket_start(self, tmp_path, monkeypatch):
         """Regression: after design-review fails and loops back, design-review
-        must re-run (and re-verify) once design-and-draft-artifacts finishes —
+        must re-run (and re-verify) once design finishes —
         not get silently skipped in favor of ticket-start."""
         state_path = _setup(tmp_path, monkeypatch, _state_at_design_review(tmp_path))
         record.record(
             state_path, _design_review_payload(status="failed", result="needs_work")
         )
 
-        # Simulate the fixer (design-and-draft-artifacts) completing its retry.
+        # Simulate the fixer (design) completing its retry.
         raw = yaml.safe_load(open(state_path).read())
         nodes = raw["workflow_plan"]["main"]["nodes"]
-        next(n for n in nodes if n["id"] == "design-and-draft-artifacts")["status"] = "completed"
+        next(n for n in nodes if n["id"] == "design")["status"] = "completed"
         raw["step_history"].append(
             {
-                "step_id": "design-and-draft-artifacts",
+                "step_id": "design",
                 "phase": "main",
                 "status": "completed",
                 "agent": "architect",

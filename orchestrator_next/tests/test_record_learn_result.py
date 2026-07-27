@@ -1,4 +1,4 @@
-"""run-learn-cycle done payload: learn_result supplement (shell loop)."""
+"""learn done payload: learn_result supplement (shell loop)."""
 from __future__ import annotations
 
 import os
@@ -21,7 +21,7 @@ def _state_path(tmp_path) -> str:
         "repo_root": str(tmp_path),
         "workflow_plan": {
             "main": {
-                "nodes": [{"id": "run-learn-cycle", "status": "in_progress"}],
+                "nodes": [{"id": "learn", "status": "in_progress"}],
                 "filtered": [],
             }
         },
@@ -35,7 +35,7 @@ def _state_path(tmp_path) -> str:
 def test_run_learn_cycle_empty_outputs_gets_learn_result_supplement(tmp_path):
     state_path = _state_path(tmp_path)
     payload = {
-        "step_id": "run-learn-cycle",
+        "step_id": "learn",
         "phase": "main",
         "status": "completed",
         "agent": "workflow-learner",
@@ -46,7 +46,7 @@ def test_run_learn_cycle_empty_outputs_gets_learn_result_supplement(tmp_path):
     assert code == 0, result
     state = yaml.safe_load(open(state_path))
     last = state["step_history"][-1]
-    assert last["step_id"] == "run-learn-cycle"
+    assert last["step_id"] == "learn"
     assert last["evidence"]["outputs"]["learn_result"] == {"completed": True}
     assert last["evidence"]["outputs"]["backlog_tickets_synced"] == []
 
@@ -54,7 +54,7 @@ def test_run_learn_cycle_empty_outputs_gets_learn_result_supplement(tmp_path):
 def test_run_learn_cycle_accepts_empty_backlog_tickets_synced_list(tmp_path):
     state_path = _state_path(tmp_path)
     payload = {
-        "step_id": "run-learn-cycle",
+        "step_id": "learn",
         "phase": "main",
         "status": "completed",
         "agent": "workflow-learner",

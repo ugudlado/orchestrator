@@ -85,7 +85,7 @@ class TestHaltMechanism:
             "main": {"nodes": [
                 {"id": "check-rerun", "status": "pending"},
                 {"id": "explore", "status": "pending"},
-                {"id": "design-and-draft-artifacts", "status": "pending"},
+                {"id": "design", "status": "pending"},
             ], "filtered": []},
         })
         monkeypatch.setenv("STATE_YAML_PATH", str(state_path))
@@ -109,7 +109,7 @@ class TestHaltMechanism:
                 {"id": "explore", "status": "pending"},
             ], "filtered": []},
             "complete": {"nodes": [
-                {"id": "run-learn-cycle", "status": "pending"},
+                {"id": "learn", "status": "pending"},
                 {"id": "ticket-done", "status": "pending"},
             ], "filtered": []},
         })

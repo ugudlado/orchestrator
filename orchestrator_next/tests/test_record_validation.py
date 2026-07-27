@@ -100,7 +100,7 @@ class TestCheckB:
         """YAML list evidence (common in agent COMPLETION) must not crash record."""
         state_path = _minimal_state(tmp_path)
         payload = {
-            "step_id": "design-and-draft-artifacts",
+            "step_id": "design",
             "phase": "specify",
             "status": "completed",
             "agent": "architect",
@@ -279,7 +279,7 @@ class TestOptionalPayloadFields:
 
 
 # ---------------------------------------------------------------------------
-# Check D: run-phase-review verdict enum validation
+# Check D: review verdict enum validation
 # ---------------------------------------------------------------------------
 
 def _phase_review_state(tmp_path) -> str:
@@ -289,7 +289,7 @@ def _phase_review_state(tmp_path) -> str:
         "workflow_plan": {
             "implement": {
                 "nodes": [
-                    {"id": "run-phase-review", "status": "in_progress",
+                    {"id": "review", "status": "in_progress",
                      "agent": "reviewer", "goal": "", "inputs": [],
                      "outputs": ["phase_review_report"], "rules": []},
                 ],
@@ -305,10 +305,10 @@ def _phase_review_state(tmp_path) -> str:
 
 def _write_run_phase_review_contract(contracts_dir: Path) -> None:
     contracts_dir.mkdir(parents=True, exist_ok=True)
-    step_dir = contracts_dir / "run-phase-review"
+    step_dir = contracts_dir / "review"
     step_dir.mkdir(parents=True, exist_ok=True)
     contract = {
-        "id": "run-phase-review",
+        "id": "review",
         "agent": "reviewer",
         "inputs": ["task_execution_result"],
         "outputs": ["phase_review_report"],
@@ -329,7 +329,7 @@ class TestPhaseReviewVerdictValidation:
 
     def _payload(self, verdict: str, **extra) -> dict:
         return {
-            "step_id": "run-phase-review",
+            "step_id": "review",
             "phase": "implement",
             "status": "completed",
             "agent": "reviewer",
