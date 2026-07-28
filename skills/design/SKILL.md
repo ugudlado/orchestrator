@@ -2,7 +2,7 @@
 name: design
 description: "Produce design.md and tasks.yaml from discovery. Use when designing a feature, drafting an approach, or breaking work into tasks."
 user-invocable: true
-extends: ../../../prompt-packs/architect
+extends: git+git@github.com:ugudlado/prompt-packs.git@302b87dcc7c8b6a83d249194f3e47e98d3214794#architect
 ---
 
 # Design and Draft Artifacts

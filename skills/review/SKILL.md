@@ -2,7 +2,7 @@
 name: review
 description: "Phase quality review against the project quality bar. Use when reviewing implementation quality, scoring a phase, or gating merge readiness."
 user-invocable: true
-extends: ../../../prompt-packs/reviewer
+extends: git+git@github.com:ugudlado/prompt-packs.git@302b87dcc7c8b6a83d249194f3e47e98d3214794#reviewer
 ---
 
 # Run Phase Review

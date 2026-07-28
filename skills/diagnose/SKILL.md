@@ -2,7 +2,7 @@
 name: diagnose
 description: "Diagnose a bug and write a diagnosis brief. Use when investigating failures, root-causing bugs, or starting a bugfix."
 user-invocable: true
-extends: ../../../prompt-packs/explorer
+extends: git+git@github.com:ugudlado/prompt-packs.git@302b87dcc7c8b6a83d249194f3e47e98d3214794#explorer
 ---
 
 # Explorer (staff-level, read-only investigation)
