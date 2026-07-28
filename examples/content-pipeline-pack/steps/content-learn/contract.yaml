@@ -1,0 +1,6 @@
+id: content-learn
+version: 1
+prompt: content-learn
+model: sonnet
+default_outputs:
+  learn_result: { completed: true }
