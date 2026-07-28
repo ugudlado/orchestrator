@@ -163,9 +163,16 @@ directory is resolved through the skill search dirs below, and the charter
 inside it is `SKILL.md` if present, else `prompt.md`. There is no second field
 for skill-vs-prompt; the directory's contents decide.
 
-Skill search order: `$ORCHESTRATOR_SKILLS_TEST_OVERRIDE` (tests) →
-`<repo>/skills` → engine checkout `skills/` → `~/.claude/skills` →
-`~/.codex/skills` → `~/.agents/skills` → Pi skills dir.
+Skill search order: `$ORCHESTRATOR_SKILLS_PREPEND` (os.pathsep-separated, put
+in front of the normal path) → `$ORCHESTRATOR_SKILLS_TEST_OVERRIDE` (tests,
+replaces the rest) → `<repo>/skills` → engine checkout `skills/` →
+`~/.claude/skills` → `~/.codex/skills` → `~/.agents/skills` → Pi skills dir.
+
+`pack add` uses the prepend during install-time validation: the pack's own
+`skills/` goes first, then the search path the installing repo will really use
+at runtime. So a pack may reference a skill it doesn't ship (validation passes
+where that skill resolves, fails where it doesn't), and a shipped copy always
+shadows the repo's.
 
 `<repo>` is derived from the active config root: `<repo>/.orchestrator/config`
 (vendored pack) and `<repo>/config` (engine checkout) both resolve to `<repo>`.

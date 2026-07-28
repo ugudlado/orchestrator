@@ -95,8 +95,18 @@ def _repo_root_from_config() -> Path | None:
 
 
 def skill_search_dirs() -> list[Path]:
-    """Ordered dirs that may contain installable skills (<name>/SKILL.md)."""
+    """Ordered dirs that may contain installable skills (<name>/SKILL.md).
+
+    ``ORCHESTRATOR_SKILLS_TEST_OVERRIDE`` replaces the whole path (test
+    isolation). ``ORCHESTRATOR_SKILLS_PREPEND`` (os.pathsep-separated) instead
+    puts dirs *in front of* the normal path — `pack add` uses it so a pack's
+    own ``skills/`` wins while the target repo's dirs stay searchable.
+    """
     dirs: list[Path] = []
+    prepend = os.environ.get("ORCHESTRATOR_SKILLS_PREPEND")
+    if prepend:
+        dirs.extend(Path(p) for p in prepend.split(os.pathsep) if p)
+
     override = os.environ.get("ORCHESTRATOR_SKILLS_TEST_OVERRIDE")
     if override:
         dirs.append(Path(override))

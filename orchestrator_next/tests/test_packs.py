@@ -461,6 +461,85 @@ def test_cli_main_unknown_subcommand(cwd_repo, capsys):
 # routes.
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# Install-time validation resolves shared skills the pack doesn't ship.
+#
+# Validation must search the pack's skills/ first, then the search path the
+# *target repo* really uses at runtime — a pack referencing a shared skill
+# must not fail install-time on a skill that would resolve fine.
+# --------------------------------------------------------------------------
+
+def _make_pack_referencing_skill(root: Path, *, name: str, prompt: str) -> Path:
+    """A pack whose only agent step names ``prompt`` but ships no skills/."""
+    _write_yaml(root / "pack.yaml", {
+        "name": name, "version": "1.0.0", "protocol": 1, "description": "test pack",
+    })
+    step_dir = root / "steps" / "shared-ref"
+    step_dir.mkdir(parents=True)
+    _write_yaml(step_dir / "contract.yaml", {
+        "id": "shared-ref", "version": 1, "model": "sonnet", "prompt": prompt,
+    })
+    _write_yaml(root / "workflows" / f"{name}.yaml", {"steps": ["shared-ref"]})
+    return root
+
+
+def _write_skill(dir_: Path, text: str = "Shared charter.\n") -> Path:
+    dir_.mkdir(parents=True, exist_ok=True)
+    (dir_ / "SKILL.md").write_text(text)
+    return dir_
+
+
+def test_validate_resolves_skill_from_target_repo(tmp_path, cwd_repo):
+    """A skill present only in the installing repo satisfies validation.
+
+    This is the discriminating case: the engine checkout's own skills/ is
+    always on the search path, so referencing e.g. `learn` would pass even
+    with broken repo-root threading. Only a repo-local skill proves it.
+    """
+    _write_skill(cwd_repo / "skills" / "repo-only-charter")
+
+    src = tmp_path / "shared_src"
+    _make_pack_referencing_skill(src, name="sharedpack", prompt="repo-only-charter")
+
+    result = packs.validate_pack(src, str(cwd_repo))
+    assert result.ok, result.errors
+
+
+def test_validate_fails_when_skill_absent_everywhere(tmp_path, cwd_repo):
+    src = tmp_path / "missing_src"
+    _make_pack_referencing_skill(
+        src, name="missingpack", prompt="zz-nonexistent-charter-xyz"
+    )
+
+    result = packs.validate_pack(src, str(cwd_repo))
+    assert not result.ok
+    assert any("missingpack" in e for e in result.errors), result.errors
+
+
+def test_pack_local_skill_shadows_repo_copy(tmp_path, cwd_repo):
+    """A pack that ships a skill validates against its own copy first."""
+    _write_skill(cwd_repo / "skills" / "dual-charter", "Repo copy.\n")
+
+    src = tmp_path / "shadow_src"
+    _make_pack_referencing_skill(src, name="shadowpack", prompt="dual-charter")
+    _write_skill(src / "skills" / "dual-charter", "Pack copy.\n")
+
+    result = packs.validate_pack(src, str(cwd_repo))
+    assert result.ok, result.errors
+
+    dirs = packs._validation_skill_search_dirs(src, cwd_repo)
+    assert dirs[0] == src / "skills"
+    assert cwd_repo / "skills" in dirs
+
+
+def test_validation_restores_skill_env(tmp_path, cwd_repo):
+    src = tmp_path / "env_src"
+    _make_minimal_pack(src, name="envpack")
+
+    packs.validate_pack(src, str(cwd_repo))
+    assert "ORCHESTRATOR_SKILLS_PREPEND" not in os.environ
+
+
 @pytest.mark.parametrize("route", ["orchestrator_config", "repo_root"])
 def test_vendored_skill_resolves_without_override(
     tmp_path, cwd_repo, vendored_root, monkeypatch, route
