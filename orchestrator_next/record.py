@@ -136,6 +136,22 @@ def _validate_phase_review_output(step_id: str, outputs: dict[str, Any]) -> None
             },
             3,
         )
+    # Caller (_validate_outputs) guarantees status == "completed"; a non-pass
+    # verdict must ship as status: failed or the on_failure edge never fires
+    # (live bypass: BKG-575 advanced to ticket-qa with a needs_work review).
+    if verdict != "pass":
+        raise _RecordError(
+            {
+                "reason": "invalid_phase_review_status_for_verdict",
+                "step_id": step_id,
+                "verdict": verdict,
+                "hint": (
+                    "status: completed requires phase_review_report.verdict: pass; "
+                    "emit status: failed for needs_work/incomplete_phase"
+                ),
+            },
+            3,
+        )
 
 
 def _normalize_review_payload_status(
@@ -148,6 +164,16 @@ def _normalize_review_payload_status(
     output field — normalize to ``failed`` so the workflow's ``on_failure`` edge
     fires.
     """
+    if step_id == "review":
+        report = outputs.get("phase_review_report")
+        verdict = report.get("verdict") if isinstance(report, dict) else None
+        if verdict in ("needs_work", "incomplete_phase") and status in _SUCCESS_STATUSES:
+            sys.stderr.write(
+                "[record] review: coercing status "
+                f"{status!r} → 'failed' (phase_review_report.verdict: {verdict})\n"
+            )
+            return "failed"
+        return status
     if step_id != "design-review":
         return status
     result = outputs.get("design_review_result")
