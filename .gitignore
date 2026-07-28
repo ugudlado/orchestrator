@@ -59,3 +59,4 @@ node_modules/
 
 # prompt-optimizer harness-owned eval response cache (per-machine, never gitted)
 skills/*/runs/cache/
+.tmp-pytest/

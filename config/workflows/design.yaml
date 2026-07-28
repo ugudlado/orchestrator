@@ -2,11 +2,11 @@ steps:
   - check-rerun
   - create-worktree
   - load-ticket-context
-  - skill: explore
-  - skill: design
+  - prompt: explore
+  - prompt: design
   - id: design-review
     on_failure: design
     max_retries: 3
-    skill: design-review
-  - skill: learn
+    prompt: design-review
+  - prompt: learn
   - workflow-report

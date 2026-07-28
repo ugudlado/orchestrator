@@ -4,11 +4,9 @@ Workflow `steps:` entries may be:
 
 - a plain string id (shell or contract-backed step)
 - ``{id: ...}`` with optional routing (``on_failure``, …)
-- ``{skill: <name>, ...}`` — reusable installed skill (id defaults to skill name)
-- ``{prompt: <path>, id: <id>, ...}`` — local prompt file (id required)
+- ``{prompt: <dir>, ...}`` — prompt directory (id defaults to the prompt ref)
 
-Exactly one of ``skill`` / ``prompt`` may appear on a dict entry (besides routing
-keys). Shell steps stay plain ids pointing at ``run:`` contracts.
+Shell steps stay plain ids pointing at ``run:`` contracts.
 """
 from __future__ import annotations
 
@@ -27,22 +25,15 @@ def step_id_of(entry: Any) -> str | None:
         return None
     if entry.get("id"):
         return str(entry["id"])
-    if entry.get("skill"):
-        return str(entry["skill"])
+    if entry.get("prompt"):
+        return str(entry["prompt"])
     if entry.get("include"):
         return str(entry["include"])
     return None
 
 
-def step_skill_of(entry: Any) -> str | None:
-    """Return skill name if this entry declares ``skill:``, else None."""
-    if isinstance(entry, dict) and entry.get("skill"):
-        return str(entry["skill"])
-    return None
-
-
 def step_prompt_of(entry: Any) -> str | None:
-    """Return prompt path if this entry declares ``prompt:``, else None."""
+    """Return prompt dir ref if this entry declares ``prompt:``, else None."""
     if isinstance(entry, dict) and entry.get("prompt"):
         return str(entry["prompt"])
     return None

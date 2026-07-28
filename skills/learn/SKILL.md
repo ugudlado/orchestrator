@@ -32,9 +32,15 @@ Run the workflow learning pipeline for this completed change.
 
 3. For each durable learning that should change a specific step's future
    behavior: convert it directly into an eval scenario and append it as one
-   JSON line to `$ORCHESTRATOR_CONFIG/steps/<step_id>/pack/scenarios/train.jsonl`
-   (create the file if absent; never touch dev/holdout — they are held out
-   for validation). Format:
+   JSON line to that step's prompt directory `scenarios/train.jsonl` (create
+   the file if absent; never touch dev/holdout — they are held out for
+   validation). Do not resolve the directory yourself. `$ORCHESTRATOR_PROMPT_DIRS`
+   is a JSON object mapping `step_id` → absolute prompt dir for every agent step
+   in this workflow; look the target step up in it and append to
+   `<dir>/scenarios/train.jsonl`. A step id absent from the map has no prompt
+   directory to write beside — skip that learning. There is no blessed `pack/`
+   location — only colocation beside the charter.
+   Format:
    `{"id": "<short-kebab-slug>", "scenario": "<the situation>", "expect": ["...", "..."]}`
    The scenario recreates the situation the learning guards against, phrased
    as a fresh task with no hint of the rule; `expect` lists 3-4 observable
