@@ -148,7 +148,8 @@ extends: git+git@github.com:ugudlado/prompt-packs.git@302b87dcc7c8b6a83d249194f3
 ## Verify
 
 - Phase review report written to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/phase-review.md
-- When phase_review_report.verdict is pass or needs_work: review_score recorded in step_history as {step_id: review, phase: <current>, status: completed, review_score: { overall: <N>, dimensions: { spec_compliance: <N>, correctness: <N>, security: <N>, simplicity: <N>, code_quality: <N> } }}
+- When phase_review_report.verdict is pass: review_score recorded in step_history with status: completed. When verdict is needs_work: same review_score shape but status MUST be failed (see step 9c — completed with a needs_work verdict disarms the on_failure edge and the workflow advances past a failing review; this happened live on BKG-575). <!-- updated: 2026-07-28, source: bkg-575 gate bypass -->
+- Verdict→status mapping is exact: pass → completed; needs_work or incomplete_phase → failed. No other combination is valid.
 - When phase_review_report.verdict is incomplete_phase: review_score is omitted from step_history (nothing to score)
 - All critical findings have either a fix task or are resolved
 - phase-signoff will BLOCK if this step's entry is missing from step_history — this step is not optional
