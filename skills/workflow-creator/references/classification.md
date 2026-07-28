@@ -1,41 +1,50 @@
-# Step classification: shell | skill | prompt
+# Step classification: shell | prompt
 
 Use this when a step is ambiguous during workflow design.
 
-The orchestrator executes **three** kinds of steps.
+The orchestrator executes **two** kinds of steps. There is no third kind — the
+old `skill:` contract field is removed and is now a hard contract error.
 
 ## Deterministic → shell (`run: script.sh`)
 
 Same inputs → same action. File ops, fixed CLI, git, webhooks, ticket status.
 
-**Naming:** imperative verb-object — `create-worktree`, `ticket-start`.
+**Naming:** imperative verb-object — `create-worktree`, `ticket-start`,
+`intake-brief`.
 
-## Reusable capability → skill (`model:` + `skill: <name>`)
+## Judgment → prompt (`model:` + `prompt: <dir>`)
 
-Judgment work that should also work standalone (`/ux-critique`, `/implement`).
+Anything requiring LLM reasoning: summarizing, critiquing, deciding relevance,
+writing prose, choosing between plausible options.
 
-- Charter lives in `skills/<name>/SKILL.md` (installable)
-- Workflow: `- skill: ux-critique` or `- id: ux-critique` with contract `skill:`
-- Agent role (mental model): skill + `-er` → ux-critiquer, implementer, reviewer
+- `prompt:` names a **directory**, resolved through the skill search dirs — not
+  a file under the step dir.
+- The charter inside it is `SKILL.md` if present, else `prompt.md`.
+- Workflow entry: `- prompt: ux-critique`, or `- id: ux-critique` with
+  `prompt: ux-critique` when you need `on_failure`/`max_retries`.
+- Agent role (mental model): capability + `-er`/`-or` → ux-critiquer,
+  implementer, reviewer.
 
-**Test:** Would you invoke this outside a workflow? → skill.
+**Test:** does the step need an LLM? → prompt. Otherwise → shell.
 
-## One-off / pack-local → prompt (`model:` + `prompt: <file>`)
-
-Judgment work that is not a reusable installable skill — charter is a markdown
-file under the step dir (any name; prompt-optimizer keys off `pack.yaml`
-`prompt:`).
-
-**Test:** Only meaningful inside this workflow/pack? → prompt.
+Reusable-vs-one-off is **not** a classification question. Both cases are
+`prompt:` pointing at a directory; whether that directory is a polished
+installable skill or a pack-local charter is a matter of what you put in it,
+not of which contract field you write.
 
 ## Edge cases
 
-| Step                               | Route  | Why                 |
-| ---------------------------------- | ------ | ------------------- |
-| Convert md → PDF via pandoc        | shell  | Fixed command       |
-| UX critique                        | skill  | Reusable            |
-| One-off schema-specific summarizer | prompt | Not a product skill |
-| Ticket → In Progress               | shell  | Fixed API call      |
+| Step                               | Route  | Why                          |
+| ---------------------------------- | ------ | ---------------------------- |
+| Convert md → PDF via pandoc        | shell  | Fixed command                |
+| Format JSON into a fixed md table  | shell  | Template-driven, no judgment |
+| UX critique                        | prompt | Requires judgment            |
+| One-off schema-specific summarizer | prompt | Summarizing is LLM work      |
+| Ticket → In Progress               | shell  | Fixed API call               |
+
+A step that mixes both — run a linter, then decide which failures block — is
+either split into a shell step and a prompt step, or classified `prompt`
+because judgment is present. It is never `shell`.
 
 ## Reuse
 
@@ -44,5 +53,6 @@ ls skills/
 ls "$ORCH_CONFIG/steps/"
 ```
 
-Prefer an existing `skills/<name>` before scaffolding a new prompt step. Never
-duplicate a skill charter under `config/steps/`.
+Prefer an existing `skills/<name>` before scaffolding a new prompt directory.
+Never duplicate a charter under `config/steps/` — the contract points at the
+directory, so there is nothing to copy.
