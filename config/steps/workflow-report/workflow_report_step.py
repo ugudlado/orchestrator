@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Workflow report step — duration, model, in/cache/out tokens, and cost per step."""
+"""Workflow report step — thin wrapper over orchestrator_next.report.
+
+The report logic lives in the engine (`orchestrator report`); this step only
+adapts it to the step protocol (JSON status line on stdout). The engine
+package is located relative to this step's config dir so the wrapper works
+from both a checkout (config/ beside orchestrator_next/) and an installed
+package (config/ inside the orchestrator_next package).
+"""
 from __future__ import annotations
 
 import json
@@ -7,238 +14,14 @@ import os
 import sys
 from pathlib import Path
 
-_LIB = Path(__file__).resolve().parent.parent / "lib"
-if str(_LIB) not in sys.path:
-    sys.path.insert(0, str(_LIB))
+_CONFIG_DIR = Path(__file__).resolve().parent.parent.parent
+for _candidate in (_CONFIG_DIR.parent, _CONFIG_DIR.parent.parent):
+    if (_candidate / "orchestrator_next" / "report.py").is_file():
+        if str(_candidate) not in sys.path:
+            sys.path.insert(0, str(_candidate))
+        break
 
-from state_yaml import change_id as _change_id, load as _load_state  # noqa: E402
-
-
-def _resolve_state(state_path: str, repo_root: str) -> tuple[Path, dict] | tuple[None, None]:
-    import glob
-    path = Path(state_path)
-    if path.is_file():
-        return path, _load_state(path)
-    cid_hint = path.parent.name
-    pattern = os.path.join(repo_root, "spec", "changes", "archive", f"*{cid_hint}", "state.yaml")
-    for p in sorted(glob.glob(pattern)):
-        candidate = Path(p)
-        if candidate.is_file():
-            return candidate, _load_state(candidate)
-    return None, None
-
-
-def _collect_all_states(primary_path: Path, primary_state: dict, repo_root: str) -> list[dict]:
-    """Collect step_history from all state files for this change_id (feature + complete runs)."""
-    import glob
-    cid = _change_id(primary_state)
-    if not cid:
-        return [primary_state]
-
-    # Gather all state files from the .orchestrator/<cid>/ dir (siblings of primary)
-    state_dir = primary_path.parent
-    sibling_files = sorted(state_dir.glob("*_state.yaml"))
-
-    # Also check archive dir for any archived state
-    archive_pattern = os.path.join(repo_root, "spec", "changes", "archive", f"*{cid}", "state.yaml")
-    archive_files = [Path(p) for p in sorted(glob.glob(archive_pattern))]
-
-    seen = set()
-    states = []
-    for f in sibling_files + archive_files:
-        if f in seen or not f.is_file():
-            continue
-        seen.add(f)
-        s = _load_state(f)
-        if _change_id(s) == cid:
-            states.append(s)
-
-    return states if states else [primary_state]
-
-
-def _render_report(step_history: list, issues: list) -> dict:
-    """Print per-step Duration/Model/In/Out/Cost table to stderr; return the same
-    figures as a plain dict for structured (JSON) output."""
-    if not step_history:
-        return {
-            "steps": [],
-            "totals": {
-                "duration_ms": 0,
-                "tokens": 0,
-                "input_tokens": 0,
-                "output_tokens": 0,
-                "cache_read_input_tokens": 0,
-                "cache_creation_input_tokens": 0,
-                "cost_usd": 0.0,
-            },
-        }
-
-    # Collapse entries by step_id: accumulate tokens/cost across all attempts,
-    # track final status and total attempt count. Last model wins (KD-2).
-    from collections import OrderedDict
-    rows: OrderedDict = OrderedDict()
-    for entry in step_history:
-        if not isinstance(entry, dict):
-            continue
-        step_id = entry.get("step_id") or "?"
-        status = entry.get("status") or "?"
-        attempt = entry.get("attempt") or 1
-        usage = entry.get("usage") or {}
-        input_tokens = usage.get("input_tokens") or 0
-        output_tokens = usage.get("output_tokens") or 0
-        # Cache tokens are billed (pricing.py reads them) and dominate real spend
-        # on agent steps; keep them disjoint from input_tokens so columns sum.
-        cache_read = usage.get("cache_read_input_tokens") or 0
-        cache_creation = usage.get("cache_creation_input_tokens") or 0
-        tokens = input_tokens + output_tokens + cache_read + cache_creation
-        cost = usage.get("cost_usd") or 0.0
-        duration_ms = usage.get("duration_ms") or 0
-        model = usage.get("model") or ""
-        briefing = entry.get("briefing") or ""
-        # Every attempt's briefing is kept (not just the last one) so a failed
-        # attempt's "why it failed" survives alongside the retry that fixed it.
-        briefing_entry = {"attempt": attempt, "status": status, "briefing": briefing}
-        if step_id not in rows:
-            rows[step_id] = {
-                "status": status,
-                "attempts": attempt,
-                "tokens": tokens,
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "cache_read_input_tokens": cache_read,
-                "cache_creation_input_tokens": cache_creation,
-                "cost": cost,
-                "duration_ms": duration_ms,
-                "model": model,
-                "briefings": [briefing_entry],
-            }
-        else:
-            rows[step_id]["status"] = status  # last status wins
-            rows[step_id]["attempts"] = max(rows[step_id]["attempts"], attempt)
-            rows[step_id]["tokens"] += tokens
-            rows[step_id]["input_tokens"] += input_tokens
-            rows[step_id]["output_tokens"] += output_tokens
-            rows[step_id]["cache_read_input_tokens"] += cache_read
-            rows[step_id]["cache_creation_input_tokens"] += cache_creation
-            rows[step_id]["cost"] += cost
-            rows[step_id]["duration_ms"] += duration_ms
-            if model:
-                rows[step_id]["model"] = model  # last model wins
-            rows[step_id]["briefings"].append(briefing_entry)
-
-    sys.stderr.write("\n## Workflow step report\n\n")
-    sys.stderr.write(
-        f"{'Step':<35} {'Status':<12} {'Att':>4} {'Duration':>10} "
-        f"{'Model':<14} {'In':>9} {'CacheR':>11} {'CacheW':>10} {'Out':>8} {'Cost':>10}\n"
-    )
-    sys.stderr.write(
-        f"{'-'*35} {'-'*12} {'-'*4} {'-'*10} {'-'*14} {'-'*9} {'-'*11} "
-        f"{'-'*10} {'-'*8} {'-'*10}\n"
-    )
-
-    total_tokens = 0
-    total_input = 0
-    total_output = 0
-    total_cache_read = 0
-    total_cache_creation = 0
-    total_cost = 0.0
-    total_ms = 0
-
-    for step_id, r in rows.items():
-        attempts = r["attempts"]
-        duration_ms = r["duration_ms"]
-        tokens = r["tokens"]
-        input_tokens = r["input_tokens"]
-        output_tokens = r["output_tokens"]
-        cache_read = r["cache_read_input_tokens"]
-        cache_creation = r["cache_creation_input_tokens"]
-        cost = r["cost"]
-        model = r["model"]
-        briefings = r["briefings"]
-
-        total_ms += duration_ms
-        total_tokens += tokens
-        total_input += input_tokens
-        total_output += output_tokens
-        total_cache_read += cache_read
-        total_cache_creation += cache_creation
-        total_cost += cost
-
-        att_str = f"{attempts} ✗" if attempts > 1 else "1"
-        dur_str = f"{duration_ms / 1000:.1f}s" if duration_ms else "—"
-        model_str = model if model else "—"
-        in_str = f"{input_tokens:,}" if input_tokens else "—"
-        cr_str = f"{cache_read:,}" if cache_read else "—"
-        cw_str = f"{cache_creation:,}" if cache_creation else "—"
-        out_str = f"{output_tokens:,}" if output_tokens else "—"
-        cost_str = f"${cost:.4f}" if cost else "—"
-
-        sys.stderr.write(
-            f"{step_id:<35} {r['status']:<12} {att_str:>4} {dur_str:>10} "
-            f"{model_str:<14} {in_str:>9} {cr_str:>11} {cw_str:>10} "
-            f"{out_str:>8} {cost_str:>10}\n"
-        )
-        # One line per attempt, full text (no truncation) — a failed attempt's
-        # "why it failed" must survive next to the retry that fixed it.
-        for b in briefings:
-            if not b["briefing"]:
-                continue
-            tag = f"attempt {b['attempt']} ({b['status']})" if len(briefings) > 1 else b["status"]
-            text = b["briefing"].replace("\n", " ")
-            sys.stderr.write(f"    [{tag}] {text}\n")
-
-    sys.stderr.write(
-        f"\n{'TOTAL':<35} {'':12} {'':>4} {total_ms/1000:>9.1f}s "
-        f"{'':14} {total_input:>9,} {total_cache_read:>11,} "
-        f"{total_cache_creation:>10,} {total_output:>8,} ${total_cost:>9.4f}\n"
-    )
-    sys.stderr.write(
-        f"{'':<35} {'':12} {'':>4} {'':>10} {'':14} "
-        f"{'all tokens: ' + format(total_tokens, ',')}\n"
-    )
-
-    if issues:
-        sys.stderr.write(f"\n## Workflow issues ({len(issues)})\n\n")
-        sys.stderr.write("| Severity | Category | Detail | Fix direction |\n")
-        sys.stderr.write("|---|---|---|---|\n")
-        for issue in issues:
-            if not isinstance(issue, dict):
-                continue
-            sev = issue.get("severity") or "—"
-            cat = issue.get("category") or "—"
-            det = (issue.get("detail") or "").replace("\n", " ")[:120]
-            fix = (issue.get("fix_direction") or "—").replace("\n", " ")
-            sys.stderr.write(f"| {sev} | {cat} | {det} | {fix} |\n")
-        sys.stderr.write("\n")
-
-    return {
-        "steps": [
-            {
-                "step_id": step_id,
-                "status": r["status"],
-                "attempts": r["attempts"],
-                "duration_ms": r["duration_ms"],
-                "tokens": r["tokens"],
-                "input_tokens": r["input_tokens"],
-                "output_tokens": r["output_tokens"],
-                "cache_read_input_tokens": r["cache_read_input_tokens"],
-                "cache_creation_input_tokens": r["cache_creation_input_tokens"],
-                "model": r["model"] or None,
-                "cost_usd": round(r["cost"], 6),
-                "briefings": [b for b in r["briefings"] if b["briefing"]],
-            }
-            for step_id, r in rows.items()
-        ],
-        "totals": {
-            "duration_ms": total_ms,
-            "tokens": total_tokens,
-            "input_tokens": total_input,
-            "output_tokens": total_output,
-            "cache_read_input_tokens": total_cache_read,
-            "cache_creation_input_tokens": total_cache_creation,
-            "cost_usd": round(total_cost, 6),
-        },
-    }
+from orchestrator_next.report import report_for_state  # noqa: E402
 
 
 def main() -> int:
@@ -249,42 +32,12 @@ def main() -> int:
         sys.stderr.write("error: ORCHESTRATOR_STATE_YAML_PATH required\n")
         return 1
 
-    path, state = _resolve_state(state_path, repo_root)
-    if path is None:
-        sys.stderr.write(f"workflow-report: state.yaml not found at {state_path}\n")
-        print(json.dumps({"status": "failed", "evidence": {"summary": "missing state.yaml"}}))
+    payload = report_for_state(state_path, repo_root)
+    if payload is None:
+        print(json.dumps({"status": "failed", "evidence": {"summary": "missing state.yaml or change_id"}}))
         return 1
 
-    cid = _change_id(state)
-    if not cid:
-        sys.stderr.write("workflow-report: change_id missing in state.yaml\n")
-        print(json.dumps({"status": "failed", "evidence": {"summary": "missing change_id"}}))
-        return 1
-
-    all_states = _collect_all_states(path, state, repo_root)
-    step_history: list = []
-    issues: list = []
-    schemas_run: list = []
-    for s in all_states:
-        step_history.extend(s.get("step_history") or [])
-        issues.extend(s.get("workflow_issues") or [])
-        schema = s.get("schema")
-        if schema and schema not in schemas_run:
-            schemas_run.append(schema)
-
-    report = _render_report(step_history, issues)
-
-    # workflow_report is structured for future ingestion (no DB — console only,
-    # per ORC decision to drop metrics.duckdb). change_id + schemas_run is the
-    # join key across the separate design/implement/review runs for one ticket.
-    outputs: dict = {
-        "steps_reported": len(step_history),
-        "workflow_report": {"change_id": cid, "schemas_run": schemas_run, **report},
-    }
-    if issues:
-        outputs["workflow_issues_count"] = len(issues)
-
-    print(json.dumps({"status": "completed", "outputs": outputs}))
+    print(json.dumps({"status": "completed", "outputs": payload}))
     return 0
 
 
