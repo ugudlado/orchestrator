@@ -42,4 +42,6 @@ if ! backlog_api_put_status "$ticket_id" "$TICKET_SYNC_STATUS"; then
 fi
 
 echo "${TICKET_SYNC_LOG_PREFIX}: ${ticket_id} -> ${TICKET_SYNC_STATUS}" >&2
+backlog_api_post_comment "$ticket_id" "${TICKET_SYNC_LOG_PREFIX}: status set to ${TICKET_SYNC_STATUS}." ||
+  echo "WARN ${TICKET_SYNC_LOG_PREFIX}: comment post failed for ${ticket_id}" >&2
 printf '%s\n' "{\"status\": \"completed\", \"outputs\": {\"ticket_status_set\": \"${TICKET_SYNC_STATUS}\"}}"

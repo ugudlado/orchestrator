@@ -51,4 +51,7 @@ else
   exit 1
 fi
 
+backlog_api_post_comment "$ticket_id" "${TICKET_SYNC_LOG_PREFIX}: status set to ${TICKET_SYNC_STATUS}." ||
+  echo "WARN ${TICKET_SYNC_LOG_PREFIX}: comment post failed for ${ticket_id}" >&2
+
 printf '%s\n' "{\"status\": \"completed\", \"outputs\": {\"ticket_status_set\": \"${TICKET_SYNC_STATUS}\", \"ticket_id\": \"${synced}\"}}"
