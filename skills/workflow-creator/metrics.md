@@ -22,3 +22,12 @@ reasoning behind them.
   the intended behavior for an underspecified ask.
 - A critical violation — scaffolding files before user confirmation — caps
   `confirmation_discipline` at 2.
+
+## Eval context
+
+Scenarios are evaluated as a single text response with no file or shell
+access. The response IS the artifact: score inline artifact content (file
+bodies, sections, COMPLETION blocks) as the artifact itself, and explicitly
+named commands with their expected outcomes as performed verification. Do
+not penalize a response for being unable to literally write files or execute
+commands in this context.
