@@ -1,6 +1,0 @@
-name: content-pipeline
-version: 1
-protocol: 1
-description: >-
-  Brief-to-published-draft content pipeline. A non-coding reference pack: no
-  worktree, no branch, no build, no tests — intake, outline, draft, edit, learn.

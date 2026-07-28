@@ -71,10 +71,9 @@ def strip_skill_frontmatter(text: str) -> str:
 def repo_root_from_config_root(root: Path) -> Path | None:
     """Checkout root for a config root, or None when it isn't a known layout.
 
-    Two layouts hold: a vendored pack at ``<repo>/.orchestrator/config`` and an
-    engine checkout at ``<repo>/config``. packs.py resolves ``@repo/`` receipts
-    through this, and skill_search_dirs() searches ``<repo>/skills`` — the two
-    must agree or vendored skills become unresolvable.
+    Two layouts hold: a vendored config at ``<repo>/.orchestrator/config`` and
+    an engine checkout at ``<repo>/config``. Prompt resolution searches
+    ``<repo>/skills`` through this.
     """
     if root.parent.name == ".orchestrator":
         return root.parent.parent
@@ -98,15 +97,9 @@ def skill_search_dirs() -> list[Path]:
     """Ordered dirs that may contain installable skills (<name>/SKILL.md).
 
     ``ORCHESTRATOR_SKILLS_TEST_OVERRIDE`` replaces the whole path (test
-    isolation). ``ORCHESTRATOR_SKILLS_PREPEND`` (os.pathsep-separated) instead
-    puts dirs *in front of* the normal path — `pack add` uses it so a pack's
-    own ``skills/`` wins while the target repo's dirs stay searchable.
+    isolation).
     """
     dirs: list[Path] = []
-    prepend = os.environ.get("ORCHESTRATOR_SKILLS_PREPEND")
-    if prepend:
-        dirs.extend(Path(p) for p in prepend.split(os.pathsep) if p)
-
     override = os.environ.get("ORCHESTRATOR_SKILLS_TEST_OVERRIDE")
     if override:
         dirs.append(Path(override))

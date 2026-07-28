@@ -79,7 +79,7 @@ def check_config_root(config_root: Path) -> CheckResult:
     check below: if the root is wrong, those checks have nothing to validate.
 
     D4: models.yaml presence is intentionally NOT required here — a
-    workflow-only pack root has no models.yaml of its own (routing can come
+    workflow-only config root has no models.yaml of its own (routing can come
     from ~/.orchestrator/models.yaml or an env-file layer instead). See
     check_models_layer_present for the loosened WARN-only check.
     """
@@ -105,7 +105,7 @@ def check_models_layer_present(config_root: Path) -> CheckResult:
     """D4: WARN only if NO layer (user home, env file, config root) yields a
     `models:` block — report which layers were checked. Loosened from the old
     hard requirement that config_root/models.yaml itself exist, which broke
-    on a workflow-only pack root (Phase R) even when the user's
+    on a workflow-only config root (Phase R) even when the user's
     ~/.orchestrator/models.yaml fully covers routing.
     """
     from orchestrator_next.model_routes import _layer_chain, _models_map  # noqa: SLF001
@@ -214,10 +214,10 @@ def check_subprocesses_available(config_root: Path) -> CheckResult:
 def check_contract_aliases_resolve(config_root: Path) -> CheckResult:
     """D4: every model: alias referenced by an installed step contract must
     resolve to at least one available route (subprocess with a binary on
-    PATH) somewhere in the layer chain. This is what makes updating packs
-    and agent config independently safe in practice — a pack that invents an
+    PATH) somewhere in the layer chain. This is what makes updating step configs
+    and agent config independently safe in practice — a contract that invents an
     alias no layer defines, or a machine missing the binary for an alias a
-    pack requires, is caught here instead of at dispatch time (exit 4).
+    contract requires, is caught here instead of at dispatch time (exit 4).
     """
     import shutil
 
@@ -332,12 +332,12 @@ def run_all() -> int:
         check_subprocesses_available(config_root),  # rule 3 (WARN)
         check_model_route_sources(config_root),
         check_no_silent_fallback(config_root),      # D3 guard rail (WARN)
-        check_contract_aliases_resolve(config_root),  # D4: pack/agent-config safety net (WARN)
+        check_contract_aliases_resolve(config_root),  # D4: contract/agent-config safety net (WARN)
         check_symlinks(repo_root, orch_home),
     ]
     print(_format_table(results))
     if any(r.status == "FAIL" for r in results):
-        print("See docs/pack-convention.md for the pack.yaml/contract.yaml convention.")
+        print("Check config/steps/<id>/contract.yaml and models.yaml layers.")
         return 2
     return 0
 
