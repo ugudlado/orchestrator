@@ -65,13 +65,13 @@ def _check_contracts(step_ids: list[str]) -> None:
         print("ERROR: missing contracts:", file=sys.stderr)
         for s in missing:
             print(f"  - {s}", file=sys.stderr)
-        print("See docs/pack-convention.md for the contract.yaml layout.", file=sys.stderr)
+        print("Contract layout: config/steps/<id>/contract.yaml with prompt: or run:.", file=sys.stderr)
         raise SystemExit(1)
     if invalid:
         print("ERROR: invalid contracts:", file=sys.stderr)
         for s, reason in invalid:
             print(f"  - {s}: {reason}", file=sys.stderr)
-        print("See docs/pack-convention.md for the contract.yaml layout.", file=sys.stderr)
+        print("Contract layout: config/steps/<id>/contract.yaml with prompt: or run:.", file=sys.stderr)
         raise SystemExit(1)
 
 
