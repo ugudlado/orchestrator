@@ -546,14 +546,45 @@ def test_validate_resolves_skill_from_target_repo(tmp_path, cwd_repo):
 
 
 def test_validate_fails_when_skill_absent_everywhere(tmp_path, cwd_repo):
+    """Negative half of the pair above: identical pack, skill not written.
+
+    Asserted against the positive case rather than a message match — the only
+    error validate_pack appends names the workflow file, so a bare string check
+    would also pass if the workflow failed for an unrelated reason.
+    """
     src = tmp_path / "missing_src"
     _make_pack_referencing_skill(
         src, name="missingpack", prompt="zz-nonexistent-charter-xyz"
     )
+    assert not (cwd_repo / "skills" / "zz-nonexistent-charter-xyz").exists()
 
-    result = packs.validate_pack(src, str(cwd_repo))
-    assert not result.ok
-    assert any("missingpack" in e for e in result.errors), result.errors
+    assert not packs.validate_pack(src, str(cwd_repo)).ok
+
+    # Same pack, same repo, skill now present — isolates the missing prompt dir
+    # as the cause of the failure above.
+    _write_skill(cwd_repo / "skills" / "zz-nonexistent-charter-xyz")
+    assert packs.validate_pack(src, str(cwd_repo)).ok
+
+
+def test_validate_ignores_ambient_repo_root(tmp_path, cwd_repo, monkeypatch):
+    """An unrelated REPO_ROOT must not lend its skills to validation.
+
+    config_root() falls back to $ORCHESTRATOR_REPO_ROOT/$REPO_ROOT, which is
+    always set inside an orchestrator step — without clearing it, a pack would
+    validate against skills the *installing* repo doesn't have.
+    """
+    other = tmp_path / "other_repo"
+    _write_skill(other / "skills" / "elsewhere-charter")
+    (other / ".orchestrator" / "config" / "workflows").mkdir(parents=True)
+
+    src = tmp_path / "ambient_src"
+    _make_pack_referencing_skill(src, name="ambientpack", prompt="elsewhere-charter")
+
+    monkeypatch.setenv("REPO_ROOT", str(other))
+    assert not packs.validate_pack(src, str(cwd_repo)).ok
+
+    monkeypatch.setenv("ORCHESTRATOR_REPO_ROOT", str(other))
+    assert not packs.validate_pack(src, str(cwd_repo)).ok
 
 
 def test_pack_local_skill_shadows_repo_copy(tmp_path, cwd_repo):

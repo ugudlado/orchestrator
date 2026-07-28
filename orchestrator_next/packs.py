@@ -260,20 +260,24 @@ def _validation_skill_search_dirs(pack_root: Path, repo_root: Path) -> list[Path
         dirs.append(pack_skills)
     dirs.append(repo_root / "skills")
 
-    # Engine + home dirs, as seen with no repo/pack override in play.
-    saved_config = os.environ.pop("ORCHESTRATOR_CONFIG", None)
-    saved_override = os.environ.pop("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", None)
-    saved_prepend = os.environ.pop("ORCHESTRATOR_SKILLS_PREPEND", None)
+    # Engine + home dirs only. Every var config_root() discovers a repo through
+    # is cleared first: an ambient ORCHESTRATOR_REPO_ROOT/REPO_ROOT (always set
+    # inside an orchestrator step) would otherwise add a *different* repo's
+    # skills/, letting a pack validate against skills the target repo lacks.
+    cleared = (
+        "ORCHESTRATOR_CONFIG",
+        "ORCHESTRATOR_REPO_ROOT",
+        "REPO_ROOT",
+        "ORCHESTRATOR_SKILLS_TEST_OVERRIDE",
+        "ORCHESTRATOR_SKILLS_PREPEND",
+    )
+    saved = {key: os.environ.pop(key, None) for key in cleared}
     try:
         for d in skill_search_dirs():
             if d not in dirs:
                 dirs.append(d)
     finally:
-        for key, value in (
-            ("ORCHESTRATOR_CONFIG", saved_config),
-            ("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", saved_override),
-            ("ORCHESTRATOR_SKILLS_PREPEND", saved_prepend),
-        ):
+        for key, value in saved.items():
             if value is not None:
                 os.environ[key] = value
     return dirs
