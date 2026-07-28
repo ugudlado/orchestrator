@@ -242,13 +242,55 @@ def _check_skill_dirs(pack_root: Path, errors: list[str], warnings: list[str]) -
     return skill_dirs
 
 
+def _validation_skill_search_dirs(pack_root: Path, repo_root: Path) -> list[Path]:
+    """Ordered prompt-dir search path for install-time validation.
+
+    The pack's own ``skills/`` first (a shipped copy shadows anything the
+    target repo has), then the dirs runtime resolution will use once the pack
+    is installed — ``<repo>/skills`` plus the engine/home dirs. Computing this
+    from ``repo_root`` rather than the environment matters: validate_pack
+    repoints ORCHESTRATOR_CONFIG at the pack, after which skill_search_dirs()
+    cannot derive the target repo on its own.
+    """
+    from orchestrator_next.parser import skill_search_dirs
+
+    dirs: list[Path] = []
+    pack_skills = pack_root / "skills"
+    if pack_skills.is_dir():
+        dirs.append(pack_skills)
+    dirs.append(repo_root / "skills")
+
+    # Engine + home dirs, as seen with no repo/pack override in play.
+    saved_config = os.environ.pop("ORCHESTRATOR_CONFIG", None)
+    saved_override = os.environ.pop("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", None)
+    saved_prepend = os.environ.pop("ORCHESTRATOR_SKILLS_PREPEND", None)
+    try:
+        for d in skill_search_dirs():
+            if d not in dirs:
+                dirs.append(d)
+    finally:
+        for key, value in (
+            ("ORCHESTRATOR_CONFIG", saved_config),
+            ("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", saved_override),
+            ("ORCHESTRATOR_SKILLS_PREPEND", saved_prepend),
+        ):
+            if value is not None:
+                os.environ[key] = value
+    return dirs
+
+
 def validate_pack(pack_root: Path, repo_root: str) -> PackValidationResult:
     """Validate a pack directory in isolation. Does not copy anything.
 
     Temporarily points ORCHESTRATOR_CONFIG at pack_root so validate_workflow
     and load_contract_for_step resolve against the pack's own workflows/steps,
-    not whatever config root is currently active. Pack ``skills/`` is exposed
-    via ORCHESTRATOR_SKILLS_TEST_OVERRIDE for ``prompt:`` resolution.
+    not whatever config root is currently active.
+
+    ``prompt:`` refs resolve against the pack's own ``skills/`` first and then
+    the search path the *target repo* will really use at runtime, so a workflow
+    may reference a skill it doesn't ship (the engine's ``learn``, or one the
+    installing repo already has) — matching runtime resolution instead of
+    failing install-time on a skill that would resolve fine.
     """
     data = _load_pack_yaml(pack_root)
 
@@ -299,10 +341,14 @@ def validate_pack(pack_root: Path, repo_root: str) -> PackValidationResult:
     saved_wf_dir = os.environ.pop("ORCHESTRATOR_WORKFLOW_DIR", None)
     saved_override = os.environ.pop("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", None)
     saved_skills = os.environ.pop("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", None)
+    saved_prepend = os.environ.pop("ORCHESTRATOR_SKILLS_PREPEND", None)
+
+    # Computed before ORCHESTRATOR_CONFIG is repointed at the pack: once it
+    # is, skill_search_dirs() can no longer derive the target repo (a pack
+    # root is neither <repo>/config nor <repo>/.orchestrator/config).
+    search_dirs = _validation_skill_search_dirs(pack_root, Path(repo_root))
+    os.environ["ORCHESTRATOR_SKILLS_PREPEND"] = os.pathsep.join(str(d) for d in search_dirs)
     os.environ["ORCHESTRATOR_CONFIG"] = str(pack_root)
-    pack_skills = pack_root / "skills"
-    if pack_skills.is_dir():
-        os.environ["ORCHESTRATOR_SKILLS_TEST_OVERRIDE"] = str(pack_skills)
     try:
         from orchestrator_next.validate_workflow import validate_workflow
 
@@ -325,6 +371,10 @@ def validate_pack(pack_root: Path, repo_root: str) -> PackValidationResult:
             os.environ["ORCHESTRATOR_SKILLS_TEST_OVERRIDE"] = saved_skills
         else:
             os.environ.pop("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", None)
+        if saved_prepend is not None:
+            os.environ["ORCHESTRATOR_SKILLS_PREPEND"] = saved_prepend
+        else:
+            os.environ.pop("ORCHESTRATOR_SKILLS_PREPEND", None)
 
     result.errors = errors
     result.warnings = warnings

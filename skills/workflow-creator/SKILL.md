@@ -131,13 +131,15 @@ The **first step is always an intake shell step** (`intake-<schema>`). It transl
 The **last step should be a learn step** when the workflow should reflect and
 feed its own improvement loop.
 
-**Ship a pack-local learn skill — do not reference the engine's shared `learn`.**
-Install-time validation only sees the pack's _own_ `skills/` directory, so a
-pack whose workflow names `learn` validates against nothing and breaks on
-install. Name it `<schema>-learn`, put it in the pack's `skills/`, and copy
+**Prefer a pack-local learn skill.** Referencing the engine's shared `learn`
+now works — install-time validation resolves prompt dirs against the pack's own
+`skills/` first, then the installing repo's real search path — but it only
+installs into repos where that skill actually resolves. Ship pack-local when
+the pack must be self-contained for arbitrary repos, which is still the safe
+default for distribution. Name it `<schema>-learn`, put it in the pack's
+`skills/`, and copy
 [`examples/content-pipeline-pack/skills/content-learn/`](../../examples/content-pipeline-pack/skills/content-learn/)
-as the starting point. (The engine may reconcile this later; until it does,
-pack-local is the only shape that installs.)
+as the starting point.
 
 How a learn step finds its targets: agent steps get
 `ORCHESTRATOR_PROMPT_DIRS`, a JSON object mapping `step_id` → absolute prompt
