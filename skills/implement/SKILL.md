@@ -2,7 +2,7 @@
 name: implement
 description: "Implement pending tasks from tasks.yaml (or derive from ticket context). Use when coding a change, implementing a feature, or executing implementation tasks."
 user-invocable: true
-extends: ../../../prompt-packs/developer
+extends: git+git@github.com:ugudlado/prompt-packs.git@302b87dcc7c8b6a83d249194f3e47e98d3214794#developer
 ---
 
 # Implement Tasks

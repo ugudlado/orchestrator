@@ -2,7 +2,7 @@
 name: design-review
 description: "Review design.md and tasks.yaml for completeness and quality. Use when reviewing a design before implementation."
 user-invocable: true
-extends: ../../../prompt-packs/reviewer
+extends: git+git@github.com:ugudlado/prompt-packs.git@302b87dcc7c8b6a83d249194f3e47e98d3214794#reviewer
 ---
 
 # Design Review

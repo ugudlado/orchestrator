@@ -2,7 +2,7 @@
 name: ux-critique
 description: "UX design critique with staff-level evaluation. Use when reviewing UI/UX, critiquing designs, or before shipping a UI feature."
 user-invocable: true
-extends: ../../../prompt-packs/ux-reviewer
+extends: git+git@github.com:ugudlado/prompt-packs.git@302b87dcc7c8b6a83d249194f3e47e98d3214794#ux-reviewer
 ---
 
 # Run UX Critique
