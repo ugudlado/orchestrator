@@ -21,6 +21,7 @@ steps:
     prompt: review
   - ticket-qa
   - prompt: learn
+  - eval-prompts # opt-in prompt eval (ORCHESTRATOR_PROMPT_EVAL=1); no-op otherwise
   - mark-change-completed
   - archive-completed-change
   - workflow-report

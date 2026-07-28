@@ -1,0 +1,21 @@
+id: eval-prompts
+version: 1
+kind: script
+run: script.sh
+# Opt-in prompt evaluation (ORC/T11 correlation call site).
+#
+# Off by default: evaluation invokes LLM judges, so every workflow and test
+# stays cheap unless ORCHESTRATOR_PROMPT_EVAL=1 is set explicitly.
+#
+# When enabled the cost is NOT otherwise bounded: prompt-eval's default split
+# is `all` (train+dev+holdout) and it runs once per completed prompt step whose
+# pack has scenarios/. Narrow it with the SPLIT/MAX_CALLS vars below.
+#
+# Env read (beyond the standard ORCHESTRATOR_* block):
+#   ORCHESTRATOR_PROMPT_EVAL              "1" to enable; anything else no-ops
+#   ORCHESTRATOR_PROMPT_OPTIMIZER_DIR     prompt-optimizer checkout (no default)
+#   ORCHESTRATOR_PROMPT_EVAL_BIN          override the invocation (tests/stubs)
+#   ORCHESTRATOR_PROMPT_EVAL_SPLIT        --split passthrough (else prompt-eval's default)
+#   ORCHESTRATOR_PROMPT_EVAL_MAX_CALLS    --max-external-calls passthrough
+default_outputs:
+  prompt_eval: { status: skipped, packs: [] }
