@@ -273,6 +273,46 @@ def test_force_refuses_hand_authored_skill(tmp_path, cwd_repo):
     assert (hand / "SKILL.md").read_text() == "Mine, not a pack's.\n"
 
 
+def test_force_refuses_hand_authored_step(tmp_path, cwd_repo, vendored_root):
+    """--force exempts only steps this pack's receipts claim."""
+    src = tmp_path / "step_src"
+    _make_minimal_pack(src, name="steppack", step_id="alpha")
+    packs.pack_add(str(src), repo_root=str(tmp_path))
+
+    hand = vendored_root / "steps" / "beta"
+    hand.mkdir(parents=True)
+    _write_yaml(hand / "contract.yaml", {"id": "beta", "version": 1, "run": "script.sh"})
+    (hand / "script.sh").write_text("#!/usr/bin/env bash\necho mine\n")
+
+    src2 = tmp_path / "step_src2"
+    _make_minimal_pack(src2, name="steppack", step_id="beta")
+    with pytest.raises(packs.PackError, match="conflicts"):
+        packs.pack_add(str(src2), repo_root=str(tmp_path), force=True)
+
+    assert "echo mine" in (hand / "script.sh").read_text()
+
+
+def test_force_refuses_hand_authored_workflow(tmp_path, cwd_repo, vendored_root):
+    """--force exempts only workflows this pack's receipts claim."""
+    src = tmp_path / "wf_src"
+    _make_minimal_pack(src, name="wfpack", step_id="alpha")
+    packs.pack_add(str(src), repo_root=str(tmp_path))
+
+    hand = vendored_root / "workflows" / "handmade.yaml"
+    hand.parent.mkdir(parents=True, exist_ok=True)
+    hand.write_text("steps: [mine]\n")
+
+    # Same pack, upgraded to also ship a workflow the user hand-wrote. Its
+    # receipt claims wfpack.yaml only, so handmade.yaml stays off-limits.
+    src2 = tmp_path / "wf_src2"
+    _make_minimal_pack(src2, name="wfpack", step_id="alpha")
+    _write_yaml(src2 / "workflows" / "handmade.yaml", {"steps": ["alpha"]})
+    with pytest.raises(packs.PackError, match="conflicts"):
+        packs.pack_add(str(src2), repo_root=str(tmp_path), force=True)
+
+    assert hand.read_text() == "steps: [mine]\n"
+
+
 def test_add_refuses_stray_file_under_pack_skills(tmp_path, cwd_repo):
     """Non-directory entries under skills/ would be copied outside conflict
     detection and deleted by a later pack remove."""
