@@ -425,14 +425,29 @@ def _existing_skill_names(repo: Path) -> set[str]:
     return {p.name for p in skills_dir.iterdir() if p.is_dir()}
 
 
-def _receipted_skill_names(entry: dict | None) -> set[str]:
-    """Skill dir names a receipt entry recorded under ``@repo/skills/``."""
-    prefix = f"{REPO_RECEIPT_PREFIX}skills/"
+def _receipted_names(entry: dict | None, prefix: str) -> set[str]:
+    """Top-level names a receipt entry recorded under ``prefix``.
+
+    Drives --force exemptions: only what this pack's receipts already claim may
+    be overwritten, never a hand-authored file that no receipt covers. Skills
+    are recorded as ``@repo/skills/<name>/…``; steps and workflows as bare
+    ``steps/<id>/…`` and ``workflows/<name>.yaml``.
+    """
     names: set[str] = set()
     for rel in (entry or {}).get("files", []):
         if rel.startswith(prefix):
             names.add(rel[len(prefix) :].split("/", 1)[0])
     return names
+
+
+def _receipted_workflow_names(entry: dict | None) -> set[str]:
+    """Workflow names a receipt claims — top-level ``workflows/<name>.yaml``
+    only, matching what _existing_workflow_names() globs."""
+    return {
+        Path(n).stem
+        for n in _receipted_names(entry, "workflows/")
+        if n.endswith(".yaml")
+    }
 
 
 def _relative_files(src_dir: Path) -> list[Path]:
@@ -539,12 +554,13 @@ def pack_add(source: str, *, repo_root: str | None = None, force: bool = False) 
         existing_skills = _existing_skill_names(repo)
         if force:
             # Re-installing the same pack shouldn't collide with its own
-            # previously-installed files. Skills live in <repo>/skills alongside
-            # hand-authored ones, so exempt only names this pack actually
-            # installed — never every incoming name.
-            existing_workflows -= new_workflow_names
-            existing_steps -= new_step_ids
-            existing_skills -= _receipted_skill_names(receipts.get(result.name))
+            # previously-installed files. Exempt only what this pack's receipts
+            # already claim — never every incoming name, which would let --force
+            # silently clobber a hand-authored step/workflow/skill.
+            entry = receipts.get(result.name)
+            existing_workflows -= _receipted_workflow_names(entry)
+            existing_steps -= _receipted_names(entry, "steps/")
+            existing_skills -= _receipted_names(entry, f"{REPO_RECEIPT_PREFIX}skills/")
 
         collisions = sorted(
             (new_workflow_names & existing_workflows)
