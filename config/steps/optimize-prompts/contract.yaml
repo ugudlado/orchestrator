@@ -1,0 +1,20 @@
+id: optimize-prompts
+version: 1
+kind: script
+run: script.sh
+# Opt-in closed-loop prompt optimization (gepa -> compare dev -> compare
+# holdout -> promote), retrying GEPA when a gate fails.
+#
+# Off by default: optimization invokes candidate/judge/reflection LLM calls.
+# Enable with ORCHESTRATOR_PROMPT_OPTIMIZE=1. Advisory step: always records
+# completed; per-pack outcomes land in outputs.prompt_optimize.
+#
+# Env read (beyond the standard ORCHESTRATOR_* block):
+#   ORCHESTRATOR_PROMPT_OPTIMIZE              "1" to enable; anything else no-ops
+#   ORCHESTRATOR_PROMPT_OPTIMIZER_DIR         prompt-optimizer checkout (no default)
+#   ORCHESTRATOR_PROMPT_OPTIMIZE_BIN          override invocation prefix (tests/stubs)
+#   ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_RETRIES  GEPA retries per pack after a gate fail (default 2)
+#   ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_METRIC_CALLS  --max-metric-calls passthrough
+#   ORCHESTRATOR_PROMPT_OPTIMIZE_ASYNC        "1" detaches; log: optimize-prompts.log
+default_outputs:
+  prompt_optimize: { status: skipped, packs: [] }
