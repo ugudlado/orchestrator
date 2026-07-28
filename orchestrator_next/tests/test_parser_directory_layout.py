@@ -198,6 +198,29 @@ class TestAgentKindContractLoad:
         assert contract.instruction == "Local charter body.\n"
         assert contract.prompt_dir == str(prompt_dir.resolve())
 
+    def test_prompt_path_env_multi_dir_resolves_in_order(
+        self, steps_dir, tmp_path, monkeypatch
+    ):
+        """ORCHESTRATOR_PROMPT_PATH is os.pathsep-separated; first hit wins."""
+        first = tmp_path / "first"
+        second = tmp_path / "second"
+        for root, body in ((first, "First body.\n"), (second, "Second body.\n")):
+            d = root / "explore"
+            d.mkdir(parents=True)
+            (d / "SKILL.md").write_text(body)
+        monkeypatch.delenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", raising=False)
+        monkeypatch.setenv(
+            "ORCHESTRATOR_PROMPT_PATH", os.pathsep.join([str(first), str(second)])
+        )
+        _write_dir_contract(steps_dir, "explore", {
+            "id": "explore", "version": 1, "model": "sonnet", "prompt": "explore/SKILL.md",
+        }, prompt_text=None)
+
+        from orchestrator_next.parser import load_contract_for_step
+        contract = load_contract_for_step("explore")
+        assert contract.instruction == "First body.\n"
+        assert contract.prompt_dir == str((first / "explore").resolve())
+
     def test_skill_field_rejected(self, steps_dir):
         _write_dir_contract(steps_dir, "legacy-skill", {
             "id": "legacy-skill", "version": 1, "model": "sonnet", "skill": "explore",

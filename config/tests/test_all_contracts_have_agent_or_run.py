@@ -9,7 +9,7 @@ from typing import Set
 
 import yaml
 
-from orchestrator_next.parser import resolve_prompt_dir, ContractError
+from orchestrator_next.parser import resolve_prompt_file, ContractError
 from orchestrator_next.workflow_steps import step_id_of
 
 _CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -78,7 +78,7 @@ def test_all_workflow_steps_have_run_or_prompt(monkeypatch):
 
         if has_prompt:
             try:
-                resolve_prompt_dir(contract["prompt"])
+                resolve_prompt_file(contract["prompt"])
             except ContractError as exc:
                 missing_charter.append(f"{step_id} -> {exc}")
 

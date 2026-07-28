@@ -52,7 +52,7 @@ StepContract = AgentStepContract | ScriptStepContract
 _FRONTMATTER_DELIM = "---"
 
 
-def strip_skill_frontmatter(text: str) -> str:
+def strip_frontmatter(text: str) -> str:
     """Return the body of a SKILL.md (or any markdown) after YAML frontmatter.
 
     If the file does not start with a frontmatter block, return text unchanged.
@@ -93,18 +93,21 @@ def _repo_root_from_config() -> Path | None:
     return repo_root_from_config_root(root)
 
 
-def skill_search_dirs() -> list[Path]:
-    """Ordered dirs that may contain installable skills (<name>/SKILL.md).
+def prompt_search_dirs() -> list[Path]:
+    """Ordered dirs searched to resolve ``prompt:`` refs (e.g. <name>/SKILL.md).
 
-    ``ORCHESTRATOR_SKILLS_TEST_OVERRIDE`` replaces the whole path (test
-    isolation).
+    ``ORCHESTRATOR_PROMPT_PATH`` (os.pathsep-separated) replaces the whole
+    path. ``ORCHESTRATOR_SKILLS_TEST_OVERRIDE`` is the legacy single-dir
+    spelling of the same override. Default: <repo>/skills then the engine
+    checkout's skills/.
     """
-    dirs: list[Path] = []
-    override = os.environ.get("ORCHESTRATOR_SKILLS_TEST_OVERRIDE")
-    if override:
-        dirs.append(Path(override))
-        return dirs
+    explicit = os.environ.get("ORCHESTRATOR_PROMPT_PATH") or os.environ.get(
+        "ORCHESTRATOR_SKILLS_TEST_OVERRIDE"
+    )
+    if explicit:
+        return [Path(p) for p in explicit.split(os.pathsep) if p]
 
+    dirs: list[Path] = []
     repo = _repo_root_from_config()
     if repo is not None:
         dirs.append(repo / "skills")
@@ -114,21 +117,11 @@ def skill_search_dirs() -> list[Path]:
     skills_here = here / "skills"
     if skills_here not in dirs:
         dirs.append(skills_here)
-
-    home = Path.home()
-    for extra in (
-        home / ".claude" / "skills",
-        home / ".codex" / "skills",
-        home / ".agents" / "skills",
-        Path(os.environ.get("PI_CODING_AGENT_DIR", str(home / ".pi" / "agent"))) / "skills",
-    ):
-        if extra not in dirs:
-            dirs.append(extra)
     return dirs
 
 
 def resolve_prompt_file(prompt_ref: str) -> Path:
-    """Return the prompt ``.md`` file resolved through ``skill_search_dirs()``.
+    """Return the prompt ``.md`` file resolved through ``prompt_search_dirs()``.
 
     ``prompt:`` is a relative path to a markdown file: ``<name>/SKILL.md``
     (skill conventions — frontmatter stripped, colocated scenarios/learnings)
@@ -146,7 +139,7 @@ def resolve_prompt_file(prompt_ref: str) -> Path:
             f"prompt: must point at a .md file, e.g. {ref}/SKILL.md "
             f"or {ref}/prompt.md (got {prompt_ref!r})"
         )
-    searched = skill_search_dirs()
+    searched = prompt_search_dirs()
     for root in searched:
         candidate = root / rel
         if candidate.is_file():
@@ -158,10 +151,10 @@ def resolve_prompt_file(prompt_ref: str) -> Path:
     )
 
 
-def _load_prompt_file(path: Path, *, strip_frontmatter: bool) -> str:
+def _load_prompt_file(path: Path) -> str:
     raw = path.read_text(encoding="utf-8")
-    if strip_frontmatter or path.name == "SKILL.md":
-        return strip_skill_frontmatter(raw)
+    if path.name == "SKILL.md":
+        return strip_frontmatter(raw)
     return raw
 
 
@@ -178,26 +171,23 @@ def _append_learnings(prompt_dir: str | Path, instruction: str) -> str:
 def _resolve_agent_instruction(
     contract_dir: str, step_id: str, data: dict[str, Any]
 ) -> tuple[str, str]:
-    """Load instruction and resolved prompt dir from ``prompt:`` (or legacy siblings).
+    """Load instruction and resolved prompt dir from ``prompt:``.
 
     Returns ``(instruction, prompt_dir)``. ``skill:`` is rejected — use ``prompt:``.
     """
     if data.get("skill"):
         raise ContractError(
             f"step contract {step_id} uses removed skill: field; "
-            f"use prompt: <path>.md (resolved via skill search dirs)"
+            f"use prompt: <path>.md (resolved via prompt search dirs)"
         )
     prompt = data.get("prompt")
     if not prompt:
-        # Legacy fallback: charter beside the step contract (pre-prompt: contracts).
+        # Colocated fallback: prompt file beside the step contract.
         for rel in ("pack/SKILL.md", "SKILL.md", "pack/prompt.md", "prompt.md"):
             path = Path(contract_dir) / rel
             if path.is_file():
                 prompt_dir = path.parent
-                instruction = _append_learnings(
-                    prompt_dir,
-                    _load_prompt_file(path, strip_frontmatter=path.name == "SKILL.md"),
-                )
+                instruction = _append_learnings(prompt_dir, _load_prompt_file(path))
                 return instruction, str(prompt_dir.resolve())
         raise ContractError(
             f"step contract {step_id} must declare prompt: <path>.md "
@@ -215,7 +205,7 @@ def _resolve_agent_instruction(
     prompt_dir = prompt_file.parent
     instruction = _append_learnings(
         prompt_dir,
-        _load_prompt_file(prompt_file, strip_frontmatter=prompt_file.name == "SKILL.md"),
+        _load_prompt_file(prompt_file),
     )
     return instruction, str(prompt_dir)
 

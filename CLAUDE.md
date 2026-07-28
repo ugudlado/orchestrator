@@ -135,10 +135,9 @@ step_history: # Terminal steps recorded in metrics
 - bash-fragility-prefer-python-for-new-code: Python for YAML/state logic
 - orchestrator-next-simplified (Jun 2026): No typed I/O, no repeat_until loop, no flat-file contracts — all 21 step contracts are directory-form (contract.yaml + prompt.md or script.sh). See docs/simplification-june-2026.md.
 - steps-as-skills (Jul 2026): Workflow/contract declares `run:` | `prompt:+model:`.
-  `prompt:` is a relative path to a `.md` file resolved via skill search dirs —
+  `prompt:` is a relative path to a `.md` file resolved via prompt search dirs (`ORCHESTRATOR_PROMPT_PATH` overrides; default `<repo>/skills` then engine `skills/`) —
   `<name>/SKILL.md` (skill conventions) or any other `.md` (verbatim).
   Skills live under `skills/`; learn appends scenarios by colocation.
-  See docs/pack-convention.md.
 ```
 
 ### Quality Gates

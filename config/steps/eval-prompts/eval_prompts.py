@@ -91,11 +91,15 @@ def _config_root() -> Path:
     return Path(os.environ.get("ORCHESTRATOR_CONFIG") or ".").resolve()
 
 
-def _skill_search_dirs(repo_root: str, config_root: Path) -> list[Path]:
-    """Mirror of parser.skill_search_dirs: <repo>/skills shadows the checkout."""
-    override = os.environ.get("ORCHESTRATOR_SKILLS_TEST_OVERRIDE")
-    if override:
-        return [Path(override)]
+def _prompt_search_dirs(repo_root: str, config_root: Path) -> list[Path]:
+    """Prompt search path: engine-exported ORCHESTRATOR_PROMPT_PATH when set,
+    else the same default order as parser.prompt_search_dirs (<repo>/skills
+    shadows the checkout)."""
+    explicit = os.environ.get("ORCHESTRATOR_PROMPT_PATH") or os.environ.get(
+        "ORCHESTRATOR_SKILLS_TEST_OVERRIDE"
+    )
+    if explicit:
+        return [Path(p) for p in explicit.split(os.pathsep) if p]
     dirs: list[Path] = []
     if repo_root:
         dirs.append(Path(repo_root) / "skills")
@@ -110,7 +114,7 @@ def evaluable_packs(
 ) -> list[tuple[str, Path]]:
     """(step_id, pack_dir) for completed prompt steps whose pack has scenarios."""
     steps_root = config_root / "steps"
-    search_dirs = _skill_search_dirs(repo_root, config_root)
+    search_dirs = _prompt_search_dirs(repo_root, config_root)
     packs: list[tuple[str, Path]] = []
     for step_id in completed_step_ids(state):
         name = _prompt_name(steps_root, step_id)
