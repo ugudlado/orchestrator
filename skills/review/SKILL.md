@@ -2,6 +2,7 @@
 name: review
 description: "Phase quality review against the project quality bar. Use when reviewing implementation quality, scoring a phase, or gating merge readiness."
 user-invocable: true
+extends: ../../../prompt-packs/reviewer
 ---
 
 # Run Phase Review

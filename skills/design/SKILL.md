@@ -2,6 +2,7 @@
 name: design
 description: "Produce design.md and tasks.yaml from discovery. Use when designing a feature, drafting an approach, or breaking work into tasks."
 user-invocable: true
+extends: ../../../prompt-packs/architect
 ---
 
 # Design and Draft Artifacts

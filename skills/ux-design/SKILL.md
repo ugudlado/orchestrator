@@ -2,6 +2,7 @@
 name: ux-design
 description: "Design and validate UI/UX through prototyping and critique. Use when designing interfaces or producing UX artifacts."
 user-invocable: true
+extends: ../../../prompt-packs/ux-designer
 ---
 
 # UX Design
