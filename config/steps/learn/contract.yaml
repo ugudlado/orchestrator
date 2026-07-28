@@ -1,6 +1,6 @@
 id: learn
 version: 3
-skill: learn
+prompt: learn
 model: sonnet
 default_outputs:
   learn_result: { completed: true }

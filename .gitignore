@@ -56,3 +56,4 @@ spec/changes/*/plan.yaml
 
 # Node (prettier installs via pre-commit mirrors-prettier hook)
 node_modules/
+.tmp-pytest/

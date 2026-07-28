@@ -134,7 +134,10 @@ step_history: # Terminal steps recorded in metrics
 - worktree-branch-sync: Check branch divergence before merge phase
 - bash-fragility-prefer-python-for-new-code: Python for YAML/state logic
 - orchestrator-next-simplified (Jun 2026): No typed I/O, no repeat_until loop, no flat-file contracts — all 21 step contracts are directory-form (contract.yaml + prompt.md or script.sh). See docs/simplification-june-2026.md.
-- steps-as-skills (Jul 2026): Workflow/contract declares `run:` | `skill:+model:` | `prompt:+model:`. Skills live under `skills/`; prompt-optimizer optimizes whatever `pack.yaml` `prompt:` names. See docs/pack-convention.md.
+- steps-as-skills (Jul 2026): Workflow/contract declares `run:` | `prompt:+model:`.
+  `prompt:` names a directory resolved via skill search dirs (SKILL.md else prompt.md).
+  Skills live under `skills/`; learn appends scenarios by colocation.
+  See docs/pack-convention.md.
 ```
 
 ### Quality Gates

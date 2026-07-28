@@ -1,5 +1,5 @@
 """
-Regression — every workflow step must have a contract with run: | skill:+model: | prompt:+model:.
+Regression — every workflow step must have a contract with run: | prompt:+model:.
 """
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from typing import Set
 
 import yaml
 
+from orchestrator_next.parser import resolve_prompt_dir, ContractError
 from orchestrator_next.workflow_steps import step_id_of
 
 _CONFIG_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -41,7 +42,8 @@ def _load_contract(step_id: str) -> dict | None:
         return yaml.safe_load(f)
 
 
-def test_all_workflow_steps_have_run_skill_or_prompt():
+def test_all_workflow_steps_have_run_or_prompt(monkeypatch):
+    monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", _SKILLS_DIR)
     step_ids = _collect_workflow_steps()
     assert step_ids, "No step IDs found in any workflow"
 
@@ -63,34 +65,35 @@ def test_all_workflow_steps_have_run_skill_or_prompt():
         has_prompt = bool(contract.get("prompt"))
         has_model = bool(contract.get("model"))
 
-        kinds = sum(bool(x) for x in (has_run, has_skill, has_prompt))
+        if has_skill:
+            violations.append(step_id)
+            continue
+        kinds = sum(bool(x) for x in (has_run, has_prompt))
         if kinds != 1:
             violations.append(step_id)
             continue
-        if (has_skill or has_prompt) and not has_model:
+        if has_prompt and not has_model:
             violations.append(step_id)
             continue
 
-        if has_skill:
-            skill_path = os.path.join(_SKILLS_DIR, contract["skill"], "SKILL.md")
-            if not os.path.isfile(skill_path):
-                missing_charter.append(f"{step_id} -> {skill_path}")
-        elif has_prompt:
-            prompt_path = os.path.join(_STEPS_DIR, step_id, contract["prompt"])
-            if not os.path.isfile(prompt_path):
-                missing_charter.append(f"{step_id} -> {prompt_path}")
+        if has_prompt:
+            try:
+                resolve_prompt_dir(contract["prompt"])
+            except ContractError as exc:
+                missing_charter.append(f"{step_id} -> {exc}")
 
     error_lines = []
     if missing_contracts:
         error_lines.append(f"Contracts not found: {missing_contracts}")
     if violations:
         error_lines.append(
-            "Contracts must declare exactly one of run: | skill:+model: | prompt:+model:\n"
+            "Contracts must declare exactly one of run: | prompt:+model: "
+            "(skill: is removed):\n"
             + "\n".join(f"  - {s}" for s in violations)
         )
     if missing_charter:
         error_lines.append(
-            "Missing skill/prompt charter files:\n"
+            "Missing prompt directories:\n"
             + "\n".join(f"  - {s}" for s in missing_charter)
         )
 
@@ -129,3 +132,16 @@ def test_script_contracts_have_no_agent_protocol_fields():
         for contract_id, keys in violations:
             lines.append(f"  - {contract_id}: {', '.join(keys)}")
         assert violations == [], "\n".join(lines)
+
+
+def test_no_skill_keys_in_steps_or_workflows():
+    """T4 verify: grep-equivalent — no skill: left in live config."""
+    from pathlib import Path
+
+    hits: list[str] = []
+    for base in (_STEPS_DIR, _WORKFLOWS_DIR):
+        for path in sorted(Path(base).rglob("*.yaml")):
+            for i, line in enumerate(path.read_text().splitlines(), 1):
+                if "skill:" in line:
+                    hits.append(f"{path}:{i}:{line.strip()}")
+    assert hits == [], "skill: still present:\n" + "\n".join(hits)

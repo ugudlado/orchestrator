@@ -181,9 +181,13 @@ def invoke_tool(
     tool_name: str, binary: str, template: list[str],
     prompt: str, prompt_file: str, model_id: str,
     cwd: str | None, stdout_path: Path, stderr_path: Path,
+    *,
+    extra_env: dict[str, str] | None = None,
 ) -> int:
     argv = _build_argv(tool_name, binary, template, prompt, prompt_file, model_id)
     env = os.environ.copy()
+    if extra_env:
+        env.update({k: str(v) for k, v in extra_env.items() if v is not None})
     env.setdefault("PI_CODING_AGENT_DIR", str(Path.home() / ".pi" / "agent"))
     run_cwd = cwd if cwd and Path(cwd).is_dir() else None
     with open(stdout_path, "w") as out, open(stderr_path, "w") as err:
@@ -270,8 +274,13 @@ def run_agent_step(
     stderr_path = tmp_dir / f"err_{step_id}.txt"
     fallback_note = f"  (fallback #{route['active_index']} for {model})" if route["is_fallback"] else ""
     _log(f"  invoking {tool_name} ({binary})" + (f"  model={model_id}" if model_id else "") + fallback_note)
+    agent_env = dict(action.get("env") or {})
+    prompt_dir = action.get("prompt_dir") or agent_env.get("ORCHESTRATOR_PROMPT_DIR")
+    if prompt_dir:
+        agent_env["ORCHESTRATOR_PROMPT_DIR"] = str(prompt_dir)
     rc = invoke_tool(tool_name, binary, template, prompt, str(prompt_file),
-                     model_id, work_dir, stdout_path, stderr_path)
+                     model_id, work_dir, stdout_path, stderr_path,
+                     extra_env=agent_env)
     if rc != 0:
         stderr_tail = stderr_path.read_text(errors="replace")[-2000:] if stderr_path.exists() else ""
         _log(f"WARN: tool '{binary}' exited {rc}")

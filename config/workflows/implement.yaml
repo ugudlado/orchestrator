@@ -6,13 +6,13 @@ steps:
   - id: implement
     on_failure: implement
     max_retries: 3
-    skill: implement
+    prompt: implement
   - ticket-review
   - id: review
     on_success: ticket-qa
     on_failure: implement
     max_retries: 8
-    skill: review
+    prompt: review
   - ticket-qa
-  - skill: learn
+  - prompt: learn
   - workflow-report

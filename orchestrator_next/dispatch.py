@@ -79,6 +79,28 @@ def _node_step_context(state: State, step_id: str) -> dict[str, Any]:
     return dict(node) if node is not None else {"id": step_id}
 
 
+def _prompt_dir_map(state: State) -> dict[str, str]:
+    """Map step_id → resolved prompt dir for every agent step in the workflow.
+
+    Spans all phases, not just the current one: a step (learn) may need to write
+    beside a step from an earlier phase. Steps whose contract is missing or
+    malformed are skipped — a partial map must not fail dispatch.
+    """
+    dirs: dict[str, str] = {}
+    for phase in state.workflow_plan:
+        for node in phase_nodes(state, phase):
+            step_id = str(node.get("id", ""))
+            if not step_id or step_id in dirs:
+                continue
+            try:
+                contract = load_contract_for_step(step_id)
+            except Exception:
+                continue
+            if isinstance(contract, AgentStepContract) and contract.prompt_dir:
+                dirs[step_id] = contract.prompt_dir
+    return dirs
+
+
 
 def _persist_node_status(
     state_yaml_path: str,
@@ -113,13 +135,22 @@ def _build_action_base(
     Resume path adds: is_resume, started_at, model.
     Fresh path adds: model (agent step) or run (script step).
     """
+    env = _build_dispatch_env(state, step_id, attempt, state_yaml_path)
+    if isinstance(contract, AgentStepContract) and contract.prompt_dir:
+        env["ORCHESTRATOR_PROMPT_DIR"] = contract.prompt_dir
+        prompt_dirs = _prompt_dir_map(state)
+        if prompt_dirs:
+            env["ORCHESTRATOR_PROMPT_DIRS"] = json.dumps(prompt_dirs, sort_keys=True)
     return {
         "step_id": step_id,
         "phase": phase,
         "attempt": attempt,
         "instruction": contract.instruction if isinstance(contract, AgentStepContract) else "",
-        "env": _build_dispatch_env(state, step_id, attempt, state_yaml_path),
+        "env": env,
         "step_context": _node_step_context(state, step_id),
+        "prompt_dir": (
+            contract.prompt_dir if isinstance(contract, AgentStepContract) else None
+        ),
     }
 
 
