@@ -18,7 +18,7 @@ Anything requiring LLM reasoning: summarizing, critiquing, deciding relevance,
 writing prose, choosing between plausible options.
 
 - `prompt:` is a relative path to a **`.md` file** (`<name>/SKILL.md` or
-  `<name>/prompt.md`), resolved through the skill search dirs — not
+  `<name>/prompt.md`), resolved through the prompt search dirs (ORCHESTRATOR_PROMPT_PATH) — not
   a file under the step dir.
 - The charter inside it is `SKILL.md` if present, else `prompt.md`.
 - Workflow entry: `- prompt: ux-critique`, or `- id: ux-critique` with

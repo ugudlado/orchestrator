@@ -159,7 +159,7 @@ The orchestrator dispatches **two** kinds:
 **Shell (deterministic)** — `run: script.sh`
 
 **Prompt (judgment)** — `model:` + `prompt: <path>.md`; `prompt:` is a
-_directory_ resolved through the skill search dirs, and the charter inside it is
+_directory_ resolved through the prompt search dirs, and the charter inside it is
 `SKILL.md` if present, else `prompt.md`.
 
 The only question is: does this step need an LLM? Yes → prompt. No → shell.
