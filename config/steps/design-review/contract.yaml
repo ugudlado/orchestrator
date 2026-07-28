@@ -1,4 +1,7 @@
 id: design-review
 version: 1
 prompt: design-review
-model: opus
+# Experiment (2026-07-28, bkg-575 report): rubric/checklist work — trying
+# sonnet; compare review_score drift via results.jsonl correlation rows.
+# Revert to opus if scores drop.
+model: sonnet

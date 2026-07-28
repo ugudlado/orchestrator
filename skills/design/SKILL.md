@@ -109,6 +109,14 @@ APPROACH:
    - Write tasks.yaml using the Tasks YAML Format Contract (Read
      `skills/design/reference/tasks-format.md`).
    - When tdd_required: every implementation task has a preceding test task.
+   - RED-task rule: a RED task's `verify` command MUST exit 0 at commit time.
+     Use the target runner's pending-test convention — pytest:
+     `@pytest.mark.xfail(strict=False)`; Bun: `test.todo(...)` (no expect
+     calls, no imports of not-yet-existing symbols); Vitest/Jest: `it.todo`.
+     The paired GREEN task flips the pending tests to real assertions. Check
+     the repo's runner before writing the RED task. Missing this forced
+     design-review retries on BKG-423, BKG-549, and BKG-575.
+     <!-- promoted: 2026-07-28 from scenarios tdd-red-needs-xfail / tdd-red-bun-test-todo-not-plain-test / tdd-red-runner-convention-check -->
 
 8. Return COMPLETION (driver calls orchestrator done).
    The COMPLETION `outputs:` block MUST carry all five declared outputs:

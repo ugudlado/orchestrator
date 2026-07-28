@@ -174,6 +174,28 @@ def main() -> int:
     if not ticket_id:
         _log("WARN state.yaml has no ticket_id — rows will not join back to a ticket")
 
+    # Opt-in detach (ORCHESTRATOR_PROMPT_EVAL_ASYNC=1): evaluation writes only
+    # the optimizer's results files — nothing downstream in the run reads them —
+    # so it doesn't belong on the critical path (652s serial on BKG-575). The
+    # step re-execs itself detached and completes immediately; the child's logs
+    # land beside state.yaml in eval-prompts.log.
+    if (
+        os.environ.get("ORCHESTRATOR_PROMPT_EVAL_ASYNC") == "1"
+        and os.environ.get("_EVAL_PROMPTS_DETACHED") != "1"
+    ):
+        log_path = (Path(state_path).parent if state_path else Path.cwd()) / "eval-prompts.log"
+        with open(log_path, "ab") as log:
+            subprocess.Popen(
+                [sys.executable, os.path.abspath(__file__)],
+                env={**os.environ, "_EVAL_PROMPTS_DETACHED": "1"},
+                stdout=log,
+                stderr=log,
+                start_new_session=True,
+            )
+        pack_names = [pack_dir.name for _, pack_dir in packs]
+        _emit("completed", f"evaluating {len(packs)} pack(s) detached; log: {log_path}", pack_names)
+        return 0
+
     evaluated: list[str] = []
     for step_id, pack_dir in packs:
         env = dict(os.environ)
