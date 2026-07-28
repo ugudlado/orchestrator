@@ -265,6 +265,64 @@ def test_ticket_sync_survives_comment_post_failure(tmp_path):
     out = json.loads(proc.stdout.strip().splitlines()[-1])
     assert out["status"] == "completed"
 
+def _run_ticket_done(tmp_path: Path, current_status: str) -> tuple:
+    """Run ticket-done against a fake curl reporting current_status; return (proc, bodies)."""
+    state_dir = tmp_path / "st"
+    state_dir.mkdir(exist_ok=True)
+    state_yaml = state_dir / "state.yaml"
+    state_yaml.write_text(yaml.safe_dump({"ticket_id": "orc-125", "change_id": "orc-125"}))
+    (tmp_path / "spec").mkdir(exist_ok=True)
+    (tmp_path / "spec" / "project.yaml").write_text(yaml.safe_dump({"ticketing": "backlog"}))
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir(exist_ok=True)
+    posted = tmp_path / "posted.txt"
+    curl = fake_bin / "curl"
+    task_json = json.dumps({"id": "ORC-125", "status": current_status})
+    curl.write_text(
+        "#!/usr/bin/env bash\n"
+        "args=(\"$@\")\n"
+        "for i in \"${!args[@]}\"; do\n"
+        "  if [ \"${args[$i]}\" = '-d' ]; then payload=\"${args[$((i+1))]}\"; fi\n"
+        "done\n"
+        f"case \"${{args[*]}}\" in *'/api/history'*) printf '%s\\n' \"$payload\" >> '{posted}'; echo '{{}}'; exit 0 ;; esac\n"
+        f"printf '%s' '{task_json}'\n"
+    )
+    curl.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{os.environ['PATH']}"
+    env["BACKLOG_URL"] = "https://example.test"
+    env["BACKLOG_TOKEN"] = "tok"
+    env["BACKLOG_PROJECT_ID"] = "orc"
+    env["REPO_ROOT"] = str(tmp_path)
+    env["ORCHESTRATOR_STATE_YAML_PATH"] = str(state_yaml)
+    env["TICKET_SYNC_STATUS"] = "Done"
+    env["TICKET_SYNC_LOG_PREFIX"] = "ticket-done"
+    env["ORCHESTRATOR_CHANGE_ID"] = "orc-125"
+    env["ORCHESTRATOR_STEP_ID"] = "ticket-done"
+
+    proc = subprocess.run(
+        ["bash", str(_REPO_PATH / "steps" / "ticket-done" / "script.sh")],
+        capture_output=True, text=True, cwd=str(tmp_path), env=env,
+    )
+    bodies = [json.loads(line) for line in
+              (posted.read_text().splitlines() if posted.exists() else [])]
+    return proc, bodies
+
+def test_ticket_done_comments_on_transition(tmp_path):
+    proc, bodies = _run_ticket_done(tmp_path, "In Progress")
+    assert proc.returncode == 0, proc.stderr
+    assert len(bodies) == 1, bodies
+    assert "correlation: ticket=ORC-125 change=orc-125 step=ticket-done" in bodies[0]["body"]
+
+def test_ticket_done_rerun_does_not_duplicate_comment(tmp_path):
+    """Already at the target status: skip the transition and the comment with it."""
+    proc, bodies = _run_ticket_done(tmp_path, "Done")
+    assert proc.returncode == 0, proc.stderr
+    assert bodies == []
+    assert "already Done" in proc.stderr
+
 def test_backlog_api_format_plain_roundtrip():
     """format helper produces readable AC lines from JSON."""
     payload = {

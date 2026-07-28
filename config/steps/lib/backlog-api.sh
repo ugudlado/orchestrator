@@ -85,6 +85,7 @@ backlog_api_correlation_line() {
   [ -n "${ORCHESTRATOR_STEP_ID:-}" ] &&
     parts="${parts:+${parts} }step=${ORCHESTRATOR_STEP_ID}"
   [ -n "$parts" ] && printf 'correlation: %s' "$parts"
+  return 0
 }
 
 # POST /api/history?project=… {"taskId","body"} — appends a timeline comment

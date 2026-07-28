@@ -45,13 +45,14 @@ if [ "$_current_status" = "$TICKET_SYNC_STATUS" ]; then
 elif backlog_api_put_status "$ticket_id" "$TICKET_SYNC_STATUS"; then
   echo "${TICKET_SYNC_LOG_PREFIX}: ${ticket_id} -> ${TICKET_SYNC_STATUS}" >&2
   synced="$ticket_id"
+  # Only on a real transition: the skip branch above must not append a
+  # duplicate correlation comment when the step is re-run.
+  backlog_api_post_comment "$ticket_id" "${TICKET_SYNC_LOG_PREFIX}: status set to ${TICKET_SYNC_STATUS}." ||
+    echo "WARN ${TICKET_SYNC_LOG_PREFIX}: comment post failed for ${ticket_id}" >&2
 else
   echo "ERROR ${TICKET_SYNC_LOG_PREFIX}: REST status update failed for ${ticket_id}" >&2
   printf '%s\n' "{\"status\": \"failed\", \"outputs\": {}, \"evidence\": {\"summary\": \"PUT /api/tasks/${ticket_id} status failed\"}}"
   exit 1
 fi
-
-backlog_api_post_comment "$ticket_id" "${TICKET_SYNC_LOG_PREFIX}: status set to ${TICKET_SYNC_STATUS}." ||
-  echo "WARN ${TICKET_SYNC_LOG_PREFIX}: comment post failed for ${ticket_id}" >&2
 
 printf '%s\n' "{\"status\": \"completed\", \"outputs\": {\"ticket_status_set\": \"${TICKET_SYNC_STATUS}\", \"ticket_id\": \"${synced}\"}}"
