@@ -16,5 +16,6 @@ run: script.sh
 #   ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_RETRIES  GEPA retries per pack after a gate fail (default 2)
 #   ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_METRIC_CALLS  --max-metric-calls passthrough
 #   ORCHESTRATOR_PROMPT_OPTIMIZE_ASYNC        "1" detaches; log: optimize-prompts.log
+#   ORCHESTRATOR_PROMPT_OPTIMIZE_FORCE        "1" skips the new-scenarios freshness gate
 default_outputs:
   prompt_optimize: { status: skipped, packs: [] }
