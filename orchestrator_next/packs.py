@@ -1,14 +1,19 @@
 """`orchestrator pack` — install/remove/list config packs (ORC-119).
 
-A config pack is a directory of workflows/ + steps/ following the convention
-in docs/pack-convention.md. This module implements the "dumb mechanics"
+A config pack is a directory of workflows/ + steps/ (+ optional skills/)
+following docs/pack-convention.md. This module implements the "dumb mechanics"
 locked by the plan (docs/plan-config-repo-split.md, Phase P):
 
-  - Install = copy workflows/ + steps/ into $ORCHESTRATOR_CONFIG, recording
-    every installed path in <config_root>/.packs.json under the pack's name.
+  - Install = copy workflows/ + steps/ into $ORCHESTRATOR_CONFIG and skills/
+    into <repo>/skills/, recording every installed path in
+    <config_root>/.packs.json under the pack's name.
+  - Skill paths are receipted as ``@repo/skills/...`` so removal resolves
+    outside the config root (skills live at <repo>/skills, not under
+    .orchestrator/config/).
   - Validate fully before copying anything (all-or-nothing).
-  - Conflicts (existing step id / workflow name) refuse the whole install.
-  - No layering, no in-place upgrade — remove then add.
+  - Conflicts (existing step id / workflow name / skill name) refuse the
+    whole install.
+  - No layering, no in-place upgrade — remove then add (unless --force).
   - pack add/remove refuse when the config root is a tracked git path (so
     this dev checkout's own config/ can never be mutated by pack ops).
   - pack list is read-only and has no such restriction.
@@ -27,11 +32,14 @@ from pathlib import Path
 
 import yaml
 
+from orchestrator_next.parser import repo_root_from_config_root
 from orchestrator_next.paths import ConfigRootError, config_root
 
 SUPPORTED_PROTOCOLS = {1}
 
 RECEIPTS_FILENAME = ".packs.json"
+# Receipt paths under <repo>/ (outside the config root) use this prefix.
+REPO_RECEIPT_PREFIX = "@repo/"
 
 _CONCRETE_MODEL_RE = re.compile(r"^(claude-|us\.anthropic\.)")
 
@@ -62,10 +70,41 @@ class PackValidationResult:
     warnings: list[str] = field(default_factory=list)
     workflow_files: list[Path] = field(default_factory=list)
     step_dirs: list[Path] = field(default_factory=list)
+    skill_dirs: list[Path] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
         return not self.errors
+
+
+def _repo_root_from_config_root(config_root_path: Path) -> Path:
+    """``.orchestrator/config`` → repo root (cwd when pack-adding).
+
+    Shares parser's derivation so ``@repo/`` receipts and the ``<repo>/skills``
+    search dir always name the same directory.
+    """
+    repo = repo_root_from_config_root(config_root_path)
+    if repo is None:
+        raise PackError(
+            f"cannot derive repo root from config root {config_root_path} — "
+            "expected <repo>/.orchestrator/config or <repo>/config"
+        )
+    return repo
+
+
+def _resolve_receipt_path(config_root_path: Path, rel: str) -> Path:
+    """Map a receipt path to an on-disk path.
+
+    Config-relative paths stay under the config root. ``@repo/...`` paths
+    resolve from the repo root (parent of ``.orchestrator/``).
+    """
+    if rel.startswith(REPO_RECEIPT_PREFIX):
+        return _repo_root_from_config_root(config_root_path) / rel[len(REPO_RECEIPT_PREFIX) :]
+    return config_root_path / rel
+
+
+def _receipt_rel_for_repo_path(rel_under_repo: Path) -> str:
+    return f"{REPO_RECEIPT_PREFIX}{rel_under_repo.as_posix()}"
 
 
 # --------------------------------------------------------------------------
@@ -159,12 +198,57 @@ def _check_contract_dirs(pack_root: Path, errors: list[str], warnings: list[str]
     return step_dirs
 
 
+def _check_skill_dirs(pack_root: Path, errors: list[str], warnings: list[str]) -> list[Path]:
+    """Validate vendored skills/<name>/ dirs; return skill directories found."""
+    skills_dir = pack_root / "skills"
+    skill_dirs: list[Path] = []
+    if not skills_dir.is_dir():
+        return skill_dirs
+
+    for entry in sorted(skills_dir.iterdir()):
+        if not entry.is_dir():
+            # The copy loop vendors every file under skills/, so a stray
+            # skills/README.md would land in <repo>/skills/README.md — outside
+            # conflict detection, and deleted by a later pack remove.
+            errors.append(
+                f"skills/{entry.name}: skills/ may contain only skill directories"
+            )
+            continue
+        skill_dirs.append(entry)
+        has_skill_md = (entry / "SKILL.md").is_file()
+        has_prompt_md = (entry / "prompt.md").is_file()
+        if not has_skill_md and not has_prompt_md:
+            errors.append(
+                f"skills/{entry.name}/: missing SKILL.md or prompt.md"
+            )
+            continue
+
+        scenarios = entry / "scenarios"
+        if scenarios.is_dir():
+            for jsonl in sorted(scenarios.glob("*.jsonl")):
+                try:
+                    for lineno, line in enumerate(
+                        jsonl.read_text(encoding="utf-8").splitlines(), 1
+                    ):
+                        if not line.strip():
+                            continue
+                        json.loads(line)
+                except json.JSONDecodeError as exc:
+                    errors.append(
+                        f"skills/{entry.name}/scenarios/{jsonl.name}:{lineno}: "
+                        f"invalid JSON — {exc}"
+                    )
+
+    return skill_dirs
+
+
 def validate_pack(pack_root: Path, repo_root: str) -> PackValidationResult:
     """Validate a pack directory in isolation. Does not copy anything.
 
     Temporarily points ORCHESTRATOR_CONFIG at pack_root so validate_workflow
     and load_contract_for_step resolve against the pack's own workflows/steps,
-    not whatever config root is currently active.
+    not whatever config root is currently active. Pack ``skills/`` is exposed
+    via ORCHESTRATOR_SKILLS_TEST_OVERRIDE for ``prompt:`` resolution.
     """
     data = _load_pack_yaml(pack_root)
 
@@ -202,6 +286,8 @@ def validate_pack(pack_root: Path, repo_root: str) -> PackValidationResult:
 
     step_dirs = _check_contract_dirs(pack_root, errors, warnings)
     result.step_dirs = step_dirs
+    skill_dirs = _check_skill_dirs(pack_root, errors, warnings)
+    result.skill_dirs = skill_dirs
 
     if errors:
         return result
@@ -212,7 +298,11 @@ def validate_pack(pack_root: Path, repo_root: str) -> PackValidationResult:
     saved_config = os.environ.get("ORCHESTRATOR_CONFIG")
     saved_wf_dir = os.environ.pop("ORCHESTRATOR_WORKFLOW_DIR", None)
     saved_override = os.environ.pop("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", None)
+    saved_skills = os.environ.pop("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", None)
     os.environ["ORCHESTRATOR_CONFIG"] = str(pack_root)
+    pack_skills = pack_root / "skills"
+    if pack_skills.is_dir():
+        os.environ["ORCHESTRATOR_SKILLS_TEST_OVERRIDE"] = str(pack_skills)
     try:
         from orchestrator_next.validate_workflow import validate_workflow
 
@@ -231,6 +321,10 @@ def validate_pack(pack_root: Path, repo_root: str) -> PackValidationResult:
             os.environ["ORCHESTRATOR_WORKFLOW_DIR"] = saved_wf_dir
         if saved_override is not None:
             os.environ["ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE"] = saved_override
+        if saved_skills is not None:
+            os.environ["ORCHESTRATOR_SKILLS_TEST_OVERRIDE"] = saved_skills
+        else:
+            os.environ.pop("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", None)
 
     result.errors = errors
     result.warnings = warnings
@@ -274,17 +368,51 @@ def _existing_workflow_names(root: Path) -> set[str]:
     return {p.stem for p in workflows_dir.glob("*.yaml")}
 
 
+def _existing_skill_names(repo: Path) -> set[str]:
+    skills_dir = repo / "skills"
+    if not skills_dir.is_dir():
+        return set()
+    return {p.name for p in skills_dir.iterdir() if p.is_dir()}
+
+
+def _receipted_skill_names(entry: dict | None) -> set[str]:
+    """Skill dir names a receipt entry recorded under ``@repo/skills/``."""
+    prefix = f"{REPO_RECEIPT_PREFIX}skills/"
+    names: set[str] = set()
+    for rel in (entry or {}).get("files", []):
+        if rel.startswith(prefix):
+            names.add(rel[len(prefix) :].split("/", 1)[0])
+    return names
+
+
 def _relative_files(src_dir: Path) -> list[Path]:
     """All files under src_dir, relative to src_dir."""
     return sorted(p.relative_to(src_dir) for p in src_dir.rglob("*") if p.is_file())
 
 
 def _git_head_sha(path: Path) -> str | None:
+    """Return HEAD SHA only when ``path`` itself is a git work tree root.
+
+    A pack directory nested inside another checkout must not inherit that
+    checkout's HEAD — local-path installs record ``commit: null``.
+    """
     result = subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True, env=_clean_git_env(),
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        toplevel = Path(result.stdout.strip()).resolve()
+    except OSError:
+        return None
+    if toplevel != path.resolve():
+        return None
+    head = subprocess.run(
         ["git", "-C", str(path), "rev-parse", "HEAD"],
         capture_output=True, text=True, env=_clean_git_env(),
     )
-    return result.stdout.strip() if result.returncode == 0 else None
+    return head.stdout.strip() if head.returncode == 0 else None
 
 
 def _warn_if_gitignored(repo: Path, relpath: Path) -> None:
@@ -306,8 +434,9 @@ def _warn_if_gitignored(repo: Path, relpath: Path) -> None:
 
 def pack_add(source: str, *, repo_root: str | None = None, force: bool = False) -> str:
     """Validate then install a pack from a local path or git URL into
-    `<cwd>/.orchestrator/config/` — vendored and meant to be committed into
-    whatever repo `pack add` was run from.
+    `<cwd>/.orchestrator/config/` (workflows/steps) and `<cwd>/skills/`
+    (vendored skill dirs) — meant to be committed into whatever repo
+    `pack add` was run from.
 
     `force`: overwrite an already-installed pack (upgrade) instead of
     refusing on receipt/collision conflicts.
@@ -315,8 +444,10 @@ def pack_add(source: str, *, repo_root: str | None = None, force: bool = False) 
     Returns the installed pack name.
     """
     repo_root = repo_root or os.getcwd()
-    root = Path.cwd() / ".orchestrator" / "config"
+    cwd = Path.cwd()
+    root = cwd / ".orchestrator" / "config"
     root.mkdir(parents=True, exist_ok=True)
+    repo = cwd
 
     clone_dir_ctx: tempfile.TemporaryDirectory | None = None
     try:
@@ -348,31 +479,39 @@ def pack_add(source: str, *, repo_root: str | None = None, force: bool = False) 
                 f"or pass --force"
             )
 
-        # Conflict check across both workflows/ and steps/ before copying anything.
+        # Conflict check across workflows/, steps/, and skills/ before copying.
         new_workflow_names = {p.stem for p in result.workflow_files}
         new_step_ids = {d.name for d in result.step_dirs}
+        new_skill_names = {d.name for d in result.skill_dirs}
 
         existing_workflows = _existing_workflow_names(root)
         existing_steps = _existing_step_ids(root)
+        existing_skills = _existing_skill_names(repo)
         if force:
             # Re-installing the same pack shouldn't collide with its own
-            # previously-installed files.
+            # previously-installed files. Skills live in <repo>/skills alongside
+            # hand-authored ones, so exempt only names this pack actually
+            # installed — never every incoming name.
             existing_workflows -= new_workflow_names
             existing_steps -= new_step_ids
+            existing_skills -= _receipted_skill_names(receipts.get(result.name))
 
         collisions = sorted(
             (new_workflow_names & existing_workflows)
             | (new_step_ids & existing_steps)
+            | (new_skill_names & existing_skills)
         )
-        if collisions and not force:
+        # Under --force the exemption sets above already carve out what this
+        # pack is allowed to overwrite; anything still colliding belongs to
+        # someone else (notably a hand-authored <repo>/skills/<name>).
+        if collisions:
             raise PackError(
-                f"pack '{result.name}' conflicts with already-installed workflows/steps: "
-                + ", ".join(collisions)
+                f"pack '{result.name}' conflicts with already-installed "
+                f"workflows/steps/skills: " + ", ".join(collisions)
             )
 
-        # Copy workflows/ and steps/ (including steps/lib/ if present) —
-        # validate-then-copy-all-or-nothing: nothing above this point wrote
-        # to the config root.
+        # Copy workflows/, steps/, skills/ — validate-then-copy-all-or-nothing:
+        # nothing above this point wrote to the config/repo roots.
         installed_files: list[str] = []
 
         workflows_src = pack_root / "workflows"
@@ -397,6 +536,19 @@ def pack_add(source: str, *, repo_root: str | None = None, force: bool = False) 
                 shutil.copy2(src_file, dest_file)
                 installed_files.append(str((Path("steps") / rel).as_posix()))
 
+        skills_src = pack_root / "skills"
+        if skills_src.is_dir():
+            dest_skills = repo / "skills"
+            dest_skills.mkdir(parents=True, exist_ok=True)
+            for rel in _relative_files(skills_src):
+                src_file = skills_src / rel
+                dest_file = dest_skills / rel
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_file, dest_file)
+                installed_files.append(
+                    _receipt_rel_for_repo_path(Path("skills") / rel)
+                )
+
         # models.yaml is a starter only — never overwrite a repo's own routing.
         models_src = pack_root / "models.yaml"
         dest_models = root / "models.yaml"
@@ -413,9 +565,13 @@ def pack_add(source: str, *, repo_root: str | None = None, force: bool = False) 
         }
         _save_receipts(root, receipts)
 
-        rel_root = root.relative_to(Path.cwd())
-        _warn_if_gitignored(Path.cwd(), rel_root)
-        print(f"next: git add {rel_root} && git commit")
+        rel_root = root.relative_to(cwd)
+        _warn_if_gitignored(cwd, rel_root)
+        if any(f.startswith(REPO_RECEIPT_PREFIX + "skills/") for f in installed_files):
+            _warn_if_gitignored(cwd, Path("skills"))
+            print(f"next: git add {rel_root} skills/ && git commit")
+        else:
+            print(f"next: git add {rel_root} && git commit")
 
         return result.name
     finally:
@@ -435,19 +591,19 @@ def pack_remove(name: str) -> None:
         raise PackError(f"no installed pack named '{name}' (see `orchestrator pack list`)")
 
     entry = receipts.pop(name)
-    for rel in entry.get("files", []):
-        file_path = root / rel
-        if file_path.is_file():
-            file_path.unlink()
-
-    # Prune now-empty directories under steps/<id>/ and workflows/, but never
-    # remove workflows/ or steps/ themselves (direct children of root) — other
-    # packs live there.
     removed_dirs: set[Path] = set()
     for rel in entry.get("files", []):
-        removed_dirs.add((root / rel).parent)
+        file_path = _resolve_receipt_path(root, rel)
+        if file_path.is_file():
+            file_path.unlink()
+            removed_dirs.add(file_path.parent)
+
+    # Prune now-empty directories under steps/<id>/, workflows/, and skills/<name>/,
+    # but never remove workflows/, steps/, or skills/ themselves.
+    repo = _repo_root_from_config_root(root)
+    stop_dirs = {root, repo, root / "workflows", root / "steps", repo / "skills"}
     for d in sorted(removed_dirs, key=lambda p: -len(p.parts)):
-        while d.parent != root and d.is_dir() and not any(d.iterdir()):
+        while d not in stop_dirs and d.is_dir() and not any(d.iterdir()):
             parent = d.parent
             d.rmdir()
             d = parent

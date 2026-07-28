@@ -43,7 +43,7 @@ def _step_entry_for_id(phase_def: dict[str, Any], step_id: str) -> dict[str, Any
 
     Step entries may be:
     - Plain string: "design"
-    - Dict: {id: ...} / {skill: ...} / {prompt: ..., id: ...}
+    - Dict: {id: ...} / {prompt: <dir>, ...} (id defaults to prompt ref)
 
     Returns the dict form (normalized with id) or an empty dict if the step is a
     plain string match. Returns None if no match found.
