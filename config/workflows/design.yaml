@@ -10,5 +10,4 @@ steps:
     prompt: design-review
   - prompt: learn
   - eval-prompts # opt-in prompt eval (ORCHESTRATOR_PROMPT_EVAL=1); no-op otherwise
-  - optimize-prompts # opt-in gepa->compare->promote loop (ORCHESTRATOR_PROMPT_OPTIMIZE=1); no-op otherwise
   - workflow-report

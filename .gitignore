@@ -60,3 +60,6 @@ node_modules/
 # prompt-optimizer harness-owned eval response cache (per-machine, never gitted)
 skills/*/runs/cache/
 .tmp-pytest/
+# Optimizer run artifacts are immutable local evidence; only the ledger is tracked.
+skills/*/runs/*
+!skills/*/runs/results.jsonl

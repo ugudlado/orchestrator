@@ -81,6 +81,8 @@ def _run(tmp_path, env_extra):
         "ORCHESTRATOR_STATE_YAML_PATH": str(tmp_path / "state.yaml"),
         "ORCHESTRATOR_CHANGE_ID": "orc-42-demo",
         "ORCHESTRATOR_STEP_ID": "optimize-prompts",
+        # Isolate from the real engine skills/ checkout.
+        "ORCHESTRATOR_PROMPT_PATH": str(tmp_path / "repo" / "skills"),
         **env_extra,
     }
     return subprocess.run(
@@ -210,10 +212,63 @@ def test_shared_pack_optimized_once(tmp_path):
     assert len(_outputs(result)["packs"]) == 1
 
 
-def test_workflow_wiring_after_eval_prompts():
+def test_optimize_is_standalone_not_in_workflow_tails():
+    """Optimization runs when needed (optimize workflow / cron), not per change."""
     for workflow in ("autopilot", "bugfix", "design", "feature", "implement", "patch"):
         path = os.path.join(_REPO_ROOT, "config", "workflows", f"{workflow}.yaml")
         with open(path) as f:
             steps = yaml.safe_load(f)["steps"]
         ids = [s.get("id") or s.get("prompt") if isinstance(s, dict) else s for s in steps]
-        assert ids.index("optimize-prompts") == ids.index("eval-prompts") + 1, workflow
+        assert "optimize-prompts" not in ids, workflow
+
+    with open(os.path.join(_REPO_ROOT, "config", "workflows", "optimize.yaml")) as f:
+        assert yaml.safe_load(f)["steps"] == ["optimize-prompts"]
+
+
+def test_standalone_mode_sweeps_all_scenario_packs(tmp_path):
+    """A state with no completed prompt steps falls back to every pack."""
+    (tmp_path / "state.yaml").write_text(
+        yaml.safe_dump({"change_id": "prompts-maint", "step_history": []})
+    )
+    _write_pack(tmp_path, "learn")
+    _write_pack(tmp_path, "review")
+    stub, capture = _stub(tmp_path, [0, 0, 0, 0])
+    result = _run(tmp_path, {
+        "ORCHESTRATOR_PROMPT_OPTIMIZE": "1",
+        "ORCHESTRATOR_PROMPT_OPTIMIZE_BIN": str(stub),
+    })
+
+    assert result.returncode == 0, result.stderr
+    gepa_packs = sorted(
+        os.path.basename(c["argv"][c["argv"].index("--pack") + 1])
+        for c in _captured(capture) if c["cmd"] == "gepa"
+    )
+    assert gepa_packs == ["learn", "review"]
+
+
+def test_fresh_scenarios_gate_skips_already_optimized_pack(tmp_path):
+    """A pack whose train.jsonl predates its newest run dir is skipped."""
+    import time
+    _write_state(tmp_path)
+    pack = _write_pack(tmp_path)
+    run_dir = pack / "runs" / "old-run"
+    run_dir.mkdir(parents=True)
+    # train.jsonl older than the run dir -> nothing new to learn from
+    old = time.time() - 3600
+    os.utime(pack / "scenarios" / "train.jsonl", (old, old))
+    stub, capture = _stub(tmp_path, [0, 0])
+    result = _run(tmp_path, {
+        "ORCHESTRATOR_PROMPT_OPTIMIZE": "1",
+        "ORCHESTRATOR_PROMPT_OPTIMIZE_BIN": str(stub),
+    })
+
+    assert _captured(capture) == []
+    assert "already optimized" in json.loads(result.stdout)["evidence"]["summary"]
+
+    # FORCE overrides the gate
+    result = _run(tmp_path, {
+        "ORCHESTRATOR_PROMPT_OPTIMIZE": "1",
+        "ORCHESTRATOR_PROMPT_OPTIMIZE_BIN": str(stub),
+        "ORCHESTRATOR_PROMPT_OPTIMIZE_FORCE": "1",
+    })
+    assert [c["cmd"] for c in _captured(capture)][:1] == ["gepa"]

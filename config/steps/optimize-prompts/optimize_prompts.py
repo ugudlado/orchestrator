@@ -27,9 +27,53 @@ _EVAL_STEP_DIR = Path(__file__).resolve().parent.parent / "eval-prompts"
 if str(_EVAL_STEP_DIR) not in sys.path:
     sys.path.insert(0, str(_EVAL_STEP_DIR))
 
-from eval_prompts import _config_root, _load_state, evaluable_packs  # noqa: E402
+from eval_prompts import (  # noqa: E402
+    _config_root,
+    _load_state,
+    _prompt_search_dirs,
+    evaluable_packs,
+)
 
 _RUN_ARTIFACT_RE = re.compile(r"^run artifact: (.+)$", re.MULTILINE)
+
+
+def all_scenario_packs(repo_root: str, config_root: Path) -> list[tuple[str, Path]]:
+    """Every pack with scenarios/ across the prompt search dirs (first hit wins).
+
+    Standalone-mode discovery for the `optimize` workflow, where state.yaml
+    carries no completed prompt steps to derive packs from. The correlation
+    step_id is the pack name.
+    """
+    packs: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    for root in _prompt_search_dirs(repo_root, config_root):
+        if not root.is_dir():
+            continue
+        for child in sorted(root.iterdir()):
+            if child.name in seen or not (child / "scenarios").is_dir():
+                continue
+            seen.add(child.name)
+            packs.append((child.name, child.resolve()))
+    return packs
+
+
+def has_new_scenarios(pack_dir: Path) -> bool:
+    """True when train.jsonl changed after the newest optimizer run started.
+
+    The "truly needed" gate: optimization is only worth re-running once
+    learning has appended scenarios the last GEPA run never saw.
+    """
+    # ponytail: mtime heuristic — compares train.jsonl against the newest
+    # runs/<id>/ dir; switch to reading manifest timestamps if mtimes prove
+    # unreliable (e.g. git checkouts resetting them).
+    runs = pack_dir / "runs"
+    run_dirs = [d for d in runs.iterdir() if d.is_dir()] if runs.is_dir() else []
+    if not run_dirs:
+        return True  # never optimized
+    train = pack_dir / "scenarios" / "train.jsonl"
+    if not train.is_file():
+        return False
+    return train.stat().st_mtime > max(d.stat().st_mtime for d in run_dirs)
 
 
 def _emit(status: str, summary: str, packs: list[dict] | None = None) -> None:
@@ -157,8 +201,24 @@ def main() -> int:
     repo_root = os.environ.get("ORCHESTRATOR_REPO_ROOT") or os.environ.get("REPO_ROOT") or ""
     packs = evaluable_packs(state, _config_root(), repo_root)
     if not packs:
-        _log("no completed prompt step has a pack with scenarios/ — nothing to optimize")
+        # Standalone `optimize` workflow: no prompt steps in state — sweep
+        # every pack with scenarios instead.
+        packs = all_scenario_packs(repo_root, _config_root())
+    if not packs:
+        _log("no pack with scenarios/ found — nothing to optimize")
         _emit("completed", "no optimizable packs")
+        return 0
+
+    if os.environ.get("ORCHESTRATOR_PROMPT_OPTIMIZE_FORCE") != "1":
+        stale = [p for p in packs if not has_new_scenarios(p[1])]
+        if stale:
+            _log(
+                "skipping (no new train scenarios since last run): "
+                + ", ".join(d.name for _, d in stale)
+            )
+        packs = [p for p in packs if p not in stale]
+    if not packs:
+        _emit("completed", "all packs already optimized against current scenarios")
         return 0
 
     # Opt-in detach: optimization only writes optimizer artifacts and (on
