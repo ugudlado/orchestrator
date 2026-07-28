@@ -2,6 +2,7 @@
 name: explore
 description: "Explore the codebase and write a discovery brief. Use when discovering scope, surveying a codebase, or starting a feature."
 user-invocable: true
+extends: ../../../prompt-packs/explorer
 ---
 
 # Explore

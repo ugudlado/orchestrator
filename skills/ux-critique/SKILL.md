@@ -2,6 +2,7 @@
 name: ux-critique
 description: "UX design critique with staff-level evaluation. Use when reviewing UI/UX, critiquing designs, or before shipping a UI feature."
 user-invocable: true
+extends: ../../../prompt-packs/ux-reviewer
 ---
 
 # Run UX Critique

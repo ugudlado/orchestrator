@@ -2,6 +2,7 @@
 name: diagnose
 description: "Diagnose a bug and write a diagnosis brief. Use when investigating failures, root-causing bugs, or starting a bugfix."
 user-invocable: true
+extends: ../../../prompt-packs/explorer
 ---
 
 # Explorer (staff-level, read-only investigation)

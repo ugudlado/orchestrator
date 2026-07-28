@@ -2,6 +2,7 @@
 name: design-review
 description: "Review design.md and tasks.yaml for completeness and quality. Use when reviewing a design before implementation."
 user-invocable: true
+extends: ../../../prompt-packs/reviewer
 ---
 
 # Design Review
