@@ -7,11 +7,7 @@ from pathlib import Path
 
 import pytest
 
-_STEP_DIR = Path(__file__).resolve().parent
-if str(_STEP_DIR) not in sys.path:
-    sys.path.insert(0, str(_STEP_DIR))
-
-import workflow_report_step  # noqa: E402
+from orchestrator_next import report as report_mod
 
 
 def _render(step_history: list, issues: list | None = None) -> tuple[dict, str]:
@@ -19,7 +15,7 @@ def _render(step_history: list, issues: list | None = None) -> tuple[dict, str]:
     old = sys.stderr
     sys.stderr = buf
     try:
-        result = workflow_report_step._render_report(step_history, issues or [])
+        result = report_mod.render_report(step_history, issues or [])
     finally:
         sys.stderr = old
     return result, buf.getvalue()
@@ -329,3 +325,60 @@ def test_each_attempt_briefing_survives_collapse():
     assert "RED tasks fail their own verify gates" in stderr
     assert "Fixed: RED tasks use test.todo()" in stderr
     assert len(result["steps"][0]["briefings"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# Cross-workflow aggregation (`orchestrator report --all`)
+# ---------------------------------------------------------------------------
+
+
+def _write_state(tmp_path: Path, cid: str, entries: list[dict]) -> Path:
+    import yaml
+
+    d = tmp_path / ".orchestrator" / cid
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / "state.yaml"
+    path.write_text(yaml.safe_dump({"change_id": cid, "step_history": entries}))
+    return path
+
+
+def test_aggregate_math_across_workflows(tmp_path):
+    a = _write_state(tmp_path, "feat-a", [
+        {"step_id": "implement", "status": "failed", "attempt": 1,
+         "usage": {"duration_ms": 1000, "cost_usd": 1.0}},
+        {"step_id": "implement", "status": "completed", "attempt": 2,
+         "usage": {"duration_ms": 3000, "cost_usd": 2.0}},
+    ])
+    b = _write_state(tmp_path, "feat-b", [
+        {"step_id": "implement", "status": "completed", "attempt": 1,
+         "usage": {"duration_ms": 2000, "cost_usd": 1.0}},
+        {"step_id": "review", "status": "failed", "attempt": 1,
+         "usage": {"duration_ms": 500, "cost_usd": 0.5}},
+    ])
+    agg = report_mod.aggregate([a, b])
+    assert agg["workflows"] == 2
+    by_id = {s["step_id"]: s for s in agg["steps"]}
+
+    imp = by_id["implement"]
+    assert imp["runs"] == 2
+    # feat-a: 4000ms/$3 across attempts; feat-b: 2000ms/$1
+    assert imp["avg_duration_ms"] == 3000
+    assert imp["avg_cost_usd"] == 2.0
+    assert imp["retry_rate"] == 0.5   # only feat-a needed attempt 2
+    assert imp["failure_rate"] == 0.0  # both runs ended completed
+
+    rev = by_id["review"]
+    assert rev["runs"] == 1
+    assert rev["failure_rate"] == 1.0
+    assert agg["totals"]["cost_usd"] == 4.5
+
+
+def test_find_state_files_covers_active_and_archive(tmp_path):
+    active = _write_state(tmp_path, "feat-a", [])
+    arch_dir = tmp_path / "spec" / "changes" / "archive" / "20260101-feat-z"
+    arch_dir.mkdir(parents=True)
+    import yaml
+    archived = arch_dir / "state.yaml"
+    archived.write_text(yaml.safe_dump({"change_id": "feat-z", "step_history": []}))
+    files = report_mod.find_state_files(str(tmp_path))
+    assert active in files and archived in files

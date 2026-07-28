@@ -35,6 +35,7 @@ def _usage() -> None:
         "  orchestrator graph <schema>              # Mermaid flowchart of a workflow schema\n"
         "  orchestrator validate-workflow <schema-name>\n"
         "  orchestrator config-path   # print the bundled/checkout config dir (for ORCHESTRATOR_CONFIG)\n"
+        "  orchestrator report --state <state.yaml> | --all [--repo PATH] [--json]\n"
         "  orchestrator doctor",
         file=sys.stderr,
     )
@@ -186,6 +187,7 @@ def main() -> None:
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
         "next", "done", "graph", "doctor", "models", "reset-step", "run", "validate-workflow",
+        "report",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
@@ -202,6 +204,10 @@ def main() -> None:
     if args[0] == "doctor":
         from orchestrator_next.doctor import _doctor_main
         sys.exit(_doctor_main(args[1:]))
+
+    if args[0] == "report":
+        from orchestrator_next.report import main as _report_main
+        sys.exit(_report_main(args[1:]))
 
     if args[0] == "models":
         if args[1:2] == ["init"]:
