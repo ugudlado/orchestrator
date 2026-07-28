@@ -72,6 +72,39 @@ backlog_api_put_status() {
     "${base}/api/tasks/${ticket_id}?$(_backlog_project_q)" >/dev/null
 }
 
+# The correlation key joining a ticket to the prompt-optimizer ledger rows of
+# the same run: results.jsonl rows carry ticket_id/change_id/step_id as fields,
+# and this stamps the same triple onto the ticket side. Absent parts are left
+# out rather than printed empty, so a key is either usable or clearly missing.
+backlog_api_correlation_line() {
+  local ticket_id="$1"
+  local parts=""
+  [ -n "$ticket_id" ] && parts="ticket=${ticket_id}"
+  [ -n "${ORCHESTRATOR_CHANGE_ID:-${CHANGE_ID:-}}" ] &&
+    parts="${parts:+${parts} }change=${ORCHESTRATOR_CHANGE_ID:-${CHANGE_ID}}"
+  [ -n "${ORCHESTRATOR_STEP_ID:-}" ] &&
+    parts="${parts:+${parts} }step=${ORCHESTRATOR_STEP_ID}"
+  [ -n "$parts" ] && printf 'correlation: %s' "$parts"
+}
+
+# POST /api/history?project=… {"taskId","body"} — appends a timeline comment
+# with the correlation key trailing the given text. Best-effort by contract:
+# callers sync ticket status, and a lost comment must not fail that step.
+backlog_api_post_comment() {
+  local ticket_id="$1"
+  local text="$2"
+  local base correlation
+  base="$(backlog_api_base)" || return 1
+  correlation="$(backlog_api_correlation_line "$ticket_id")"
+  curl -fsS -X POST \
+    -H "Authorization: Bearer ${BACKLOG_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json" \
+    -d "$(python3 -c 'import json,sys; print(json.dumps({"taskId": sys.argv[1], "body": "\n\n".join(a for a in sys.argv[2:] if a)}))' \
+      "$ticket_id" "$text" "$correlation")" \
+    "${base}/api/history?$(_backlog_project_q)" >/dev/null
+}
+
 # JSON task on stdin → plain-text body for agent prompts (title/status/ACs/…).
 # Uses python -c so stdin stays available for the JSON pipe (heredoc would steal it).
 backlog_api_format_plain() {

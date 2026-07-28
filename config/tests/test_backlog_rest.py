@@ -166,6 +166,105 @@ def test_backlog_api_project_empty_when_no_repo_root():
     assert _resolve_project({}, None) == ""
 
 
+_SYNC_SH = _REPO_PATH / "steps" / "lib" / "ticket-sync.sh"
+
+def _correlation_line(env_overrides: dict, ticket_id: str = "ORC-125") -> str:
+    """Run backlog_api_correlation_line() under a controlled env."""
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("ORCHESTRATOR_CHANGE_ID", "CHANGE_ID", "ORCHESTRATOR_STEP_ID")}
+    env.update(env_overrides)
+    proc = subprocess.run(
+        ["bash", "-c",
+         f"source '{_API_SH}' && backlog_api_correlation_line '{ticket_id}'"],
+        capture_output=True, text=True, env=env,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout.strip()
+
+def test_correlation_line_carries_full_key():
+    got = _correlation_line({
+        "ORCHESTRATOR_CHANGE_ID": "orc-125",
+        "ORCHESTRATOR_STEP_ID": "implement",
+    })
+    assert got == "correlation: ticket=ORC-125 change=orc-125 step=implement"
+
+def test_correlation_line_omits_absent_parts():
+    """Missing coordinates drop out rather than appearing as empty values."""
+    got = _correlation_line({"ORCHESTRATOR_STEP_ID": "review"})
+    assert got == "correlation: ticket=ORC-125 step=review"
+    assert "change=" not in got
+
+def _run_ticket_sync(tmp_path: Path, env_overrides: dict, *, comment_fails: bool = False) -> tuple:
+    """Run ticket-sync.sh against a fake curl; return (proc, captured POST bodies)."""
+    state_dir = tmp_path / "st"
+    state_dir.mkdir(exist_ok=True)
+    state_yaml = state_dir / "state.yaml"
+    state_yaml.write_text(yaml.safe_dump({"ticket_id": "orc-125", "change_id": "orc-125"}))
+    (tmp_path / "spec").mkdir(exist_ok=True)
+    (tmp_path / "spec" / "project.yaml").write_text(yaml.safe_dump({"ticketing": "backlog"}))
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir(exist_ok=True)
+    posted = tmp_path / "posted.txt"
+    curl = fake_bin / "curl"
+    # Record the -d payload of any POST to /api/history; the PUT always succeeds
+    # so comment_fails isolates the comment half.
+    history_action = (
+        "exit 22" if comment_fails
+        else f"printf '%s\\n' \"$payload\" >> '{posted}'"
+    )
+    curl.write_text(
+        "#!/usr/bin/env bash\n"
+        "args=(\"$@\")\n"
+        "for i in \"${!args[@]}\"; do\n"
+        "  if [ \"${args[$i]}\" = '-d' ]; then payload=\"${args[$((i+1))]}\"; fi\n"
+        "done\n"
+        f"case \"${{args[*]}}\" in *'/api/history'*) {history_action} ;; esac\n"
+        "echo '{}'\n"
+    )
+    curl.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:{os.environ['PATH']}"
+    env["BACKLOG_URL"] = "https://example.test"
+    env["BACKLOG_TOKEN"] = "tok"
+    env["BACKLOG_PROJECT_ID"] = "orc"
+    env["REPO_ROOT"] = str(tmp_path)
+    env["ORCHESTRATOR_STATE_YAML_PATH"] = str(state_yaml)
+    env["TICKET_SYNC_STATUS"] = "In Progress"
+    env["TICKET_SYNC_LOG_PREFIX"] = "ticket-start"
+    env.update(env_overrides)
+
+    proc = subprocess.run(
+        ["bash", str(_SYNC_SH)],
+        capture_output=True, text=True, cwd=str(tmp_path), env=env,
+    )
+    bodies = [json.loads(line) for line in
+              (posted.read_text().splitlines() if posted.exists() else [])]
+    return proc, bodies
+
+def test_ticket_sync_comment_carries_correlation_key(tmp_path):
+    """The status-sync step posts a comment stamped with the correlation key."""
+    proc, bodies = _run_ticket_sync(tmp_path, {
+        "ORCHESTRATOR_CHANGE_ID": "orc-125",
+        "ORCHESTRATOR_STEP_ID": "implement",
+    })
+    assert proc.returncode == 0, proc.stderr
+    assert len(bodies) == 1, bodies
+    assert bodies[0]["taskId"] == "ORC-125"
+    assert "correlation: ticket=ORC-125 change=orc-125 step=implement" in bodies[0]["body"]
+    assert "status set to In Progress" in bodies[0]["body"]
+
+def test_ticket_sync_survives_comment_post_failure(tmp_path):
+    """A failed comment POST warns but must not fail the status transition."""
+    proc, _ = _run_ticket_sync(
+        tmp_path, {"ORCHESTRATOR_STEP_ID": "implement"}, comment_fails=True
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "WARN ticket-start: comment post failed" in proc.stderr
+    out = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert out["status"] == "completed"
+
 def test_backlog_api_format_plain_roundtrip():
     """format helper produces readable AC lines from JSON."""
     payload = {
