@@ -23,8 +23,12 @@ def _write_yaml(path: Path, data: dict) -> None:
 
 
 def _make_minimal_pack(root: Path, *, name: str = "widgets", protocol: int = 1,
-                        step_id: str = "do-thing", model: str = "sonnet") -> Path:
-    """A pack with one script step + one agent step + one workflow referencing both."""
+                        step_id: str = "do-thing", model: str = "sonnet",
+                        with_skill: bool = True) -> Path:
+    """A pack with one script step + one agent step + one workflow referencing both.
+
+    Agent steps use ``prompt: <dir>`` resolved via pack ``skills/<dir>/``.
+    """
     _write_yaml(root / "pack.yaml", {
         "name": name, "version": "1.0.0", "protocol": protocol,
         "description": "test pack",
@@ -37,18 +41,28 @@ def _make_minimal_pack(root: Path, *, name: str = "widgets", protocol: int = 1,
     (script_dir / "script.sh").write_text("#!/usr/bin/env bash\necho '{}'\n")
     (script_dir / "script.sh").chmod(0o755)
 
-    # agent step
-    agent_step_id = f"{step_id}-agent"
-    agent_dir = root / "steps" / agent_step_id
-    agent_dir.mkdir(parents=True)
-    _write_yaml(agent_dir / "contract.yaml", {
-        "id": agent_step_id, "version": 1, "model": model, "prompt": "prompt.md",
-    })
-    (agent_dir / "prompt.md").write_text("Do the thing.\n")
+    steps = [step_id]
+    if with_skill:
+        # agent step + colocated prompt dir under skills/
+        agent_step_id = f"{step_id}-agent"
+        agent_dir = root / "steps" / agent_step_id
+        agent_dir.mkdir(parents=True)
+        _write_yaml(agent_dir / "contract.yaml", {
+            "id": agent_step_id, "version": 1, "model": model, "prompt": agent_step_id,
+        })
+        skill_dir = root / "skills" / agent_step_id
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "prompt.md").write_text("Do the thing.\n")
+        scenarios = skill_dir / "scenarios"
+        scenarios.mkdir()
+        (scenarios / "train.jsonl").write_text(
+            '{"id":"happy","scenario":"ok","expect":["works"]}\n'
+        )
+        steps.append(agent_step_id)
 
-    # workflow referencing both steps
+    # workflow referencing steps
     _write_yaml(root / "workflows" / f"{name}.yaml", {
-        "steps": [step_id, agent_step_id],
+        "steps": steps,
     })
 
     return root
@@ -99,7 +113,9 @@ def test_add_list_remove_round_trip(tmp_path, cwd_repo, vendored_root):
     # files landed under <cwd>/.orchestrator/config/
     assert (vendored_root / "workflows" / "widgets.yaml").is_file()
     assert (vendored_root / "steps" / "do-thing" / "contract.yaml").is_file()
-    assert (vendored_root / "steps" / "do-thing-agent" / "prompt.md").is_file()
+    # skills vendor to <repo>/skills/, not under the config root
+    assert (cwd_repo / "skills" / "do-thing-agent" / "prompt.md").is_file()
+    assert (cwd_repo / "skills" / "do-thing-agent" / "scenarios" / "train.jsonl").is_file()
 
     # receipt written, with commit=None for a plain local-path source
     receipts = json.loads((vendored_root / ".packs.json").read_text())
@@ -108,6 +124,10 @@ def test_add_list_remove_round_trip(tmp_path, cwd_repo, vendored_root):
     assert receipts["widgets"]["protocol"] == 1
     assert receipts["widgets"]["commit"] is None
     assert len(receipts["widgets"]["files"]) >= 3
+    skill_receipts = [
+        f for f in receipts["widgets"]["files"] if f.startswith("@repo/skills/")
+    ]
+    assert skill_receipts, "skills must be receipted with @repo/ prefix"
 
     # list surfaces it (config_root() resolves here via the repo-local fallback)
     os.environ["REPO_ROOT"] = str(cwd_repo)
@@ -121,11 +141,11 @@ def test_add_list_remove_round_trip(tmp_path, cwd_repo, vendored_root):
     assert row["version"] == "1.0.0"
     assert row["protocol"] == 1
 
-    # remove deletes exactly the receipt-listed files
+    # remove deletes exactly the receipt-listed files (config + repo skills)
     packs.pack_remove("widgets")
     assert not (vendored_root / "workflows" / "widgets.yaml").is_file()
     assert not (vendored_root / "steps" / "do-thing").exists()
-    assert not (vendored_root / "steps" / "do-thing-agent").exists()
+    assert not (cwd_repo / "skills" / "do-thing-agent").exists()
     # steps/ parent survives (other packs could live there)
     assert (vendored_root / "steps").is_dir()
 
@@ -136,6 +156,40 @@ def test_add_list_remove_round_trip(tmp_path, cwd_repo, vendored_root):
 def test_remove_unknown_pack_refuses(cwd_repo):
     with pytest.raises(packs.PackError, match="no installed pack"):
         packs.pack_remove("nope")
+
+
+def test_add_refuses_on_skill_name_collision(tmp_path, cwd_repo):
+    src1 = tmp_path / "src1"
+    _make_minimal_pack(src1, name="pack-a", step_id="alpha")
+    packs.pack_add(str(src1), repo_root=str(tmp_path))
+
+    src2 = tmp_path / "src2"
+    # same skill dir name (alpha-agent) via same step_id suffix
+    _make_minimal_pack(src2, name="pack-b", step_id="alpha")
+
+    with pytest.raises(packs.PackError, match="conflicts"):
+        packs.pack_add(str(src2), repo_root=str(tmp_path))
+
+
+def test_validate_pack_rejects_skill_without_charter(tmp_path, cwd_repo):
+    src = tmp_path / "bad_skill_pack"
+    _make_minimal_pack(src, name="badskill", with_skill=False)
+    empty = src / "skills" / "orphan"
+    empty.mkdir(parents=True)
+    (empty / "metrics.md").write_text("# metrics\n")
+
+    with pytest.raises(packs.PackError, match="SKILL.md or prompt.md"):
+        packs.pack_add(str(src), repo_root=str(tmp_path))
+
+
+def test_validate_pack_rejects_bad_scenario_jsonl(tmp_path, cwd_repo):
+    src = tmp_path / "bad_jsonl_pack"
+    _make_minimal_pack(src, name="badjsonl")
+    train = src / "skills" / "do-thing-agent" / "scenarios" / "train.jsonl"
+    train.write_text("{not-json\n")
+
+    with pytest.raises(packs.PackError, match="invalid JSON"):
+        packs.pack_add(str(src), repo_root=str(tmp_path))
 
 
 # --------------------------------------------------------------------------
@@ -198,6 +252,42 @@ def test_force_upgrades_in_place(tmp_path, cwd_repo, vendored_root):
     name = packs.pack_add(str(src), repo_root=str(tmp_path), force=True)
     assert name == "upgradeable"
     assert "v\":2" in (vendored_root / "steps" / "do-thing" / "script.sh").read_text()
+
+
+def test_force_refuses_hand_authored_skill(tmp_path, cwd_repo):
+    """--force exempts only skills this pack installed, never a user's own."""
+    src = tmp_path / "src_pack"
+    _make_minimal_pack(src, name="forcepack", step_id="alpha")
+    packs.pack_add(str(src), repo_root=str(tmp_path))
+
+    # A second pack ships a skill name the user hand-authored (unreceipted).
+    hand = cwd_repo / "skills" / "beta-agent"
+    hand.mkdir(parents=True)
+    (hand / "SKILL.md").write_text("Mine, not a pack's.\n")
+
+    src2 = tmp_path / "src_pack2"
+    _make_minimal_pack(src2, name="forcepack", step_id="beta")
+    with pytest.raises(packs.PackError, match="conflicts"):
+        packs.pack_add(str(src2), repo_root=str(tmp_path), force=True)
+
+    assert (hand / "SKILL.md").read_text() == "Mine, not a pack's.\n"
+
+
+def test_add_refuses_stray_file_under_pack_skills(tmp_path, cwd_repo):
+    """Non-directory entries under skills/ would be copied outside conflict
+    detection and deleted by a later pack remove."""
+    src = tmp_path / "stray_pack"
+    _make_minimal_pack(src, name="straypack")
+    (src / "skills" / "README.md").write_text("pack docs\n")
+
+    user_readme = cwd_repo / "skills" / "README.md"
+    user_readme.parent.mkdir(parents=True, exist_ok=True)
+    user_readme.write_text("user's own notes\n")
+
+    with pytest.raises(packs.PackError, match="only skill directories"):
+        packs.pack_add(str(src), repo_root=str(tmp_path))
+
+    assert user_readme.read_text() == "user's own notes\n"
 
 
 # --------------------------------------------------------------------------
@@ -360,3 +450,39 @@ def test_cli_main_add_force(tmp_path, cwd_repo, capsys):
 def test_cli_main_unknown_subcommand(cwd_repo, capsys):
     assert packs.main(["bogus"]) == 1
     assert "unknown pack subcommand" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------
+# End-to-end resolution of a vendored skill — no ORCHESTRATOR_SKILLS_TEST_OVERRIDE.
+#
+# The override short-circuits skill_search_dirs() before the <repo>/skills
+# branch, so every override-based test passes even when repo-root derivation
+# is wrong. These two exercise the real path under both config-discovery
+# routes.
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("route", ["orchestrator_config", "repo_root"])
+def test_vendored_skill_resolves_without_override(
+    tmp_path, cwd_repo, vendored_root, monkeypatch, route
+):
+    src = tmp_path / "resolve_src"
+    _make_minimal_pack(src, name="resolvable", step_id="vendored")
+    packs.pack_add(str(src), repo_root=str(tmp_path))
+
+    vendored_skill = cwd_repo / "skills" / "vendored-agent"
+    assert vendored_skill.is_dir()
+
+    if route == "orchestrator_config":
+        monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(vendored_root))
+    else:
+        monkeypatch.setenv("REPO_ROOT", str(cwd_repo))
+        monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
+    monkeypatch.delenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", raising=False)
+    # validate_pack mutates os.environ directly; make the "no override" claim
+    # load-bearing rather than assumed.
+    assert "ORCHESTRATOR_SKILLS_TEST_OVERRIDE" not in os.environ
+
+    from orchestrator_next.parser import resolve_prompt_dir, skill_search_dirs
+
+    assert cwd_repo / "skills" in skill_search_dirs()
+    assert resolve_prompt_dir("vendored-agent") == vendored_skill.resolve()

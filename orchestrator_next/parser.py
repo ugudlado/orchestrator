@@ -29,6 +29,9 @@ class AgentStepContract:
     id: str
     model: str | None
     instruction: str
+    # Resolved prompt directory (skills/<name> or legacy step dir). Exported as
+    # ORCHESTRATOR_PROMPT_DIR so learn can colocate scenarios beside the charter.
+    prompt_dir: str | None = None
     state_mutating: bool = False
     default_outputs: dict = field(default_factory=dict)
 
@@ -65,17 +68,30 @@ def strip_skill_frontmatter(text: str) -> str:
     return text
 
 
+def repo_root_from_config_root(root: Path) -> Path | None:
+    """Checkout root for a config root, or None when it isn't a known layout.
+
+    Two layouts hold: a vendored pack at ``<repo>/.orchestrator/config`` and an
+    engine checkout at ``<repo>/config``. packs.py resolves ``@repo/`` receipts
+    through this, and skill_search_dirs() searches ``<repo>/skills`` — the two
+    must agree or vendored skills become unresolvable.
+    """
+    if root.parent.name == ".orchestrator":
+        return root.parent.parent
+    if root.name == "config":
+        return root.parent
+    return None
+
+
 def _repo_root_from_config() -> Path | None:
-    """Best-effort checkout root when ORCHESTRATOR_CONFIG points at <repo>/config."""
+    """Best-effort checkout root for the currently-active config root."""
     try:
         from orchestrator_next.paths import config_root
 
         root = config_root()
     except Exception:
         return None
-    if root.name == "config":
-        return root.parent
-    return None
+    return repo_root_from_config_root(root)
 
 
 def skill_search_dirs() -> list[Path]:
@@ -108,20 +124,44 @@ def skill_search_dirs() -> list[Path]:
     return dirs
 
 
-def resolve_skill_path(skill_name: str) -> Path:
-    """Return path to SKILL.md for an installed skill, or raise ContractError."""
-    for root in skill_search_dirs():
-        candidate = root / skill_name / "SKILL.md"
-        if candidate.is_file():
-            return candidate
-        # Install may link the pack dir (SKILL.md at link root).
-        linked = root / skill_name
-        if linked.is_dir() and (linked / "SKILL.md").is_file():
-            return linked / "SKILL.md"
+def resolve_prompt_dir(prompt_ref: str) -> Path:
+    """Return a prompt directory resolved through ``skill_search_dirs()``.
+
+    The directory must contain ``SKILL.md`` and/or ``prompt.md``. Executor
+    preference: ``SKILL.md`` if present, else ``prompt.md``.
+    """
+    ref = prompt_ref.strip()
+    rel = Path(ref)
+    if not ref or rel.is_absolute() or ".." in rel.parts:
+        raise ContractError(
+            f"prompt: must be a relative directory name (got {prompt_ref!r})"
+        )
+    searched = skill_search_dirs()
+    for root in searched:
+        candidate = root / ref
+        if not candidate.is_dir():
+            continue
+        if (candidate / "SKILL.md").is_file() or (candidate / "prompt.md").is_file():
+            return candidate.resolve()
     raise ContractError(
-        f"skill {skill_name!r} not found (searched: "
-        + ", ".join(str(d) for d in skill_search_dirs())
+        f"prompt {ref!r} not found (searched: "
+        + ", ".join(str(d) for d in searched)
         + ")"
+    )
+
+
+def resolve_skill_path(skill_name: str) -> Path:
+    """Return path to SKILL.md for an installed skill, or raise ContractError.
+
+    Deprecated alias for callers that still want the charter file; prefer
+    ``resolve_prompt_dir`` + convention load.
+    """
+    prompt_dir = resolve_prompt_dir(skill_name)
+    skill_md = prompt_dir / "SKILL.md"
+    if skill_md.is_file():
+        return skill_md
+    raise ContractError(
+        f"skill {skill_name!r} has no SKILL.md at {prompt_dir}"
     )
 
 
@@ -132,68 +172,70 @@ def _load_prompt_file(path: Path, *, strip_frontmatter: bool) -> str:
     return raw
 
 
-def _append_learnings(contract_dir: str, instruction: str) -> str:
-    learnings_path = os.path.join(contract_dir, "pack", "learnings.md")
-    if not os.path.isfile(learnings_path):
-        learnings_path = os.path.join(contract_dir, "learnings.md")
-    if os.path.isfile(learnings_path):
-        with open(learnings_path, "r", encoding="utf-8") as f:
-            learnings = f.read().strip()
+def _load_instruction_from_prompt_dir(prompt_dir: Path) -> str:
+    """Load charter from a prompt directory (SKILL.md preferred over prompt.md)."""
+    skill_md = prompt_dir / "SKILL.md"
+    prompt_md = prompt_dir / "prompt.md"
+    if skill_md.is_file():
+        return _load_prompt_file(skill_md, strip_frontmatter=True)
+    if prompt_md.is_file():
+        return _load_prompt_file(prompt_md, strip_frontmatter=False)
+    raise ContractError(
+        f"prompt dir {prompt_dir} has neither SKILL.md nor prompt.md"
+    )
+
+
+def _append_learnings(prompt_dir: str | Path, instruction: str) -> str:
+    """Append colocated ``learnings.md`` beside the prompt that ran (not pack/)."""
+    learnings_path = Path(prompt_dir) / "learnings.md"
+    if learnings_path.is_file():
+        learnings = learnings_path.read_text(encoding="utf-8").strip()
         if learnings:
             return f"{instruction}\n\n{learnings}\n"
     return instruction
 
 
-def _resolve_agent_instruction(contract_dir: str, step_id: str, data: dict[str, Any]) -> str:
-    """Load instruction from ``skill:`` or ``prompt:`` (exactly one required)."""
-    skill = data.get("skill")
-    prompt = data.get("prompt")
-    if skill and prompt:
+def _resolve_agent_instruction(
+    contract_dir: str, step_id: str, data: dict[str, Any]
+) -> tuple[str, str]:
+    """Load instruction and resolved prompt dir from ``prompt:`` (or legacy siblings).
+
+    Returns ``(instruction, prompt_dir)``. ``skill:`` is rejected — use ``prompt:``.
+    """
+    if data.get("skill"):
         raise ContractError(
-            f"step contract {step_id} must not declare both skill: and prompt:"
+            f"step contract {step_id} uses removed skill: field; "
+            f"use prompt: <dir> (resolved via skill search dirs)"
         )
-    if not skill and not prompt:
-        # Legacy fallback: pack/SKILL.md or pack/prompt.md (pre-skill:/prompt: contracts).
+    prompt = data.get("prompt")
+    if not prompt:
+        # Legacy fallback: charter beside the step contract (pre-prompt: contracts).
         for rel in ("pack/SKILL.md", "SKILL.md", "pack/prompt.md", "prompt.md"):
             path = Path(contract_dir) / rel
             if path.is_file():
-                return _append_learnings(
-                    contract_dir,
-                    _load_prompt_file(path, strip_frontmatter=rel.endswith("SKILL.md")),
+                prompt_dir = path.parent
+                instruction = _append_learnings(
+                    prompt_dir,
+                    _load_prompt_file(path, strip_frontmatter=path.name == "SKILL.md"),
                 )
+                return instruction, str(prompt_dir.resolve())
         raise ContractError(
-            f"step contract {step_id} must declare skill: <name> or prompt: <file> "
+            f"step contract {step_id} must declare prompt: <dir> "
             "(or run: for shell steps)"
         )
 
     if not data.get("model"):
         raise ContractError(
-            f"step contract {step_id} with skill:/prompt: requires model: <alias>"
+            f"step contract {step_id} with prompt: requires model: <alias>"
         )
-
-    if skill:
-        if not isinstance(skill, str) or not skill.strip():
-            raise ContractError(f"step contract {step_id} skill: must be a non-empty string")
-        path = resolve_skill_path(skill.strip())
-        return _append_learnings(
-            contract_dir, _load_prompt_file(path, strip_frontmatter=True)
-        )
-
     if not isinstance(prompt, str) or not prompt.strip():
         raise ContractError(f"step contract {step_id} prompt: must be a non-empty string")
-    rel = Path(prompt.strip())
-    if rel.is_absolute() or ".." in rel.parts:
-        raise ContractError(
-            f"step contract {step_id} prompt: must be a relative path within the step dir"
-        )
-    path = Path(contract_dir) / rel
-    if not path.is_file():
-        raise ContractError(
-            f"step contract {step_id} prompt file missing: {path}"
-        )
-    return _append_learnings(
-        contract_dir, _load_prompt_file(path, strip_frontmatter=path.name == "SKILL.md")
+
+    prompt_dir = resolve_prompt_dir(prompt)
+    instruction = _append_learnings(
+        prompt_dir, _load_instruction_from_prompt_dir(prompt_dir)
     )
+    return instruction, str(prompt_dir)
 
 
 @dataclass
@@ -252,6 +294,7 @@ def _make_contract(
     data: dict[str, Any],
     run: str | None,
     instruction: str,
+    prompt_dir: str | None = None,
 ) -> StepContract:
     shared = dict(
         id=data.get("id", step_id),
@@ -264,6 +307,7 @@ def _make_contract(
             **shared,
             model=data.get("model") or None,
             instruction=instruction,
+            prompt_dir=prompt_dir,
             default_outputs=default_outputs,
         )
     return ScriptStepContract(**shared, run=run)
@@ -298,11 +342,16 @@ def load_contract_for_step(step_id: str) -> StepContract:
                         f"script contract {step_id} missing script payload: {run}"
                     )
                 instruction = ""
+                prompt_dir = None
             else:
-                instruction = _resolve_agent_instruction(contract_dir, step_id, data)
+                instruction, prompt_dir = _resolve_agent_instruction(
+                    contract_dir, step_id, data
+                )
                 run = None
 
-            return _make_contract(step_id, data, run, instruction)
+            return _make_contract(
+                step_id, data, run, instruction, prompt_dir=prompt_dir
+            )
 
     raise FileNotFoundError(
         f"Step contract not found for '{step_id}'. Searched: {search_dirs}"

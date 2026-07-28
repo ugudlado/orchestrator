@@ -12,6 +12,9 @@ when a value exists):
   REPO_ROOT, ORCHESTRATOR_REPO_ROOT
   CHANGE_ID, ORCHESTRATOR_CHANGE_ID
   ORCHESTRATOR_STEP_DIR (set by run_loop; each script.sh resolves its own payload)
+  ORCHESTRATOR_PROMPT_DIR (agent steps; resolved prompt directory for colocation)
+  ORCHESTRATOR_PROMPT_DIRS (agent steps; JSON step_id -> resolved prompt dir for
+    every agent step in the workflow, so a step can write beside another step)
   ORCHESTRATOR_PHASE, ORCHESTRATOR_STEP_ID, ORCHESTRATOR_ATTEMPT
   ORCHESTRATOR_WORKFLOW_DIR, ORCHESTRATOR_WORKTREE_ARTIFACT_DIR
   WORKTREE_PATH, WORKTREE_ROOT (when worktree_path in state)

@@ -157,11 +157,13 @@ class TestAgentKindContractLoad:
         }, prompt_text=None)  # deliberately no prompt.md
 
         from orchestrator_next.parser import load_contract_for_step, ContractError
-        with pytest.raises(ContractError, match="skill: <name> or prompt:"):
+        with pytest.raises(ContractError, match="prompt: <dir>"):
             load_contract_for_step("no-prompt")
 
-    def test_skill_md_preferred_and_frontmatter_stripped(self, steps_dir, tmp_path, monkeypatch):
-        """skill: resolves installed SKILL.md; YAML frontmatter is stripped."""
+    def test_prompt_dir_skill_md_preferred_and_frontmatter_stripped(
+        self, steps_dir, tmp_path, monkeypatch
+    ):
+        """prompt: resolves a directory; SKILL.md wins; YAML frontmatter is stripped."""
         skills = tmp_path / "skills"
         skill_dir = skills / "explore"
         skill_dir.mkdir(parents=True)
@@ -170,23 +172,63 @@ class TestAgentKindContractLoad:
         )
         monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", str(skills))
         _write_dir_contract(steps_dir, "explore", {
-            "id": "explore", "version": 1, "model": "sonnet", "skill": "explore",
+            "id": "explore", "version": 1, "model": "sonnet", "prompt": "explore",
         }, prompt_text=None)
 
         from orchestrator_next.parser import load_contract_for_step
         contract = load_contract_for_step("explore")
         assert contract.instruction == "Skill body here.\n"
         assert "name: explore" not in contract.instruction
+        assert contract.prompt_dir == str(skill_dir.resolve())
 
-    def test_prompt_field_loads_relative_file(self, steps_dir):
-        step_dir = _write_dir_contract(steps_dir, "one-off", {
-            "id": "one-off", "version": 1, "model": "sonnet", "prompt": "charter.md",
+    def test_prompt_field_loads_directory_with_prompt_md(
+        self, steps_dir, tmp_path, monkeypatch
+    ):
+        skills = tmp_path / "skills"
+        prompt_dir = skills / "one-off"
+        prompt_dir.mkdir(parents=True)
+        (prompt_dir / "prompt.md").write_text("Local charter body.\n")
+        monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", str(skills))
+        _write_dir_contract(steps_dir, "one-off", {
+            "id": "one-off", "version": 1, "model": "sonnet", "prompt": "one-off",
         }, prompt_text=None)
-        (step_dir / "charter.md").write_text("Local charter body.\n")
 
         from orchestrator_next.parser import load_contract_for_step
         contract = load_contract_for_step("one-off")
         assert contract.instruction == "Local charter body.\n"
+        assert contract.prompt_dir == str(prompt_dir.resolve())
+
+    def test_skill_field_rejected(self, steps_dir):
+        _write_dir_contract(steps_dir, "legacy-skill", {
+            "id": "legacy-skill", "version": 1, "model": "sonnet", "skill": "explore",
+        }, prompt_text=None)
+        from orchestrator_next.parser import load_contract_for_step, ContractError
+        with pytest.raises(ContractError, match="removed skill:"):
+            load_contract_for_step("legacy-skill")
+
+    def test_learnings_colocated_beside_prompt_dir(
+        self, steps_dir, tmp_path, monkeypatch
+    ):
+        skills = tmp_path / "skills"
+        prompt_dir = skills / "explore"
+        prompt_dir.mkdir(parents=True)
+        (prompt_dir / "SKILL.md").write_text("Body.\n")
+        (prompt_dir / "learnings.md").write_text("- Prefer README scope.\n")
+        monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", str(skills))
+        _write_dir_contract(steps_dir, "explore", {
+            "id": "explore", "version": 1, "model": "sonnet", "prompt": "explore",
+        }, prompt_text=None)
+
+        from orchestrator_next.parser import load_contract_for_step
+        contract = load_contract_for_step("explore")
+        assert "Body." in contract.instruction
+        assert "Prefer README scope." in contract.instruction
+        # pack/learnings.md under the step dir must NOT be read
+        pack = steps_dir / "explore" / "pack"
+        pack.mkdir()
+        (pack / "learnings.md").write_text("- Must not appear.\n")
+        contract2 = load_contract_for_step("explore")
+        assert "Must not appear." not in contract2.instruction
 
 
 # ---------------------------------------------------------------------------
@@ -262,22 +304,14 @@ class TestScriptKindContractLoad:
             load_contract_for_step("no-script")
 
     def test_dir_contract_missing_kind_raises_contract_error(self, steps_dir):
-        """Scenario 3: contract.yaml missing kind: field raises ContractError naming the field.
-
-        Design.md error table: load_contract_for_step raises
-        ContractError("contract <id> missing kind: field (agent|script)")
-        when kind is absent from a directory-form contract.yaml.
-
-        Currently RED: load_contract_for_step never reads contract.yaml, so it raises
-        FileNotFoundError (no <id>.yaml) instead of ContractError.
-        """
+        """Agent contracts without prompt:/run: and without a sibling charter raise."""
         _write_dir_contract(
             steps_dir,
             "no-kind",
             {
                 "id": "no-kind",
                 "version": 1,
-                # deliberately no 'kind' field
+                # deliberately no 'kind' / prompt / run
                 "agent": "architect",
                 "inputs": [],
                 "outputs": [],
@@ -286,5 +320,5 @@ class TestScriptKindContractLoad:
         )
 
         from orchestrator_next.parser import load_contract_for_step, ContractError
-        with pytest.raises(ContractError, match="kind"):
+        with pytest.raises(ContractError, match="prompt: <dir>"):
             load_contract_for_step("no-kind")

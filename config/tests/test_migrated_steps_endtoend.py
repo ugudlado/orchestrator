@@ -1,9 +1,9 @@
 """
-End-to-end tests for step directory contracts (shell | skill | prompt).
+End-to-end tests for step directory contracts (shell | prompt).
 
 Discovers every config/steps/<id>/ directory that contains a contract.yaml
 and asserts:
-  - skill/prompt steps (model:) load non-empty instruction
+  - prompt steps (model:) load non-empty instruction + prompt_dir
   - shell steps (run:) resolve to an existing script path
 """
 from __future__ import annotations
@@ -43,17 +43,15 @@ def _step_kind(step_id: str) -> str:
         data = yaml.safe_load(f) or {}
     if data.get("run"):
         return "shell"
-    if data.get("skill"):
-        return "skill"
     if data.get("prompt"):
         return "prompt"
     if data.get("model"):
-        return "skill"  # legacy model-only
+        return "prompt"  # legacy model-only
     return "unknown"
 
 
 _ALL_STEP_IDS = _discover_step_dirs()
-_AGENT_STEP_IDS = [sid for sid in _ALL_STEP_IDS if _step_kind(sid) in ("skill", "prompt")]
+_AGENT_STEP_IDS = [sid for sid in _ALL_STEP_IDS if _step_kind(sid) == "prompt"]
 _SHELL_STEP_IDS = [sid for sid in _ALL_STEP_IDS if _step_kind(sid) == "shell"]
 
 
@@ -66,12 +64,12 @@ def point_parser_at_real_steps(monkeypatch):
 @pytest.mark.parametrize("step_id", _ALL_STEP_IDS)
 def test_contract_kind_matches_yaml(step_id: str):
     expected_kind = _step_kind(step_id)
-    assert expected_kind in ("skill", "prompt", "shell"), (
-        f"{step_id}/contract.yaml must declare run: | skill:+model: | prompt:+model:; got {expected_kind!r}"
+    assert expected_kind in ("prompt", "shell"), (
+        f"{step_id}/contract.yaml must declare run: | prompt:+model:; got {expected_kind!r}"
     )
 
     contract = load_contract_for_step(step_id)
-    if expected_kind in ("skill", "prompt"):
+    if expected_kind == "prompt":
         assert isinstance(contract, AgentStepContract), (
             f"{step_id}: expected AgentStepContract, got {type(contract).__name__}"
         )
@@ -88,14 +86,12 @@ def test_agent_instruction_non_empty(step_id: str):
     assert contract.instruction, (
         f"{step_id}: contract.instruction is empty"
     )
+    assert contract.prompt_dir and os.path.isdir(contract.prompt_dir), (
+        f"{step_id}: missing prompt_dir {contract.prompt_dir!r}"
+    )
     with open(os.path.join(_STEPS_DIR, step_id, "contract.yaml")) as f:
         data = yaml.safe_load(f) or {}
-    if data.get("skill"):
-        skill_path = os.path.join(_SKILLS_DIR, data["skill"], "SKILL.md")
-        assert os.path.isfile(skill_path), f"missing installed skill: {skill_path}"
-    elif data.get("prompt"):
-        prompt_path = os.path.join(_STEPS_DIR, step_id, data["prompt"])
-        assert os.path.isfile(prompt_path), f"missing prompt file: {prompt_path}"
+    assert data.get("prompt"), f"{step_id}: expected prompt: in contract"
 
 
 @pytest.mark.parametrize("step_id", _SHELL_STEP_IDS)
