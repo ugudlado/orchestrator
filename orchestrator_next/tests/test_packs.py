@@ -48,7 +48,7 @@ def _make_minimal_pack(root: Path, *, name: str = "widgets", protocol: int = 1,
         agent_dir = root / "steps" / agent_step_id
         agent_dir.mkdir(parents=True)
         _write_yaml(agent_dir / "contract.yaml", {
-            "id": agent_step_id, "version": 1, "model": model, "prompt": agent_step_id,
+            "id": agent_step_id, "version": 1, "model": model, "prompt": f"{agent_step_id}/prompt.md",
         })
         skill_dir = root / "skills" / agent_step_id
         skill_dir.mkdir(parents=True)
@@ -539,7 +539,7 @@ def test_validate_resolves_skill_from_target_repo(tmp_path, cwd_repo):
     _write_skill(cwd_repo / "skills" / "repo-only-charter")
 
     src = tmp_path / "shared_src"
-    _make_pack_referencing_skill(src, name="sharedpack", prompt="repo-only-charter")
+    _make_pack_referencing_skill(src, name="sharedpack", prompt="repo-only-charter/SKILL.md")
 
     result = packs.validate_pack(src, str(cwd_repo))
     assert result.ok, result.errors
@@ -554,7 +554,7 @@ def test_validate_fails_when_skill_absent_everywhere(tmp_path, cwd_repo):
     """
     src = tmp_path / "missing_src"
     _make_pack_referencing_skill(
-        src, name="missingpack", prompt="zz-nonexistent-charter-xyz"
+        src, name="missingpack", prompt="zz-nonexistent-charter-xyz/SKILL.md"
     )
     assert not (cwd_repo / "skills" / "zz-nonexistent-charter-xyz").exists()
 
@@ -578,7 +578,7 @@ def test_validate_ignores_ambient_repo_root(tmp_path, cwd_repo, monkeypatch):
     (other / ".orchestrator" / "config" / "workflows").mkdir(parents=True)
 
     src = tmp_path / "ambient_src"
-    _make_pack_referencing_skill(src, name="ambientpack", prompt="elsewhere-charter")
+    _make_pack_referencing_skill(src, name="ambientpack", prompt="elsewhere-charter/SKILL.md")
 
     monkeypatch.setenv("REPO_ROOT", str(other))
     assert not packs.validate_pack(src, str(cwd_repo)).ok
@@ -592,7 +592,7 @@ def test_pack_local_skill_shadows_repo_copy(tmp_path, cwd_repo):
     _write_skill(cwd_repo / "skills" / "dual-charter", "Repo copy.\n")
 
     src = tmp_path / "shadow_src"
-    _make_pack_referencing_skill(src, name="shadowpack", prompt="dual-charter")
+    _make_pack_referencing_skill(src, name="shadowpack", prompt="dual-charter/SKILL.md")
     _write_skill(src / "skills" / "dual-charter", "Pack copy.\n")
 
     result = packs.validate_pack(src, str(cwd_repo))
@@ -632,7 +632,7 @@ def test_vendored_skill_resolves_without_override(
     # load-bearing rather than assumed.
     assert "ORCHESTRATOR_SKILLS_TEST_OVERRIDE" not in os.environ
 
-    from orchestrator_next.parser import resolve_prompt_dir, skill_search_dirs
+    from orchestrator_next.parser import resolve_prompt_file, skill_search_dirs
 
     assert cwd_repo / "skills" in skill_search_dirs()
-    assert resolve_prompt_dir("vendored-agent") == vendored_skill.resolve()
+    assert resolve_prompt_file("vendored-agent/prompt.md") == (vendored_skill / "prompt.md").resolve()

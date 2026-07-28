@@ -12,12 +12,13 @@ Same inputs → same action. File ops, fixed CLI, git, webhooks, ticket status.
 **Naming:** imperative verb-object — `create-worktree`, `ticket-start`,
 `intake-brief`.
 
-## Judgment → prompt (`model:` + `prompt: <dir>`)
+## Judgment → prompt (`model:` + `prompt: <path>.md`)
 
 Anything requiring LLM reasoning: summarizing, critiquing, deciding relevance,
 writing prose, choosing between plausible options.
 
-- `prompt:` names a **directory**, resolved through the skill search dirs — not
+- `prompt:` is a relative path to a **`.md` file** (`<name>/SKILL.md` or
+  `<name>/prompt.md`), resolved through the skill search dirs — not
   a file under the step dir.
 - The charter inside it is `SKILL.md` if present, else `prompt.md`.
 - Workflow entry: `- prompt: ux-critique`, or `- id: ux-critique` with

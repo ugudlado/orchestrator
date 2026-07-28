@@ -134,24 +134,29 @@ def skill_search_dirs() -> list[Path]:
     return dirs
 
 
-def resolve_prompt_dir(prompt_ref: str) -> Path:
-    """Return a prompt directory resolved through ``skill_search_dirs()``.
+def resolve_prompt_file(prompt_ref: str) -> Path:
+    """Return the prompt ``.md`` file resolved through ``skill_search_dirs()``.
 
-    The directory must contain ``SKILL.md`` and/or ``prompt.md``. Executor
-    preference: ``SKILL.md`` if present, else ``prompt.md``.
+    ``prompt:`` is a relative path to a markdown file: ``<name>/SKILL.md``
+    (skill conventions — frontmatter stripped, colocated scenarios/learnings)
+    or any other ``.md`` file (loaded verbatim). Directory names are rejected;
+    the contract names the file itself.
     """
     ref = prompt_ref.strip()
     rel = Path(ref)
     if not ref or rel.is_absolute() or ".." in rel.parts:
         raise ContractError(
-            f"prompt: must be a relative directory name (got {prompt_ref!r})"
+            f"prompt: must be a relative .md path (got {prompt_ref!r})"
+        )
+    if rel.suffix != ".md":
+        raise ContractError(
+            f"prompt: must point at a .md file, e.g. {ref}/SKILL.md "
+            f"or {ref}/prompt.md (got {prompt_ref!r})"
         )
     searched = skill_search_dirs()
     for root in searched:
-        candidate = root / ref
-        if not candidate.is_dir():
-            continue
-        if (candidate / "SKILL.md").is_file() or (candidate / "prompt.md").is_file():
+        candidate = root / rel
+        if candidate.is_file():
             return candidate.resolve()
     raise ContractError(
         f"prompt {ref!r} not found (searched: "
@@ -160,39 +165,11 @@ def resolve_prompt_dir(prompt_ref: str) -> Path:
     )
 
 
-def resolve_skill_path(skill_name: str) -> Path:
-    """Return path to SKILL.md for an installed skill, or raise ContractError.
-
-    Deprecated alias for callers that still want the charter file; prefer
-    ``resolve_prompt_dir`` + convention load.
-    """
-    prompt_dir = resolve_prompt_dir(skill_name)
-    skill_md = prompt_dir / "SKILL.md"
-    if skill_md.is_file():
-        return skill_md
-    raise ContractError(
-        f"skill {skill_name!r} has no SKILL.md at {prompt_dir}"
-    )
-
-
 def _load_prompt_file(path: Path, *, strip_frontmatter: bool) -> str:
     raw = path.read_text(encoding="utf-8")
     if strip_frontmatter or path.name == "SKILL.md":
         return strip_skill_frontmatter(raw)
     return raw
-
-
-def _load_instruction_from_prompt_dir(prompt_dir: Path) -> str:
-    """Load charter from a prompt directory (SKILL.md preferred over prompt.md)."""
-    skill_md = prompt_dir / "SKILL.md"
-    prompt_md = prompt_dir / "prompt.md"
-    if skill_md.is_file():
-        return _load_prompt_file(skill_md, strip_frontmatter=True)
-    if prompt_md.is_file():
-        return _load_prompt_file(prompt_md, strip_frontmatter=False)
-    raise ContractError(
-        f"prompt dir {prompt_dir} has neither SKILL.md nor prompt.md"
-    )
 
 
 def _append_learnings(prompt_dir: str | Path, instruction: str) -> str:
@@ -215,7 +192,7 @@ def _resolve_agent_instruction(
     if data.get("skill"):
         raise ContractError(
             f"step contract {step_id} uses removed skill: field; "
-            f"use prompt: <dir> (resolved via skill search dirs)"
+            f"use prompt: <path>.md (resolved via skill search dirs)"
         )
     prompt = data.get("prompt")
     if not prompt:
@@ -230,7 +207,7 @@ def _resolve_agent_instruction(
                 )
                 return instruction, str(prompt_dir.resolve())
         raise ContractError(
-            f"step contract {step_id} must declare prompt: <dir> "
+            f"step contract {step_id} must declare prompt: <path>.md "
             "(or run: for shell steps)"
         )
 
@@ -241,9 +218,11 @@ def _resolve_agent_instruction(
     if not isinstance(prompt, str) or not prompt.strip():
         raise ContractError(f"step contract {step_id} prompt: must be a non-empty string")
 
-    prompt_dir = resolve_prompt_dir(prompt)
+    prompt_file = resolve_prompt_file(prompt)
+    prompt_dir = prompt_file.parent
     instruction = _append_learnings(
-        prompt_dir, _load_instruction_from_prompt_dir(prompt_dir)
+        prompt_dir,
+        _load_prompt_file(prompt_file, strip_frontmatter=prompt_file.name == "SKILL.md"),
     )
     return instruction, str(prompt_dir)
 

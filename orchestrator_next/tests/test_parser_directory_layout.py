@@ -157,13 +157,13 @@ class TestAgentKindContractLoad:
         }, prompt_text=None)  # deliberately no prompt.md
 
         from orchestrator_next.parser import load_contract_for_step, ContractError
-        with pytest.raises(ContractError, match="prompt: <dir>"):
+        with pytest.raises(ContractError, match="prompt: <path>.md"):
             load_contract_for_step("no-prompt")
 
     def test_prompt_dir_skill_md_preferred_and_frontmatter_stripped(
         self, steps_dir, tmp_path, monkeypatch
     ):
-        """prompt: resolves a directory; SKILL.md wins; YAML frontmatter is stripped."""
+        """prompt: resolves an .md path; SKILL.md gets frontmatter stripped."""
         skills = tmp_path / "skills"
         skill_dir = skills / "explore"
         skill_dir.mkdir(parents=True)
@@ -172,7 +172,7 @@ class TestAgentKindContractLoad:
         )
         monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", str(skills))
         _write_dir_contract(steps_dir, "explore", {
-            "id": "explore", "version": 1, "model": "sonnet", "prompt": "explore",
+            "id": "explore", "version": 1, "model": "sonnet", "prompt": "explore/SKILL.md",
         }, prompt_text=None)
 
         from orchestrator_next.parser import load_contract_for_step
@@ -190,7 +190,7 @@ class TestAgentKindContractLoad:
         (prompt_dir / "prompt.md").write_text("Local charter body.\n")
         monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", str(skills))
         _write_dir_contract(steps_dir, "one-off", {
-            "id": "one-off", "version": 1, "model": "sonnet", "prompt": "one-off",
+            "id": "one-off", "version": 1, "model": "sonnet", "prompt": "one-off/prompt.md",
         }, prompt_text=None)
 
         from orchestrator_next.parser import load_contract_for_step
@@ -216,7 +216,7 @@ class TestAgentKindContractLoad:
         (prompt_dir / "learnings.md").write_text("- Prefer README scope.\n")
         monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", str(skills))
         _write_dir_contract(steps_dir, "explore", {
-            "id": "explore", "version": 1, "model": "sonnet", "prompt": "explore",
+            "id": "explore", "version": 1, "model": "sonnet", "prompt": "explore/SKILL.md",
         }, prompt_text=None)
 
         from orchestrator_next.parser import load_contract_for_step
@@ -320,5 +320,5 @@ class TestScriptKindContractLoad:
         )
 
         from orchestrator_next.parser import load_contract_for_step, ContractError
-        with pytest.raises(ContractError, match="prompt: <dir>"):
+        with pytest.raises(ContractError, match="prompt: <path>.md"):
             load_contract_for_step("no-kind")

@@ -88,15 +88,17 @@ from under you.
 
 The orchestrator executes **two** kinds of steps:
 
-| Kind       | Contract                   | Charter source                                     | Role                   |
-| ---------- | -------------------------- | -------------------------------------------------- | ---------------------- |
-| **Shell**  | `run: script.sh`           | —                                                  | Deterministic plumbing |
-| **Prompt** | `model:` + `prompt: <dir>` | `SKILL.md` if present else `prompt.md` in that dir | LLM procedure          |
+| Kind       | Contract                       | Charter source                                            | Role                   |
+| ---------- | ------------------------------ | --------------------------------------------------------- | ---------------------- |
+| **Shell**  | `run: script.sh`               | —                                                         | Deterministic plumbing |
+| **Prompt** | `model:` + `prompt: <path>.md` | that file: `<name>/SKILL.md` (skill) or any `.md` (plain) | LLM procedure          |
 
-`prompt:` names a **directory** resolved via skill search dirs (not a file under
-the step dir). The same directory is what `prompt-eval --pack` takes — runtime
-and optimizer share one unit. Skill vs plain-prompt is an optimizer concern
-(directory contents), not an executor field.
+`prompt:` is a relative **path to a `.md` file**, resolved via skill search
+dirs — `design/SKILL.md` (skill conventions: frontmatter stripped/composed,
+colocated `scenarios/`, `metrics.md`, `learnings.md`) or any other `.md`
+(loaded verbatim). The file's parent directory is what `prompt-eval --pack`
+takes — runtime and optimizer share one unit. Skill vs plain-prompt is decided
+by the filename, not a second field.
 
 ### Naming
 
@@ -154,14 +156,15 @@ that.
 - `version` — integer, bumped on behavior change.
 - Exactly one of:
   - `run: script.sh` — **shell**
-  - `prompt: <dir>` + `model: <alias>` — **prompt** (directory via skill search)
+  - `prompt: <path>.md` + `model: <alias>` — **prompt** (file via skill search dirs)
 
 Optional: `state_mutating`, `default_outputs`. Any other key is ignored by
 the engine, with one exception: `skill:` is **rejected** with a contract error.
-It was the old way to name a charter and is gone — use `prompt: <dir>`. The
-directory is resolved through the skill search dirs below, and the charter
-inside it is `SKILL.md` if present, else `prompt.md`. There is no second field
-for skill-vs-prompt; the directory's contents decide.
+It was the old way to name a charter and is gone — use `prompt: <path>.md`.
+The path is resolved through the skill search dirs below. `SKILL.md` gets the
+skill conventions (frontmatter stripped, `extends` composition); any other
+`.md` is loaded verbatim. There is no second field for skill-vs-prompt; the
+filename decides.
 
 Skill search order: `$ORCHESTRATOR_SKILLS_PREPEND` (os.pathsep-separated, put
 in front of the normal path) → `$ORCHESTRATOR_SKILLS_TEST_OVERRIDE` (tests,

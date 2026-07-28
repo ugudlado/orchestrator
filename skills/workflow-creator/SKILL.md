@@ -158,7 +158,7 @@ The orchestrator dispatches **two** kinds:
 
 **Shell (deterministic)** — `run: script.sh`
 
-**Prompt (judgment)** — `model:` + `prompt: <dir>`; `prompt:` names a
+**Prompt (judgment)** — `model:` + `prompt: <path>.md`; `prompt:` is a
 _directory_ resolved through the skill search dirs, and the charter inside it is
 `SKILL.md` if present, else `prompt.md`.
 
@@ -167,7 +167,7 @@ Reusable-vs-one-off is not a classification: both are `prompt:` pointing at a
 directory. See [references/classification.md](references/classification.md).
 
 > `skill: <name>` was the old way to name a charter. It is **removed** — a
-> contract carrying it fails with a hard contract error. Use `prompt: <dir>`.
+> contract carrying it fails with a hard contract error. Use `prompt: <path>.md`.
 
 **Reuse:** scan `skills/` and `$ORCH_CONFIG/steps/` before creating. Never clone a
 charter into `config/steps/` — the contract points at the directory, so there is
@@ -214,12 +214,12 @@ steps:
 ```yaml
 id: <id>
 version: 1
-prompt: <id>
+prompt: <id>/SKILL.md # or <id>/prompt.md for a plain (non-skill) charter
 model: sonnet
 ```
 
-The charter lives in the prompt **directory** `skills/<id>/`. One capability is
-one directory, and everything the runtime and the optimizer need about it lives
+The charter file lives in the prompt directory `skills/<id>/`. One capability
+is one directory, and everything the runtime and the optimizer need about it lives
 inside:
 
 ```
@@ -303,7 +303,7 @@ Output artifacts:
 - Never scaffold before the user confirms the I/O contract and step table
 - Classify **shell | prompt** — there is no third kind
 - Never put probabilistic work in shell or deterministic work in a prompt step
-- Charters live in prompt directories under `skills/`; step contracts are thin (`prompt: <dir>` + `model:`)
+- Charters live in prompt directories under `skills/`; step contracts are thin (`prompt: <path>.md` + `model:`)
 - Never write `skill:` in a contract — it is removed and raises a contract error
 - `extends` pins a full commit SHA, never a tag or branch
 - Every workflow starts with `intake-<schema>` and preferably ends with a pack-local `<schema>-learn`
