@@ -60,13 +60,21 @@ def completed_step_ids(state: dict) -> list[str]:
 
 
 def _prompt_name(steps_root: Path, step_id: str) -> str:
-    """The `prompt:` name from a step's contract, else "" for script steps."""
+    """The pack dir ref from a step's contract `prompt:`, else "" for script steps.
+
+    `prompt:` is a relative .md path (e.g. `design/SKILL.md`); the pack is the
+    file's parent dir. A bare `foo.md` at a skills root has no pack dir.
+    """
     try:
         with open(steps_root / step_id / "contract.yaml", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
     except OSError:
         return ""
-    return str(data.get("prompt") or "")
+    ref = str(data.get("prompt") or "")
+    if not ref:
+        return ""
+    parent = str(Path(ref).parent)
+    return "" if parent == "." else parent
 
 
 def _config_root() -> Path:

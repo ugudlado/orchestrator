@@ -1,4 +1,4 @@
 id: review
 version: 5
-prompt: review
+prompt: review/SKILL.md
 model: opus

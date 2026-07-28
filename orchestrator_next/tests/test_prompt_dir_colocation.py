@@ -21,7 +21,7 @@ def test_dispatch_exports_orchestrator_prompt_dir(tmp_path, monkeypatch):
     step = steps / "explore"
     step.mkdir(parents=True)
     (step / "contract.yaml").write_text(
-        yaml.dump({"id": "explore", "version": 1, "model": "sonnet", "prompt": "explore"})
+        yaml.dump({"id": "explore", "version": 1, "model": "sonnet", "prompt": "explore/SKILL.md"})
     )
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
 
@@ -65,7 +65,7 @@ def _multi_step_fixture(tmp_path, monkeypatch, step_ids, *, script_ids=()):
         d = steps / sid
         d.mkdir(parents=True)
         (d / "contract.yaml").write_text(
-            yaml.dump({"id": sid, "version": 1, "model": "sonnet", "prompt": sid})
+            yaml.dump({"id": sid, "version": 1, "model": "sonnet", "prompt": f"{sid}/SKILL.md"})
         )
     for sid in script_ids:
         d = steps / sid

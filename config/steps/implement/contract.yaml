@@ -1,4 +1,4 @@
 id: implement
 version: 1
-prompt: implement
+prompt: implement/SKILL.md
 model: composer

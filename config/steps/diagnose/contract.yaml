@@ -1,4 +1,4 @@
 id: diagnose
 version: 4
-prompt: diagnose
+prompt: diagnose/SKILL.md
 model: sonnet
