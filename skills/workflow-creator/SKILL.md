@@ -3,8 +3,8 @@ name: workflow-creator
 description: >-
   Create orchestrator workflows from any user goal. Web-searches how similar
   real-world workflows are structured, breaks them into steps, classifies each step
-  as shell (script) or skill (SKILL.md), then scaffolds config/workflows and
-  config/steps. Use when the user asks to create a workflow, design a pipeline,
+  as shell (script) or prompt (charter directory), then scaffolds config/workflows
+  and config/steps. Use when the user asks to create a workflow, design a pipeline,
   build a multi-step process (course creator, content, dev, ops, research), or
   says workflow-creator or custom orchestrator schema.
 user-invocable: true
@@ -20,7 +20,7 @@ args:
 Turn a user goal into orchestrator config:
 
 ```
-user ask → scan existing → improve or create → web search → I/O contract → steps → shell|skill → scaffold → hand-off
+user ask → scan existing → improve or create → web search → I/O contract → steps → shell|prompt → scaffold → hand-off
 ```
 
 ---
@@ -29,7 +29,7 @@ user ask → scan existing → improve or create → web search → I/O contract
 
 ### 1. Parse the ask
 
-Extract: goal/deliverable, schema name (kebab-case), artifact root (default `spec/changes/<slug>/`). Ask only if schema name or deliverable is unclear.
+Extract: goal/deliverable, schema name (kebab-case), artifact root (default `$ORCHESTRATOR_WORKTREE_ARTIFACT_DIR/<slug>/`). Ask only if schema name or deliverable is unclear.
 
 ### 2. Scan existing workflows — improve before creating
 
@@ -53,7 +53,7 @@ Read each workflow's `description:` field and compare it against the user's inte
 **If a matching workflow exists** — don't create a new one. Instead, analyse it:
 
 - Does its step list cover the user's stated goal end-to-end?
-- Are there gaps (missing phases, wrong classifications, no intake step, no `workflow-improve`)?
+- Are there gaps (missing phases, wrong classifications, no intake step, no learn step)?
 - Does its I/O contract match what the user needs?
 
 Present a gap analysis:
@@ -66,7 +66,7 @@ Gaps for your use case:
   - Missing: <step or phase>
   - Misclassified: <step> should be shell/prompt because <reason>
   - No intake step — <id> is never resolved to context
-  - No workflow-improve step
+  - No learn step — the workflow never feeds its own improvement loop
 
 Recommendation: improve <schema> rather than creating a new one
 ```
@@ -86,8 +86,22 @@ Before researching steps, nail down what goes **in** and what comes **out** of t
 
 **Output** — what artifacts does a completed run produce?
 
-- Files written to `spec/changes/<slug>/` (reports, packages, configs)
+- Files written under `$ORCHESTRATOR_WORKTREE_ARTIFACT_DIR/<slug>/` (reports, packages, configs)
 - External state changes (ticket closed, record updated, email sent, deployment live)
+
+**`create-worktree` is optional.** The shipped coding workflows open with it,
+but nothing in the engine requires it — a workflow may start with its intake
+step and run to completion with no branch and no worktree. That is the normal
+shape for non-coding workflows. What changes is only the base directory:
+
+| `create-worktree` | `ORCHESTRATOR_WORKTREE_ARTIFACT_DIR` |
+| ----------------- | ------------------------------------ |
+| ran               | `<worktree_path>/spec/changes`       |
+| omitted           | `$REPO_ROOT/spec/changes`            |
+
+Always have steps write to `$ORCHESTRATOR_WORKTREE_ARTIFACT_DIR/<change_id>/`
+so they work either way; never hardcode a worktree path. The engine's only hard
+requirement is a git repo containing `spec/project.yaml` — not a branch.
 
 Write this as a brief contract block — it drives the intake step design and sets expectations for the user.
 
@@ -100,50 +114,80 @@ Search how practitioners actually structure this process — phase names, handof
 The **first step is always an intake shell step** (`intake-<schema>`). It translates the `<id>` the user passes into structured context files that all downstream steps read from:
 
 ```bash
-# intake-<schema>/script.sh — reads $CHANGE_ID, writes context to $CHANGE_DIR
-# Examples:
-#   Pull Linear ticket → write spec/changes/<slug>/ticket.md
-#   Fetch CTMS record  → write spec/changes/<slug>/protocol.json
-#   Validate PDF path  → copy to spec/changes/<slug>/input.pdf
-#   Parse config file  → write spec/changes/<slug>/config.yaml
+# intake-<schema>/script.sh — resolve the change id and the artifact dir the
+# same way examples/content-pipeline-pack/steps/intake-brief/script.sh does:
+#
+#   change_id="${CHANGE_ID:-${ORCHESTRATOR_CHANGE_ID:?change id required}}"
+#   BASE="${ORCHESTRATOR_WORKTREE_ARTIFACT_DIR:-${REPO_ROOT}/spec/changes}"
+#   DIR="${BASE}/${change_id}"; mkdir -p "$DIR"
+#
+# Then write context files into $DIR. Examples:
+#   Pull Linear ticket → write $DIR/ticket.md
+#   Fetch CTMS record  → write $DIR/protocol.json
+#   Validate PDF path  → copy to $DIR/input.pdf
+#   Parse config file  → write $DIR/config.yaml
 ```
 
-The **last step should reuse `learn`** when the workflow should reflect and propose improvements (`ls "$ORCH_CONFIG/steps/learn/"`). Prefer the shared skill name so every workflow feeds the same improvement loop.
+The **last step should be a learn step** when the workflow should reflect and
+feed its own improvement loop.
 
-Middle steps: one clear outcome each, skill-noun or shell verb-object ids, split at natural artifact boundaries.
+**Ship a pack-local learn skill — do not reference the engine's shared `learn`.**
+Install-time validation only sees the pack's _own_ `skills/` directory, so a
+pack whose workflow names `learn` validates against nothing and breaks on
+install. Name it `<schema>-learn`, put it in the pack's `skills/`, and copy
+[`examples/content-pipeline-pack/skills/content-learn/`](../../examples/content-pipeline-pack/skills/content-learn/)
+as the starting point. (The engine may reconcile this later; until it does,
+pack-local is the only shape that installs.)
 
-### 5. Classify each step — shell | skill | prompt
+How a learn step finds its targets: agent steps get
+`ORCHESTRATOR_PROMPT_DIRS`, a JSON object mapping `step_id` → absolute prompt
+directory for every prompt step in the workflow. The learn step looks the
+target step up in that map and appends the scenario to
+`<dir>/scenarios/train.jsonl`. **Train split only** — `dev.jsonl` and
+`holdout.jsonl` stay held out for validation. A step id absent from the map has
+no directory to write beside and is skipped. Never resolve these paths by hand;
+colocation beside the charter is the whole rule.
 
-The orchestrator dispatches **three** kinds:
+Middle steps: one clear outcome each, capability-noun (prompt) or imperative verb-object (shell) ids, split at natural artifact boundaries.
+
+### 5. Classify each step — shell | prompt
+
+The orchestrator dispatches **two** kinds:
 
 **Shell (deterministic)** — `run: script.sh`
 
-**Skill (reusable)** — `model:` + `skill: <name>`; charter in `skills/<name>/SKILL.md`
+**Prompt (judgment)** — `model:` + `prompt: <dir>`; `prompt:` names a
+_directory_ resolved through the skill search dirs, and the charter inside it is
+`SKILL.md` if present, else `prompt.md`.
 
-**Prompt (local)** — `model:` + `prompt: <file>`; charter file under the step dir
+The only question is: does this step need an LLM? Yes → prompt. No → shell.
+Reusable-vs-one-off is not a classification: both are `prompt:` pointing at a
+directory. See [references/classification.md](references/classification.md).
 
-When unsure: reusable outside workflows → skill; one-off → prompt; no LLM → shell.
-See [references/classification.md](references/classification.md).
+> `skill: <name>` was the old way to name a charter. It is **removed** — a
+> contract carrying it fails with a hard contract error. Use `prompt: <dir>`.
 
 **Reuse:** scan `skills/` and `$ORCH_CONFIG/steps/` before creating. Never clone a
-skill charter into `config/steps/`.
+charter into `config/steps/` — the contract points at the directory, so there is
+nothing to copy.
 
 ### 6. Propose and confirm — BEFORE writing any files
 
-| #   | Step id         | Route        | Agent role (if skill) | Rationale       | Inputs     | Outputs |
-| --- | --------------- | ------------ | --------------------- | --------------- | ---------- | ------- |
-| 1   | intake-<schema> | shell        | —                     | Translates id   | $CHANGE_ID | …       |
-| …   | …               | skill/prompt | <id>-er               | …               | …          | …       |
-| N   | learn           | skill        | learner               | Reflects on run | …          | …       |
+| #   | Step id         | Route  | Agent role (if prompt) | Rationale       | Inputs     | Outputs |
+| --- | --------------- | ------ | ---------------------- | --------------- | ---------- | ------- |
+| 1   | intake-<schema> | shell  | —                      | Translates id   | $CHANGE_ID | …       |
+| …   | …               | prompt | <id>-er                | …               | …          | …       |
+| N   | <schema>-learn  | prompt | learner                | Reflects on run | …          | …       |
 
-Workflow entries for skills:
+Workflow entries for prompt steps:
 
 ```yaml
 steps:
-  - skill: explore
+  - prompt: explore # id defaults to the prompt dir name
   - id: design-review
-    skill: design-review
+    prompt: design-review
     on_failure: design
+    max_retries: 2
 ```
 
 Apply edits; then scaffold.
@@ -157,26 +201,65 @@ description: >-
   <One sentence intent>
 steps:
   - intake-<schema>
-  - skill: <capability>
-  - learn
+  - prompt: <capability>
+  - prompt: <schema>-learn
 ```
 
 **Shell step** — `contract.yaml` with `run: script.sh` + `script.sh`.
 
-**Skill step** — thin `config/steps/<id>/contract.yaml`:
+**Prompt step** — thin `config/steps/<id>/contract.yaml`:
 
 ```yaml
 id: <id>
 version: 1
-skill: <id>
+prompt: <id>
 model: sonnet
 ```
 
-Charter in `skills/<id>/SKILL.md` (frontmatter + body). Optional optimizer pack
-files (`pack.yaml`, `metrics.md`, `scenarios/`) live beside the skill.
+The charter lives in the prompt **directory** `skills/<id>/`. One capability is
+one directory, and everything the runtime and the optimizer need about it lives
+inside:
 
-**Prompt step** — `contract.yaml` with `prompt: <file>` + `model:`; markdown file
-under the step dir (any name).
+```
+skills/<id>/
+  SKILL.md              # charter with YAML frontmatter (preferred — emit this)
+  metrics.md            # prose rubrics an LLM judge scores against
+  scenarios/
+    train.jsonl         # optimizer training split; the learn step appends here
+    dev.jsonl           # held out for validation
+    holdout.jsonl       # held out for validation
+```
+
+Write `SKILL.md`, not `prompt.md` — the latter exists only for charters with no
+metadata, and if both are present `SKILL.md` wins. Emit `metrics.md` and all
+three `scenarios/` splits: a skill with no eval bank still runs, it just has no
+feedback signal. There is no per-skill `pack.yaml`; the only `pack.yaml` is the
+one at the pack root.
+
+**Frontmatter.** `name` and `description` are the skill's identity;
+`user-invocable: true` exposes it standalone; `extends` names the base role the
+charter inherits:
+
+```yaml
+---
+name: <id>
+description: "<what it produces>. Use when ..."
+user-invocable: true
+extends: git+git@github.com:ugudlado/prompt-packs.git@302b87dcc7c8b6a83d249194f3e47e98d3214794#operator
+---
+```
+
+The shape is `git+<git-url>@<ref>#<role>`. The ref **must be a full commit
+SHA** — never a tag or branch. The optimizer's clone cache never refreshes once
+populated, so a moved tag keeps serving the base it first fetched while still
+looking pinned; a SHA is the only ref that cannot drift out from under you.
+
+Use the neutral **`operator`** base by default for non-coding roles. The
+coding-specific bases (`architect`, `developer`, `reviewer`, `explorer`) carry
+assumptions about repos, diffs, and tests that mislead a content or ops charter.
+
+Copy [`examples/content-pipeline-pack/`](../../examples/content-pipeline-pack/)
+as the reference shape for a full non-coding pack.
 
 ### 8. Validate
 
@@ -202,11 +285,11 @@ What happens:
   1. intake-<schema> pulls <source> using <id> and writes context to spec/changes/<id>/
   2. <next step> reads <artifact> and produces <output>
   …
-  N. learn reflects on the run and logs improvement proposals
+  N. <schema>-learn reflects on the run and appends scenarios beside the steps that need them
 
 Output artifacts:
   spec/changes/<id>/<key-artifact>
-  spec/changes/<id>/workflow-improvements.md
+  (no worktree → these land under $REPO_ROOT/spec/changes/<id>/)
 ```
 
 ---
@@ -216,7 +299,9 @@ Output artifacts:
 - Flat `steps:` list — order is execution order
 - No LLM tool names in YAML or contracts (agent-agnostic)
 - Never scaffold before the user confirms the I/O contract and step table
-- Classify **shell | skill | prompt**
-- Never put probabilistic work in shell or deterministic work in skill/prompt
-- Skills live under `skills/`; step contracts for skills are thin (`skill:` + `model:`)
-- Every workflow starts with `intake-<schema>` and preferably ends with `learn`
+- Classify **shell | prompt** — there is no third kind
+- Never put probabilistic work in shell or deterministic work in a prompt step
+- Charters live in prompt directories under `skills/`; step contracts are thin (`prompt: <dir>` + `model:`)
+- Never write `skill:` in a contract — it is removed and raises a contract error
+- `extends` pins a full commit SHA, never a tag or branch
+- Every workflow starts with `intake-<schema>` and preferably ends with a pack-local `<schema>-learn`
