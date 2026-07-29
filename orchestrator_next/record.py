@@ -72,22 +72,6 @@ def _merge_evidence_block(
     return {"outputs": outputs, "detail": raw_evidence}
 
 
-# Optional fields copied from done payload into step_history[-1].
-_OPTIONAL_STEP_HISTORY_KEYS = (
-    "artifacts",
-    "review_score",
-    "approach",
-    "regression",
-    "rollback",
-    "retry_context",
-    "regression_check",
-    "blocker",
-    "escalation",
-    "briefing",
-    "reason",
-)
-
-
 _STATE_PATCH_KEYS = frozenset({
     "retries",
     "quarantine_events",
@@ -97,7 +81,6 @@ _STATE_PATCH_KEYS = frozenset({
     "branch",
 })
 
-_PHASE_REVIEW_VERDICTS = frozenset({"pass", "needs_work", "incomplete_phase"})
 _SUCCESS_STATUSES = frozenset({"completed", "recovered"})
 
 
@@ -108,105 +91,36 @@ def _usage_has_tokens(usage: dict[str, Any]) -> bool:
     )
 
 
-def _validate_phase_review_output(step_id: str, outputs: dict[str, Any]) -> None:
-    """Reject invalid phase_review_report.verdict at the record boundary.
+def _enforce_required_outputs(contract: Any, status: str, outputs: dict[str, Any]) -> str:
+    """Coerce status to 'failed' when required output values are not satisfied.
 
-    Raises _RecordError on invalid input; returns None on success.
+    Returns status unchanged if: status not in _SUCCESS_STATUSES, contract is None,
+    contract has no required_outputs_for_completed, or all required values match.
+    On any mismatch, writes a stderr note and returns 'failed'.
     """
-    if step_id != "review":
-        return
-    report = outputs.get("phase_review_report")
-    if not isinstance(report, dict):
-        raise _RecordError(
-            {
-                "reason": "invalid_phase_review_report",
-                "step_id": step_id,
-                "hint": "outputs.phase_review_report must be an object with verdict",
-            },
-            3,
-        )
-    verdict = report.get("verdict")
-    if not isinstance(verdict, str) or verdict not in _PHASE_REVIEW_VERDICTS:
-        raise _RecordError(
-            {
-                "reason": "invalid_phase_review_verdict",
-                "step_id": step_id,
-                "verdict": verdict,
-                "valid_verdicts": sorted(_PHASE_REVIEW_VERDICTS),
-            },
-            3,
-        )
-    # Caller (_validate_outputs) guarantees status == "completed"; a non-pass
-    # verdict must ship as status: failed or the on_failure edge never fires
-    # (live bypass: BKG-575 advanced to ticket-qa with a needs_work review).
-    if verdict != "pass":
-        raise _RecordError(
-            {
-                "reason": "invalid_phase_review_status_for_verdict",
-                "step_id": step_id,
-                "verdict": verdict,
-                "hint": (
-                    "status: completed requires phase_review_report.verdict: pass; "
-                    "emit status: failed for needs_work/incomplete_phase"
-                ),
-            },
-            3,
-        )
-
-
-def _normalize_review_payload_status(
-    step_id: str, status: str, outputs: dict[str, Any]
-) -> str:
-    """Coerce agent mistakes before routing.
-
-    design-review agents sometimes emit ``status: completed`` with
-    ``design_review_result: needs_work``. Routing keys off ``status``, not the
-    output field — normalize to ``failed`` so the workflow's ``on_failure`` edge
-    fires.
-    """
-    if step_id == "review":
-        report = outputs.get("phase_review_report")
-        verdict = report.get("verdict") if isinstance(report, dict) else None
-        if verdict in ("needs_work", "incomplete_phase") and status in _SUCCESS_STATUSES:
+    if status not in _SUCCESS_STATUSES:
+        return status
+    if not isinstance(contract, AgentStepContract):
+        return status
+    required = contract.required_outputs_for_completed
+    if not required:
+        return status
+    for entry in required:
+        key = entry["key"]
+        expected = entry["value"]
+        # Dotted path: one level deep only (e.g. "outer.inner")
+        if "." in key:
+            parts = key.split(".", 1)
+            resolved = (outputs.get(parts[0]) or {}).get(parts[1]) if isinstance(outputs.get(parts[0]), dict) else None
+        else:
+            resolved = outputs.get(key)
+        if resolved != expected:
             sys.stderr.write(
-                "[record] review: coercing status "
-                f"{status!r} → 'failed' (phase_review_report.verdict: {verdict})\n"
+                f"[record] {contract.id}: coercing status {status!r} → 'failed' "
+                f"({key}: {resolved!r} != {expected!r})\n"
             )
             return "failed"
-        return status
-    if step_id != "design-review":
-        return status
-    result = outputs.get("design_review_result")
-    if result == "needs_work" and status in _SUCCESS_STATUSES:
-        sys.stderr.write(
-            "[record] design-review: coercing status "
-            f"{status!r} → 'failed' (design_review_result: needs_work)\n"
-        )
-        return "failed"
     return status
-
-
-def _validate_design_review_output(step_id: str, outputs: dict[str, Any]) -> None:
-    """Reject completed design-review payloads that are not a pass.
-
-    Caller (_validate_outputs) guarantees status == "completed".
-    """
-    if step_id != "design-review":
-        return
-    result = outputs.get("design_review_result")
-    if result != "pass":
-        raise _RecordError(
-            {
-                "reason": "invalid_design_review_result",
-                "step_id": step_id,
-                "design_review_result": result,
-                "hint": (
-                    "status: completed requires design_review_result: pass; "
-                    "emit status: failed for needs_work"
-                ),
-            },
-            3,
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -412,13 +326,6 @@ def _apply_default_outputs(
     return out
 
 
-def _validate_outputs(step_id: str, status: str, outputs: dict[str, Any]) -> None:
-    if status != "completed":
-        return
-    _validate_phase_review_output(step_id, outputs)
-    _validate_design_review_output(step_id, outputs)
-
-
 def _validate_agent_usage(
     payload: dict[str, Any], step_id: str, status: str, contract: Any,
 ) -> str | None:
@@ -459,10 +366,9 @@ def _validate_payload(
     """Validate a done-payload end-to-end. Returns (step_id, phase, status, outputs, contract, agent)."""
     step_id, phase, status = _validate_shape(payload)
     outputs = _coerce_payload_outputs(payload.get("outputs"))
-    status = _normalize_review_payload_status(step_id, status, outputs)
     contract = _load_contract(step_id)
     outputs = _apply_default_outputs(outputs, contract, status)
-    _validate_outputs(step_id, status, outputs)
+    status = _enforce_required_outputs(contract, status, outputs)
     agent = _validate_agent_usage(payload, step_id, status, contract)
     return step_id, phase, status, outputs, contract, agent
 
@@ -550,11 +456,7 @@ def _build_history_entry(
             usage["duration_ms"] = int((ended_dt - started_dt).total_seconds() * 1000)
         except (TypeError, ValueError):
             pass
-    for key in _OPTIONAL_STEP_HISTORY_KEYS:
-        if key in payload:
-            entry[key] = payload[key]
-        elif key in outputs:
-            entry[key] = outputs[key]
+    entry["outputs"] = dict(outputs)
     return entry
 
 

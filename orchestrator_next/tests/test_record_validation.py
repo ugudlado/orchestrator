@@ -225,18 +225,19 @@ class TestOptionalPayloadFields:
         monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(empty))
 
     def test_review_score_passthrough_to_step_history(self, tmp_path):
+        # ORC-117: review_score is now persisted via entry["outputs"], not top-level.
+        # Callers must place it in outputs; run_loop hoists root-level keys generically.
         state_path = _minimal_state(tmp_path)
         payload = {
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "outputs": {},
-            "review_score": {"overall": 9, "dimensions": {"correctness": 10}},
+            "outputs": {"review_score": {"overall": 9, "dimensions": {"correctness": 10}}},
         }
         result, exit_code = record(state_path, payload)
         assert exit_code == 0, result
         state = yaml.safe_load(open(state_path))
-        assert state["step_history"][-1]["review_score"]["overall"] == 9
+        assert state["step_history"][-1]["outputs"]["review_score"]["overall"] == 9
 
     def test_state_patch_retries_absolute_per_key(self, tmp_path):
         state_path = _minimal_state(tmp_path)
@@ -338,22 +339,22 @@ class TestPhaseReviewVerdictValidation:
             **extra,
         }
 
-    def test_rejects_invalid_verdict(self, tmp_path):
+    def test_invalid_verdict_records_without_error(self, tmp_path):
+        # ORC-117: engine no longer raises on invalid verdicts; validation is
+        # contract-driven via required_outputs_for_completed (added in T-5).
+        # A contract without required_outputs_for_completed records as-is.
         state_path = _phase_review_state(tmp_path)
         result, exit_code = record(state_path, self._payload("passed"))
-        assert exit_code == 3
-        assert result["reason"] == "invalid_phase_review_verdict"
-        assert result["valid_verdicts"] == ["incomplete_phase", "needs_work", "pass"]
+        assert exit_code == 0, result
 
-    def test_rejects_missing_verdict(self, tmp_path):
+    def test_missing_verdict_records_without_error(self, tmp_path):
+        # ORC-117: engine no longer rejects missing verdict; contract-driven check
+        # added in T-5 will coerce status instead.
         state_path = _phase_review_state(tmp_path)
         payload = self._payload("pass")
-        # A non-empty report dict that lacks the `verdict` key — passes the
-        # ORC-63 output post-check (non-empty) and reaches verdict validation.
         payload["outputs"] = {"phase_review_report": {"summary": "no verdict here"}}
         result, exit_code = record(state_path, payload)
-        assert exit_code == 3
-        assert result["reason"] == "invalid_phase_review_verdict"
+        assert exit_code == 0, result
 
     def test_accepts_pass_verdict(self, tmp_path):
         state_path = _phase_review_state(tmp_path)
@@ -368,14 +369,16 @@ class TestPhaseReviewVerdictValidation:
         result, exit_code = record(state_path, self._payload("incomplete_phase"))
         assert exit_code == 0, result
         state = yaml.safe_load(open(state_path))
+        # review_score is no longer copied to top-level entry (ORC-117)
         assert "review_score" not in state["step_history"][-1]
 
-    def test_state_yaml_unchanged_on_verdict_rejection(self, tmp_path):
+    def test_records_with_unexpected_verdict(self, tmp_path):
+        # ORC-117: unexpected verdict is recorded without error; contract-driven
+        # enforcement (T-5) will coerce status when required_outputs_for_completed
+        # is present in the contract.
         state_path = _phase_review_state(tmp_path)
-        pre_bytes = open(state_path, "rb").read()
-        record(state_path, self._payload("PASS"))
-        post_bytes = open(state_path, "rb").read()
-        assert pre_bytes == post_bytes
+        result, exit_code = record(state_path, self._payload("PASS"))
+        assert exit_code == 0, result
 
 
 # ===========================================================================

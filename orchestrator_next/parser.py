@@ -34,6 +34,7 @@ class AgentStepContract:
     prompt_dir: str | None = None
     state_mutating: bool = False
     default_outputs: dict = field(default_factory=dict)
+    required_outputs_for_completed: list = field(default_factory=list)
 
 
 @dataclass
@@ -275,12 +276,24 @@ def _make_contract(
     if run is None:
         raw_defaults = data.get("default_outputs")
         default_outputs = raw_defaults if isinstance(raw_defaults, dict) else {}
+        raw_req = data.get("required_outputs_for_completed")
+        req: list = []
+        if isinstance(raw_req, list):
+            for entry in raw_req:
+                if isinstance(entry, dict) and "key" in entry and "value" in entry:
+                    req.append({"key": str(entry["key"]), "value": entry["value"]})
+                else:
+                    import sys as _sys
+                    _sys.stderr.write(
+                        f"[parser] malformed required_outputs_for_completed entry skipped: {entry!r}\n"
+                    )
         return AgentStepContract(
             **shared,
             model=data.get("model") or None,
             instruction=instruction,
             prompt_dir=prompt_dir,
             default_outputs=default_outputs,
+            required_outputs_for_completed=req,
         )
     return ScriptStepContract(**shared, run=run)
 

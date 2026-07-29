@@ -217,6 +217,12 @@ def _failed_payload(action: dict, exit_code: int) -> dict:
     }
 
 
+_RESERVED_PAYLOAD_KEYS = frozenset({
+    "step_id", "phase", "status", "agent", "agent_id", "attempt",
+    "started_at", "usage", "outputs", "evidence", "state_patch",
+})
+
+
 def _agent_payload(action: dict, completion: dict, usage: dict, started_at) -> dict:
     payload = dict(completion)
     payload["step_id"] = action["step_id"]
@@ -224,8 +230,8 @@ def _agent_payload(action: dict, completion: dict, usage: dict, started_at) -> d
     payload["agent"] = action.get("model", "")
     if not isinstance(payload.get("outputs"), dict):
         payload["outputs"] = {}
-    for key in ("learn_result", "phase_review_report", "discovery_result"):
-        if key in payload and key not in payload["outputs"]:
+    for key in list(payload.keys()):
+        if key not in _RESERVED_PAYLOAD_KEYS and key not in payload["outputs"]:
             payload["outputs"][key] = payload.pop(key)
     payload["usage"] = {**dict(_EMPTY_USAGE), **(usage or {})}
     if started_at:
