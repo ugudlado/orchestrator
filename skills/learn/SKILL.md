@@ -31,17 +31,20 @@ Run the workflow learning pipeline for this completed change.
    update, decay evaluation, and quality bar adjustment.
 
 3. For each durable learning that should change a specific step's future
-   behavior: convert it directly into an eval scenario and append it as one
-   JSON line to that step's prompt directory `scenarios/train.jsonl` (create
-   the file if absent; never touch dev/holdout — they are held out for
-   validation). Do not resolve the directory yourself. `$ORCHESTRATOR_PROMPT_DIRS`
-   is a JSON object mapping `step_id` → absolute prompt dir for every agent step
-   in this workflow; look the target step up in it and append to
-   `<dir>/scenarios/train.jsonl`. A step id absent from the map has no prompt
-   directory to write beside — skip that learning. There is no blessed `pack/`
-   location — only colocation beside the charter.
-   Format:
-   `{"id": "<short-kebab-slug>", "scenario": "<the situation>", "expect": ["...", "..."]}`
+   behavior: convert it into an eval scenario and **propose** it by appending
+   one JSON line to `proposed-scenarios.jsonl` in the directory containing this
+   run's state.yaml (create the file if absent). Do not edit any pack's
+   `scenarios/*.jsonl` yourself — the `persist-learnings` step that runs right
+   after this one validates every proposed row, appends the survivors to the
+   target pack's `scenarios/train.jsonl`, and commits them. Writing directly
+   risks a malformed row, which makes the whole pack unevaluable.
+   Format, one physical line per proposal (no pretty-printing):
+   `{"step_id": "<target step>", "row": {"id": "<short-kebab-slug>", "scenario": "<the situation>", "expect": ["...", "..."]}}`
+   `step_id` names the step whose future behavior the learning changes; it must
+   be a key of `$ORCHESTRATOR_PROMPT_DIRS` (a JSON object mapping `step_id` →
+   absolute prompt dir for every agent step in this workflow). A learning about
+   a step absent from that map has nowhere to land — skip it. `row` carries
+   exactly the three keys `id`, `scenario`, `expect` and nothing else.
    The scenario recreates the situation the learning guards against, phrased
    as a fresh task with no hint of the rule; `expect` lists 3-4 observable
    staff-level behaviors the rule demands. Skip it if an existing scenario in

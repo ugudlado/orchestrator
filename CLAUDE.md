@@ -73,6 +73,22 @@ echo '{"step_id":"specify","phase":"specify","status":"completed"}' | orchestrat
 orchestrator graph feature
 ```
 
+#### Prompt Optimization
+
+```bash
+export ORCHESTRATOR_PROMPT_OPTIMIZE=1
+orchestrator optimize <slug> --repo <repo>
+```
+
+The freshness gate skips packs without new training scenarios since their latest
+optimization run. Packs with `ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_METRIC_CALLS`
+below `train + 3` (or an underbudget `--max-external-calls`) are refused as
+`underbudget`; a seed-identical GEPA candidate (`prompt-optimize` exit 3 /
+`gepa-noop`) is recorded as `noop` and skips compare/retry. Set
+`ORCHESTRATOR_PROMPT_EVAL=1` to enable prompt evaluation.
+Scheduling is operator-owned; a cron runner can invoke the one-liner
+`ORCHESTRATOR_PROMPT_OPTIMIZE=1 orchestrator optimize <slug> --repo <repo>`.
+
 ### Headless Runs (servers / CI)
 
 Set `ORCHESTRATOR_HEADLESS=1` to mark a run unattended (cloud sessions with

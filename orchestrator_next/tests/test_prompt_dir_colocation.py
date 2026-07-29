@@ -120,6 +120,28 @@ def test_prompt_dirs_map_covers_every_agent_step(tmp_path, monkeypatch):
     assert "create-worktree" not in dirs
 
 
+def test_script_steps_also_receive_the_prompt_dirs_map(tmp_path, monkeypatch):
+    """persist-learnings is a script step and resolves its append targets from the map."""
+    skills, state_path = _multi_step_fixture(
+        tmp_path, monkeypatch, ["explore"], script_ids=["persist-learnings"]
+    )
+    # Only the script step is pending, so it is the one that dispatches.
+    raw = yaml.safe_load(state_path.read_text())
+    for node in raw["workflow_plan"]["main"]["nodes"]:
+        node["status"] = "completed" if node["id"] == "explore" else "pending"
+    state_path.write_text(yaml.dump(raw))
+
+    state = load_state(str(state_path))
+    action, code = dispatch(state, str(state_path))
+    assert code == 0
+    assert action["step_id"] == "persist-learnings"
+    assert action["prompt_dir"] is None
+    assert "ORCHESTRATOR_PROMPT_DIR" not in action["env"]
+
+    dirs = json.loads(action["env"]["ORCHESTRATOR_PROMPT_DIRS"])
+    assert dirs == {"explore": str(skills / "explore")}
+
+
 def test_learn_colocation_append_target(tmp_path, monkeypatch):
     """learn resolves ANOTHER step's dir from the map and appends train.jsonl there.
 

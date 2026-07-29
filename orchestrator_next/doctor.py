@@ -211,6 +211,37 @@ def check_subprocesses_available(config_root: Path) -> CheckResult:
     )
 
 
+def check_prompt_optimizer() -> CheckResult:
+    """WARN when the optional prompt-optimizer integration is not runnable."""
+    import shutil
+
+    configured = os.environ.get("ORCHESTRATOR_PROMPT_OPTIMIZER_DIR", "").strip()
+    if not configured:
+        return CheckResult(
+            "prompt optimizer",
+            "WARN",
+            "ORCHESTRATOR_PROMPT_OPTIMIZER_DIR is not set",
+        )
+
+    optimizer_dir = Path(configured).expanduser()
+    if not optimizer_dir.is_dir():
+        return CheckResult(
+            "prompt optimizer",
+            "WARN",
+            f"ORCHESTRATOR_PROMPT_OPTIMIZER_DIR is not a directory: {optimizer_dir}",
+        )
+
+    uv = shutil.which("uv")
+    if not uv:
+        return CheckResult("prompt optimizer", "WARN", "uv is not on PATH")
+
+    return CheckResult(
+        "prompt optimizer",
+        "PASS",
+        f"configured at {optimizer_dir.resolve()} (uv: {uv})",
+    )
+
+
 def check_contract_aliases_resolve(config_root: Path) -> CheckResult:
     """D4: every model: alias referenced by an installed step contract must
     resolve to at least one available route (subprocess with a binary on
@@ -333,6 +364,7 @@ def run_all() -> int:
         check_model_route_sources(config_root),
         check_no_silent_fallback(config_root),      # D3 guard rail (WARN)
         check_contract_aliases_resolve(config_root),  # D4: contract/agent-config safety net (WARN)
+        check_prompt_optimizer(),
         check_symlinks(repo_root, orch_home),
     ]
     print(_format_table(results))

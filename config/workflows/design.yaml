@@ -9,5 +9,6 @@ steps:
     max_retries: 3
     prompt: design-review
   - prompt: learn
+  - persist-learnings # validate + append + commit learn's proposed eval scenarios
   - eval-prompts # opt-in prompt eval (ORCHESTRATOR_PROMPT_EVAL=1); no-op otherwise
   - workflow-report

@@ -38,10 +38,23 @@ safe_ln() {
 setup_env() {
   echo "Setting up environment..."
   local marker="# Orchestrator workflow engine"
+  local prompt_optimizer_sibling="${ORCHESTRATOR_DIR%/*}/prompt-optimizer"
+  local prompt_optimizer_dir=""
+  if [ -f "$prompt_optimizer_sibling/pyproject.toml" ] \
+    && [ -d "$prompt_optimizer_sibling/src/prompt_optimizer" ]; then
+    prompt_optimizer_dir="$(cd "$prompt_optimizer_sibling" && pwd -P)"
+  else
+    echo "  warning: sibling prompt-optimizer checkout not found or invalid: $prompt_optimizer_sibling"
+  fi
+
   if ! grep -qF "$marker" "$SHELL_PROFILE" 2>/dev/null; then
     echo "" >> "$SHELL_PROFILE"
     echo "$marker" >> "$SHELL_PROFILE"
     echo "export ORCHESTRATOR_HOME=\"$ORCHESTRATOR_HOME\"" >> "$SHELL_PROFILE"
+    if [ -n "$prompt_optimizer_dir" ] \
+      && ! grep -Eq '^[[:space:]]*(export[[:space:]]+)?ORCHESTRATOR_PROMPT_OPTIMIZER_DIR[[:space:]]*=' "$SHELL_PROFILE" 2>/dev/null; then
+      echo "export ORCHESTRATOR_PROMPT_OPTIMIZER_DIR=\"$prompt_optimizer_dir\"" >> "$SHELL_PROFILE"
+    fi
     # XDG / Debian pattern: prepend user bin dir only when it exists.
     cat >> "$SHELL_PROFILE" <<EOF
 if [ -d "$ORCHESTRATOR_INSTALL_BIN" ] ; then
@@ -52,6 +65,11 @@ EOF
   else
     grep -q 'ORCHESTRATOR_HOME' "$SHELL_PROFILE" 2>/dev/null \
       || echo "export ORCHESTRATOR_HOME=\"$ORCHESTRATOR_HOME\"" >> "$SHELL_PROFILE"
+    if [ -n "$prompt_optimizer_dir" ] \
+      && ! grep -Eq '^[[:space:]]*(export[[:space:]]+)?ORCHESTRATOR_PROMPT_OPTIMIZER_DIR[[:space:]]*=' "$SHELL_PROFILE" 2>/dev/null; then
+      echo "export ORCHESTRATOR_PROMPT_OPTIMIZER_DIR=\"$prompt_optimizer_dir\"" >> "$SHELL_PROFILE"
+      echo "  Added ORCHESTRATOR_PROMPT_OPTIMIZER_DIR to $SHELL_PROFILE"
+    fi
     if ! grep -qF "$ORCHESTRATOR_INSTALL_BIN" "$SHELL_PROFILE" 2>/dev/null; then
       cat >> "$SHELL_PROFILE" <<EOF
 if [ -d "$ORCHESTRATOR_INSTALL_BIN" ] ; then

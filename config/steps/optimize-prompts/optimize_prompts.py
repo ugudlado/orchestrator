@@ -4,7 +4,9 @@ Per evaluable pack: `prompt-optimize gepa` -> `prompt-eval compare --split dev`
 -> `compare --split holdout` -> `prompt-optimize promote`. A gate failure
 (compare exit 1) retries GEPA with a fresh run, up to
 ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_RETRIES extra attempts; a hard error
-(compare exit 2, or gepa/promote nonzero) aborts that pack without retrying.
+(compare exit 2, or gepa/promote nonzero other than gepa-noop) aborts that
+pack without retrying. Seed-identical GEPA (exit 3 / gepa-noop) records
+outcome `noop` and skips compare + retries.
 
 Promotion rewrites only the pack's own charter body (leaf-overlay write), so
 the next workflow run picks the improved prompt up automatically. The learn
@@ -35,6 +37,12 @@ from eval_prompts import (  # noqa: E402
 )
 
 _RUN_ARTIFACT_RE = re.compile(r"^run artifact: (.+)$", re.MULTILINE)
+
+# Mirror prompt-optimizer/optimize.py floors (DSPy GEPA default minibatch = 3).
+_REFLECTION_MINIBATCH_SIZE = 3
+_DEFAULT_MAX_METRIC_CALLS = 40
+# prompt-optimize gepa exit when candidate == baseline (see GEPA_NOOP_EXIT).
+_GEPA_NOOP_EXIT = 3
 
 
 def all_scenario_packs(repo_root: str, config_root: Path) -> list[tuple[str, Path]]:
@@ -74,6 +82,27 @@ def has_new_scenarios(pack_dir: Path) -> bool:
     if not train.is_file():
         return False
     return train.stat().st_mtime > max(d.stat().st_mtime for d in run_dirs)
+
+
+def _train_line_count(pack_dir: Path) -> int:
+    """Count non-blank lines in the pack's train.jsonl (leaf bank only)."""
+    train = pack_dir / "scenarios" / "train.jsonl"
+    if not train.is_file():
+        return 0
+    return sum(1 for line in train.read_text().splitlines() if line.strip())
+
+
+def metric_call_floor(train_size: int) -> int:
+    """``len(train) + reflection_minibatch_size`` — matches prompt-optimizer."""
+    return train_size + _REFLECTION_MINIBATCH_SIZE
+
+
+def external_call_floor(train_size: int) -> int:
+    """Seed full-valset + one mutate cycle — matches prompt-optimizer.
+
+    ``4 * train + 2 * minibatch + 1``
+    """
+    return 4 * train_size + 2 * _REFLECTION_MINIBATCH_SIZE + 1
 
 
 def _emit(status: str, summary: str, packs: list[dict] | None = None) -> None:
@@ -120,6 +149,71 @@ def _run_dir_from(stdout: str, pack_dir: Path) -> Path | None:
     return None
 
 
+def _resolve_gepa_budgets(pack_dir: Path) -> tuple[int, int] | dict:
+    """Return (max_metric_calls, max_external_calls) or an underbudget result dict."""
+    train_n = _train_line_count(pack_dir)
+    if train_n <= 0:
+        return {
+            "pack": pack_dir.name,
+            "outcome": "error",
+            "detail": "train.jsonl missing or empty",
+            "attempts": 0,
+        }
+    mmc_floor = metric_call_floor(train_n)
+    ext_floor = external_call_floor(train_n)
+
+    raw_mmc = (os.environ.get("ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_METRIC_CALLS") or "").strip()
+    if raw_mmc:
+        try:
+            mmc = int(raw_mmc)
+        except ValueError:
+            return {
+                "pack": pack_dir.name,
+                "outcome": "error",
+                "detail": f"invalid ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_METRIC_CALLS={raw_mmc!r}",
+                "attempts": 0,
+            }
+    else:
+        mmc = _DEFAULT_MAX_METRIC_CALLS
+
+    if mmc < mmc_floor:
+        return {
+            "pack": pack_dir.name,
+            "outcome": "underbudget",
+            "detail": (
+                f"max_metric_calls {mmc} < floor {mmc_floor} "
+                f"(train={train_n} + minibatch={_REFLECTION_MINIBATCH_SIZE})"
+            ),
+            "attempts": 0,
+        }
+
+    raw_ext = (os.environ.get("ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_EXTERNAL_CALLS") or "").strip()
+    if raw_ext:
+        try:
+            external = int(raw_ext)
+        except ValueError:
+            return {
+                "pack": pack_dir.name,
+                "outcome": "error",
+                "detail": f"invalid ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_EXTERNAL_CALLS={raw_ext!r}",
+                "attempts": 0,
+            }
+        if external < ext_floor:
+            return {
+                "pack": pack_dir.name,
+                "outcome": "underbudget",
+                "detail": (
+                    f"max_external_calls {external} < floor {ext_floor} "
+                    f"(4*train + 2*minibatch + 1; train={train_n})"
+                ),
+                "attempts": 0,
+            }
+    else:
+        external = max(mmc * 3, ext_floor)
+
+    return mmc, external
+
+
 def _optimize_pack(
     optimize_cmd: list[str], eval_cmd: list[str], pack_dir: Path, max_retries: int,
     step_id: str = "",
@@ -130,10 +224,22 @@ def _optimize_pack(
     env = dict(os.environ)
     if step_id:
         env["ORCHESTRATOR_STEP_ID"] = step_id
-    max_metric_calls = os.environ.get("ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_METRIC_CALLS") or ""
-    gepa_cmd = [*optimize_cmd, "gepa", "--pack", str(pack_dir)]
-    if max_metric_calls:
-        gepa_cmd += ["--max-metric-calls", max_metric_calls]
+
+    budgets = _resolve_gepa_budgets(pack_dir)
+    if isinstance(budgets, dict):
+        _log(f"{pack_dir.name}: {budgets['outcome']} — {budgets['detail']}")
+        return budgets
+    mmc, external = budgets
+    gepa_cmd = [
+        *optimize_cmd,
+        "gepa",
+        "--pack",
+        str(pack_dir),
+        "--max-metric-calls",
+        str(mmc),
+        "--max-external-calls",
+        str(external),
+    ]
 
     attempts = 0
     while attempts <= max_retries:
@@ -142,6 +248,25 @@ def _optimize_pack(
         gepa = subprocess.run(gepa_cmd, capture_output=True, text=True, env=env)
         sys.stderr.write(gepa.stderr)
         sys.stderr.write(gepa.stdout)
+        if gepa.returncode == _GEPA_NOOP_EXIT:
+            run_dir = _run_dir_from(gepa.stdout, pack_dir)
+            _log(f"{pack_dir.name}: gepa-noop (seed-identical); skipping compare/retry")
+            result = {
+                "pack": pack_dir.name,
+                "outcome": "noop",
+                "detail": "gepa-noop: seed-identical candidate",
+                "attempts": attempts,
+            }
+            if run_dir is not None:
+                result["run_dir"] = str(run_dir)
+            return result
+        if gepa.returncode == 2:
+            return {
+                "pack": pack_dir.name,
+                "outcome": "underbudget",
+                "detail": f"gepa preflight exit {gepa.returncode}",
+                "attempts": attempts,
+            }
         if gepa.returncode != 0:
             return {"pack": pack_dir.name, "outcome": "error",
                     "detail": f"gepa exit {gepa.returncode}", "attempts": attempts}
@@ -260,6 +385,8 @@ def main() -> int:
         "completed",
         f"optimized {len(results)} pack(s): {promoted} promoted, "
         f"{sum(1 for r in results if r['outcome'] == 'gates-failed')} gates-failed, "
+        f"{sum(1 for r in results if r['outcome'] == 'noop')} noop, "
+        f"{sum(1 for r in results if r['outcome'] == 'underbudget')} underbudget, "
         f"{sum(1 for r in results if r['outcome'] == 'error')} error",
         results,
     )

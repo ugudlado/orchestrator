@@ -1,0 +1,18 @@
+id: persist-learnings
+version: 1
+kind: script
+run: script.sh
+# Deterministic gate between learn's staged scenario proposals and each prompt
+# pack's scenarios/train.jsonl. learn writes proposed-scenarios.jsonl beside
+# state.yaml; this step validates every row against prompt-optimizer's bank
+# contract, appends the survivors, and commits them per git root.
+#
+# Always exits 0 — learning is best-effort, and a nonzero exit from a script
+# step aborts the workflow.
+#
+# Env read (beyond the standard ORCHESTRATOR_* block):
+#   ORCHESTRATOR_STATE_YAML_PATH   staging file location (its parent dir)
+#   ORCHESTRATOR_PROMPT_DIRS       JSON step_id -> prompt dir (append targets)
+#   ORCHESTRATOR_PROMPT_PATH       allowed prompt roots (append confinement)
+default_outputs:
+  persist_learnings: { persisted: [], skipped: [], commits: [] }
