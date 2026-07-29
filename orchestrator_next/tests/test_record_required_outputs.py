@@ -27,17 +27,15 @@ def _write_state(tmp_path) -> str:
     return str(path)
 
 
-def _write_contract(contracts_dir, step_id: str, *, required_outputs=None, model=None) -> None:
-    data = {"id": step_id, "instruction": "test"}
-    if model:
-        data["model"] = model
+def _write_contract(contracts_dir, step_id: str, *, required_outputs=None) -> None:
+    data = {"id": step_id}
     if required_outputs:
         data["required_outputs_for_completed"] = required_outputs
     step_dir = contracts_dir / step_id
     step_dir.mkdir(parents=True, exist_ok=True)
     (step_dir / "contract.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
-    if model:
-        (step_dir / "prompt.md").write_text("test prompt")
+    # Colocated prompt.md so parser resolves it without a prompt: field
+    (step_dir / "prompt.md").write_text("test prompt")
 
 
 @pytest.fixture()
@@ -48,7 +46,6 @@ def contracts_dir(tmp_path, monkeypatch):
     return d
 
 
-@pytest.mark.xfail(strict=False)
 def test_completed_with_matching_required_output_passes(tmp_path, contracts_dir):
     """Contract with required_outputs_for_completed=[{key, value}]; matching payload stays completed."""
     _write_contract(contracts_dir, "design-review", required_outputs=[{"key": "design_review_result", "value": "pass"}])
@@ -66,7 +63,6 @@ def test_completed_with_matching_required_output_passes(tmp_path, contracts_dir)
     assert state["step_history"][-1]["status"] == "completed"
 
 
-@pytest.mark.xfail(strict=False)
 def test_completed_with_mismatched_required_output_coerces_to_failed(tmp_path, contracts_dir, capsys):
     """Mismatched required output coerces status to failed with stderr note."""
     _write_contract(contracts_dir, "design-review", required_outputs=[{"key": "design_review_result", "value": "pass"}])
@@ -87,7 +83,6 @@ def test_completed_with_mismatched_required_output_coerces_to_failed(tmp_path, c
     assert re.search(r"coercing status.*failed", captured.err)
 
 
-@pytest.mark.xfail(strict=False)
 def test_dotted_path_lookup(tmp_path, contracts_dir):
     """Contract key with dotted path resolves one level deep."""
     _write_contract(contracts_dir, "review", required_outputs=[{"key": "phase_review_report.verdict", "value": "pass"}])
@@ -112,7 +107,6 @@ def test_dotted_path_lookup(tmp_path, contracts_dir):
     assert st["step_history"][-1]["status"] == "failed"
 
 
-@pytest.mark.xfail(strict=False)
 def test_no_contract_no_check(tmp_path, contracts_dir):
     """Step with no contract records normally without crash."""
     # No contract written for "no-contract-step"
@@ -135,7 +129,6 @@ def test_no_contract_no_check(tmp_path, contracts_dir):
     assert exit_code == 0, result
 
 
-@pytest.mark.xfail(strict=False)
 def test_deleted_functions_absent():
     """Deleted validator functions are no longer importable from record."""
     from orchestrator_next import record as rec

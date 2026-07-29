@@ -58,7 +58,7 @@ def contracts_dir(tmp_path, monkeypatch):
 
 
 def test_outputs_briefing_persists_to_step_history(tmp_path, contracts_dir):
-    """done payload with outputs.briefing='did X' persists into step_history[-1]."""
+    """done payload with outputs.briefing='did X' persists into step_history[-1]["outputs"]."""
     _write_contract(contracts_dir, "explore")
     state_path = _write_state(tmp_path)
 
@@ -73,13 +73,14 @@ def test_outputs_briefing_persists_to_step_history(tmp_path, contracts_dir):
 
     state_after = yaml.safe_load(open(state_path))
     last = state_after["step_history"][-1]
-    assert last.get("briefing") == "did X", (
-        f"Expected step_history[-1].briefing='did X', got: {last.get('briefing')!r}"
+    # ORC-117: briefing is now at entry["outputs"]["briefing"], not top-level
+    assert last.get("outputs", {}).get("briefing") == "did X", (
+        f"Expected step_history[-1].outputs.briefing='did X', got: {last.get('outputs', {}).get('briefing')!r}"
     )
 
 
 def test_outputs_reason_persists_to_step_history(tmp_path, contracts_dir):
-    """done payload with outputs.reason='blocked by Y' persists into step_history[-1]."""
+    """done payload with outputs.reason='blocked by Y' persists into step_history[-1]["outputs"]."""
     _write_contract(contracts_dir, "explore")
     state_path = _write_state(tmp_path)
 
@@ -94,13 +95,14 @@ def test_outputs_reason_persists_to_step_history(tmp_path, contracts_dir):
 
     state_after = yaml.safe_load(open(state_path))
     last = state_after["step_history"][-1]
-    assert last.get("reason") == "blocked by Y", (
-        f"Expected step_history[-1].reason='blocked by Y', got: {last.get('reason')!r}"
+    # ORC-117: reason is now at entry["outputs"]["reason"], not top-level
+    assert last.get("outputs", {}).get("reason") == "blocked by Y", (
+        f"Expected step_history[-1].outputs.reason='blocked by Y', got: {last.get('outputs', {}).get('reason')!r}"
     )
 
 
-def test_neither_field_yields_no_briefing_or_reason_keys(tmp_path, contracts_dir):
-    """done payload with neither field yields no briefing/reason keys — no error."""
+def test_neither_field_yields_empty_outputs(tmp_path, contracts_dir):
+    """done payload with neither field yields empty outputs — no error."""
     _write_contract(contracts_dir, "explore")
     state_path = _write_state(tmp_path)
 
@@ -115,5 +117,6 @@ def test_neither_field_yields_no_briefing_or_reason_keys(tmp_path, contracts_dir
 
     state_after = yaml.safe_load(open(state_path))
     last = state_after["step_history"][-1]
-    assert last.get("briefing") is None
-    assert last.get("reason") is None
+    # ORC-117: empty outputs dict is still persisted, keys don't exist in it
+    assert last.get("outputs", {}).get("briefing") is None
+    assert last.get("outputs", {}).get("reason") is None
