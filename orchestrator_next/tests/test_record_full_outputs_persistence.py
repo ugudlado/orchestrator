@@ -41,7 +41,6 @@ def contracts_dir(tmp_path, monkeypatch):
     return d
 
 
-@pytest.mark.xfail(strict=False)
 def test_full_outputs_dict_persisted_in_entry(tmp_path, contracts_dir):
     """entry["outputs"] must contain every key from payload outputs, verbatim."""
     _write_contract(contracts_dir, "implement")
@@ -62,7 +61,6 @@ def test_full_outputs_dict_persisted_in_entry(tmp_path, contracts_dir):
     assert entry.get("outputs") == outputs
 
 
-@pytest.mark.xfail(strict=False)
 def test_novel_key_survives(tmp_path, contracts_dir):
     """A key not in _OPTIONAL_STEP_HISTORY_KEYS still appears in entry["outputs"]."""
     _write_contract(contracts_dir, "implement")

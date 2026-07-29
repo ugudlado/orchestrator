@@ -72,22 +72,6 @@ def _merge_evidence_block(
     return {"outputs": outputs, "detail": raw_evidence}
 
 
-# Optional fields copied from done payload into step_history[-1].
-_OPTIONAL_STEP_HISTORY_KEYS = (
-    "artifacts",
-    "review_score",
-    "approach",
-    "regression",
-    "rollback",
-    "retry_context",
-    "regression_check",
-    "blocker",
-    "escalation",
-    "briefing",
-    "reason",
-)
-
-
 _STATE_PATCH_KEYS = frozenset({
     "retries",
     "quarantine_events",
@@ -550,11 +534,7 @@ def _build_history_entry(
             usage["duration_ms"] = int((ended_dt - started_dt).total_seconds() * 1000)
         except (TypeError, ValueError):
             pass
-    for key in _OPTIONAL_STEP_HISTORY_KEYS:
-        if key in payload:
-            entry[key] = payload[key]
-        elif key in outputs:
-            entry[key] = outputs[key]
+    entry["outputs"] = dict(outputs)
     return entry
 
 
