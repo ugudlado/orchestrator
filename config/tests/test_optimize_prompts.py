@@ -31,15 +31,24 @@ def _write_state(tmp_path, steps=("learn",)):
     (tmp_path / "state.yaml").write_text(yaml.safe_dump(state, sort_keys=False))
 
 
-def _write_pack(tmp_path, name="learn"):
+def _write_pack(tmp_path, name="learn", train_rows=1):
     pack = tmp_path / "repo" / "skills" / name
     (pack / "scenarios").mkdir(parents=True)
     (pack / "SKILL.md").write_text("# skill\n")
-    (pack / "scenarios" / "train.jsonl").write_text("")
+    rows = []
+    for i in range(train_rows):
+        rows.append(json.dumps({
+            "id": f"{name}-train-{i}",
+            "scenario": f"{name} train {i}",
+            "expect": ["expected"],
+        }))
+    (pack / "scenarios" / "train.jsonl").write_text(
+        ("\n".join(rows) + "\n") if rows else ""
+    )
     return pack
 
 
-def _stub(tmp_path, compare_exits, promote_exit=0):
+def _stub(tmp_path, compare_exits, promote_exit=0, gepa_exit=0):
     """One stub serving both binaries; scripted compare exits pop in order."""
     capture = tmp_path / "captured.jsonl"
     exits = tmp_path / "compare_exits.json"
@@ -59,7 +68,7 @@ if cmd == "gepa":
     run_dir = os.path.join(runs, "run-%d" % len(os.listdir(runs)))
     os.makedirs(run_dir)
     print("run artifact: " + run_dir)
-    sys.exit(0)
+    sys.exit({gepa_exit})
 if cmd == "compare":
     exits = json.load(open(exits_path))
     code = exits.pop(0) if exits else 0
@@ -191,11 +200,64 @@ def test_max_metric_calls_passthrough(tmp_path):
     _run(tmp_path, {
         "ORCHESTRATOR_PROMPT_OPTIMIZE": "1",
         "ORCHESTRATOR_PROMPT_OPTIMIZE_BIN": str(stub),
-        "ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_METRIC_CALLS": "5",
+        "ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_METRIC_CALLS": "10",
     })
 
     gepa = [c for c in _captured(capture) if c["cmd"] == "gepa"][0]
-    assert gepa["argv"][gepa["argv"].index("--max-metric-calls") + 1] == "5"
+    assert gepa["argv"][gepa["argv"].index("--max-metric-calls") + 1] == "10"
+    # Default external = max(3*mmc, floor); train=1 → floor=11, 3*10=30 → 30
+    assert gepa["argv"][gepa["argv"].index("--max-external-calls") + 1] == "30"
+
+
+def test_underbudget_mmc_refused_without_gepa(tmp_path):
+    _write_state(tmp_path)
+    _write_pack(tmp_path, train_rows=4)
+    stub, capture = _stub(tmp_path, [])
+    result = _run(tmp_path, {
+        "ORCHESTRATOR_PROMPT_OPTIMIZE": "1",
+        "ORCHESTRATOR_PROMPT_OPTIMIZE_BIN": str(stub),
+        "ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_METRIC_CALLS": "4",
+    })
+
+    assert _captured(capture) == []
+    out = _outputs(result)["packs"][0]
+    assert out["outcome"] == "underbudget"
+    assert "max_metric_calls 4 < floor 7" in out["detail"]
+
+
+def test_gepa_noop_skips_compare_and_retry(tmp_path):
+    _write_state(tmp_path)
+    pack = _write_pack(tmp_path)
+    stub, capture = _stub(tmp_path, [], gepa_exit=3)
+    result = _run(tmp_path, {
+        "ORCHESTRATOR_PROMPT_OPTIMIZE": "1",
+        "ORCHESTRATOR_PROMPT_OPTIMIZE_BIN": str(stub),
+    })
+
+    calls = _captured(capture)
+    assert [c["cmd"] for c in calls] == ["gepa"]
+    out = _outputs(result)["packs"][0]
+    assert out["outcome"] == "noop"
+    assert out["attempts"] == 1
+    assert out["run_dir"] == str(pack.resolve() / "runs" / "run-0")
+    assert result.returncode == 0
+
+
+def test_underbudget_external_refused_without_gepa(tmp_path):
+    _write_state(tmp_path)
+    _write_pack(tmp_path, train_rows=4)
+    stub, capture = _stub(tmp_path, [])
+    result = _run(tmp_path, {
+        "ORCHESTRATOR_PROMPT_OPTIMIZE": "1",
+        "ORCHESTRATOR_PROMPT_OPTIMIZE_BIN": str(stub),
+        "ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_METRIC_CALLS": "32",
+        "ORCHESTRATOR_PROMPT_OPTIMIZE_MAX_EXTERNAL_CALLS": "20",
+    })
+
+    assert _captured(capture) == []
+    out = _outputs(result)["packs"][0]
+    assert out["outcome"] == "underbudget"
+    assert "max_external_calls 20 < floor 23" in out["detail"]
 
 
 def test_shared_pack_optimized_once(tmp_path):

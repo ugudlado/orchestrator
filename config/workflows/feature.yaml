@@ -23,5 +23,6 @@ steps:
     max_retries: 8
   - ticket-qa # ticket -> Verify
   - prompt: learn
+  - persist-learnings # validate + append + commit learn's proposed eval scenarios
   - eval-prompts # opt-in prompt eval (ORCHESTRATOR_PROMPT_EVAL=1); no-op otherwise
   - workflow-report

@@ -294,13 +294,19 @@ class TestWiring:
         "workflow", ["autopilot", "bugfix", "design", "feature", "implement", "patch"]
     )
     def test_runs_after_learn(self, workflow):
+        """Evaluation follows learn, with persist-learnings in between.
+
+        persist-learnings is what actually lands learn's proposed scenarios in
+        the packs, so it must run first or this step evaluates the old banks.
+        """
         path = os.path.join(_REPO_ROOT, "config", "workflows", f"{workflow}.yaml")
         with open(path) as f:
             steps = yaml.safe_load(f)["steps"]
         ids = [s.get("id") or s.get("prompt") if isinstance(s, dict) else s for s in steps]
 
         assert "eval-prompts" in ids
-        assert ids.index("eval-prompts") == ids.index("learn") + 1
+        assert ids.index("eval-prompts") == ids.index("learn") + 2
+        assert ids.index("persist-learnings") == ids.index("learn") + 1
 
     def test_complete_workflow_does_not_eval(self):
         """`complete` has no learn step, so it has nothing to evaluate."""

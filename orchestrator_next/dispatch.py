@@ -136,11 +136,14 @@ def _build_action_base(
     Fresh path adds: model (agent step) or run (script step).
     """
     env = _build_dispatch_env(state, step_id, attempt, state_yaml_path)
+    # The map goes to script steps too: persist-learnings resolves its append
+    # targets from it. Only ORCHESTRATOR_PROMPT_DIR (this step's own dir) is
+    # agent-only — script steps have no prompt of their own.
+    prompt_dirs = _prompt_dir_map(state)
+    if prompt_dirs:
+        env["ORCHESTRATOR_PROMPT_DIRS"] = json.dumps(prompt_dirs, sort_keys=True)
     if isinstance(contract, AgentStepContract) and contract.prompt_dir:
         env["ORCHESTRATOR_PROMPT_DIR"] = contract.prompt_dir
-        prompt_dirs = _prompt_dir_map(state)
-        if prompt_dirs:
-            env["ORCHESTRATOR_PROMPT_DIRS"] = json.dumps(prompt_dirs, sort_keys=True)
     return {
         "step_id": step_id,
         "phase": phase,

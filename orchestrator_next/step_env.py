@@ -13,7 +13,7 @@ when a value exists):
   CHANGE_ID, ORCHESTRATOR_CHANGE_ID
   ORCHESTRATOR_STEP_DIR (set by run_loop; each script.sh resolves its own payload)
   ORCHESTRATOR_PROMPT_DIR (agent steps; resolved prompt directory for colocation)
-  ORCHESTRATOR_PROMPT_DIRS (agent steps; JSON step_id -> resolved prompt dir for
+  ORCHESTRATOR_PROMPT_DIRS (all steps; JSON step_id -> resolved prompt dir for
     every agent step in the workflow, so a step can write beside another step)
   ORCHESTRATOR_PROMPT_PATH (all steps; os.pathsep-joined prompt search dirs)
   ORCHESTRATOR_PHASE, ORCHESTRATOR_STEP_ID, ORCHESTRATOR_ATTEMPT
