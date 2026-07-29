@@ -5,3 +5,6 @@ prompt: design-review/SKILL.md
 # sonnet; compare review_score drift via results.jsonl correlation rows.
 # Revert to opus if scores drop.
 model: sonnet
+required_outputs_for_completed:
+  - key: design_review_result
+    value: pass
