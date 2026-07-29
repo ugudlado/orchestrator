@@ -1,0 +1,169 @@
+version: 1
+tasks:
+  - id: T-1-RED
+    title: Failing test — full outputs dict persisted at entry["outputs"]
+    why: AC-1 — record._build_history_entry must persist every key from the payload's outputs map, not the _OPTIONAL_STEP_HISTORY_KEYS whitelist.
+    status: completed
+    files:
+      - orchestrator_next/tests/test_record_full_outputs_persistence.py
+    change: |
+      Create new test file. Add test_full_outputs_dict_persisted_in_entry: build a payload with outputs containing {"briefing": "...", "implementation_result": {...}, "novel_key": "x"}, call record.record_step, load state.yaml, assert step_history[-1]["outputs"] == outputs (verbatim). Add test_novel_key_survives: outputs has a key not in _OPTIONAL_STEP_HISTORY_KEYS (e.g. "custom_data"), assert it appears in entry["outputs"]. Mark both with @pytest.mark.xfail(strict=False) so verify exits 0 while the implementation is pending.
+    test_scenarios:
+      - "Full outputs dict copied verbatim onto step_history[-1] entry"
+      - "Outputs key not in legacy whitelist (custom_data) still persisted"
+    verify:
+      - pytest orchestrator_next/tests/test_record_full_outputs_persistence.py -v
+
+  - id: T-1-GREEN
+    title: Delete _OPTIONAL_STEP_HISTORY_KEYS; persist entry["outputs"] in record._build_history_entry
+    why: AC-1 — engine stores every output key a step emits.
+    status: completed
+    depends_on: [T-1-RED]
+    files:
+      - orchestrator_next/record.py
+      - orchestrator_next/tests/test_record_full_outputs_persistence.py
+    change: |
+      In record.py: (1) delete _OPTIONAL_STEP_HISTORY_KEYS constant (lines 76-88). (2) In _build_history_entry, replace the trailing `for key in _OPTIONAL_STEP_HISTORY_KEYS: ...` loop (lines 553-557) with a single line: `entry["outputs"] = dict(outputs)`. Keep the existing `entry["evidence"] = _merge_evidence_block(outputs, payload.get("evidence"))` line unchanged. In the test file, remove the @pytest.mark.xfail markers added in T-1-RED so the tests must now pass for real.
+    test_scenarios:
+      - "T-1-RED tests pass without xfail"
+    verify:
+      - pytest orchestrator_next/tests/test_record_full_outputs_persistence.py -v
+
+  - id: T-2-RED
+    title: Failing test — generic contract-driven required-output check replaces three validators
+    why: AC-4, AC-5 — one _enforce_required_outputs function replaces _validate_phase_review_output / _validate_design_review_output / _normalize_review_payload_status.
+    status: completed
+    files:
+      - orchestrator_next/tests/test_record_required_outputs.py
+    change: |
+      Create new test file with @pytest.mark.xfail(strict=False) on every test. Tests to add: (1) test_completed_with_matching_required_output_passes — contract declares required_outputs_for_completed=[{"key":"design_review_result","value":"pass"}]; payload has outputs={"design_review_result":"pass"} and status="completed"; assert record persists status="completed". (2) test_completed_with_mismatched_required_output_coerces_to_failed — same contract; payload has outputs={"design_review_result":"needs_work"} and status="completed"; assert recorded status is "failed" and stderr matches r"coercing status.*failed". (3) test_dotted_path_lookup — contract has key="phase_review_report.verdict" value="pass"; outputs={"phase_review_report":{"verdict":"needs_work"}} coerces to failed. (4) test_no_contract_no_check — step with no contract records normally without crashing. (5) test_deleted_functions_absent — `assert not hasattr(record, "_validate_phase_review_output")` and same for the other two.
+    test_scenarios:
+      - "Matching required output — status stays completed"
+      - "Mismatched required output — status coerced to failed with stderr note"
+      - "Dotted path key resolves one level deep"
+      - "Missing contract degrades to no-op"
+      - "Deleted validator functions no longer importable from record.py"
+    verify:
+      - pytest orchestrator_next/tests/test_record_required_outputs.py -v
+
+  - id: T-2-GREEN
+    title: Add required_outputs_for_completed to AgentStepContract; delete three step-specific validators; add _enforce_required_outputs
+    why: AC-4, AC-5, AC-6 — replaces per-step-id branches with one generic contract-driven check.
+    status: completed
+    depends_on: [T-2-RED]
+    files:
+      - orchestrator_next/parser.py
+      - orchestrator_next/record.py
+      - orchestrator_next/tests/test_record_required_outputs.py
+    change: |
+      In parser.py: (1) Add field `required_outputs_for_completed: list[dict] = field(default_factory=list)` to AgentStepContract (around line 36, after default_outputs). (2) In _make_contract (around line 275-285), read `raw_req = data.get("required_outputs_for_completed")`, normalise to a list of `{"key": str, "value": Any}` dicts (skip malformed entries with a stderr warning), pass as `required_outputs_for_completed=req` to the constructor.
+
+      In record.py: (1) Delete _validate_phase_review_output (lines 111-154), _normalize_review_payload_status (lines 157-186), _validate_design_review_output (lines 189-209). (2) Delete _PHASE_REVIEW_VERDICTS constant (line 100) — only the deleted validator used it. (3) Delete _validate_outputs wrapper (lines 415-419). (4) Add `_enforce_required_outputs(contract, status, outputs) -> str` above _validate_payload: return status unchanged if status != "completed" or contract is None or not isinstance(contract, AgentStepContract) or not contract.required_outputs_for_completed. Otherwise, for each {key, value} entry: resolve dotted path one level (split on ".", walk into dict, return None if any hop fails); if resolved != value, sys.stderr.write(f"[record] {contract.id}: coercing status 'completed' → 'failed' ({key}: {resolved})\n") and return "failed". Return status. (5) In _validate_payload, replace `status = _normalize_review_payload_status(step_id, status, outputs)` and the later `_validate_outputs(step_id, status, outputs)` call with a single `status = _enforce_required_outputs(contract, status, outputs)` placed AFTER `_apply_default_outputs`. In the test file, remove @pytest.mark.xfail markers.
+    test_scenarios:
+      - "T-2-RED tests pass without xfail"
+      - "Existing test_record_validation.py tests still green (guardrail behaviour preserved)"
+    verify:
+      - pytest orchestrator_next/tests/test_record_required_outputs.py orchestrator_next/tests/test_record_validation.py orchestrator_next/tests/test_record_briefing_persistence.py orchestrator_next/tests/test_phase_review_success_routing.py -v
+
+  - id: T-3-RED
+    title: Failing test — generic payload-root hoist replaces literal 3-key whitelist
+    why: AC-3 — run_loop._agent_payload hoists any non-reserved payload-root key into payload["outputs"], not just three named keys.
+    status: completed
+    files:
+      - orchestrator_next/tests/test_run_loop_generic_hoist.py
+    change: |
+      Create new test file with @pytest.mark.xfail(strict=False) on every test. Import _agent_payload from orchestrator_next.run_loop. Tests: (1) test_novel_root_key_hoisted — completion={"outputs":{}, "custom_key":"v"}; call _agent_payload; assert payload["outputs"]["custom_key"] == "v" and "custom_key" not in payload. (2) test_reserved_keys_not_hoisted — completion has step_id/phase/status/agent/usage/evidence at root; assert none moved into outputs. (3) test_legacy_three_keys_still_hoisted — completion={"outputs":{}, "learn_result":{"a":1}, "phase_review_report":{"verdict":"pass"}, "discovery_result":{}}; all three land in payload["outputs"] (regression coverage). (4) test_no_overwrite_of_existing_outputs_key — completion={"outputs":{"foo":"keep"}, "foo":"drop"}; assert payload["outputs"]["foo"] == "keep" (existing outputs.key wins).
+    test_scenarios:
+      - "Novel top-level key hoisted into outputs"
+      - "Reserved protocol keys stay at root"
+      - "Existing three whitelisted keys still hoisted (regression)"
+      - "Existing outputs.key not overwritten by same-name root key"
+    verify:
+      - pytest orchestrator_next/tests/test_run_loop_generic_hoist.py -v
+
+  - id: T-3-GREEN
+    title: Replace literal 3-key hoist in run_loop._agent_payload with generic non-reserved hoist
+    why: AC-3 — engine no longer knows any specific output key names.
+    status: completed
+    depends_on: [T-3-RED]
+    files:
+      - orchestrator_next/run_loop.py
+      - orchestrator_next/tests/test_run_loop_generic_hoist.py
+    change: |
+      In run_loop.py _agent_payload (lines 220-233): replace the `for key in ("learn_result", "phase_review_report", "discovery_result"):` loop (lines 227-229) with a generic hoist. Define `_RESERVED_PAYLOAD_KEYS = frozenset({"step_id", "phase", "status", "agent", "agent_id", "attempt", "started_at", "usage", "outputs", "evidence", "state_patch"})` at module level. In _agent_payload, after ensuring payload["outputs"] is a dict: iterate `list(payload.keys())`; for each key not in _RESERVED_PAYLOAD_KEYS and not already in payload["outputs"], `payload["outputs"][key] = payload.pop(key)`. In the test file, remove @pytest.mark.xfail markers.
+    test_scenarios:
+      - "T-3-RED tests pass without xfail"
+    verify:
+      - pytest orchestrator_next/tests/test_run_loop_generic_hoist.py orchestrator_next/tests/test_run_loop_git_agnostic.py -v
+
+  - id: T-4-RED
+    title: Failing test — report.render_report iterates all output keys per step
+    why: AC-2 — a step emitting a novel output key surfaces in the report without engine changes.
+    status: completed
+    files:
+      - orchestrator_next/tests/test_report_generic_outputs.py
+    change: |
+      Create new test file with @pytest.mark.xfail(strict=False) on every test. Import report_for_state or render_report. Tests: (1) test_briefing_read_from_outputs — build a state.yaml with step_history=[{"step_id":"foo","phase":"main","status":"completed","attempt":1,"usage":{},"outputs":{"briefing":"hello"}}]; render report to a buffer; assert "hello" appears. (2) test_briefing_fallback_to_legacy_top_level — same but entry has top-level `briefing: "legacy"` and no `outputs` — assert "legacy" appears (backward compat). (3) test_novel_output_key_rendered — entry outputs={"briefing":"b", "custom_metric":"42"}; assert "custom_metric" and "42" appear in the rendered output. (4) test_long_value_truncated — outputs={"blob":"x"*500}; assert the printed line contains "…" or the value is not printed at full length (< 200 chars for that entry's inline summary).
+    test_scenarios:
+      - "briefing key read from outputs map (new location)"
+      - "top-level briefing still read for legacy state files"
+      - "Novel output key surfaces in report"
+      - "Long output value truncated"
+    verify:
+      - pytest orchestrator_next/tests/test_report_generic_outputs.py -v
+
+  - id: T-4-GREEN
+    title: Extend report.render_report to read entry["outputs"] and render novel keys
+    why: AC-2 — report no longer knows a fixed column set of output keys.
+    status: completed
+    depends_on: [T-4-RED]
+    files:
+      - orchestrator_next/report.py
+      - orchestrator_next/tests/test_report_generic_outputs.py
+    change: |
+      In report.py render_report step-row loop (around line 114): change `briefing = entry.get("briefing") or ""` to `briefing = (entry.get("outputs") or {}).get("briefing") or entry.get("briefing") or ""`. After the existing per-attempt briefing print loop (around line 205), add a second print loop that iterates `entry.get("outputs") or {}`, skips "briefing" (already rendered), and writes one indented line per remaining key: `f"    [output] {key}={str(value)[:80]}{'…' if len(str(value)) > 80 else ''}\n"`. Place it inside the same `for step_id, r in rows.items()` block; accumulate outputs across attempts into r["outputs_by_attempt"] similar to briefings. Alternatively (simpler): render outputs directly from the last-attempt entry rather than aggregating — one line per key on the row's last attempt. Pick the simpler version. In the test file, remove @pytest.mark.xfail markers.
+    test_scenarios:
+      - "T-4-RED tests pass without xfail"
+      - "Existing test_report.py tests still green"
+    verify:
+      - pytest orchestrator_next/tests/test_report_generic_outputs.py orchestrator_next/tests/test_report.py -v
+
+  - id: T-5
+    title: Add required_outputs_for_completed to design-review and review contract.yaml
+    why: AC-5 — anti-rubber-stamp guardrail preserved via contract declarations rather than engine code.
+    status: completed
+    depends_on: [T-2-GREEN]
+    files:
+      - config/steps/design-review/contract.yaml
+      - config/steps/review/contract.yaml
+    change: |
+      In config/steps/design-review/contract.yaml, append:
+        required_outputs_for_completed:
+          - key: design_review_result
+            value: pass
+      In config/steps/review/contract.yaml, append:
+        required_outputs_for_completed:
+          - key: phase_review_report.verdict
+            value: pass
+    test_scenarios:
+      - "design-review contract loads with new field via parser.load_contract_for_step"
+      - "review contract loads with new field"
+      - "A completed design-review payload with design_review_result: needs_work still coerces to failed end-to-end"
+    verify:
+      - pytest orchestrator_next/tests/test_record_validation.py orchestrator_next/tests/test_phase_review_success_routing.py orchestrator_next/tests/test_completion_contract_briefing.py -v
+
+  - id: T-6
+    title: AC-6 grep guard — engine contains no references to specific review step_ids or output keys
+    why: AC-6 — final guard that the four coupling points are truly gone.
+    status: completed
+    depends_on: [T-1-GREEN, T-2-GREEN, T-3-GREEN, T-4-GREEN, T-5]
+    files:
+      - orchestrator_next/tests/test_engine_agnosticism_grep.py
+    change: |
+      Create a new test file. Add test_no_specific_step_ids_in_engine: run `grep -rE 'design-review|run-phase-review|design_review_result|phase_review_report' orchestrator_next/*.py` via subprocess (constrained to top-level .py files, not tests/); assert exit code is 1 (grep-no-match) and stdout empty. Add test_no_optional_history_keys_constant: `from orchestrator_next import record; assert not hasattr(record, "_OPTIONAL_STEP_HISTORY_KEYS")`. Add test_targeted_suite_green: run the focused pytest slice `pytest orchestrator_next/tests/test_record_full_outputs_persistence.py orchestrator_next/tests/test_record_required_outputs.py orchestrator_next/tests/test_run_loop_generic_hoist.py orchestrator_next/tests/test_report_generic_outputs.py orchestrator_next/tests/test_record_validation.py orchestrator_next/tests/test_record_briefing_persistence.py orchestrator_next/tests/test_phase_review_success_routing.py orchestrator_next/tests/test_completion_contract_briefing.py orchestrator_next/tests/test_report.py orchestrator_next/tests/test_endtoend_migrated_workflow.py orchestrator_next/tests/test_run_loop_git_agnostic.py -q` via subprocess and assert exit 0. (Scoped to the affected surface because the repo has 10 pre-existing unrelated failures in test_paths/test_parser_directory_layout/test_prompt_dir_colocation/test_models_verb/test_step_env — verified at design time.)
+    test_scenarios:
+      - "AC-6 grep returns zero matches in engine (non-test) code"
+      - "_OPTIONAL_STEP_HISTORY_KEYS constant no longer exists in record.py"
+      - "Full slice of affected test files passes green"
+    verify:
+      - pytest orchestrator_next/tests/test_engine_agnosticism_grep.py -v
