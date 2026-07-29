@@ -111,7 +111,8 @@ def render_report(step_history: list, issues: list) -> dict:
         cost = usage.get("cost_usd") or 0.0
         duration_ms = usage.get("duration_ms") or 0
         model = usage.get("model") or ""
-        briefing = entry.get("briefing") or ""
+        entry_outputs = entry.get("outputs") or {}
+        briefing = entry_outputs.get("briefing") or entry.get("briefing") or ""
         # Every attempt's briefing is kept (not just the last one) so a failed
         # attempt's "why it failed" survives alongside the retry that fixed it.
         briefing_entry = {"attempt": attempt, "status": status, "briefing": briefing}
@@ -128,10 +129,12 @@ def render_report(step_history: list, issues: list) -> dict:
                 "duration_ms": duration_ms,
                 "model": model,
                 "briefings": [briefing_entry],
+                "outputs": dict(entry_outputs),
             }
         else:
             rows[step_id]["status"] = status  # last status wins
             rows[step_id]["attempts"] = max(rows[step_id]["attempts"], attempt)
+            rows[step_id]["outputs"] = dict(entry_outputs)  # last attempt wins
             rows[step_id]["tokens"] += tokens
             rows[step_id]["input_tokens"] += input_tokens
             rows[step_id]["output_tokens"] += output_tokens
@@ -203,6 +206,21 @@ def render_report(step_history: list, issues: list) -> dict:
             tag = f"attempt {b['attempt']} ({b['status']})" if len(briefings) > 1 else b["status"]
             text = b["briefing"].replace("\n", " ")
             sys.stderr.write(f"    [{tag}] {text}\n")
+        # Print novel output keys (skip briefing, already rendered above).
+        for key, val in (r.get("outputs") or {}).items():
+            if key == "briefing":
+                continue
+            val_str = str(val)
+            sys.stderr.write(
+                f"    [output] {key}={val_str[:80]}{'…' if len(val_str) > 80 else ''}\n"
+            )
+        # Print any novel output keys (truncated) from the last attempt's outputs.
+        for key, value in (r.get("outputs") or {}).items():
+            if key == "briefing":
+                continue  # already rendered above
+            v_str = str(value)
+            truncated = v_str[:80] + "…" if len(v_str) > 80 else v_str
+            sys.stderr.write(f"    [output] {key}={truncated}\n")
 
     sys.stderr.write(
         f"\n{'TOTAL':<35} {'':12} {'':>4} {total_ms/1000:>9.1f}s "

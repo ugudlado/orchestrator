@@ -33,7 +33,6 @@ def _entry(step_id="foo", outputs=None, **kwargs):
     return base
 
 
-@pytest.mark.xfail(strict=False)
 def test_briefing_read_from_outputs():
     """briefing key read from entry["outputs"]["briefing"]."""
     history = [_entry("foo", outputs={"briefing": "hello"})]
@@ -41,7 +40,6 @@ def test_briefing_read_from_outputs():
     assert "hello" in stderr
 
 
-@pytest.mark.xfail(strict=False)
 def test_briefing_fallback_to_legacy_top_level():
     """top-level entry["briefing"] still read for legacy state files without outputs."""
     history = [_entry("foo", briefing="legacy")]
@@ -49,7 +47,6 @@ def test_briefing_fallback_to_legacy_top_level():
     assert "legacy" in stderr
 
 
-@pytest.mark.xfail(strict=False)
 def test_novel_output_key_rendered():
     """A novel output key surfaces in the rendered report."""
     history = [_entry("foo", outputs={"briefing": "b", "custom_metric": "42"})]
@@ -58,7 +55,6 @@ def test_novel_output_key_rendered():
     assert "42" in stderr
 
 
-@pytest.mark.xfail(strict=False)
 def test_long_value_truncated():
     """Long output values are truncated in the report."""
     history = [_entry("foo", outputs={"blob": "x" * 500})]
