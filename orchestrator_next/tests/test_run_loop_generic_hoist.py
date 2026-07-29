@@ -4,8 +4,6 @@ from __future__ import annotations
 import os
 import sys
 
-import pytest
-
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 if _SCRIPTS_DIR not in sys.path:
@@ -18,7 +16,6 @@ def _action(step_id="implement"):
     return {"step_id": step_id, "phase": "main", "model": "sonnet"}
 
 
-@pytest.mark.xfail(strict=False)
 def test_novel_root_key_hoisted():
     """A novel top-level key moves into outputs and is removed from root."""
     completion = {"outputs": {}, "custom_key": "v", "step_id": "implement", "phase": "main", "status": "completed"}
@@ -27,7 +24,6 @@ def test_novel_root_key_hoisted():
     assert "custom_key" not in payload
 
 
-@pytest.mark.xfail(strict=False)
 def test_reserved_keys_not_hoisted():
     """Reserved protocol keys stay at root, not hoisted into outputs."""
     completion = {
@@ -41,7 +37,6 @@ def test_reserved_keys_not_hoisted():
         assert key not in payload["outputs"], f"reserved key {key!r} was hoisted into outputs"
 
 
-@pytest.mark.xfail(strict=False)
 def test_legacy_three_keys_still_hoisted():
     """The three original whitelisted keys still get hoisted (regression coverage)."""
     completion = {
@@ -57,7 +52,6 @@ def test_legacy_three_keys_still_hoisted():
     assert payload["outputs"]["discovery_result"] == {}
 
 
-@pytest.mark.xfail(strict=False)
 def test_no_overwrite_of_existing_outputs_key():
     """An existing key in outputs is not overwritten by a same-name root key."""
     completion = {
