@@ -5,8 +5,8 @@ Resets a workflow step and all steps that depend on it (directly or transitively
 by declaration order) back to pending. Strips their step_history entries so the
 DAG walker treats them as not-yet-run.
 
-Used by design-review (and any future review step) to send work back to an earlier
-step when the reviewer finds the artifacts insufficient.
+Used by review steps to send work back to an earlier step when the reviewer
+finds the artifacts insufficient.
 
 Public API: reset_step(step_id, state_yaml_path) -> None
 """

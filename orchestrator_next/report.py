@@ -214,13 +214,6 @@ def render_report(step_history: list, issues: list) -> dict:
             sys.stderr.write(
                 f"    [output] {key}={val_str[:80]}{'…' if len(val_str) > 80 else ''}\n"
             )
-        # Print any novel output keys (truncated) from the last attempt's outputs.
-        for key, value in (r.get("outputs") or {}).items():
-            if key == "briefing":
-                continue  # already rendered above
-            v_str = str(value)
-            truncated = v_str[:80] + "…" if len(v_str) > 80 else v_str
-            sys.stderr.write(f"    [output] {key}={truncated}\n")
 
     sys.stderr.write(
         f"\n{'TOTAL':<35} {'':12} {'':>4} {total_ms/1000:>9.1f}s "

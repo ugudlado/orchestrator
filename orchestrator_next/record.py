@@ -108,7 +108,7 @@ def _enforce_required_outputs(contract: Any, status: str, outputs: dict[str, Any
     for entry in required:
         key = entry["key"]
         expected = entry["value"]
-        # Dotted path: one level deep only (e.g. "phase_review_report.verdict")
+        # Dotted path: one level deep only (e.g. "outer.inner")
         if "." in key:
             parts = key.split(".", 1)
             resolved = (outputs.get(parts[0]) or {}).get(parts[1]) if isinstance(outputs.get(parts[0]), dict) else None
