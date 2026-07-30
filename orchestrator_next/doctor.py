@@ -367,7 +367,11 @@ def check_contract_aliases_resolve(config_root: Path) -> CheckResult:
             continue
         binary, _template = resolve_tool_template(subprocess_name, routes_yaml)
         if not shutil.which(binary):
-            unresolved.append(f"{alias} -> {subprocess_name} ({binary} not on PATH)")
+            unresolved.append(
+                f"{alias} -> {subprocess_name} ({binary} not on PATH) — reroute via "
+                f"~/.orchestrator/models.yaml, e.g. "
+                f"models: {{{alias}: {{model_id: <id>, subprocess: claude}}}}"
+            )
 
     if unresolved:
         return CheckResult(
