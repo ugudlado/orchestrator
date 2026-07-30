@@ -103,15 +103,18 @@ def test_models_renders_fallback_chain_with_active_marker(monkeypatch, tmp_path,
     assert "* #1" in out  # candidate #1 (claude) is the active one
 
 
-def test_models_missing_config_root_errors(monkeypatch, capsys):
-    """AC-6: ORCHESTRATOR_CONFIG unset → stderr error, non-zero exit."""
+def test_models_missing_config_root_falls_back_to_bundled(monkeypatch, capsys, tmp_path):
+    """Distribution improvements T1: ORCHESTRATOR_CONFIG unset no longer hard
+    errors — it falls back to the bundled config, so `models` runs clean."""
     from orchestrator_next.models_verb import main
+    from orchestrator_next.paths import bundled_config_root
 
     monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_HOME", raising=False)
+    monkeypatch.setenv("REPO_ROOT", str(tmp_path))  # no vendored config here
 
     rc = main([])
-    err = capsys.readouterr().err
-    assert rc != 0
-    assert "error" in err.lower()
-    assert "ORCHESTRATOR_CONFIG" in err
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert bundled_config_root().is_dir()
+    assert out  # prints the resolved tier table instead of erroring

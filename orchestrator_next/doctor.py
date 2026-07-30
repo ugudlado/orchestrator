@@ -18,11 +18,28 @@ CheckResult = namedtuple("CheckResult", "name status detail")
 
 
 def _repo_root_from_env(orch_home: Path) -> Path:
-    """Resolve consumer repo root for .orchestrator override checks."""
+    """Resolve consumer repo root for .orchestrator override checks and the
+    onboarding checks (spec/project.yaml, git repo, ticketing).
+
+    orch_home (config_root.parent) is only a safe fallback in a dev checkout
+    where config/ lives at the repo root — it is NOT the consumer repo in a
+    wheel install with the config bundled fallback (T1), where it resolves
+    inside site-packages. Prefer the git toplevel of cwd, then cwd itself,
+    before falling back to orch_home.
+    """
     for key in ("ORCHESTRATOR_REPO_ROOT", "REPO_ROOT"):
         val = os.environ.get(key)
         if val:
             return Path(val).expanduser().resolve()
+    import subprocess
+    try:
+        top = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+        ).stdout.strip()
+    except Exception:
+        top = ""
+    if top:
+        return Path(top).resolve()
     return orch_home.resolve()
 
 
@@ -64,6 +81,79 @@ def check_symlinks(repo_root: Path, orch_home: Path) -> CheckResult:
     if stale:
         return CheckResult("symlinks valid", "WARN", "; ".join(stale))
     return CheckResult("symlinks valid", "PASS", "all symlink targets exist")
+
+
+# ---------------------------------------------------------------------------
+# Onboarding checks (distribution improvements) — what a brand-new repo needs.
+# ---------------------------------------------------------------------------
+
+def check_config_source(source: str, config_root: Path) -> CheckResult:
+    """Report which of the 3 config_root() tiers resolved: env, vendored, or
+    bundled (see paths.config_root_with_source). Informational — never FAILs;
+    check_config_root below still enforces the required layout."""
+    return CheckResult("config source", "PASS", f"{source}: {config_root}")
+
+
+def check_project_yaml(repo_root: Path) -> CheckResult:
+    """WARN when spec/project.yaml is missing or fails to parse — the
+    onboarding gap `orchestrator init` fixes."""
+    path = repo_root / "spec" / "project.yaml"
+    if not path.is_file():
+        return CheckResult(
+            "project.yaml", "WARN", f"missing at {path} — run `orchestrator init`"
+        )
+    try:
+        yaml.safe_load(path.read_text()) or {}
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult("project.yaml", "WARN", f"{path} failed to parse: {exc}")
+    return CheckResult("project.yaml", "PASS", f"valid: {path}")
+
+
+def check_git_repo(repo_root: Path) -> CheckResult:
+    """WARN when repo_root is not inside a git repository."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult("git repo", "WARN", f"git not runnable: {exc}")
+    if result.returncode != 0:
+        return CheckResult("git repo", "WARN", f"not a git repo: {repo_root}")
+    return CheckResult("git repo", "PASS", result.stdout.strip())
+
+
+def check_ticketing_backend(repo_root: Path) -> CheckResult:
+    """WARN when the ticketing backend named in project.yaml is not reachable.
+
+    Skips cleanly (PASS) when project.yaml is absent or names no backend —
+    that's check_project_yaml's job to flag, not this one's.
+    """
+    path = repo_root / "spec" / "project.yaml"
+    if not path.is_file():
+        return CheckResult("ticketing backend", "PASS", "no project.yaml — skipped")
+    try:
+        data = yaml.safe_load(path.read_text()) or {}
+    except Exception:  # noqa: BLE001
+        return CheckResult("ticketing backend", "PASS", "project.yaml unparsable — skipped")
+    backend = str(data.get("ticketing") or "").strip()
+    if not backend:
+        return CheckResult("ticketing backend", "PASS", "ticketing unset — skipped")
+    if backend == "backlog":
+        missing = [k for k in ("BACKLOG_URL", "BACKLOG_TOKEN") if not os.environ.get(k)]
+        project = os.environ.get("BACKLOG_PROJECT") or os.environ.get("BACKLOG_PROJECT_ID") or data.get("project_id")
+        if not project:
+            missing.append("BACKLOG_PROJECT(_ID)")
+        if missing:
+            return CheckResult(
+                "ticketing backend", "WARN", f"backlog: missing {', '.join(missing)}"
+            )
+        return CheckResult("ticketing backend", "PASS", "backlog: env configured")
+    if backend == "linear":
+        return CheckResult("ticketing backend", "PASS", "linear: reachability checked via MCP, not doctor")
+    return CheckResult("ticketing backend", "WARN", f"unknown ticketing backend: {backend}")
 
 
 # ---------------------------------------------------------------------------
@@ -345,16 +435,21 @@ def _format_table(results: list) -> str:
 
 def run_all() -> int:
     """Run all checks and return exit code 0 (pass/warn) or 2 (any failure)."""
-    from orchestrator_next.paths import ConfigRootError, config_root as _config_root
+    from orchestrator_next.paths import ConfigRootError, config_root_with_source
 
     try:
-        config_root = _config_root()
+        config_root, config_source = config_root_with_source()
     except ConfigRootError as exc:
         print(_format_table([CheckResult("config root", "FAIL", str(exc))]))
         return 2
     orch_home = config_root.parent
     repo_root = _repo_root_from_env(orch_home)
     results = [
+        # Onboarding checks (distribution improvements) — setup diagnosis first.
+        check_config_source(config_source, config_root),
+        check_project_yaml(repo_root),
+        check_git_repo(repo_root),
+        check_ticketing_backend(repo_root),
         # Config-folder validation (the 4 portability rules) — anchored on config_root().
         check_config_root(config_root),
         check_models_layer_present(config_root),     # D4: loosened models.yaml presence (WARN)

@@ -32,16 +32,16 @@ def bundled_config_root() -> Path:
     return _cli_root() / "config"
 
 
-def config_root() -> Path:
-    """Resolve the workflow-config root: the directory holding workflows/,
-    steps/, and agents.yaml.
+def config_root_with_source() -> tuple[Path, str]:
+    """Resolve the workflow-config root, plus a label for which source won.
 
     Resolution order (first hit wins, no layering/merging):
-      1. ORCHESTRATOR_CONFIG  — points at the config/ dir directly
+      1. ORCHESTRATOR_CONFIG  — points at the config/ dir directly ("env")
       2. <repo_root>/.orchestrator/config/ — vendored pack, if it has workflows/
-         (repo_root from ORCHESTRATOR_REPO_ROOT or REPO_ROOT env)
+         (repo_root from ORCHESTRATOR_REPO_ROOT or REPO_ROOT env) ("vendored")
+      3. bundled config shipped with the install ("bundled")
 
-    Neither hit → ConfigRootError.
+    Hard error only if the bundled config is itself missing (broken install).
 
     INVARIANT: this function owns the trailing `config` segment. Callers must
     join only what's *below* it (e.g. config_root() / "steps"), NOT
@@ -50,13 +50,26 @@ def config_root() -> Path:
     """
     explicit = os.environ.get("ORCHESTRATOR_CONFIG")
     if explicit:
-        return Path(explicit)
+        return Path(explicit), "env"
     repo_root = os.environ.get("ORCHESTRATOR_REPO_ROOT") or os.environ.get("REPO_ROOT")
     if repo_root:
         vendored = Path(repo_root) / ".orchestrator" / "config"
         if (vendored / "workflows").is_dir():
-            return vendored
+            return vendored, "vendored"
+    bundled = bundled_config_root()
+    if bundled.is_dir():
+        return bundled, "bundled"
     raise ConfigRootError(
-        "config root not set — export ORCHESTRATOR_CONFIG=$(orchestrator config-path) "
-        "for the bundled config, or point it at a config checkout's config/ dir"
+        f"config root not set and bundled config is missing ({bundled}) — "
+        "broken install; reinstall or export ORCHESTRATOR_CONFIG explicitly"
     )
+
+
+def config_root() -> Path:
+    """Resolve the workflow-config root: the directory holding workflows/,
+    steps/, and agents.yaml. See config_root_with_source() for the ordered
+    resolution rule and source labels; doctor uses that to report which
+    source resolved.
+    """
+    root, _source = config_root_with_source()
+    return root
