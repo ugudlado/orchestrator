@@ -1,0 +1,41 @@
+# spec/project.yaml — per-repo config for the orchestrator workflow engine.
+# Written by `orchestrator init`. Fields below mirror what the engine and its
+# scripts actually read (grepped, not invented) — edit freely, but keep the
+# keys the same.
+
+version: 1
+
+# Ticketing backend: backlog | linear — read by config/steps/lib/backlog-api.sh
+# (backlog_api_ticketing) to decide whether ticket-sync/load-ticket-context/
+# ticket-done steps talk to the Backlog.md REST API. Leave blank/omit if you
+# don't use either — those steps skip cleanly.
+ticketing: backlog
+
+# Backlog.md project id/guid/name. Optional — BACKLOG_PROJECT or
+# BACKLOG_PROJECT_ID env vars override this and are preferred (keeps a
+# non-secret literal here optional, not required).
+project_id:
+
+# Read by prompts/skills for repo identification (e.g. review, design).
+project:
+  name: my-project
+  repo: my-project
+
+# Repo-specific rules and constraints referenced by workflow prompts
+# (design, implement, review) when building context for an agent.
+rules: []
+
+# verify_commands.test is read by config/tests/test_prose_contracts.py-style
+# checks and by review/QA prompts to know how to run this repo's test suite.
+# Must be a non-empty string starting with the test runner command.
+verify_commands:
+  test: pytest -q
+
+# Quality gate thresholds — read by skills/review, skills/design-review, and
+# skills/ux-critique prompts (quality_bar.min_phase_review_score,
+# quality_bar.min_design_review_score, quality_bar.max_retry_rounds) to decide
+# pass/fail and retry limits at each phase gate.
+quality_bar:
+  min_phase_review_score: 8
+  min_design_review_score: 8
+  max_retry_rounds: 3
