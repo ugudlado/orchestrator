@@ -1,7 +1,0 @@
-id: learn
-version: 3
-prompt: learn/SKILL.md
-model: sonnet
-default_outputs:
-  learn_result: { completed: true }
-  backlog_tickets_synced: []

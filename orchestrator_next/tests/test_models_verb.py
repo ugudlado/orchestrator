@@ -103,18 +103,24 @@ def test_models_renders_fallback_chain_with_active_marker(monkeypatch, tmp_path,
     assert "* #1" in out  # candidate #1 (claude) is the active one
 
 
-def test_models_missing_config_root_falls_back_to_bundled(monkeypatch, capsys, tmp_path):
-    """Distribution improvements T1: ORCHESTRATOR_CONFIG unset no longer hard
-    errors — it falls back to the bundled config, so `models` runs clean."""
+def test_models_missing_config_root_falls_back_to_pack(monkeypatch, capsys, tmp_path):
+    """ORCHESTRATOR_CONFIG unset no longer hard errors — resolution falls
+    through to the downloaded pack, so `models` runs clean."""
+    import orchestrator_next.paths as paths
     from orchestrator_next.models_verb import main
-    from orchestrator_next.paths import bundled_config_root
 
     monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_HOME", raising=False)
     monkeypatch.setenv("REPO_ROOT", str(tmp_path))  # no vendored config here
+    monkeypatch.setattr(paths, "bundled_config_root", lambda: tmp_path / "no-checkout" / "config")
+    pack = tmp_path / "pack"
+    (pack / "config" / "workflows").mkdir(parents=True)
+    (pack / "config" / "models.yaml").write_text(
+        "models:\n  sonnet: { model_id: m-1, subprocess: claude }\n"
+    )
+    monkeypatch.setattr(paths, "pack_root", lambda: pack)
 
     rc = main([])
     out = capsys.readouterr().out
     assert rc == 0
-    assert bundled_config_root().is_dir()
     assert out  # prints the resolved tier table instead of erroring

@@ -19,7 +19,7 @@ class ConfigRootError(RuntimeError):
     """Raised when no config root is set — resolution is explicit-only."""
 
 
-PACK_GIT_URL = "https://github.com/ugudlado/orchestrator.git"
+PACK_GIT_URL = "https://github.com/ugudlado/orchestrator-pack.git"
 PACK_DOWNLOAD_HINT = (
     f"download the workflow pack: git clone --depth 1 {PACK_GIT_URL} ~/.orchestrator/pack "
     "(update later with: git -C ~/.orchestrator/pack pull)"
@@ -30,6 +30,12 @@ def pack_root() -> Path:
     """Global downloaded workflow pack — a clone of the config repo. Carries
     config/ and skills/ side by side, downloaded once like the CLI itself."""
     return Path.home() / ".orchestrator" / "pack"
+
+
+def engine_data_dir() -> Path:
+    """Engine-owned data shipped in the wheel (pricing rates, models seed) —
+    deliberately NOT workflow content, which lives in the pack."""
+    return Path(__file__).resolve().parent / "data"
 
 
 def bundled_config_root() -> Path:

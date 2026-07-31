@@ -35,23 +35,24 @@ def test_repo_config_root_overrides_home(monkeypatch, tmp_path):
     assert resolve_field("opus", str(routes_yaml), "subprocess") == "claude"
 
 
-def test_home_overrides_bundled_config_root(monkeypatch, tmp_path):
-    """Repo→global floor: when the config root IS the bundled default, the
-    home file outranks it (bundled is only the floor)."""
-    from orchestrator_next.paths import bundled_config_root
+def test_home_overrides_pack_floor(monkeypatch, tmp_path):
+    """Repo→global floor: when the config root IS the downloaded pack (or dev
+    checkout), the home file outranks it — global defaults are only the floor."""
+    import orchestrator_next.paths as paths
 
     home = tmp_path / "home"
     home_models = home / ".orchestrator" / "models.yaml"
-    bundled_yaml = bundled_config_root() / "models.yaml"
-    assert bundled_yaml.is_file()
-
+    pack = tmp_path / "pack"
+    pack_yaml = pack / "config" / "models.yaml"
+    _write_models(pack_yaml, {"opus": {"subprocess": "claude", "model_id": "floor"}})
     _write_models(home_models, {"opus": {"subprocess": "cursor", "model_id": "x"}})
+    monkeypatch.setattr(paths, "pack_root", lambda: pack)
 
     _setup_home(monkeypatch, home)
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
 
-    assert resolve_field("opus", str(bundled_yaml), "subprocess") == "cursor"
+    assert resolve_field("opus", str(pack_yaml), "subprocess") == "cursor"
 
 
 def test_precedence_env_file_over_config_over_home(monkeypatch, tmp_path):

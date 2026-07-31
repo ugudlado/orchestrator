@@ -51,7 +51,7 @@ def test_config_root_pricing_wins_over_bundled_when_present(tmp_path, monkeypatc
 
 def test_neither_config_root_nor_bundled_has_pricing_yields_empty_table(tmp_path, monkeypatch):
     monkeypatch.setattr("orchestrator_next.paths.config_root", lambda: tmp_path)
-    monkeypatch.setattr("orchestrator_next.paths.bundled_config_root", lambda: tmp_path / "nonexistent")
+    monkeypatch.setattr("orchestrator_next.paths.engine_data_dir", lambda: tmp_path / "nonexistent")
 
     price = _lookup_price("claude-sonnet-4-6", datetime.datetime(2026, 7, 15))
     assert price is None

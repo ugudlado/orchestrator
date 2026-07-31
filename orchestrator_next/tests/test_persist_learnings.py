@@ -17,9 +17,11 @@ import pytest
 import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_STEP_DIR = _REPO_ROOT / "config" / "steps" / "persist-learnings"
+from orchestrator_next.paths import config_root as _config_root
+
+_STEP_DIR = _config_root() / "steps" / "persist-learnings"
 _SCRIPT = _STEP_DIR / "persist_learnings.py"
-_WORKFLOWS = _REPO_ROOT / "config" / "workflows"
+_WORKFLOWS = _config_root() / "workflows"
 
 VALID_ROW = {
     "id": "prefer-readme-scope",

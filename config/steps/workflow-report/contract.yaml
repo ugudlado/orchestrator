@@ -1,4 +1,0 @@
-id: workflow-report
-version: 1
-kind: script
-run: script.sh

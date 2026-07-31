@@ -23,24 +23,22 @@ def _load_pricing_table() -> dict[str, list]:
     Each value is a list of (effective_from_dt, input, output, cache_read, cache_creation)
     tuples sorted descending by effective_from so _pick_row can do a simple linear scan.
     """
-    from orchestrator_next.paths import ConfigRootError, bundled_config_root, config_root
+    from orchestrator_next.paths import ConfigRootError, config_root, engine_data_dir
     try:
         path = config_root() / "pricing.yaml"
     except ConfigRootError as exc:
         sys.stderr.write(f"[record] pricing: {exc}\n")
         return {}
     if not path.is_file():
-        # D4: a workflow-only pack root (Phase R) has no pricing.yaml —
-        # pricing.yaml stays engine-owned, so fall back to the bundled copy
-        # rather than losing cost accounting entirely.
-        bundled_path = bundled_config_root() / "pricing.yaml"
-        if bundled_path.is_file():
-            sys.stderr.write(
-                f"[record] pricing: {path} not found; falling back to bundled {bundled_path}\n"
-            )
-            path = bundled_path
+        # A workflow-only config root may lack pricing.yaml — pricing rates
+        # are engine-owned, so fall back to the wheel's data copy rather than
+        # losing cost accounting entirely.
+        data_path = engine_data_dir() / "pricing.yaml"
+        if data_path.is_file():
+            sys.stderr.write(f"[record] pricing: {path} not found; falling back to {data_path}\n")
+            path = data_path
         else:
-            sys.stderr.write(f"[record] pricing: pricing.yaml not found at {path} or {bundled_path}\n")
+            sys.stderr.write(f"[record] pricing: pricing.yaml not found at {path} or {data_path}\n")
             return {}
     try:
         data = yaml.safe_load(path.read_text()) or {}

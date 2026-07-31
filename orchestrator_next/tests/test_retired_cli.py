@@ -108,7 +108,7 @@ class TestNoProductionReferencesToRetiredVerbs(unittest.TestCase):
     def test_no_orchestrator_cost_or_metrics_references(self) -> None:
         """rg finds zero matches for 'orchestrator (cost|metrics)' in production directories.
 
-        Scans: bin/, orchestrator_next/, config/steps/, skills/
+        Scans: bin/, orchestrator_next/ (config/skills live in the pack repo)
         Excludes: archive/, backlog.md, and test directories.
 
         Test directories (tests/, __tests__/) are excluded because:
@@ -129,8 +129,6 @@ class TestNoProductionReferencesToRetiredVerbs(unittest.TestCase):
                 "orchestrator (cost|metrics)",
                 "bin/",
                 "orchestrator_next/",
-                "config/steps/",
-                "skills/",
                 "--glob",
                 "!**/archive/**",
                 "--glob",

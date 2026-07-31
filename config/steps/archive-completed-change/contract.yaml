@@ -1,6 +1,0 @@
-id: archive-completed-change
-version: 7
-kind: script
-run: script.sh
-state_mutating: true
-# Env from bin/orchestrator: REPO_ROOT, CHANGE_ID, ARCHIVE_PATH, WORKTREE_ROOT

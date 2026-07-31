@@ -1,7 +1,0 @@
-id: review
-version: 5
-prompt: review/SKILL.md
-model: opus
-required_outputs_for_completed:
-  - key: phase_review_report.verdict
-    value: pass

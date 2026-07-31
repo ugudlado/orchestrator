@@ -21,15 +21,22 @@ from typing import Any
 import yaml
 
 from orchestrator_next.model_routes import user_models_path
-from orchestrator_next.paths import bundled_config_root
+from orchestrator_next.paths import ConfigRootError, config_root, engine_data_dir
 
 
 def _load_seed() -> dict[str, Any]:
-    example_path = bundled_config_root() / "models.example.yaml"
+    candidates = [engine_data_dir() / "models.example.yaml"]
     try:
-        data = yaml.safe_load(example_path.read_text()) or {}
-    except (OSError, yaml.YAMLError):
-        data = {}
+        candidates.insert(0, config_root() / "models.example.yaml")
+    except ConfigRootError:
+        pass
+    data: dict[str, Any] = {}
+    for example_path in candidates:
+        try:
+            data = yaml.safe_load(example_path.read_text()) or {}
+            break
+        except (OSError, yaml.YAMLError):
+            continue
     return {"tools": data.get("tools") or {}, "models": data.get("models") or {}}
 
 

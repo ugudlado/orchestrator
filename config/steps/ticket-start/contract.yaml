@@ -1,7 +1,0 @@
-id: ticket-start
-version: 1
-kind: script
-run: ../lib/ticket-sync.sh
-params:
-  TICKET_SYNC_STATUS: "In Progress"
-  TICKET_SYNC_LOG_PREFIX: ticket-start
