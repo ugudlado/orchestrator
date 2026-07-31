@@ -38,7 +38,6 @@ def _usage() -> None:
         "  orchestrator validate-workflow <schema-name>\n"
         "  orchestrator config-path   # print the bundled/checkout config dir (for ORCHESTRATOR_CONFIG)\n"
         "  orchestrator report --state <state.yaml> | --all [--repo PATH] [--json]\n"
-        "  orchestrator init          # scaffold spec/project.yaml in the current repo\n"
         "  orchestrator doctor",
         file=sys.stderr,
     )
@@ -190,12 +189,12 @@ def main() -> None:
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
         "next", "done", "graph", "doctor", "models", "reset-step", "run", "validate-workflow",
-        "report", "init",
+        "report",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
-    # Every verb except doctor/models/init needs a second argument.
-    if len(args) < 2 and args[0] not in ("doctor", "models", "init"):
+    # Every verb except doctor/models needs a second argument.
+    if len(args) < 2 and args[0] not in ("doctor", "models"):
         _usage()
     # ORC-108: each config/workflows/<name>.yaml is a CLI subcommand → orchestrator-run.sh.
     if args[0] in _wf_subcommands:
@@ -207,10 +206,6 @@ def main() -> None:
     if args[0] == "doctor":
         from orchestrator_next.doctor import _doctor_main
         sys.exit(_doctor_main(args[1:]))
-
-    if args[0] == "init":
-        from orchestrator_next.init import main as _init_main
-        sys.exit(_init_main(args[1:]))
 
     if args[0] == "report":
         from orchestrator_next.report import main as _report_main

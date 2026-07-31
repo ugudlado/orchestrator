@@ -101,7 +101,7 @@ shape for non-coding workflows. What changes is only the base directory:
 
 Always have steps write to `$ORCHESTRATOR_WORKTREE_ARTIFACT_DIR/<change_id>/`
 so they work either way; never hardcode a worktree path. The engine's only hard
-requirement is a git repo containing `spec/project.yaml` — not a branch.
+requirement is a git repo — not a branch.
 
 Write this as a brief contract block — it drives the intake step design and sets expectations for the user.
 

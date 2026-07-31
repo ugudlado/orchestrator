@@ -19,7 +19,7 @@ CheckResult = namedtuple("CheckResult", "name status detail")
 
 def _repo_root_from_env(orch_home: Path) -> Path:
     """Resolve consumer repo root for .orchestrator override checks and the
-    onboarding checks (spec/project.yaml, git repo, ticketing).
+    onboarding checks (git repo, commit hooks).
 
     orch_home (config_root.parent) is only a safe fallback in a dev checkout
     where config/ lives at the repo root — it is NOT the consumer repo in a
@@ -94,21 +94,6 @@ def check_config_source(source: str, config_root: Path) -> CheckResult:
     return CheckResult("config source", "PASS", f"{source}: {config_root}")
 
 
-def check_project_yaml(repo_root: Path) -> CheckResult:
-    """WARN when spec/project.yaml is missing or fails to parse — the
-    onboarding gap `orchestrator init` fixes."""
-    path = repo_root / "spec" / "project.yaml"
-    if not path.is_file():
-        return CheckResult(
-            "project.yaml", "WARN", f"missing at {path} — run `orchestrator init`"
-        )
-    try:
-        yaml.safe_load(path.read_text()) or {}
-    except Exception as exc:  # noqa: BLE001
-        return CheckResult("project.yaml", "WARN", f"{path} failed to parse: {exc}")
-    return CheckResult("project.yaml", "PASS", f"valid: {path}")
-
-
 def check_commit_verification(repo_root: Path) -> CheckResult:
     """WARN when the repo has no commit-time verification (pre-commit, husky,
     lefthook, biome). Workflow QA gates re-verify, but commit-time hooks catch
@@ -145,37 +130,6 @@ def check_git_repo(repo_root: Path) -> CheckResult:
     if result.returncode != 0:
         return CheckResult("git repo", "WARN", f"not a git repo: {repo_root}")
     return CheckResult("git repo", "PASS", result.stdout.strip())
-
-
-def check_ticketing_backend(repo_root: Path) -> CheckResult:
-    """WARN when the ticketing backend named in project.yaml is not reachable.
-
-    Skips cleanly (PASS) when project.yaml is absent or names no backend —
-    that's check_project_yaml's job to flag, not this one's.
-    """
-    path = repo_root / "spec" / "project.yaml"
-    if not path.is_file():
-        return CheckResult("ticketing backend", "PASS", "no project.yaml — skipped")
-    try:
-        data = yaml.safe_load(path.read_text()) or {}
-    except Exception:  # noqa: BLE001
-        return CheckResult("ticketing backend", "PASS", "project.yaml unparsable — skipped")
-    backend = str(data.get("ticketing") or "").strip()
-    if not backend:
-        return CheckResult("ticketing backend", "PASS", "ticketing unset — skipped")
-    if backend == "backlog":
-        missing = [k for k in ("BACKLOG_URL", "BACKLOG_TOKEN") if not os.environ.get(k)]
-        project = os.environ.get("BACKLOG_PROJECT") or os.environ.get("BACKLOG_PROJECT_ID") or data.get("project_id")
-        if not project:
-            missing.append("BACKLOG_PROJECT(_ID)")
-        if missing:
-            return CheckResult(
-                "ticketing backend", "WARN", f"backlog: missing {', '.join(missing)}"
-            )
-        return CheckResult("ticketing backend", "PASS", "backlog: env configured")
-    if backend == "linear":
-        return CheckResult("ticketing backend", "PASS", "linear: reachability checked via MCP, not doctor")
-    return CheckResult("ticketing backend", "WARN", f"unknown ticketing backend: {backend}")
 
 
 # ---------------------------------------------------------------------------
@@ -473,10 +427,8 @@ def run_all() -> int:
     results = [
         # Onboarding checks (distribution improvements) — setup diagnosis first.
         check_config_source(config_source, config_root),
-        check_project_yaml(repo_root),
         check_git_repo(repo_root),
         check_commit_verification(repo_root),
-        check_ticketing_backend(repo_root),
         # Config-folder validation (the 4 portability rules) — anchored on config_root().
         check_config_root(config_root),
         check_models_layer_present(config_root),     # D4: loosened models.yaml presence (WARN)

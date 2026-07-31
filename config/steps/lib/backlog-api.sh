@@ -21,14 +21,14 @@ backlog_api_project() {
   printf '%s' "${BACKLOG_PROJECT:-${BACKLOG_PROJECT_ID:-}}"
 }
 
-# Which ticketing backend this repo uses (e.g. "backlog"), read directly from
-# spec/project.yaml:ticketing under $REPO_ROOT — the engine has no notion of
-# ticketing and never writes this into state.yaml; ticket-sync steps read it
-# straight from repo config, same as any other workflow-content concern.
+# Which ticketing backend this environment uses (e.g. "backlog") — the engine
+# has no notion of ticketing and never writes this into state.yaml; ticket-sync
+# steps call this, same as any other workflow-content concern.
 backlog_api_ticketing() {
-  local project_yaml="${REPO_ROOT:-}/spec/project.yaml"
-  if [ -n "${REPO_ROOT:-}" ] && [ -f "$project_yaml" ]; then
-    python3 -c 'import sys, yaml; d = yaml.safe_load(open(sys.argv[1])) or {}; print(d.get("ticketing") or "")' "$project_yaml" 2>/dev/null
+  # Env-driven: the environment that carries the credentials IS the backend
+  # selection — no repo-side marker file. Unset env → ticket steps skip.
+  if [ -n "${BACKLOG_URL:-}" ] && [ -n "${BACKLOG_TOKEN:-}" ]; then
+    printf 'backlog'
   fi
 }
 

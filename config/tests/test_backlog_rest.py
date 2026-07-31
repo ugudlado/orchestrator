@@ -81,8 +81,30 @@ def test_load_ticket_context_success(tmp_path, monkeypatch):
     assert "Use BACKLOG_URL" in body
 
 
+def test_load_ticket_context_unset_env_skips(tmp_path):
+    """No ticketing env at all → step skips cleanly (exit 0), no abort."""
+    state_dir = tmp_path / "st"
+    state_dir.mkdir()
+    state_yaml = state_dir / "state.yaml"
+    state_yaml.write_text(yaml.safe_dump({"ticket_id": "ORC-125", "change_id": "orc-125"}))
+    env = os.environ.copy()
+    for k in ("BACKLOG_URL", "BACKLOG_TOKEN", "BACKLOG_PROJECT", "BACKLOG_PROJECT_ID"):
+        env.pop(k, None)
+    env["REPO_ROOT"] = str(tmp_path)
+    env["ORCHESTRATOR_STATE_YAML_PATH"] = str(state_yaml)
+
+    proc = subprocess.run(
+        ["bash", str(_LOAD_SCRIPT)],
+        capture_output=True, text=True, cwd=str(tmp_path), env=env,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert '"ticket_context": "skipped"' in proc.stdout
+
+
 def test_load_ticket_context_missing_env_aborts_workflow(tmp_path):
-    """Missing BACKLOG_URL/TOKEN must exit 1 so the run loop aborts."""
+    """Ticketing env present but incomplete (no project id) must exit 1 so the
+    run loop aborts instead of inventing scope. (Fully-unset env skips — see
+    the ticketing-unset skip test.)"""
     state_dir = tmp_path / "st"
     state_dir.mkdir()
     state_yaml = state_dir / "state.yaml"
@@ -91,10 +113,11 @@ def test_load_ticket_context_missing_env_aborts_workflow(tmp_path):
         "change_id": "orc-125",
     }))
     (tmp_path / "spec").mkdir(exist_ok=True)
-    (tmp_path / "spec" / "project.yaml").write_text(yaml.safe_dump({"ticketing": "backlog"}))
     env = os.environ.copy()
-    env.pop("BACKLOG_URL", None)
-    env.pop("BACKLOG_TOKEN", None)
+    env["BACKLOG_URL"] = "https://example.invalid"
+    env["BACKLOG_TOKEN"] = "tok"
+    env.pop("BACKLOG_PROJECT", None)
+    env.pop("BACKLOG_PROJECT_ID", None)
     env["REPO_ROOT"] = str(tmp_path)
     env["CHANGE_ID"] = "orc-125"
     env["ORCHESTRATOR_STATE_YAML_PATH"] = str(state_yaml)

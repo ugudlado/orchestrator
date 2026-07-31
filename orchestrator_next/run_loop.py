@@ -711,17 +711,16 @@ def run_cmd(argv: list[str]) -> int:
         _log("Usage: orchestrator run <ticket-id> [--schema S] ...")
         return 7
 
+    # No repo-side marker file required — any git repo (or cwd) is runnable;
+    # ticketing and conventions are env-/docs-driven.
     repo_root = os.path.abspath(repo_arg) if repo_arg else os.environ.get("REPO_ROOT", "")
-    if not repo_root or not (Path(repo_root) / "spec" / "project.yaml").is_file():
+    if not repo_root:
         try:
             repo_root = subprocess.run(
                 ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
             ).stdout.strip() or os.getcwd()
         except Exception:
             repo_root = os.getcwd()
-    if not (Path(repo_root) / "spec" / "project.yaml").is_file():
-        _log(f"ERROR: spec/project.yaml not found under {repo_root}")
-        return 7
     os.environ["REPO_ROOT"] = repo_root
 
     # Route-override env (model_routes.py reads these from os.environ).

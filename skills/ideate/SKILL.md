@@ -17,10 +17,10 @@ args:
 ## Execution
 
 1. Parse `$ARGUMENTS` for topic, --next, or --refresh flags.
-2. Read `spec/project.yaml` for project identity, plus CLAUDE.md / AGENTS.md / README for vision, architecture, rules, and gotchas.
+2. Read CLAUDE.md / AGENTS.md / README for project vision, architecture, rules, and gotchas.
 3. Invoke the `ideator` agent with:
    - the user's original request and parsed mode
-   - the project context from `spec/project.yaml`
+   - the project context from the repo docs above
    - instructions to inspect current repo state before ranking anything
 4. Require the `ideator` agent to perform a freshness pass:
    - List existing backlog tasks via `backlog task list --plain` (managed by the `backlog` CLI under `spec/changes/backlog/`). Filter by status (`-s "To Do"`) to exclude already-completed work; use `backlog task <id> --plain` for full body and `backlog search "<query>" --plain` for keyword scans.
