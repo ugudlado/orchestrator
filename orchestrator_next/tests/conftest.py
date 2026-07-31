@@ -6,8 +6,16 @@ from pathlib import Path
 
 
 def pytest_configure(config) -> None:
-    """Default bundled config when tests don't override ORCHESTRATOR_CONFIG."""
+    """Tests need a real workflow pack. Resolve via the normal chain — a dev
+    checkout's config/ if present, else the downloaded ~/.orchestrator/pack —
+    and pin it so subprocess-spawning tests inherit a stable root."""
+    stale = os.environ.get("ORCHESTRATOR_CONFIG")
+    if stale and not (Path(stale) / "workflows").is_dir():
+        del os.environ["ORCHESTRATOR_CONFIG"]  # stale export (e.g. deleted repo config/)
     if "ORCHESTRATOR_CONFIG" not in os.environ:
-        os.environ["ORCHESTRATOR_CONFIG"] = str(
-            Path(__file__).resolve().parents[2] / "config"
-        )
+        from orchestrator_next.paths import ConfigRootError, config_root
+
+        try:
+            os.environ["ORCHESTRATOR_CONFIG"] = str(config_root())
+        except ConfigRootError:
+            pass  # pack-dependent tests will fail with the download hint
