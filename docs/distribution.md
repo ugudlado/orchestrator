@@ -29,7 +29,7 @@ Per-repo customization without forking the engine:
 
 - **Prompts/skills**: put overrides under `<repo>/skills/` — the prompt search order is fixed at `<repo>/skills` then the bundled `skills/` (repo→global, no env knob). Step contracts reference prompts by relative `.md` path only — absolute paths are rejected to keep vendored packs portable.
 - **Quality gates & verify commands**: gate thresholds are step-owned (vendor the pack to change them); review/QA steps discover the repo's test/lint commands from its own docs and manifests. Repos should also carry commit-time verification (pre-commit/husky/biome) — doctor WARNs when none is present, so breakage is caught at commit, not only at the QA gate.
-- **Ticketing**: env-driven — `BACKLOG_URL`+`BACKLOG_TOKEN` present means backlog; unset means ticket steps skip cleanly. The engine and doctor have zero ticketing logic; workflow scripts own it, so new backends are a script change. (Linear repos keep an optional `linear:` block in `spec/project.yaml` for the linear skill.)
+- **Ticketing**: env-driven — `BACKLOG_URL`+`BACKLOG_TOKEN` present means backlog; unset means ticket steps skip cleanly. The engine and doctor have zero ticketing logic; workflow scripts own it, so new backends are a script change.
 - **Headless/CI**: `ORCHESTRATOR_HEADLESS=1` + `ORCHESTRATOR_NOTIFY_CMD` — state auto-commits to the branch, blocks notify via any shell command.
 
 Upgrades: `uv tool upgrade orchestrator` (or reinstall from git). Config ships with the wheel, so engine+config always match.

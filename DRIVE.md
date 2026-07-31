@@ -53,19 +53,14 @@ export ORCHESTRATOR_CONFIG=$(orchestrator config-path)   # bundled config
 
 ## 1. Read the ticket (MCP)
 
-Detect the backend from `spec/project.yaml`:
+Ticketing is backlog.md, driven by the `BACKLOG_URL`/`BACKLOG_TOKEN`/`BACKLOG_PROJECT`
+env vars the workflow scripts read. **First read the server's own guides** so you
+use the right operations and statuses (status lane names vary per project):
 
-```bash
-grep "^ticketing:" spec/project.yaml | awk '{print $2}'   # → backlog | linear
-```
-
-- `linear` → use the Linear MCP tools. IDs are in `spec/project.yaml` under `linear:`.
-- `backlog` → use the backlog MCP tools. **First read the server's own guides** so you
-  use the right operations and statuses (status lane names vary per project):
-  - resource `backlog://workflow/overview` — when/how to use the tools
-  - the Task Execution and Task Finalization guides
-  - tools are named `backlog.<operation>` (e.g. `backlog.list_tasks`, `backlog.get_task`,
-    `backlog.edit_task`). List the tools to see exact names + arguments.
+- resource `backlog://workflow/overview` — when/how to use the tools
+- the Task Execution and Task Finalization guides
+- tools are named `backlog.<operation>` (e.g. `backlog.list_tasks`, `backlog.get_task`,
+  `backlog.edit_task`). List the tools to see exact names + arguments.
 
   Do **not** assume CLI command shapes (`backlog task edit ...`) — that path needs the
   local binary and your remote backend, which the cloud session may not have. Drive
@@ -111,8 +106,8 @@ For an agent step:
 1. Read `instruction` — this is your task. Read files, edit code, run tests **as it
    says.** Honor any "Verify" section: do not mark complete until verification passes.
    (Project rule: evidence-based — never claim completion without verification.)
-2. Also read the target repo's `spec/project.yaml` `learnings:` and honor entries
-   whose `step:` matches this step or is `any`.
+2. Also honor the repo's durable learnings (in the repo's own docs / the
+   `learn` step's scenario files) whose `step:` matches this step or is `any`.
 3. Record the result (step 4).
 
 ## 4. Record each agent step

@@ -4,48 +4,22 @@ description: >
   Load this skill whenever dealing with tasks, tickets, or project management — creating,
   editing, listing, claiming, prioritizing, or closing work items. Use when the user says
   "create a task", "file a ticket", "what should we work on", "mark this done", "track this",
-  "what's next", or when any workflow step interacts with the task backlog. This skill
-  auto-detects the ticketing backend (Linear or Backlog.md) per repo and delegates accordingly.
+  "what's next", or when any workflow step interacts with the task backlog. Delegates to
+  the backlog.md backend.
 user-invocable: true
 ---
 
 # Backlog Manager
 
-Handles the _what_ and _when_ of task management. Detects the correct ticketing backend
-per repo and delegates to the right skill for commands.
+Handles the _what_ and _when_ of task management via the backlog.md backend.
 
 ---
 
-## Backend detection
+## Backend
 
-Read `ticketing:` from the repo's `spec/project.yaml` — this is the authoritative source:
-
-```bash
-grep "^ticketing:" spec/project.yaml | awk '{print $2}'
-```
-
-| Value     | Backend                  | Load skill |
-| --------- | ------------------------ | ---------- |
-| `backlog` | Backlog.md global binary | `/backlog` |
-| `linear`  | Linear MCP server        | `/linear`  |
-
-If `spec/project.yaml` is missing or `ticketing:` is not set, default to `backlog` and warn the user to configure it.
-
-Load the detected backend skill before executing any commands. Never mix backends in one operation.
-
-### Linear context (when ticketing: linear)
-
-All Linear IDs are stored in `spec/project.yaml` under the `linear:` key:
-
-```yaml
-linear:
-  team_id: <uuid>
-  team_prefix: HL
-  project_id: <uuid>
-  product_label_id: <uuid> # repo-specific product label
-```
-
-Pass these directly to `/linear` MCP tool calls — no additional config lookup needed.
+Ticketing is backlog.md, driven by the `BACKLOG_URL`/`BACKLOG_TOKEN`/`BACKLOG_PROJECT`
+env vars (the workflow scripts in `config/steps/lib/` own all ticketing logic; the
+engine has none). Ensure those are set before issuing ticket commands.
 
 ---
 
@@ -71,20 +45,18 @@ Always search first to avoid duplicates — use the backend's search command bef
 ## Operations
 
 The operations below are the contract other skills (notably `/developer`
-and `/reviewer`) delegate here. They name _what_ to do; you resolve the
-backend (above), load its skill (`/backlog` or `/linear`), and run the
-mapped command. The semantics must hold identically on both backends —
-only the commands differ.
+and `/reviewer`) delegate here. They name _what_ to do; you run the mapped
+backlog.md command.
 
-| Operation                | Backlog.md                                                                       | Linear                                                                                       |
-| ------------------------ | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| **Search**               | `backlog search "<q>" --plain`                                                   | `/linear` search tools                                                                       |
-| **Create**               | `backlog task create "Title" --priority <p>`                                     | `save_issue` via `/linear`                                                                   |
-| **Claim next by status** | `backlog task next --status "<S>" --agent @<h>`                                  | pick the top unassigned issue in state `<S>` via `/linear` list, then `save_issue` to assign |
-| **Release claim**        | `backlog task edit <id> -a "" -s "<S>"`                                          | `save_issue` clearing `assignee`, leaving state `<S>`                                        |
-| **Transition status**    | `backlog task edit <id> -s "<S>"`                                                | `save_issue` with the `stateId` for `<S>` (resolve via `list_issue_statuses`)                |
-| **Fetch body**           | MCP `task_view` / REST `GET /api/tasks/:id` (engine: `load-ticket-context` step) | `get_issue { id }` via `/linear`                                                             |
-| **Archive**              | `backlog task archive <id>`                                                      | close/cancel via `/linear`                                                                   |
+| Operation                | Backlog.md                                                                       |
+| ------------------------ | -------------------------------------------------------------------------------- |
+| **Search**               | `backlog search "<q>" --plain`                                                   |
+| **Create**               | `backlog task create "Title" --priority <p>`                                     |
+| **Claim next by status** | `backlog task next --status "<S>" --agent @<h>`                                  |
+| **Release claim**        | `backlog task edit <id> -a "" -s "<S>"`                                          |
+| **Transition status**    | `backlog task edit <id> -s "<S>"`                                                |
+| **Fetch body**           | MCP `task_view` / REST `GET /api/tasks/:id` (engine: `load-ticket-context` step) |
+| **Archive**              | `backlog task archive <id>`                                                      |
 
 ### Atomicity of "claim next by status"
 
@@ -92,13 +64,8 @@ A claim must select one ticket from a status lane **and** assign it to the
 agent in a single step, so two agents claiming in parallel never grab the
 same ticket (no TOCTOU window).
 
-- **Backlog.md** — `backlog task next --status "<S>" --agent @<h>` is
-  atomic by design. Use it; never emulate it with `list` + `edit`.
-- **Linear** — there is no atomic claim primitive. Approximate it: list
-  unassigned issues in state `<S>` ordered oldest-first, then immediately
-  `save_issue` to set the assignee on the top one. Re-fetch and verify the
-  assignee is the intended agent before proceeding; if it changed under
-  you, retry with the next issue.
+`backlog task next --status "<S>" --agent @<h>` is atomic by design. Use
+it; never emulate it with `list` + `edit`.
 
 ### Claim-then-promote (Ready → In Progress)
 
@@ -109,9 +76,8 @@ workflow sees consistent state. Sequence: _claim next by status_ on the
 fallback lane, then _transition status_ to the in-progress lane.
 
 > Resolve the exact lane names before transitioning — they are per-project.
-> Backlog.md: `backlog config get statuses`. Linear:
-> `list_issue_statuses`. Never transition to a status string that isn't in
-> that list.
+> `backlog config get statuses`. Never transition to a status string that
+> isn't in that list.
 
 ---
 
@@ -121,8 +87,7 @@ fallback lane, then _transition status_ to the in-progress lane.
 - **Medium** — default for new features and improvements
 - **Low** — nice-to-have, no urgency
 
-Move tasks to **Ready** (Backlog.md) or **In Progress** (Linear) only when dependencies
-are resolved and the task is fully specified.
+Move tasks to **Ready** only when dependencies are resolved and the task is fully specified.
 
 ---
 
@@ -152,9 +117,7 @@ Do not call this skill for status transitions when the shell loop is driving the
 - Never edit task files directly — always go through the CLI or MCP.
 - One task = one concern. Split if a task has grown to cover two things.
 - Ready = fully specified + unblocked. Don't move tasks to Ready prematurely.
-- A claim is atomic: select-from-lane + assign in one step. On Backlog.md
-  use `task next`; never emulate it with list+edit. On Linear, claim then
-  verify the assignee stuck before proceeding.
-- Resolve real lane names (`backlog config get statuses` /
-  `list_issue_statuses`) before any transition — never pass a status string
-  that isn't in that list.
+- A claim is atomic: select-from-lane + assign in one step. On Backlog.md,
+  use `task next`; never emulate it with list+edit.
+- Resolve real lane names (`backlog config get statuses`) before any
+  transition — never pass a status string that isn't in that list.
