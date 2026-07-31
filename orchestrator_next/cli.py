@@ -159,7 +159,7 @@ def _workflow_subcommands() -> set[str]:
 
 def _default_repo_root_env() -> None:
     """config_root()'s repo-local fallback (<repo>/.orchestrator/config/) needs
-    a repo root to check. `run` derives one from --repo/spec/project.yaml;
+    a repo root to check. `run` derives one from --repo/git toplevel;
     other verbs (doctor, models) have no such flag, so default REPO_ROOT
     to the git toplevel (else cwd) whenever it isn't already set — a no-op if
     the repo has no vendored config, since config_root() only uses it when
