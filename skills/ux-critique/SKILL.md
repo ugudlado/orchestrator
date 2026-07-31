@@ -7,11 +7,11 @@ extends: git+git@github.com:ugudlado/prompt-packs.git@302b87dcc7c8b6a83d249194f3
 
 # Run UX Critique
 
-**Intent:** Run UX critique on UI changes and iterate until quality_bar score is met.
+**Intent:** Run UX critique on UI changes and iterate until the target score is met.
 
 ## Inputs
 
-None named. (Reads modified files in the phase and `quality_bar` from `spec/project.yaml`.)
+None named. (Reads modified files in the phase.)
 
 ## Outputs
 
@@ -21,9 +21,9 @@ None named. (Reads modified files in the phase and `quality_bar` from `spec/proj
 
 ## Instructions
 
-1. Read quality thresholds from project.yaml:
-   - target_score = quality_bar.min_phase_review_score
-   - max_retries = quality_bar.max_retry_rounds
+1. Quality thresholds are step-owned (vendor this pack to change them):
+   - target_score = 8
+   - max_retries = 3
 
 2. Check if any files modified in this phase touch UI:
    Match: _.html, _.css, _.scss, _.tsx, _.jsx, _.svelte, _.vue, _.astro,
@@ -33,8 +33,8 @@ None named. (Reads modified files in the phase and `quality_bar` from `spec/proj
 
 3. Perform UX critique directly on:
    - Target files (list of modified UI files)
-   - vision.target_users from project.yaml
-   - quality_bar.scoring thresholds
+   - target users, as stated in the repo's own docs (README / CLAUDE.md), if any
+   - the step-owned scoring thresholds (critical_cap 5, important_cap 7, green_base 9)
    - ux-prototype.html reference if it exists in change dir
 
 4. Read SCORE and STATUS from your critique output.
@@ -44,7 +44,8 @@ None named. (Reads modified files in the phase and `quality_bar` from `spec/proj
 6. If score < target_score:
    a. Parse PRIORITY_ISSUES from agent output into fix tasks.
    b. Apply fixes scoped to critique findings only.
-   c. Run verify_commands to confirm nothing broke.
+   c. Run the repo's verify commands (as discovered from CLAUDE.md / AGENTS.md /
+   README / manifest conventions) to confirm nothing broke.
    d. Increment retry counter in state.yaml.
    e. Re-run critique on updated files.
    f. If retries >= max_retries: STOP and escalate to user.
@@ -57,15 +58,15 @@ None named. (Reads modified files in the phase and `quality_bar` from `spec/proj
 ### Rules (constraints on how)
 
 - Only runs when the phase includes UI-facing changes.
-- Target score is quality_bar.min_phase_review_score from project.yaml.
+- Target score is 8 (step-owned).
 - Retry with fixes until target score is met or max_retry_rounds exhausted.
 - Perform critique using this skill procedure.
 
 ## Verify
 
-- If UI files modified: critique_score >= quality_bar.min_phase_review_score
+- If UI files modified: critique_score >= target_score (8)
 - If no UI files: step skipped (logged)
-- All verify_commands pass after fixes
+- All discovered verify commands pass after fixes
 
 ## Return COMPLETION
 

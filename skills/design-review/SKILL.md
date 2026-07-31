@@ -54,7 +54,7 @@ Read `design.md` and `tasks.yaml` in full before evaluating anything.
 
 ### 3. Decide verdict
 
-- Overall >= project.yaml `quality_bar.min_design_review_score` and no critical findings → **pass**
+- Overall >= 8 (min_design_review_score, step-owned) and no critical findings → **pass**
 - Otherwise → **needs_work**
 
 ### 4a. On pass

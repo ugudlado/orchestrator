@@ -17,7 +17,7 @@ args:
 ## Execution
 
 1. Parse `$ARGUMENTS` for topic, --next, or --refresh flags.
-2. Read `spec/project.yaml` for project vision, architecture, rules, gotchas, and learnings.
+2. Read `spec/project.yaml` for project identity, plus CLAUDE.md / AGENTS.md / README for vision, architecture, rules, and gotchas.
 3. Invoke the `ideator` agent with:
    - the user's original request and parsed mode
    - the project context from `spec/project.yaml`

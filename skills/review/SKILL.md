@@ -22,18 +22,21 @@ extends: git+git@github.com:ugudlado/prompt-packs.git@302b87dcc7c8b6a83d249194f3
 
 ## Instructions
 
-1. Load scoring config from project.yaml quality_bar.scoring. Apply defaults
-   for any missing field:
-   - critical_cap: 5 (default)
-   - important_cap: 7 (default)
-   - green_base: 9 (default)
-2. Run the target repo's `verify_commands` map from its `spec/project.yaml`
-   (top-level, not under quality_bar). Execute every command listed. Any
+1. Scoring config is step-owned (a repo needing a different bar vendors this
+   pack in `.orchestrator/config/`):
+   - critical_cap: 5
+   - important_cap: 7
+   - green_base: 9
+2. Discover the target repo's verify commands from the repo itself, in order:
+   CLAUDE.md / AGENTS.md (stated test/build/lint commands), README, CI config,
+   then lockfile/manifest conventions (pyproject → `pytest -q`,
+   package.json scripts, etc.). Execute every discovered command. Any
    non-zero exit is a critical correctness finding — cannot pass this round.
-   If `verify_commands` is not configured: this is itself a critical finding
-   in spec_compliance (missing quality gate) — cannot pass this round. Write
-   phase-review.md noting the missing map and what to add, and return
-   COMPLETION with `status: failed` per step 9 below.
+   If no verify command is discoverable at all: this is itself a critical
+   finding in spec_compliance (missing quality gate) — cannot pass this
+   round. Write phase-review.md noting what was searched and what the repo
+   should document, and return COMPLETION with `status: failed` per step 9
+   below.
 3. Score each dimension separately on 1-10 using the same caps and rubric:
    - Dimensions: spec_compliance, correctness, security, simplicity, code_quality
    - For each dimension:
@@ -90,7 +93,7 @@ extends: git+git@github.com:ugudlado/prompt-packs.git@302b87dcc7c8b6a83d249194f3
      - Record fresh search result as evidence.
    - If any AC fails: treat as a critical finding in spec_compliance dimension.
 7. Write the full human-readable report to $WORKTREE_ARTIFACT_DIR/$CHANGE_ID/phase-review.md.
-8. If overall >= quality_bar.min_phase_review_score and no critical findings: PASS.
+8. If overall >= 8 (min_phase_review_score, step-owned) and no critical findings: PASS.
    Return COMPLETION:
    ```
    COMPLETION:
@@ -129,8 +132,8 @@ extends: git+git@github.com:ugudlado/prompt-packs.git@302b87dcc7c8b6a83d249194f3
 
 ### Rules (constraints on how)
 
-- Target score is quality_bar.min_phase_review_score from project.yaml — retry until met.
-- Maximum retries from quality_bar.max_retry_rounds — escalate to user if exhausted.
+- Target score is 8 (min_phase_review_score, step-owned) — retry until met.
+- Maximum 3 retry rounds (max_retry_rounds, step-owned) — escalate to user if exhausted.
 - Run type-check + test + build commands at every phase boundary before scoring.
 - Capture concrete findings with fix direction — every finding must be actionable.
 - Issues found during verification become new tasks in the current phase. Never skip ahead with unresolved findings.

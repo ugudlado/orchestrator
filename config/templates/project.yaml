@@ -21,21 +21,7 @@ project:
   name: my-project
   repo: my-project
 
-# Repo-specific rules and constraints referenced by workflow prompts
-# (design, implement, review) when building context for an agent.
-rules: []
-
-# verify_commands.test is read by config/tests/test_prose_contracts.py-style
-# checks and by review/QA prompts to know how to run this repo's test suite.
-# Must be a non-empty string starting with the test runner command.
-verify_commands:
-  test: pytest -q
-
-# Quality gate thresholds — read by skills/review, skills/design-review, and
-# skills/ux-critique prompts (quality_bar.min_phase_review_score,
-# quality_bar.min_design_review_score, quality_bar.max_retry_rounds) to decide
-# pass/fail and retry limits at each phase gate.
-quality_bar:
-  min_phase_review_score: 8
-  min_design_review_score: 8
-  max_retry_rounds: 3
+# That's it. Repo conventions, rules, and test commands live where they
+# already do — CLAUDE.md / AGENTS.md / README — and workflow steps read them
+# from there. Quality-gate thresholds are step-owned; vendor the pack under
+# .orchestrator/config/ to change them.
