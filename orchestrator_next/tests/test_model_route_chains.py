@@ -166,19 +166,19 @@ def test_scalar_route_not_path_gated_back_compat(monkeypatch, tmp_path):
 
 
 def test_wholesale_wins_list_over_scalar(monkeypatch, tmp_path, real_binary):
-    """Home defines a chain for an alias that config_root defines as scalar —
-    home (list) wins wholesale; config_root's scalar is fully ignored."""
+    """Repo config_root defines a chain for an alias that home defines as
+    scalar — config_root (list) wins wholesale; home's scalar is fully ignored."""
     config_root = tmp_path / "config"
     home = tmp_path / "home"
     routes_yaml = config_root / "models.yaml"
     home_models = home / ".orchestrator" / "models.yaml"
 
     real_binary(tmp_path, "cursor-agent")
-    _write_models(routes_yaml, {"composer": {"subprocess": "claude", "model_id": "claude-opus-4-7"}},
-                  tools={"claude": {"binary": "claude"}})
-    _write_models(home_models, {"composer": [
+    _write_models(routes_yaml, {"composer": [
         {"subprocess": "cursor", "model_id": "composer-2.5"},
     ]}, tools={"cursor": {"binary": "cursor-agent"}})
+    _write_models(home_models, {"composer": {"subprocess": "claude", "model_id": "claude-opus-4-7"}},
+                  tools={"claude": {"binary": "claude"}})
 
     _setup_home(monkeypatch, home)
     _no_env_overrides(monkeypatch)
@@ -190,18 +190,18 @@ def test_wholesale_wins_list_over_scalar(monkeypatch, tmp_path, real_binary):
 
 
 def test_wholesale_wins_scalar_over_list(monkeypatch, tmp_path):
-    """Home defines a scalar for an alias that config_root defines as a
-    chain — home (scalar) wins wholesale; config_root's chain fully ignored."""
+    """Repo config_root defines a scalar for an alias that home defines as a
+    chain — config_root (scalar) wins wholesale; home's chain fully ignored."""
     config_root = tmp_path / "config"
     home = tmp_path / "home"
     routes_yaml = config_root / "models.yaml"
     home_models = home / ".orchestrator" / "models.yaml"
 
-    _write_models(routes_yaml, {"composer": [
+    _write_models(routes_yaml, {"composer": {"subprocess": "codex", "model_id": "gpt-5-codex"}})
+    _write_models(home_models, {"composer": [
         {"subprocess": "cursor", "model_id": "composer-2.5"},
         {"subprocess": "claude", "model_id": "claude-sonnet-4-6"},
     ]})
-    _write_models(home_models, {"composer": {"subprocess": "codex", "model_id": "gpt-5-codex"}})
 
     _setup_home(monkeypatch, home)
     _no_env_overrides(monkeypatch)
@@ -214,8 +214,8 @@ def test_wholesale_wins_scalar_over_list(monkeypatch, tmp_path):
 
 
 def test_wholesale_wins_list_over_list(monkeypatch, tmp_path, real_binary):
-    """Home's chain fully replaces config_root's chain for the same alias —
-    no element-wise merge across the two chains."""
+    """Repo config_root's chain fully replaces home's chain for the same
+    alias — no element-wise merge across the two chains."""
     config_root = tmp_path / "config"
     home = tmp_path / "home"
     routes_yaml = config_root / "models.yaml"
@@ -223,11 +223,11 @@ def test_wholesale_wins_list_over_list(monkeypatch, tmp_path, real_binary):
 
     real_binary(tmp_path, "codex")
     _write_models(routes_yaml, {"composer": [
-        {"subprocess": "cursor", "model_id": "composer-2.5"},
-    ]})
-    _write_models(home_models, {"composer": [
         {"subprocess": "codex", "model_id": "gpt-5-codex"},
     ]}, tools={"codex": {"binary": "codex"}})
+    _write_models(home_models, {"composer": [
+        {"subprocess": "cursor", "model_id": "composer-2.5"},
+    ]})
 
     _setup_home(monkeypatch, home)
     _no_env_overrides(monkeypatch)

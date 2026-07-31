@@ -39,7 +39,7 @@ def test_models_prints_attributed_table(monkeypatch, tmp_path, capsys):
     assert "TIER" in out and "SUBPROCESS" in out and "MODEL_ID" in out and "SOURCE" in out
     assert "opus" in out
     assert "sonnet" in out
-    assert "user_home" in out or "config_root" in out
+    assert "config_root" in out or "config_root" in out
 
 
 def test_models_source_shows_home_override(monkeypatch, tmp_path, capsys):
@@ -51,8 +51,8 @@ def test_models_source_shows_home_override(monkeypatch, tmp_path, capsys):
     routes_yaml = config_root / "models.yaml"
     home_models = home / ".orchestrator" / "models.yaml"
 
-    _write_models(routes_yaml, {"opus": {"subprocess": "claude", "model_id": "a"}})
-    _write_models(home_models, {"opus": {"subprocess": "cursor", "model_id": "b"}})
+    _write_models(routes_yaml, {"opus": {"subprocess": "cursor", "model_id": "b"}})
+    _write_models(home_models, {"opus": {"subprocess": "claude", "model_id": "a"}})
 
     monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(config_root))
     monkeypatch.setattr(Path, "home", lambda: home)
@@ -63,7 +63,7 @@ def test_models_source_shows_home_override(monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "opus" in out
     assert "cursor" in out
-    assert "user_home" in out
+    assert "config_root" in out
 
 
 def test_models_renders_fallback_chain_with_active_marker(monkeypatch, tmp_path, capsys):

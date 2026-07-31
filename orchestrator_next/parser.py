@@ -97,14 +97,12 @@ def _repo_root_from_config() -> Path | None:
 def prompt_search_dirs() -> list[Path]:
     """Ordered dirs searched to resolve ``prompt:`` refs (e.g. <name>/SKILL.md).
 
-    ``ORCHESTRATOR_PROMPT_PATH`` (os.pathsep-separated) replaces the whole
-    path. ``ORCHESTRATOR_SKILLS_TEST_OVERRIDE`` is the legacy single-dir
-    spelling of the same override. Default: <repo>/skills then the engine
-    checkout's skills/.
+    Fixed repo→global order: <repo>/skills then the engine checkout's skills/.
+    Not user-configurable — ORCHESTRATOR_PROMPT_PATH was removed as a knob
+    (the engine still EXPORTS it to step subprocesses as data; see step_env).
+    ``ORCHESTRATOR_SKILLS_TEST_OVERRIDE`` is a test-only override.
     """
-    explicit = os.environ.get("ORCHESTRATOR_PROMPT_PATH") or os.environ.get(
-        "ORCHESTRATOR_SKILLS_TEST_OVERRIDE"
-    )
+    explicit = os.environ.get("ORCHESTRATOR_SKILLS_TEST_OVERRIDE")
     if explicit:
         return [Path(p) for p in explicit.split(os.pathsep) if p]
 
