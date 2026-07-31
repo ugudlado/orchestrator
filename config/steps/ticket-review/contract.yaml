@@ -1,7 +1,0 @@
-id: ticket-review
-version: 1
-kind: script
-run: ../lib/ticket-sync.sh
-params:
-  TICKET_SYNC_STATUS: "Review"
-  TICKET_SYNC_LOG_PREFIX: ticket-review

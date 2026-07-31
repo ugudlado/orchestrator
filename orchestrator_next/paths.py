@@ -19,29 +19,43 @@ class ConfigRootError(RuntimeError):
     """Raised when no config root is set — resolution is explicit-only."""
 
 
-def bundled_config_root() -> Path:
-    """The config/ dir shipped alongside the code — package data in a wheel
-    install (orchestrator_next/config), the repo's config/ in a dev checkout.
+PACK_GIT_URL = "https://github.com/ugudlado/orchestrator-pack.git"
+PACK_DOWNLOAD_HINT = (
+    f"download the workflow pack: git clone --depth 1 {PACK_GIT_URL} ~/.orchestrator/pack "
+    "(update later with: git -C ~/.orchestrator/pack pull)"
+)
 
-    This is what `orchestrator config-path` prints; it is NOT consulted
-    implicitly — export ORCHESTRATOR_CONFIG to use it.
-    """
-    bundled = Path(__file__).resolve().parent / "config"
-    if bundled.is_dir():
-        return bundled
+
+def pack_root() -> Path:
+    """Global downloaded workflow pack — a clone of the config repo. Carries
+    config/ and skills/ side by side, downloaded once like the CLI itself."""
+    return Path.home() / ".orchestrator" / "pack"
+
+
+def engine_data_dir() -> Path:
+    """Engine-owned data shipped in the wheel (pricing rates, models seed) —
+    deliberately NOT workflow content, which lives in the pack."""
+    return Path(__file__).resolve().parent / "data"
+
+
+def bundled_config_root() -> Path:
+    """The config/ dir alongside a dev checkout of the engine repo. The wheel
+    deliberately ships NO config — installs get workflows from the downloaded
+    pack (~/.orchestrator/pack) or a repo-vendored .orchestrator/config."""
     return _cli_root() / "config"
 
 
-def config_root() -> Path:
-    """Resolve the workflow-config root: the directory holding workflows/,
-    steps/, and agents.yaml.
+def config_root_with_source() -> tuple[Path, str]:
+    """Resolve the workflow-config root, plus a label for which source won.
 
-    Resolution order (first hit wins, no layering/merging):
-      1. ORCHESTRATOR_CONFIG  — points at the config/ dir directly
+    Resolution order (first hit wins, no layering/merging), repo→global:
+      1. ORCHESTRATOR_CONFIG  — points at the config/ dir directly ("env")
       2. <repo_root>/.orchestrator/config/ — vendored pack, if it has workflows/
-         (repo_root from ORCHESTRATOR_REPO_ROOT or REPO_ROOT env)
+         (repo_root from ORCHESTRATOR_REPO_ROOT or REPO_ROOT env) ("vendored")
+      3. config/ of a dev checkout of the engine repo ("checkout")
+      4. ~/.orchestrator/pack/config/ — downloaded global pack ("pack")
 
-    Neither hit → ConfigRootError.
+    No hit → hard error carrying the pack download one-liner.
 
     INVARIANT: this function owns the trailing `config` segment. Callers must
     join only what's *below* it (e.g. config_root() / "steps"), NOT
@@ -50,13 +64,29 @@ def config_root() -> Path:
     """
     explicit = os.environ.get("ORCHESTRATOR_CONFIG")
     if explicit:
-        return Path(explicit)
+        return Path(explicit), "env"
     repo_root = os.environ.get("ORCHESTRATOR_REPO_ROOT") or os.environ.get("REPO_ROOT")
     if repo_root:
         vendored = Path(repo_root) / ".orchestrator" / "config"
         if (vendored / "workflows").is_dir():
-            return vendored
+            return vendored, "vendored"
+    checkout = bundled_config_root()
+    if (checkout / "workflows").is_dir():
+        return checkout, "checkout"
+    pack = pack_root() / "config"
+    if (pack / "workflows").is_dir():
+        return pack, "pack"
     raise ConfigRootError(
-        "config root not set — export ORCHESTRATOR_CONFIG=$(orchestrator config-path) "
-        "for the bundled config, or point it at a config checkout's config/ dir"
+        f"no workflow config found (checked ORCHESTRATOR_CONFIG, repo .orchestrator/config, {pack}) — "
+        + PACK_DOWNLOAD_HINT
     )
+
+
+def config_root() -> Path:
+    """Resolve the workflow-config root: the directory holding workflows/,
+    steps/, and agents.yaml. See config_root_with_source() for the ordered
+    resolution rule and source labels; doctor uses that to report which
+    source resolved.
+    """
+    root, _source = config_root_with_source()
+    return root

@@ -17,8 +17,9 @@ def _setup_home(monkeypatch, home: Path) -> None:
     monkeypatch.setattr(Path, "home", lambda: home)
 
 
-def test_home_file_overrides_config_root(monkeypatch, tmp_path):
-    """AC-1: home file sets opus.subprocess=cursor, no env vars → 'cursor'."""
+def test_repo_config_root_overrides_home(monkeypatch, tmp_path):
+    """Repo→global: a non-bundled (vendored/explicit) config root outranks
+    the home file — home's opus entry loses to the repo's."""
     config_root = tmp_path / "config"
     home = tmp_path / "home"
     routes_yaml = config_root / "models.yaml"
@@ -31,11 +32,31 @@ def test_home_file_overrides_config_root(monkeypatch, tmp_path):
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
 
-    assert resolve_field("opus", str(routes_yaml), "subprocess") == "cursor"
+    assert resolve_field("opus", str(routes_yaml), "subprocess") == "claude"
 
 
-def test_precedence_env_file_over_home_over_config(monkeypatch, tmp_path):
-    """AC-2: env-file > home > config-root."""
+def test_home_overrides_pack_floor(monkeypatch, tmp_path):
+    """Repo→global floor: when the config root IS the downloaded pack (or dev
+    checkout), the home file outranks it — global defaults are only the floor."""
+    import orchestrator_next.paths as paths
+
+    home = tmp_path / "home"
+    home_models = home / ".orchestrator" / "models.yaml"
+    pack = tmp_path / "pack"
+    pack_yaml = pack / "config" / "models.yaml"
+    _write_models(pack_yaml, {"opus": {"subprocess": "claude", "model_id": "floor"}})
+    _write_models(home_models, {"opus": {"subprocess": "cursor", "model_id": "x"}})
+    monkeypatch.setattr(paths, "pack_root", lambda: pack)
+
+    _setup_home(monkeypatch, home)
+    monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
+    monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
+
+    assert resolve_field("opus", str(pack_yaml), "subprocess") == "cursor"
+
+
+def test_precedence_env_file_over_config_over_home(monkeypatch, tmp_path):
+    """Test-only env-file layer > repo config-root > home."""
     config_root = tmp_path / "config"
     home = tmp_path / "home"
     env_file = tmp_path / "env_models.yaml"
@@ -54,14 +75,14 @@ def test_precedence_env_file_over_home_over_config(monkeypatch, tmp_path):
     assert resolve_field("opus", str(routes_yaml), "model_id") == "c"
 
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
-    assert resolve_field("opus", str(routes_yaml), "subprocess") == "cursor"
-
-    home_models.unlink()
     assert resolve_field("opus", str(routes_yaml), "subprocess") == "claude"
 
+    routes_yaml.unlink()
+    assert resolve_field("opus", str(routes_yaml), "subprocess") == "cursor"
 
-def test_home_partial_tier_falls_through(monkeypatch, tmp_path):
-    """AC-3: home defines only sonnet → opus falls through to config-root
+
+def test_config_partial_tier_falls_through(monkeypatch, tmp_path):
+    """AC-3: repo config defines only sonnet → opus falls through to home
     (per-ALIAS fallthrough — an alias undefined in a higher layer defers to
     the lower layer entirely). This is distinct from D3's wholesale-wins rule,
     which governs what happens when the SAME alias is named in two layers."""
@@ -70,21 +91,21 @@ def test_home_partial_tier_falls_through(monkeypatch, tmp_path):
     routes_yaml = config_root / "models.yaml"
     home_models = home / ".orchestrator" / "models.yaml"
 
+    _write_models(routes_yaml, {"sonnet": {"subprocess": "claude", "model_id": "claude-sonnet-4-6"}})
     _write_models(
-        routes_yaml,
+        home_models,
         {
-            "opus": {"subprocess": "claude", "model_id": "claude-opus-4-7"},
-            "sonnet": {"subprocess": "claude", "model_id": "claude-sonnet-4-6"},
+            "opus": {"subprocess": "cursor", "model_id": "composer-2.5"},
+            "sonnet": {"subprocess": "cursor"},
         },
     )
-    _write_models(home_models, {"sonnet": {"subprocess": "cursor"}})
 
     _setup_home(monkeypatch, home)
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
 
-    assert resolve_field("opus", str(routes_yaml), "subprocess") == "claude"
-    assert resolve_field("sonnet", str(routes_yaml), "subprocess") == "cursor"
+    assert resolve_field("opus", str(routes_yaml), "subprocess") == "cursor"
+    assert resolve_field("sonnet", str(routes_yaml), "subprocess") == "claude"
 
 
 def test_wholesale_wins_no_partial_field_merge_within_same_alias(monkeypatch, tmp_path):
@@ -92,39 +113,40 @@ def test_wholesale_wins_no_partial_field_merge_within_same_alias(monkeypatch, tm
     setting only `sonnet.subprocess` would inherit `model_id` from config_root
     via dict.update() accumulation. D3 makes the highest layer that names an
     alias own it WHOLESALE — home's partial {subprocess: cursor} entry for
-    `sonnet` no longer inherits model_id from config_root; model_id resolves
-    empty because home didn't state it. The higher layer must state the full
-    route now."""
+    `sonnet` no longer inherits model_id from a lower layer; model_id resolves
+    empty because the winning layer didn't state it. The higher layer must
+    state the full route now. (Winning layer here is the repo config root,
+    per the repo→global order.)"""
     config_root = tmp_path / "config"
     home = tmp_path / "home"
     routes_yaml = config_root / "models.yaml"
     home_models = home / ".orchestrator" / "models.yaml"
 
+    _write_models(routes_yaml, {"sonnet": {"subprocess": "cursor"}})  # no model_id
     _write_models(
-        routes_yaml,
+        home_models,
         {"sonnet": {"subprocess": "claude", "model_id": "claude-sonnet-4-6"}},
     )
-    _write_models(home_models, {"sonnet": {"subprocess": "cursor"}})  # no model_id
 
     _setup_home(monkeypatch, home)
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
 
     assert resolve_field("sonnet", str(routes_yaml), "subprocess") == "cursor"
-    # THE BREAK: model_id does NOT fall back to config_root's "claude-sonnet-4-6".
+    # THE BREAK: model_id does NOT fall back to home's "claude-sonnet-4-6".
     assert resolve_field("sonnet", str(routes_yaml), "model_id") == ""
 
 
-def test_malformed_home_yaml_falls_through(monkeypatch, tmp_path):
-    """AC-4: malformed home YAML → config-root value, no raise."""
+def test_malformed_config_yaml_falls_through(monkeypatch, tmp_path):
+    """AC-4: malformed YAML in the winning (repo) layer → home value, no raise."""
     config_root = tmp_path / "config"
     home = tmp_path / "home"
     routes_yaml = config_root / "models.yaml"
     home_models = home / ".orchestrator" / "models.yaml"
 
-    _write_models(routes_yaml, {"opus": {"subprocess": "claude", "model_id": "claude-opus-4-7"}})
-    home_models.parent.mkdir(parents=True, exist_ok=True)
-    home_models.write_text('":\n  not: [yaml')
+    routes_yaml.parent.mkdir(parents=True, exist_ok=True)
+    routes_yaml.write_text('":\n  not: [yaml')
+    _write_models(home_models, {"opus": {"subprocess": "claude", "model_id": "claude-opus-4-7"}})
 
     _setup_home(monkeypatch, home)
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)

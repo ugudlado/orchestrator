@@ -150,3 +150,8 @@ def test_contract_aliases_resolve_warns_when_binary_missing(tmp_path, monkeypatc
     result = check_contract_aliases_resolve(tmp_path)
     assert result.status == "WARN"
     assert "opus" in result.detail
+    # Distribution improvements T4 addendum: WARN names the alias, the
+    # missing binary, and suggests a ~/.orchestrator/models.yaml override.
+    assert "claude" in result.detail
+    assert "~/.orchestrator/models.yaml" in result.detail
+    assert "subprocess" in result.detail

@@ -3,8 +3,12 @@
 Reads the `models:` block from models.yaml (and optional override files /
 JSON env override), returning the execution config for a model tier.
 
-Precedence (highest wins): ORCHESTRATOR_MODEL_ROUTE_OVERRIDES (JSON env)
-> ORCHESTRATOR_MODELS_CONFIG file > ~/.orchestrator/models.yaml > routes_yaml file.
+Precedence (highest wins): ORCHESTRATOR_MODEL_ROUTE_OVERRIDES (per-run
+field-level override, set by CLI model.<alias>.<field>= args) > repo/explicit
+config root models.yaml > ~/.orchestrator/models.yaml > bundled defaults.
+Repo beats global: a vendored (.orchestrator/config) or explicitly pointed-at
+config root outranks the user's home file; the bundled models.yaml is only
+the floor. ORCHESTRATOR_MODELS_CONFIG is a test-only injection layer.
 """
 from __future__ import annotations
 
@@ -42,11 +46,22 @@ def user_models_path() -> Path:
 
 
 def _layer_chain(routes_yaml: str | None) -> list[tuple[str, str]]:
-    return [
-        ("config_root", routes_yaml or ""),
-        ("user_home", str(user_models_path())),
-        ("env_file", os.environ.get("ORCHESTRATOR_MODELS_CONFIG") or ""),
-    ]
+    """Lowest→highest precedence. Repo beats global: a vendored/explicit
+    config root ranks above ~/.orchestrator/models.yaml; the global defaults
+    (dev-checkout config or downloaded pack) rank below it. env_file
+    (ORCHESTRATOR_MODELS_CONFIG) is a test-only injection layer, kept highest
+    so tests can pin routes."""
+    from orchestrator_next.paths import bundled_config_root, pack_root
+
+    cfg = ("config_root", routes_yaml or "")
+    home = ("user_home", str(user_models_path()))
+    env = ("env_file", os.environ.get("ORCHESTRATOR_MODELS_CONFIG") or "")
+    global_floors = {
+        (bundled_config_root() / "models.yaml").resolve(),
+        (pack_root() / "config" / "models.yaml").resolve(),
+    }
+    is_global = bool(routes_yaml) and Path(routes_yaml).resolve() in global_floors
+    return [cfg, home, env] if is_global else [home, cfg, env]
 
 
 def resolve_tool_template(tool_name: str, routes_yaml: str | None) -> tuple[str, list[str]]:

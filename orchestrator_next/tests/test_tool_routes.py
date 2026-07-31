@@ -41,19 +41,19 @@ def test_user_home_tool_wins_wholesale_over_config_root(monkeypatch, tmp_path):
     routes_yaml = config_root / "models.yaml"
     home_models = home / ".orchestrator" / "models.yaml"
 
-    _write(routes_yaml, {"tools": {"cursor": {
+    # Repo config overrides binary only — args_template is NOT inherited from home.
+    _write(routes_yaml, {"tools": {"cursor": {"binary": "/opt/homebrew/bin/cursor-agent"}}})
+    _write(home_models, {"tools": {"cursor": {
         "binary": "cursor-agent",
         "args_template": ["-p", "--model", "{model_id}", "{prompt}"],
     }}})
-    # Home overrides binary only — args_template is NOT inherited from config_root.
-    _write(home_models, {"tools": {"cursor": {"binary": "/opt/homebrew/bin/cursor-agent"}}})
 
     _setup_home(monkeypatch, home)
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
 
     binary, template = resolve_tool_template("cursor", str(routes_yaml))
     assert binary == "/opt/homebrew/bin/cursor-agent"
-    assert template == []  # not inherited from config_root — wholesale-wins
+    assert template == []  # not inherited from home — wholesale-wins
 
 
 def test_tool_not_in_any_layer_falls_back_to_bare_name(monkeypatch, tmp_path):

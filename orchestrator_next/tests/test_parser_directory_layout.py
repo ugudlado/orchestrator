@@ -201,16 +201,16 @@ class TestAgentKindContractLoad:
     def test_prompt_path_env_multi_dir_resolves_in_order(
         self, steps_dir, tmp_path, monkeypatch
     ):
-        """ORCHESTRATOR_PROMPT_PATH is os.pathsep-separated; first hit wins."""
+        """Test override is os.pathsep-separated; first hit wins. (The public
+        ORCHESTRATOR_PROMPT_PATH knob was removed — search order is fixed.)"""
         first = tmp_path / "first"
         second = tmp_path / "second"
         for root, body in ((first, "First body.\n"), (second, "Second body.\n")):
             d = root / "explore"
             d.mkdir(parents=True)
             (d / "SKILL.md").write_text(body)
-        monkeypatch.delenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", raising=False)
         monkeypatch.setenv(
-            "ORCHESTRATOR_PROMPT_PATH", os.pathsep.join([str(first), str(second)])
+            "ORCHESTRATOR_SKILLS_TEST_OVERRIDE", os.pathsep.join([str(first), str(second)])
         )
         _write_dir_contract(steps_dir, "explore", {
             "id": "explore", "version": 1, "model": "sonnet", "prompt": "explore/SKILL.md",

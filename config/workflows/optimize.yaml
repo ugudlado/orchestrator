@@ -1,6 +1,0 @@
-# Standalone prompt-optimization workflow: run when learning has accumulated,
-# not on every change. `orchestrator optimize <slug> --repo <repo>` (or cron).
-# Packs are discovered from prompt search dirs; packs with no new train
-# scenarios since their last optimizer run are skipped (FORCE=1 overrides).
-steps:
-  - optimize-prompts

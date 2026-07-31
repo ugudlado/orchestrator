@@ -97,14 +97,12 @@ def _repo_root_from_config() -> Path | None:
 def prompt_search_dirs() -> list[Path]:
     """Ordered dirs searched to resolve ``prompt:`` refs (e.g. <name>/SKILL.md).
 
-    ``ORCHESTRATOR_PROMPT_PATH`` (os.pathsep-separated) replaces the whole
-    path. ``ORCHESTRATOR_SKILLS_TEST_OVERRIDE`` is the legacy single-dir
-    spelling of the same override. Default: <repo>/skills then the engine
-    checkout's skills/.
+    Fixed repo→global order: <repo>/skills then the engine checkout's skills/.
+    Not user-configurable — ORCHESTRATOR_PROMPT_PATH was removed as a knob
+    (the engine still EXPORTS it to step subprocesses as data; see step_env).
+    ``ORCHESTRATOR_SKILLS_TEST_OVERRIDE`` is a test-only override.
     """
-    explicit = os.environ.get("ORCHESTRATOR_PROMPT_PATH") or os.environ.get(
-        "ORCHESTRATOR_SKILLS_TEST_OVERRIDE"
-    )
+    explicit = os.environ.get("ORCHESTRATOR_SKILLS_TEST_OVERRIDE")
     if explicit:
         return [Path(p) for p in explicit.split(os.pathsep) if p]
 
@@ -113,11 +111,13 @@ def prompt_search_dirs() -> list[Path]:
     if repo is not None:
         dirs.append(repo / "skills")
 
-    # Engine checkout (when installed as a package, this is the wheel data root's sibling).
-    here = Path(__file__).resolve().parent.parent
-    skills_here = here / "skills"
-    if skills_here not in dirs:
-        dirs.append(skills_here)
+    # Global skills travel WITH the resolved config pack (checkout config/'s
+    # sibling skills/, or ~/.orchestrator/pack/skills) — the wheel ships none.
+    from orchestrator_next.paths import config_root
+
+    pack_skills = config_root().parent / "skills"
+    if pack_skills not in dirs:
+        dirs.append(pack_skills)
     return dirs
 
 

@@ -36,7 +36,7 @@ def _usage() -> None:
         "  orchestrator done <state.yaml>   # JSON payload on stdin\n"
         "  orchestrator graph <schema>              # Mermaid flowchart of a workflow schema\n"
         "  orchestrator validate-workflow <schema-name>\n"
-        "  orchestrator config-path   # print the bundled/checkout config dir (for ORCHESTRATOR_CONFIG)\n"
+        "  orchestrator config-path   # print the resolved workflow-config dir\n"
         "  orchestrator report --state <state.yaml> | --all [--repo PATH] [--json]\n"
         "  orchestrator doctor",
         file=sys.stderr,
@@ -159,7 +159,7 @@ def _workflow_subcommands() -> set[str]:
 
 def _default_repo_root_env() -> None:
     """config_root()'s repo-local fallback (<repo>/.orchestrator/config/) needs
-    a repo root to check. `run` derives one from --repo/spec/project.yaml;
+    a repo root to check. `run` derives one from --repo/git toplevel;
     other verbs (doctor, models) have no such flag, so default REPO_ROOT
     to the git toplevel (else cwd) whenever it isn't already set — a no-op if
     the repo has no vendored config, since config_root() only uses it when
@@ -182,8 +182,12 @@ def main() -> None:
     # config-path needs no config root set — it's how you discover the value
     # to put in ORCHESTRATOR_CONFIG in the first place.
     if args and args[0] == "config-path":
-        from orchestrator_next.paths import bundled_config_root
-        print(bundled_config_root())
+        from orchestrator_next.paths import ConfigRootError, config_root
+        try:
+            print(config_root())
+        except ConfigRootError as exc:
+            print(exc, file=sys.stderr)
+            sys.exit(2)
         sys.exit(0)
     _default_repo_root_env()
     _wf_subcommands = _workflow_subcommands()
