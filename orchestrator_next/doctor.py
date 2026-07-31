@@ -109,6 +109,28 @@ def check_project_yaml(repo_root: Path) -> CheckResult:
     return CheckResult("project.yaml", "PASS", f"valid: {path}")
 
 
+def check_commit_verification(repo_root: Path) -> CheckResult:
+    """WARN when the repo has no commit-time verification (pre-commit, husky,
+    lefthook, biome). Workflow QA gates re-verify, but commit-time hooks catch
+    breakage where it happens — agents' commits included."""
+    markers = [
+        ".pre-commit-config.yaml",
+        ".husky",
+        "lefthook.yml",
+        ".lefthook.yml",
+        "biome.json",
+        "biome.jsonc",
+    ]
+    found = [m for m in markers if (repo_root / m).exists()]
+    if found:
+        return CheckResult("commit hooks", "PASS", f"commit-time verification: {', '.join(found)}")
+    return CheckResult(
+        "commit hooks", "WARN",
+        "no commit-time verification found (pre-commit/husky/lefthook/biome) — "
+        "add one so lint/test run at commit instead of only at the QA gate",
+    )
+
+
 def check_git_repo(repo_root: Path) -> CheckResult:
     """WARN when repo_root is not inside a git repository."""
     import subprocess
@@ -453,6 +475,7 @@ def run_all() -> int:
         check_config_source(config_source, config_root),
         check_project_yaml(repo_root),
         check_git_repo(repo_root),
+        check_commit_verification(repo_root),
         check_ticketing_backend(repo_root),
         # Config-folder validation (the 4 portability rules) — anchored on config_root().
         check_config_root(config_root),

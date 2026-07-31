@@ -127,3 +127,20 @@ def test_check_ticketing_backend_linear_passes(tmp_path):
     (spec_dir / "project.yaml").write_text(yaml.safe_dump({"version": 1, "ticketing": "linear"}))
     result = check_ticketing_backend(tmp_path)
     assert result.status == "PASS"
+
+
+def test_check_commit_verification_warns_without_hooks(tmp_path):
+    from orchestrator_next.doctor import check_commit_verification
+
+    result = check_commit_verification(tmp_path)
+    assert result.status == "WARN"
+    assert "pre-commit" in result.detail
+
+
+def test_check_commit_verification_passes_with_pre_commit_config(tmp_path):
+    from orchestrator_next.doctor import check_commit_verification
+
+    (tmp_path / ".pre-commit-config.yaml").write_text("repos: []\n")
+    result = check_commit_verification(tmp_path)
+    assert result.status == "PASS"
+    assert ".pre-commit-config.yaml" in result.detail

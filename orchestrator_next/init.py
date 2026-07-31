@@ -47,5 +47,6 @@ def main(argv: list[str]) -> int:
     print(f"wrote {target}")
     print("Next steps:")
     print("  orchestrator doctor")
+    print("  add commit-time verification (pre-commit/husky/biome) if the repo has none")
     print("  orchestrator run <id> --schema <s>")
     return 0
