@@ -43,12 +43,7 @@ def _fake_claude(bin_dir: Path) -> Path:
 def test_agent_arm_runs_end_to_end(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     (repo / "spec").mkdir(parents=True)
-    (repo / "spec" / "project.yaml").write_text(yaml.safe_dump({
-        "version": 1,
-        "project": {"name": "t", "repo": "t", "summary": "s"},
-        "quality_bar": {"max_spawn_failures": 3},
-        "rules": [],
-    }))
+    (repo / "README.md").write_text("repo\n")
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()

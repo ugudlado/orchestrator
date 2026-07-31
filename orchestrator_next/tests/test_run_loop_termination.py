@@ -27,10 +27,7 @@ from orchestrator_next import run_loop  # noqa: E402
 def test_persistently_failing_agent_terminates(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     (repo / "spec").mkdir(parents=True)
-    (repo / "spec" / "project.yaml").write_text(yaml.safe_dump({
-        "version": 1, "project": {"name": "t", "repo": "t", "summary": "s"},
-        "quality_bar": {"max_spawn_failures": 3}, "rules": [],
-    }))
+    (repo / "README.md").write_text("repo\n")
 
     # Fake claude that NEVER emits a valid COMPLETION block.
     bin_dir = tmp_path / "bin"
@@ -90,10 +87,7 @@ def test_malformed_contract_returns_exit_3_not_crash(tmp_path, monkeypatch):
     exit 3, not propagate the exception and crash."""
     repo = tmp_path / "repo"
     (repo / "spec").mkdir(parents=True)
-    (repo / "spec" / "project.yaml").write_text(yaml.safe_dump({
-        "version": 1, "project": {"name": "t", "repo": "t", "summary": "s"},
-        "quality_bar": {"max_spawn_failures": 3}, "rules": [],
-    }))
+    (repo / "README.md").write_text("repo\n")
 
     # Agent contract WITHOUT the required prompt.md → ContractError at load.
     contracts = tmp_path / "c"
@@ -129,10 +123,7 @@ def test_spawn_failure_cap_halts(tmp_path, monkeypatch):
     _failed_payload's usage model='none' shape makes countable."""
     repo = tmp_path / "repo"
     (repo / "spec").mkdir(parents=True)
-    (repo / "spec" / "project.yaml").write_text(yaml.safe_dump({
-        "version": 1, "project": {"name": "t", "repo": "t", "summary": "s"},
-        "quality_bar": {"max_spawn_failures": 3}, "rules": [],
-    }))
+    (repo / "README.md").write_text("repo\n")
 
     # claude that ALWAYS exits 1 with empty stdout — the spawn-failure signal.
     bin_dir = tmp_path / "bin"; bin_dir.mkdir()

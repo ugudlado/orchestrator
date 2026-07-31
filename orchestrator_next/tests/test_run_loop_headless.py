@@ -57,10 +57,7 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
 def _repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     (repo / "spec").mkdir(parents=True)
-    (repo / "spec" / "project.yaml").write_text(yaml.safe_dump({
-        "version": 1, "project": {"name": "t", "repo": "t", "summary": "s"},
-        "quality_bar": {"max_spawn_failures": 3}, "rules": [],
-    }))
+    (repo / "README.md").write_text("repo\n")
     (repo / ".gitignore").write_text(".orchestrator/\n")
     _git(repo, "init", "-b", "main")
     _git(repo, "config", "user.email", "t@t.test")

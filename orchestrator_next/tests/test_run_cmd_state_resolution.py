@@ -10,7 +10,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import yaml
 
 _HERE = Path(__file__).resolve()
 sys.path.insert(0, str(_HERE.parents[1]))
@@ -21,9 +20,7 @@ from orchestrator_next import run_loop  # noqa: E402
 def _repo(tmp_path):
     repo = tmp_path / "repo"
     (repo / "spec").mkdir(parents=True)
-    (repo / "spec" / "project.yaml").write_text(yaml.safe_dump({
-        "version": 1, "project": {"name": "t", "repo": "t", "summary": "s"}, "rules": [],
-    }))
+    (repo / "README.md").write_text("repo\n")
     return repo
 
 

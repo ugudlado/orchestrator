@@ -8,7 +8,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import yaml
 
 # ---------------------------------------------------------------------------
 # Path constants (mirrors test_seed_state.py convention)
@@ -35,22 +34,14 @@ _GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _write_project_yaml(repo_root: Path) -> None:
-    """Minimal spec/project.yaml so seed-state.sh passes the pre-condition check."""
-    project = {
-        "version": 1,
-        "project": {
-            "name": "orc36-test-repo",
-            "repo": "orc36-test-repo",
-            "summary": "Regression test repo for ORC-36",
-        },
-        "rules": [],
-        "verify_commands": {"test": "pytest"},
-    }
+def _write_repo_marker(repo_root: Path) -> None:
+    """Give the fake repo a committed file so git worktree/commit succeed.
+
+    The engine reads no per-repo config file (project.yaml is gone) — only
+    state.yaml + schema — so a blank marker is all a fixture needs.
+    """
     (repo_root / "spec").mkdir(parents=True, exist_ok=True)
-    (repo_root / "spec" / "project.yaml").write_text(
-        yaml.safe_dump(project, sort_keys=False)
-    )
+    (repo_root / "README.md").write_text("repo\n")
 
 
 def _run_seed(slug: str, schema: str, *, repo_root: Path, worktree_base: Path,
@@ -115,7 +106,7 @@ def test_seed_state_writes_to_spec_changes(tmp_path):
     subprocess.run(["git", "-C", str(fake_repo), "init", "-q"], check=True, env=_GIT_ENV)
     subprocess.run(["git", "-C", str(fake_repo), "config", "user.email", "t@t.com"], check=True, env=_GIT_ENV)
     subprocess.run(["git", "-C", str(fake_repo), "config", "user.name", "t"], check=True, env=_GIT_ENV)
-    _write_project_yaml(fake_repo)
+    _write_repo_marker(fake_repo)
     subprocess.run(["git", "-C", str(fake_repo), "add", "-A"], check=True, env=_GIT_ENV)
     subprocess.run(["git", "-C", str(fake_repo), "commit", "-qm", "init"], check=True, env=_GIT_ENV)
 

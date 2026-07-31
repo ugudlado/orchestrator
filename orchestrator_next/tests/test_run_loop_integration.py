@@ -36,10 +36,7 @@ def _make_script_contract(contracts_dir: Path, step_id: str) -> None:
 def test_loop_advances_two_steps_and_completes(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     (repo / "spec").mkdir(parents=True)
-    (repo / "spec" / "project.yaml").write_text(yaml.safe_dump({
-        "version": 1, "project": {"name": "t", "repo": "t", "summary": "s"},
-        "quality_bar": {"max_spawn_failures": 3}, "rules": [],
-    }))
+    (repo / "README.md").write_text("repo\n")
 
     contracts = tmp_path / "contracts"
     _make_script_contract(contracts, "step-one")

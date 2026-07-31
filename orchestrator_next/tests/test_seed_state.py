@@ -1,21 +1,18 @@
 """
-Regression tests for skills/orchestrate/scripts/seed-state.sh (ORC-27).
+Regression tests for run_loop._seed_state (ORC-27).
 
-Three scenarios per spec.md § Test Strategy:
-  test_seed_state_produces_dispatch_ready_pair — RED until T-2 (seed-state.sh doesn't exist yet)
-  test_seed_state_is_idempotent               — idempotent re-run leaves state.yaml unchanged
-  test_seed_state_fails_without_project_yaml  — fail-loud when spec/project.yaml missing
-
-The primary test (test_seed_state_produces_dispatch_ready_pair) fails before T-2 because it
-asserts the script exists at skills/orchestrate/scripts/seed-state.sh. The failure cites the
-missing script path, not an import error.
+Two scenarios:
+  test_seed_state_produces_dispatch_ready_pair — seeder exits 0 and writes
+    a promoted `workflow_plan.main.nodes` graph (ORC-63: plan.yaml eliminated —
+    generate_plan promotes the seeded workflow_plan in place).
+  test_seed_state_is_idempotent — re-run leaves state.yaml unchanged.
 
 Fixture strategy:
-  - ORCHESTRATOR_HOME points at the real ~/.config/orchestrator so generate_plan can load
+  - ORCHESTRATOR_HOME points at the real config so generate_plan can load
     real schema YAMLs and step contracts (no copy overhead).
   - WORKFLOW_STATE_DIR and REPO_ROOT are isolated under tmp_path so no live state is touched.
-  - spec/project.yaml is written into the tmp REPO_ROOT for the happy-path and idempotency
-    tests; omitted for the fail-loud test.
+  - A README marker is written into the tmp REPO_ROOT so git has a file to commit;
+    the engine reads no per-repo config file (project.yaml is gone).
 """
 from __future__ import annotations
 
@@ -49,21 +46,15 @@ _GIT_ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 # ---------------------------------------------------------------------------
 
 
-def _write_project_yaml(repo_root: Path) -> None:
-    """Write a minimal spec/project.yaml into the fake repo root."""
-    project = {
-        "version": 1,
-        "project": {
-            "name": "test-repo",
-            "repo": "test-repo",
-            "summary": "Integration test project",
-        },
-        "rules": [],
-        "verify_commands": {"test": "pytest"},
-    }
+def _write_repo_marker(repo_root: Path) -> None:
+    """Give the fake repo a committed file so git worktree/commit succeed.
+
+    The engine reads no per-repo config file (project.yaml is gone) — only
+    state.yaml + schema — so a blank marker is all a fixture needs.
+    """
     spec_dir = repo_root / "spec"
     spec_dir.mkdir(parents=True, exist_ok=True)
-    (spec_dir / "project.yaml").write_text(yaml.safe_dump(project, sort_keys=False))
+    (repo_root / "README.md").write_text("repo\n")
 
 
 def _init_git_repo(repo_root: Path) -> None:
@@ -158,7 +149,7 @@ def test_seed_state_produces_dispatch_ready_pair(tmp_path):
     worktree_base = tmp_path / "wt"
     fake_home = tmp_path / "home"
     _init_git_repo(fake_repo)
-    _write_project_yaml(fake_repo)
+    _write_repo_marker(fake_repo)
     _commit_all(fake_repo)
 
     result = _run_seed(
@@ -242,7 +233,7 @@ def test_seed_state_is_idempotent(tmp_path):
     worktree_base = tmp_path / "wt"
     fake_home = tmp_path / "home"
     _init_git_repo(fake_repo)
-    _write_project_yaml(fake_repo)
+    _write_repo_marker(fake_repo)
     _commit_all(fake_repo)
 
     # First run — creates <ts>_<schema>_state.yaml

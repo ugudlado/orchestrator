@@ -51,24 +51,12 @@ def _setup(
     *,
     max_spawn_failures: int = 3,
 ) -> str:
-    """Write project.yaml, contracts override, state.yaml; return state path."""
+    """Write contracts override, state.yaml; return state path."""
     contracts_dir = tmp_path / "contracts"
     contracts_dir.mkdir(exist_ok=True)
     _write_execute_one_task_contract(contracts_dir)
     monkeypatch.setenv(
         "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir)
-    )
-    spec_dir = tmp_path / "spec"
-    spec_dir.mkdir(exist_ok=True)
-    (spec_dir / "project.yaml").write_text(
-        yaml.safe_dump(
-            {
-                "quality_bar": {
-                    "max_spawn_failures": max_spawn_failures,
-                    "max_retry_rounds": 8,
-                }
-            }
-        )
     )
     state.setdefault("repo_root", str(tmp_path))
     state.setdefault("worktree_path", str(tmp_path))
