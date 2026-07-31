@@ -519,6 +519,7 @@ def run_loop(state_yaml_path: str, *, repo_root: str, models_yaml: str) -> int:
             if code == 1:
                 _log("Workflow complete.")
                 _finalize_state(state_yaml_path)
+                autocommit_state(state_yaml_path)
                 return 1
             if code == 2:
                 _log("Workflow blocked.")
