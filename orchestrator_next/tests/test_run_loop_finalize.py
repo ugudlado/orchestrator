@@ -9,7 +9,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
 import yaml
 
 _HERE = Path(__file__).resolve()
@@ -68,7 +67,6 @@ def _blocked_state(tmp_path: Path) -> Path:
     return sy
 
 
-@pytest.mark.xfail(strict=False)
 def test_finalize_sets_status_completed_and_clears_next_step(tmp_path, monkeypatch):
     """AC-1, AC-2: completed run writes status=completed and next_step=None."""
     monkeypatch.delenv("ORCHESTRATOR_HEADLESS", raising=False)
@@ -81,7 +79,6 @@ def test_finalize_sets_status_completed_and_clears_next_step(tmp_path, monkeypat
     assert raw["next_step"] is None
 
 
-@pytest.mark.xfail(strict=False)
 def test_finalize_preserves_step_history(tmp_path, monkeypatch):
     """Completed run must not drop step_history or other top-level keys."""
     monkeypatch.delenv("ORCHESTRATOR_HEADLESS", raising=False)
@@ -94,7 +91,6 @@ def test_finalize_preserves_step_history(tmp_path, monkeypatch):
     assert raw["schema"] == "feature"
 
 
-@pytest.mark.xfail(strict=False)
 def test_blocked_exit_does_not_finalize(tmp_path, monkeypatch):
     """AC-3: blocked exit (code 2) must leave status == 'blocked', not 'completed'."""
     monkeypatch.delenv("ORCHESTRATOR_HEADLESS", raising=False)
