@@ -68,4 +68,28 @@ def test_source_labels(tmp_path, monkeypatch):
     monkeypatch.delenv("REPO_ROOT", raising=False)
     root, source = config_root_with_source()
     assert root == bundled_config_root()
-    assert source == "bundled"
+    assert source == "checkout"
+
+
+def test_pack_tier_and_download_hint(tmp_path, monkeypatch):
+    """No env/vendored/checkout config → downloaded pack wins; nothing at all
+    → ConfigRootError carrying the download one-liner."""
+    import orchestrator_next.paths as paths
+
+    monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
+    monkeypatch.delenv("REPO_ROOT", raising=False)
+    monkeypatch.delenv("ORCHESTRATOR_REPO_ROOT", raising=False)
+    monkeypatch.setattr(paths, "bundled_config_root", lambda: tmp_path / "no-checkout" / "config")
+    monkeypatch.setattr(paths, "pack_root", lambda: tmp_path / "pack")
+
+    (tmp_path / "pack" / "config" / "workflows").mkdir(parents=True)
+    root, source = paths.config_root_with_source()
+    assert root == tmp_path / "pack" / "config"
+    assert source == "pack"
+
+    monkeypatch.setattr(paths, "pack_root", lambda: tmp_path / "missing-pack")
+    try:
+        paths.config_root_with_source()
+        raise AssertionError("expected ConfigRootError")
+    except paths.ConfigRootError as exc:
+        assert "git clone" in str(exc)

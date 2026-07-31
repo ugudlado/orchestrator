@@ -111,11 +111,13 @@ def prompt_search_dirs() -> list[Path]:
     if repo is not None:
         dirs.append(repo / "skills")
 
-    # Engine checkout (when installed as a package, this is the wheel data root's sibling).
-    here = Path(__file__).resolve().parent.parent
-    skills_here = here / "skills"
-    if skills_here not in dirs:
-        dirs.append(skills_here)
+    # Global skills travel WITH the resolved config pack (checkout config/'s
+    # sibling skills/, or ~/.orchestrator/pack/skills) — the wheel ships none.
+    from orchestrator_next.paths import config_root
+
+    pack_skills = config_root().parent / "skills"
+    if pack_skills not in dirs:
+        dirs.append(pack_skills)
     return dirs
 
 

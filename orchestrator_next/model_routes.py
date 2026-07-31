@@ -47,18 +47,21 @@ def user_models_path() -> Path:
 
 def _layer_chain(routes_yaml: str | None) -> list[tuple[str, str]]:
     """Lowest→highest precedence. Repo beats global: a vendored/explicit
-    config root ranks above ~/.orchestrator/models.yaml; only the bundled
-    default ranks below it. env_file (ORCHESTRATOR_MODELS_CONFIG) is a
-    test-only injection layer, kept highest so tests can pin routes."""
-    from orchestrator_next.paths import bundled_config_root
+    config root ranks above ~/.orchestrator/models.yaml; the global defaults
+    (dev-checkout config or downloaded pack) rank below it. env_file
+    (ORCHESTRATOR_MODELS_CONFIG) is a test-only injection layer, kept highest
+    so tests can pin routes."""
+    from orchestrator_next.paths import bundled_config_root, pack_root
 
     cfg = ("config_root", routes_yaml or "")
     home = ("user_home", str(user_models_path()))
     env = ("env_file", os.environ.get("ORCHESTRATOR_MODELS_CONFIG") or "")
-    is_bundled = bool(routes_yaml) and (
-        Path(routes_yaml).resolve() == (bundled_config_root() / "models.yaml").resolve()
-    )
-    return [cfg, home, env] if is_bundled else [home, cfg, env]
+    global_floors = {
+        (bundled_config_root() / "models.yaml").resolve(),
+        (pack_root() / "config" / "models.yaml").resolve(),
+    }
+    is_global = bool(routes_yaml) and Path(routes_yaml).resolve() in global_floors
+    return [cfg, home, env] if is_global else [home, cfg, env]
 
 
 def resolve_tool_template(tool_name: str, routes_yaml: str | None) -> tuple[str, list[str]]:

@@ -3,11 +3,10 @@ name = "orchestrator"
 version = "0.1.0"
 description = "LLM-agnostic config-driven workflow engine"
 authors = ["Mahesh <mahesh288@gmail.com>"]
-# config/ ships inside the package (installed as orchestrator_next/config) so a
-# wheel install is self-contained; `orchestrator config-path` prints its location.
+# The wheel ships the engine ONLY — workflows/skills come from the downloaded
+# pack (~/.orchestrator/pack) or a repo-vendored .orchestrator/config.
 packages = [
     { include = "orchestrator_next" },
-    { include = "config", to = "orchestrator_next" },
 ]
 
 [tool.poetry.dependencies]

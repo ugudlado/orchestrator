@@ -9,19 +9,24 @@ development workflows (design → implement → review → QA → learn).
 # 1. Install the CLI (uv keeps it isolated; pipx also works)
 uv tool install git+https://github.com/ugudlado/orchestrator.git
 
-# 2. Sanity check (run inside the target repo)
+# 2. Download the workflow pack (workflows, steps, skills) — once per machine
+git clone --depth 1 https://github.com/ugudlado/orchestrator.git ~/.orchestrator/pack
+# update later: git -C ~/.orchestrator/pack pull
+
+# 3. Sanity check (run inside the target repo)
 orchestrator doctor
 
-# 3. Run
+# 4. Run
 orchestrator run TICKET-1 --schema feature
 ```
 
-No per-repo setup file and no environment variable are required for the
-common case — the CLI falls back to its bundled workflow config, and repo
-conventions are read from the repo's own docs (CLAUDE.md / AGENTS.md /
-README). Set `ORCHESTRATOR_CONFIG` only to point at a different config
-checkout; set `BACKLOG_URL`/`BACKLOG_TOKEN`/`BACKLOG_PROJECT` to enable
-ticket integration (unset → ticket steps skip cleanly).
+The wheel ships the engine only — workflows come from the downloaded pack
+(or a repo-vendored `.orchestrator/config/`, which wins over it). No per-repo
+setup file and no environment variable are required: repo conventions are
+read from the repo's own docs (CLAUDE.md / AGENTS.md / README). Set
+`ORCHESTRATOR_CONFIG` only to point at a different config checkout; set
+`BACKLOG_URL`/`BACKLOG_TOKEN`/`BACKLOG_PROJECT` to enable ticket
+integration (unset → ticket steps skip cleanly).
 
 See `CLAUDE.md` and `docs/distribution.md` for the full CLI reference,
 workflow phases, and repo-customization notes (prompts/skills overrides,
