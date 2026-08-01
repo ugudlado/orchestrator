@@ -2,12 +2,18 @@
 
 Workflow `steps:` entries may be:
 
-- a plain string id (shell or contract-backed step)
-- ``{id: ...}`` with optional routing (``on_failure``, …)
-- ``{prompt: <dir>, ...}`` — prompt directory (id defaults to the prompt ref)
+- a plain string id (shell or agent step — contract.yaml decides which)
+- ``{id: ...}`` with optional routing (``on_failure``, ``on_success``, ``max_retries``,
+  ``depends_on``)
+- legacy ``{prompt: <dir>, ...}`` — ``prompt:`` is a redundant fallback that
+  only derives the id when no ``id:`` is given. It never selects the prompt:
+  the step's ``contract.yaml`` (``steps/<id>/contract.yaml``) is the single
+  source of truth for prompt/model, so plain ids are preferred.
 
-Shell steps stay plain ids pointing at ``run:`` contracts.
+Shell and agent steps are indistinguishable at the workflow level — both are
+plain ids; the contract's ``run:`` vs ``prompt:`` decides dispatch.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -26,16 +32,10 @@ def step_id_of(entry: Any) -> str | None:
     if entry.get("id"):
         return str(entry["id"])
     if entry.get("prompt"):
+        # Legacy fallback: prompt ref doubles as the id when no id is given.
         return str(entry["prompt"])
     if entry.get("include"):
         return str(entry["include"])
-    return None
-
-
-def step_prompt_of(entry: Any) -> str | None:
-    """Return prompt dir ref if this entry declares ``prompt:``, else None."""
-    if isinstance(entry, dict) and entry.get("prompt"):
-        return str(entry["prompt"])
     return None
 
 
