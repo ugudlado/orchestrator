@@ -18,6 +18,9 @@ when a value exists):
   ORCHESTRATOR_PROMPT_PATH (all steps; os.pathsep-joined prompt search dirs)
   ORCHESTRATOR_PHASE, ORCHESTRATOR_STEP_ID, ORCHESTRATOR_ATTEMPT
   ORCHESTRATOR_WORKFLOW_DIR, ORCHESTRATOR_WORKTREE_ARTIFACT_DIR
+  ORCHESTRATOR_PYTHON (inline script steps; the engine's own sys.executable —
+    steps that `import orchestrator_next` must invoke this, not bare python3,
+    since the package only exists inside the engine's own install)
   WORKTREE_PATH, WORKTREE_ROOT (when worktree_path in state)
   ARCHIVE_PATH, BRANCH (when present in state)
 
@@ -28,6 +31,7 @@ directly (see paths.config_root) — not derived here.
 from __future__ import annotations
 
 import os
+import sys
 from typing import Any
 
 
@@ -104,5 +108,10 @@ def inline_script_env(
     archive_path = raw.get("archive_path") or ""
     if archive_path:
         env["ARCHIVE_PATH"] = str(archive_path)
+
+    # Steps that import orchestrator_next (e.g. workflow-report) must use the
+    # engine's own interpreter, not a bare `python3` off inherited PATH —
+    # under `uv tool install`, that generic python3 won't have the package.
+    env.setdefault("ORCHESTRATOR_PYTHON", sys.executable)
 
     return env
