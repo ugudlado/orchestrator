@@ -24,14 +24,18 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 
 def _usage() -> None:
     print(
         "Usage:\n"
         "  orchestrator <workflow> <ticket-id> [--repo PATH] [--models-config PATH] [flag=value ...]\n"
-        "      Run a workflow (config/workflows/<workflow>.yaml), e.g.\n"
-        "      `orchestrator feature ORC-1`, `orchestrator bugfix ORC-2`.\n"
+        "      Run a workflow from .orchestrator/<pack>/workflows/<workflow>.yaml.\n"
+        "      Unique names: `orchestrator feature ORC-1`, `orchestrator bugfix ORC-2`.\n"
+        "      Ambiguous names: `orchestrator mypack/feature ORC-1`.\n"
+        "  orchestrator config pull <git-or-path> [pack] [--skills] [--ref REF]\n"
+        "      Install into .orchestrator/<pack>/ (pack defaults to source basename).\n"
         "  orchestrator doctor [--models-config PATH]\n"
         "      Check that workflow config and model routing look correct.\n"
         "  orchestrator report --state <state.yaml> | --all [--repo PATH] [--json]\n"
@@ -125,13 +129,17 @@ def _append_in_progress_state_entry_if_absent(
 def _graph_verb(args: list[str]) -> None:
     """`orchestrator graph <schema>` — print a Mermaid flowchart, exit 0.
 
-    Read-only: no state.yaml write.
+    Read-only: no state.yaml write. ``<schema>`` may be ``feature`` or
+    ``mypack/feature``.
     """
     schema_name = args[0] if args else ""
     from orchestrator_next.graph import render_workflow_graph
+    from orchestrator_next.paths import WorkflowRefError, resolve_workflow_ref
     try:
-        mermaid_src = render_workflow_graph(schema_name)
-    except FileNotFoundError as exc:
+        _pack, workflow, cfg_root = resolve_workflow_ref(schema_name)
+        os.environ["ORCHESTRATOR_CONFIG"] = str(cfg_root)
+        mermaid_src = render_workflow_graph(workflow)
+    except (FileNotFoundError, WorkflowRefError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         sys.exit(3)
     print(mermaid_src, end="")
@@ -139,32 +147,45 @@ def _graph_verb(args: list[str]) -> None:
 
 
 def _workflow_subcommands() -> set[str]:
-    """ORC-108: each config/workflows/<name>.yaml is a CLI subcommand.
+    """CLI tokens that map to a workflow: bare unique names + pack/workflow.
 
-    `orchestrator feature <id>` == `orchestrator run <id> --schema feature`.
-    Resolved dynamically so adding a workflow file adds a subcommand with no
-    code change. Falls back to the empty set if the dir is unreadable.
+    Unique bare names are included. When a name appears in multiple packs,
+    only the qualified ``pack/workflow`` forms are registered.
     """
-    import glob
-    from orchestrator_next.paths import config_root
+    from orchestrator_next.paths import ConfigRootError, list_workflows
+
     try:
-        wf_dir = str(config_root() / "workflows")
-        return {
-            os.path.splitext(os.path.basename(p))[0]
-            for p in glob.glob(os.path.join(wf_dir, "*.yaml"))
-        }
-    except (OSError, RuntimeError):
+        index = list_workflows()
+    except ConfigRootError:
         return set()
+    out: set[str] = set()
+    for workflow, hits in index.items():
+        if len(hits) == 1:
+            out.add(workflow)
+        for pack_name, _root in hits:
+            out.add(f"{pack_name}/{workflow}")
+    return out
+
+
+def _pin_config_from_state_file(state_yaml_path: str) -> None:
+    """Set ORCHESTRATOR_CONFIG from state.config_pack when unset (multi-pack)."""
+    if os.environ.get("ORCHESTRATOR_CONFIG"):
+        return
+    try:
+        import yaml as _yaml
+        raw = _yaml.safe_load(Path(state_yaml_path).read_text(encoding="utf-8")) or {}
+    except Exception:
+        return
+    pack = raw.get("config_pack") or ""
+    repo = raw.get("repo_root") or os.environ.get("REPO_ROOT") or ""
+    if pack and repo:
+        os.environ["ORCHESTRATOR_CONFIG"] = str(Path(repo) / ".orchestrator" / pack)
+    if repo and not os.environ.get("REPO_ROOT"):
+        os.environ["REPO_ROOT"] = str(repo)
 
 
 def _default_repo_root_env() -> None:
-    """config_root()'s repo-local fallback (<repo>/.orchestrator/config/) needs
-    a repo root to check. `run` derives one from --repo/git toplevel;
-    other verbs (doctor, models) have no such flag, so default REPO_ROOT
-    to the git toplevel (else cwd) whenever it isn't already set — a no-op if
-    the repo has no vendored config, since config_root() only uses it when
-    <repo>/.orchestrator/config/workflows/ actually exists.
-    """
+    """Vendored packs live under <repo>/.orchestrator/<pack>/ — needs REPO_ROOT."""
     if os.environ.get("REPO_ROOT") or os.environ.get("ORCHESTRATOR_REPO_ROOT"):
         return
     import subprocess
@@ -191,6 +212,16 @@ def main() -> None:
             print(exc, file=sys.stderr)
             sys.exit(2)
         sys.exit(0)
+    if args and args[0] == "config":
+        if len(args) < 2 or args[1] != "pull":
+            print(
+                "usage: orchestrator config pull <git-or-path> [pack] "
+                "[--repo PATH] [--ref REF] [--skills]",
+                file=sys.stderr,
+            )
+            sys.exit(3)
+        from orchestrator_next.config_pull import main as _config_pull_main
+        sys.exit(_config_pull_main(args[2:]))
     _default_repo_root_env()
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
@@ -208,7 +239,7 @@ def main() -> None:
     # Every verb except doctor needs a second argument.
     if len(args) < 2 and args[0] != "doctor":
         _usage()
-    # ORC-108: each config/workflows/<name>.yaml is a CLI subcommand → orchestrator-run.sh.
+    # Workflow tokens (bare or pack/workflow) → run --schema <ref>.
     if args[0] in _wf_subcommands:
         _run_verb([args[1], "--schema", args[0], *args[2:]])
 
@@ -224,6 +255,9 @@ def main() -> None:
         sys.exit(_report_main(args[1:]))
 
     if args[0] == "done":
+        # argv: done <state.yaml> …
+        if len(args) >= 2:
+            _pin_config_from_state_file(args[1])
         from orchestrator_next.record import main as record_main
         sys.exit(record_main(sys.argv[1:]))
 
@@ -265,6 +299,9 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001 — catch-all for malformed YAML; diagnosed below
         print(f"error: failed to parse state.yaml — {exc}", file=sys.stderr)
         sys.exit(3)
+
+    # Pin the pack that seeded this run (multi-pack layouts).
+    _pin_config_from_state_file(state_yaml_path)
 
     try:
         action, exit_code = dispatch(state, state_yaml_path)

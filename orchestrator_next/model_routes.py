@@ -11,7 +11,7 @@ field-level override, set by CLI model.<alias>.<field>= args) >
 ORCHESTRATOR_MODELS_CONFIG file (CLI --models-config) >
 repo/explicit config root models.yaml > ~/.orchestrator/models.yaml >
 bundled defaults. Repo beats global for file layers: a vendored
-(.orchestrator/config) or explicitly pointed-at config root outranks the
+(.orchestrator/) or explicitly pointed-at config root outranks the
 user's home file; the bundled models.yaml is only the floor.
 """
 from __future__ import annotations

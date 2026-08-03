@@ -3,8 +3,8 @@ name = "orchestrator"
 version = "0.1.0"
 description = "LLM-agnostic config-driven workflow engine"
 authors = ["Mahesh <mahesh288@gmail.com>"]
-# The wheel ships the engine ONLY — workflows/skills come from the downloaded
-# pack (~/.orchestrator/pack) or a repo-vendored .orchestrator/config.
+# The wheel ships the engine ONLY — workflows come from orchestrator pack
+# vendor (.orchestrator/) or a downloaded pack (~/.orchestrator/pack).
 packages = [
     { include = "orchestrator_next" },
 ]

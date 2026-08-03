@@ -555,15 +555,19 @@ def _build_route_overrides(flags: list[str]) -> str:
     return json.dumps(data)
 
 
-def _resolve_active_state(slug: str, schema: str, repo_root: str) -> str:
-    """Newest active `.orchestrator/<slug>/*_<schema>_state.yaml`, or "" if none.
-
-    Resolving (not seeding) is what makes a re-run RESUME an in-flight workflow
-    instead of seeding a second state file. Mirrors orchestrator-run.sh
-    resolve_state_yaml.
-    """
+def _resolve_active_state(
+    slug: str, schema: str, repo_root: str, *, config_pack: str = ""
+) -> str:
+    """Newest active state for this slug/schema(/pack), or "" if none."""
     state_dir = Path(repo_root) / ".orchestrator" / slug
-    matches = sorted(state_dir.glob(f"*_{schema}_state.yaml"))
+    if not state_dir.is_dir():
+        return ""
+    matches: list[Path] = []
+    if config_pack:
+        matches.extend(state_dir.glob(f"*_{config_pack}_{schema}_state.yaml"))
+    matches.extend(state_dir.glob(f"*_{schema}_state.yaml"))
+    # Prefer pack-scoped files when both exist.
+    matches = sorted(set(matches))
     return str(matches[-1]) if matches else ""
 
 
@@ -584,7 +588,7 @@ def _resolve_archived_state(slug: str, repo_root: str) -> str:
 
 def _write_initial_state(
     state_yaml: Path, *, slug: str, schema: str, repo_root: str,
-    active: list[str], prior_path: str,
+    active: list[str], prior_path: str, config_pack: str = "",
 ) -> None:
     """Write the initial state.yaml, carrying identity fields from the most
     recent prior state file when provided."""
@@ -593,13 +597,14 @@ def _write_initial_state(
         try:
             prior_raw = yaml.safe_load(Path(prior_path).read_text()) or {}
             for key in ("worktree_path", "branch", "repo_root", "change_id", "slug",
-                        "ticket_id"):
+                        "ticket_id", "config_pack"):
                 if prior_raw.get(key):
                     prior_context[key] = prior_raw[key]
         except (OSError, yaml.YAMLError):
             pass  # prior unreadable — start fresh
 
     repo_root = prior_context.get("repo_root") or repo_root
+    config_pack = config_pack or prior_context.get("config_pack") or ""
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     slug = prior_context.get("slug") or slug
@@ -617,6 +622,8 @@ def _write_initial_state(
         "created_at": now,
         "started_at": now,
     }
+    if config_pack:
+        state["config_pack"] = config_pack
     if prior_context.get("worktree_path"):
         state["worktree_path"] = prior_context["worktree_path"]
     if prior_context.get("branch"):
@@ -626,20 +633,24 @@ def _write_initial_state(
     _log(f"seeded: {state_yaml}")
 
 
-def _seed_state(slug: str, schema: str, repo_root: str) -> str:
+def _seed_state(slug: str, schema: str, repo_root: str, *, config_pack: str = "") -> str:
     """Seed a state file; return its path.
-    Idempotent: reuse the newest *_<schema>_state.yaml if present."""
+    Idempotent: reuse the newest matching state yaml if present."""
     from orchestrator_next.paths import config_root
     schema_yaml = config_root() / "workflows" / f"{schema}.yaml"
-    repo_override = Path(repo_root) / ".orchestrator" / "workflows" / f"{schema}.yaml"
-    if repo_override.is_file():
-        schema_yaml = repo_override
     if not schema_yaml.is_file():
         _log(f"ERROR: schema '{schema}' not found: {schema_yaml}")
         raise SystemExit(7)
 
     state_dir = Path(repo_root) / ".orchestrator" / slug
-    existing = sorted(state_dir.glob(f"*_{schema}_state.yaml"))
+    patterns = []
+    if config_pack:
+        patterns.append(f"*_{config_pack}_{schema}_state.yaml")
+    patterns.append(f"*_{schema}_state.yaml")
+    existing: list[Path] = []
+    for pat in patterns:
+        existing.extend(state_dir.glob(pat))
+    existing = sorted(set(existing))
     if existing:
         _log(f"state file exists at {existing[-1]} (idempotent skip)")
         return str(existing[-1])
@@ -659,12 +670,20 @@ def _seed_state(slug: str, schema: str, repo_root: str) -> str:
 
     state_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    state_yaml = state_dir / f"{timestamp}_{schema}_state.yaml"
+    file_schema = f"{config_pack}_{schema}" if config_pack else schema
+    state_yaml = state_dir / f"{timestamp}_{file_schema}_state.yaml"
     prior = sorted(state_dir.glob("*_state.yaml"))
     prior_path = str(prior[-1]) if prior else ""
 
-    _write_initial_state(state_yaml, slug=slug, schema=schema,
-                         repo_root=repo_root, active=active, prior_path=prior_path)
+    _write_initial_state(
+        state_yaml,
+        slug=slug,
+        schema=schema,
+        repo_root=repo_root,
+        active=active,
+        prior_path=prior_path,
+        config_pack=config_pack,
+    )
 
     from orchestrator_next import generate_plan as _gp
     try:
@@ -674,7 +693,7 @@ def _seed_state(slug: str, schema: str, repo_root: str) -> str:
         _log(f"error: generate_plan failed: {exc}")
         raise SystemExit(2)
 
-    _log(f"init-workflow: {slug} ({schema}) ready at {state_yaml}")
+    _log(f"init-workflow: {slug} ({config_pack + '/' if config_pack else ''}{schema}) ready at {state_yaml}")
     return str(state_yaml)
 
 
@@ -685,7 +704,7 @@ def run_cmd(argv: list[str]) -> int:
     argv = consume_models_config_argv(argv)
 
     ticket_id = ""
-    schema = "feature"
+    schema_ref = "feature"
     repo_arg = ""
     seed_only = False
     flag_overrides: list[str] = []
@@ -696,7 +715,7 @@ def run_cmd(argv: list[str]) -> int:
     while args:
         a = args.pop(0)
         if a == "--schema":
-            schema = args.pop(0)
+            schema_ref = args.pop(0)
         elif a == "--repo":
             repo_arg = args.pop(0)
         elif a == "--routes-override":
@@ -741,6 +760,17 @@ def run_cmd(argv: list[str]) -> int:
             repo_root = os.getcwd()
     os.environ["REPO_ROOT"] = repo_root
 
+    # Resolve feature vs mypack/feature → pin ORCHESTRATOR_CONFIG for this run.
+    from orchestrator_next.paths import WorkflowRefError, resolve_workflow_ref
+    try:
+        config_pack, schema, cfg_root = resolve_workflow_ref(
+            schema_ref, Path(repo_root)
+        )
+    except WorkflowRefError as exc:
+        _log(f"ERROR: {exc}")
+        return 7
+    os.environ["ORCHESTRATOR_CONFIG"] = str(cfg_root)
+
     # Route-override env (model_routes.py reads these from os.environ).
     if routes_override_arg:
         os.environ["ORCHESTRATOR_ROUTES_YAML"] = os.path.abspath(routes_override_arg)
@@ -754,13 +784,17 @@ def run_cmd(argv: list[str]) -> int:
     # is a separate teardown workflow that must NOT be driven from a feature state
     # whose DAG is exhausted — resolve its own *_complete_state.yaml, and if the
     # feature was already archived, resolve the archived state for merge/teardown.
-    state_yaml_path = _resolve_active_state(slug, schema, repo_root)
+    state_yaml_path = _resolve_active_state(
+        slug, schema, repo_root, config_pack=config_pack
+    )
     if not state_yaml_path and schema == "complete":
         state_yaml_path = _resolve_archived_state(slug, repo_root)
         if state_yaml_path:
             _log(f"Resuming complete on archived state: {state_yaml_path}")
     if not state_yaml_path:
-        state_yaml_path = _seed_state(slug, schema, repo_root)
+        state_yaml_path = _seed_state(
+            slug, schema, repo_root, config_pack=config_pack
+        )
 
     # --seed-only: stop here. The caller (external driver) walks next/done itself.
     # Print the path on its own final line so callers can `tail -1` it.
@@ -769,20 +803,20 @@ def run_cmd(argv: list[str]) -> int:
         print(state_yaml_path)
         return 0
 
-    # models.yaml resolution (override > repo > global), mirrors run-workflow.sh.
+    # models.yaml resolution (override > pack > global).
     models_yaml = os.environ.get("ORCHESTRATOR_MODELS_CONFIG", "")
     if not models_yaml:
-        from orchestrator_next.paths import config_root
         for cand in (
+            cfg_root / "models.yaml",
             Path(repo_root) / ".orchestrator" / "config" / "models.yaml",
             Path(repo_root) / "config" / "models.yaml",
-            config_root() / "models.yaml",
         ):
             if cand.is_file():
                 models_yaml = str(cand)
                 break
 
-    _log(f"Running workflow: ticket={ticket_id} schema={schema} state={state_yaml_path}")
+    ref_label = f"{config_pack}/{schema}" if config_pack else schema
+    _log(f"Running workflow: ticket={ticket_id} schema={ref_label} state={state_yaml_path}")
     if models_yaml and os.environ.get("ORCHESTRATOR_MODELS_CONFIG"):
         _log(f"models override: {models_yaml}")
     return run_loop(state_yaml_path, repo_root=repo_root, models_yaml=models_yaml)

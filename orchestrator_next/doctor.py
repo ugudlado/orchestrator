@@ -139,7 +139,7 @@ def check_git_repo(repo_root: Path) -> CheckResult:
 def check_config_root(config_root: Path) -> CheckResult:
     """FAIL when the resolved config root is missing or lacks the required layout.
 
-    The config root (ORCHESTRATOR_CONFIG, else <repo>/.orchestrator/config —
+    The config root (ORCHESTRATOR_CONFIG, else <repo>/.orchestrator/ —
     see paths.config_root; explicit, no cwd fallback) must exist and hold
     workflows/ and steps/. This is the prerequisite for every config-content
     check below: if the root is wrong, those checks have nothing to validate.
