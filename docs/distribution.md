@@ -12,22 +12,27 @@ Two repos: [`orchestrator`](https://github.com/ugudlado/orchestrator) (engine, i
 # 1. Install the CLI (uv keeps it isolated; pipx also works)
 uv tool install git+https://github.com/ugudlado/orchestrator.git
 
-# 2. Download the workflow pack (once per machine; update with git pull)
+# 2. Pull workflow-config into the repo (steps own SKILL.md + scenarios)
+orchestrator config pull https://github.com/ugudlado/workflow-config.git mypack
+# or: orchestrator config pull /path/to/workflow-config mypack --skills
+
+# Base role prompts for extends: — once per machine
 git clone --depth 1 https://github.com/ugudlado/prompt-packs.git ~/.orchestrator/pack
 
 # 3. Sanity check (run inside the target repo — no per-repo setup file needed;
 #    conventions live in CLAUDE.md/AGENTS.md/README, ticketing is env-driven)
 orchestrator doctor
 
-# 4. Run
-orchestrator run TICKET-1 --schema feature
+# 4. Run (layout: .orchestrator/mypack/workflows/feature.yaml)
+orchestrator feature TICKET-1
+# multiple packs: orchestrator mypack/feature TICKET-1
 ```
 
-Config resolution (first hit wins, repo→global): `ORCHESTRATOR_CONFIG` env → `<repo>/.orchestrator/config/` (vendored pack) → dev-checkout `config/` → `~/.orchestrator/pack/config` (downloaded pack). No hit → hard error that prints the clone one-liner. `doctor` reports which source resolved. A vendored pack carries its own `workflows/`, `steps/`, and `models.yaml` — that's the path for a repo with custom schemas; global skills travel with the downloaded pack (`~/.orchestrator/pack/skills`).
+Config resolution (first hit wins, repo→global): `ORCHESTRATOR_CONFIG` env → exactly one `<repo>/.orchestrator/<pack>/` (legacy flat `.orchestrator/` / `.orchestrator/config/` still accepted) → dev-checkout `config/` → `~/.orchestrator/pack/config` (downloaded pack). Multiple packs under `.orchestrator/` with no env → hard error: pass `orchestrator <pack>/<workflow> <id>` or set `ORCHESTRATOR_CONFIG`. No hit → hard error with the `config pull` one-liner. `doctor` reports which source resolved. Each pulled pack carries `workflows/`, `steps/` (agent steps include `SKILL.md`), and `models.yaml`.
 
 Per-repo customization without forking the engine:
 
-- **Prompts/skills**: put overrides under `<repo>/skills/` — the prompt search order is fixed at `<repo>/skills` then the bundled `skills/` (repo→global, no env knob). Step contracts reference prompts by relative `.md` path only — absolute paths are rejected to keep vendored packs portable.
+- **Prompts**: agent steps carry their charter as `prompt: SKILL.md` inside the step dir. `orchestrator config pull … --skills` optionally symlinks those into `<repo>/skills/<name>/` for IDE discovery. Absolute prompt paths are rejected.
 - **Quality gates & verify commands**: gate thresholds are step-owned (vendor the pack to change them); review/QA steps discover the repo's test/lint commands from its own docs and manifests. Repos should also carry commit-time verification (pre-commit/husky/biome) — doctor WARNs when none is present, so breakage is caught at commit, not only at the QA gate.
 - **Ticketing**: env-driven — `BACKLOG_URL`+`BACKLOG_TOKEN` present means backlog; unset means ticket steps skip cleanly. The engine and doctor have zero ticketing logic; workflow scripts own it, so new backends are a script change.
 - **Headless/CI**: `ORCHESTRATOR_HEADLESS=1` + `ORCHESTRATOR_NOTIFY_CMD` — state auto-commits to the branch, blocks notify via any shell command.
@@ -63,7 +68,7 @@ The real prerequisite is the **agent CLI binaries themselves**: pack defaults ne
 4. **`doctor` as the onboarding contract** — make `orchestrator doctor` verify exactly the setup steps above (config resolvable, git repo, commit-time verification present). Every future "setup didn't work" report becomes a missing doctor check.
 5. **Doctor: verify agent CLI binaries** — resolve every alias used by the installed contracts through the model-routing layers and check each `tool` binary is on PATH. Today a missing `cursor-agent` fails mid-workflow at the implement step instead of at `doctor` time; the fix message should show the `~/.orchestrator/models.yaml` reroute example.
 6. **README quickstart** — the four-command block above belongs at the top of the repo README for people who don't have this doc.
-7. **Per-repo workflow overrides** — covered by the vendored-pack tier (`<repo>/.orchestrator/config/`): a repo wanting custom schemas vendors the whole pack. Whole-pack only, deliberately — per-step overlay merging (the old config-repo-split plan) stays dead until a real consumer needs partial overrides.
+7. **Per-repo workflow overrides** — pull another pack into `<repo>/.orchestrator/<pack>/` (`orchestrator config pull … <pack>`). A repo can hold multiple packs side by side; disambiguate runs with `<pack>/<workflow>`. Whole-pack only, deliberately — per-step overlay merging (the old config-repo-split plan) stays dead until a real consumer needs partial overrides.
 
 ## Orca integration
 

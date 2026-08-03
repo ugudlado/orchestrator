@@ -77,8 +77,7 @@ pack.
 
 ## 5. Protocol versioning
 
-`pack.yaml` declares `protocol: 1`. The pack manager (`orchestrator pack
-add`) refuses to install a pack whose protocol the engine doesn't support.
+`pack.yaml` declares `protocol: 1`. `orchestrator config pull` installs packs under `<repo>/.orchestrator/<pack>/` and refuses a pack whose protocol the engine doesn't support.
 
 Bump the protocol integer only on a breaking change to section 2 or 3 above
 (contract keys or step protocol semantics) — not for adding new workflows,
