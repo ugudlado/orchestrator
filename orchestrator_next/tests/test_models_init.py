@@ -44,7 +44,7 @@ def test_init_writes_chains_from_bundled_seed_when_no_layer_has_tools(monkeypatc
     data = yaml.safe_load(out_path.read_text())
     assert set(data["models"].keys()) == {"opus", "sonnet", "haiku", "composer"}
     # composer chain: cursor available -> first candidate is cursor
-    assert data["models"]["composer"][0]["subprocess"] == "cursor"
+    assert data["models"]["composer"][0]["tool"] == "cursor"
     assert "composer -> cursor" in out
 
 
@@ -66,7 +66,7 @@ def test_init_keeps_only_available_candidates_in_chain(monkeypatch, tmp_path):
     data = yaml.safe_load(out_path.read_text())
     composer_chain = data["models"]["composer"]
     assert len(composer_chain) == 1
-    assert composer_chain[0]["subprocess"] == "claude"
+    assert composer_chain[0]["tool"] == "claude"
 
 
 def test_init_refuses_to_overwrite_without_force(monkeypatch, tmp_path, capsys):
@@ -122,7 +122,7 @@ def test_init_written_file_round_trips_through_resolve_route(monkeypatch, tmp_pa
 
     # No config_root layer at all — user_home is the only layer with data.
     route = resolve_route("composer", None)
-    assert route["subprocess"] == "cursor"
+    assert route["tool"] == "cursor"
     assert route["model_id"] == "composer-2.5"
     assert route["is_fallback"] is False
 
@@ -143,6 +143,6 @@ def test_init_binds_alias_to_cursor_when_cursor_agent_present(monkeypatch, tmp_p
 
     assert main([]) == 0
     data = yaml.safe_load((home / ".orchestrator" / "models.yaml").read_text())
-    assert data["models"]["composer"][0]["subprocess"] == "cursor"
+    assert data["models"]["composer"][0]["tool"] == "cursor"
     # opus/sonnet/haiku have no available candidate (claude absent) -> dropped entirely
     assert "opus" not in data["models"] or not data["models"]["opus"]

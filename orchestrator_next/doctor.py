@@ -246,8 +246,8 @@ def check_step_dispatch_kind(config_root: Path) -> CheckResult:
     return CheckResult("step dispatch kind", "PASS", "all steps are agent- or script-driven")
 
 
-def check_subprocesses_available(config_root: Path) -> CheckResult:
-    """RULE 3 (WARN): every distinct subprocess: in models.yaml is on PATH.
+def check_tools_available(config_root: Path) -> CheckResult:
+    """RULE 3 (WARN): every distinct tool: in models.yaml is on PATH.
 
     WARN, not FAIL: a config is valid even if a backend (e.g. cursor) is not
     installed on this machine — that's machine state, not config integrity.
@@ -256,24 +256,24 @@ def check_subprocesses_available(config_root: Path) -> CheckResult:
 
     models_yaml = config_root / "models.yaml"
     if not models_yaml.is_file():
-        return CheckResult("subprocesses available", "WARN", "models.yaml not found")
+        return CheckResult("tools available", "WARN", "models.yaml not found")
     try:
         data = yaml.safe_load(models_yaml.read_text()) or {}
     except Exception as exc:  # noqa: BLE001
-        return CheckResult("subprocesses available", "WARN", f"models.yaml parse: {exc}")
-    subs: set[str] = set()
+        return CheckResult("tools available", "WARN", f"models.yaml parse: {exc}")
+    tools: set[str] = set()
     for entry in (data.get("models") or {}).values():
         candidates = entry if isinstance(entry, list) else [entry]
         for cand in candidates:
-            if isinstance(cand, dict) and cand.get("subprocess"):
-                subs.add(str(cand["subprocess"]))
-    missing = sorted(s for s in subs if not shutil.which(s))
+            if isinstance(cand, dict) and cand.get("tool"):
+                tools.add(str(cand["tool"]))
+    missing = sorted(s for s in tools if not shutil.which(s))
     if missing:
         return CheckResult(
-            "subprocesses available", "WARN", f"not on PATH: {', '.join(missing)}"
+            "tools available", "WARN", f"not on PATH: {', '.join(missing)}"
         )
     return CheckResult(
-        "subprocesses available", "PASS", f"all {len(subs)} subprocess backends on PATH"
+        "tools available", "PASS", f"all {len(tools)} tool backends on PATH"
     )
 
 
@@ -310,7 +310,7 @@ def check_prompt_optimizer() -> CheckResult:
 
 def check_contract_aliases_resolve(config_root: Path) -> CheckResult:
     """D4: every model: alias referenced by an installed step contract must
-    resolve to at least one available route (subprocess with a binary on
+    resolve to at least one available route (tool with a binary on
     PATH) somewhere in the layer chain. This is what makes updating step configs
     and agent config independently safe in practice — a contract that invents an
     alias no layer defines, or a machine missing the binary for an alias a
@@ -337,16 +337,16 @@ def check_contract_aliases_resolve(config_root: Path) -> CheckResult:
     unresolved: list[str] = []
     for alias in sorted(aliases):
         route = resolve_route(alias, routes_yaml)
-        subprocess_name = route.get("subprocess") or ""
-        if not subprocess_name:
+        tool_name = route.get("tool") or ""
+        if not tool_name:
             unresolved.append(f"{alias} (no route in any layer)")
             continue
-        binary, _template = resolve_tool_template(subprocess_name, routes_yaml)
+        binary, _template = resolve_tool_template(tool_name, routes_yaml)
         if not shutil.which(binary):
             unresolved.append(
-                f"{alias} -> {subprocess_name} ({binary} not on PATH) — reroute via "
+                f"{alias} -> {tool_name} ({binary} not on PATH) — reroute via "
                 f"~/.orchestrator/models.yaml, e.g. "
-                f"models: {{{alias}: {{model_id: <id>, subprocess: claude}}}}"
+                f"models: {{{alias}: {{model_id: <id>, tool: claude}}}}"
             )
 
     if unresolved:
@@ -368,7 +368,7 @@ def check_no_silent_fallback(config_root: Path) -> CheckResult:
     routes_yaml = str(config_root / "models.yaml")
     resolved = resolve_all_with_source(routes_yaml)
     on_fallback = sorted(
-        f"{alias}→candidate#{entry['active_index']} ({entry['subprocess']})"
+        f"{alias}→candidate#{entry['active_index']} ({entry['tool']})"
         for alias, entry in resolved.items()
         if entry.get("is_fallback")
     )
@@ -391,7 +391,7 @@ def check_model_route_sources(config_root: Path) -> CheckResult:
 
     parts = []
     for tier in sorted(resolved):
-        src = resolved[tier].get("subprocess_source") or resolved[tier].get("model_id_source") or "?"
+        src = resolved[tier].get("tool_source") or resolved[tier].get("model_id_source") or "?"
         parts.append(f"{tier}←{src}")
     detail = f"{len(resolved)} tiers resolved: {', '.join(parts)}"
     return CheckResult("model route sources", "PASS", detail)
@@ -434,7 +434,7 @@ def run_all() -> int:
         check_models_layer_present(config_root),     # D4: loosened models.yaml presence (WARN)
         check_workflow_steps_resolve(config_root),  # rule 1
         check_step_dispatch_kind(config_root),      # rule 2
-        check_subprocesses_available(config_root),  # rule 3 (WARN)
+        check_tools_available(config_root),  # rule 3 (WARN)
         check_model_route_sources(config_root),
         check_no_silent_fallback(config_root),      # D3 guard rail (WARN)
         check_contract_aliases_resolve(config_root),  # D4: contract/agent-config safety net (WARN)

@@ -61,7 +61,7 @@ def test_models_layer_present_passes_via_config_root(tmp_path, monkeypatch):
     home = tmp_path / "home"
     monkeypatch.setattr(Path, "home", lambda: home)
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
-    _write_models(tmp_path / "models.yaml", {"opus": {"subprocess": "claude", "model_id": "x"}})
+    _write_models(tmp_path / "models.yaml", {"opus": {"tool": "claude", "model_id": "x"}})
 
     result = check_models_layer_present(tmp_path)
     assert result.status == "PASS"
@@ -74,7 +74,7 @@ def test_models_layer_present_passes_via_user_home_when_config_root_bare(tmp_pat
     home = tmp_path / "home"
     monkeypatch.setattr(Path, "home", lambda: home)
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
-    _write_models(home / ".orchestrator" / "models.yaml", {"opus": {"subprocess": "claude", "model_id": "x"}})
+    _write_models(home / ".orchestrator" / "models.yaml", {"opus": {"tool": "claude", "model_id": "x"}})
 
     result = check_models_layer_present(tmp_path)  # tmp_path/models.yaml does not exist
     assert result.status == "PASS"
@@ -116,7 +116,7 @@ def test_contract_aliases_resolve_passes_when_alias_available(tmp_path, monkeypa
     (bin_dir / "claude").chmod(0o755)
     monkeypatch.setenv("PATH", str(bin_dir))
 
-    _write_models(tmp_path / "models.yaml", {"opus": {"subprocess": "claude", "model_id": "claude-opus-4-7"}},
+    _write_models(tmp_path / "models.yaml", {"opus": {"tool": "claude", "model_id": "claude-opus-4-7"}},
                   tools={"claude": {"binary": "claude"}})
     _write_contract(tmp_path / "steps", "my-step", model="opus")
 
@@ -144,7 +144,7 @@ def test_contract_aliases_resolve_warns_when_binary_missing(tmp_path, monkeypatc
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
     monkeypatch.setenv("PATH", "/nonexistent-empty-dir")  # claude not on PATH
 
-    _write_models(tmp_path / "models.yaml", {"opus": {"subprocess": "claude", "model_id": "claude-opus-4-7"}})
+    _write_models(tmp_path / "models.yaml", {"opus": {"tool": "claude", "model_id": "claude-opus-4-7"}})
     _write_contract(tmp_path / "steps", "my-step", model="opus")
 
     result = check_contract_aliases_resolve(tmp_path)
@@ -154,4 +154,4 @@ def test_contract_aliases_resolve_warns_when_binary_missing(tmp_path, monkeypatc
     # missing binary, and suggests a ~/.orchestrator/models.yaml override.
     assert "claude" in result.detail
     assert "~/.orchestrator/models.yaml" in result.detail
-    assert "subprocess" in result.detail
+    assert "tool" in result.detail

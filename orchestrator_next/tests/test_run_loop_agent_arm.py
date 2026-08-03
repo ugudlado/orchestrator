@@ -53,7 +53,7 @@ def test_agent_arm_runs_end_to_end(tmp_path, monkeypatch):
     # agents.yaml: route a 'tester' agent to the fake claude.
     models_yaml = tmp_path / "models.yaml"
     models_yaml.write_text(yaml.safe_dump({
-        "models": {"opus": {"model_id": "claude-opus-4-7", "subprocess": "claude"}},
+        "models": {"opus": {"model_id": "claude-opus-4-7", "tool": "claude"}},
         "tools": {"claude": {
             "binary": str(bin_dir / "claude"),
             "args_template": ["-p", "{prompt}"],
@@ -118,7 +118,7 @@ def test_malformed_completion_is_recoverable(tmp_path, monkeypatch):
 
     models_yaml = tmp_path / "models.yaml"
     models_yaml.write_text(yaml.safe_dump({
-        "models": {"opus": {"model_id": "claude-opus-4-7", "subprocess": "claude"}},
+        "models": {"opus": {"model_id": "claude-opus-4-7", "tool": "claude"}},
         "tools": {"claude": {"binary": str(bad), "args_template": ["-p", "{prompt}"]}},
     }))
 

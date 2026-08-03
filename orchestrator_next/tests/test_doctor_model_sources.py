@@ -16,8 +16,8 @@ def test_check_model_route_sources_passes_with_detail(tmp_path):
     _write_models(
         config_root / "models.yaml",
         {
-            "opus": {"subprocess": "claude", "model_id": "claude-opus-4-7"},
-            "sonnet": {"subprocess": "claude", "model_id": "claude-sonnet-4-6"},
+            "opus": {"tool": "claude", "model_id": "claude-opus-4-7"},
+            "sonnet": {"tool": "claude", "model_id": "claude-sonnet-4-6"},
         },
     )
 
@@ -34,7 +34,7 @@ def test_run_all_includes_model_route_sources_check(monkeypatch, tmp_path, capsy
     config_root = tmp_path / "config"
     _write_models(
         config_root / "models.yaml",
-        {"opus": {"subprocess": "claude", "model_id": "claude-opus-4-7"}},
+        {"opus": {"tool": "claude", "model_id": "claude-opus-4-7"}},
     )
     monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(config_root))
     monkeypatch.delenv("ORCHESTRATOR_HOME", raising=False)

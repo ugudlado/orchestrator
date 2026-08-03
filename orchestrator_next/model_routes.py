@@ -1,4 +1,4 @@
-"""Model → (subprocess tool, model_id) resolution.
+"""Model → (tool, model_id) resolution.
 
 Reads the `models:` block from models.yaml (and optional override files /
 JSON env override), returning the execution config for a model tier.
@@ -98,7 +98,7 @@ def _winning_alias_entry(alias: str, routes_yaml: str | None) -> tuple[Any, str]
     A scalar alias defined in exactly one layer still resolves unchanged;
     what stops working is a *higher* layer partially overriding a *lower*
     layer's fields for the same alias (e.g. home sets only model_id and
-    expects to inherit subprocess from config_root) — that partial merge was
+    expects to inherit tool from config_root) — that partial merge was
     undocumented/untested and is intentionally not preserved.
     """
     # _layer_chain is lowest-to-highest precedence; walk highest-first so the
@@ -110,9 +110,9 @@ def _winning_alias_entry(alias: str, routes_yaml: str | None) -> tuple[Any, str]
     return None, ""
 
 
-def _binary_on_path(subprocess_name: str, routes_yaml: str | None) -> bool:
+def _binary_on_path(tool_name: str, routes_yaml: str | None) -> bool:
     import shutil
-    binary, _template = resolve_tool_template(subprocess_name, routes_yaml)
+    binary, _template = resolve_tool_template(tool_name, routes_yaml)
     return bool(shutil.which(binary))
 
 
@@ -120,7 +120,7 @@ def resolve_route(alias: str, routes_yaml: str | None) -> dict[str, Any]:
     """Resolve `alias` to a single concrete route, as one unit (D3).
 
     Returns a dict:
-      subprocess, model_id   — the chosen candidate's fields ("" if unresolved)
+      tool, model_id            — the chosen candidate's fields ("" if unresolved)
       source                 — layer label that supplied the winning alias entry
       active_index            — 0-based index of the chosen candidate within
                                 its chain (0 for a scalar route or the first
@@ -134,15 +134,15 @@ def resolve_route(alias: str, routes_yaml: str | None) -> dict[str, Any]:
         it must never silently become "no route" (exit 4). This preserves
         today's behavior for every alias that hasn't opted into a chain.
       - list route (chain)   → PATH-gated; the first candidate whose
-        `subprocess`'s tools:-resolved binary is on PATH wins. If every
-        candidate's binary is absent, subprocess/model_id come back "" so the
+        `tool`'s tools:-resolved binary is on PATH wins. If every
+        candidate's binary is absent, tool/model_id come back "" so the
         run_loop caller raises the existing no-route error (exit 4).
 
     ORCHESTRATOR_MODEL_ROUTE_OVERRIDES (JSON env) and CLI model.<alias>.<field>=
     overrides are NOT part of the wholesale-wins rule — they are a separate,
     higher-precedence field-level override applied on top of the selected
     candidate (so a partial override like {"model_id": "..."} still works,
-    inheriting subprocess from whichever candidate PATH-selected).
+    inheriting tool from whichever candidate PATH-selected).
     """
     raw, source = _winning_alias_entry(alias, routes_yaml)
 
@@ -150,8 +150,8 @@ def resolve_route(alias: str, routes_yaml: str | None) -> dict[str, Any]:
         candidates = [c for c in raw if isinstance(c, dict)]
         chosen, chosen_idx = None, -1
         for idx, cand in enumerate(candidates):
-            sub = cand.get("subprocess")
-            if sub and _binary_on_path(str(sub), routes_yaml):
+            tool = cand.get("tool")
+            if tool and _binary_on_path(str(tool), routes_yaml):
                 chosen, chosen_idx = cand, idx
                 break
         entry = chosen or {}
@@ -165,11 +165,11 @@ def resolve_route(alias: str, routes_yaml: str | None) -> dict[str, Any]:
     overrides = json.loads(os.environ.get("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES") or "{}")
     ov = overrides.get(alias) or {}
 
-    subprocess_val = str(ov.get("subprocess") or entry.get("subprocess") or "")
+    tool_val = str(ov.get("tool") or entry.get("tool") or "")
     model_id_val = str(ov.get("model_id") or entry.get("model_id") or "")
 
     return {
-        "subprocess": subprocess_val,
+        "tool": tool_val,
         "model_id": model_id_val,
         "source": "$ORCHESTRATOR_MODEL_ROUTE_OVERRIDES" if ov else source,
         "active_index": active_index,
@@ -180,7 +180,7 @@ def resolve_route(alias: str, routes_yaml: str | None) -> dict[str, Any]:
 
 def resolve_field(model: str, routes_yaml: str | None, field: str) -> str:
     """Return one route field for `model` ("" if unset). Thin wrapper over
-    resolve_route so subprocess/model_id are always resolved from the SAME
+    resolve_route so tool/model_id are always resolved from the SAME
     chosen candidate (never mixed across candidates)."""
     return str(resolve_route(model, routes_yaml).get(field) or "")
 
@@ -188,7 +188,7 @@ def resolve_field(model: str, routes_yaml: str | None, field: str) -> str:
 def resolve_all_with_source(routes_yaml: str) -> dict[str, dict[str, Any]]:
     """Return every alias with resolved fields, source, and chain metadata.
 
-    Keeps the original flat subprocess/model_id/*_source keys (both sourced
+    Keeps the flat tool/model_id/*_source keys (both sourced
     from the one winning layer+candidate per alias, per the wholesale-wins
     rule) so existing consumers (doctor, models verb) keep working unchanged.
     Adds candidates/active_index/num_candidates/is_fallback for chain-aware
@@ -208,8 +208,8 @@ def resolve_all_with_source(routes_yaml: str) -> dict[str, dict[str, Any]]:
         candidates = raw if isinstance(raw, list) else ([raw] if isinstance(raw, dict) else [])
 
         result[alias] = {
-            "subprocess": route["subprocess"],
-            "subprocess_source": route["source"],
+            "tool": route["tool"],
+            "tool_source": route["source"],
             "model_id": route["model_id"],
             "model_id_source": route["source"],
             "candidates": candidates,

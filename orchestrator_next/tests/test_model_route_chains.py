@@ -1,7 +1,7 @@
 """Tests for D3: runtime fallback chains.
 
 An alias's `models:` entry may be a scalar route dict (today's shape) or a
-list of candidate routes, tried in order — first candidate whose subprocess's
+list of candidate routes, tried in order — first candidate whose tool's
 binary is on PATH wins. Covers: chain resolution, wholesale-wins across layer
 combinations (list-over-scalar, scalar-over-list, list-over-list), back-compat
 single-layer scalar, and exit-4 when a chain is fully exhausted.
@@ -52,12 +52,12 @@ def test_chain_picks_first_available_candidate(monkeypatch, tmp_path, real_binar
     home = tmp_path / "home"
     routes_yaml = config_root / "models.yaml"
 
-    real_binary(tmp_path, "cursor-agent")  # only "cursor" subprocess's binary present
+    real_binary(tmp_path, "cursor-agent")  # only "cursor" tool's binary present
     _write_models(
         routes_yaml,
         {"composer": [
-            {"subprocess": "cursor", "model_id": "composer-2.5"},
-            {"subprocess": "claude", "model_id": "claude-sonnet-4-6"},
+            {"tool": "cursor", "model_id": "composer-2.5"},
+            {"tool": "claude", "model_id": "claude-sonnet-4-6"},
         ]},
         tools={"cursor": {"binary": "cursor-agent"}, "claude": {"binary": "claude"}},
     )
@@ -65,7 +65,7 @@ def test_chain_picks_first_available_candidate(monkeypatch, tmp_path, real_binar
     _no_env_overrides(monkeypatch)
 
     route = resolve_route("composer", str(routes_yaml))
-    assert route["subprocess"] == "cursor"
+    assert route["tool"] == "cursor"
     assert route["model_id"] == "composer-2.5"
     assert route["active_index"] == 0
     assert route["is_fallback"] is False
@@ -83,8 +83,8 @@ def test_chain_falls_back_to_second_candidate_when_first_binary_absent(monkeypat
     _write_models(
         routes_yaml,
         {"composer": [
-            {"subprocess": "cursor", "model_id": "composer-2.5"},
-            {"subprocess": "claude", "model_id": "claude-sonnet-4-6"},
+            {"tool": "cursor", "model_id": "composer-2.5"},
+            {"tool": "claude", "model_id": "claude-sonnet-4-6"},
         ]},
         tools={"cursor": {"binary": "cursor-agent"}, "claude": {"binary": "claude"}},
     )
@@ -92,14 +92,14 @@ def test_chain_falls_back_to_second_candidate_when_first_binary_absent(monkeypat
     _no_env_overrides(monkeypatch)
 
     route = resolve_route("composer", str(routes_yaml))
-    assert route["subprocess"] == "claude"
+    assert route["tool"] == "claude"
     assert route["model_id"] == "claude-sonnet-4-6"
     assert route["active_index"] == 1
     assert route["is_fallback"] is True
 
 
 def test_chain_exhausted_yields_empty_route(monkeypatch, tmp_path):
-    """No candidate's binary on PATH → subprocess/model_id come back empty,
+    """No candidate's binary on PATH → tool/model_id come back empty,
     so run_loop's caller raises exit 4 (existing no-route error)."""
     config_root = tmp_path / "config"
     home = tmp_path / "home"
@@ -109,8 +109,8 @@ def test_chain_exhausted_yields_empty_route(monkeypatch, tmp_path):
     _write_models(
         routes_yaml,
         {"composer": [
-            {"subprocess": "cursor", "model_id": "composer-2.5"},
-            {"subprocess": "claude", "model_id": "claude-sonnet-4-6"},
+            {"tool": "cursor", "model_id": "composer-2.5"},
+            {"tool": "claude", "model_id": "claude-sonnet-4-6"},
         ]},
         tools={"cursor": {"binary": "cursor-agent"}, "claude": {"binary": "claude"}},
     )
@@ -118,7 +118,7 @@ def test_chain_exhausted_yields_empty_route(monkeypatch, tmp_path):
     _no_env_overrides(monkeypatch)
 
     route = resolve_route("composer", str(routes_yaml))
-    assert route["subprocess"] == ""
+    assert route["tool"] == ""
     assert route["model_id"] == ""
 
 
@@ -130,7 +130,7 @@ def test_run_loop_raises_exit_4_when_chain_exhausted(monkeypatch, tmp_path):
     routes_yaml = config_root / "models.yaml"
     monkeypatch.setenv("PATH", "/nonexistent-empty-dir")
     _write_models(routes_yaml, {"composer": [
-        {"subprocess": "cursor", "model_id": "composer-2.5"},
+        {"tool": "cursor", "model_id": "composer-2.5"},
     ]}, tools={"cursor": {"binary": "cursor-agent"}})
     _setup_home(monkeypatch, home)
     _no_env_overrides(monkeypatch)
@@ -153,16 +153,16 @@ def test_scalar_route_not_path_gated_back_compat(monkeypatch, tmp_path):
     routes_yaml = config_root / "models.yaml"
 
     monkeypatch.setenv("PATH", "/nonexistent-empty-dir")
-    _write_models(routes_yaml, {"opus": {"subprocess": "claude", "model_id": "claude-opus-4-7"}})
+    _write_models(routes_yaml, {"opus": {"tool": "claude", "model_id": "claude-opus-4-7"}})
     _setup_home(monkeypatch, home)
     _no_env_overrides(monkeypatch)
 
     route = resolve_route("opus", str(routes_yaml))
-    assert route["subprocess"] == "claude"
+    assert route["tool"] == "claude"
     assert route["model_id"] == "claude-opus-4-7"
     assert route["active_index"] == 0
     assert route["is_fallback"] is False
-    assert resolve_field("opus", str(routes_yaml), "subprocess") == "claude"
+    assert resolve_field("opus", str(routes_yaml), "tool") == "claude"
 
 
 def test_wholesale_wins_list_over_scalar(monkeypatch, tmp_path, real_binary):
@@ -175,16 +175,16 @@ def test_wholesale_wins_list_over_scalar(monkeypatch, tmp_path, real_binary):
 
     real_binary(tmp_path, "cursor-agent")
     _write_models(routes_yaml, {"composer": [
-        {"subprocess": "cursor", "model_id": "composer-2.5"},
+        {"tool": "cursor", "model_id": "composer-2.5"},
     ]}, tools={"cursor": {"binary": "cursor-agent"}})
-    _write_models(home_models, {"composer": {"subprocess": "claude", "model_id": "claude-opus-4-7"}},
+    _write_models(home_models, {"composer": {"tool": "claude", "model_id": "claude-opus-4-7"}},
                   tools={"claude": {"binary": "claude"}})
 
     _setup_home(monkeypatch, home)
     _no_env_overrides(monkeypatch)
 
     route = resolve_route("composer", str(routes_yaml))
-    assert route["subprocess"] == "cursor"
+    assert route["tool"] == "cursor"
     assert route["model_id"] == "composer-2.5"
     assert route["num_candidates"] == 1  # home's chain has exactly 1 candidate
 
@@ -197,17 +197,17 @@ def test_wholesale_wins_scalar_over_list(monkeypatch, tmp_path):
     routes_yaml = config_root / "models.yaml"
     home_models = home / ".orchestrator" / "models.yaml"
 
-    _write_models(routes_yaml, {"composer": {"subprocess": "codex", "model_id": "gpt-5-codex"}})
+    _write_models(routes_yaml, {"composer": {"tool": "codex", "model_id": "gpt-5-codex"}})
     _write_models(home_models, {"composer": [
-        {"subprocess": "cursor", "model_id": "composer-2.5"},
-        {"subprocess": "claude", "model_id": "claude-sonnet-4-6"},
+        {"tool": "cursor", "model_id": "composer-2.5"},
+        {"tool": "claude", "model_id": "claude-sonnet-4-6"},
     ]})
 
     _setup_home(monkeypatch, home)
     _no_env_overrides(monkeypatch)
 
     route = resolve_route("composer", str(routes_yaml))
-    assert route["subprocess"] == "codex"
+    assert route["tool"] == "codex"
     assert route["model_id"] == "gpt-5-codex"
     assert route["num_candidates"] == 1
     assert route["is_fallback"] is False
@@ -223,17 +223,17 @@ def test_wholesale_wins_list_over_list(monkeypatch, tmp_path, real_binary):
 
     real_binary(tmp_path, "codex")
     _write_models(routes_yaml, {"composer": [
-        {"subprocess": "codex", "model_id": "gpt-5-codex"},
+        {"tool": "codex", "model_id": "gpt-5-codex"},
     ]}, tools={"codex": {"binary": "codex"}})
     _write_models(home_models, {"composer": [
-        {"subprocess": "cursor", "model_id": "composer-2.5"},
+        {"tool": "cursor", "model_id": "composer-2.5"},
     ]})
 
     _setup_home(monkeypatch, home)
     _no_env_overrides(monkeypatch)
 
     route = resolve_route("composer", str(routes_yaml))
-    assert route["subprocess"] == "codex"
+    assert route["tool"] == "codex"
     assert route["model_id"] == "gpt-5-codex"
 
 
@@ -248,12 +248,12 @@ def test_env_override_layers_on_top_of_selected_candidate(monkeypatch, tmp_path,
 
     real_binary(tmp_path, "cursor-agent")
     _write_models(routes_yaml, {"composer": [
-        {"subprocess": "cursor", "model_id": "composer-2.5"},
+        {"tool": "cursor", "model_id": "composer-2.5"},
     ]}, tools={"cursor": {"binary": "cursor-agent"}})
     _setup_home(monkeypatch, home)
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
     monkeypatch.setenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", '{"composer": {"model_id": "composer-override"}}')
 
     route = resolve_route("composer", str(routes_yaml))
-    assert route["subprocess"] == "cursor"  # inherited from selected candidate
+    assert route["tool"] == "cursor"  # inherited from selected candidate
     assert route["model_id"] == "composer-override"  # env override wins the field

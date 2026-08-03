@@ -38,11 +38,11 @@ tools:
 # `models init` keeps only the candidates whose binary it found on PATH.
 models:
   opus:
-    - { subprocess: claude, model_id: claude-opus-4-7 }
+    - { tool: claude, model_id: claude-opus-4-7 }
   sonnet:
-    - { subprocess: claude, model_id: claude-sonnet-4-6 }
+    - { tool: claude, model_id: claude-sonnet-4-6 }
   haiku:
-    - { subprocess: claude, model_id: claude-haiku-4-5 }
+    - { tool: claude, model_id: claude-haiku-4-5 }
   composer:
-    - { subprocess: cursor, model_id: composer-2.5 }
-    - { subprocess: claude, model_id: claude-sonnet-4-6 }
+    - { tool: cursor, model_id: composer-2.5 }
+    - { tool: claude, model_id: claude-sonnet-4-6 }

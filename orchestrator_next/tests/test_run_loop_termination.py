@@ -50,7 +50,7 @@ def test_persistently_failing_agent_terminates(tmp_path, monkeypatch):
 
     models_yaml = tmp_path / "models.yaml"
     models_yaml.write_text(yaml.safe_dump({
-        "models": {"opus": {"model_id": "claude-opus-4-7", "subprocess": "claude"}},
+        "models": {"opus": {"model_id": "claude-opus-4-7", "tool": "claude"}},
         "tools": {"claude": {"binary": str(bad), "args_template": ["-p", "{prompt}"]}},
     }))
 
@@ -143,7 +143,7 @@ def test_spawn_failure_cap_halts(tmp_path, monkeypatch):
 
     models_yaml = tmp_path / "models.yaml"
     models_yaml.write_text(yaml.safe_dump({
-        "models": {"opus": {"model_id": "claude-opus-4-7", "subprocess": "claude"}},
+        "models": {"opus": {"model_id": "claude-opus-4-7", "tool": "claude"}},
         "tools": {"claude": {"binary": str(bad), "args_template": ["-p", "{prompt}"]}},
     }))
 

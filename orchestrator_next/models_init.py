@@ -9,7 +9,7 @@ file is self-sufficient at runtime even with no config-root `tools:` layer
 (the slim workflow-pack-root case D4 targets).
 
 Detection happens once, at init — the output is a plain file the user reads
-and edits, not runtime magic. `doctor`'s subprocess-on-PATH check catches
+and edits, not runtime magic. `doctor`'s tool-on-PATH check catches
 later drift (a binary that disappears after init).
 """
 from __future__ import annotations
@@ -58,7 +58,7 @@ def build_bindings() -> tuple[dict[str, list[dict]], dict[str, dict], list[str]]
         available: list[dict] = []
         tried: list[str] = []
         for cand in candidates:
-            tool_name = str(cand.get("subprocess") or "")
+            tool_name = str(cand.get("tool") or "")
             tool_entry = seed_tools.get(tool_name) or {}
             binary = tool_entry.get("binary") or tool_name
             found = bool(shutil.which(binary))
@@ -72,7 +72,7 @@ def build_bindings() -> tuple[dict[str, list[dict]], dict[str, dict], list[str]]
             models_out[alias] = available
             extra = f", {len(available) - 1} fallback(s) kept" if len(available) > 1 else ""
             reasons.append(
-                f"{alias} -> {chosen['subprocess']} ({chosen.get('model_id', '')}){extra}"
+                f"{alias} -> {chosen['tool']} ({chosen.get('model_id', '')}){extra}"
                 f"  [{'; '.join(tried)}]"
             )
         else:

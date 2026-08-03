@@ -18,10 +18,10 @@ def main(argv: list[str]) -> int:
     routes_yaml = str(root / "models.yaml")
     rows = resolve_all_with_source(routes_yaml)
 
-    header = ("TIER", "SUBPROCESS", "MODEL_ID", "SOURCE")
+    header = ("TIER", "TOOL", "MODEL_ID", "SOURCE")
     table_rows = [
-        (tier, entry.get("subprocess", ""), entry.get("model_id", ""),
-         entry.get("subprocess_source") or entry.get("model_id_source") or "")
+        (tier, entry.get("tool", ""), entry.get("model_id", ""),
+         entry.get("tool_source") or entry.get("model_id_source") or "")
         for tier, entry in sorted(rows.items())
     ]
     widths = [max(map(len, col)) for col in zip(header, *table_rows)]
@@ -39,7 +39,7 @@ def main(argv: list[str]) -> int:
             print(f"  {tier}:{fallback_flag}")
             for idx, cand in enumerate(entry.get("candidates") or []):
                 marker = "*" if idx == active_idx else " "
-                sub = cand.get("subprocess", "")
+                sub = cand.get("tool", "")
                 mid = cand.get("model_id", "")
-                print(f"    {marker} #{idx}  subprocess={sub}  model_id={mid}")
+                print(f"    {marker} #{idx}  tool={sub}  model_id={mid}")
     return 0

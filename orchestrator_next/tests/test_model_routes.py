@@ -25,14 +25,14 @@ def test_repo_config_root_overrides_home(monkeypatch, tmp_path):
     routes_yaml = config_root / "models.yaml"
     home_models = home / ".orchestrator" / "models.yaml"
 
-    _write_models(routes_yaml, {"opus": {"subprocess": "claude", "model_id": "claude-opus-4-7"}})
-    _write_models(home_models, {"opus": {"subprocess": "cursor"}})
+    _write_models(routes_yaml, {"opus": {"tool": "claude", "model_id": "claude-opus-4-7"}})
+    _write_models(home_models, {"opus": {"tool": "cursor"}})
 
     _setup_home(monkeypatch, home)
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
 
-    assert resolve_field("opus", str(routes_yaml), "subprocess") == "claude"
+    assert resolve_field("opus", str(routes_yaml), "tool") == "claude"
 
 
 def test_home_overrides_pack_floor(monkeypatch, tmp_path):
@@ -44,15 +44,15 @@ def test_home_overrides_pack_floor(monkeypatch, tmp_path):
     home_models = home / ".orchestrator" / "models.yaml"
     pack = tmp_path / "pack"
     pack_yaml = pack / "config" / "models.yaml"
-    _write_models(pack_yaml, {"opus": {"subprocess": "claude", "model_id": "floor"}})
-    _write_models(home_models, {"opus": {"subprocess": "cursor", "model_id": "x"}})
+    _write_models(pack_yaml, {"opus": {"tool": "claude", "model_id": "floor"}})
+    _write_models(home_models, {"opus": {"tool": "cursor", "model_id": "x"}})
     monkeypatch.setattr(paths, "pack_root", lambda: pack)
 
     _setup_home(monkeypatch, home)
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
 
-    assert resolve_field("opus", str(pack_yaml), "subprocess") == "cursor"
+    assert resolve_field("opus", str(pack_yaml), "tool") == "cursor"
 
 
 def test_precedence_env_file_over_config_over_home(monkeypatch, tmp_path):
@@ -63,22 +63,22 @@ def test_precedence_env_file_over_config_over_home(monkeypatch, tmp_path):
     routes_yaml = config_root / "models.yaml"
     home_models = home / ".orchestrator" / "models.yaml"
 
-    _write_models(routes_yaml, {"opus": {"subprocess": "claude", "model_id": "a"}})
-    _write_models(home_models, {"opus": {"subprocess": "cursor", "model_id": "b"}})
-    _write_models(env_file, {"opus": {"subprocess": "codex", "model_id": "c"}})
+    _write_models(routes_yaml, {"opus": {"tool": "claude", "model_id": "a"}})
+    _write_models(home_models, {"opus": {"tool": "cursor", "model_id": "b"}})
+    _write_models(env_file, {"opus": {"tool": "codex", "model_id": "c"}})
 
     _setup_home(monkeypatch, home)
     monkeypatch.setenv("ORCHESTRATOR_MODELS_CONFIG", str(env_file))
     monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
 
-    assert resolve_field("opus", str(routes_yaml), "subprocess") == "codex"
+    assert resolve_field("opus", str(routes_yaml), "tool") == "codex"
     assert resolve_field("opus", str(routes_yaml), "model_id") == "c"
 
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
-    assert resolve_field("opus", str(routes_yaml), "subprocess") == "claude"
+    assert resolve_field("opus", str(routes_yaml), "tool") == "claude"
 
     routes_yaml.unlink()
-    assert resolve_field("opus", str(routes_yaml), "subprocess") == "cursor"
+    assert resolve_field("opus", str(routes_yaml), "tool") == "cursor"
 
 
 def test_config_partial_tier_falls_through(monkeypatch, tmp_path):
@@ -91,12 +91,12 @@ def test_config_partial_tier_falls_through(monkeypatch, tmp_path):
     routes_yaml = config_root / "models.yaml"
     home_models = home / ".orchestrator" / "models.yaml"
 
-    _write_models(routes_yaml, {"sonnet": {"subprocess": "claude", "model_id": "claude-sonnet-4-6"}})
+    _write_models(routes_yaml, {"sonnet": {"tool": "claude", "model_id": "claude-sonnet-4-6"}})
     _write_models(
         home_models,
         {
-            "opus": {"subprocess": "cursor", "model_id": "composer-2.5"},
-            "sonnet": {"subprocess": "cursor"},
+            "opus": {"tool": "cursor", "model_id": "composer-2.5"},
+            "sonnet": {"tool": "cursor"},
         },
     )
 
@@ -104,15 +104,15 @@ def test_config_partial_tier_falls_through(monkeypatch, tmp_path):
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
 
-    assert resolve_field("opus", str(routes_yaml), "subprocess") == "cursor"
-    assert resolve_field("sonnet", str(routes_yaml), "subprocess") == "claude"
+    assert resolve_field("opus", str(routes_yaml), "tool") == "cursor"
+    assert resolve_field("sonnet", str(routes_yaml), "tool") == "claude"
 
 
 def test_wholesale_wins_no_partial_field_merge_within_same_alias(monkeypatch, tmp_path):
     """D3 regression pin: BACK-COMPAT DELTA (intentional). Before D3, home
-    setting only `sonnet.subprocess` would inherit `model_id` from config_root
+    setting only `sonnet.tool` would inherit `model_id` from config_root
     via dict.update() accumulation. D3 makes the highest layer that names an
-    alias own it WHOLESALE — home's partial {subprocess: cursor} entry for
+    alias own it WHOLESALE — home's partial {tool: cursor} entry for
     `sonnet` no longer inherits model_id from a lower layer; model_id resolves
     empty because the winning layer didn't state it. The higher layer must
     state the full route now. (Winning layer here is the repo config root,
@@ -122,17 +122,17 @@ def test_wholesale_wins_no_partial_field_merge_within_same_alias(monkeypatch, tm
     routes_yaml = config_root / "models.yaml"
     home_models = home / ".orchestrator" / "models.yaml"
 
-    _write_models(routes_yaml, {"sonnet": {"subprocess": "cursor"}})  # no model_id
+    _write_models(routes_yaml, {"sonnet": {"tool": "cursor"}})  # no model_id
     _write_models(
         home_models,
-        {"sonnet": {"subprocess": "claude", "model_id": "claude-sonnet-4-6"}},
+        {"sonnet": {"tool": "claude", "model_id": "claude-sonnet-4-6"}},
     )
 
     _setup_home(monkeypatch, home)
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
 
-    assert resolve_field("sonnet", str(routes_yaml), "subprocess") == "cursor"
+    assert resolve_field("sonnet", str(routes_yaml), "tool") == "cursor"
     # THE BREAK: model_id does NOT fall back to home's "claude-sonnet-4-6".
     assert resolve_field("sonnet", str(routes_yaml), "model_id") == ""
 
@@ -146,13 +146,13 @@ def test_malformed_config_yaml_falls_through(monkeypatch, tmp_path):
 
     routes_yaml.parent.mkdir(parents=True, exist_ok=True)
     routes_yaml.write_text('":\n  not: [yaml')
-    _write_models(home_models, {"opus": {"subprocess": "claude", "model_id": "claude-opus-4-7"}})
+    _write_models(home_models, {"opus": {"tool": "claude", "model_id": "claude-opus-4-7"}})
 
     _setup_home(monkeypatch, home)
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
 
-    assert resolve_field("opus", str(routes_yaml), "subprocess") == "claude"
+    assert resolve_field("opus", str(routes_yaml), "tool") == "claude"
 
 
 def test_resolve_all_with_source_labels(monkeypatch, tmp_path):
@@ -165,9 +165,9 @@ def test_resolve_all_with_source_labels(monkeypatch, tmp_path):
     routes_yaml = config_root / "models.yaml"
     home_models = home / ".orchestrator" / "models.yaml"
 
-    _write_models(routes_yaml, {"opus": {"subprocess": "claude", "model_id": "a"}})
-    _write_models(home_models, {"sonnet": {"subprocess": "cursor", "model_id": "b"}})
-    _write_models(env_file, {"haiku": {"subprocess": "codex", "model_id": "c"}})
+    _write_models(routes_yaml, {"opus": {"tool": "claude", "model_id": "a"}})
+    _write_models(home_models, {"sonnet": {"tool": "cursor", "model_id": "b"}})
+    _write_models(env_file, {"haiku": {"tool": "codex", "model_id": "c"}})
 
     _setup_home(monkeypatch, home)
     monkeypatch.setenv("ORCHESTRATOR_MODELS_CONFIG", str(env_file))
@@ -176,15 +176,15 @@ def test_resolve_all_with_source_labels(monkeypatch, tmp_path):
     result = resolve_all_with_source(str(routes_yaml))
 
     assert set(result.keys()) >= {"opus", "sonnet", "haiku"}
-    assert result["opus"]["subprocess"] == "claude"
-    assert result["opus"]["subprocess_source"] == "config_root"
-    assert result["sonnet"]["subprocess"] == "cursor"
-    assert result["sonnet"]["subprocess_source"] == "user_home"
-    assert result["haiku"]["subprocess"] == "codex"
-    assert result["haiku"]["subprocess_source"] == "env_file"
+    assert result["opus"]["tool"] == "claude"
+    assert result["opus"]["tool_source"] == "config_root"
+    assert result["sonnet"]["tool"] == "cursor"
+    assert result["sonnet"]["tool_source"] == "user_home"
+    assert result["haiku"]["tool"] == "codex"
+    assert result["haiku"]["tool_source"] == "env_file"
 
     for tier in result.values():
-        assert "subprocess" in tier
-        assert "subprocess_source" in tier
+        assert "tool" in tier
+        assert "tool_source" in tier
         assert "model_id" in tier
         assert "model_id_source" in tier

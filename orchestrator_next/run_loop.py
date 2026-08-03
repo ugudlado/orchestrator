@@ -256,10 +256,10 @@ def run_agent_step(
     step_id = action["step_id"]
     started_at = action.get("started_at") or datetime.now(timezone.utc).isoformat()
 
-    # Resolve once (D3): subprocess + model_id must come from the SAME chosen
+    # Resolve once (D3): tool + model_id must come from the SAME chosen
     # candidate in a fallback chain, never mixed across candidates.
     route = model_routes.resolve_route(model, models_yaml)
-    tool_name = route["subprocess"]
+    tool_name = route["tool"]
     if not tool_name:
         _log(f"ERROR: no route for model '{model}'")
         raise SystemExit(4)
@@ -526,12 +526,12 @@ def run_loop(state_yaml_path: str, *, repo_root: str, models_yaml: str) -> int:
 # ---------------------------------------------------------------------------
 # `orchestrator run` entry — arg parse + seeding + loop (replaces both shells)
 # ---------------------------------------------------------------------------
-_AGENT_ROUTE_RE = re.compile(r"^agent\.[a-zA-Z0-9_-]+\.(subprocess|model)=")
+_AGENT_ROUTE_RE = re.compile(r"^agent\.[a-zA-Z0-9_-]+\.(tool|model)=")
 
 
 def _build_route_overrides(flags: list[str]) -> str:
     data: dict[str, dict[str, str]] = {}
-    pat = re.compile(r"agent\.([a-zA-Z0-9_-]+)\.(subprocess|model)=(.+)")
+    pat = re.compile(r"agent\.([a-zA-Z0-9_-]+)\.(tool|model)=(.+)")
     for flag in flags:
         m = pat.fullmatch(flag)
         if m:

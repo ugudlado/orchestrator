@@ -4,7 +4,7 @@ How to make the engine + workflows usable by other people and other repos, today
 
 ## What already works
 
-Two repos: [`orchestrator`](https://github.com/ugudlado/orchestrator) (engine, installs as a wheel) and [`orchestrator-pack`](https://github.com/ugudlado/orchestrator-pack) (workflows/steps/skills + their tests) — one `git clone` per machine, updated with `git pull`, exactly like the CLI install itself. Engine-owned data (pricing rates, models seed) ships inside the wheel at `orchestrator_next/data/`.
+Two repos: [`orchestrator`](https://github.com/ugudlado/orchestrator) (engine, installs as a wheel) and [`prompt-packs`](https://github.com/ugudlado/prompt-packs) (workflows/steps/skills + base role packs + their tests) — one `git clone` per machine, updated with `git pull`, exactly like the CLI install itself. Engine-owned data (pricing rates, models seed) ships inside the wheel at `orchestrator_next/data/`.
 
 ## Steps: another person / another repo, today
 
@@ -13,7 +13,7 @@ Two repos: [`orchestrator`](https://github.com/ugudlado/orchestrator) (engine, i
 uv tool install git+https://github.com/ugudlado/orchestrator.git
 
 # 2. Download the workflow pack (once per machine; update with git pull)
-git clone --depth 1 https://github.com/ugudlado/orchestrator-pack.git ~/.orchestrator/pack
+git clone --depth 1 https://github.com/ugudlado/prompt-packs.git ~/.orchestrator/pack
 
 # 3. Sanity check (run inside the target repo — no per-repo setup file needed;
 #    conventions live in CLAUDE.md/AGENTS.md/README, ticketing is env-driven)
@@ -36,7 +36,7 @@ Upgrades: `uv tool upgrade orchestrator` (or reinstall from git). Config ships w
 
 ## Model routing
 
-No model setup is required to start: step contracts reference aliases (`model: sonnet|opus|haiku|composer`), and the pack's `config/models.yaml` resolves each alias to `{model_id, subprocess}` plus a `tools:` invocation template per agent CLI (`claude`, `codex`, `cursor-agent`, `pi`). Overrides follow the same repo→global rule as everything else — highest wins, wholesale per alias:
+No model setup is required to start: step contracts reference aliases (`model: sonnet|opus|haiku|composer`), and the pack's `config/models.yaml` resolves each alias to `{model_id, tool}` plus a `tools:` invocation template per agent CLI (`claude`, `codex`, `cursor-agent`, `pi`). Overrides follow the same repo→global rule as everything else — highest wins, wholesale per alias:
 
 1. per-run CLI override (`orchestrator run <id> model.<alias>.<field>=…`)
 2. repo/explicit config root `models.yaml` (vendored pack or `ORCHESTRATOR_CONFIG`)
@@ -48,7 +48,7 @@ Example — route everything through claude on a machine without cursor-agent:
 ```yaml
 # ~/.orchestrator/models.yaml
 models:
-  composer: { model_id: claude-sonnet-4-6, subprocess: claude }
+  composer: { model_id: claude-sonnet-4-6, tool: claude }
 ```
 
 Per-run: `orchestrator run <id> model.composer.model_id=<id>`.
@@ -61,7 +61,7 @@ The real prerequisite is the **agent CLI binaries themselves**: pack defaults ne
 2. **No env var, no bundle** — DONE: the wheel ships the engine only; the pack is downloaded like the CLI, resolution is repo→global, and the packless error message contains the exact fix.
 3. **Tagged releases** — cut `v0.x` git tags so installs are pinnable (`uv tool install git+...@v0.3`) and upgrades are deliberate. No PyPI needed until there's an external audience; git tags are free.
 4. **`doctor` as the onboarding contract** — make `orchestrator doctor` verify exactly the setup steps above (config resolvable, git repo, commit-time verification present). Every future "setup didn't work" report becomes a missing doctor check.
-5. **Doctor: verify agent CLI binaries** — resolve every alias used by the installed contracts through the model-routing layers and check each `subprocess` binary is on PATH. Today a missing `cursor-agent` fails mid-workflow at the implement step instead of at `doctor` time; the fix message should show the `~/.orchestrator/models.yaml` reroute example.
+5. **Doctor: verify agent CLI binaries** — resolve every alias used by the installed contracts through the model-routing layers and check each `tool` binary is on PATH. Today a missing `cursor-agent` fails mid-workflow at the implement step instead of at `doctor` time; the fix message should show the `~/.orchestrator/models.yaml` reroute example.
 6. **README quickstart** — the four-command block above belongs at the top of the repo README for people who don't have this doc.
 7. **Per-repo workflow overrides** — covered by the vendored-pack tier (`<repo>/.orchestrator/config/`): a repo wanting custom schemas vendors the whole pack. Whole-pack only, deliberately — per-step overlay merging (the old config-repo-split plan) stays dead until a real consumer needs partial overrides.
 
