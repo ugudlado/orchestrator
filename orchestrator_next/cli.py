@@ -1,9 +1,14 @@
-# orchestrator — dispatcher CLI for the orchestrator workflow engine.
+# orchestrator — workflow engine CLI.
 #
-# Usage:
-#   orchestrator next <state.yaml>
+# User-facing:
+#   orchestrator <workflow> <ticket-id> …
+#   orchestrator doctor
+#   orchestrator report | graph
 #
-# Exit codes (ORC-45 two-path dispatch protocol):
+# Internal (still callable; omitted from usage):
+#   run, next, done, config-path, validate-workflow, reset-step
+#
+# Exit codes for next/done dispatch protocol (ORC-45):
 #   0 + JSON with agent key  — agent step; driver spawns Agent tool
 #   0 + no JSON              — inline script ran and recorded; driver loops
 #   1                        — workflow complete; driver reads state.yaml
@@ -24,21 +29,16 @@ import sys
 def _usage() -> None:
     print(
         "Usage:\n"
-        "  orchestrator <workflow> <ticket-id> [--repo PATH] [flag=value ...]\n"
-        "      Run a workflow by name (config/workflows/<workflow>.yaml), e.g.\n"
-        "      `orchestrator feature ORC-1`, `orchestrator bugfix ORC-2`,\n"
-        "      `orchestrator patch ORC-3`, `orchestrator design ORC-4`,\n"
-        "      `orchestrator implement ORC-5`, `orchestrator complete ORC-6`\n"
-        "      (see config/workflows/<workflow>.yaml).\n"
-        "  orchestrator run <ticket-id> [--schema feature|bugfix] [--repo PATH] [flag=value ...]\n"
-        "      Explicit form when not using a workflow subcommand name.\n"
-        "  orchestrator next <state.yaml>\n"
-        "  orchestrator done <state.yaml>   # JSON payload on stdin\n"
-        "  orchestrator graph <schema>              # Mermaid flowchart of a workflow schema\n"
-        "  orchestrator validate-workflow <schema-name>\n"
-        "  orchestrator config-path   # print the resolved workflow-config dir\n"
+        "  orchestrator <workflow> <ticket-id> [--repo PATH] [--models-config PATH] [flag=value ...]\n"
+        "      Run a workflow (config/workflows/<workflow>.yaml), e.g.\n"
+        "      `orchestrator feature ORC-1`, `orchestrator bugfix ORC-2`.\n"
+        "  orchestrator doctor [--models-config PATH]\n"
+        "      Check that workflow config and model routing look correct.\n"
         "  orchestrator report --state <state.yaml> | --all [--repo PATH] [--json]\n"
-        "  orchestrator doctor",
+        "  orchestrator graph <workflow>\n"
+        "\n"
+        "  --models-config PATH  Override models.yaml for this invocation\n"
+        "                        (also: models.config=PATH)",
         file=sys.stderr,
     )
     sys.exit(3)
@@ -178,6 +178,8 @@ def _default_repo_root_env() -> None:
 
 
 def main() -> None:
+    from orchestrator_next.models_config_cli import consume_models_config_argv
+
     args = sys.argv[1:]
     # config-path needs no config root set — it's how you discover the value
     # to put in ORCHESTRATOR_CONFIG in the first place.
@@ -192,13 +194,19 @@ def main() -> None:
     _default_repo_root_env()
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
-        "next", "done", "graph", "doctor", "models", "reset-step", "run", "validate-workflow",
+        "next", "done", "graph", "doctor", "reset-step", "run", "validate-workflow",
         "report",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
-    # Every verb except doctor/models needs a second argument.
-    if len(args) < 2 and args[0] not in ("doctor", "models"):
+    # Apply --models-config early so every verb that resolves routes sees it.
+    # `run` / workflow subcommands also consume it inside run_cmd; applying here
+    # is idempotent and covers next/doctor.
+    verb, *rest = args
+    rest = consume_models_config_argv(rest)
+    args = [verb, *rest]
+    # Every verb except doctor needs a second argument.
+    if len(args) < 2 and args[0] != "doctor":
         _usage()
     # ORC-108: each config/workflows/<name>.yaml is a CLI subcommand → orchestrator-run.sh.
     if args[0] in _wf_subcommands:
@@ -214,13 +222,6 @@ def main() -> None:
     if args[0] == "report":
         from orchestrator_next.report import main as _report_main
         sys.exit(_report_main(args[1:]))
-
-    if args[0] == "models":
-        if args[1:2] == ["init"]:
-            from orchestrator_next.models_init import main as _models_init_main
-            sys.exit(_models_init_main(args[2:]))
-        from orchestrator_next.models_verb import main as _models_main
-        sys.exit(_models_main(args[1:]))
 
     if args[0] == "done":
         from orchestrator_next.record import main as record_main

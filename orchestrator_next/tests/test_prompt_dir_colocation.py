@@ -9,6 +9,24 @@ import yaml
 from orchestrator_next.dispatch import dispatch
 from orchestrator_next.parser import load_state
 
+def _point_config_at_step_models(tmp_path, monkeypatch, step_ids):
+    """Dispatch requires step_models; give tests an isolated models.yaml."""
+    cfg = tmp_path / "orc-config"
+    cfg.mkdir(exist_ok=True)
+    (cfg / "models.yaml").write_text(
+        yaml.dump(
+            {
+                "models": {
+                    "standard": {"tool": "claude", "model_id": "claude-sonnet-5"},
+                    "strong": {"tool": "claude", "model_id": "claude-opus-5"},
+                    "code": {"tool": "cursor", "model_id": "composer-2.5"},
+                },
+                "step_models": {sid: "standard" for sid in step_ids},
+            }
+        )
+    )
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(cfg))
+
 
 def test_dispatch_exports_orchestrator_prompt_dir(tmp_path, monkeypatch):
     skills = tmp_path / "skills"
@@ -21,9 +39,10 @@ def test_dispatch_exports_orchestrator_prompt_dir(tmp_path, monkeypatch):
     step = steps / "explore"
     step.mkdir(parents=True)
     (step / "contract.yaml").write_text(
-        yaml.dump({"id": "explore", "version": 1, "model": "sonnet", "prompt": "explore/SKILL.md"})
+        yaml.dump({"id": "explore", "version": 1, "prompt": "explore/SKILL.md"})
     )
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
+    _point_config_at_step_models(tmp_path, monkeypatch, ["explore"])
 
     state_path = tmp_path / "state.yaml"
     state_path.write_text(
@@ -65,7 +84,7 @@ def _multi_step_fixture(tmp_path, monkeypatch, step_ids, *, script_ids=()):
         d = steps / sid
         d.mkdir(parents=True)
         (d / "contract.yaml").write_text(
-            yaml.dump({"id": sid, "version": 1, "model": "sonnet", "prompt": f"{sid}/SKILL.md"})
+            yaml.dump({"id": sid, "version": 1, "prompt": f"{sid}/SKILL.md"})
         )
     for sid in script_ids:
         d = steps / sid
@@ -75,6 +94,7 @@ def _multi_step_fixture(tmp_path, monkeypatch, step_ids, *, script_ids=()):
             yaml.dump({"id": sid, "version": 1, "run": "script.sh"})
         )
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
+    _point_config_at_step_models(tmp_path, monkeypatch, list(step_ids))
 
     all_ids = list(script_ids) + list(step_ids)
     state_path = tmp_path / "state.yaml"

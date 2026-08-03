@@ -1,14 +1,14 @@
-"""Regression test: --help example line must list patch, design, implement."""
+"""Regression test: --help must surface public workflows and doctor."""
 import subprocess
 import sys
 
 
-def test_help_lists_patch_design_implement():
+def test_help_lists_workflows_and_doctor():
     result = subprocess.run(
         [sys.executable, "-m", "orchestrator_next", "--help"],
         capture_output=True,
         text=True,
     )
     output = result.stdout + result.stderr
-    for schema in ("patch", "design", "implement"):
-        assert schema in output, f"--help missing schema: {schema!r}"
+    for token in ("feature", "bugfix", "doctor", "--models-config"):
+        assert token in output, f"--help missing {token!r}"

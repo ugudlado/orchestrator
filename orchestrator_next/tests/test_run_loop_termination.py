@@ -22,6 +22,7 @@ _HERE = Path(__file__).resolve()
 sys.path.insert(0, str(_HERE.parents[1]))
 
 from orchestrator_next import run_loop  # noqa: E402
+from orchestrator_next.tests.conftest import install_step_models  # noqa: E402
 
 
 def test_persistently_failing_agent_terminates(tmp_path, monkeypatch):
@@ -41,18 +42,21 @@ def test_persistently_failing_agent_terminates(tmp_path, monkeypatch):
     d = contracts / "bad-agent"
     d.mkdir(parents=True)
     (d / "contract.yaml").write_text(yaml.safe_dump({
-        "id": "bad-agent", "version": 2, "model": "opus",
+        "id": "bad-agent", "version": 2,
         "instruction": "do it", "outputs": [],
     }))
     (d / "prompt.md").write_text("do the thing")  # directory-form agent needs prompt.md
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts))
     monkeypatch.setenv("REPO_ROOT", str(repo))
 
-    models_yaml = tmp_path / "models.yaml"
-    models_yaml.write_text(yaml.safe_dump({
-        "models": {"opus": {"model_id": "claude-opus-4-7", "tool": "claude"}},
-        "tools": {"claude": {"binary": str(bad), "args_template": ["-p", "{prompt}"]}},
-    }))
+    models_yaml = install_step_models(
+        monkeypatch,
+        tmp_path,
+        ("bad-agent",),
+        alias="opus",
+        models={"opus": {"model_id": "claude-opus-4-7", "tool": "claude"}},
+        tools={"claude": {"binary": str(bad), "args_template": ["-p", "{prompt}"]}},
+    )
 
     sd = repo / ".orchestrator" / "term"
     sd.mkdir(parents=True)
@@ -134,18 +138,21 @@ def test_spawn_failure_cap_halts(tmp_path, monkeypatch):
     contracts = tmp_path / "c"
     d = contracts / "spawner"; d.mkdir(parents=True)
     (d / "contract.yaml").write_text(yaml.safe_dump({
-        "id": "spawner", "version": 2, "model": "opus",
+        "id": "spawner", "version": 2,
         "instruction": "x", "outputs": [],
     }))
     (d / "prompt.md").write_text("do it")
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts))
     monkeypatch.setenv("REPO_ROOT", str(repo))
 
-    models_yaml = tmp_path / "models.yaml"
-    models_yaml.write_text(yaml.safe_dump({
-        "models": {"opus": {"model_id": "claude-opus-4-7", "tool": "claude"}},
-        "tools": {"claude": {"binary": str(bad), "args_template": ["-p", "{prompt}"]}},
-    }))
+    models_yaml = install_step_models(
+        monkeypatch,
+        tmp_path,
+        ("spawner",),
+        alias="opus",
+        models={"opus": {"model_id": "claude-opus-4-7", "tool": "claude"}},
+        tools={"claude": {"binary": str(bad), "args_template": ["-p", "{prompt}"]}},
+    )
 
     sd = repo / ".orchestrator" / "spawn"; sd.mkdir(parents=True)
     sy = sd / "20260101T000000_feature_state.yaml"

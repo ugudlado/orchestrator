@@ -663,14 +663,17 @@ def _seed_state(slug: str, schema: str, repo_root: str) -> str:
 
 
 def run_cmd(argv: list[str]) -> int:
-    """`orchestrator run <ticket> [--schema S] [--repo P] [flag=value ...]`."""
+    """`orchestrator run <ticket> [--schema S] [--repo P] [--models-config PATH] [flag=value ...]`."""
+    from orchestrator_next.models_config_cli import consume_models_config_argv
+
+    argv = consume_models_config_argv(argv)
+
     ticket_id = ""
     schema = "feature"
     repo_arg = ""
     seed_only = False
     flag_overrides: list[str] = []
     agent_route_flags: list[str] = []
-    agents_config_arg = ""
     routes_override_arg = ""
 
     args = list(argv)
@@ -680,8 +683,6 @@ def run_cmd(argv: list[str]) -> int:
             schema = args.pop(0)
         elif a == "--repo":
             repo_arg = args.pop(0)
-        elif a == "--agents-config":
-            agents_config_arg = args.pop(0)
         elif a == "--routes-override":
             routes_override_arg = args.pop(0)
         elif a == "--seed-only":
@@ -690,7 +691,10 @@ def run_cmd(argv: list[str]) -> int:
             # letting the engine spawn per-step subprocesses. See DRIVE.md.
             seed_only = True
         elif a in ("--help", "-h"):
-            _log("Usage: orchestrator run <ticket-id> [--schema S] [--repo PATH] [--seed-only] [flag=value ...]")
+            _log(
+                "Usage: orchestrator run <ticket-id> [--schema S] [--repo PATH] "
+                "[--models-config PATH] [--seed-only] [flag=value ...]"
+            )
             return 7
         elif a.startswith("-"):
             _log(f"ERROR: unknown option: {a}")
@@ -700,15 +704,13 @@ def run_cmd(argv: list[str]) -> int:
         elif "=" in a:
             if _AGENT_ROUTE_RE.match(a):
                 agent_route_flags.append(a)
-            elif a.startswith("agents.config="):
-                agents_config_arg = a[len("agents.config="):]
             else:
                 flag_overrides.append(a)
         else:
             _log(f"ERROR: unexpected argument: {a}")
             return 7
     if not ticket_id:
-        _log("Usage: orchestrator run <ticket-id> [--schema S] ...")
+        _log("Usage: orchestrator run <ticket-id> [--schema S] [--models-config PATH] ...")
         return 7
 
     # No repo-side marker file required — any git repo (or cwd) is runnable;
@@ -726,8 +728,6 @@ def run_cmd(argv: list[str]) -> int:
     # Route-override env (model_routes.py reads these from os.environ).
     if routes_override_arg:
         os.environ["ORCHESTRATOR_ROUTES_YAML"] = os.path.abspath(routes_override_arg)
-    if agents_config_arg:
-        os.environ["ORCHESTRATOR_MODELS_CONFIG"] = os.path.abspath(agents_config_arg)
     if agent_route_flags:
         os.environ["ORCHESTRATOR_MODEL_ROUTE_OVERRIDES"] = _build_route_overrides(agent_route_flags)
 
@@ -767,6 +767,8 @@ def run_cmd(argv: list[str]) -> int:
                 break
 
     _log(f"Running workflow: ticket={ticket_id} schema={schema} state={state_yaml_path}")
+    if models_yaml and os.environ.get("ORCHESTRATOR_MODELS_CONFIG"):
+        _log(f"models override: {models_yaml}")
     return run_loop(state_yaml_path, repo_root=repo_root, models_yaml=models_yaml)
 
 

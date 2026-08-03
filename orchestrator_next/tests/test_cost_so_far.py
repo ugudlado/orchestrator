@@ -204,7 +204,6 @@ _MULTI_STEP_STATE = textwrap.dedent(
         ended_at: "2026-06-01T10:05:00Z"
         usage:
           cost_usd: 0.25
-          model: "test-model"
     """
 )
 
@@ -220,7 +219,7 @@ def test_done_cli_emits_cost_so_far(tmp_path, monkeypatch):
         "status": "completed",
         "outputs": {},
         "evidence": {"summary": "done"},
-        "usage": {"cost_usd": 0.75, "model": "test-model"},
+        "usage": {"cost_usd": 0.75},
     }
 
     env = {
@@ -257,18 +256,26 @@ def _write_stub_agent_contracts(tmp_path: Path) -> Path:
     which is the arm that injects estimated_cost_so_far."""
     contracts = tmp_path / "stub-steps"
     contracts.mkdir(exist_ok=True)
-    for sid, model in (("explore", "sonnet"), ("design", "opus")):
+    for sid in ("explore", "design"):
         step_dir = contracts / sid
         step_dir.mkdir(exist_ok=True)
         (step_dir / "contract.yaml").write_text(yaml.safe_dump({
-            "id": sid, "model": model, "instruction": f"do {sid}",
-            "inputs": [], "outputs": [], "rules": [],
+            "id": sid, "version": 1, "prompt": "prompt.md",
         }))
         (step_dir / "prompt.md").write_text(f"do {sid}")
-    return contracts
+    cfg = tmp_path / "orc-config"
+    cfg.mkdir(exist_ok=True)
+    (cfg / "models.yaml").write_text(yaml.safe_dump({
+        "models": {
+            "standard": {"tool": "claude", "model_id": "claude-sonnet-5"},
+            "strong": {"tool": "claude", "model_id": "claude-opus-5"},
+        },
+        "step_models": {"explore": "standard", "design": "strong"},
+    }))
+    return contracts, cfg
 
 
-def _run_next(tmp_path: Path, state_path: Path, contracts: Path) -> dict:
+def _run_next(tmp_path: Path, state_path: Path, contracts: Path, cfg: Path) -> dict:
     """Run `orchestrator next` and return the parsed action JSON from stdout."""
     env = {
         **os.environ,
@@ -276,6 +283,7 @@ def _run_next(tmp_path: Path, state_path: Path, contracts: Path) -> dict:
         "ORCHESTRATOR_HOME": str(_REPO_ROOT),
         "ORCHESTRATOR_REPO_ROOT": str(tmp_path),
         "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE": str(contracts),
+        "ORCHESTRATOR_CONFIG": str(cfg),
     }
     proc = subprocess.run(
         [sys.executable, str(_BIN_ORCHESTRATOR), "next", str(state_path)],
@@ -323,9 +331,9 @@ def test_next_action_injects_estimated_cost_so_far(tmp_path):
     }
     state_path = tmp_path / "state.yaml"
     state_path.write_text(yaml.safe_dump(state))
-    contracts = _write_stub_agent_contracts(tmp_path)
+    contracts, cfg = _write_stub_agent_contracts(tmp_path)
 
-    action = _run_next(tmp_path, state_path, contracts)
+    action = _run_next(tmp_path, state_path, contracts, cfg)
 
     # Dispatched the pending agent step, and injected the summed running total.
     assert action["step_id"] == "design"
@@ -355,9 +363,9 @@ def test_next_action_estimated_cost_zero_on_fresh_state(tmp_path):
     }
     state_path = tmp_path / "state.yaml"
     state_path.write_text(yaml.safe_dump(state))
-    contracts = _write_stub_agent_contracts(tmp_path)
+    contracts, cfg = _write_stub_agent_contracts(tmp_path)
 
-    action = _run_next(tmp_path, state_path, contracts)
+    action = _run_next(tmp_path, state_path, contracts, cfg)
 
     assert action["step_id"] == "explore"
     assert action["estimated_cost_so_far"] == pytest.approx(0.0)
@@ -400,7 +408,7 @@ def test_next_cli_emits_estimated_cost_so_far(tmp_path):
     }
     state_path = tmp_path / "state.yaml"
     state_path.write_text(yaml.safe_dump(state))
-    contracts = _write_stub_agent_contracts(tmp_path)
+    contracts, cfg = _write_stub_agent_contracts(tmp_path)
 
     env = {
         **os.environ,
@@ -408,6 +416,7 @@ def test_next_cli_emits_estimated_cost_so_far(tmp_path):
         "ORCHESTRATOR_HOME": str(_REPO_ROOT),
         "ORCHESTRATOR_REPO_ROOT": str(tmp_path),
         "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE": str(contracts),
+        "ORCHESTRATOR_CONFIG": str(cfg),
     }
     proc = subprocess.run(
         [sys.executable, str(_BIN_ORCHESTRATOR), "next", str(state_path)],

@@ -13,6 +13,7 @@ if _SCRIPTS_DIR not in sys.path:
 
 from orchestrator_next.dispatch import dispatch  # noqa: E402
 from orchestrator_next.parser import State, StepHistoryEntry  # noqa: E402
+from orchestrator_next.tests.conftest import install_step_models  # noqa: E402
 
 
 def _state_with_last(step_id: str) -> State:
@@ -55,7 +56,8 @@ def test_resume_ghost_step_exits_3(tmp_path, capsys):
     assert "ghost-step" in capsys.readouterr().err
 
 
-def test_resume_in_plan_step_ok(tmp_path):
+def test_resume_in_plan_step_ok(tmp_path, monkeypatch):
+    install_step_models(monkeypatch, tmp_path, ("preview-route",))
     state_path = tmp_path / "state.yaml"
     state_path.write_text(yaml.safe_dump({"change_id": "feat", "phase": "implement"}))
     action, code = dispatch(_state_with_last("preview-route"), str(state_path))

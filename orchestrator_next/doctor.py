@@ -239,8 +239,8 @@ def check_step_dispatch_kind(config_root: Path) -> CheckResult:
         except Exception as exc:  # noqa: BLE001
             failures.append(f"{step_id}: {exc}")
             continue
-        if not (data.get("model") or data.get("run")):
-            failures.append(f"{step_id}: no model:/run:")
+        if not (data.get("prompt") or data.get("run")):
+            failures.append(f"{step_id}: no prompt:/run:")
     if failures:
         return CheckResult("step dispatch kind", "FAIL", "; ".join(failures))
     return CheckResult("step dispatch kind", "PASS", "all steps are agent- or script-driven")
@@ -309,33 +309,48 @@ def check_prompt_optimizer() -> CheckResult:
 
 
 def check_contract_aliases_resolve(config_root: Path) -> CheckResult:
-    """D4: every model: alias referenced by an installed step contract must
-    resolve to at least one available route (tool with a binary on
-    PATH) somewhere in the layer chain. This is what makes updating step configs
-    and agent config independently safe in practice — a contract that invents an
-    alias no layer defines, or a machine missing the binary for an alias a
-    contract requires, is caught here instead of at dispatch time (exit 4).
+    """D4: every prompt step must have a step_models entry whose tier alias
+    resolves to an available route (tool with a binary on PATH) somewhere in
+    the layer chain. Catch missing mappings and missing binaries here instead
+    of at dispatch time (exit 4).
     """
     import shutil
 
-    from orchestrator_next.model_routes import resolve_route, resolve_tool_template
+    from orchestrator_next.model_routes import (
+        resolve_route,
+        resolve_step_alias,
+        resolve_tool_template,
+    )
 
     routes_yaml = str(config_root / "models.yaml")
+    missing_map: list[str] = []
     aliases: set[str] = set()
     for step_id, path in _iter_config_contracts(config_root).items():
         try:
             data = yaml.safe_load(path.read_text()) or {}
         except Exception:  # noqa: BLE001
             continue
-        model = data.get("model")
-        if model:
-            aliases.add(str(model))
+        if data.get("run") or not data.get("prompt"):
+            continue
+        alias = resolve_step_alias(step_id, None, routes_yaml)
+        if not alias:
+            missing_map.append(step_id)
+            continue
+        aliases.add(alias)
+
+    if missing_map:
+        return CheckResult(
+            "contract aliases resolve",
+            "WARN",
+            f"{len(missing_map)} prompt step(s) missing step_models: "
+            + ", ".join(sorted(missing_map)),
+        )
 
     if not aliases:
         return CheckResult("contract aliases resolve", "PASS", "0 agent-step aliases to check")
 
     unresolved: list[str] = []
-    for alias in sorted(aliases):
+    for alias in sorted(a for a in aliases if a):
         route = resolve_route(alias, routes_yaml)
         tool_name = route.get("tool") or ""
         if not tool_name:
@@ -355,7 +370,7 @@ def check_contract_aliases_resolve(config_root: Path) -> CheckResult:
             f"{len(unresolved)} alias(es) unresolved: {', '.join(unresolved)}",
         )
     return CheckResult(
-        "contract aliases resolve", "PASS", f"all {len(aliases)} contract aliases resolve"
+        "contract aliases resolve", "PASS", f"all {len(aliases)} step_models aliases resolve"
     )
 
 
@@ -454,10 +469,13 @@ def _doctor_main(argv: list) -> int:
     The config root resolves via paths.config_root (ORCHESTRATOR_CONFIG →
     <repo>/.orchestrator/config; explicit, no cwd fallback). A wrong, unset,
     or missing config root surfaces as the `config root` FAIL check, not a
-    crash.
+    crash. Honors --models-config (also applied in cli.main).
     """
+    from orchestrator_next.models_config_cli import consume_models_config_argv
+
+    argv = consume_models_config_argv(list(argv))
     ap = argparse.ArgumentParser(prog="orchestrator doctor")
-    ap.parse_args(argv)  # --help handled here; no flags in this iteration
+    ap.parse_args(argv)  # --help; models-config already consumed above
     return run_all()
 
 

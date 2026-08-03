@@ -234,9 +234,10 @@ def _resolve_agent_instruction(
             "(or run: for shell steps)"
         )
 
-    if not data.get("model"):
+    if data.get("model") is not None:
         raise ContractError(
-            f"step contract {step_id} with prompt: requires model: <alias>"
+            f"step contract {step_id}: model: is removed — map the step under "
+            f"step_models: in models.yaml instead"
         )
     if not isinstance(prompt, str) or not prompt.strip():
         raise ContractError(f"step contract {step_id} prompt: must be a non-empty string")

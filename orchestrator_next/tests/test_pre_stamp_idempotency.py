@@ -74,22 +74,30 @@ def _write_stub_contracts(tmp_path: Path) -> Path:
     real (pre/post-prune) contract content. Returns the contracts dir."""
     contracts = tmp_path / "stub-steps"
     contracts.mkdir(exist_ok=True)
-    for sid, model in (("explore", "sonnet"), ("design", "opus")):
+    for sid in ("explore", "design"):
         step_dir = contracts / sid
         step_dir.mkdir(exist_ok=True)
         (step_dir / "contract.yaml").write_text(yaml.safe_dump({
-            "id": sid, "model": model, "instruction": f"do {sid}",
-            "inputs": [], "outputs": [], "rules": [],
+            "id": sid, "version": 1, "prompt": "prompt.md",
         }))
         (step_dir / "prompt.md").write_text(f"do {sid}")
-    return contracts
+    cfg = tmp_path / "orc-config"
+    cfg.mkdir(exist_ok=True)
+    (cfg / "models.yaml").write_text(yaml.safe_dump({
+        "models": {
+            "standard": {"tool": "claude", "model_id": "claude-sonnet-5"},
+            "strong": {"tool": "claude", "model_id": "claude-opus-5"},
+        },
+        "step_models": {"explore": "standard", "design": "strong"},
+    }))
+    return contracts, cfg
 
 
 def test_pre_stamp_does_not_orphan_completed_attempt(tmp_path):
     """If state.yaml already has a completed entry for (step_id, phase, attempt),
     the pre-stamp must not append a new in_progress row that orphans it."""
     state_path = _write_state_with_completed_step(tmp_path)
-    contracts = _write_stub_contracts(tmp_path)
+    contracts, cfg = _write_stub_contracts(tmp_path)
 
     # Run `orchestrator next` against the state. The dispatcher should pick the
     # next ready step (design) and pre-stamp it. The
@@ -100,6 +108,7 @@ def test_pre_stamp_does_not_orphan_completed_attempt(tmp_path):
         "ORCHESTRATOR_HOME": str(_REPO_ROOT),
         "ORCHESTRATOR_REPO_ROOT": str(tmp_path),
         "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE": str(contracts),
+        "ORCHESTRATOR_CONFIG": str(cfg),
     }
     result = subprocess.run(
         [sys.executable, str(_BIN_ORCHESTRATOR), "next", str(state_path)],
@@ -141,13 +150,14 @@ def test_pre_stamp_still_writes_for_new_step(tmp_path):
     """The fix must not break the normal pre-stamp path: a fresh pending step
     should still get an in_progress row appended."""
     state_path = _write_state_with_completed_step(tmp_path)
-    contracts = _write_stub_contracts(tmp_path)
+    contracts, cfg = _write_stub_contracts(tmp_path)
     env = {
         **os.environ,
         "WORKFLOW_STATE_DIR": str(tmp_path),
         "ORCHESTRATOR_HOME": str(_REPO_ROOT),
         "ORCHESTRATOR_REPO_ROOT": str(tmp_path),
         "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE": str(contracts),
+        "ORCHESTRATOR_CONFIG": str(cfg),
     }
     subprocess.run(
         [sys.executable, str(_BIN_ORCHESTRATOR), "next", str(state_path)],

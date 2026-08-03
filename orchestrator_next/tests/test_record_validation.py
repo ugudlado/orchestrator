@@ -429,7 +429,8 @@ class TestNodeStatusAndNextStep:
             {"id": "b", "status": "pending", "outputs": []},
         ])
         record(sp, {"step_id": "a", "phase": "main", "status": "completed",
-                    "outputs": {}, "usage": {}})
+                    "agent": "standard",
+                    "outputs": {}, "usage": {"input_tokens": 1, "output_tokens": 1}})
         state = yaml.safe_load(open(sp))
         by_id = {n["id"]: n for n in state["workflow_plan"]["main"]["nodes"]}
         assert by_id["a"]["status"] == "completed"
@@ -443,6 +444,7 @@ class TestNodeStatusAndNextStep:
             {"id": "b", "status": "pending", "outputs": []},
         ])
         record(sp, {"step_id": "a", "phase": "main", "status": "completed",
-                    "outputs": {}, "usage": {}})
+                    "agent": "standard",
+                    "outputs": {}, "usage": {"input_tokens": 1, "output_tokens": 1}})
         state = yaml.safe_load(open(sp))
         assert state["next_step"] == {"phase": "main", "step_id": "b"}

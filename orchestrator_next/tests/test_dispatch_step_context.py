@@ -20,6 +20,8 @@ _SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 if _SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, _SCRIPTS_DIR)
 
+from orchestrator_next.tests.conftest import install_step_models  # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -165,6 +167,7 @@ def test_step_context_built_from_node(tmp_path, monkeypatch):
         "inputs": [], "outputs": [], "rules": [],
     })
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
+    install_step_models(monkeypatch, tmp_path, ("a",))
 
     state_dir = tmp_path / "state"
     state_dir.mkdir()

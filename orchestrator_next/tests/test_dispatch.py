@@ -16,6 +16,7 @@ if _SCRIPTS_DIR not in sys.path:
 
 from orchestrator_next.parser import State, StepHistoryEntry  # noqa: E402
 from orchestrator_next.dispatch import dispatch  # noqa: E402
+from orchestrator_next.tests.conftest import install_step_models  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +189,7 @@ def test_dispatch_selects_first_ready_node_no_plan_yaml(tmp_path, monkeypatch):
     for sid in ("a", "b"):
         _write_dir_contract(steps, sid, _agent_contract(sid))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
+    install_step_models(monkeypatch, tmp_path, ("a", "b"))
 
     state_dir = tmp_path / "st"
     state_dir.mkdir()
@@ -213,6 +215,7 @@ def test_dispatch_skips_node_with_unmet_depends_on(tmp_path, monkeypatch):
     for sid in ("a", "b", "c"):
         _write_dir_contract(steps, sid, _agent_contract(sid))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
+    install_step_models(monkeypatch, tmp_path, ("a", "b", "c"))
 
     state_dir = tmp_path / "st"
     state_dir.mkdir()
@@ -240,6 +243,7 @@ def test_dispatch_tiebreak_declaration_order(tmp_path, monkeypatch):
     for sid in ("a", "b", "c"):
         _write_dir_contract(steps, sid, _agent_contract(sid))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
+    install_step_models(monkeypatch, tmp_path, ("a", "b", "c"))
 
     state_dir = tmp_path / "st"
     state_dir.mkdir()
@@ -267,6 +271,7 @@ def test_dispatch_marks_chosen_node_in_progress(tmp_path, monkeypatch):
     for sid in ("a", "b"):
         _write_dir_contract(steps, sid, _agent_contract(sid))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
+    install_step_models(monkeypatch, tmp_path, ("a", "b"))
 
     state_dir = tmp_path / "st"
     state_dir.mkdir()
@@ -291,6 +296,7 @@ def test_dispatch_builds_step_context_from_node(tmp_path, monkeypatch):
     steps.mkdir()
     _write_dir_contract(steps, "a", _agent_contract("a"))
     monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps))
+    install_step_models(monkeypatch, tmp_path, ("a",))
 
     state_dir = tmp_path / "st"
     state_dir.mkdir()

@@ -15,13 +15,13 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import textwrap
 
 import yaml
 
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_BIN_ORCHESTRATOR = os.path.join(os.path.expanduser("~"), ".local", "bin", "orchestrator")
 
 
 # ---------------------------------------------------------------------------
@@ -63,8 +63,10 @@ def _write_contract_yaml(steps_dir: str, step_id: str, content: str) -> str:
         f.write(textwrap.dedent(content))
     # Write prompt.md for agent-kind contracts (no run: field)
     data = yaml.safe_load(textwrap.dedent(content))
-    if data and data.get("model") and not data.get("run"):
-        (step_dir / "prompt.md").write_text(data.get("instruction", "placeholder"))
+    if data and (data.get("model") or data.get("prompt") or data.get("instruction")) and not data.get("run"):
+        prompt = step_dir / "prompt.md"
+        if not prompt.exists():
+            prompt.write_text(data.get("instruction", "placeholder"))
     return path
 
 
@@ -72,12 +74,14 @@ def _run_next(state_yaml_path: str, steps_dir: str, tmp_dir: str) -> subprocess.
     env = {
         **os.environ,
         "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE": steps_dir,
+        "PYTHONPATH": os.path.abspath(os.path.join(_HERE, "..", "..")),
     }
     env.pop("METRICS_DB", None)
     return subprocess.run(
-        [_BIN_ORCHESTRATOR, "next", state_yaml_path],
+        [sys.executable, "-m", "orchestrator_next", "next", state_yaml_path],
         capture_output=True,
         text=True,
+        cwd=tmp_dir,
         env=env,
     )
 
@@ -86,20 +90,24 @@ def _run_next(state_yaml_path: str, steps_dir: str, tmp_dir: str) -> subprocess.
 # (b) Agent contract: response has `agent` key and NO `action` key
 # ---------------------------------------------------------------------------
 
-def test_agent_contract_response_has_agent_no_action(tmp_path):
-    """When contract.model is set, response JSON has agent key and NO action key."""
+def test_agent_contract_response_has_agent_no_action(tmp_path, monkeypatch):
+    """When step_models maps the step, response JSON has model key and NO action key."""
+    from orchestrator_next.tests.conftest import install_step_models
+
     steps_dir = tmp_path / "steps"
     steps_dir.mkdir()
+    install_step_models(monkeypatch, tmp_path, ("my-step",), alias="auto")
 
     _write_contract_yaml(str(steps_dir), "my-step", """\
         id: my-step
         version: 1
-        model: auto
         instruction: Do something.
         inputs: []
         outputs: []
         rules: []
     """)
+    # Colocated prompt so parser treats this as an agent step
+    (steps_dir / "my-step" / "prompt.md").write_text("Do something.")
 
     state_yaml_path = _write_state_yaml(str(tmp_path), """\
         schema: feature
@@ -122,6 +130,7 @@ def test_agent_contract_response_has_agent_no_action(tmp_path):
     """)
     _write_plan_yaml(str(tmp_path), "my-step")
 
+    # Subprocess must inherit step_models override
     result = _run_next(state_yaml_path, str(steps_dir), str(tmp_path))
 
     assert result.returncode == 0, (
@@ -133,8 +142,8 @@ def test_agent_contract_response_has_agent_no_action(tmp_path):
     assert stdout, "Expected JSON on stdout for agent contract"
     action = json.loads(stdout)
 
-    assert "model" in action, f"Expected 'agent' key in response, got keys: {list(action.keys())}"
-    assert action["model"] == "auto", f"Expected agent=developer, got: {action['agent']}"
+    assert "model" in action, f"Expected 'model' key in response, got keys: {list(action.keys())}"
+    assert action["model"] == "auto", f"Expected model=auto, got: {action['model']}"
     assert "action" not in action, (
         f"Expected NO 'action' key in response, but found action={action.get('action')!r}\n"
         f"Full response: {action}"

@@ -3,12 +3,16 @@
 Reads the `models:` block from models.yaml (and optional override files /
 JSON env override), returning the execution config for a model tier.
 
+Optional `step_models:` maps step_id → tier alias and wins over a step
+contract's `model:` field (per-step fallthrough across layers).
+
 Precedence (highest wins): ORCHESTRATOR_MODEL_ROUTE_OVERRIDES (per-run
-field-level override, set by CLI model.<alias>.<field>= args) > repo/explicit
-config root models.yaml > ~/.orchestrator/models.yaml > bundled defaults.
-Repo beats global: a vendored (.orchestrator/config) or explicitly pointed-at
-config root outranks the user's home file; the bundled models.yaml is only
-the floor. ORCHESTRATOR_MODELS_CONFIG is a test-only injection layer.
+field-level override, set by CLI model.<alias>.<field>= args) >
+ORCHESTRATOR_MODELS_CONFIG file (CLI --models-config) >
+repo/explicit config root models.yaml > ~/.orchestrator/models.yaml >
+bundled defaults. Repo beats global for file layers: a vendored
+(.orchestrator/config) or explicitly pointed-at config root outranks the
+user's home file; the bundled models.yaml is only the floor.
 """
 from __future__ import annotations
 
@@ -35,6 +39,11 @@ def _models_map(path: str | None) -> dict[str, Any]:
     return models if isinstance(models, dict) else {}
 
 
+def _step_models_map(path: str | None) -> dict[str, Any]:
+    step_models = _load_yaml(path).get("step_models")
+    return step_models if isinstance(step_models, dict) else {}
+
+
 def _tools_map(path: str | None) -> dict[str, Any]:
     tools = _load_yaml(path).get("tools")
     return tools if isinstance(tools, dict) else {}
@@ -49,8 +58,8 @@ def _layer_chain(routes_yaml: str | None) -> list[tuple[str, str]]:
     """Lowest→highest precedence. Repo beats global: a vendored/explicit
     config root ranks above ~/.orchestrator/models.yaml; the global defaults
     (dev-checkout config or downloaded pack) rank below it. env_file
-    (ORCHESTRATOR_MODELS_CONFIG) is a test-only injection layer, kept highest
-    so tests can pin routes."""
+    (ORCHESTRATOR_MODELS_CONFIG / --models-config) is the highest file layer.
+    """
     from orchestrator_next.paths import bundled_config_root, pack_root
 
     cfg = ("config_root", routes_yaml or "")
@@ -114,6 +123,27 @@ def _binary_on_path(tool_name: str, routes_yaml: str | None) -> bool:
     import shutil
     binary, _template = resolve_tool_template(tool_name, routes_yaml)
     return bool(shutil.which(binary))
+
+
+def resolve_step_alias(
+    step_id: str,
+    contract_alias: str | None,
+    routes_yaml: str | None,
+) -> str:
+    """Return the tier alias for `step_id` from `step_models:`.
+
+    Highest-precedence layer that names `step_id` under `step_models:` wins
+    for that step only (per-step fallthrough). `contract_alias` is ignored in
+    normal operation (contracts no longer declare model:); kept only as an
+    optional legacy fallback when no step_models entry exists.
+    """
+    for _label, path in reversed(_layer_chain(routes_yaml)):
+        mapping = _step_models_map(path)
+        if step_id in mapping:
+            val = mapping[step_id]
+            if val is not None and str(val).strip():
+                return str(val).strip()
+    return str(contract_alias or "").strip()
 
 
 def resolve_route(alias: str, routes_yaml: str | None) -> dict[str, Any]:

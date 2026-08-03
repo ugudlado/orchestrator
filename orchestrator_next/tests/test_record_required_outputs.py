@@ -55,7 +55,9 @@ def test_completed_with_matching_required_output_passes(tmp_path, contracts_dir)
         "step_id": "design-review",
         "phase": "main",
         "status": "completed",
+        "agent": "standard",
         "outputs": {"design_review_result": "pass"},
+        "usage": {"input_tokens": 10, "output_tokens": 5},
     }
     result, exit_code = record(state_path, payload)
     assert exit_code == 0, result

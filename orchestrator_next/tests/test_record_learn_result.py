@@ -32,7 +32,7 @@ def _state_path(tmp_path) -> str:
     return str(path)
 
 
-def test_run_learn_cycle_empty_outputs_gets_default_outputs_supplement(tmp_path):
+def test_run_learn_cycle_empty_outputs_ok_without_defaults(tmp_path):
     state_path = _state_path(tmp_path)
     payload = {
         "step_id": "learn",
@@ -47,8 +47,9 @@ def test_run_learn_cycle_empty_outputs_gets_default_outputs_supplement(tmp_path)
     state = yaml.safe_load(open(state_path))
     last = state["step_history"][-1]
     assert last["step_id"] == "learn"
-    assert last["evidence"]["outputs"]["backlog_tickets_synced"] == []
-    assert "learn_result" not in last["evidence"]["outputs"]
+    outputs = (last.get("evidence") or {}).get("outputs") or {}
+    assert "backlog_tickets_synced" not in outputs
+    assert "learn_result" not in outputs
 
 
 def test_run_learn_cycle_accepts_empty_backlog_tickets_synced_list(tmp_path):

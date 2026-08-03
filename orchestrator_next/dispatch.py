@@ -20,6 +20,8 @@ from typing import Any
 import yaml
 
 from orchestrator_next import readiness
+from orchestrator_next.model_routes import resolve_step_alias
+from orchestrator_next.paths import ConfigRootError, config_root
 from orchestrator_next.step_env import build_dispatch_env as _build_dispatch_env
 from orchestrator_next.parser import (
     AgentStepContract,
@@ -31,6 +33,26 @@ from orchestrator_next.parser import (
     phase_nodes,
     safe_write_yaml as _safe_write_yaml,
 )
+
+
+def _models_yaml_path() -> str | None:
+    """Config-root models.yaml — ORCHESTRATOR_MODELS_CONFIG is applied via
+    model_routes layer chain (env_file), not by replacing this path."""
+    try:
+        return str(config_root() / "models.yaml")
+    except ConfigRootError:
+        return None
+
+
+def _resolved_model(step_id: str, contract: AgentStepContract) -> str:
+    """Resolve tier alias from models.yaml step_models (required)."""
+    alias = resolve_step_alias(step_id, None, _models_yaml_path())
+    if not alias:
+        raise ContractDispatchError(
+            f"step {step_id}: no step_models entry in models.yaml — "
+            f"add step_models.{step_id}: <strong|standard|code>"
+        )
+    return alias
 
 
 def _step_in_plan(state, phase: str, step_id: str) -> bool:
@@ -182,7 +204,7 @@ def _handle_resume(
     action["is_resume"] = True
     action["started_at"] = last.started_at
     if isinstance(contract, AgentStepContract):
-        action["model"] = contract.model
+        action["model"] = _resolved_model(step_id, contract)
     return action, 0
 
 
@@ -214,7 +236,7 @@ def _dispatch_fresh(
         state_yaml_path,
     )
     if isinstance(contract, AgentStepContract):
-        action["model"] = contract.model
+        action["model"] = _resolved_model(next_step_id, contract)
     else:
         action["run"] = contract.run
 

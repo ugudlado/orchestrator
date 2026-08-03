@@ -1,14 +1,5 @@
-# Bootstrap seed for `orchestrator models init` (D2).
-#
-# Used ONLY as a fallback: when no layer (config root, user home, env file)
-# defines a `tools:` block yet — the normal fresh-machine / slim-pack-root
-# case. `models init` scans PATH for these binaries and writes
-# ~/.orchestrator/models.yaml binding each core alias to a fallback chain
-# (D3) of the candidates it found, best-available first.
-#
-# Also usable as a one-off run overlay (unrelated to init):
-#   orchestrator run ORC-84 --agents-config ./models.example.yaml
-# Same shape as the `models:`/`tools:` blocks in config/models.yaml.
+# Example models.yaml — copy/edit, or pass with:
+#   orchestrator run TICKET --models-config ./models.example.yaml
 
 tools:
   claude:
@@ -34,15 +25,22 @@ tools:
     binary: pi
     args_template: ["--mode", "json", "@{prompt_file}"]
 
-# Each core alias as a candidate chain (D3), most-capable/preferred first.
-# `models init` keeps only the candidates whose binary it found on PATH.
 models:
-  opus:
-    - { tool: claude, model_id: claude-opus-4-7 }
-  sonnet:
-    - { tool: claude, model_id: claude-sonnet-4-6 }
-  haiku:
-    - { tool: claude, model_id: claude-haiku-4-5 }
-  composer:
+  strong:
+    - { tool: claude, model_id: claude-opus-5 }
+  standard:
+    - { tool: claude, model_id: claude-sonnet-5 }
+  code:
     - { tool: cursor, model_id: composer-2.5 }
-    - { tool: claude, model_id: claude-sonnet-4-6 }
+    - { tool: claude, model_id: claude-sonnet-5 }
+
+step_models:
+  design: strong
+  ux-design: strong
+  code-review: strong
+  explore: standard
+  diagnose: standard
+  learn: standard
+  design-review: standard
+  ux-critique: standard
+  implement: code

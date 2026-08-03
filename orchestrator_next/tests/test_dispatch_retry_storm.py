@@ -19,6 +19,7 @@ if _SCRIPTS_DIR not in sys.path:
 from orchestrator_next import readiness  # noqa: E402
 from orchestrator_next.dispatch import dispatch  # noqa: E402
 from orchestrator_next.parser import load_state  # noqa: E402
+from orchestrator_next.tests.conftest import install_step_models  # noqa: E402
 
 
 # Every node id used across these tests gets its own directory-form contract.
@@ -58,6 +59,7 @@ def _setup(
     monkeypatch.setenv(
         "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir)
     )
+    install_step_models(monkeypatch, tmp_path, _TASK_STEP_IDS)
     state.setdefault("repo_root", str(tmp_path))
     state.setdefault("worktree_path", str(tmp_path))
     path = tmp_path / "state.yaml"

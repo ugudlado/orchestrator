@@ -188,3 +188,52 @@ def test_resolve_all_with_source_labels(monkeypatch, tmp_path):
         assert "tool_source" in tier
         assert "model_id" in tier
         assert "model_id_source" in tier
+
+
+def test_step_models_overrides_contract_alias(monkeypatch, tmp_path):
+    """step_models:<step_id> wins over the contract's model: alias."""
+    from orchestrator_next.model_routes import resolve_step_alias
+
+    config_root = tmp_path / "config"
+    home = tmp_path / "home"
+    routes_yaml = config_root / "models.yaml"
+    routes_yaml.parent.mkdir(parents=True)
+    routes_yaml.write_text(
+        yaml.dump(
+            {
+                "models": {
+                    "strong": {"tool": "claude", "model_id": "claude-opus-4-7"},
+                    "standard": {"tool": "claude", "model_id": "claude-sonnet-4-6"},
+                },
+                "step_models": {"design-review": "strong"},
+            }
+        )
+    )
+    _setup_home(monkeypatch, home)
+    monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
+    monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
+
+    assert resolve_step_alias("design-review", "standard", str(routes_yaml)) == "strong"
+    assert resolve_step_alias("explore", "standard", str(routes_yaml)) == "standard"
+
+
+def test_step_models_per_step_fallthrough(monkeypatch, tmp_path):
+    """Higher layer can override one step without wiping lower step_models."""
+    from orchestrator_next.model_routes import resolve_step_alias
+
+    config_root = tmp_path / "config"
+    home = tmp_path / "home"
+    env_file = tmp_path / "env_models.yaml"
+    routes_yaml = config_root / "models.yaml"
+    routes_yaml.parent.mkdir(parents=True)
+    routes_yaml.write_text(
+        yaml.dump({"step_models": {"design": "strong", "implement": "code"}})
+    )
+    env_file.write_text(yaml.dump({"step_models": {"implement": "standard"}}))
+
+    _setup_home(monkeypatch, home)
+    monkeypatch.setenv("ORCHESTRATOR_MODELS_CONFIG", str(env_file))
+    monkeypatch.delenv("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES", raising=False)
+
+    assert resolve_step_alias("implement", "code", str(routes_yaml)) == "standard"
+    assert resolve_step_alias("design", "strong", str(routes_yaml)) == "strong"

@@ -172,7 +172,7 @@ class TestAgentKindContractLoad:
         )
         monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", str(skills))
         _write_dir_contract(steps_dir, "explore", {
-            "id": "explore", "version": 1, "model": "sonnet", "prompt": "explore/SKILL.md",
+            "id": "explore", "version": 1, "prompt": "explore/SKILL.md",
         }, prompt_text=None)
 
         from orchestrator_next.parser import load_contract_for_step
@@ -197,7 +197,7 @@ class TestAgentKindContractLoad:
         (tmp_path / "empty-skills").mkdir()
 
         step_dir = _write_dir_contract(steps_dir, "explore", {
-            "id": "explore", "version": 1, "model": "sonnet", "prompt": "explore/SKILL.md",
+            "id": "explore", "version": 1, "prompt": "explore/SKILL.md",
         }, prompt_text=None)
         (step_dir / "explore").symlink_to(skill_dir)
 
@@ -215,7 +215,7 @@ class TestAgentKindContractLoad:
         (prompt_dir / "prompt.md").write_text("Local charter body.\n")
         monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", str(skills))
         _write_dir_contract(steps_dir, "one-off", {
-            "id": "one-off", "version": 1, "model": "sonnet", "prompt": "one-off/prompt.md",
+            "id": "one-off", "version": 1, "prompt": "one-off/prompt.md",
         }, prompt_text=None)
 
         from orchestrator_next.parser import load_contract_for_step
@@ -238,7 +238,7 @@ class TestAgentKindContractLoad:
             "ORCHESTRATOR_SKILLS_TEST_OVERRIDE", os.pathsep.join([str(first), str(second)])
         )
         _write_dir_contract(steps_dir, "explore", {
-            "id": "explore", "version": 1, "model": "sonnet", "prompt": "explore/SKILL.md",
+            "id": "explore", "version": 1, "prompt": "explore/SKILL.md",
         }, prompt_text=None)
 
         from orchestrator_next.parser import load_contract_for_step
@@ -248,7 +248,7 @@ class TestAgentKindContractLoad:
 
     def test_skill_field_rejected(self, steps_dir):
         _write_dir_contract(steps_dir, "legacy-skill", {
-            "id": "legacy-skill", "version": 1, "model": "sonnet", "skill": "explore",
+            "id": "legacy-skill", "version": 1, "skill": "explore",
         }, prompt_text=None)
         from orchestrator_next.parser import load_contract_for_step, ContractError
         with pytest.raises(ContractError, match="removed skill:"):
@@ -264,7 +264,7 @@ class TestAgentKindContractLoad:
         (prompt_dir / "learnings.md").write_text("- Prefer README scope.\n")
         monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", str(skills))
         _write_dir_contract(steps_dir, "explore", {
-            "id": "explore", "version": 1, "model": "sonnet", "prompt": "explore/SKILL.md",
+            "id": "explore", "version": 1, "prompt": "explore/SKILL.md",
         }, prompt_text=None)
 
         from orchestrator_next.parser import load_contract_for_step
