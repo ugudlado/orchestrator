@@ -84,3 +84,30 @@ class TestPhaseNodes:
     def test_phase_nodes_exists(self, tmp_path):
         """parser.phase_nodes is importable (fails today — helper absent)."""
         from orchestrator_next.parser import phase_nodes  # noqa: F401
+
+
+class TestExtendsBaseRoleLine:
+    """SKILL.md with a path `extends` gets a base-role read instruction prepended."""
+
+    def _skill(self, tmp_path, extends=None):
+        role = tmp_path / "prompt-packs" / "developer"
+        role.mkdir(parents=True, exist_ok=True)
+        (role / "prompt.md").write_text("# Developer role\n")
+        skill = tmp_path / "pack" / "skills" / "implement"
+        skill.mkdir(parents=True, exist_ok=True)
+        fm = f"extends: {extends}\n" if extends else ""
+        (skill / "SKILL.md").write_text(f"---\nname: implement\n{fm}---\n\n# Body\n")
+        return skill / "SKILL.md"
+
+    def test_path_extends_prepends_base_role_line(self, tmp_path):
+        from orchestrator_next.parser import _load_prompt_file
+        out = _load_prompt_file(self._skill(tmp_path, "../../../prompt-packs/developer"))
+        assert out.startswith("Base role: read ")
+        assert "prompt-packs/developer/prompt.md" in out.splitlines()[0]
+        assert "# Body" in out
+
+    def test_git_extends_and_missing_path_unchanged(self, tmp_path):
+        from orchestrator_next.parser import _load_prompt_file
+        assert _load_prompt_file(self._skill(tmp_path, "git+git@x:y.git@abc#developer")) == "# Body\n"
+        assert _load_prompt_file(self._skill(tmp_path, "../../../prompt-packs/nope")) == "# Body\n"
+        assert _load_prompt_file(self._skill(tmp_path)) == "# Body\n"

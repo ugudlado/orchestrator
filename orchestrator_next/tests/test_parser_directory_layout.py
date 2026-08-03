@@ -181,6 +181,31 @@ class TestAgentKindContractLoad:
         assert "name: explore" not in contract.instruction
         assert contract.prompt_dir == str(skill_dir.resolve())
 
+    def test_step_local_skill_symlink_resolves_before_skills_search(
+        self, steps_dir, tmp_path, monkeypatch
+    ):
+        """prompt: <id>/SKILL.md loads via step-dir symlink to pack-root skills/."""
+        pack_root = tmp_path / "pack"
+        skills = pack_root / "skills"
+        skill_dir = skills / "explore"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: explore\n---\n\nFrom pack-root skill.\n"
+        )
+        # Skills search would fail / miss — override points at an empty dir.
+        monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", str(tmp_path / "empty-skills"))
+        (tmp_path / "empty-skills").mkdir()
+
+        step_dir = _write_dir_contract(steps_dir, "explore", {
+            "id": "explore", "version": 1, "model": "sonnet", "prompt": "explore/SKILL.md",
+        }, prompt_text=None)
+        (step_dir / "explore").symlink_to(skill_dir)
+
+        from orchestrator_next.parser import load_contract_for_step
+        contract = load_contract_for_step("explore")
+        assert contract.instruction == "From pack-root skill.\n"
+        assert contract.prompt_dir == str(skill_dir.resolve())
+
     def test_prompt_field_loads_directory_with_prompt_md(
         self, steps_dir, tmp_path, monkeypatch
     ):

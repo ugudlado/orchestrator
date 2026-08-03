@@ -69,52 +69,27 @@ def strip_frontmatter(text: str) -> str:
     return text
 
 
-def repo_root_from_config_root(root: Path) -> Path | None:
-    """Checkout root for a config root, or None when it isn't a known layout.
-
-    Two layouts hold: a vendored config at ``<repo>/.orchestrator/config`` and
-    an engine checkout at ``<repo>/config``. Prompt resolution searches
-    ``<repo>/skills`` through this.
-    """
-    if root.parent.name == ".orchestrator":
-        return root.parent.parent
-    if root.name == "config":
-        return root.parent
-    return None
-
-
-def _repo_root_from_config() -> Path | None:
-    """Best-effort checkout root for the currently-active config root."""
-    try:
-        from orchestrator_next.paths import config_root
-
-        root = config_root()
-    except Exception:
-        return None
-    return repo_root_from_config_root(root)
-
-
 def prompt_search_dirs() -> list[Path]:
-    """Ordered dirs searched to resolve ``prompt:`` refs (e.g. <name>/SKILL.md).
+    """Dirs searched to resolve ``prompt:`` refs (e.g. <name>/SKILL.md).
 
-    Fixed repo→global order: <repo>/skills then the engine checkout's skills/.
-    Not user-configurable — ORCHESTRATOR_PROMPT_PATH was removed as a knob
-    (the engine still EXPORTS it to step subprocesses as data; see step_env).
-    ``ORCHESTRATOR_SKILLS_TEST_OVERRIDE`` is a test-only override.
+    Fixed order (repo→pack), no env knob besides the test override:
+
+    1. ``<repo>/skills`` when ``ORCHESTRATOR_REPO_ROOT`` / ``REPO_ROOT`` is set
+    2. ``<pack>/skills`` — sibling of the config root (``config_root().parent / "skills"``)
+
+    Skills live beside ``config/``, never inside it. ``ORCHESTRATOR_SKILLS_TEST_OVERRIDE``
+    is a test-only override (os.pathsep-separated).
     """
     explicit = os.environ.get("ORCHESTRATOR_SKILLS_TEST_OVERRIDE")
     if explicit:
         return [Path(p) for p in explicit.split(os.pathsep) if p]
 
-    dirs: list[Path] = []
-    repo = _repo_root_from_config()
-    if repo is not None:
-        dirs.append(repo / "skills")
-
-    # Global skills travel WITH the resolved config pack (checkout config/'s
-    # sibling skills/, or ~/.orchestrator/pack/skills) — the wheel ships none.
     from orchestrator_next.paths import config_root
 
+    dirs: list[Path] = []
+    repo_root = os.environ.get("ORCHESTRATOR_REPO_ROOT") or os.environ.get("REPO_ROOT")
+    if repo_root:
+        dirs.append(Path(repo_root) / "skills")
     pack_skills = config_root().parent / "skills"
     if pack_skills not in dirs:
         dirs.append(pack_skills)
@@ -152,10 +127,55 @@ def resolve_prompt_file(prompt_ref: str) -> Path:
     )
 
 
+def _extends_ref(text: str) -> str | None:
+    """The frontmatter ``extends:`` value, or None. Cheap line scan — no YAML lib."""
+    if not text.startswith(_FRONTMATTER_DELIM):
+        return None
+    for line in text.splitlines()[1:]:
+        if line.strip() == _FRONTMATTER_DELIM:
+            return None
+        if line.startswith("extends:"):
+            return line.split(":", 1)[1].strip() or None
+    return None
+
+
+def _base_role_line(skill_dir: Path, ref: str) -> str | None:
+    """Instruction pointing the agent at the base role prompt, or None.
+
+    The engine never downloads or composes the ``extends`` hierarchy — it just
+    resolves a path ref and tells the agent to read it. Two roots tried in
+    order: the skill's own dir (local override), then the downloaded pack
+    root ``~/.orchestrator/pack`` (global base roles, e.g. ``developer``).
+    git+ refs and missing paths are skipped (behavior identical to before).
+    """
+    if ref.startswith("git+"):
+        return None
+
+    from orchestrator_next.paths import pack_root
+
+    candidates = [skill_dir / ref, pack_root() / ref]
+    for candidate in candidates:
+        base_dir = candidate.resolve()
+        for name in ("SKILL.md", "prompt.md"):
+            base = base_dir / name
+            if base.is_file():
+                return (
+                    f"Base role: read {base} first (follow its own `extends`, if any) — "
+                    "it defines the role this skill specializes.\n\n"
+                )
+    return None
+
+
 def _load_prompt_file(path: Path) -> str:
     raw = path.read_text(encoding="utf-8")
     if path.name == "SKILL.md":
-        return strip_frontmatter(raw)
+        body = strip_frontmatter(raw)
+        ref = _extends_ref(raw)
+        if ref:
+            line = _base_role_line(path.parent, ref)
+            if line:
+                return line + body
+        return body
     return raw
 
 
@@ -167,6 +187,25 @@ def _append_learnings(prompt_dir: str | Path, instruction: str) -> str:
         if learnings:
             return f"{instruction}\n\n{learnings}\n"
     return instruction
+
+
+def _resolve_local_prompt(contract_dir: str, prompt_ref: str) -> Path | None:
+    """Resolve ``prompt:`` relative to the step dir when the file exists there.
+
+    Allows contracts to name a charter inside the step folder (e.g.
+    ``explore/SKILL.md`` via a symlink to ``skills/explore`` at the pack root).
+    Rejects absolute paths and ``..`` escapes — those stay on the skills
+    search path.
+    """
+    rel = Path(prompt_ref.strip())
+    if not prompt_ref.strip() or rel.is_absolute() or ".." in rel.parts:
+        return None
+    if rel.suffix != ".md":
+        return None
+    candidate = Path(contract_dir) / rel
+    if candidate.is_file():
+        return candidate.resolve()
+    return None
 
 
 def _resolve_agent_instruction(
@@ -202,7 +241,10 @@ def _resolve_agent_instruction(
     if not isinstance(prompt, str) or not prompt.strip():
         raise ContractError(f"step contract {step_id} prompt: must be a non-empty string")
 
-    prompt_file = resolve_prompt_file(prompt)
+    # Step-local path wins (<id>/SKILL.md symlink layout); else skills search.
+    prompt_file = _resolve_local_prompt(contract_dir, prompt)
+    if prompt_file is None:
+        prompt_file = resolve_prompt_file(prompt)
     prompt_dir = prompt_file.parent
     instruction = _append_learnings(
         prompt_dir,

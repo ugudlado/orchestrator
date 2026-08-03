@@ -18,6 +18,7 @@ def test_referenced_step_paths_exist():
         *(root / "steps").glob("*/prompt.md"),
         *(root / "steps").glob("*/pack/prompt.md"),
         *(root / "steps").glob("*/pack/SKILL.md"),
+        *(root / "steps").glob("*/*/SKILL.md"),  # steps/<id>/<id>/SKILL.md symlink
         *Path(repo / "skills").glob("*/SKILL.md"),
     ]
     for prompt_path in sorted(prompts):

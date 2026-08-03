@@ -10,7 +10,7 @@ development workflows (design → implement → review → QA → learn).
 uv tool install git+https://github.com/ugudlado/orchestrator.git
 
 # 2. Download the workflow pack (workflows, steps, skills) — once per machine
-git clone --depth 1 https://github.com/ugudlado/orchestrator-pack.git ~/.orchestrator/pack
+git clone --depth 1 https://github.com/ugudlado/prompt-packs.git ~/.orchestrator/pack
 # update later: git -C ~/.orchestrator/pack pull
 
 # 3. Sanity check (run inside the target repo)

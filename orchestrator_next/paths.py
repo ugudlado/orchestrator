@@ -19,7 +19,7 @@ class ConfigRootError(RuntimeError):
     """Raised when no config root is set — resolution is explicit-only."""
 
 
-PACK_GIT_URL = "https://github.com/ugudlado/orchestrator-pack.git"
+PACK_GIT_URL = "https://github.com/ugudlado/prompt-packs.git"
 PACK_DOWNLOAD_HINT = (
     f"download the workflow pack: git clone --depth 1 {PACK_GIT_URL} ~/.orchestrator/pack "
     "(update later with: git -C ~/.orchestrator/pack pull)"
