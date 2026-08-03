@@ -46,7 +46,7 @@ def test_full_outputs_dict_persisted_in_entry(tmp_path, contracts_dir):
     _write_contract(contracts_dir, "implement")
     state_path = _write_state(tmp_path)
 
-    outputs = {"briefing": "did the thing", "implementation_result": {"tasks": 3}, "novel_key": "x"}
+    outputs = {"reason": "did the thing", "implementation_result": {"tasks": 3}, "novel_key": "x"}
     payload = {
         "step_id": "implement",
         "phase": "main",
@@ -70,7 +70,7 @@ def test_novel_key_survives(tmp_path, contracts_dir):
         "step_id": "implement",
         "phase": "main",
         "status": "completed",
-        "outputs": {"custom_data": {"metric": 42}},
+        "outputs": {"reason": "test", "custom_data": {"metric": 42}},
     }
     _, exit_code = record(state_path, payload)
     assert exit_code == 0

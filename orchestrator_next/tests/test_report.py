@@ -240,18 +240,18 @@ def test_totals_include_input_and_output_token_sums():
 
 
 # ---------------------------------------------------------------------------
-# ORC-116: Briefing column + structured briefing field
+# ORC-116: Reason lines + structured reasons field
 # ---------------------------------------------------------------------------
 
 
-def test_briefing_appears_on_its_own_line_and_in_structured_output():
-    """step_history entry with briefing appears in full under its step's row."""
+def test_reason_appears_on_its_own_line_and_in_structured_output():
+    """step_history entry with outputs.reason appears in full under its step's row."""
     history = [
         {
             "step_id": "explore",
             "status": "completed",
             "attempt": 1,
-            "briefing": "Implemented X",
+            "outputs": {"reason": "Implemented X"},
             "usage": {
                 "input_tokens": 10,
                 "output_tokens": 5,
@@ -263,13 +263,13 @@ def test_briefing_appears_on_its_own_line_and_in_structured_output():
     ]
     result, stderr = _render(history)
     assert "Implemented X" in stderr
-    assert result["steps"][0]["briefings"] == [
-        {"attempt": 1, "status": "completed", "briefing": "Implemented X"}
+    assert result["steps"][0]["reasons"] == [
+        {"attempt": 1, "status": "completed", "reason": "Implemented X"}
     ]
 
 
-def test_missing_briefing_renders_nothing_and_empty_list_in_json():
-    """step_history entry without briefing has no briefing line and an empty list in JSON."""
+def test_missing_reason_renders_nothing_and_empty_list_in_json():
+    """step_history entry without reason has no reason line and an empty list in JSON."""
     history = [
         {
             "step_id": "script-step",
@@ -280,51 +280,51 @@ def test_missing_briefing_renders_nothing_and_empty_list_in_json():
     ]
     result, stderr = _render(history)
     assert "[completed]" not in stderr
-    assert result["steps"][0]["briefings"] == []
+    assert result["steps"][0]["reasons"] == []
 
 
-def test_long_briefing_not_truncated():
-    """briefing longer than the old 120-char cap renders in full."""
+def test_long_reason_not_truncated():
+    """reason longer than the old 120-char cap renders in full."""
     raw = "A" * 150
     history = [
         {
             "step_id": "explore",
             "status": "completed",
             "attempt": 1,
-            "briefing": raw,
+            "outputs": {"reason": raw},
             "usage": {"duration_ms": 100},
         }
     ]
     result, stderr = _render(history)
     assert raw in stderr
-    assert result["steps"][0]["briefings"] == [
-        {"attempt": 1, "status": "completed", "briefing": raw}
+    assert result["steps"][0]["reasons"] == [
+        {"attempt": 1, "status": "completed", "reason": raw}
     ]
 
 
-def test_each_attempt_briefing_survives_collapse():
-    """Retried step: both the failed attempt's briefing and the fix's briefing
-    must appear — not just the last one (regression: briefing collapse bug)."""
+def test_each_attempt_reason_survives_collapse():
+    """Retried step: both the failed attempt's reason and the fix's reason
+    must appear — not just the last one (regression: reason collapse bug)."""
     history = [
         {
             "step_id": "design-review",
             "status": "failed",
             "attempt": 1,
-            "briefing": "RED tasks fail their own verify gates",
+            "outputs": {"reason": "RED tasks fail their own verify gates"},
             "usage": {"duration_ms": 100},
         },
         {
             "step_id": "design-review",
             "status": "completed",
             "attempt": 2,
-            "briefing": "Fixed: RED tasks use test.todo()",
+            "outputs": {"reason": "Fixed: RED tasks use test.todo()"},
             "usage": {"duration_ms": 100},
         },
     ]
     result, stderr = _render(history)
     assert "RED tasks fail their own verify gates" in stderr
     assert "Fixed: RED tasks use test.todo()" in stderr
-    assert len(result["steps"][0]["briefings"]) == 2
+    assert len(result["steps"][0]["reasons"]) == 2
 
 
 # ---------------------------------------------------------------------------

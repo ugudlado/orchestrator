@@ -93,7 +93,7 @@ class TestAbandonedNodeFlip:
             "phase": "implement",
             "status": "abandoned",
             "agent": "developer",
-            "outputs": {},
+            "outputs": {"reason": "test"},
         }
         result, exit_code = record(state_path, payload)
         assert exit_code == 0, f"record() failed unexpectedly: exit_code={exit_code}, result={result}"
@@ -115,7 +115,7 @@ class TestAbandonedNodeFlip:
             "phase": "implement",
             "status": "abandoned",
             "agent": "developer",
-            "outputs": {},
+            "outputs": {"reason": "test"},
         }
         record(state_path, payload)
 
@@ -133,7 +133,7 @@ class TestAbandonedNodeFlip:
             "phase": "implement",
             "status": "abandoned",
             "agent": "developer",
-            "outputs": {},
+            "outputs": {"reason": "test"},
         }
         record(state_path, payload)
 

@@ -69,7 +69,7 @@ class TestRecordAgentField:
             "step_id": "diagnose",
             "phase": "main",
             "status": "completed",
-            "outputs": {"discovery_result": "discovery.md"},
+            "outputs": {"reason": "test", "discovery_result": "discovery.md"},
             "usage": {"input_tokens": 74514, "output_tokens": 3210},
         }
         result, exit_code = record(state_path, payload)
@@ -91,7 +91,7 @@ class TestRecordAgentField:
             "phase": "main",
             "status": "completed",
             "agent": "developer",
-            "outputs": {"discovery_result": "discovery.md"},
+            "outputs": {"reason": "test", "discovery_result": "discovery.md"},
             "usage": {"input_tokens": 5000, "output_tokens": 1000},
         }
         result, exit_code = record(state_path, payload)
@@ -129,7 +129,7 @@ class TestRecordAgentField:
             "step_id": "inline-setup",
             "phase": "main",
             "status": "completed",
-            "outputs": {},
+            "outputs": {"reason": "test"},
             "usage": {},
         }
         result, exit_code = record(state_path, payload)

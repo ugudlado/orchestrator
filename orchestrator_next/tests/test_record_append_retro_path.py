@@ -43,7 +43,7 @@ def _minimal_state(tmp_path, repo_root: str) -> str:
                 "step_id": "explore",
                 "phase": "implement",
                 "status": "in_progress",
-                "evidence": {"outputs": {}},
+                "evidence": {"outputs": {"reason": "test"}},
             }
         ],
     }
@@ -58,7 +58,7 @@ def _completed_payload(issues: list | None = None) -> dict:
         "phase": "implement",
         "status": "completed",
         "agent": "discoverer",
-        "outputs": {},
+        "outputs": {"reason": "test"},
         "usage": {"input_tokens": 100, "output_tokens": 50},
     }
     if issues is not None:

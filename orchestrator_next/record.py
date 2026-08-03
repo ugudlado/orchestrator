@@ -19,6 +19,7 @@ import yaml
 
 from orchestrator_next.parser import AgentStepContract, ContractError, State, compute_attempt, load_contract_for_step, safe_write_yaml as _safe_write_yaml_base
 from orchestrator_next import readiness
+from orchestrator_next.paths import ConfigRootError
 from orchestrator_next.pricing import _compute_cost_usd
 
 
@@ -299,7 +300,7 @@ def _load_contract(step_id: str) -> Any:
     """Load a step contract, degrading to None on any missing/malformed file."""
     try:
         return load_contract_for_step(step_id)
-    except (FileNotFoundError, ContractError) as _e:
+    except (FileNotFoundError, ContractError, ConfigRootError) as _e:
         sys.stderr.write(f"[record] contract load failed for {step_id}: {_e}\n")
         return None
 
@@ -370,7 +371,27 @@ def _validate_payload(
     outputs = _apply_default_outputs(outputs, contract, status)
     status = _enforce_required_outputs(contract, status, outputs)
     agent = _validate_agent_usage(payload, step_id, status, contract)
+    _require_reason(outputs, step_id, status)
     return step_id, phase, status, outputs, contract, agent
+
+
+def _require_reason(outputs: dict[str, Any], step_id: str, status: str) -> None:
+    """Every recorded outcome must carry a non-empty outputs.reason."""
+    raw = outputs.get("reason")
+    if isinstance(raw, str) and raw.strip():
+        return
+    raise _RecordError(
+        {
+            "reason": "missing_reason",
+            "step_id": step_id,
+            "status": status,
+            "hint": (
+                "every COMPLETION must set outputs.reason "
+                "(advance: what happened; go-back: why)"
+            ),
+        },
+        3,
+    )
 
 
 def _load_state_safe(path: Path) -> tuple[dict[str, Any], bytes]:

@@ -88,6 +88,7 @@ def _spawn_failure_entry(
         },
         "evidence": {
             "outputs": {
+                "reason": "test",
                 "task_execution_result": {"status": "failed", "exit_code": 1},
             },
         },
@@ -134,6 +135,7 @@ def _terminal_history_entry(
         "attempt": attempt,
         "started_at": f"2026-05-25T21:47:{attempt:02d}Z",
         "outputs": {
+            "reason": "test",
             "task_execution_result": {
                 "task_id": "T-1",
                 "status": status,

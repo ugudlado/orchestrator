@@ -151,7 +151,7 @@ def test_format_last_step_usage_no_misattribution_on_state_mutating_step():
             "input_tokens": 5000, "output_tokens": 900,
             "cache_read_input_tokens": 400000, "cost_usd": 0.42, "duration_ms": 30000,
         }},
-        {"step_id": "archive-completed-change", "status": "completed", "outputs": {},
+        {"step_id": "archive-completed-change", "status": "completed", "outputs": {"reason": "test"},
          "evidence": {"summary": "recorded pre-script (state-mutating inline step)"}},
     ]}
     assert format_last_step_usage(state) == ""
@@ -217,7 +217,7 @@ def test_done_cli_emits_cost_so_far(tmp_path, monkeypatch):
         "step_id": "step-two",
         "phase": "implement",
         "status": "completed",
-        "outputs": {},
+        "outputs": {"reason": "test"},
         "evidence": {"summary": "done"},
         "usage": {"cost_usd": 0.75},
     }

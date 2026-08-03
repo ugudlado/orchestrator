@@ -56,7 +56,7 @@ def test_completed_with_matching_required_output_passes(tmp_path, contracts_dir)
         "phase": "main",
         "status": "completed",
         "agent": "standard",
-        "outputs": {"design_review_result": "pass"},
+        "outputs": {"reason": "test", "design_review_result": "pass"},
         "usage": {"input_tokens": 10, "output_tokens": 5},
     }
     result, exit_code = record(state_path, payload)
@@ -74,7 +74,7 @@ def test_completed_with_mismatched_required_output_coerces_to_failed(tmp_path, c
         "step_id": "design-review",
         "phase": "main",
         "status": "completed",
-        "outputs": {"design_review_result": "needs_work"},
+        "outputs": {"reason": "test", "design_review_result": "needs_work"},
     }
     result, exit_code = record(state_path, payload)
     assert exit_code == 0, result
@@ -101,7 +101,7 @@ def test_dotted_path_lookup(tmp_path, contracts_dir):
         "step_id": "review",
         "phase": "main",
         "status": "completed",
-        "outputs": {"phase_review_report": {"verdict": "needs_work"}},
+        "outputs": {"reason": "test", "phase_review_report": {"verdict": "needs_work"}},
     }
     result, exit_code = record(str(state_path), payload)
     assert exit_code == 0, result
@@ -125,7 +125,7 @@ def test_no_contract_no_check(tmp_path, contracts_dir):
         "step_id": "no-contract-step",
         "phase": "main",
         "status": "completed",
-        "outputs": {"something": "value"},
+        "outputs": {"reason": "test", "something": "value"},
     }
     result, exit_code = record(str(state_path), payload)
     assert exit_code == 0, result

@@ -59,7 +59,7 @@ class TestCheckB:
             "phase": "specify",
             "status": "completed",
             "agent": "discoverer",
-            "outputs": {"discovery_result": {"findings": []}},
+            "outputs": {"reason": "test", "discovery_result": {"findings": []}},
             "usage": {},
         }
         result, exit_code = record(state_path, payload)
@@ -74,7 +74,7 @@ class TestCheckB:
             "phase": "specify",
             "status": "completed",
             "agent": "discoverer",
-            "outputs": {"discovery_result": {"findings": []}},
+            "outputs": {"reason": "test", "discovery_result": {"findings": []}},
             "usage": {"input_tokens": 0, "output_tokens": 0},
         }
         result, exit_code = record(state_path, payload)
@@ -89,7 +89,7 @@ class TestCheckB:
             "phase": "specify",
             "status": "completed",
             "agent": "discoverer",
-            "outputs": {"discovery_result": {"findings": []}},
+            "outputs": {"reason": "test", "discovery_result": {"findings": []}},
             "usage": {"input_tokens": 1000},
         }
         result, exit_code = record(state_path, payload)
@@ -104,7 +104,7 @@ class TestCheckB:
             "phase": "specify",
             "status": "completed",
             "agent": "architect",
-            "outputs": {"design.md": "spec/changes/test/design.md"},
+            "outputs": {"reason": "test", "design.md": "spec/changes/test/design.md"},
             "usage": {"input_tokens": 10, "output_tokens": 20},
             "evidence": [{"cmd": "pytest -q", "exit_code": 0}],
         }
@@ -113,7 +113,7 @@ class TestCheckB:
         state = yaml.safe_load(Path(state_path).read_text())
         entry = state["step_history"][-1]
         assert entry["evidence"]["commands"] == [{"cmd": "pytest -q", "exit_code": 0}]
-        assert entry["evidence"]["outputs"] == {"design.md": "spec/changes/test/design.md"}
+        assert entry["evidence"]["outputs"] == {"reason": "test", "design.md": "spec/changes/test/design.md"}
 
     def test_accepts_inline_step_without_usage(self, tmp_path):
         """Script step (no agent in payload) with empty usage → records cleanly."""
@@ -122,7 +122,7 @@ class TestCheckB:
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "outputs": {"discovery_result": {"findings": []}},
+            "outputs": {"reason": "test", "discovery_result": {"findings": []}},
             "usage": {},
         }
         result, exit_code = record(state_path, payload)
@@ -137,7 +137,7 @@ class TestCheckB:
             "phase": "specify",
             "status": "completed",
             # no 'agent' key
-            "outputs": {"discovery_result": {"findings": []}},
+            "outputs": {"reason": "test", "discovery_result": {"findings": []}},
             "usage": {},
         }
         result, exit_code = record(state_path, payload)
@@ -153,7 +153,7 @@ class TestCheckB:
             "phase": "specify",
             "status": "completed",
             "agent": "discoverer",
-            "outputs": {"discovery_result": {"findings": []}},
+            "outputs": {"reason": "test", "discovery_result": {"findings": []}},
             "usage": {},
         }
         record(state_path, payload)
@@ -188,7 +188,7 @@ class TestCheckC:
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "outputs": {},
+            "outputs": {"reason": "test"},
             "usage": {},
         }
         result, exit_code = record(state_path, payload)
@@ -207,7 +207,7 @@ class TestCheckC:
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "outputs": {},
+            "outputs": {"reason": "test"},
             "usage": {},
         }
         record(state_path, payload)
@@ -232,7 +232,7 @@ class TestOptionalPayloadFields:
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "outputs": {"review_score": {"overall": 9, "dimensions": {"correctness": 10}}},
+            "outputs": {"reason": "test", "review_score": {"overall": 9, "dimensions": {"correctness": 10}}},
         }
         result, exit_code = record(state_path, payload)
         assert exit_code == 0, result
@@ -245,7 +245,7 @@ class TestOptionalPayloadFields:
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "outputs": {},
+            "outputs": {"reason": "test"},
             "state_patch": {"retries": {"execute-next-task": 2}},
         }
         result, exit_code = record(state_path, payload)
@@ -257,7 +257,7 @@ class TestOptionalPayloadFields:
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "outputs": {},
+            "outputs": {"reason": "test"},
             "state_patch": {"retries": {"execute-next-task": 3, "T-1": 1}},
         }
         result, exit_code = record(state_path, payload2)
@@ -271,7 +271,7 @@ class TestOptionalPayloadFields:
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "outputs": {},
+            "outputs": {"reason": "test"},
             "state_patch": {"unexpected_key": True},
         }
         _, exit_code = record(state_path, payload)
@@ -334,7 +334,7 @@ class TestPhaseReviewVerdictValidation:
             "phase": "implement",
             "status": "completed",
             "agent": "reviewer",
-            "outputs": {"phase_review_report": {"verdict": verdict}},
+            "outputs": {"reason": "test", "phase_review_report": {"verdict": verdict}},
             "usage": {"input_tokens": 1000},
             **extra,
         }
@@ -352,7 +352,7 @@ class TestPhaseReviewVerdictValidation:
         # added in T-5 will coerce status instead.
         state_path = _phase_review_state(tmp_path)
         payload = self._payload("pass")
-        payload["outputs"] = {"phase_review_report": {"summary": "no verdict here"}}
+        payload["outputs"] = {"reason": "test", "phase_review_report": {"summary": "no verdict here"}}
         result, exit_code = record(state_path, payload)
         assert exit_code == 0, result
 
@@ -430,7 +430,7 @@ class TestNodeStatusAndNextStep:
         ])
         record(sp, {"step_id": "a", "phase": "main", "status": "completed",
                     "agent": "standard",
-                    "outputs": {}, "usage": {"input_tokens": 1, "output_tokens": 1}})
+                    "outputs": {"reason": "test"}, "usage": {"input_tokens": 1, "output_tokens": 1}})
         state = yaml.safe_load(open(sp))
         by_id = {n["id"]: n for n in state["workflow_plan"]["main"]["nodes"]}
         assert by_id["a"]["status"] == "completed"
@@ -445,6 +445,6 @@ class TestNodeStatusAndNextStep:
         ])
         record(sp, {"step_id": "a", "phase": "main", "status": "completed",
                     "agent": "standard",
-                    "outputs": {}, "usage": {"input_tokens": 1, "output_tokens": 1}})
+                    "outputs": {"reason": "test"}, "usage": {"input_tokens": 1, "output_tokens": 1}})
         state = yaml.safe_load(open(sp))
         assert state["next_step"] == {"phase": "main", "step_id": "b"}

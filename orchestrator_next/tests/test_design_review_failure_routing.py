@@ -98,7 +98,7 @@ def _design_review_payload(*, status: str, result: str) -> dict:
         "phase": "main",
         "status": status,
         "agent": "reviewer",
-        "outputs": {"design_review_result": result},
+        "outputs": {"reason": "test", "design_review_result": result},
         "usage": {"input_tokens": 1, "output_tokens": 1},
     }
 

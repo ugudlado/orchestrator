@@ -18,7 +18,7 @@ def _action(step_id="implement"):
 
 def test_novel_root_key_hoisted():
     """A novel top-level key moves into outputs and is removed from root."""
-    completion = {"outputs": {}, "custom_key": "v", "step_id": "implement", "phase": "main", "status": "completed"}
+    completion = {"outputs": {"reason": "test"}, "custom_key": "v", "step_id": "implement", "phase": "main", "status": "completed"}
     payload = _agent_payload(_action(), completion, {}, None)
     assert payload["outputs"]["custom_key"] == "v"
     assert "custom_key" not in payload
@@ -29,7 +29,7 @@ def test_reserved_keys_not_hoisted():
     completion = {
         "step_id": "s", "phase": "p", "status": "completed",
         "agent": "a", "agent_id": "aid", "attempt": 1,
-        "started_at": "t", "usage": {}, "outputs": {}, "evidence": {}, "state_patch": {},
+        "started_at": "t", "usage": {}, "outputs": {"reason": "test"}, "evidence": {}, "state_patch": {},
     }
     payload = _agent_payload(_action(), completion, {}, None)
     for key in ("step_id", "phase", "status", "agent", "agent_id", "attempt",
@@ -40,7 +40,7 @@ def test_reserved_keys_not_hoisted():
 def test_legacy_three_keys_still_hoisted():
     """The three original whitelisted keys still get hoisted (regression coverage)."""
     completion = {
-        "outputs": {},
+        "outputs": {"reason": "test"},
         "learn_result": {"a": 1},
         "phase_review_report": {"verdict": "pass"},
         "discovery_result": {},
@@ -55,7 +55,7 @@ def test_legacy_three_keys_still_hoisted():
 def test_no_overwrite_of_existing_outputs_key():
     """An existing key in outputs is not overwritten by a same-name root key."""
     completion = {
-        "outputs": {"foo": "keep"},
+        "outputs": {"reason": "test", "foo": "keep"},
         "foo": "drop",
         "step_id": "s", "phase": "p", "status": "completed",
     }

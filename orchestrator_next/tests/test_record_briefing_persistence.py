@@ -1,4 +1,4 @@
-"""ORC-116: briefing and reason persist into step_history via optional keys."""
+"""outputs.reason is required on every recorded outcome."""
 from __future__ import annotations
 
 import os
@@ -16,7 +16,6 @@ from orchestrator_next.record import record  # noqa: E402
 
 
 def _write_state(tmp_path, *, repo_root: str = "/tmp") -> str:
-    """Write a minimal valid state.yaml and return its path string."""
     state = {
         "schema": "feature",
         "change_id": "orc-116-test",
@@ -36,7 +35,6 @@ def _write_state(tmp_path, *, repo_root: str = "/tmp") -> str:
 
 
 def _write_contract(contracts_dir, step_id: str) -> None:
-    """Write a minimal inline step contract (no agent required)."""
     data = {
         "id": step_id,
         "inputs": [],
@@ -57,8 +55,7 @@ def contracts_dir(tmp_path, monkeypatch):
     return d
 
 
-def test_outputs_briefing_persists_to_step_history(tmp_path, contracts_dir):
-    """done payload with outputs.briefing='did X' persists into step_history[-1]["outputs"]."""
+def test_outputs_reason_persists_on_completed(tmp_path, contracts_dir):
     _write_contract(contracts_dir, "explore")
     state_path = _write_state(tmp_path)
 
@@ -66,21 +63,17 @@ def test_outputs_briefing_persists_to_step_history(tmp_path, contracts_dir):
         "step_id": "explore",
         "phase": "main",
         "status": "completed",
-        "outputs": {"briefing": "did X"},
+        "outputs": {"reason": "did X"},
     }
     result, exit_code = record(state_path, payload)
     assert exit_code == 0, f"record failed: {result}"
 
     state_after = yaml.safe_load(open(state_path))
     last = state_after["step_history"][-1]
-    # ORC-117: briefing is now at entry["outputs"]["briefing"], not top-level
-    assert last.get("outputs", {}).get("briefing") == "did X", (
-        f"Expected step_history[-1].outputs.briefing='did X', got: {last.get('outputs', {}).get('briefing')!r}"
-    )
+    assert last.get("outputs", {}).get("reason") == "did X"
 
 
-def test_outputs_reason_persists_to_step_history(tmp_path, contracts_dir):
-    """done payload with outputs.reason='blocked by Y' persists into step_history[-1]["outputs"]."""
+def test_outputs_reason_persists_on_abandoned(tmp_path, contracts_dir):
     _write_contract(contracts_dir, "explore")
     state_path = _write_state(tmp_path)
 
@@ -95,14 +88,26 @@ def test_outputs_reason_persists_to_step_history(tmp_path, contracts_dir):
 
     state_after = yaml.safe_load(open(state_path))
     last = state_after["step_history"][-1]
-    # ORC-117: reason is now at entry["outputs"]["reason"], not top-level
-    assert last.get("outputs", {}).get("reason") == "blocked by Y", (
-        f"Expected step_history[-1].outputs.reason='blocked by Y', got: {last.get('outputs', {}).get('reason')!r}"
-    )
+    assert last.get("outputs", {}).get("reason") == "blocked by Y"
 
 
-def test_neither_field_yields_empty_outputs(tmp_path, contracts_dir):
-    """done payload with neither field yields empty outputs — no error."""
+@pytest.mark.parametrize("status", ["completed", "failed", "abandoned", "recovered"])
+def test_missing_reason_rejected(tmp_path, contracts_dir, status):
+    _write_contract(contracts_dir, "explore")
+    state_path = _write_state(tmp_path)
+
+    payload = {
+        "step_id": "explore",
+        "phase": "main",
+        "status": status,
+        "outputs": {},
+    }
+    result, exit_code = record(state_path, payload)
+    assert exit_code == 3
+    assert result.get("reason") == "missing_reason"
+
+
+def test_blank_reason_rejected(tmp_path, contracts_dir):
     _write_contract(contracts_dir, "explore")
     state_path = _write_state(tmp_path)
 
@@ -110,13 +115,23 @@ def test_neither_field_yields_empty_outputs(tmp_path, contracts_dir):
         "step_id": "explore",
         "phase": "main",
         "status": "completed",
-        "outputs": {},
+        "outputs": {"reason": "   "},
     }
     result, exit_code = record(state_path, payload)
-    assert exit_code == 0, f"record failed: {result}"
+    assert exit_code == 3
+    assert result.get("reason") == "missing_reason"
 
-    state_after = yaml.safe_load(open(state_path))
-    last = state_after["step_history"][-1]
-    # ORC-117: empty outputs dict is still persisted, keys don't exist in it
-    assert last.get("outputs", {}).get("briefing") is None
-    assert last.get("outputs", {}).get("reason") is None
+
+def test_briefing_alone_does_not_satisfy_reason(tmp_path, contracts_dir):
+    _write_contract(contracts_dir, "explore")
+    state_path = _write_state(tmp_path)
+
+    payload = {
+        "step_id": "explore",
+        "phase": "main",
+        "status": "completed",
+        "outputs": {"briefing": "legacy text"},
+    }
+    result, exit_code = record(state_path, payload)
+    assert exit_code == 3
+    assert result.get("reason") == "missing_reason"

@@ -153,7 +153,7 @@ def _review_payload(verdict: str, retries_count: int | None = None) -> dict:
         "phase": "implement",
         "status": status,
         "agent": "reviewer",
-        "outputs": {"phase_review_report": {"verdict": verdict}},
+        "outputs": {"reason": "test", "phase_review_report": {"verdict": verdict}},
         # non-zero tokens satisfy record.py's agent-step usage guard.
         "usage": {"input_tokens": 1, "output_tokens": 1},
     }

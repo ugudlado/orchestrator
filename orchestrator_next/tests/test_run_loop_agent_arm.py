@@ -32,7 +32,7 @@ def _fake_claude(bin_dir: Path) -> Path:
         "cat <<'JSON'\n"
         '{"type":"result","result":"did the work\\n\\n'
         "COMPLETION:\\n  step_id: fake-agent-step\\n  status: completed\\n"
-        '  outputs:\\n    note: ok\\n",'
+        '  outputs:\\n    reason: ok\\n    note: ok\\n",'
         '"usage":{"input_tokens":10,"output_tokens":5}}\n'
         "JSON\n"
     )

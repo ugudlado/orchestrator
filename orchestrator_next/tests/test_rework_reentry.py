@@ -68,7 +68,7 @@ def _phase_review_history_entry(
     }
     if verdict is not None:
         entry["evidence"] = {
-            "outputs": {"phase_review_report": {"verdict": verdict}},
+            "outputs": {"reason": "test", "phase_review_report": {"verdict": verdict}},
         }
     return entry
 

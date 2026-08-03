@@ -60,7 +60,7 @@ def _write_state_with_completed_step(tmp_path: Path) -> Path:
                 "started_at": "2026-04-25T00:00:00Z",
                 "ended_at": "2026-04-25T00:00:30Z",
                 "usage": {"input_tokens": 100, "output_tokens": 10},
-                "evidence": {"outputs": {"discovery_result": "x"}},
+                "evidence": {"outputs": {"reason": "test", "discovery_result": "x"}},
             }
         ],
     }

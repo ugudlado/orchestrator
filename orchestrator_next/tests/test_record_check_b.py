@@ -67,7 +67,7 @@ class TestCheckBTightening:
             "phase": "specify",
             "status": "completed",
             "agent": "discoverer",
-            "outputs": {},
+            "outputs": {"reason": "test"},
             "usage": {"input_tokens": 0, "output_tokens": 0},
             "agent_id": "sess-abc123",  # agent_id present but tokens are zero
         }
@@ -87,7 +87,7 @@ class TestCheckBTightening:
             "phase": "specify",
             "status": "completed",
             "agent": "discoverer",
-            "outputs": {},
+            "outputs": {"reason": "test"},
             "usage": {"input_tokens": 1000, "output_tokens": 500},
             "agent_id": "sess-abc123",
         }
@@ -105,7 +105,7 @@ class TestCheckBTightening:
             "phase": "specify",
             "status": "completed",
             "agent": "discoverer",
-            "outputs": {},
+            "outputs": {"reason": "test"},
             "usage": {
                 "input_tokens": 0,
                 "output_tokens": 0,
@@ -125,7 +125,7 @@ class TestCheckBTightening:
             "step_id": "explore",
             "phase": "specify",
             "status": "completed",
-            "outputs": {},
+            "outputs": {"reason": "test"},
             "usage": {"input_tokens": 0, "output_tokens": 0},
         }
         result, exit_code = record(state_path, payload)

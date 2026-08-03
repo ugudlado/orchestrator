@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sys
 
+import pytest
 import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +33,14 @@ def _state_path(tmp_path) -> str:
     return str(path)
 
 
+@pytest.fixture(autouse=True)
+def _contracts_override(tmp_path, monkeypatch):
+    """Isolate from ambient pack lookup; learn has no required contract fields here."""
+    d = tmp_path / "contracts"
+    d.mkdir()
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(d))
+
+
 def test_run_learn_cycle_empty_outputs_ok_without_defaults(tmp_path):
     state_path = _state_path(tmp_path)
     payload = {
@@ -39,7 +48,7 @@ def test_run_learn_cycle_empty_outputs_ok_without_defaults(tmp_path):
         "phase": "main",
         "status": "completed",
         "agent": "workflow-learner",
-        "outputs": {},
+        "outputs": {"reason": "test"},
         "usage": {"input_tokens": 10, "output_tokens": 5, "model": "claude-sonnet-4-6"},
     }
     result, code = record(state_path, payload)
@@ -60,6 +69,7 @@ def test_run_learn_cycle_accepts_empty_backlog_tickets_synced_list(tmp_path):
         "status": "completed",
         "agent": "workflow-learner",
         "outputs": {
+            "reason": "test",
             "backlog_tickets_synced": [],
         },
         "usage": {"input_tokens": 10, "output_tokens": 5, "model": "claude-sonnet-4-6"},

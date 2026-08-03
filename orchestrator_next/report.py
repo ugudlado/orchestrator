@@ -112,10 +112,10 @@ def render_report(step_history: list, issues: list) -> dict:
         duration_ms = usage.get("duration_ms") or 0
         model = usage.get("model") or ""
         entry_outputs = entry.get("outputs") or {}
-        briefing = entry_outputs.get("briefing") or entry.get("briefing") or ""
-        # Every attempt's briefing is kept (not just the last one) so a failed
-        # attempt's "why it failed" survives alongside the retry that fixed it.
-        briefing_entry = {"attempt": attempt, "status": status, "briefing": briefing}
+        reason = entry_outputs.get("reason") or ""
+        # Every attempt's reason is kept (not just the last one) so a failed
+        # attempt's "why we went back" survives alongside the retry that fixed it.
+        reason_entry = {"attempt": attempt, "status": status, "reason": reason}
         if step_id not in rows:
             rows[step_id] = {
                 "status": status,
@@ -128,7 +128,7 @@ def render_report(step_history: list, issues: list) -> dict:
                 "cost": cost,
                 "duration_ms": duration_ms,
                 "model": model,
-                "briefings": [briefing_entry],
+                "reasons": [reason_entry],
                 "outputs": dict(entry_outputs),
             }
         else:
@@ -144,7 +144,7 @@ def render_report(step_history: list, issues: list) -> dict:
             rows[step_id]["duration_ms"] += duration_ms
             if model:
                 rows[step_id]["model"] = model  # last model wins
-            rows[step_id]["briefings"].append(briefing_entry)
+            rows[step_id]["reasons"].append(reason_entry)
 
     sys.stderr.write("\n## Workflow step report\n\n")
     sys.stderr.write(
@@ -174,7 +174,7 @@ def render_report(step_history: list, issues: list) -> dict:
         cache_creation = r["cache_creation_input_tokens"]
         cost = r["cost"]
         model = r["model"]
-        briefings = r["briefings"]
+        reasons = r["reasons"]
 
         total_ms += duration_ms
         total_tokens += tokens
@@ -199,16 +199,20 @@ def render_report(step_history: list, issues: list) -> dict:
             f"{out_str:>8} {cost_str:>10}\n"
         )
         # One line per attempt, full text (no truncation) — a failed attempt's
-        # "why it failed" must survive next to the retry that fixed it.
-        for b in briefings:
-            if not b["briefing"]:
+        # "why we went back" must survive next to the retry that fixed it.
+        for item in reasons:
+            if not item["reason"]:
                 continue
-            tag = f"attempt {b['attempt']} ({b['status']})" if len(briefings) > 1 else b["status"]
-            text = b["briefing"].replace("\n", " ")
+            tag = (
+                f"attempt {item['attempt']} ({item['status']})"
+                if len(reasons) > 1
+                else item["status"]
+            )
+            text = item["reason"].replace("\n", " ")
             sys.stderr.write(f"    [{tag}] {text}\n")
-        # Print novel output keys (skip briefing, already rendered above).
+        # Print novel output keys (skip reason; also skip removed briefing).
         for key, val in (r.get("outputs") or {}).items():
-            if key == "briefing":
+            if key in ("reason", "briefing"):
                 continue
             val_str = str(val)
             sys.stderr.write(
@@ -253,7 +257,7 @@ def render_report(step_history: list, issues: list) -> dict:
                 "cache_creation_input_tokens": r["cache_creation_input_tokens"],
                 "model": r["model"] or None,
                 "cost_usd": round(r["cost"], 6),
-                "briefings": [b for b in r["briefings"] if b["briefing"]],
+                "reasons": [item for item in r["reasons"] if item["reason"]],
             }
             for step_id, r in rows.items()
         ],

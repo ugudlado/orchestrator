@@ -93,7 +93,7 @@ def _payload(*, status: str, verdict: str) -> dict:
         "phase": "main",
         "status": status,
         "agent": "reviewer",
-        "outputs": {"phase_review_report": {"verdict": verdict}},
+        "outputs": {"reason": "test", "phase_review_report": {"verdict": verdict}},
         "review_score": {
             "overall": 10,
             "dimensions": {

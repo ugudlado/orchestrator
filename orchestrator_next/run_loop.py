@@ -40,9 +40,11 @@ You MUST end your stdout with a COMPLETION: block. Fields must be indented under
 
 IMPORTANT: Output values are parsed as YAML. If a value contains a colon (:), quote the entire value with double quotes.
 
-On status completed/recovered, also emit an evidence: block under outputs: `verified` maps 1:1 to this step prompt's `## Verify` items (each a check you ran and its real result — never fabricated); `decisions` lists non-obvious choices made and why (may be empty for mechanical steps). Upgrade the one-line briefing to 2-4 sentences: what was done, how, and which evidence above supports it.
+Every outcome requires outputs.reason (non-empty): advance (completed/recovered) explains what happened and why the step can move forward; go-back (failed/abandoned) explains why the workflow must retry or stop.
 
-Success form:
+On status completed/recovered, also emit an evidence: block under outputs: `verified` maps 1:1 to this step prompt's `## Verify` items (each a check you ran and its real result — never fabricated); `decisions` lists non-obvious choices made and why (may be empty for mechanical steps).
+
+Advance form:
 COMPLETION:
   step_id: <this-step-id>
   status: completed
@@ -54,16 +56,15 @@ COMPLETION:
           result: "<real output>"
       decisions:
         - "<non-obvious choice and why>"
-    briefing: >
-      <what was done, how, and which evidence above supports it — 2-4 sentences>
+    reason: >
+      <what was done, how, and why this step can advance — 1-4 sentences>
 
-Failure/skip form (no evidence required — the step did not complete):
+Go-back form (no evidence required — the step did not complete):
 COMPLETION:
   step_id: <this-step-id>
-  status: abandoned
+  status: failed
   outputs:
-    reason: "why this step could not complete (quote if the reason contains a colon)"
-    briefing: "<one-line summary of outcome>"
+    reason: "why we go back or stop (quote if the reason contains a colon)"
 """
 
 # Zero floor overlaid under every recorded usage dict. Derived from the adapters'
@@ -207,12 +208,21 @@ def _failed_payload(action: dict, exit_code: int) -> dict:
     # for steps that DO loop via on_failure: without model="none" those retries
     # wouldn't count as spawn failures and could outrun the cap. See
     # test_run_loop_termination.
+    # outputs.reason is required on every recorded outcome.
+    reason = (
+        "malformed COMPLETION"
+        if exit_code == 5
+        else f"tool exit {exit_code}"
+    )
     return {
         "step_id": action["step_id"],
         "phase": action.get("phase", "main"),
         "status": "failed",
         "agent": action.get("model", ""),
-        "outputs": {"task_execution_result": {"status": "failed", "exit_code": exit_code}},
+        "outputs": {
+            "reason": reason,
+            "task_execution_result": {"status": "failed", "exit_code": exit_code},
+        },
         "usage": {**dict(_EMPTY_USAGE), "model": "none"},
     }
 
@@ -354,7 +364,10 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
     if state_mutating:
         record(state_yaml_path, {
             "step_id": step_id, "phase": phase, "attempt": attempt,
-            "status": "completed", "outputs": {},
+            "status": "completed",
+            "outputs": {
+                "reason": "recorded pre-script (state-mutating inline step)",
+            },
             "evidence": {"summary": "recorded pre-script (state-mutating inline step)"},
         })
 
@@ -376,7 +389,8 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
         if not state_mutating:
             record(state_yaml_path, {
                 "step_id": step_id, "phase": phase, "attempt": attempt,
-                "status": "failed", "outputs": {},
+                "status": "failed",
+                "outputs": {"reason": f"script exited {proc.returncode}"},
                 "usage": {"duration_ms": script_duration_ms},
                 "evidence": {"summary": f"script exited {proc.returncode}"},
             })
@@ -389,6 +403,8 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
 
     outputs = _parse_stdout_outputs(proc)
     if not state_mutating:
+        if not isinstance(outputs.get("reason"), str) or not str(outputs.get("reason")).strip():
+            outputs = {**outputs, "reason": "inline script completed"}
         payload = {
             "step_id": step_id, "phase": phase, "attempt": attempt,
             "status": "completed", "outputs": outputs,
