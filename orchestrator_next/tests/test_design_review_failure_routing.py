@@ -6,6 +6,7 @@ design — not advance to ticket-start / implement.
 Covers the agent mistake where status: completed is emitted alongside
 design_review_result: needs_work (routing keys off status, not the output).
 """
+
 from __future__ import annotations
 
 import os
@@ -109,9 +110,7 @@ def _setup(tmp_path, monkeypatch, state: dict) -> str:
     step_dir.mkdir(exist_ok=True)
     (step_dir / "contract.yaml").write_text(_DESIGN_REVIEW_CONTRACT)
     (step_dir / "prompt.md").write_text("Run design review.")
-    monkeypatch.setenv(
-        "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir)
-    )
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts_dir))
     path = tmp_path / "state.yaml"
     path.write_text(yaml.safe_dump(state, sort_keys=False))
     return str(path)
@@ -124,26 +123,19 @@ def _node_status(state_path: str, node_id: str) -> str:
 
 
 class TestDesignReviewFailureRouting:
-
     def test_failed_needs_work_requeues_architect(self, tmp_path, monkeypatch):
         state_path = _setup(tmp_path, monkeypatch, _state_at_design_review(tmp_path))
-        result, code = record.record(
-            state_path, _design_review_payload(status="failed", result="needs_work")
-        )
+        result, code = record.record(state_path, _design_review_payload(status="failed", result="needs_work"))
         assert code == 0, result
         assert _node_status(state_path, "design-review") == "reset"
         assert _node_status(state_path, "design") == "reset"
         state = load_state(state_path)
         assert readiness.next_ready_node(state) == "design"
 
-    def test_completed_needs_work_coerced_to_failed_and_requeues_architect(
-        self, tmp_path, monkeypatch
-    ):
+    def test_completed_needs_work_coerced_to_failed_and_requeues_architect(self, tmp_path, monkeypatch):
         """Agent mistake: status completed + needs_work must not advance to implement."""
         state_path = _setup(tmp_path, monkeypatch, _state_at_design_review(tmp_path))
-        result, code = record.record(
-            state_path, _design_review_payload(status="completed", result="needs_work")
-        )
+        result, code = record.record(state_path, _design_review_payload(status="completed", result="needs_work"))
         assert code == 0, result
         raw = yaml.safe_load(open(state_path).read())
         assert raw["step_history"][-1]["status"] == "failed"
@@ -154,9 +146,7 @@ class TestDesignReviewFailureRouting:
 
     def test_completed_pass_advances_to_ticket_start(self, tmp_path, monkeypatch):
         state_path = _setup(tmp_path, monkeypatch, _state_at_design_review(tmp_path))
-        result, code = record.record(
-            state_path, _design_review_payload(status="completed", result="pass")
-        )
+        result, code = record.record(state_path, _design_review_payload(status="completed", result="pass"))
         assert code == 0, result
         state = load_state(state_path)
         assert readiness.next_ready_node(state) == "ticket-start"
@@ -168,9 +158,7 @@ class TestDesignReviewFailureRouting:
             monkeypatch,
             _state_at_design_review(tmp_path, with_stale_architect_history=True),
         )
-        record.record(
-            state_path, _design_review_payload(status="failed", result="needs_work")
-        )
+        record.record(state_path, _design_review_payload(status="failed", result="needs_work"))
         state = load_state(state_path)
         assert readiness.next_ready_node(state) == "design"
 
@@ -179,9 +167,7 @@ class TestDesignReviewFailureRouting:
         must re-run (and re-verify) once design finishes —
         not get silently skipped in favor of ticket-start."""
         state_path = _setup(tmp_path, monkeypatch, _state_at_design_review(tmp_path))
-        record.record(
-            state_path, _design_review_payload(status="failed", result="needs_work")
-        )
+        record.record(state_path, _design_review_payload(status="failed", result="needs_work"))
 
         # Simulate the fixer (design) completing its retry.
         raw = yaml.safe_load(open(state_path).read())
