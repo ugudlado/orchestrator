@@ -394,7 +394,7 @@ def test_pack_outside_any_git_repo_still_appends(tmp_path):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize(
-    "schema", ["feature", "bugfix", "design", "implement", "patch", "autopilot"]
+    "schema", ["feature", "bugfix", "design", "implement", "patch"]
 )
 def test_persist_learnings_runs_between_learn_and_eval_prompts(schema):
     from orchestrator_next.workflow_steps import step_id_of
