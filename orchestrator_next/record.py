@@ -591,8 +591,10 @@ def autocommit_state(state_yaml_path: str, *, push: bool = False) -> None:
     can resume after the filesystem is gone (see DRIVE.md "Durability").
 
     No-op unless headless. Best-effort — a git failure never fails the record.
-    `add -f` because .orchestrator/ is gitignored (ephemeral locally, durable
-    when headless). Pathspec commit so concurrently staged work is untouched.
+    `add -f` because per-ticket dirs under .orchestrator/ stay gitignored
+    (vendored packs like .orchestrator/workflows/ are tracked; run state
+    is ephemeral locally and only forced durable when headless). Pathspec commit
+    so concurrently staged work is untouched.
     """
     if not _headless():
         return

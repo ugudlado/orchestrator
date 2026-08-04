@@ -19,8 +19,10 @@ pytest-of-*/
 .state/
 !.state/.gitkeep
 
-# Active workflow state (ephemeral — archive stays in spec/changes/archive/)
-.orchestrator/
+# Active workflow state (ephemeral ticket dirs). Vendored packs are tracked.
+.orchestrator/*
+!.orchestrator/workflows/
+!.orchestrator/workflows/**
 
 # Legacy per-change state location (kept so in-flight runs don't break)
 spec/changes/*/state.yaml

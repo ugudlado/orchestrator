@@ -71,8 +71,8 @@ def test_pull_skills_flag_symlinks(tmp_path):
 
 
 def test_default_pack_name_from_url_and_path(tmp_path):
-    assert default_pack_name("https://github.com/ugudlado/workflow-config.git") == (
-        "workflow-config"
+    assert default_pack_name("https://github.com/ugudlado/workflows.git") == (
+        "workflows"
     )
     d = tmp_path / "my-config"
     d.mkdir()

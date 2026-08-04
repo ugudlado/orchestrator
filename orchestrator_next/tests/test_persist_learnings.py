@@ -396,7 +396,7 @@ def test_pack_outside_any_git_repo_still_appends(tmp_path):
 @pytest.mark.parametrize(
     "schema", ["feature", "bugfix", "design", "implement", "patch"]
 )
-def test_persist_learnings_runs_between_learn_and_eval_prompts(schema):
+def test_persist_learnings_runs_immediately_after_learn(schema):
     from orchestrator_next.workflow_steps import step_id_of
 
     steps = [
@@ -406,6 +406,6 @@ def test_persist_learnings_runs_between_learn_and_eval_prompts(schema):
     assert steps.index("learn") + 1 == steps.index("persist-learnings"), (
         f"{schema}.yaml: persist-learnings must run immediately after learn"
     )
-    assert steps.index("persist-learnings") < steps.index("eval-prompts"), (
-        f"{schema}.yaml: scenarios must land before they are evaluated"
+    assert "eval-prompts" not in steps, (
+        f"{schema}.yaml: eval-prompts runs outside the workflow; do not list it here"
     )

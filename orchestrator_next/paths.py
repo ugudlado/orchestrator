@@ -24,7 +24,7 @@ class WorkflowRefError(RuntimeError):
 
 
 PACK_GIT_URL = "https://github.com/ugudlado/prompt-packs.git"
-WORKFLOW_CONFIG_GIT_URL = "https://github.com/ugudlado/workflow-config.git"
+WORKFLOW_CONFIG_GIT_URL = "https://github.com/ugudlado/workflows.git"
 PACK_DOWNLOAD_HINT = (
     f"git clone --depth 1 {PACK_GIT_URL} ~/.orchestrator/pack "
     "(base roles); or pull workflows into the repo: "

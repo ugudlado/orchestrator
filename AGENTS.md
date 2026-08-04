@@ -20,7 +20,7 @@ pulled into the **consumer** repo under `.orchestrator/<pack>/`.
 uv tool install git+https://github.com/ugudlado/orchestrator.git
 
 # 2. Pull a workflow pack (git URL or local path)
-orchestrator config pull https://github.com/ugudlado/workflow-config.git mypack
+orchestrator config pull https://github.com/ugudlado/workflows.git workflows
 # optional IDE export of step charters:
 # orchestrator config pull … mypack --skills
 
@@ -56,8 +56,9 @@ orchestrator mypack/feature TICKET-1
   skills/                           # only if you passed --skills (symlinks → steps)
 ```
 
-**Only pack convention:** `.orchestrator/<pack>/workflows/<workflow>.yaml`.
-There is no flat `.orchestrator/workflows/`.
+**Only pack convention:** `.orchestrator/<pack>/workflows/<workflow>.yaml`
+(e.g. `.orchestrator/workflows/workflows/feature.yaml` when the pack is named
+`workflows`). Do not put workflow YAML files directly under `.orchestrator/`.
 
 ### Naming workflows on the CLI
 
@@ -100,7 +101,7 @@ orchestrator/
 ```
 
 Workflows that ships for real consumers live in
-[workflow-config](https://github.com/ugudlado/workflow-config), not in this
+[workflows](https://github.com/ugudlado/workflows), not in this
 wheel.
 
 ### Dev CLI

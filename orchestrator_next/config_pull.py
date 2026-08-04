@@ -1,4 +1,4 @@
-"""Pull a workflow-config source into ``.orchestrator/<pack>/``.
+"""Pull a workflows pack source into ``.orchestrator/<pack>/``.
 
 Layout (only convention):
 
