@@ -1,302 +1,213 @@
 #!/usr/bin/env bash
+# Repo-local install (no shell-profile edits):
+#   1. Symlink CLI → ~/.local/bin/orchestrator
+#   2. Vendor workflows pack into this repo's config/
+#   3. Ensure skills/operator (workflow creator) is present in-repo
+#   4. doctor
+#
+# Usage:
+#   ./install.sh                 # full install
+#   ./install.sh --skip-doctor
+#   ./install.sh --refresh-config  # re-copy workflows pack into config/
 set -euo pipefail
 
-# --- Constants ---
 ORCHESTRATOR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ORCHESTRATOR_HOME="${ORCHESTRATOR_HOME:-${XDG_CONFIG_HOME:-${HOME}/.config}/orchestrator}"
 ORCHESTRATOR_INSTALL_BIN="${ORCHESTRATOR_INSTALL_BIN:-${HOME}/.local/bin}"
-SHELL_PROFILE="${HOME}/.zshrc"
-if [ -n "${BASH_VERSION:-}" ] && [ -f "${HOME}/.bashrc" ]; then
-  SHELL_PROFILE="${HOME}/.bashrc"
-fi
+WORKFLOW_CONFIG_GIT_URL="${WORKFLOW_CONFIG_GIT_URL:-https://github.com/ugudlado/workflows.git}"
+PACK_NAME="${ORCHESTRATOR_PACK_NAME:-workflows}"
 
-CLAUDE_DIR="${HOME}/.claude"
-CODEX_DIR="${CODEX_HOME:-${HOME}/.codex}"
-PI_DIR="${PI_CODING_AGENT_DIR:-${HOME}/.pi/agent}"
-ANTIGRAVITY_DIR="${HOME}/.gemini/antigravity"
+SKIP_DOCTOR=0
+REFRESH_CONFIG=0
 
-# --- Helpers ---
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
 
-# safe_ln <source> <target>
-# Idempotently symlinks source to target and logs if changed.
 safe_ln() {
   local src="$1"
   local dst="$2"
-  local display_name="${dst#$HOME/}"
-
-  # Ensure source exists
   [ -e "$src" ] || return 0
-
+  mkdir -p "$(dirname "$dst")"
   if [ ! -L "$dst" ] || [ "$(readlink "$dst")" != "$src" ]; then
-    ln -sf "$src" "$dst"
-    echo "  linked $display_name"
-  fi
-}
-
-# --- Setup Steps ---
-
-setup_env() {
-  echo "Setting up environment..."
-  local marker="# Orchestrator workflow engine"
-  local prompt_optimizer_sibling="${ORCHESTRATOR_DIR%/*}/prompt-optimizer"
-  local prompt_optimizer_dir=""
-  if [ -f "$prompt_optimizer_sibling/pyproject.toml" ] \
-    && [ -d "$prompt_optimizer_sibling/src/prompt_optimizer" ]; then
-    prompt_optimizer_dir="$(cd "$prompt_optimizer_sibling" && pwd -P)"
-  else
-    echo "  warning: sibling prompt-optimizer checkout not found or invalid: $prompt_optimizer_sibling"
-  fi
-
-  if ! grep -qF "$marker" "$SHELL_PROFILE" 2>/dev/null; then
-    echo "" >> "$SHELL_PROFILE"
-    echo "$marker" >> "$SHELL_PROFILE"
-    echo "export ORCHESTRATOR_HOME=\"$ORCHESTRATOR_HOME\"" >> "$SHELL_PROFILE"
-    if [ -n "$prompt_optimizer_dir" ] \
-      && ! grep -Eq '^[[:space:]]*(export[[:space:]]+)?ORCHESTRATOR_PROMPT_OPTIMIZER_DIR[[:space:]]*=' "$SHELL_PROFILE" 2>/dev/null; then
-      echo "export ORCHESTRATOR_PROMPT_OPTIMIZER_DIR=\"$prompt_optimizer_dir\"" >> "$SHELL_PROFILE"
-    fi
-    # XDG / Debian pattern: prepend user bin dir only when it exists.
-    cat >> "$SHELL_PROFILE" <<EOF
-if [ -d "$ORCHESTRATOR_INSTALL_BIN" ] ; then
-  PATH="$ORCHESTRATOR_INSTALL_BIN:\$PATH"
-fi
-EOF
-    echo "  Added ORCHESTRATOR_HOME and PATH hook to $SHELL_PROFILE"
-  else
-    grep -q 'ORCHESTRATOR_HOME' "$SHELL_PROFILE" 2>/dev/null \
-      || echo "export ORCHESTRATOR_HOME=\"$ORCHESTRATOR_HOME\"" >> "$SHELL_PROFILE"
-    if [ -n "$prompt_optimizer_dir" ] \
-      && ! grep -Eq '^[[:space:]]*(export[[:space:]]+)?ORCHESTRATOR_PROMPT_OPTIMIZER_DIR[[:space:]]*=' "$SHELL_PROFILE" 2>/dev/null; then
-      echo "export ORCHESTRATOR_PROMPT_OPTIMIZER_DIR=\"$prompt_optimizer_dir\"" >> "$SHELL_PROFILE"
-      echo "  Added ORCHESTRATOR_PROMPT_OPTIMIZER_DIR to $SHELL_PROFILE"
-    fi
-    if ! grep -qF "$ORCHESTRATOR_INSTALL_BIN" "$SHELL_PROFILE" 2>/dev/null; then
-      cat >> "$SHELL_PROFILE" <<EOF
-if [ -d "$ORCHESTRATOR_INSTALL_BIN" ] ; then
-  PATH="$ORCHESTRATOR_INSTALL_BIN:\$PATH"
-fi
-EOF
-      echo "  Added $ORCHESTRATOR_INSTALL_BIN PATH hook to $SHELL_PROFILE"
-    else
-      echo "  ORCHESTRATOR_HOME / PATH already configured in $SHELL_PROFILE"
-    fi
-  fi
-}
-
-setup_cli() {
-  echo "Installing orchestrator CLI on PATH..."
-  local cli_src="$ORCHESTRATOR_DIR/bin/orchestrator"
-  local cli_dst="$ORCHESTRATOR_INSTALL_BIN/orchestrator"
-  mkdir -p "$ORCHESTRATOR_INSTALL_BIN"
-  [ -f "$cli_src" ] || { echo "  skipped: $cli_src not found"; return 0; }
-  chmod +x "$cli_src"
-  safe_ln "$cli_src" "$cli_dst"
-  echo "  orchestrator -> $cli_src"
-  if command -v orchestrator >/dev/null 2>&1; then
-    echo "  on PATH: $(command -v orchestrator)"
-  else
-    echo "  run: source $SHELL_PROFILE  (or open a new shell)"
-  fi
-}
-
-setup_core() {
-  echo "Syncing core config..."
-  mkdir -p "$ORCHESTRATOR_HOME"
-
-  # Migrate from legacy flat layout: remove any old per-subdir/per-file symlinks
-  # at the install root that point into $ORCHESTRATOR_DIR/config/. The canonical
-  # layout is $ORCHESTRATOR_HOME/config -> $ORCHESTRATOR_DIR/config.
-  for entry in "$ORCHESTRATOR_HOME"/*; do
-    [ -L "$entry" ] || continue
-    local target
-    target="$(readlink "$entry")"
-    case "$target" in
-      "$ORCHESTRATOR_DIR/config"/*) rm "$entry"; echo "  removed legacy ${entry#$HOME/}" ;;
-    esac
-  done
-
-  safe_ln "$ORCHESTRATOR_DIR/config" "$ORCHESTRATOR_HOME/config"
-  echo "  Config: $ORCHESTRATOR_HOME/config -> $ORCHESTRATOR_DIR/config"
-
-  # ORC-106: orchestrator_next Python package moved to the repo root; expose it
-  # under ORCHESTRATOR_HOME so $ORCHESTRATOR_HOME-based PYTHONPATH/sys.path still resolves.
-  safe_ln "$ORCHESTRATOR_DIR/orchestrator_next" "$ORCHESTRATOR_HOME/orchestrator_next"
-  echo "  Package: $ORCHESTRATOR_HOME/orchestrator_next -> $ORCHESTRATOR_DIR/orchestrator_next"
-
-  # Legacy: repo-root scripts/ retired; keep ORCHESTRATOR_HOME/scripts for callers
-  # that still use that path (now points at orchestrator_next/scripts).
-  if [ -L "$ORCHESTRATOR_HOME/scripts" ]; then
-    local scripts_target
-    scripts_target="$(readlink "$ORCHESTRATOR_HOME/scripts")"
-    case "$scripts_target" in
-      "$ORCHESTRATOR_DIR/scripts") rm "$ORCHESTRATOR_HOME/scripts"; echo "  removed legacy ${ORCHESTRATOR_HOME#$HOME/}/scripts symlink" ;;
-    esac
-  fi
-  safe_ln "$ORCHESTRATOR_DIR/orchestrator_next/scripts" "$ORCHESTRATOR_HOME/scripts"
-  echo "  Scripts: $ORCHESTRATOR_HOME/scripts -> $ORCHESTRATOR_DIR/orchestrator_next/scripts"
-}
-
-
-setup_claude() {
-  echo "Syncing Claude Code..."
-
-  # Skills: directory-level symlinks (meta + capability skills under skills/)
-  mkdir -p "${CLAUDE_DIR}/skills"
-  [ -L "${CLAUDE_DIR}/skills" ] && rm "${CLAUDE_DIR}/skills" && mkdir -p "${CLAUDE_DIR}/skills"
-  for d in "$ORCHESTRATOR_DIR/skills"/*/; do
-    safe_ln "${d%/}" "${CLAUDE_DIR}/skills/$(basename "$d")"
-  done
-
-  local skill_count=$(ls -d "${CLAUDE_DIR}/skills"/*/ 2>/dev/null | wc -l | tr -d ' ')
-  echo "  Claude: $skill_count skills linked"
-}
-
-setup_codex() {
-  echo "Syncing Codex..."
-
-  # Skills: directory-level symlinks while preserving Codex-owned entries like .system.
-  mkdir -p "${CODEX_DIR}/skills"
-  [ -L "${CODEX_DIR}/skills" ] && rm "${CODEX_DIR}/skills" && mkdir -p "${CODEX_DIR}/skills"
-  for d in "$ORCHESTRATOR_DIR/skills"/*/; do
-    safe_ln "${d%/}" "${CODEX_DIR}/skills/$(basename "$d")"
-  done
-
-  local skill_count=$(find "${CODEX_DIR}/skills" -mindepth 1 -maxdepth 1 -type l 2>/dev/null | wc -l | tr -d ' ')
-  echo "  Codex: $skill_count skills linked"
-}
-
-setup_pi() {
-  echo "Syncing Pi coding agent..."
-
-  # Skills: directory-level symlinks for Pi skill discovery
-  mkdir -p "${PI_DIR}/skills"
-  [ -L "${PI_DIR}/skills" ] && rm "${PI_DIR}/skills" && mkdir -p "${PI_DIR}/skills"
-  for d in "$ORCHESTRATOR_DIR/skills"/*/; do
-    safe_ln "${d%/}" "${PI_DIR}/skills/$(basename "$d")"
-  done
-
-  local skill_count
-  skill_count=$(find "${PI_DIR}/skills" -mindepth 1 -maxdepth 1 -type l 2>/dev/null | wc -l | tr -d ' ')
-  echo "  Pi: $skill_count skills linked"
-}
-
-setup_global_hub() {
-  echo "Syncing global hub (~/.agents)..."
-  mkdir -p "${HOME}/.agents"
-
-  # Clean up singular ~/.agent if it exists
-  if [ -e "${HOME}/.agent" ]; then
-    rm -rf "${HOME}/.agent"
-  fi
-
-  # Handle skills directory/symlink migration
-  if [ -d "${HOME}/.agents/skills" ] && [ ! -L "${HOME}/.agents/skills" ]; then
-    echo "  backing up existing ~/.agents/skills to ~/.agents/skills.bak"
-    mv "${HOME}/.agents/skills" "${HOME}/.agents/skills.bak"
-  fi
-
-  if [ ! -L "${HOME}/.agents/skills" ] || [ "$(readlink "${HOME}/.agents/skills")" != "$ORCHESTRATOR_DIR/skills" ]; then
-    ln -sf "$ORCHESTRATOR_DIR/skills" "${HOME}/.agents/skills"
-    echo "  linked ~/.agents/skills -> skills"
+    ln -sfn "$src" "$dst"
+    echo "  linked ${dst#$HOME/} -> $src"
   fi
 }
 
 setup_python_deps() {
-  # orchestrator requires Python 3 for bin/orchestrator and the adapter scripts.
   if ! command -v python3 >/dev/null 2>&1; then
-    echo "error: python3 is required but not found on PATH. Install Python 3 before running install.sh." >&2
-    exit 1
+    die "python3 is required but not found on PATH"
   fi
-
-  # Prefer poetry (uses pyproject.toml lockfile); fall back to pip.
-  if command -v poetry >/dev/null 2>&1 && [ -f "$(dirname "$0")/pyproject.toml" ]; then
+  if command -v poetry >/dev/null 2>&1 && [ -f "$ORCHESTRATOR_DIR/pyproject.toml" ]; then
     echo "Installing Python dependencies via poetry..."
-    poetry install --no-interaction --no-root 2>/dev/null || poetry install --no-interaction
+    (cd "$ORCHESTRATOR_DIR" && poetry install --no-interaction --no-root 2>/dev/null) \
+      || (cd "$ORCHESTRATOR_DIR" && poetry install --no-interaction)
   elif ! python3 -c "import yaml, pydantic" 2>/dev/null; then
     echo "Installing Python dependencies (pyyaml pydantic)..."
     pip install --user pyyaml pydantic
   fi
 }
 
-setup_tool_antigravity() {
-  echo "Syncing Gemini Antigravity hub wiring..."
-
-  # Instructions (Agents)
-  local ag_instructions="${ANTIGRAVITY_DIR}/instructions"
-  if [ -d "$ag_instructions" ] && [ ! -L "$ag_instructions" ]; then
-    rmdir "$ag_instructions" 2>/dev/null || rm -rf "$ag_instructions"
-  fi
-  if [ ! -L "$ag_instructions" ] || [ "$(readlink "$ag_instructions")" != "${HOME}/.agents/rules" ]; then
-    ln -sf "${HOME}/.agents/rules" "$ag_instructions"
-    echo "  wired Antigravity instructions -> ~/.agents/rules"
-  fi
-
-  # Global Workflows (Skills) - Antigravity requires .md symbols for slash commands
-  local ag_workflows="${ANTIGRAVITY_DIR}/global_workflows"
-  mkdir -p "$ag_workflows"
-  for d in "${HOME}/.agents/skills"/*/; do
-    [ -d "$d" ] || continue
-    local skill_name="$(basename "$d")"
-    safe_ln "${d}SKILL.md" "${ag_workflows}/${skill_name}.md"
-  done
-}
-
-# install_config <dest>
-# Copy config/ to <dest> and point ORCHESTRATOR_HOME there.
-# <dest> can be a path inside a repo (repo-local) or ~/.config/orchestrator (global).
-install_config() {
-  local dest="${1:-}"
-  if [ -z "$dest" ]; then
-    echo "Usage: $0 install-config <dest-dir>"
-    echo "  Copies config/ to <dest-dir> and sets ORCHESTRATOR_HOME to that path."
-    echo "  Examples:"
-    echo "    $0 install-config /path/to/myrepo/.orchestrator   # repo-local"
-    echo "    $0 install-config ~/.config/orchestrator          # global (default install)"
-    exit 1
-  fi
-
-  local abs_dest
-  abs_dest="$(mkdir -p "$dest" && cd "$dest" && pwd)"
-
-  echo "Copying config to $abs_dest ..."
-  cp -r "$ORCHESTRATOR_DIR/config/." "$abs_dest/config"
-  echo "  config/ -> $abs_dest/config"
-
-  # Write ORCHESTRATOR_HOME into the shell profile if not already pointing there.
-  local marker="# Orchestrator workflow engine"
-  if ! grep -qF "ORCHESTRATOR_HOME=\"$abs_dest\"" "$SHELL_PROFILE" 2>/dev/null; then
-    echo "" >> "$SHELL_PROFILE"
-    echo "$marker" >> "$SHELL_PROFILE"
-    echo "export ORCHESTRATOR_HOME=\"$abs_dest\"" >> "$SHELL_PROFILE"
-    echo "  Set ORCHESTRATOR_HOME=$abs_dest in $SHELL_PROFILE"
+setup_cli() {
+  echo "Installing orchestrator CLI → $ORCHESTRATOR_INSTALL_BIN ..."
+  local cli_src="$ORCHESTRATOR_DIR/bin/orchestrator"
+  [ -f "$cli_src" ] || die "$cli_src not found"
+  chmod +x "$cli_src"
+  mkdir -p "$ORCHESTRATOR_INSTALL_BIN"
+  safe_ln "$cli_src" "$ORCHESTRATOR_INSTALL_BIN/orchestrator"
+  if command -v orchestrator >/dev/null 2>&1; then
+    echo "  on PATH: $(command -v orchestrator)"
   else
-    echo "  ORCHESTRATOR_HOME already set to $abs_dest in $SHELL_PROFILE"
+    echo "  note: $ORCHESTRATOR_INSTALL_BIN is not on PATH yet"
+    echo "        add it in your shell config, or call: $ORCHESTRATOR_INSTALL_BIN/orchestrator"
   fi
-
-  echo "Done. Run: source $SHELL_PROFILE"
-  echo "Config lives at: $abs_dest/config"
-  echo "Edit workflows: $abs_dest/config/workflows/"
-  echo "Edit steps:     $abs_dest/config/steps/"
 }
 
-# --- Main ---
+resolve_workflow_config_source() {
+  local sibling="${ORCHESTRATOR_DIR%/*}/workflows"
+  if [ -d "$sibling/config/workflows" ]; then
+    echo "$(cd "$sibling" && pwd -P)/config"
+    return 0
+  fi
+  # Back-compat: old local checkout name
+  sibling="${ORCHESTRATOR_DIR%/*}/workflow-config"
+  if [ -d "$sibling/config/workflows" ]; then
+    echo "$(cd "$sibling" && pwd -P)/config"
+    return 0
+  fi
+  return 1
+}
+
+# Vendor workflows/steps into this repo.
+# Primary layout: .orchestrator/<pack>/ (multi-pack friendly).
+# Checkout config/ is a symlink to that pack (single tree, no duplicate).
+vendor_config_from() {
+  local src="$1"
+  local pack_dest="$ORCHESTRATOR_DIR/.orchestrator/$PACK_NAME"
+  local config_dest="$ORCHESTRATOR_DIR/config"
+
+  [ -d "$src/workflows" ] || die "source missing workflows/: $src"
+
+  echo "  → .orchestrator/$PACK_NAME/"
+  mkdir -p "$pack_dest"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete \
+      --exclude '.git/' \
+      "$src"/ "$pack_dest"/
+  else
+    rm -rf "$pack_dest"
+    mkdir -p "$pack_dest"
+    cp -R "$src"/. "$pack_dest"/
+  fi
+
+  echo "  → config/ → .orchestrator/$PACK_NAME"
+  if [ -L "$config_dest" ] || [ -e "$config_dest" ]; then
+    rm -rf "$config_dest"
+  fi
+  ln -sfn ".orchestrator/$PACK_NAME" "$config_dest"
+}
+
+setup_repo_config() {
+  echo "Vendoring workflows pack into this repo..."
+  local src=""
+
+  if [ "$REFRESH_CONFIG" -eq 0 ] \
+    && [ -d "$ORCHESTRATOR_DIR/.orchestrator/$PACK_NAME/workflows" ] \
+    && { [ -L "$ORCHESTRATOR_DIR/config" ] || [ -d "$ORCHESTRATOR_DIR/config/workflows" ]; }; then
+    echo "  already vendored (pass --refresh-config to re-copy)"
+    return 0
+  fi
+
+  if src="$(resolve_workflow_config_source)"; then
+    echo "  source: $src (sibling checkout)"
+  else
+    local tmp
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-wf-config.XXXXXX")"
+    echo "  cloning $WORKFLOW_CONFIG_GIT_URL ..."
+    git clone --depth 1 "$WORKFLOW_CONFIG_GIT_URL" "$tmp/workflows"
+    src="$tmp/workflows/config"
+    trap 'rm -rf "$tmp"' RETURN
+  fi
+
+  vendor_config_from "$src"
+  echo "  pack: .orchestrator/$PACK_NAME"
+  echo "  checkout config/: $ORCHESTRATOR_DIR/config"
+}
+
+ensure_operator_skill() {
+  echo "Checking in-repo workflow creator skill..."
+  local src="$ORCHESTRATOR_DIR/skills/operator/SKILL.md"
+  if [ -f "$src" ]; then
+    echo "  present: skills/operator/"
+  else
+    die "missing skills/operator/SKILL.md — keep the workflow creator skill in this repo"
+  fi
+}
+
+run_doctor() {
+  if [ "$SKIP_DOCTOR" -eq 1 ]; then
+    echo "Skipping doctor (--skip-doctor)"
+    return 0
+  fi
+  echo "Running doctor..."
+  local rc=0
+  (
+    cd "$ORCHESTRATOR_DIR"
+    # Prefer the vendored pack when present; else checkout config/.
+    unset ORCHESTRATOR_CONFIG || true
+    if [ -d "$ORCHESTRATOR_DIR/.orchestrator/$PACK_NAME/workflows" ]; then
+      export ORCHESTRATOR_CONFIG="$ORCHESTRATOR_DIR/.orchestrator/$PACK_NAME"
+    fi
+    export PYTHONPATH="${ORCHESTRATOR_DIR}${PYTHONPATH:+:$PYTHONPATH}"
+    if command -v orchestrator >/dev/null 2>&1; then
+      orchestrator doctor
+    else
+      "$ORCHESTRATOR_INSTALL_BIN/orchestrator" doctor
+    fi
+  ) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "  doctor exit $rc — install finished; fix any FAIL rows before running workflows"
+  fi
+  return 0
+}
+
+print_done() {
+  echo
+  echo "Install complete (repo-local)."
+  echo "  CLI:    $(command -v orchestrator 2>/dev/null || echo "$ORCHESTRATOR_INSTALL_BIN/orchestrator")"
+  echo "  Config: $ORCHESTRATOR_DIR/.orchestrator/$PACK_NAME  (config/ → pack)"
+  echo "  Skill:  $ORCHESTRATOR_DIR/skills/operator"
+  echo
+  echo "Next:"
+  echo "  orchestrator doctor"
+  echo "  # workflow creator lives in-repo — open this repo in an agent and use /operator"
+  echo "  orchestrator feature TICKET-1"
+  echo "  # or: orchestrator $PACK_NAME/feature TICKET-1"
+}
 
 main() {
-  echo "Installing orchestrator..."
+  echo "Installing orchestrator (repo-local)..."
   setup_python_deps
   setup_cli
-  setup_env
-  setup_core
-  setup_claude
-  setup_codex
-  setup_pi
-  setup_global_hub
-  # setup_tool_antigravity
-  echo "Done. Open a new shell or run: source $SHELL_PROFILE"
-  echo "Then: orchestrator --help"
+  setup_repo_config
+  ensure_operator_skill
+  run_doctor
+  print_done
 }
 
-case "${1:-}" in
-  install-config) install_config "${2:-}" ;;
-  *)              main ;;
-esac
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --skip-doctor) SKIP_DOCTOR=1; shift ;;
+    --refresh-config) REFRESH_CONFIG=1; shift ;;
+    -h|--help)
+      sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *)
+      die "unknown argument: $1 (try --help)"
+      ;;
+  esac
+done
+
+main

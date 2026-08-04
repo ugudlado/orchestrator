@@ -8,22 +8,31 @@ Two repos: [`orchestrator`](https://github.com/ugudlado/orchestrator) (engine, i
 
 ## Steps: another person / another repo, today
 
+**From an orchestrator checkout** (repo-local; no shell-profile edits):
+
+```bash
+./install.sh    # make onboard — CLI + vendored config + in-repo skills/operator
+# agents in this repo: /operator  → scaffold into config/ / .orchestrator/<pack>/
+```
+
+**Wheel + per-repo pack** (no engine checkout):
+
 ```bash
 # 1. Install the CLI (uv keeps it isolated; pipx also works)
 uv tool install git+https://github.com/ugudlado/orchestrator.git
 
-# 2. Pull workflow-config into the repo (steps own SKILL.md + scenarios)
-orchestrator config pull https://github.com/ugudlado/workflow-config.git mypack
-# or: orchestrator config pull /path/to/workflow-config mypack --skills
+# 2. Pull workflows pack into the repo (steps own SKILL.md + scenarios)
+orchestrator config pull https://github.com/ugudlado/workflows.git workflows
+# or: orchestrator config pull /path/to/workflows workflows --skills
 
-# Base role prompts for extends: — once per machine
+# Base role prompts for extends: — once per machine (optional)
 git clone --depth 1 https://github.com/ugudlado/prompt-packs.git ~/.orchestrator/pack
 
 # 3. Sanity check (run inside the target repo — no per-repo setup file needed;
 #    conventions live in CLAUDE.md/AGENTS.md/README, ticketing is env-driven)
 orchestrator doctor
 
-# 4. Run (layout: .orchestrator/mypack/workflows/feature.yaml)
+# 4. Run (layout: .orchestrator/workflows/workflows/feature.yaml)
 orchestrator feature TICKET-1
 # multiple packs: orchestrator mypack/feature TICKET-1
 ```

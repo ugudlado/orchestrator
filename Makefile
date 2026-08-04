@@ -1,4 +1,4 @@
-.PHONY: setup install install-cli use-local doctor stale help test
+.PHONY: setup install onboard install-cli use-local doctor stale help test
 
 # Default target
 .DEFAULT_GOAL := help
@@ -8,10 +8,12 @@ ORCHESTRATOR_HOME ?= $(HOME)/.config/orchestrator
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[32m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-setup: ## Full install: CLI on PATH (~/.local/bin), ORCHESTRATOR_HOME, agent symlinks
+setup: onboard ## Alias for onboard
+
+onboard: ## Repo-local install: CLI → ~/.local/bin, vendor config/, keep skills/operator
 	@bash ./install.sh
 
-install: setup ## Alias for setup (same as make setup)
+install: onboard ## Alias for onboard
 
 use-local: ## Point ORCHESTRATOR_HOME at this repo (run from any repo with a config/ dir)
 	@PROFILE=$${SHELL_PROFILE:-$(HOME)/.zshrc}; \
