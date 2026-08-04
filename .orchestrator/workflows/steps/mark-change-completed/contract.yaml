@@ -1,0 +1,3 @@
+id: mark-change-completed
+version: 2
+run: script.sh

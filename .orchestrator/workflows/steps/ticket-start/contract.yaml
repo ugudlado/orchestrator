@@ -1,0 +1,3 @@
+id: ticket-start
+version: 1
+run: ../../lib/ticket/ticket-sync.sh

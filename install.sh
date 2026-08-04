@@ -94,6 +94,10 @@ vendor_config_from() {
   if command -v rsync >/dev/null 2>&1; then
     rsync -a --delete \
       --exclude '.git/' \
+      --exclude '__pycache__/' \
+      --exclude '*.pyc' \
+      --exclude 'runs/cache/' \
+      --exclude 'runs/*/' \
       "$src"/ "$pack_dest"/
   else
     rm -rf "$pack_dest"

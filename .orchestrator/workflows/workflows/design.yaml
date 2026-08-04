@@ -1,0 +1,11 @@
+steps:
+  - check-rerun
+  - create-worktree
+  - load-ticket-context
+  - explore
+  - design
+  - id: design-review
+    on_failure: design
+  - learn
+  - persist-learnings
+  - workflow-report

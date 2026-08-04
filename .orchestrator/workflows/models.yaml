@@ -1,0 +1,39 @@
+tools:
+  claude:
+    binary: claude
+    args_template:
+      ["--model", "{model_id}", "-p", "--output-format", "json", "{prompt}"]
+  pi:
+    binary: pi
+    args_template: ["--mode", "json", "@{prompt_file}"]
+  codex:
+    binary: codex
+    args_template: ["exec", "--json", "--prompt", "{prompt}"]
+  cursor:
+    binary: cursor-agent
+    args_template:
+      [
+        "-p",
+        "--output-format",
+        "json",
+        "--model",
+        "{model_id}",
+        "--force",
+        "{prompt}",
+      ]
+
+models:
+  strong: { model_id: claude-opus-5, tool: claude }
+  standard: { model_id: claude-sonnet-5, tool: claude }
+  code: { model_id: composer-2.5, tool: cursor }
+
+step_models:
+  design: strong
+  ux-design: strong
+  code-review: strong
+  explore: standard
+  diagnose: standard
+  learn: standard
+  design-review: standard
+  ux-critique: standard
+  implement: code

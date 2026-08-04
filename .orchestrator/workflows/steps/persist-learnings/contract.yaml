@@ -1,0 +1,3 @@
+id: persist-learnings
+version: 1
+run: script.sh

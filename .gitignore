@@ -65,3 +65,8 @@ skills/*/runs/cache/
 # Optimizer run artifacts are immutable local evidence; only the ledger is tracked.
 skills/*/runs/*
 !skills/*/runs/results.jsonl
+
+# Vendored pack noise (never ship optimizer caches / bytecode)
+.orchestrator/workflows/**/__pycache__/
+.orchestrator/workflows/**/runs/cache/
+.orchestrator/workflows/**/*.pyc

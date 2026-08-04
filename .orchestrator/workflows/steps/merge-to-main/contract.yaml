@@ -1,0 +1,3 @@
+id: merge-to-main
+version: 1
+run: script.sh

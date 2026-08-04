@@ -1,0 +1,3 @@
+id: ticket-review
+version: 1
+run: ../../lib/ticket/ticket-sync.sh

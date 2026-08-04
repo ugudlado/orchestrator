@@ -1,0 +1,20 @@
+# Complete-only workflow (ORC-108).
+#
+# CLI: `orchestrator complete <ticket-id>` — same driver as other workflows:
+# orchestrator run --schema complete → in-process loop (run_loop.py) → post-merge hook.
+#
+# Does not seed a new feature; requires existing state.yaml from a prior
+# `orchestrator feature|bugfix|autopilot` run.
+#
+# On success: complete-phase steps run through archive-completed-change, then
+# merge to default branch (unconditional — invoking complete IS the merge signal),
+# then worktree teardown.
+#
+# Flags: --repo PATH, plus key=value overrides.
+steps:
+  - mark-change-completed
+  - archive-completed-change
+  - merge-to-main
+  - remove-worktree
+  - ticket-done
+  - workflow-report

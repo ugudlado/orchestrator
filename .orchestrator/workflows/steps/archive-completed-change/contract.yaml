@@ -1,0 +1,3 @@
+id: archive-completed-change
+version: 7
+run: script.sh

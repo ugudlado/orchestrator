@@ -1,0 +1,16 @@
+steps:
+  - check-rerun
+  - create-worktree
+  - load-ticket-context
+  - design
+  - ticket-start
+  - id: implement
+    on_failure: implement
+  - ticket-review
+  - id: code-review
+    on_failure: implement
+    max_retries: 8
+  - ticket-qa
+  - learn
+  - persist-learnings
+  - workflow-report

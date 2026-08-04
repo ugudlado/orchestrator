@@ -1,0 +1,3 @@
+id: ticket-rework
+version: 1
+run: ../../lib/ticket/ticket-sync.sh
