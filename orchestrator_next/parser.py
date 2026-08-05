@@ -35,6 +35,9 @@ class AgentStepContract:
     state_mutating: bool = False
     default_outputs: dict = field(default_factory=dict)
     required_outputs_for_completed: list = field(default_factory=list)
+    # When true, the driver pauses before this step and asks the client for
+    # direction; the next prompt's text is injected as "User direction".
+    await_input: bool = False
 
 
 @dataclass
@@ -45,6 +48,9 @@ class ScriptStepContract:
     # When true, the driver records the step BEFORE running the script so
     # state.yaml is consistent even if the script moves or rewrites it.
     state_mutating: bool = False
+    # Script steps can also gate on user input (e.g. choose a target based on
+    # the user's latest message).
+    await_input: bool = False
 
 
 StepContract = AgentStepContract | ScriptStepContract
@@ -315,6 +321,7 @@ def _make_contract(
     shared = dict(
         id=data.get("id", step_id),
         state_mutating=bool(data.get("state_mutating", False)),
+        await_input=bool(data.get("await_input", False)),
     )
     if run is None:
         raw_defaults = data.get("default_outputs")

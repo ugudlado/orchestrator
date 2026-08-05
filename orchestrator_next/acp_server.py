@@ -126,12 +126,21 @@ def _extract_topic(prompt_text: str) -> str:
     return text or "research"
 
 
-def run_workflow(topic: str, session_id: str, repo_root: str) -> dict:
-    """Run the configured research workflow through the real engine.
+def run_workflow(
+    topic: str, session_id: str, repo_root: str,
+    *,
+    schema: str = "research",
+    session_state: dict | None = None,
+) -> dict:
+    """Run or continue a workflow through the real engine (multi-turn aware).
 
-    Seeds a state.yaml for schema `research` in a temp repo, then drives
-    dispatch → run_agent_step/run_script_step → record until complete,
-    streaming each step as a session/update notification.
+    Generic driver — the workflow config decides where input is needed:
+    steps whose contract declares ``await_input: true`` pause the run; the
+    next prompt's text is injected as "User direction" and the step runs.
+    Steps without await_input run automatically (fire-and-forget), so a
+    workflow designed for one-shot use keeps working unchanged.
+
+    The caller keeps ``session_state`` (per-session dict) across prompts.
     """
     from orchestrator_next.run_loop import (
         run_agent_step,
@@ -142,22 +151,37 @@ def run_workflow(topic: str, session_id: str, repo_root: str) -> dict:
     from orchestrator_next.record import record
     from orchestrator_next.paths import config_root
 
-    topic = _extract_topic(topic)
-    slug = "".join(c if c.isalnum() or c in "-_" else "-" for c in topic.lower()).strip("-")
-    if not slug:
-        slug = "research"
-    slug = slug[:80].rstrip("-")  # keep state filenames sane
+    if session_state is None:
+        session_state = {}
+    state_yaml_path = session_state.get("state_yaml_path")
+    prompt = _extract_topic(topic)
+    tmp_dir = Path(session_state.get("tmp_dir") or tempfile.mkdtemp(prefix="orc-acp-"))
+    session_state["tmp_dir"] = str(tmp_dir)
 
-    state_yaml_path = _seed_state(slug, "research", repo_root)
-    _notify(session_id, f"🔍 Workflow: research on '{topic}'")
-    _notify(session_id, f"  state: {state_yaml_path}")
+    def _new_workflow() -> str:
+        slug = "".join(c if c.isalnum() or c in "-_" else "-" for c in prompt.lower()).strip("-")
+        if not slug:
+            slug = schema
+        slug = slug[:80].rstrip("-")  # keep state filenames sane
+        return _seed_state(slug, schema, repo_root)
 
-    tmp_dir = Path(tempfile.mkdtemp(prefix="orc-acp-"))
+    if not state_yaml_path:
+        state_yaml_path = _new_workflow()
+        session_state["state_yaml_path"] = state_yaml_path
+        _notify(session_id, f"🔍 Workflow: {schema} on '{prompt}'")
+        _notify(session_id, f"  state: {state_yaml_path}")
+    else:
+        # Continuation — the new prompt text guides the awaited step.
+        _notify(session_id, f"➡️ continuing workflow: '{prompt}'")
+
     try:
         state_yaml = state_yaml_path
         while True:
             if not Path(state_yaml).is_file():
                 _notify(session_id, "✅ workflow complete (state archived)")
+                session_state.pop("state_yaml_path", None)
+                session_state.pop("tmp_dir", None)
+                session_state.pop("awaiting_step_id", None)
                 break
             state = load_state(state_yaml)
             from orchestrator_next.dispatch import dispatch
@@ -170,6 +194,9 @@ def run_workflow(topic: str, session_id: str, repo_root: str) -> dict:
 
             if code == 1:
                 _notify(session_id, "✅ workflow complete")
+                session_state.pop("state_yaml_path", None)
+                session_state.pop("tmp_dir", None)
+                session_state.pop("awaiting_step_id", None)
                 break
             if code == 2:
                 _notify(session_id, "⛔ workflow blocked")
@@ -179,8 +206,25 @@ def run_workflow(topic: str, session_id: str, repo_root: str) -> dict:
                 break
 
             step_id = action.get("step_id", "?")
+            needs_input = bool(action.get("await_input"))
+
+            # Config-declared input gate: pause until the client sends the
+            # next prompt (which becomes the User direction for this step).
+            if needs_input and session_state.get("awaiting_step_id") != step_id:
+                session_state["awaiting_step_id"] = step_id
+                _notify(session_id, f"⏸ {step_id} — input required; send direction to continue")
+                break
+
             if action.get("model"):
                 _notify(session_id, f"→ {step_id} (agent, {action.get('model')})")
+                # Inject the user's continuation text as guidance for the agent.
+                if prompt:
+                    base = action.get("instruction") or ""
+                    action["instruction"] = (
+                        f"{base}\n\nUser direction: {prompt}"
+                        if base
+                        else f"User direction: {prompt}"
+                    )
                 payload = run_agent_step(
                     action,
                     repo_root=repo_root,
@@ -191,18 +235,21 @@ def run_workflow(topic: str, session_id: str, repo_root: str) -> dict:
                 )
                 result, rc = record(state_yaml, payload)
                 _notify(session_id, f"  ✓ {step_id} {payload.get('status', '?')} (rc={rc})")
+                if needs_input:
+                    session_state.pop("awaiting_step_id", None)
             elif action.get("run"):
                 _notify(session_id, f"→ {step_id} (script)")
                 ok, state_yaml = run_script_step(action, state_yaml_path=state_yaml, state=state)
                 _notify(session_id, f"  ✓ {step_id} done" if ok else f"  ✗ {step_id} failed")
                 if not ok:
                     break
+                if needs_input:
+                    session_state.pop("awaiting_step_id", None)
             else:
                 _notify(session_id, f"→ {step_id} (no action)")
                 break
     finally:
-        import shutil
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        pass  # tmp_dir cleaned when session ends via close()
 
     return _completion("completed", _final_state_text(state_yaml_path))
 
@@ -220,6 +267,17 @@ def _completion(outcome: str, text: str) -> dict:
             ],
         }
     }
+
+
+def _cleanup_session(session: dict) -> None:
+    """Tear down per-session workflow resources (tmp dirs, leftover state)."""
+    workflow = session.get("workflow") or {}
+    tmp_dir = workflow.pop("tmp_dir", None)
+    if tmp_dir:
+        import shutil
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    workflow.pop("state_yaml_path", None)
+    workflow.pop("awaiting_step_id", None)
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +309,14 @@ class AcpServer:
             self.sessions[session_id] = {
                 "cwd": params.get("cwd") or os.getcwd(),
                 "mcpServers": params.get("mcpServers") or [],
+                # Workflow schema (workflow yaml name) this session drives.
+                # Defaults to 'research'; the client can pick any installed
+                # workflow (feature, bugfix, design, custom pack workflows).
+                "schema": str(params.get("schema") or "research").strip(),
+                # Multi-turn workflow state: {state_yaml_path, tmp_dir,
+                # awaiting_step_id}. Cleared when the workflow completes or
+                # the session is closed.
+                "workflow": {},
             }
             _result(message_id, {"sessionId": session_id})
             return
@@ -268,11 +334,24 @@ class AcpServer:
                 _error(message_id, -32602, "empty prompt")
                 return
             try:
-                repo_root = str(self.sessions[session_id].get("cwd") or os.getcwd())
-                result = run_workflow(text, session_id, repo_root)
+                session = self.sessions[session_id]
+                repo_root = str(session.get("cwd") or os.getcwd())
+                result = run_workflow(
+                    text, session_id, repo_root,
+                    schema=str(session.get("schema") or "research"),
+                    session_state=session.setdefault("workflow", {}),
+                )
                 _result(message_id, result)
             except Exception as exc:  # noqa: BLE001
                 _error(message_id, -32603, f"workflow error: {exc}")
+            return
+
+        if method == "session/close":
+            session_id = params.get("sessionId")
+            if session_id in self.sessions:
+                _cleanup_session(self.sessions[session_id])
+                del self.sessions[session_id]
+            _result(message_id, {})
             return
 
         if method == "session/load":

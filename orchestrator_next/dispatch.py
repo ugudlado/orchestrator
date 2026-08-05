@@ -171,6 +171,7 @@ def _build_action_base(
         "phase": phase,
         "attempt": attempt,
         "instruction": contract.instruction if isinstance(contract, AgentStepContract) else "",
+        "await_input": bool(getattr(contract, "await_input", False)),
         "env": env,
         "step_context": _node_step_context(state, step_id),
         "prompt_dir": (
