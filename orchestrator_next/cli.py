@@ -226,10 +226,18 @@ def main() -> None:
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
         "next", "done", "graph", "doctor", "reset-step", "run", "validate-workflow",
-        "report",
+        "report", "acp", "acp-run",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
+    # ORC-ACP: `orchestrator acp` — Agent Client Protocol server over stdio.
+    if args[0] == "acp":
+        from orchestrator_next.acp_server import main as acp_main
+        sys.exit(acp_main())
+    # ORC-ACP: `orchestrator acp-run <topic>` — drive the ACP server as a client.
+    if args[0] == "acp-run":
+        from orchestrator_next.acp_server import acp_run_main
+        sys.exit(acp_run_main(args[1:]))
     # Apply --models-config early so every verb that resolves routes sees it.
     # `run` / workflow subcommands also consume it inside run_cmd; applying here
     # is idempotent and covers next/doctor.
