@@ -281,6 +281,66 @@ def _cleanup_session(session: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Session persistence (cross-process continuation)
+# ---------------------------------------------------------------------------
+
+def _session_store_dir() -> Path:
+    """Directory holding persisted ACP sessions (survives server restarts)."""
+    root = os.environ.get("ORCHESTRATOR_ACP_SESSION_DIR") or str(
+        Path.home() / ".orchestrator" / "acp-sessions"
+    )
+    d = Path(root)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _session_store_path(session_id: str) -> Path:
+    return _session_store_dir() / f"{session_id}.json"
+
+
+def _save_session(session_id: str, session: dict) -> None:
+    """Persist a session's resumable state to disk (best-effort)."""
+    try:
+        payload = {
+            "cwd": session.get("cwd"),
+            "schema": session.get("schema", "research"),
+            "mcpServers": session.get("mcpServers") or [],
+            "workflow": session.get("workflow") or {},
+        }
+        _session_store_path(session_id).write_text(
+            json.dumps(payload, indent=2), encoding="utf-8"
+        )
+    except OSError:
+        pass  # persistence is best-effort
+
+
+def _load_session(session_id: str) -> dict | None:
+    """Restore a persisted session, or None if unknown."""
+    try:
+        path = _session_store_path(session_id)
+        if not path.is_file():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return None
+        return {
+            "cwd": str(data.get("cwd") or os.getcwd()),
+            "schema": str(data.get("schema") or "research").strip(),
+            "mcpServers": data.get("mcpServers") or [],
+            "workflow": data.get("workflow") or {},
+        }
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _delete_session_store(session_id: str) -> None:
+    try:
+        _session_store_path(session_id).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Session + method dispatch
 # ---------------------------------------------------------------------------
 
@@ -318,7 +378,22 @@ class AcpServer:
                 # the session is closed.
                 "workflow": {},
             }
+            _save_session(session_id, self.sessions[session_id])
             _result(message_id, {"sessionId": session_id})
+            return
+
+        if method == "session/load":
+            session_id = params.get("sessionId")
+            restored = _load_session(session_id) if session_id else None
+            if restored is None:
+                _error(message_id, -32002, f"unknown session: {session_id}")
+                return
+            self.sessions[session_id] = restored
+            _result(message_id, {
+                "sessionId": session_id,
+                "cwd": restored.get("cwd"),
+                "schema": restored.get("schema", "research"),
+            })
             return
 
         if method == "session/prompt":
@@ -341,6 +416,11 @@ class AcpServer:
                     schema=str(session.get("schema") or "research"),
                     session_state=session.setdefault("workflow", {}),
                 )
+                # Workflow complete → drop the persisted session (done).
+                if not session.get("workflow", {}).get("state_yaml_path"):
+                    _delete_session_store(session_id)
+                else:
+                    _save_session(session_id, session)
                 _result(message_id, result)
             except Exception as exc:  # noqa: BLE001
                 _error(message_id, -32603, f"workflow error: {exc}")
@@ -351,6 +431,7 @@ class AcpServer:
             if session_id in self.sessions:
                 _cleanup_session(self.sessions[session_id])
                 del self.sessions[session_id]
+            _delete_session_store(session_id)
             _result(message_id, {})
             return
 
