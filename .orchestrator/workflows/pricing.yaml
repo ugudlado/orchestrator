@@ -101,6 +101,13 @@ models:
     cache_creation_usd: 0.0
     effective_from: "2025-01-01T00:00:00"
 
+  - model_id: deepseek-v4-flash
+    input_usd: 0.14
+    output_usd: 0.28
+    cache_read_usd: 0.0028
+    cache_creation_usd: 0.0
+    effective_from: "2026-04-24T00:00:00"
+
   # Cursor's first-party agentic-coding model (cursor-agent tool).
   # Rates per cursor.com/docs/models-and-pricing; Composer bills no cache write.
   - model_id: composer-2.5
