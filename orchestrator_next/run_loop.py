@@ -477,6 +477,22 @@ def _notify_blocked(state_yaml_path: str, state_raw: dict[str, Any], reason: str
 
 
 # ---------------------------------------------------------------------------
+# State finalization
+# ---------------------------------------------------------------------------
+def _finalize_state(state_yaml_path: str) -> None:
+    try:
+        with open(state_yaml_path) as f:
+            raw = yaml.safe_load(f) or {}
+        raw["status"] = "completed"
+        raw["next_step"] = None
+        Path(state_yaml_path).write_text(
+            yaml.safe_dump(raw, sort_keys=False, allow_unicode=True)
+        )
+    except OSError as exc:
+        _log(f"finalize_state: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # The loop
 # ---------------------------------------------------------------------------
 def run_loop(state_yaml_path: str, *, repo_root: str, models_yaml: str) -> int:
@@ -502,6 +518,8 @@ def run_loop(state_yaml_path: str, *, repo_root: str, models_yaml: str) -> int:
                 return 3
             if code == 1:
                 _log("Workflow complete.")
+                _finalize_state(state_yaml_path)
+                autocommit_state(state_yaml_path)
                 return 1
             if code == 2:
                 _log("Workflow blocked.")
