@@ -281,7 +281,7 @@ def _cleanup_session(session: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Session persistence (cross-process continuation)
+# Session persistence (cross-process + cross-environment continuation)
 # ---------------------------------------------------------------------------
 
 def _session_store_dir() -> Path:
@@ -298,36 +298,94 @@ def _session_store_path(session_id: str) -> Path:
     return _session_store_dir() / f"{session_id}.json"
 
 
-def _save_session(session_id: str, session: dict) -> None:
-    """Persist a session's resumable state to disk (best-effort)."""
+def _redis_client():
+    """Lazy Redis client if configured; None otherwise."""
+    url = os.environ.get("ORCHESTRATOR_ACP_REDIS_URL") or os.environ.get("REDIS_URL")
+    if not url:
+        return None
     try:
+        import redis  # type: ignore
+        return redis.from_url(url, decode_responses=True)
+    except ImportError:
+        return None
+
+
+def _session_store_kind() -> str:
+    return "redis" if _redis_client() is not None else "file"
+
+
+def _session_redis_key(session_id: str) -> str:
+    return f"orc:acp:session:{session_id}"
+
+
+def _save_session(session_id: str, session: dict) -> None:
+    """Persist a session's resumable state (best-effort).
+
+    Carries the state.yaml CONTENT (not just its path) so a session can be
+    resumed from a different machine/cloud environment: the store is the
+    source of truth for 'wherever we left off'.
+    """
+    try:
+        workflow = dict(session.get("workflow") or {})
+        state_yaml_path = workflow.get("state_yaml_path")
+        if state_yaml_path and Path(state_yaml_path).is_file():
+            try:
+                workflow["state_yaml_content"] = Path(state_yaml_path).read_text(
+                    encoding="utf-8"
+                )
+            except OSError:
+                workflow.pop("state_yaml_content", None)
         payload = {
             "cwd": session.get("cwd"),
             "schema": session.get("schema", "research"),
             "mcpServers": session.get("mcpServers") or [],
-            "workflow": session.get("workflow") or {},
+            "workflow": workflow,
         }
-        _session_store_path(session_id).write_text(
-            json.dumps(payload, indent=2), encoding="utf-8"
-        )
+        encoded = json.dumps(payload, indent=2)
+        client = _redis_client()
+        if client is not None:
+            client.set(_session_redis_key(session_id), encoded)
+        else:
+            _session_store_path(session_id).write_text(encoded, encoding="utf-8")
     except OSError:
         pass  # persistence is best-effort
 
 
 def _load_session(session_id: str) -> dict | None:
-    """Restore a persisted session, or None if unknown."""
+    """Restore a persisted session, or None if unknown.
+
+    If the stored workflow references a state.yaml that does not exist on
+    this machine but its content was persisted, materialize it so the engine
+    can dispatch the next step from exactly where the workflow left off.
+    """
     try:
-        path = _session_store_path(session_id)
-        if not path.is_file():
+        client = _redis_client()
+        if client is not None:
+            raw = client.get(_session_redis_key(session_id))
+        else:
+            path = _session_store_path(session_id)
+            if not path.is_file():
+                return None
+            raw = path.read_text(encoding="utf-8")
+        if not raw:
             return None
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(raw)
         if not isinstance(data, dict):
             return None
+        workflow = dict(data.get("workflow") or {})
+        state_yaml_path = workflow.get("state_yaml_path")
+        state_yaml_content = workflow.get("state_yaml_content")
+        if state_yaml_path and state_yaml_content and not Path(state_yaml_path).is_file():
+            try:
+                Path(state_yaml_path).parent.mkdir(parents=True, exist_ok=True)
+                Path(state_yaml_path).write_text(state_yaml_content, encoding="utf-8")
+            except OSError:
+                pass
         return {
             "cwd": str(data.get("cwd") or os.getcwd()),
             "schema": str(data.get("schema") or "research").strip(),
             "mcpServers": data.get("mcpServers") or [],
-            "workflow": data.get("workflow") or {},
+            "workflow": workflow,
         }
     except (OSError, json.JSONDecodeError):
         return None
@@ -335,7 +393,11 @@ def _load_session(session_id: str) -> dict | None:
 
 def _delete_session_store(session_id: str) -> None:
     try:
-        _session_store_path(session_id).unlink(missing_ok=True)
+        client = _redis_client()
+        if client is not None:
+            client.delete(_session_redis_key(session_id))
+        else:
+            _session_store_path(session_id).unlink(missing_ok=True)
     except OSError:
         pass
 
