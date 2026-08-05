@@ -159,7 +159,15 @@ def run_workflow(
     session_state["tmp_dir"] = str(tmp_dir)
 
     def _new_workflow() -> str:
-        slug = "".join(c if c.isalnum() or c in "-_" else "-" for c in prompt.lower()).strip("-")
+        slug_src = prompt
+        # Strip a leading schema keyword so the slug is clean
+        # ("research postgres" → slug "postgres", not "research-postgres").
+        if slug_src:
+            first = slug_src.strip().split(maxsplit=1)[0].strip(" ,.:;").lower()
+            if first in _SCHEMA_HINTS:
+                rest = slug_src.strip().split(maxsplit=1)[1:] 
+                slug_src = rest[0] if rest else ""
+        slug = "".join(c if c.isalnum() or c in "-_" else "-" for c in slug_src.lower()).strip("-")
         if not slug:
             slug = schema
         slug = slug[:80].rstrip("-")  # keep state filenames sane
@@ -402,6 +410,75 @@ def _delete_session_store(session_id: str) -> None:
         pass
 
 
+def _available_schemas() -> list[str]:
+    """Installed workflow schema names (workflow yaml files in the pack)."""
+    try:
+        from orchestrator_next.paths import config_root
+        wf_dir = config_root() / "workflows"
+        if wf_dir.is_dir():
+            return sorted(p.stem for p in wf_dir.glob("*.yaml"))
+    except Exception:  # noqa: BLE001
+        pass
+    return ["research", "consult"]
+
+
+# Keyword hints for request-driven schema routing. The FIRST matching schema
+# whose keyword appears in the request wins; if none or several match, the
+# server asks the user which workflow to run.
+_SCHEMA_HINTS: dict[str, tuple[str, ...]] = {
+    "research": ("research", "investigate", "findings", "report on"),
+    "consult": ("consult", "advise", "recommend", "help me decide", "what should"),
+    "feature": ("feature", "new capability", "add ability"),
+    "bugfix": ("bugfix", "bug fix", "fix bug", "defect", "crash"),
+    "design": ("design", "architecture", "plan out", "blueprint"),
+    "implement": ("implement", "implementing", "build it", "write code"),
+    "patch": ("patch", "apply patch"),
+    "complete": ("complete", "finish", "wrap up"),
+}
+
+
+def _route_schema(text: str) -> str | None:
+    """Read the workflow schema the AGENT declared; None if not declared.
+
+    The first step of any agent driving the orchestrator is to understand
+    which workflow schema the request needs and SAY it — either as the first
+    word ("research postgres indexing") or a "schema: X" declaration. The
+    orchestrator NEVER guesses from synonyms: if the request doesn't
+    explicitly name a schema, we ask the agent to declare one.
+    """
+    low = (text or "").strip().lower()
+    if not low:
+        return None
+    first_word = low.split(maxsplit=1)[0].strip(" ,.:;")
+    if first_word in _SCHEMA_HINTS:
+        return first_word
+    for prefix in ("schema:", "workflow:", "run the", "use the"):
+        if low.startswith(prefix):
+            rest = low[len(prefix):].strip()
+            word = rest.split(maxsplit=1)[0].strip(" ,.:;\"'")
+            if word in _SCHEMA_HINTS:
+                return word
+            # "run the research workflow on X" → "research" is not first
+            # after "run the"; scan the next few tokens for a schema name.
+            tokens = rest.split()
+            for tok in tokens[:4]:
+                if tok.strip(" ,.:;\"'") in _SCHEMA_HINTS:
+                    return tok.strip(" ,.:;\"'")
+    return None
+
+
+def _ask_schema(session_id: str) -> dict:
+    """Stream a schema-selection question back to the client."""
+    schemas = ", ".join(_available_schemas())
+    question = (
+        "Which workflow should I run? "
+        f"Available: {schemas}.\n"
+        "Send the workflow name (e.g. \"research <topic>\") to continue."
+    )
+    _notify(session_id, question)
+    return _completion("completed", question)
+
+
 # ---------------------------------------------------------------------------
 # Session + method dispatch
 # ---------------------------------------------------------------------------
@@ -420,21 +497,40 @@ class AcpServer:
                 "protocolVersion": 1,
                 "capabilities": {
                     "fs": {"readTextFile": True, "writeTextFile": True},
+                    # Workflow schema discovery — the AGENT's first step is to
+                    # pick which workflow to run; the server only executes what
+                    # the agent declares (never infers from request text).
+                    "workflows": {"schemas": _available_schemas()},
                 },
                 "agentCapabilities": {},
                 "serverInfo": {"name": "orchestrator", "version": "0.1.0"},
             })
             return
 
+        if method == "session/schemas":
+            _result(message_id, {"schemas": _available_schemas()})
+            return
+
         if method == "session/new":
             session_id = str(uuid.uuid4())
+            # Schema is the SERVER's decision, resolved from the request at
+            # first session/prompt. An explicit env pin (ORCHESTRATOR_ACP_SCHEMA)
+            # or client hint still wins; otherwise the schema stays unset and
+            # the first prompt is routed (or asks if unclear).
+            schema = str(
+                params.get("schema")
+                or os.environ.get("ORCHESTRATOR_ACP_SCHEMA", "")
+                or ""
+            ).strip()
             self.sessions[session_id] = {
                 "cwd": params.get("cwd") or os.getcwd(),
                 "mcpServers": params.get("mcpServers") or [],
                 # Workflow schema (workflow yaml name) this session drives.
-                # Defaults to 'research'; the client can pick any installed
-                # workflow (feature, bugfix, design, custom pack workflows).
-                "schema": str(params.get("schema") or "research").strip(),
+                # "" = unset → route from the first prompt's request.
+                "schema": schema,
+                # Set when we asked the user which workflow; the next prompt
+                # text is the answer (e.g. "research <topic>").
+                "awaiting_schema": False,
                 # Multi-turn workflow state: {state_yaml_path, tmp_dir,
                 # awaiting_step_id}. Cleared when the workflow completes or
                 # the session is closed.
@@ -473,6 +569,23 @@ class AcpServer:
             try:
                 session = self.sessions[session_id]
                 repo_root = str(session.get("cwd") or os.getcwd())
+
+                # Request-driven schema routing (server-side decision). If the
+                # schema isn't pinned yet and no workflow is in flight, resolve
+                # it from the request text; if unclear, ask the user and wait
+                # for their answer as the next prompt.
+                if not session.get("schema") and not session.get("workflow", {}).get("state_yaml_path"):
+                    route_text = _extract_topic(text)
+                    routed = _route_schema(route_text)
+                    if routed is None:
+                        session["awaiting_schema"] = True
+                        _save_session(session_id, session)
+                        _result(message_id, _ask_schema(session_id))
+                        return
+                    session["schema"] = routed
+                    session["awaiting_schema"] = False
+                    _notify(session_id, f"📋 routing to workflow: {routed}")
+
                 result = run_workflow(
                     text, session_id, repo_root,
                     schema=str(session.get("schema") or "research"),
@@ -495,10 +608,6 @@ class AcpServer:
                 del self.sessions[session_id]
             _delete_session_store(session_id)
             _result(message_id, {})
-            return
-
-        if method == "session/load":
-            _error(message_id, -32002, "session/load not supported yet")
             return
 
         if method == "session/list":
