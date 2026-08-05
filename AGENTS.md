@@ -107,7 +107,7 @@ wheel.
 ### Dev CLI
 
 ```bash
-uv sync / poetry install   # per repo setup
+uv sync --extra dev   # installs engine + dev/redis extras into .venv
 python -m orchestrator_next --help
 pytest orchestrator_next/tests/ -q
 ```
