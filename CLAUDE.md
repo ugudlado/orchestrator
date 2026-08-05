@@ -214,18 +214,41 @@ orchestrator --help
 
 ## Cursor Cloud specific instructions
 
-Environment setup (deps + wiring) is handled by the startup update script (`pip install -e .` + `pytest`/`ruff` + the two symlinks below). Notes here are the non-obvious caveats for running things.
+Cloud install for Claude Code remote sessions is the SessionStart hook
+(`.claude/settings.json` → `.claude/cloud-setup.sh`). Leave the environment
+**Setup script** field empty — see `docs/cloud-environment.md`. Notes below are
+Cursor Cloud / sandbox caveats verified against current `main`.
 
-- **Interpreter:** only `python3` exists (no `python`). `DRIVE.md`/`.claude/cloud-setup.sh` say `python`; use `python3` (or the installed `orchestrator` console script).
-- **Install:** `pip install -e .` works and is the intended install (console script `orchestrator`, config shipped in-package). `orchestrator config-path` prints the config dir.
-- **CLI needs an explicit config root.** `config_root()` has no cwd/bundled fallback: every dispatch verb (`next`, `graph`, `validate-workflow`, `doctor`) raises `ConfigRootError` unless `ORCHESTRATOR_CONFIG` or `ORCHESTRATOR_HOME` is set. Run with `export ORCHESTRATOR_CONFIG=$(orchestrator config-path)` (or `ORCHESTRATOR_HOME=<repo>`). The test suite sets this itself.
-- **Lint:** `ruff check orchestrator_next/` (config in `pyproject.toml`).
-- **Canonical tests:** `pytest orchestrator_next/tests/ -q` from the repo root — expect `292 passed, 5 xfailed`. Two gotchas:
-  - Do **not** have `ORCHESTRATOR_SKIP_USAGE_CHECK` set when running the suite — it disables usage validation and makes `test_record_validation.py::TestCheckB` fail. (It's only for the DRIVE.md self-drive loop.)
-  - Tests default `ORCHESTRATOR_HOME` to `~/.config/orchestrator` and several invoke the CLI at `~/.local/bin/orchestrator`. The update script creates both symlinks (config → repo `config/`, CLI → repo `bin/orchestrator`); without them ~12 tests fail with "schema not found" / "orchestrator not found".
-- **Drive loop auto-commits + pushes in headless mode.** With `CLAUDE_CODE_REMOTE=true` (or `ORCHESTRATOR_HEADLESS=1`), every `orchestrator next`/`done` auto-commits `.orchestrator/<slug>/` and pushes on block (`record.py:autocommit_state`, for cloud resume per DRIVE.md). This creates `wip: orchestrator state for <slug>` commits on your current branch. When smoke-testing the loop, do it on a throwaway branch/scratch repo or leave `CLAUDE_CODE_REMOTE` unset — otherwise it mutates your working branch. Self-drive: `orchestrator run <slug> --schema <s> --seed-only` seeds `.orchestrator/<slug>/`, then loop `next`/`done`.
-- **Backlog tickets are HTTP REST now.** Ticket steps (`load-ticket-context`, `ticket-start`/`review`/`qa`, `ticket-done`) source `config/steps/lib/backlog-api.sh` and call the Backlog REST API using **`BACKLOG_URL` + `BACKLOG_TOKEN` + `BACKLOG_PROJECT_ID`** (VM env vars → add via the Secrets panel). This repo's `spec/project.yaml` has `ticketing: backlog`, so these steps **fail the run (exit 1) when the creds are missing** — the three secrets are required to drive a real workflow here (`load-ticket-context` is the second step after `create-worktree`). Repos with a non-backlog `ticketing` no-op these steps.
-- **Backlog MCP is HTTP.** `.mcp.json` defines an HTTP MCP at `${BACKLOG_URL}/projects/${BACKLOG_PROJECT_ID}/mcp` (`Authorization: Bearer ${BACKLOG_TOKEN}`) in Claude Code format. For **Cursor Cloud agents**, HTTP MCP servers are *not* loaded from repo files — register the backlog server via the Cursor cloud MCP config (personal dropdown at `cursor.com/agents` or team Dashboard → Integrations & MCP) with the token in `headers`. The engine's own ticket transitions do not need the MCP — they use the REST env vars above.
-- **bats shell tests (`tests/*.bats`):** need `bats` (not in the update script; `sudo apt-get install -y bats`). Most are **stale** — they reference scripts removed in the June-2026 simplification and fail on a clean checkout regardless of environment. Only `tests/bats/render-retro.bats` and `tests/bats/inline_script_cwd_anchor.bats` pass. Not part of the canonical verify.
+- **Interpreter:** sandboxes often only have `python3` (no `python`). Prefer the
+  `orchestrator` console script after install. `.claude/cloud-setup.sh` still
+  invokes `python`/`pip`; use `python3`/`pip3` if the hook fails.
+- **Install:** local/dev prefer `uv tool install` / `uv sync` (see README). Cloud
+  SessionStart still does `pip install -e .` from the repo root (CWD is the clone).
+  `orchestrator config-path` / `orchestrator doctor` confirm the active pack.
+- **Config root:** resolution is `ORCHESTRATOR_CONFIG` → exactly one
+  `.orchestrator/<pack>/` → engine `config/` → `~/.orchestrator/pack/config`.
+  This repo vendors a single pack, so `doctor` works without exporting
+  `ORCHESTRATOR_CONFIG`. With multiple packs, qualify workflows as
+  `<pack>/<workflow>` or set `ORCHESTRATOR_CONFIG`.
+- **Lint / tests:** `ruff check orchestrator_next/`;
+  `pytest orchestrator_next/tests/ -q` (currently ~389 passed; ignore stale bats
+  under `tests/*.bats`). Do **not** set `ORCHESTRATOR_SKIP_USAGE_CHECK` when
+  running the suite (that flag is for the DRIVE.md self-drive loop only).
+- **Drive loop auto-commits in headless mode.** With `CLAUDE_CODE_REMOTE=true`
+  or `ORCHESTRATOR_HEADLESS=1`, `next`/`done` auto-commit `.orchestrator/<slug>/`
+  and push on block. Smoke-test on a throwaway branch, or leave those unset.
+  Self-drive: `orchestrator run <slug> --schema <s> --seed-only`, then loop
+  `next`/`done`.
+- **Backlog REST secrets:** ticket steps need `BACKLOG_URL` + `BACKLOG_TOKEN` +
+  project (`BACKLOG_PROJECT` or `BACKLOG_PROJECT_ID`). Missing creds fail the run
+  when `ticketing: backlog`. Repos without backlog ticketing no-op those steps.
+- **Backlog MCP:** `.mcp.json` uses
+  `${BACKLOG_URL}/projects/${BACKLOG_PROJECT_ID}/mcp`. Cursor Cloud agents do
+  not load repo `.mcp.json` HTTP servers — register the server in Cursor cloud
+  MCP settings with the bearer token in headers. Engine ticket transitions use
+  REST env vars, not MCP.
+- **Network:** backlog hosts that are Tailscale-only are unreachable from cloud
+  sandboxes unless exposed (Funnel / public HTTPS) and allowlisted — see
+  `docs/cloud-environment.md`.
 
 ---
