@@ -31,8 +31,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import urllib.error
-import urllib.request
 import uuid
 from pathlib import Path
 
@@ -75,20 +73,6 @@ def _notify(session_id: str, text: str, kind: str = "agent_message_chunk") -> No
 # ---------------------------------------------------------------------------
 # Research workflow driver (real engine)
 # ---------------------------------------------------------------------------
-
-def _load_tavily_key() -> str:
-    """TAVILY_API_KEY for the search-web step (falls back to ~/.hermes/.env)."""
-    key = os.environ.get("TAVILY_API_KEY", "")
-    if key:
-        return key
-    env_file = Path(os.path.expanduser("~/.hermes/.env"))
-    if env_file.is_file():
-        for line in env_file.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line.startswith("TAVILY_API_KEY="):
-                return line.split("=", 1)[1].strip()
-    return ""
-
 
 def _final_state_text(state_yaml_path: str) -> str:
     """Human summary of a completed run: step history + artifact pointers."""
@@ -325,10 +309,6 @@ def _redis_client():
         return redis.from_url(url, decode_responses=True)
     except ImportError:
         return None
-
-
-def _session_store_kind() -> str:
-    return "redis" if _redis_client() is not None else "file"
 
 
 def _session_redis_key(session_id: str) -> str:
