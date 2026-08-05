@@ -286,7 +286,7 @@ def main() -> None:
     # 'record' kept for silent backward-compat (one cycle) but absent from the banner.
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
-        "next", "done", "record", "graph", "doctor", "reset-step", "run", "validate-workflow",
+        "next", "done", "record", "graph", "doctor", "reset-step", "run", "validate-workflow", "acp", "acp-run",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
@@ -294,6 +294,19 @@ def main() -> None:
         "next", "record", "done", "graph", "reset-step", "run", "validate-workflow",
     ) or (len(args) < 2 and args[0] in _wf_subcommands):
         _usage()
+
+    # ORC-ACP: `orchestrator acp` — Agent Client Protocol server over stdio.
+    if args[0] == "acp":
+        from orchestrator_next.acp_server import main as acp_main
+        sys.exit(acp_main())
+
+    # ORC-ACP: `orchestrator acp-run <topic>` — drive the ACP server as a client
+    # (spawns `orchestrator acp`, streams session/update notifications live to
+    # stdout, prints the final result). Proves the protocol end-to-end.
+    if args[0] == "acp-run":
+        from orchestrator_next.acp_server import acp_run_main
+        sys.exit(acp_run_main(args[1:]))
+
     # ORC-108: each config/workflows/<name>.yaml is a CLI subcommand → orchestrator-run.sh.
     if args[0] in _wf_subcommands:
         _run_verb([args[1], "--schema", args[0], *args[2:]])
