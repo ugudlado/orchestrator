@@ -39,10 +39,10 @@ setup_python_deps() {
   if ! command -v python3 >/dev/null 2>&1; then
     die "python3 is required but not found on PATH"
   fi
-  if command -v poetry >/dev/null 2>&1 && [ -f "$ORCHESTRATOR_DIR/pyproject.toml" ]; then
-    echo "Installing Python dependencies via poetry..."
-    (cd "$ORCHESTRATOR_DIR" && poetry install --no-interaction --no-root 2>/dev/null) \
-      || (cd "$ORCHESTRATOR_DIR" && poetry install --no-interaction)
+  if command -v uv >/dev/null 2>&1 && [ -f "$ORCHESTRATOR_DIR/pyproject.toml" ]; then
+    echo "Installing Python dependencies via uv..."
+    (cd "$ORCHESTRATOR_DIR" && uv sync --extra dev 2>/dev/null) \
+      || (cd "$ORCHESTRATOR_DIR" && uv sync)
   elif ! python3 -c "import yaml, pydantic" 2>/dev/null; then
     echo "Installing Python dependencies (pyyaml pydantic)..."
     pip install --user pyyaml pydantic
