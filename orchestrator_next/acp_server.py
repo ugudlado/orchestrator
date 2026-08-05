@@ -19,9 +19,9 @@ Wire format (matches agentclientprotocol.org + Hermes' own ACP client):
 
 Everything on stdout is a valid ACP message; diagnostics go to stderr.
 
-The demo workflow (research.yaml) runs a small deterministic research
-pipeline: search the web for a topic (Tavily), summarize the findings, and
-emit a final report. Each phase streams a session/update notification.
+The research workflow (config/workflows/research.yaml) runs through the real
+engine: seed state, dispatch, run each step, stream session/update
+notifications as steps progress, return a completion result.
 """
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 import uuid
@@ -67,10 +68,11 @@ def _notify(session_id: str, text: str, kind: str = "agent_message_chunk") -> No
 
 
 # ---------------------------------------------------------------------------
-# Research workflow (small, deterministic)
+# Research workflow driver (real engine)
 # ---------------------------------------------------------------------------
 
 def _load_tavily_key() -> str:
+    """TAVILY_API_KEY for the search-web step (falls back to ~/.hermes/.env)."""
     key = os.environ.get("TAVILY_API_KEY", "")
     if key:
         return key
@@ -83,64 +85,138 @@ def _load_tavily_key() -> str:
     return ""
 
 
-def _tavily_search(query: str, max_results: int = 4) -> list[dict]:
-    """Search the web via Tavily. Returns [{title, url, content}]."""
-    key = _load_tavily_key()
-    if not key:
-        return [{"title": "(no TAVILY_API_KEY)", "url": "", "content": ""}]
-    payload = {
-        "api_key": key,
-        "query": query,
-        "max_results": max_results,
-        "search_depth": "advanced",
-    }
-    req = urllib.request.Request(
-        "https://api.tavily.com/search",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+def _final_state_text(state_yaml_path: str) -> str:
+    """Human summary of a completed run: step history + artifact pointers."""
     try:
-        with urllib.request.urlopen(req, timeout=25) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        return data.get("results", []) or []
-    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError) as exc:
-        return [{"title": f"(search error: {exc})", "url": "", "content": ""}]
+        import yaml
+        raw = yaml.safe_load(Path(state_yaml_path).read_text(encoding="utf-8")) or {}
+    except Exception:  # noqa: BLE001
+        return "workflow finished"
+    steps = []
+    for entry in raw.get("step_history") or []:
+        sid = entry.get("step_id") if isinstance(entry, dict) else None
+        status = entry.get("status") if isinstance(entry, dict) else None
+        if sid:
+            steps.append(f"- {sid}: {status}")
+    parts = [f"workflow '{raw.get('schema', '?')}' completed"]
+    if steps:
+        parts.append("steps:\n" + "\n".join(steps))
+    return "\n".join(parts)
 
 
-def run_research(topic: str, session_id: str) -> dict:
-    """Run the research pipeline, streaming each phase.
+def _extract_topic(prompt_text: str) -> str:
+    """Pull the actual user request out of the formatted ACP prompt.
 
-    Returns a completion result: {"outcome": "completed", "messages": [...]}.
+    Hermes sends the whole conversation (system + transcript + user) as one
+    prompt text. The workflow topic is the last User: section, not the system
+    preamble or model hints.
     """
-    _notify(session_id, f"🔍 Researching: {topic}")
-    _notify(session_id, "  phase 1/3: searching the web (Tavily)...")
+    text = prompt_text.strip()
+    # Take the last "User:" section if present; else the whole text.
+    marker = "\nUser:\n"
+    idx = text.rfind(marker)
+    if idx != -1:
+        text = text[idx + len(marker):].strip()
+    # Drop trailing instructions the client appends after the transcript.
+    for cut in ("\nContinue the conversation", "\nAvailable tools"):
+        pos = text.find(cut)
+        if pos != -1:
+            text = text[:pos].strip()
+            break
+    return text or "research"
 
-    results = _tavily_search(topic)
-    top = results[:4]
-    _notify(session_id, f"  phase 1/3: got {len(top)} results")
 
-    # Phase 2 — summarize
-    _notify(session_id, "  phase 2/3: summarizing findings...")
-    lines = []
-    for i, r in enumerate(top, 1):
-        title = (r.get("title") or "(untitled)").strip()
-        url = (r.get("url") or "").strip()
-        snippet = (r.get("content") or "").strip().replace("\n", " ")[:200]
-        lines.append(f"{i}. **{title}**\n   {url}\n   {snippet}...")
-        _notify(session_id, f"  phase 2/3: source {i}: {title}")
+def run_workflow(topic: str, session_id: str, repo_root: str) -> dict:
+    """Run the configured research workflow through the real engine.
 
-    # Phase 3 — report
-    _notify(session_id, "  phase 3/3: building report...")
-    report = "\n\n".join(lines) if lines else "No results found."
-    final_text = f"# Research: {topic}\n\n{report}"
-    _notify(session_id, "✅ research complete")
+    Seeds a state.yaml for schema `research` in a temp repo, then drives
+    dispatch → run_agent_step/run_script_step → record until complete,
+    streaming each step as a session/update notification.
+    """
+    from orchestrator_next.run_loop import (
+        run_agent_step,
+        run_script_step,
+        _seed_state,
+    )
+    from orchestrator_next.parser import load_state
+    from orchestrator_next.record import record
+    from orchestrator_next.paths import config_root
 
+    topic = _extract_topic(topic)
+    slug = "".join(c if c.isalnum() or c in "-_" else "-" for c in topic.lower()).strip("-")
+    if not slug:
+        slug = "research"
+    slug = slug[:80].rstrip("-")  # keep state filenames sane
+
+    state_yaml_path = _seed_state(slug, "research", repo_root)
+    _notify(session_id, f"🔍 Workflow: research on '{topic}'")
+    _notify(session_id, f"  state: {state_yaml_path}")
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="orc-acp-"))
+    try:
+        state_yaml = state_yaml_path
+        while True:
+            if not Path(state_yaml).is_file():
+                _notify(session_id, "✅ workflow complete (state archived)")
+                break
+            state = load_state(state_yaml)
+            from orchestrator_next.dispatch import dispatch
+
+            try:
+                action, code = dispatch(state, state_yaml)
+            except Exception as exc:  # noqa: BLE001
+                _error_to_notify(session_id, f"dispatch error: {exc}")
+                return _completion("completed", f"workflow error: {exc}")
+
+            if code == 1:
+                _notify(session_id, "✅ workflow complete")
+                break
+            if code == 2:
+                _notify(session_id, "⛔ workflow blocked")
+                break
+            if code == 3:
+                _notify(session_id, "❌ workflow error")
+                break
+
+            step_id = action.get("step_id", "?")
+            if action.get("model"):
+                _notify(session_id, f"→ {step_id} (agent, {action.get('model')})")
+                payload = run_agent_step(
+                    action,
+                    repo_root=repo_root,
+                    models_yaml=str(config_root() / "models.yaml"),
+                    state_raw=state.raw,
+                    state_yaml_path=state_yaml,
+                    tmp_dir=tmp_dir,
+                )
+                result, rc = record(state_yaml, payload)
+                _notify(session_id, f"  ✓ {step_id} {payload.get('status', '?')} (rc={rc})")
+            elif action.get("run"):
+                _notify(session_id, f"→ {step_id} (script)")
+                ok, state_yaml = run_script_step(action, state_yaml_path=state_yaml, state=state)
+                _notify(session_id, f"  ✓ {step_id} done" if ok else f"  ✗ {step_id} failed")
+                if not ok:
+                    break
+            else:
+                _notify(session_id, f"→ {step_id} (no action)")
+                break
+    finally:
+        import shutil
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return _completion("completed", _final_state_text(state_yaml_path))
+
+
+def _error_to_notify(session_id: str, text: str) -> None:
+    _notify(session_id, text, kind="agent_thought_chunk")
+
+
+def _completion(outcome: str, text: str) -> dict:
     return {
         "outcome": {
-            "outcome": "completed",
+            "outcome": outcome,
             "messages": [
-                {"role": "assistant", "content": [{"type": "text", "text": final_text}]}
+                {"role": "assistant", "content": [{"type": "text", "text": text}]}
             ],
         }
     }
@@ -192,7 +268,8 @@ class AcpServer:
                 _error(message_id, -32602, "empty prompt")
                 return
             try:
-                result = run_research(text, session_id)
+                repo_root = str(self.sessions[session_id].get("cwd") or os.getcwd())
+                result = run_workflow(text, session_id, repo_root)
                 _result(message_id, result)
             except Exception as exc:  # noqa: BLE001
                 _error(message_id, -32603, f"workflow error: {exc}")

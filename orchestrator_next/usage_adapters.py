@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 NormalizedResult = dict[str, Any]
-AdapterFn = Callable[[str, str | None], NormalizedResult]
+AdapterFn = Callable[[str, str | None, str], NormalizedResult]
 
 ZEROED_USAGE: dict[str, Any] = {
     "input_tokens": 0,
@@ -66,7 +66,7 @@ def _parse_jsonl(raw: str) -> list[dict[str, Any]]:
     return events
 
 
-def _adapt_claude(raw: str, route_model: str | None) -> NormalizedResult:
+def _adapt_claude(raw: str, route_model: str | None, usage_file: str = "") -> NormalizedResult:
     del route_model
     data = _parse_json_object(raw)
     if data is None:
@@ -87,7 +87,7 @@ def _adapt_claude(raw: str, route_model: str | None) -> NormalizedResult:
     }
 
 
-def _adapt_cursor_agent(raw: str, route_model: str | None) -> NormalizedResult:
+def _adapt_cursor_agent(raw: str, route_model: str | None, usage_file: str = "") -> NormalizedResult:
     data = _parse_json_object(raw)
     if data is None:
         raise ValueError("invalid cursor-agent JSON")
@@ -120,7 +120,7 @@ def _extract_codex_assistant_text(events: list[dict[str, Any]]) -> str:
     return "".join(parts)
 
 
-def _adapt_codex(raw: str, route_model: str | None) -> NormalizedResult:
+def _adapt_codex(raw: str, route_model: str | None, usage_file: str = "") -> NormalizedResult:
     events = _parse_jsonl(raw)
     if not events:
         raise ValueError("invalid codex JSONL")
@@ -162,7 +162,7 @@ def _extract_pi_assistant_text(events: list[dict[str, Any]]) -> str:
     return "".join(parts)
 
 
-def _adapt_pi(raw: str, route_model: str | None) -> NormalizedResult:
+def _adapt_pi(raw: str, route_model: str | None, usage_file: str = "") -> NormalizedResult:
     """pi --mode json: JSONL session events; last turn_end has usage + cost."""
     del route_model
     events = _parse_jsonl(raw)
@@ -192,9 +192,29 @@ def _adapt_pi(raw: str, route_model: str | None) -> NormalizedResult:
     }
 
 
-def _adapt_passthrough(raw: str, route_model: str | None) -> NormalizedResult:
+def _adapt_passthrough(raw: str, route_model: str | None, usage_file: str = "") -> NormalizedResult:
     del route_model
     return _empty_result(assistant_text=raw)
+
+
+def _adapt_hermes(raw: str, route_model: str | None, usage_file: str = "") -> NormalizedResult:
+    """hermes -z --usage-file: plain text stdout + JSON usage sidecar."""
+    del route_model
+    usage: dict[str, Any] = {}
+    if usage_file:
+        try:
+            usage = _parse_json_object(Path(usage_file).read_text(encoding="utf-8")) or {}
+        except OSError:
+            usage = {}
+    return {
+        "assistant_text": raw,
+        "input_tokens": int(usage.get("input_tokens") or 0),
+        "output_tokens": int(usage.get("output_tokens") or 0),
+        "cache_read_input_tokens": int(usage.get("cache_read_tokens") or 0),
+        "cache_creation_input_tokens": int(usage.get("cache_write_tokens") or 0),
+        "model": usage.get("model") or None,
+        "cost_usd": usage.get("estimated_cost_usd"),
+    }
 
 
 TOOL_ADAPTERS: dict[str, AdapterFn] = {
@@ -202,6 +222,7 @@ TOOL_ADAPTERS: dict[str, AdapterFn] = {
     "cursor-agent": _adapt_cursor_agent,
     "codex": _adapt_codex,
     "pi": _adapt_pi,
+    "hermes": _adapt_hermes,
 }
 
 
@@ -210,6 +231,7 @@ def split_stdout(
     stdout_path: os.PathLike[str] | str,
     *,
     route_model: str | None = None,
+    usage_file: str = "",
 ) -> NormalizedResult:
     """Split captured tool stdout into assistant text and normalized usage."""
     raw = _read_text(stdout_path)
@@ -218,7 +240,7 @@ def split_stdout(
 
     adapter = TOOL_ADAPTERS.get(tool, _adapt_passthrough)
     try:
-        return adapter(raw, route_model)
+        return adapter(raw, route_model, usage_file)
     except (ValueError, TypeError, KeyError) as exc:
         _warn(f"usage_adapters: failed to parse {tool} stdout: {exc}")
         return _empty_result(assistant_text=raw)

@@ -155,8 +155,11 @@ def _resolve_tool_template(tool_name: str, models_yaml: str | None) -> tuple[str
 def _build_argv(
     tool_name: str, binary: str, template: list[str],
     prompt: str, prompt_file: str, model_id: str,
+    usage_file: str = "",
 ) -> list[str]:
     def expand(arg: str) -> str:
+        if "{usage_file}" in arg:
+            return arg.replace("{usage_file}", usage_file)
         if "{prompt_file}" in arg:
             return arg.replace("{prompt_file}", prompt_file)
         if "{model_id}" in arg:
@@ -184,8 +187,9 @@ def invoke_tool(
     cwd: str | None, stdout_path: Path, stderr_path: Path,
     *,
     extra_env: dict[str, str] | None = None,
+    usage_file: str = "",
 ) -> int:
-    argv = _build_argv(tool_name, binary, template, prompt, prompt_file, model_id)
+    argv = _build_argv(tool_name, binary, template, prompt, prompt_file, model_id, usage_file=usage_file)
     env = os.environ.copy()
     if extra_env:
         env.update({k: str(v) for k, v in extra_env.items() if v is not None})
@@ -288,6 +292,7 @@ def run_agent_step(
 
     stdout_path = tmp_dir / f"out_{step_id}.txt"
     stderr_path = tmp_dir / f"err_{step_id}.txt"
+    usage_path = tmp_dir / f"usage_{step_id}.json"
     fallback_note = f"  (fallback #{route['active_index']} for {model})" if route["is_fallback"] else ""
     _log(f"  invoking {tool_name} ({binary})" + (f"  model={model_id}" if model_id else "") + fallback_note)
     agent_env = dict(action.get("env") or {})
@@ -296,7 +301,8 @@ def run_agent_step(
         agent_env["ORCHESTRATOR_PROMPT_DIR"] = str(prompt_dir)
     rc = invoke_tool(tool_name, binary, template, prompt, str(prompt_file),
                      model_id, work_dir, stdout_path, stderr_path,
-                     extra_env=agent_env)
+                     extra_env=agent_env,
+                     usage_file=str(usage_path))
     if rc != 0:
         stderr_tail = stderr_path.read_text(errors="replace")[-2000:] if stderr_path.exists() else ""
         _log(f"WARN: tool '{binary}' exited {rc}")
@@ -305,7 +311,8 @@ def run_agent_step(
         return _failed_payload(action, rc)
 
     adapter_tool = "cursor-agent" if tool_name == "cursor" else tool_name
-    norm = split_stdout(adapter_tool, stdout_path, route_model=model_id or None)
+    norm = split_stdout(adapter_tool, stdout_path, route_model=model_id or None,
+                        usage_file=str(usage_path))
     usage = {k: v for k, v in norm.items() if k != "assistant_text"}
     try:
         completion = parse_completion(norm.get("assistant_text") or "")

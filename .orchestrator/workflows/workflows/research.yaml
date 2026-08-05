@@ -1,0 +1,17 @@
+# Research workflow (ORC-ACP).
+#
+# CLI: `orchestrator research <topic>` — same driver as other workflows:
+# orchestrator run --schema research → in-process loop (run_loop.py).
+# Also drivable over ACP: `orchestrator acp` → session/prompt runs this
+# workflow and streams each step as agent_message_chunk.
+#
+# Input:  <id> = free-form research topic string (slug-safe).
+# Output: spec/changes/<slug>/topic.md   (intake context)
+#         spec/changes/<slug>/sources.json (Tavily search results)
+#         spec/changes/<slug>/findings.md  (synthesized research report)
+#         spec/changes/<slug>/report.md    (run metrics via workflow-report)
+steps:
+  - intake-research
+  - search-web
+  - synthesize-findings
+  - workflow-report

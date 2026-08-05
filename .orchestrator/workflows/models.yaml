@@ -3,6 +3,9 @@ tools:
     binary: claude
     args_template:
       ["--model", "{model_id}", "-p", "--output-format", "json", "{prompt}"]
+  hermes:
+    binary: hermes
+    args_template: ["-z", "{prompt}", "--usage-file", "{usage_file}"]
   pi:
     binary: pi
     args_template: ["--mode", "json", "@{prompt_file}"]
@@ -26,6 +29,7 @@ models:
   strong: { model_id: claude-opus-5, tool: claude }
   standard: { model_id: claude-sonnet-5, tool: claude }
   code: { model_id: composer-2.5, tool: cursor }
+  acp-light: { model_id: deepseek-v4-flash, tool: hermes }
 
 step_models:
   design: strong
@@ -37,3 +41,4 @@ step_models:
   design-review: standard
   ux-critique: standard
   implement: code
+  synthesize-findings: acp-light
