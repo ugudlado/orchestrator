@@ -40,6 +40,10 @@ from pathlib import Path
 # Protocol helpers
 # ---------------------------------------------------------------------------
 
+# Last user-role marker at a line boundary (inline "User: x", block
+# "User:\nx", any case). The workflow topic is the last user turn.
+_USER_MARKER = re.compile(r"^\s*user\s*:\s*(?=\S)", re.MULTILINE | re.IGNORECASE)
+
 def _send(obj: dict) -> None:
     """Write one JSON-RPC message to stdout (the ACP channel)."""
     sys.stdout.write(json.dumps(obj) + "\n")
@@ -118,10 +122,8 @@ def _extract_topic(prompt_text: str) -> str:
     LAST match (the most recent user turn).
     """
     text = prompt_text.strip()
-    # Last user-role marker at a line boundary; `:` may be followed by a
-    # newline (block) or inline text. (?i) covers "user:" vs "User:".
-    marker = re.compile(r"(?:^|\n)\s*[Uu]ser\s*:\s*(?=\S)")
-    matches = list(marker.finditer(text))
+    # Take everything after the LAST user-role marker (most recent turn).
+    matches = list(_USER_MARKER.finditer(text))
     if matches:
         text = text[matches[-1].end():].strip()
     # Drop trailing instructions the client appends after the transcript.
