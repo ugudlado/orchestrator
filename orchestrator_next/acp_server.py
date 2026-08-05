@@ -428,7 +428,7 @@ def _available_schemas() -> list[str]:
             return sorted(p.stem for p in wf_dir.glob("*.yaml"))
     except Exception:  # noqa: BLE001
         pass
-    return ["research", "consult"]
+    return ["research"]
 
 
 # Keyword hints for request-driven schema routing. The FIRST matching schema
@@ -436,7 +436,6 @@ def _available_schemas() -> list[str]:
 # server asks the user which workflow to run.
 _SCHEMA_HINTS: dict[str, tuple[str, ...]] = {
     "research": ("research", "investigate", "findings", "report on"),
-    "consult": ("consult", "advise", "recommend", "help me decide", "what should"),
     "feature": ("feature", "new capability", "add ability"),
     "bugfix": ("bugfix", "bug fix", "fix bug", "defect", "crash"),
     "design": ("design", "architecture", "plan out", "blueprint"),

@@ -42,4 +42,3 @@ step_models:
   ux-critique: standard
   implement: code
   synthesize-findings: acp-light
-  clarify-focus: acp-light
