@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -110,13 +111,19 @@ def _extract_topic(prompt_text: str) -> str:
     Hermes sends the whole conversation (system + transcript + user) as one
     prompt text. The workflow topic is the last User: section, not the system
     preamble or model hints.
+
+    Matches the user-role marker at a line boundary in any of the common
+    formats — ``User: text`` (inline), ``User:\\ntext`` (block), lowercase
+    ``user:``, and capitalised variants — then returns everything after the
+    LAST match (the most recent user turn).
     """
     text = prompt_text.strip()
-    # Take the last "User:" section if present; else the whole text.
-    marker = "\nUser:\n"
-    idx = text.rfind(marker)
-    if idx != -1:
-        text = text[idx + len(marker):].strip()
+    # Last user-role marker at a line boundary; `:` may be followed by a
+    # newline (block) or inline text. (?i) covers "user:" vs "User:".
+    marker = re.compile(r"(?:^|\n)\s*[Uu]ser\s*:\s*(?=\S)")
+    matches = list(marker.finditer(text))
+    if matches:
+        text = text[matches[-1].end():].strip()
     # Drop trailing instructions the client appends after the transcript.
     for cut in ("\nContinue the conversation", "\nAvailable tools"):
         pos = text.find(cut)
@@ -410,6 +417,26 @@ def _delete_session_store(session_id: str) -> None:
         pass
 
 
+def _persisted_session_ids() -> list[str]:
+    """Session ids present in the persistent store (survive restarts).
+
+    Union with the in-memory sessions in ``session/list`` so a client can
+    discover resumable sessions after a server restart (the advertised
+    cross-process continuation feature).
+    """
+    client = _redis_client()
+    if client is not None:
+        try:
+            keys = client.keys(_session_redis_key("*"))
+        except OSError:
+            return []
+        return [k.rsplit(":", 1)[-1] for k in keys]
+    try:
+        return [p.stem for p in _session_store_dir().glob("*.json")]
+    except OSError:
+        return []
+
+
 def _available_schemas() -> list[str]:
     """Installed workflow schema names (workflow yaml files in the pack)."""
     try:
@@ -611,7 +638,10 @@ class AcpServer:
             return
 
         if method == "session/list":
-            _result(message_id, {"sessionIds": list(self.sessions.keys())})
+            # In-memory sessions union persisted store ids (restart discovery).
+            ids = set(self.sessions.keys())
+            ids.update(_persisted_session_ids())
+            _result(message_id, {"sessionIds": sorted(ids)})
             return
 
         _error(message_id, -32601, f"method not found: {method}")
