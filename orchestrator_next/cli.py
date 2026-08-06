@@ -45,8 +45,6 @@ def _usage() -> None:
         "      Check that workflow config and model routing look correct.\n"
         "  orchestrator report --state <state.yaml> | --all [--repo PATH] [--json]\n"
         "  orchestrator graph <workflow>\n"
-        "  orchestrator acp\n"
-        "      ACP stdio server (Hermes / editor clients).\n"
         "\n"
         "  --models-config PATH  Override models.yaml for this invocation\n"
         "                        (also: models.config=PATH)",
@@ -217,7 +215,7 @@ def main() -> None:
                 file=sys.stderr,
             )
             sys.exit(7)
-        from orchestrator_next.acp_client import resume_main
+        from orchestrator_next.session_cli import resume_main
         _default_repo_root_env()
         sys.exit(resume_main(args[1], " ".join(args[2:]).strip()))
     # config-path needs no config root set — it's how you discover the value
@@ -244,21 +242,18 @@ def main() -> None:
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
         "next", "done", "graph", "doctor", "reset-step", "run", "validate-workflow",
-        "report", "acp",
+        "report",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
-    if args[0] == "acp":
-        from orchestrator_next.acp_server import main as acp_main
-        sys.exit(acp_main())
     # Apply --models-config early so every verb that resolves routes sees it.
     # `run` / workflow subcommands also consume it inside run_cmd; applying here
     # is idempotent and covers next/doctor.
     verb, *rest = args
     rest = consume_models_config_argv(rest)
     args = [verb, *rest]
-    # Session-driven schemas (research): ACP client + Redis, not ticket run path.
-    from orchestrator_next.acp_client import is_session_schema, start_schema_main
+    # Session-driven schemas (research): session_cli + Redis, not ticket run path.
+    from orchestrator_next.session_cli import is_session_schema, start_schema_main
     if args[0] in _wf_subcommands and is_session_schema(args[0]):
         sys.exit(start_schema_main(args[0], args[1:]))
     # Every verb except doctor needs a second argument.

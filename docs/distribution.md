@@ -48,6 +48,8 @@ Per-repo customization without forking the engine:
 
 Upgrades: `uv tool upgrade orchestrator` (or reinstall from git). Config ships with the wheel, so engine+config always match.
 
+**Editor/agent-client integration (Hermes, etc.):** the engine has one CLI surface (`orchestrator <workflow> …` / `--resume`) and no stdio/JSON-RPC server. Session-driven workflows (`orchestrator research "…"`, `--resume <id>`) already run in-process through `orchestrator_next/sessions.py` — a plain function API (`new_session`/`load_session`/`prompt_session`/`close_session`/`list_sessions`) with no wire framing. If an ACP-style stdio adapter is ever needed again, it's a thin one-file wrapper over that API (JSON-RPC parse loop on stdin/stdout, forwarding to the same functions) — not an engine change.
+
 ## Model routing
 
 No model setup is required to start: step contracts reference aliases (`model: sonnet|opus|haiku|composer`), and the pack's `config/models.yaml` resolves each alias to `{model_id, tool}` plus a `tools:` invocation template per agent CLI (`claude`, `codex`, `cursor-agent`, `pi`). Overrides follow the same repo→global rule as everything else — highest wins, wholesale per alias:

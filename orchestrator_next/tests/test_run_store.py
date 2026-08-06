@@ -42,8 +42,8 @@ def test_open_store_uses_file_backend_without_redis_url(tmp_path, monkeypatch):
 
 
 def test_open_store_uses_redis_when_configured(monkeypatch):
-    import orchestrator_next.acp_server as acp
-    from orchestrator_next.acp_server import reset_redis_client_cache
+    import orchestrator_next.sessions as acp
+    from orchestrator_next.sessions import reset_redis_client_cache
 
     fake = FakeRedis()
     monkeypatch.setenv("REDIS_URL", "redis://fake")
@@ -55,8 +55,8 @@ def test_open_store_uses_redis_when_configured(monkeypatch):
 
 
 def test_open_store_raises_on_misconfigured_redis(monkeypatch):
-    import orchestrator_next.acp_server as acp
-    from orchestrator_next.acp_server import RedisRequiredError, reset_redis_client_cache
+    import orchestrator_next.sessions as acp
+    from orchestrator_next.sessions import RedisRequiredError, reset_redis_client_cache
 
     monkeypatch.setenv("REDIS_URL", "redis://fake")
     reset_redis_client_cache()

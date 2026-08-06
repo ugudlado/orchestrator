@@ -1,8 +1,8 @@
 """Shared fake Redis for ACP session tests."""
 from __future__ import annotations
 
-from orchestrator_next import acp_server as acp
-from orchestrator_next.acp_server import reset_redis_client_cache
+from orchestrator_next import sessions as acp
+from orchestrator_next.sessions import reset_redis_client_cache
 
 
 class FakeRedis:

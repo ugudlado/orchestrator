@@ -1,4 +1,4 @@
-"""Redis session rematerialize + resume (Phases 2–3)."""
+"""Redis session rematerialize + resume (Phases 2-3 of the original ACP plan)."""
 from __future__ import annotations
 
 import json
@@ -6,9 +6,10 @@ from pathlib import Path
 
 import yaml
 
-from orchestrator_next import acp_server as acp
-from orchestrator_next.acp_server import (
-    AcpServer,
+from orchestrator_next import sessions as sess_mod
+from orchestrator_next.sessions import (
+    Sessions,
+    UnknownSessionError,
     _load_session,
     _save_session,
     reset_redis_client_cache,
@@ -41,9 +42,9 @@ def test_require_redis_errors_clearly(monkeypatch):
     monkeypatch.delenv("ORCHESTRATOR_ACP_REDIS_URL", raising=False)
     reset_redis_client_cache()
     try:
-        acp.require_redis()
+        sess_mod.require_redis()
         assert False, "expected RedisRequiredError"
-    except acp.RedisRequiredError as exc:
+    except sess_mod.RedisRequiredError as exc:
         assert "REDIS_URL" in str(exc) or "ORCHESTRATOR_ACP_REDIS_URL" in str(exc)
 
 
@@ -70,17 +71,13 @@ def test_session_run_leaves_no_durable_state_yaml(tmp_path, monkeypatch):
     import orchestrator_next.run_loop as run_loop
     monkeypatch.setattr(run_loop, "drive_loop", fake_drive)
 
-    server = AcpServer()
-    created = server.invoke("session/new", {"cwd": str(tmp_path), "schema": "research"})
-    sid = created["sessionId"]
-    result = server.invoke(
-        "session/prompt",
-        {"sessionId": sid, "prompt": [{"type": "text", "text": "postgres indexing"}]},
-    )
+    sessions = Sessions()
+    sid = sessions.new_session(cwd=str(tmp_path), schema="research")
+    result = sessions.prompt_session(sid, "postgres indexing")
     assert (result.get("outcome") or {}).get("outcome") == "await_input"
 
     # Redis has snapshot
-    key = acp._session_redis_key(sid)
+    key = sess_mod._session_redis_key(sid)
     assert key in fake.store
     stored = json.loads(fake.store[key])
     assert "state_yaml_content" in stored["workflow"]
@@ -90,7 +87,7 @@ def test_session_run_leaves_no_durable_state_yaml(tmp_path, monkeypatch):
     assert "_live_state_path" not in stored["workflow"]
 
     # In-process session keeps a live temp path for the next prompt
-    live = server.sessions[sid]["workflow"].get(acp._LIVE_STATE_KEY)
+    live = sessions.sessions[sid]["workflow"].get(sess_mod._LIVE_STATE_KEY)
     assert live and Path(live).is_file()
 
     # No durable *_state.yaml under session workspace
@@ -98,8 +95,8 @@ def test_session_run_leaves_no_durable_state_yaml(tmp_path, monkeypatch):
     leftovers = list(ws.rglob("*_state.yaml")) if ws.exists() else []
     assert leftovers == []
 
-    # session/load reports status for CLI
-    loaded = server.invoke("session/load", {"sessionId": sid})
+    # load_session reports status for CLI
+    loaded = sessions.load_session(sid)
     assert loaded["status"] == "await_input"
     assert loaded["awaiting_step_id"] == "intake-research"
     assert "audience" in (loaded.get("ask") or "").lower()
@@ -140,32 +137,26 @@ def test_resume_await_input_continues_same_step(tmp_path, monkeypatch):
 
     monkeypatch.setattr(run_loop, "drive_loop", fake_drive)
 
-    server = AcpServer()
-    sid = server.invoke("session/new", {"cwd": str(tmp_path), "schema": "research"})["sessionId"]
-    server.invoke(
-        "session/prompt",
-        {"sessionId": sid, "prompt": [{"type": "text", "text": "topic"}]},
-    )
+    sessions = Sessions()
+    sid = sessions.new_session(cwd=str(tmp_path), schema="research")
+    sessions.prompt_session(sid, "topic")
     # Same process: reuse live temp path (no rematerialize)
-    server.invoke(
-        "session/prompt",
-        {"sessionId": sid, "prompt": [{"type": "text", "text": "practical ops guide"}]},
-    )
+    sessions.prompt_session(sid, "practical ops guide")
     assert calls["n"] == 2
     assert calls["paths"][0] == calls["paths"][1]
     assert "practical ops guide" in calls["directions"][1]
 
-    # Fresh server process simulation: only Redis → rematerialize
-    server2 = AcpServer()
-    loaded = server2.invoke("session/load", {"sessionId": sid})
+    # Fresh process simulation: only Redis → rematerialize
+    sessions2 = Sessions()
+    loaded = sessions2.load_session(sid)
     assert loaded["status"] == "completed"
-    stored = json.loads(fake.store[acp._session_redis_key(sid)])
+    stored = json.loads(fake.store[sess_mod._session_redis_key(sid)])
     assert stored["workflow"]["status"] == "completed"
-    assert acp._LIVE_STATE_KEY not in stored["workflow"]
+    assert sess_mod._LIVE_STATE_KEY not in stored["workflow"]
 
 
 def test_cross_process_resume_rematerializes(tmp_path, monkeypatch):
-    """After session/load in a new process, a new temp path is used."""
+    """After load_session in a new process, a new temp path is used."""
     fake = _install_fake_redis(monkeypatch)
     calls = {"n": 0, "paths": []}
 
@@ -194,27 +185,21 @@ def test_cross_process_resume_rematerializes(tmp_path, monkeypatch):
 
     monkeypatch.setattr(run_loop, "drive_loop", fake_drive)
 
-    server = AcpServer()
-    sid = server.invoke("session/new", {"cwd": str(tmp_path), "schema": "research"})["sessionId"]
-    server.invoke(
-        "session/prompt",
-        {"sessionId": sid, "prompt": [{"type": "text", "text": "topic"}]},
-    )
-    server2 = AcpServer()
-    server2.invoke("session/load", {"sessionId": sid})
-    server2.invoke(
-        "session/prompt",
-        {"sessionId": sid, "prompt": [{"type": "text", "text": "practical ops guide"}]},
-    )
+    sessions = Sessions()
+    sid = sessions.new_session(cwd=str(tmp_path), schema="research")
+    sessions.prompt_session(sid, "topic")
+    sessions2 = Sessions()
+    sessions2.load_session(sid)
+    sessions2.prompt_session(sid, "practical ops guide")
     assert calls["n"] == 2
     assert calls["paths"][0] != calls["paths"][1]
-    stored = json.loads(fake.store[acp._session_redis_key(sid)])
+    stored = json.loads(fake.store[sess_mod._session_redis_key(sid)])
     assert stored["workflow"]["status"] == "completed"
 
 
 def test_resume_rebinds_repo_root_and_worktree_path(tmp_path, monkeypatch):
     """Rematerialized state.yaml on resume carries THIS machine's paths, not
-    whichever machine ran the session last (Phase 4 path rebinding)."""
+    whichever machine ran the session last (path rebinding)."""
     _install_fake_redis(monkeypatch)
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
     import orchestrator_next.run_loop as run_loop
@@ -236,20 +221,17 @@ def test_resume_rebinds_repo_root_and_worktree_path(tmp_path, monkeypatch):
 
     original_cwd = tmp_path / "original-machine"
     original_cwd.mkdir()
-    server = AcpServer()
-    sid = server.invoke("session/new", {"cwd": str(original_cwd), "schema": "research"})["sessionId"]
-    server.invoke("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": "topic"}]})
+    sessions = Sessions()
+    sid = sessions.new_session(cwd=str(original_cwd), schema="research")
+    sessions.prompt_session(sid, "topic")
     assert seen["repo_root"] == str(original_cwd)
 
     resumed_cwd = tmp_path / "resumed-machine"
     resumed_cwd.mkdir()
-    server2 = AcpServer()
-    server2.invoke("session/load", {"sessionId": sid})
-    server2.sessions[sid]["cwd"] = str(resumed_cwd)
-    server2.invoke(
-        "session/prompt",
-        {"sessionId": sid, "prompt": [{"type": "text", "text": "answer"}]},
-    )
+    sessions2 = Sessions()
+    sessions2.load_session(sid)
+    sessions2.sessions[sid]["cwd"] = str(resumed_cwd)
+    sessions2.prompt_session(sid, "answer")
     assert seen["repo_root"] == str(resumed_cwd)
     assert seen["worktree_path"] == str(resumed_cwd / ".orchestrator" / "sessions" / sid)
 
@@ -283,22 +265,16 @@ def test_resume_failed_with_direction_retries(tmp_path, monkeypatch):
 
     monkeypatch.setattr(run_loop, "drive_loop", fake_drive)
 
-    server = AcpServer()
-    sid = server.invoke("session/new", {"cwd": str(tmp_path), "schema": "research"})["sessionId"]
-    server.invoke(
-        "session/prompt",
-        {"sessionId": sid, "prompt": [{"type": "text", "text": "topic"}]},
-    )
-    stored = json.loads(fake.store[acp._session_redis_key(sid)])
+    sessions = Sessions()
+    sid = sessions.new_session(cwd=str(tmp_path), schema="research")
+    sessions.prompt_session(sid, "topic")
+    stored = json.loads(fake.store[sess_mod._session_redis_key(sid)])
     assert stored["workflow"]["status"] == "failed"
 
-    server2 = AcpServer()
-    loaded = server2.invoke("session/load", {"sessionId": sid})
+    sessions2 = Sessions()
+    loaded = sessions2.load_session(sid)
     assert loaded["status"] == "failed"
-    server2.invoke(
-        "session/prompt",
-        {"sessionId": sid, "prompt": [{"type": "text", "text": "try again with X"}]},
-    )
+    sessions2.prompt_session(sid, "try again with X")
     assert calls["n"] == 2
     assert "try again with X" in calls["directions"][1]
     # After unlock, node should have been reset before second drive
@@ -320,19 +296,16 @@ def test_change_id_is_session_id(tmp_path, monkeypatch):
         return LoopResult(LOOP_PAUSED, state_yaml_path, awaiting_step_id="intake-research")
 
     monkeypatch.setattr(run_loop, "drive_loop", fake_drive)
-    server = AcpServer()
-    sid = server.invoke("session/new", {"cwd": str(tmp_path), "schema": "research"})["sessionId"]
-    server.invoke(
-        "session/prompt",
-        {"sessionId": sid, "prompt": [{"type": "text", "text": "postgres optimization techniques"}]},
-    )
+    sessions = Sessions()
+    sid = sessions.new_session(cwd=str(tmp_path), schema="research")
+    sessions.prompt_session(sid, "postgres optimization techniques")
     assert seen["change_id"] == sid
     assert seen["slug"] == sid
     assert seen["ticket_id"] == sid
 
 
-def test_acp_client_resume_reports_completed_without_rerun(tmp_path, monkeypatch):
-    from orchestrator_next import acp_client
+def test_session_cli_resume_reports_completed_without_rerun(tmp_path, monkeypatch):
+    from orchestrator_next import session_cli
 
     fake = _install_fake_redis(monkeypatch)
     # Pre-seed a completed session in Redis
@@ -344,15 +317,15 @@ def test_acp_client_resume_reports_completed_without_rerun(tmp_path, monkeypatch
             "state_yaml_content": "change_id: sess-done\nstatus: completed\n",
         },
     })
-    assert acp._session_redis_key("sess-done") in fake.store
+    assert sess_mod._session_redis_key("sess-done") in fake.store
 
-    out = acp_client.resume_session("sess-done", "should be ignored", cwd=str(tmp_path), on_update=lambda t: None)
+    out = session_cli.resume_session("sess-done", "should be ignored", cwd=str(tmp_path), on_update=lambda t: None)
     assert out["status"] == "completed"
     assert out["result"] is None
 
 
-def test_acp_client_resume_failed_without_input_reports(tmp_path, monkeypatch, capsys):
-    from orchestrator_next import acp_client
+def test_session_cli_resume_failed_without_input_reports(tmp_path, monkeypatch, capsys):
+    from orchestrator_next import session_cli
 
     _install_fake_redis(monkeypatch)
     _save_session("sess-fail", {
@@ -360,7 +333,7 @@ def test_acp_client_resume_failed_without_input_reports(tmp_path, monkeypatch, c
         "schema": "research",
         "workflow": {"status": "failed", "state_yaml_content": "status: blocked\n"},
     })
-    out = acp_client.resume_session("sess-fail", "", cwd=str(tmp_path), on_update=lambda t: None)
+    out = session_cli.resume_session("sess-fail", "", cwd=str(tmp_path), on_update=lambda t: None)
     assert out["status"] == "failed"
     assert out["result"] is None
     captured = capsys.readouterr().out
@@ -368,9 +341,9 @@ def test_acp_client_resume_failed_without_input_reports(tmp_path, monkeypatch, c
     assert "try again" in captured.lower() or "direction" in captured.lower()
 
 
-def test_acp_client_resume_await_input_with_input(tmp_path, monkeypatch, capsys):
-    """--resume <id> \"answer\" while await_input → session/prompt with user_direction."""
-    from orchestrator_next import acp_client
+def test_session_cli_resume_await_input_with_input(tmp_path, monkeypatch, capsys):
+    """--resume <id> \"answer\" while await_input → prompt_session with user_direction."""
+    from orchestrator_next import session_cli
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
     import orchestrator_next.run_loop as run_loop
 
@@ -391,15 +364,12 @@ def test_acp_client_resume_await_input_with_input(tmp_path, monkeypatch, capsys)
 
     monkeypatch.setattr(run_loop, "drive_loop", fake_drive)
 
-    server = AcpServer()
-    sid = server.invoke("session/new", {"cwd": str(tmp_path), "schema": "research"})["sessionId"]
-    server.invoke(
-        "session/prompt",
-        {"sessionId": sid, "prompt": [{"type": "text", "text": "postgres indexing"}]},
-    )
+    sessions = Sessions()
+    sid = sessions.new_session(cwd=str(tmp_path), schema="research")
+    sessions.prompt_session(sid, "postgres indexing")
     calls["directions"].clear()
 
-    out = acp_client.resume_session(
+    out = session_cli.resume_session(
         sid, "practical ops guide", cwd=str(tmp_path), on_update=lambda t: None,
     )
     assert out["result"] is not None
@@ -409,9 +379,9 @@ def test_acp_client_resume_await_input_with_input(tmp_path, monkeypatch, capsys)
     assert "await_input" in captured or "How deep" in captured or "ask:" in captured
 
 
-def test_acp_client_resume_failed_with_input_retries(tmp_path, monkeypatch):
+def test_session_cli_resume_failed_with_input_retries(tmp_path, monkeypatch):
     """--resume <id> \"try again…\" on failed → unlock + prompt with direction."""
-    from orchestrator_next import acp_client
+    from orchestrator_next import session_cli
     from orchestrator_next.run_loop import LoopResult
     import orchestrator_next.run_loop as run_loop
 
@@ -443,27 +413,24 @@ def test_acp_client_resume_failed_with_input_retries(tmp_path, monkeypatch):
 
     monkeypatch.setattr(run_loop, "drive_loop", fake_drive)
 
-    server = AcpServer()
-    sid = server.invoke("session/new", {"cwd": str(tmp_path), "schema": "research"})["sessionId"]
-    server.invoke(
-        "session/prompt",
-        {"sessionId": sid, "prompt": [{"type": "text", "text": "topic"}]},
-    )
-    assert json.loads(fake.store[acp._session_redis_key(sid)])["workflow"]["status"] == "failed"
+    sessions = Sessions()
+    sid = sessions.new_session(cwd=str(tmp_path), schema="research")
+    sessions.prompt_session(sid, "topic")
+    assert json.loads(fake.store[sess_mod._session_redis_key(sid)])["workflow"]["status"] == "failed"
 
-    out = acp_client.resume_session(
+    out = session_cli.resume_session(
         sid, "try again with clearer scope", cwd=str(tmp_path), on_update=lambda t: None,
     )
     assert calls["n"] == 2
     assert "try again with clearer scope" in calls["directions"][1]
     assert out["result"] is not None
-    stored = json.loads(fake.store[acp._session_redis_key(sid)])
+    stored = json.loads(fake.store[sess_mod._session_redis_key(sid)])
     assert stored["workflow"]["status"] == "completed"
 
 
-def test_acp_client_start_works_without_redis(tmp_path, monkeypatch):
-    """No REDIS_URL → file-backed RunStore, session still starts (Phase 3)."""
-    from orchestrator_next import acp_client
+def test_session_cli_start_works_without_redis(tmp_path, monkeypatch):
+    """No REDIS_URL → file-backed RunStore, session still starts."""
+    from orchestrator_next import session_cli
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
     import orchestrator_next.run_loop as run_loop
 
@@ -485,26 +452,25 @@ def test_acp_client_start_works_without_redis(tmp_path, monkeypatch):
 
     monkeypatch.setattr(run_loop, "drive_loop", fake_drive)
 
-    out = acp_client.start_schema("research", "hello", cwd=str(tmp_path))
+    out = session_cli.start_schema("research", "hello", cwd=str(tmp_path))
     assert out["status"] == "await_input"
 
     store_dir = tmp_path / ".orchestrator" / "sessions" / "_state"
     assert list(store_dir.glob("*.yaml"))
 
 
-def test_acp_client_start_raises_on_misconfigured_redis(monkeypatch):
+def test_session_cli_start_raises_on_misconfigured_redis(monkeypatch):
     """REDIS_URL set but unusable (no redis package / bad connection) still raises."""
-    from orchestrator_next import acp_client
-    from orchestrator_next.acp_server import AcpRpcError
-    import orchestrator_next.acp_server as acp
+    from orchestrator_next import session_cli
+    from orchestrator_next.sessions import SessionError
 
     monkeypatch.setenv("REDIS_URL", "redis://fake")
     reset_redis_client_cache()
-    monkeypatch.setattr(acp, "_redis_client", lambda: None)
+    monkeypatch.setattr(sess_mod, "_redis_client", lambda: None)
     try:
-        acp_client.start_schema("research", "hello", cwd="/tmp")
-        assert False, "expected AcpRpcError"
-    except AcpRpcError as exc:
+        session_cli.start_schema("research", "hello", cwd="/tmp")
+        assert False, "expected SessionError"
+    except SessionError as exc:
         assert "redis" in exc.message.lower()
 
 
@@ -523,7 +489,7 @@ def test_cli_help_has_no_acp_run():
 
 
 def test_concurrent_resume_returns_session_busy(tmp_path, monkeypatch):
-    """A second session/prompt while the first holds the lock errors -32012."""
+    """A second prompt_session while the first holds the lock errors -32012."""
     _install_fake_redis(monkeypatch)
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
     import orchestrator_next.run_loop as run_loop
@@ -533,20 +499,17 @@ def test_concurrent_resume_returns_session_busy(tmp_path, monkeypatch):
 
     monkeypatch.setattr(run_loop, "drive_loop", fake_drive)
 
-    server = AcpServer()
-    sid = server.invoke("session/new", {"cwd": str(tmp_path), "schema": "research"})["sessionId"]
+    sessions = Sessions()
+    sid = sessions.new_session(cwd=str(tmp_path), schema="research")
 
     from orchestrator_next.run_store import open_store
     store = open_store()
     assert store.lock(sid)  # simulate another process already holding it
 
     try:
-        server.invoke(
-            "session/prompt",
-            {"sessionId": sid, "prompt": [{"type": "text", "text": "topic"}]},
-        )
-        assert False, "expected AcpRpcError"
-    except acp.AcpRpcError as exc:
+        sessions.prompt_session(sid, "topic")
+        assert False, "expected SessionError"
+    except sess_mod.SessionError as exc:
         assert exc.code == -32012
     finally:
         store.unlock(sid)
@@ -581,15 +544,13 @@ def test_redis_save_sets_ttl(monkeypatch):
 
 def test_load_session_connection_error_is_not_unknown_session(monkeypatch):
     """Redis outage must surface distinctly, not read as 'unknown session'."""
-    import orchestrator_next.acp_server as acp_mod
-
     class BrokenClient:
         def get(self, key):
             raise ConnectionError("redis down")
 
     monkeypatch.setenv("REDIS_URL", "redis://fake")
     reset_redis_client_cache()
-    monkeypatch.setattr(acp_mod, "_redis_client", lambda: BrokenClient())
+    monkeypatch.setattr(sess_mod, "_redis_client", lambda: BrokenClient())
     try:
         _load_session("sess-z")
         assert False, "expected ConnectionError to propagate"
@@ -598,13 +559,13 @@ def test_load_session_connection_error_is_not_unknown_session(monkeypatch):
 
 
 def test_start_schema_main_redirects_bare_uuid_to_resume(tmp_path, monkeypatch, capsys):
-    from orchestrator_next import acp_client
+    from orchestrator_next import session_cli
 
     _install_fake_redis(monkeypatch)
     _save_session("11111111-1111-1111-1111-111111111111", {
         "cwd": str(tmp_path), "schema": "research", "workflow": {"status": "active"},
     })
-    rc = acp_client.start_schema_main(
+    rc = session_cli.start_schema_main(
         "research", ["11111111-1111-1111-1111-111111111111"]
     )
     assert rc == 7
@@ -613,7 +574,7 @@ def test_start_schema_main_redirects_bare_uuid_to_resume(tmp_path, monkeypatch, 
 
 
 def test_start_schema_main_runs_normally_for_non_uuid_prompt(tmp_path, monkeypatch):
-    from orchestrator_next import acp_client
+    from orchestrator_next import session_cli
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
     import orchestrator_next.run_loop as run_loop
 
@@ -623,7 +584,7 @@ def test_start_schema_main_runs_normally_for_non_uuid_prompt(tmp_path, monkeypat
         return LoopResult(LOOP_PAUSED, state_yaml_path, awaiting_step_id="intake-research")
 
     monkeypatch.setattr(run_loop, "drive_loop", fake_drive)
-    rc = acp_client.start_schema_main("research", ["postgres", "indexing"])
+    rc = session_cli.start_schema_main("research", ["postgres", "indexing"])
     assert rc == 0
 
 
@@ -639,3 +600,12 @@ def test_cli_rejects_acp_run():
     assert result.returncode != 0
     combined = result.stdout + result.stderr
     assert "acp-run" not in combined.lower()
+
+
+def test_load_session_unknown_raises():
+    sessions = Sessions()
+    try:
+        sessions.load_session("does-not-exist")
+        assert False, "expected UnknownSessionError"
+    except UnknownSessionError:
+        pass

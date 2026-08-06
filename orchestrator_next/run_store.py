@@ -133,10 +133,10 @@ def open_store() -> RunStore:
     required when a URL is set but unusable — that raises, it does not
     silently fall back (misconfiguration should be loud).
     """
-    from orchestrator_next.acp_server import RedisRequiredError, redis_url
+    from orchestrator_next.sessions import RedisRequiredError, redis_url
 
     if redis_url():
-        from orchestrator_next.acp_server import _redis_client
+        from orchestrator_next.sessions import _redis_client
 
         client = _redis_client()
         if client is None:

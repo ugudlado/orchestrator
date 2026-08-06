@@ -1,7 +1,6 @@
-"""In-process ACP client — same handlers Hermes uses over stdio.
+"""CLI entry points for session-driven workflows (research / --resume).
 
-Human CLI (`orchestrator research` / `--resume`) calls ``AcpServer.invoke``
-directly. Redis holds session state.
+Calls sessions.py directly — no protocol handshake needed in-process.
 """
 from __future__ import annotations
 
@@ -9,13 +8,7 @@ import os
 import sys
 from typing import Any, Callable
 
-from orchestrator_next.acp_server import (
-    AcpRpcError,
-    AcpServer,
-    RedisRequiredError,
-)
-
-_CLIENT_INFO = {"name": "orchestrator-cli", "version": "0.1"}
+from orchestrator_next.sessions import RedisRequiredError, SessionError, Sessions
 
 
 def _is_uuid(text: str) -> bool:
@@ -53,19 +46,6 @@ def _status_of(result: dict | None) -> str:
     return str((result.get("outcome") or {}).get("outcome") or "")
 
 
-def _new_server() -> AcpServer:
-    server = AcpServer()
-    server.invoke(
-        "initialize",
-        {
-            "protocolVersion": 1,
-            "clientCapabilities": {},
-            "clientInfo": _CLIENT_INFO,
-        },
-    )
-    return server
-
-
 def start_schema(
     schema: str,
     prompt: str,
@@ -73,27 +53,13 @@ def start_schema(
     cwd: str | None = None,
     on_update: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
-    """session/new + session/prompt. Returns session_id + outcome payload."""
+    """new_session + prompt_session. Returns session_id + outcome payload."""
     cwd = cwd or os.getcwd()
     notify = on_update or _print_updates
-    server = _new_server()
-    created = server.invoke(
-        "session/new",
-        {"cwd": cwd, "schema": schema},
-        on_update=notify,
-    )
-    session_id = str(created.get("sessionId") or "")
-    if not session_id:
-        raise AcpRpcError(-32000, "session/new returned no sessionId")
+    sessions = Sessions()
+    session_id = sessions.new_session(cwd=cwd, schema=schema)
     print(f"session_id={session_id}", flush=True)
-    result = server.invoke(
-        "session/prompt",
-        {
-            "sessionId": session_id,
-            "prompt": [{"type": "text", "text": prompt}],
-        },
-        on_update=notify,
-    )
+    result = sessions.prompt_session(session_id, prompt, on_update=notify)
     text = _outcome_text(result)
     if text:
         print(text, flush=True)
@@ -107,14 +73,10 @@ def resume_session(
     cwd: str | None = None,
     on_update: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
-    """session/load + conditional session/prompt based on status."""
+    """load_session + conditional prompt_session based on status."""
     notify = on_update or _print_updates
-    server = _new_server()
-    loaded = server.invoke(
-        "session/load",
-        {"sessionId": session_id},
-        on_update=notify,
-    )
+    sessions = Sessions()
+    loaded = sessions.load_session(session_id)
 
     status = str(loaded.get("status") or "active").lower()
     ask = str(loaded.get("ask") or "")
@@ -140,14 +102,7 @@ def resume_session(
         )
         return {"session_id": session_id, "status": status, "loaded": loaded, "result": None}
 
-    result = server.invoke(
-        "session/prompt",
-        {
-            "sessionId": session_id,
-            "prompt": [{"type": "text", "text": prompt or ""}],
-        },
-        on_update=notify,
-    )
+    result = sessions.prompt_session(session_id, prompt or "", on_update=notify)
     text = _outcome_text(result)
     if text:
         print(text, flush=True)
@@ -174,7 +129,7 @@ def start_schema_main(schema: str, argv: list[str]) -> int:
     except RedisRequiredError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 7
-    except AcpRpcError as exc:
+    except SessionError as exc:
         print(f"error: {exc.message}", file=sys.stderr)
         return 3
     return 3 if out.get("status") == "failed" else 0
@@ -190,7 +145,7 @@ def resume_main(session_id: str, user_input: str = "") -> int:
     except RedisRequiredError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 7
-    except AcpRpcError as exc:
+    except SessionError as exc:
         print(f"error: {exc.message}", file=sys.stderr)
         return 3
     return 3 if out.get("status") == "failed" else 0

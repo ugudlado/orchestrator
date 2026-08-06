@@ -1,83 +1,41 @@
 """
-ACP server mode for the orchestrator CLI (ORC-ACP).
+Session-driven workflow runs (research / --resume), in-process only.
 
-`orchestrator acp` runs a JSON-RPC 2.0 server over stdio speaking the Agent
-Client Protocol (ACP). A client (Hermes, an editor, another agent) can:
+A session is created, prompted (possibly many times across process restarts),
+and closed. State persists in the RunStore (Redis or local file — see
+run_store.py); a process's ``Sessions`` instance only caches in-memory copies
+for the current run's lifetime.
 
-  initialize     → protocol handshake
-  session/new    → create a workflow session
-  session/prompt → run a workflow step / full workflow, streaming
-                   session/update notifications (agent_message_chunk) as
-                   steps progress, then return a completion result
-
-Wire format (matches agentclientprotocol.org + Hermes' own ACP client):
-  Request:  {"jsonrpc":"2.0","id":N,"method":"...","params":{...}}\n
-  Response: {"jsonrpc":"2.0","id":N,"result":{...}}\n
-  Notify:   {"jsonrpc":"2.0","method":"session/update",
-             "params":{"update":{"sessionUpdate":"agent_message_chunk",
-                                  "content":{"type":"text","text":"..."}}}}\n
-
-Everything on stdout is a valid ACP message; diagnostics go to stderr.
-
-Workflows run through the real engine: seed state, dispatch, run each step,
-stream session/update notifications as steps progress, return a completion.
+No wire protocol here — callers are Python (the CLI's session_cli.py, or a
+future thin stdio/editor adapter built on top of these functions).
 """
 from __future__ import annotations
 
 import json
 import os
 import re
-import sys
 import tempfile
 import uuid
-from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 
 import yaml
 
-# ---------------------------------------------------------------------------
-# Protocol helpers
-# ---------------------------------------------------------------------------
-
-# Last user-role marker at a line boundary (inline "User: x", block
-# "User:\nx", any case). The workflow topic is the last user turn.
 _USER_MARKER = re.compile(r"^\s*user\s*:\s*(?=\S)", re.MULTILINE | re.IGNORECASE)
 
-# Optional in-process sink (acp_client); None → stdout (Hermes / `orchestrator acp`).
-_send_sink: ContextVar[Callable[[dict], None] | None] = ContextVar("acp_send_sink", default=None)
 
-def _send(obj: dict) -> None:
-    """Write one JSON-RPC message to the active sink (stdout or in-process)."""
-    sink = _send_sink.get()
-    if sink is not None:
-        sink(obj)
-        return
-    sys.stdout.write(json.dumps(obj) + "\n")
-    sys.stdout.flush()
+class SessionError(Exception):
+    """Raised for session-protocol failures. ``code`` keeps the old JSON-RPC
+    numeric codes for test/log continuity; callers should match on type/message."""
+
+    def __init__(self, code: int, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
-def _result(message_id: int | None, result: dict) -> None:
-    _send({"jsonrpc": "2.0", "id": message_id, "result": result})
-
-
-def _error(message_id: int | None, code: int, message: str) -> None:
-    _send({"jsonrpc": "2.0", "id": message_id, "error": {"code": code, "message": message}})
-
-
-def _notify(session_id: str, text: str, kind: str = "agent_message_chunk") -> None:
-    """Stream a session/update notification to the client."""
-    _send({
-        "jsonrpc": "2.0",
-        "method": "session/update",
-        "params": {
-            "sessionId": session_id,
-            "update": {
-                "sessionUpdate": kind,
-                "content": {"type": "text", "text": text},
-            }
-        },
-    })
+class UnknownSessionError(SessionError):
+    pass
 
 
 class RedisRequiredError(RuntimeError):
@@ -114,9 +72,6 @@ def session_workspace(repo_root: str, session_id: str) -> Path:
     """Artifact workspace for a session run (no durable *_state.yaml here)."""
     return Path(repo_root) / ".orchestrator" / "sessions" / session_id
 
-# ---------------------------------------------------------------------------
-# Workflow driver (real engine via shared drive_loop)
-# ---------------------------------------------------------------------------
 
 def _final_state_text(state_yaml_path: str) -> str:
     """Human summary of a completed run: step history + artifact pointers."""
@@ -180,7 +135,6 @@ def _seed_session_state(
         schema=schema,
         repo_root=repo_root,
         worktree_path=str(workspace),
-        # Session identity: keep ticket_id=session_id for step env / CHANGE_ID compat.
         ticket_id=session_id,
     )
 
@@ -256,10 +210,13 @@ def _discard_temp_state(path: str | None) -> None:
 
 
 def run_workflow(
-    topic: str, session_id: str, repo_root: str,
+    topic: str,
+    session_id: str,
+    repo_root: str,
     *,
     schema: str = "research",
     session_state: dict | None = None,
+    on_update: Callable[[str], None] | None = None,
 ) -> dict:
     """Run or continue a session workflow via drive_loop.
 
@@ -269,10 +226,13 @@ def run_workflow(
     """
     from orchestrator_next.run_loop import LOOP_PAUSED, drive_loop, resolve_models_yaml
 
+    def notify(text: str) -> None:
+        if on_update is not None:
+            on_update(text)
+
     if session_state is None:
         session_state = {}
     prompt = _extract_topic(topic) if topic.strip() else ""
-    # Strip a leading schema token when the agent declared it in the prompt text.
     if prompt:
         parts = prompt.strip().split(maxsplit=1)
         known = set(_available_schemas(repo_root))
@@ -301,9 +261,9 @@ def run_workflow(
                 session_id, schema, repo_root, Path(state_yaml_path), workspace=workspace,
             )
             seeded_fresh = True
-            _notify(session_id, f"🔍 Workflow: {schema} (session {session_id})")
+            notify(f"🔍 Workflow: {schema} (session {session_id})")
             if prompt:
-                _notify(session_id, f"  topic: {prompt}")
+                notify(f"  topic: {prompt}")
         session_state[_LIVE_STATE_KEY] = state_yaml_path
 
     keep_live = False
@@ -312,11 +272,8 @@ def run_workflow(
             if session_state.get("status") == "failed" and prompt:
                 unlocked = _unlock_failed_for_retry(state_yaml_path)
                 if unlocked:
-                    _notify(session_id, f"🔄 retrying failed step: {unlocked}")
-            _notify(
-                session_id,
-                "➡️ continuing workflow" + (f": '{prompt}'" if prompt else ""),
-            )
+                    notify(f"🔄 retrying failed step: {unlocked}")
+            notify("➡️ continuing workflow" + (f": '{prompt}'" if prompt else ""))
 
         def on_event(kind: str, payload: dict) -> None:
             step_id = payload.get("step_id", "?")
@@ -325,32 +282,31 @@ def run_workflow(
                 msg = f"⏸ {step_id} — input required"
                 if ask:
                     msg += f"\nask: {ask}"
-                _notify(session_id, msg)
+                notify(msg)
             elif kind == "step_start":
                 if payload.get("kind") == "agent":
-                    _notify(session_id, f"→ {step_id} (agent, {payload.get('model')})")
+                    notify(f"→ {step_id} (agent, {payload.get('model')})")
                 else:
-                    _notify(session_id, f"→ {step_id} (script)")
+                    notify(f"→ {step_id} (script)")
             elif kind == "step_done":
                 if payload.get("kind") == "agent":
-                    _notify(
-                        session_id,
+                    notify(
                         f"  ✓ {step_id} {payload.get('status', '?')} (rc={payload.get('rc')})",
                     )
                 else:
                     ok = payload.get("ok", True)
-                    _notify(session_id, f"  ✓ {step_id} done" if ok else f"  ✗ {step_id} failed")
+                    notify(f"  ✓ {step_id} done" if ok else f"  ✗ {step_id} failed")
             elif kind == "complete":
                 msg = (
                     "✅ workflow complete (state archived)"
                     if payload.get("archived")
                     else "✅ workflow complete"
                 )
-                _notify(session_id, msg)
+                notify(msg)
             elif kind == "blocked":
-                _notify(session_id, "⛔ workflow blocked")
+                notify("⛔ workflow blocked")
             elif kind == "error":
-                _notify(session_id, f"❌ {payload.get('message', 'workflow error')}")
+                notify(f"❌ {payload.get('message', 'workflow error')}")
 
         result = drive_loop(
             state_yaml_path,
@@ -423,7 +379,7 @@ def _cleanup_session(session: dict) -> None:
     _discard_temp_state(workflow.pop(_LIVE_STATE_KEY, None))
     workflow.pop("state_yaml_path", None)
     workflow.pop("awaiting_step_id", None)
-    # Artifact workspace is removed by session/close via _delete_session_artifacts.
+    # Artifact workspace is removed by close_session via _delete_session_artifacts.
 
 
 # ---------------------------------------------------------------------------
@@ -494,7 +450,6 @@ def _load_session(session_id: str) -> dict | None:
         workflow = dict(data.get("workflow") or {})
         workflow.pop("state_yaml_path", None)
         workflow.pop(_LIVE_STATE_KEY, None)
-        # Stored cwd is a hint — rebind to this machine if it doesn't exist here.
         cwd = str(data.get("cwd") or "")
         if not cwd or not Path(cwd).is_dir():
             cwd = os.getcwd()
@@ -524,7 +479,7 @@ def _delete_session_store(session_id: str) -> None:
 
 
 def _session_load_result(session_id: str, session: dict) -> dict:
-    """Payload for session/load — enough status for CLI resume decisions."""
+    """Payload for load_session — enough status for CLI resume decisions."""
     workflow = session.get("workflow") or {}
     return {
         "sessionId": session_id,
@@ -584,256 +539,126 @@ def _route_schema(text: str, repo_root: str | None = None) -> str | None:
     return None
 
 
-def _ask_schema(session_id: str, repo_root: str | None = None) -> dict:
-    """Stream a schema-selection question back to the client."""
+def _ask_schema(session_id: str, repo_root: str | None = None, *, on_update=None) -> dict:
+    """Return (and notify) a schema-selection question."""
     schemas = ", ".join(_available_schemas(repo_root))
     question = (
         "Which workflow should I run? "
         f"Available: {schemas}.\n"
         "Send the workflow name (e.g. \"research <topic>\") to continue."
     )
-    _notify(session_id, question)
+    if on_update is not None:
+        on_update(question)
     return _completion("completed", question)
 
 
-# ---------------------------------------------------------------------------
-# Session + method dispatch
-# ---------------------------------------------------------------------------
+class Sessions:
+    """In-memory session registry for one process, backed by the RunStore."""
 
-class AcpServer:
     def __init__(self) -> None:
         self.sessions: dict[str, dict] = {}
 
-    def invoke(
+    def new_session(self, cwd: str | None = None, schema: str = "") -> str:
+        session_id = str(uuid.uuid4())
+        # Explicit arg or env pin wins; otherwise schema stays "" until the
+        # first prompt declares one (or we ask).
+        schema = str(
+            schema or os.environ.get("ORCHESTRATOR_ACP_SCHEMA", "") or ""
+        ).strip()
+        self.sessions[session_id] = {
+            "cwd": cwd or os.getcwd(),
+            "schema": schema,
+            "workflow": {"status": "active"},
+        }
+        try:
+            _save_session(session_id, self.sessions[session_id])
+        except Exception as exc:  # noqa: BLE001
+            raise SessionError(-32011, f"failed to persist session: {exc}") from exc
+        return session_id
+
+    def load_session(self, session_id: str) -> dict:
+        try:
+            restored = _load_session(session_id) if session_id else None
+        except OSError as exc:
+            raise SessionError(-32010, f"session store unavailable: {exc}") from exc
+        if restored is None:
+            raise UnknownSessionError(-32002, f"unknown session: {session_id}")
+        self.sessions[session_id] = restored
+        return _session_load_result(session_id, restored)
+
+    def prompt_session(
         self,
-        method: str,
-        params: dict | None = None,
+        session_id: str,
+        text: str,
         *,
         on_update: Callable[[str], None] | None = None,
     ) -> dict:
-        """In-process JSON-RPC call. Returns result dict; raises AcpRpcError on error."""
-        box: dict[str, Any] = {}
-
-        def sink(obj: dict) -> None:
-            if obj.get("method") == "session/update":
-                update = (obj.get("params") or {}).get("update") or {}
-                content = update.get("content") or {}
-                text = content.get("text", "") if isinstance(content, dict) else ""
-                if text and on_update is not None:
-                    on_update(text)
-                return
-            if "error" in obj:
-                box["error"] = obj["error"]
-            elif "result" in obj:
-                box["result"] = obj["result"]
-
-        token = _send_sink.set(sink)
-        try:
-            self.handle({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": method,
-                "params": params or {},
-            })
-        finally:
-            _send_sink.reset(token)
-        if "error" in box:
-            err = box["error"] or {}
-            raise AcpRpcError(err.get("code", -32000), str(err.get("message", "error")))
-        return box.get("result") or {}
-
-    def handle(self, msg: dict) -> None:
-        method = msg.get("method")
-        message_id = msg.get("id")
-        params = msg.get("params") or {}
-
-        if method == "initialize":
-            _result(message_id, {
-                "protocolVersion": 1,
-                "capabilities": {
-                    "fs": {"readTextFile": False, "writeTextFile": False},
-                    # Agent declares which schema to run; server lists what's installed.
-                    "workflows": {"schemas": _available_schemas()},
-                },
-                "agentCapabilities": {},
-                "serverInfo": {"name": "orchestrator", "version": "0.1.0"},
-            })
-            return
-
-        if method == "session/schemas":
-            _result(message_id, {"schemas": _available_schemas()})
-            return
-
-        if method == "session/new":
-            session_id = str(uuid.uuid4())
-            # Explicit env pin or client hint wins; otherwise schema stays ""
-            # until the first prompt declares one (or we ask).
-            schema = str(
-                params.get("schema")
-                or os.environ.get("ORCHESTRATOR_ACP_SCHEMA", "")
-                or ""
-            ).strip()
-            self.sessions[session_id] = {
-                "cwd": params.get("cwd") or os.getcwd(),
-                "schema": schema,  # "" = unset → route from first prompt
-                "workflow": {"status": "active"},
-            }
-            try:
-                _save_session(session_id, self.sessions[session_id])
-            except Exception as exc:  # noqa: BLE001
-                _error(message_id, -32011, f"failed to persist session: {exc}")
-                return
-            _result(message_id, {"sessionId": session_id})
-            return
-
-        if method == "session/load":
-            session_id = params.get("sessionId")
+        if session_id not in self.sessions:
+            # Allow prompt after restart if the store has the session.
             try:
                 restored = _load_session(session_id) if session_id else None
             except OSError as exc:
-                _error(message_id, -32010, f"session store unavailable: {exc}")
-                return
+                raise SessionError(-32010, f"session store unavailable: {exc}") from exc
             if restored is None:
-                _error(message_id, -32002, f"unknown session: {session_id}")
-                return
+                raise UnknownSessionError(-32001, f"unknown session: {session_id}")
             self.sessions[session_id] = restored
-            _result(message_id, _session_load_result(session_id, restored))
-            return
+        text = (text or "").strip()
+        session = self.sessions[session_id]
+        workflow = session.setdefault("workflow", {})
+        has_state = bool(workflow.get("state_yaml_content"))
+        if not text and not has_state:
+            raise SessionError(-32602, "empty prompt")
 
-        if method == "session/prompt":
-            session_id = params.get("sessionId")
-            if session_id not in self.sessions:
-                # Allow prompt after restart if the store has the session.
-                try:
-                    restored = _load_session(session_id) if session_id else None
-                except OSError as exc:
-                    _error(message_id, -32010, f"session store unavailable: {exc}")
-                    return
-                if restored is None:
-                    _error(message_id, -32001, f"unknown session: {session_id}")
-                    return
-                self.sessions[session_id] = restored
-            prompt = params.get("prompt") or []
-            if isinstance(prompt, str):
-                text = prompt.strip()
-            else:
-                text = " ".join(
-                    str(p.get("text", "")) for p in prompt if isinstance(p, dict)
-                ).strip()
-            session = self.sessions[session_id]
-            workflow = session.setdefault("workflow", {})
-            has_state = bool(workflow.get("state_yaml_content"))
-            if not text and not has_state:
-                _error(message_id, -32602, "empty prompt")
-                return
+        from orchestrator_next.run_store import open_store
 
-            from orchestrator_next.run_store import open_store
+        store = open_store()  # RedisRequiredError propagates to caller
+        if not store.lock(session_id):
+            raise SessionError(-32012, "session busy — another process is running it")
+        try:
+            repo_root = str(session.get("cwd") or os.getcwd())
 
-            try:
-                store = open_store()
-            except RedisRequiredError as exc:
-                _error(message_id, -32010, str(exc))
-                return
-            if not store.lock(session_id):
-                _error(message_id, -32012, "session busy — another process is running it")
-                return
-            try:
-                repo_root = str(session.get("cwd") or os.getcwd())
-
-                # Explicit declaration only (first word / "schema: X"); ask if missing.
-                if not session.get("schema") and not has_state:
-                    route_text = _extract_topic(text)
-                    routed = _route_schema(route_text, repo_root=repo_root)
-                    if routed is None:
-                        _save_session(session_id, session)
-                        _result(message_id, _ask_schema(session_id, repo_root=repo_root))
-                        return
-                    session["schema"] = routed
-                    _notify(session_id, f"📋 routing to workflow: {routed}")
-
-                result = run_workflow(
-                    text, session_id, repo_root,
-                    schema=str(session.get("schema") or "research"),
-                    session_state=workflow,
-                )
-                # Keep completed/failed/paused sessions in the store for --resume status.
-                _save_session(session_id, session)
-                _result(message_id, result)
-            except Exception as exc:  # noqa: BLE001
-                workflow["status"] = "failed"
-                try:
+            # Explicit declaration only (first word / "schema: X"); ask if missing.
+            if not session.get("schema") and not has_state:
+                route_text = _extract_topic(text)
+                routed = _route_schema(route_text, repo_root=repo_root)
+                if routed is None:
                     _save_session(session_id, session)
-                except Exception:  # noqa: BLE001
-                    pass
-                _error(message_id, -32603, f"workflow error: {exc}")
-            finally:
-                store.unlock(session_id)
-            return
+                    return _ask_schema(session_id, repo_root=repo_root, on_update=on_update)
+                session["schema"] = routed
+                if on_update is not None:
+                    on_update(f"📋 routing to workflow: {routed}")
 
-        if method == "session/close":
-            session_id = params.get("sessionId")
-            repo_root = None
-            if session_id in self.sessions:
-                sess = self.sessions[session_id]
-                repo_root = str(sess.get("cwd") or os.getcwd())
-                _cleanup_session(sess)
-                _delete_session_artifacts(repo_root, session_id)
-                del self.sessions[session_id]
-            _delete_session_store(session_id)
-            _result(message_id, {})
-            return
-
-        if method == "session/list":
-            # In-memory sessions union persisted store ids (restart discovery).
-            ids = set(self.sessions.keys())
-            ids.update(_persisted_session_ids())
-            _result(message_id, {"sessionIds": sorted(ids)})
-            return
-
-        _error(message_id, -32601, f"method not found: {method}")
-
-
-class AcpRpcError(Exception):
-    def __init__(self, code: int, message: str) -> None:
-        super().__init__(message)
-        self.code = code
-        self.message = message
-
-
-def main() -> int:
-    """Stdio ACP loop with a reader thread so stdin stays drained during long prompts."""
-    import queue
-    import threading
-
-    server = AcpServer()
-    lines: queue.Queue[str | None] = queue.Queue()
-
-    def _stdin_reader() -> None:
-        try:
-            for line in sys.stdin:
-                lines.put(line)
-        finally:
-            lines.put(None)
-
-    threading.Thread(target=_stdin_reader, name="acp-stdin", daemon=True).start()
-    while True:
-        line = lines.get()
-        if line is None:
-            break
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-        except json.JSONDecodeError:
-            _error(None, -32700, "parse error")
-            continue
-        try:
-            server.handle(msg)
+            result = run_workflow(
+                text, session_id, repo_root,
+                schema=str(session.get("schema") or "research"),
+                session_state=workflow,
+                on_update=on_update,
+            )
+            # Keep completed/failed/paused sessions in the store for --resume status.
+            _save_session(session_id, session)
+            return result
+        except SessionError:
+            raise
         except Exception as exc:  # noqa: BLE001
-            _error(msg.get("id"), -32603, f"handler error: {exc}")
-    return 0
+            workflow["status"] = "failed"
+            try:
+                _save_session(session_id, session)
+            except Exception:  # noqa: BLE001
+                pass
+            raise SessionError(-32603, f"workflow error: {exc}") from exc
+        finally:
+            store.unlock(session_id)
 
+    def close_session(self, session_id: str) -> None:
+        if session_id in self.sessions:
+            sess = self.sessions[session_id]
+            repo_root = str(sess.get("cwd") or os.getcwd())
+            _cleanup_session(sess)
+            _delete_session_artifacts(repo_root, session_id)
+            del self.sessions[session_id]
+        _delete_session_store(session_id)
 
-if __name__ == "__main__":
-    sys.exit(main())
+    def list_sessions(self) -> list[str]:
+        ids = set(self.sessions.keys())
+        ids.update(_persisted_session_ids())
+        return sorted(ids)
