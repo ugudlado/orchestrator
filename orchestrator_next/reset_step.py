@@ -12,6 +12,7 @@ Public API: reset_step(step_id, state_yaml_path) -> None
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -34,53 +35,67 @@ def _nodes_from_index_forward(nodes: list[dict], target_id: str) -> list[str]:
     return ids[idx:]
 
 
-def reset_step(step_id: str, state_yaml_path: str) -> None:
-    """Reset step_id and all subsequent nodes to pending; strip their step_history entries."""
-    path = Path(state_yaml_path)
+def apply_dag_reset(
+    state_raw: dict[str, Any],
+    phase: str,
+    from_step_id: str,
+    *,
+    keep_history_for: str | None = None,
+) -> list[str]:
+    """Reset ``from_step_id`` and all later nodes in-place; strip their history.
 
-    with open(path, "rb") as f:
-        pre_write_bytes = f.read()
-
-    try:
-        state_raw = yaml.safe_load(pre_write_bytes.decode("utf-8")) or {}
-    except yaml.YAMLError as exc:
-        raise ValueError(f"Failed to parse state.yaml: {exc}") from exc
-
-    phase = str(state_raw.get("phase") or "implement")
+    Returns the list of reset step ids (declaration order from target forward).
+    When ``keep_history_for`` is set, history rows for that step_id in ``phase``
+    are retained (so a just-recorded gate failure stays auditable).
+    """
     workflow_plan = state_raw.get("workflow_plan") or {}
     phase_plan = workflow_plan.get(phase) or {}
     nodes: list[dict] = phase_plan.get("nodes") or []
-
     if not nodes:
         raise ValueError(f"No nodes found in workflow_plan[{phase!r}]")
 
-    reset_ids = set(_nodes_from_index_forward(nodes, step_id))
+    reset_ids_list = _nodes_from_index_forward(nodes, from_step_id)
+    reset_ids = set(reset_ids_list)
 
-    # Reset node statuses to pending.
     for node in nodes:
         if isinstance(node, dict) and str(node.get("id", "")) in reset_ids:
             node["status"] = "pending"
 
-    # Strip step_history entries for the reset nodes.
     history: list[Any] = state_raw.get("step_history") or []
+    keep = keep_history_for or ""
     state_raw["step_history"] = [
-        e for e in history
-        if not (isinstance(e, dict) and e.get("phase") == phase and e.get("step_id") in reset_ids)
+        e
+        for e in history
+        if not (
+            isinstance(e, dict)
+            and e.get("phase") == phase
+            and e.get("step_id") in reset_ids
+            and str(e.get("step_id") or "") != keep
+        )
     ]
 
-    # Clear next_step if it pointed at a now-reset node.
     next_step = state_raw.get("next_step")
     if isinstance(next_step, dict) and next_step.get("step_id") in reset_ids:
         state_raw.pop("next_step", None)
 
-    # Atomic write with corruption guard.
-    with open(path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(state_raw, f, sort_keys=False, default_flow_style=False)
+    return reset_ids_list
+
+
+def reset_step(step_id: str, state_yaml_path: str) -> None:
+    """Reset step_id and all subsequent nodes to pending; strip their step_history entries."""
+    path = Path(state_yaml_path)
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            yaml.safe_load(f)
-    except yaml.YAMLError:
-        with open(path, "wb") as f:
-            f.write(pre_write_bytes)
-        raise
+        state_raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Failed to parse state.yaml: {exc}") from exc
+
+    phase = str(state_raw.get("phase") or "implement")
+    apply_dag_reset(state_raw, phase, step_id)
+
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.write_text(
+        yaml.safe_dump(state_raw, sort_keys=False, default_flow_style=False),
+        encoding="utf-8",
+    )
+    os.replace(tmp_path, path)

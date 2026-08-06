@@ -9,6 +9,7 @@ from orchestrator_next.paths import (
     config_root_with_source,
     list_config_packs,
     resolve_workflow_ref,
+    workflow_mode,
 )
 
 
@@ -49,6 +50,17 @@ def test_legacy_flat_as_default_pack(tmp_path, monkeypatch):
     assert root == tmp_path / ".orchestrator"
     assert source == "vendored"
     assert list_config_packs(tmp_path)[0][0] == "default"
+
+
+def test_workflow_mode_reads_session_flag(tmp_path, monkeypatch):
+    monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
+    monkeypatch.setenv("REPO_ROOT", str(tmp_path))
+    wf_dir = tmp_path / ".orchestrator" / "mypack" / "workflows"
+    wf_dir.mkdir(parents=True)
+    (wf_dir / "research.yaml").write_text("mode: session\nsteps: []\n")
+    (wf_dir / "feature.yaml").write_text("steps: []\n")
+    assert workflow_mode("research", tmp_path) == "session"
+    assert workflow_mode("feature", tmp_path) == "ticket"
 
 
 def test_unset_falls_back_to_checkout_config(tmp_path, monkeypatch):

@@ -228,3 +228,18 @@ def resolve_workflow_ref(
             f"workflow {ref!r} is not unique; use one of: {opts}"
         )
     raise WorkflowRefError(f"unknown workflow {ref!r}")
+
+
+def workflow_mode(name: str, repo_root: Path | None = None) -> str:
+    """Return the workflow YAML's top-level ``mode`` (default ``"ticket"``)."""
+    import yaml
+
+    try:
+        _, wf, cfg = resolve_workflow_ref(name, repo_root)
+    except WorkflowRefError:
+        return "ticket"
+    schema_yaml = cfg / "workflows" / f"{wf}.yaml"
+    if not schema_yaml.is_file():
+        return "ticket"
+    doc = yaml.safe_load(schema_yaml.read_text(encoding="utf-8")) or {}
+    return str(doc.get("mode") or "ticket")

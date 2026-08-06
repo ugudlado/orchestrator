@@ -1,36 +1,60 @@
 ---
 name: synthesize-findings
-description: "Synthesize web search results into a structured research findings report. Use after search-web has produced sources.json."
+description: "Research a topic with the agent's own web search/browse tools and write a source-backed findings report."
 user-invocable: true
 ---
 
 # Synthesize Findings
 
-**Intent:** Turn raw search results into a tight, source-backed research report.
+**Intent:** Answer the research topic with a tight, source-backed report.
+You own discovery — use the web search / browse / fetch tools available in
+this agent runtime. Do **not** expect a pre-built `sources.json` or Tavily key.
 
 ## Inputs
 
-- `spec/changes/<slug>/topic.md` — the normalized research topic.
-- `spec/changes/<slug>/sources.json` — Tavily results: `{topic, results: [{title, url, content}]}`.
+Session workspace is `$WORKTREE_PATH` / `$ORCHESTRATOR_WORKFLOW_DIR`
+(`.orchestrator/sessions/<session_id>/` for ACP research). Prefer these files:
+
+- `$WORKTREE_PATH/intake.json` — structured intake (topic, audience, depth).
+- `$WORKTREE_PATH/topic.md` — human-readable brief from intake-research.
+
+If only legacy `spec/changes/<slug>/topic.md` exists (non-session runs), use that.
 
 ## Outputs
 
-- `spec/changes/<slug>/findings.md` — the research report.
+Under the same session workspace (or legacy change dir if that is where intake lived):
 
-## Instructions
-
-1. Read `topic.md` and `sources.json`.
-2. Write `findings.md` with:
-   - **Summary** — 2–3 sentences answering the topic directly.
-   - **Key Findings** — bullet list, each backed by a source URL.
-   - **Sources** — numbered list of titles + URLs used.
-3. If the search returned no usable results, say so plainly in Summary and list
-   the topic as "unresolved" — do not invent facts.
+- `findings.md` — required research report.
+- `sources.md` — optional short citation ledger (title + URL per source you
+  actually used). Prefer this over inventing a Tavily-shaped JSON.
 
 ## Verify
 
-- `findings.md` exists under the change dir.
-- Every Key Finding cites at least one source from `sources.json`.
-- No fabricated URLs — only URLs present in the sources file.
+- `findings.md` exists under the session workspace (or legacy change dir).
+- Every Key Finding cites a URL that appears in Sources.
+- No fabricated URLs.
 
-Return a COMPLETION block on stdout with `{"status": "completed", "outputs": {"findings_file": "<abs path>"}}`.
+## Instructions
+
+1. Read `intake.json` and/or `topic.md`. Note **Topic**, **Audience**, and **Depth**.
+2. Search the web (or browse docs) with whatever tools you have — pick the
+   right tool for the job (site search, docs fetch, general web search). Prefer
+   primary/docs sources over SEO fluff. Match depth/audience (ops guide vs brief).
+3. Write `findings.md` with:
+   - **Summary** — 2–3 sentences answering the topic directly.
+   - **Key Findings** — bullet list; each bullet cites at least one real URL.
+   - **Sources** — numbered list of titles + URLs you used.
+4. If search/browse yields nothing usable, say so plainly in Summary, mark the
+   topic **unresolved**, and do **not** invent facts or URLs.
+
+Return a COMPLETION block on stdout:
+
+```text
+COMPLETION:
+  step_id: synthesize-findings
+  status: completed
+  outputs:
+    findings_file: <abs path to findings.md>
+    reason: >
+      <what you searched, what you wrote, and why the step can advance>
+```

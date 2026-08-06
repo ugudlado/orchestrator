@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# load-ticket-context — GET ticket via BACKLOG_URL REST; write ticket-context.md
-# under spec/changes/<change_id>/ (same folder as discovery.md / design.md).
-# Loop stays ticket-agnostic. Fetch failures abort the workflow (exit 1).
+# load-ticket-context — workflow detects ticket vs free text in state.user_input.
+# Ticket-shaped → backlog GET (when ticketing=backlog). Else → write brief as
+# ticket-context.md. Engine does not classify input; change_id is never used as
+# a ticket id fallback.
 set -euo pipefail
 
 : "${REPO_ROOT:?orchestrator: REPO_ROOT required}"
@@ -11,24 +12,27 @@ LIB="$(cd "$(dirname "$0")/../../lib/ticket" && pwd)/backlog-api.sh"
 # shellcheck source=../../lib/ticket/backlog-api.sh
 source "$LIB"
 
-_read_state_field() {
+# Read scalar/multiline YAML fields via Python (user_input may be quoted prose).
+_read_state_py() {
   local key="$1"
-  grep -E "^${key}:" "$STATE_YAML" 2>/dev/null | head -1 | sed -E 's/^[^:]+:[[:space:]]*//' | tr -d '"'"'" || true
+  python3 - "$STATE_YAML" "$key" <<'PY'
+import sys, yaml
+path, key = sys.argv[1], sys.argv[2]
+raw = yaml.safe_load(open(path, encoding="utf-8")) or {}
+val = raw.get(key)
+if val is None:
+    sys.exit(0)
+print(val if isinstance(val, str) else str(val), end="")
+PY
 }
 
-ticket_id="$(_read_state_field ticket_id)"
+user_input="$(_read_state_py user_input)"
+ticket_id="$(_read_state_py ticket_id)"
 ticketing="$(backlog_api_ticketing)"
-change_id="${CHANGE_ID:-${ORCHESTRATOR_CHANGE_ID:-$(_read_state_field change_id)}}"
-slug="$(_read_state_field slug)"
+change_id="${CHANGE_ID:-${ORCHESTRATOR_CHANGE_ID:-$(_read_state_py change_id)}}"
+slug="$(_read_state_py slug)"
 if [ -z "$change_id" ] && [ -n "$slug" ]; then
   change_id="$slug"
-fi
-if [ -z "$ticket_id" ] && [ -n "$change_id" ]; then
-  ticket_id="$change_id"
-fi
-# API ids are prefixed uppercase (ORC-125); seed may store lowercase slug.
-if [ -n "$ticket_id" ]; then
-  ticket_id="$(printf '%s' "$ticket_id" | tr '[:lower:]' '[:upper:]')"
 fi
 
 # Prefer worktree artifact dir (same as discovery.md / design.md); else repo spec/changes.
@@ -44,7 +48,6 @@ mkdir -p "$OUT_DIR"
 OUT="${OUT_DIR}/ticket-context.md"
 REL_PATH="spec/changes/${change_id:-}/ticket-context.md"
 
-# Write a diagnostic file, log ERROR, emit failed JSON, exit 1 → workflow aborts.
 _fail() {
   local msg="$1"
   local detail="${2:-}"
@@ -54,32 +57,67 @@ _fail() {
   } >"$OUT"
   echo "ERROR load-ticket-context: $msg" >&2
   if [ -n "$detail" ]; then echo "ERROR load-ticket-context: $detail" >&2; fi
-  printf '%s\n' "{\"status\": \"failed\", \"outputs\": {\"ticket_context\": \"failed\", \"path\": \"${REL_PATH}\"}, \"evidence\": {\"summary\": $(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$msg")}}"
+  printf '%s\n' "{\"status\": \"failed\", \"outputs\": {\"ticket_context\": \"failed\", \"path\": \"${REL_PATH}\", \"reason\": $(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$msg")}, \"evidence\": {\"summary\": $(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$msg")}}"
   exit 1
 }
 
-if [ "$ticketing" != "backlog" ]; then
-  echo "load-ticket-context: ticketing=${ticketing:-unset} — skipping" >&2
-  printf '%s\n' '{"status": "completed", "outputs": {"ticket_context": "skipped"}}'
+# Workflow-local ticket detection (not done in the engine).
+_is_ticket_id() {
+  local s="$1"
+  [[ "$s" =~ ^[A-Za-z][A-Za-z0-9]*-[0-9]+$ ]]
+}
+
+# Resolve candidate: explicit ticket_id, else user_input if ticket-shaped.
+candidate=""
+if [ -n "$ticket_id" ] && _is_ticket_id "$ticket_id"; then
+  candidate="$ticket_id"
+elif [ -n "$user_input" ] && _is_ticket_id "$(printf '%s' "$user_input" | tr -d '[:space:]')"; then
+  candidate="$(printf '%s' "$user_input" | tr -d '[:space:]')"
+fi
+
+if [ -n "$candidate" ]; then
+  candidate="$(printf '%s' "$candidate" | tr '[:lower:]' '[:upper:]')"
+  if [ "$ticketing" != "backlog" ]; then
+    {
+      printf '# Ticket\n\n'
+      printf '**Id:** %s\n\n' "$candidate"
+      printf 'Ticketing provider unset (ticketing=%s) — no remote body fetched.\n' "${ticketing:-unset}"
+    } >"$OUT"
+    echo "load-ticket-context: ticket ${candidate} — ticketing skipped, stub written" >&2
+    printf '%s\n' "{\"status\": \"completed\", \"outputs\": {\"ticket_context\": \"stub\", \"path\": \"${REL_PATH}\", \"reason\": \"ticketing unset; stub for ${candidate}\"}, \"state_patch\": {\"ticket_id\": \"${candidate}\"}}"
+    exit 0
+  fi
+  if ! backlog_api_base >/dev/null; then
+    _fail "[TICKET FETCH FAILED] BACKLOG_URL/BACKLOG_TOKEN/BACKLOG_PROJECT_ID missing — do not invent scope from the codebase (ticket ${candidate})"
+  fi
+  err_file="${STATE_DIR}/.load-ticket-context.err"
+  if ! json="$(backlog_api_get_task "$candidate" 2>"$err_file")"; then
+    err="$(cat "$err_file" 2>/dev/null || true)"
+    rm -f "$err_file"
+    _fail "[TICKET FETCH FAILED] GET /api/tasks/${candidate} failed — do not invent scope from the codebase" "$err"
+  fi
+  rm -f "$err_file"
+  printf '%s' "$json" | backlog_api_format_plain >"$OUT"
+  echo "load-ticket-context: wrote ${OUT} (ticket ${candidate})" >&2
+  printf '%s\n' "{\"status\": \"completed\", \"outputs\": {\"ticket_context\": \"ok\", \"path\": \"${REL_PATH}\", \"reason\": \"fetched ${candidate}\"}, \"state_patch\": {\"ticket_id\": \"${candidate}\"}}"
   exit 0
 fi
 
-if [ -z "$ticket_id" ]; then
-  _fail "[TICKET FETCH FAILED] no ticket_id/change_id in state — do not invent scope from the codebase"
+# Free text brief (or empty)
+if [ -z "$user_input" ]; then
+  if [ "$ticketing" != "backlog" ]; then
+    echo "load-ticket-context: no user_input — skipping" >&2
+    printf '%s\n' '{"status": "completed", "outputs": {"ticket_context": "skipped", "reason": "no user_input; ticketing unset"}}'
+    exit 0
+  fi
+  _fail "[TICKET FETCH FAILED] no user_input in state — pass a ticket id or brief text when starting the workflow"
 fi
 
-if ! backlog_api_base >/dev/null; then
-  _fail "[TICKET FETCH FAILED] BACKLOG_URL/BACKLOG_TOKEN/BACKLOG_PROJECT_ID missing — do not invent scope from the codebase (ticket ${ticket_id})"
-fi
-
-err_file="${STATE_DIR}/.load-ticket-context.err"
-if ! json="$(backlog_api_get_task "$ticket_id" 2>"$err_file")"; then
-  err="$(cat "$err_file" 2>/dev/null || true)"
-  rm -f "$err_file"
-  _fail "[TICKET FETCH FAILED] GET /api/tasks/${ticket_id} failed — do not invent scope from the codebase" "$err"
-fi
-rm -f "$err_file"
-
-printf '%s' "$json" | backlog_api_format_plain >"$OUT"
-echo "load-ticket-context: wrote ${OUT}" >&2
-printf '%s\n' "{\"status\": \"completed\", \"outputs\": {\"ticket_context\": \"ok\", \"path\": \"${REL_PATH}\"}}"
+{
+  printf '# Feature brief\n\n'
+  printf '%s\n' "$user_input"
+} >"$OUT"
+echo "load-ticket-context: wrote brief ${OUT}" >&2
+# Escape user_input for JSON reason via python
+reason_json="$(python3 -c 'import json,sys; print(json.dumps("brief from user_input"))')"
+printf '%s\n' "{\"status\": \"completed\", \"outputs\": {\"ticket_context\": \"from_text\", \"path\": \"${REL_PATH}\", \"reason\": ${reason_json}}}"

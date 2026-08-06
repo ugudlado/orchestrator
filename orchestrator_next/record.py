@@ -80,6 +80,7 @@ _STATE_PATCH_KEYS = frozenset({
     "refresh_artifacts",
     "worktree_path",
     "branch",
+    "ticket_id",
 })
 
 _SUCCESS_STATUSES = frozenset({"completed", "recovered"})
@@ -142,6 +143,10 @@ _STATUS_TO_STATE_STATUS: dict[str, str | None] = {
     "failed": None,           # routing handles failure; _resolve_routing sets blocked when halting
     "blocked": "blocked",
     "escalate_to_architect": "blocked",
+    # Completeness gate: step needs more user input. Node stays ready (not
+    # completed); drive_loop pauses when pause_on_await_input is set. No
+    # retry-cap — this is not a failure loop.
+    "await_input": None,
 }
 
 
@@ -195,6 +200,35 @@ def _find_workflow_node(state_raw: dict[str, Any], phase: str, step_id: str) -> 
 
 
 _HALT_CAP_EXCEEDED = "halt_cap_exceeded"  # sentinel: cap exhaustion (entry status → blocked)
+_DAG_RESET_PREFIX = "dag_reset:"  # sentinel prefix: full DAG reset from target step
+
+
+def _node_ids(state_raw: dict[str, Any], phase: str) -> list[str]:
+    phase_block = (state_raw.get("workflow_plan") or {}).get(phase)
+    if not isinstance(phase_block, dict):
+        return []
+    nodes = phase_block.get("nodes") or []
+    return [str(n.get("id", "")) for n in nodes if isinstance(n, dict) and n.get("id")]
+
+
+def _bump_failure_retries(step_id: str, node: dict[str, Any] | None, state_raw: dict[str, Any]) -> str | None:
+    """Increment on_failure retry count. Return halt_cap_exceeded or None to continue."""
+    max_r = int((node or {}).get("max_retries") or _DEFAULT_MAX_RETRY_ROUNDS)
+    retries_map = state_raw.setdefault("retries", {})
+    if not isinstance(retries_map, dict):
+        retries_map = {}
+        state_raw["retries"] = retries_map
+    count = retries_map.get(step_id, 0)
+    if not isinstance(count, int):
+        count = 0
+    if count >= max_r:
+        sys.stderr.write(
+            f"[record] {step_id}: on_failure retry cap reached "
+            f"({count}/{max_r}), escalating to halt\n"
+        )
+        return _HALT_CAP_EXCEEDED
+    retries_map[step_id] = count + 1
+    return None
 
 
 def _resolve_routing(
@@ -202,6 +236,7 @@ def _resolve_routing(
     status: str,
     state_raw: dict[str, Any],
     phase: str,
+    outputs: dict[str, Any] | None = None,
 ) -> str:
     """Determine where the workflow goes after a step completes.
 
@@ -209,16 +244,39 @@ def _resolve_routing(
       - "advance"          — mark node completed, let next_ready_node() pick the next
       - "halt"             — mark node completed, set state.status = blocked (keep entry status)
       - "halt_cap_exceeded"— cap exhaustion: halt AND rewrite entry status to blocked
+      - "dag_reset:<id>"   — reset target and all later nodes (outputs.reset_to)
       - "<step_id>"        — activate that node (mark it pending), loop back
 
     Decision order:
-      1. on_success / on_failure edge declared in the workflow node.
-      2. Retry cap: if on_failure points to an earlier step and retries are
+      1. On failure: outputs.reset_to (validated step id at or before current).
+      2. on_success / on_failure edge declared in the workflow node.
+      3. Retry cap: if on_failure points to an earlier step and retries are
          exhausted, escalate to halt_cap_exceeded.
-      3. Default: "advance" on success, "halt" on failure.
+      4. Default: "advance" on success, "halt" on failure.
     """
     success = status in _SUCCESS_STATUSES
     node = _find_workflow_node(state_raw, phase, step_id)
+
+    if not success and isinstance(outputs, dict):
+        reset_to = str(outputs.get("reset_to") or "").strip()
+        if reset_to:
+            ids = _node_ids(state_raw, phase)
+            if reset_to not in ids:
+                sys.stderr.write(
+                    f"[record] {step_id}: outputs.reset_to={reset_to!r} not in "
+                    f"workflow_plan[{phase}] — falling back to static on_failure\n"
+                )
+            elif step_id in ids and ids.index(reset_to) > ids.index(step_id):
+                sys.stderr.write(
+                    f"[record] {step_id}: outputs.reset_to={reset_to!r} is after "
+                    f"current step — falling back to static on_failure\n"
+                )
+            else:
+                capped = _bump_failure_retries(step_id, node, state_raw)
+                if capped:
+                    return capped
+                return f"{_DAG_RESET_PREFIX}{reset_to}"
+
     edge_key = "on_success" if success else "on_failure"
     target = (node or {}).get(edge_key)  # None = no explicit edge
 
@@ -232,21 +290,9 @@ def _resolve_routing(
 
     # Loop target (on_failure pointing back) — enforce retry cap.
     if not success:
-        max_r = int((node or {}).get("max_retries") or _DEFAULT_MAX_RETRY_ROUNDS)
-        retries_map = state_raw.setdefault("retries", {})
-        if not isinstance(retries_map, dict):
-            retries_map = {}
-            state_raw["retries"] = retries_map
-        count = retries_map.get(step_id, 0)
-        if not isinstance(count, int):
-            count = 0
-        if count >= max_r:
-            sys.stderr.write(
-                f"[record] {step_id}: on_failure retry cap reached "
-                f"({count}/{max_r}), escalating to halt\n"
-            )
-            return _HALT_CAP_EXCEEDED
-        retries_map[step_id] = count + 1
+        capped = _bump_failure_retries(step_id, node, state_raw)
+        if capped:
+            return capped
 
     return target
 
@@ -376,7 +422,12 @@ def _validate_payload(
 
 
 def _require_reason(outputs: dict[str, Any], step_id: str, status: str) -> None:
-    """Every recorded outcome must carry a non-empty outputs.reason."""
+    """Every recorded outcome must carry a non-empty outputs.reason.
+
+    ``await_input`` is exempt: the user-facing ask lives in ``outputs.ask``.
+    """
+    if status == "await_input":
+        return
     raw = outputs.get("reason")
     if isinstance(raw, str) and raw.strip():
         return
@@ -487,6 +538,7 @@ def _apply_routing(
     phase: str,
     status: str,
     state_raw: dict[str, Any],
+    outputs: dict[str, Any] | None = None,
 ) -> None:
     """Set state_raw["status"] and flip workflow_plan node statuses per routing logic."""
     new_state_status = _STATUS_TO_STATE_STATUS.get(status)
@@ -494,7 +546,7 @@ def _apply_routing(
         state_raw["status"] = new_state_status
 
     if status in ("completed", "recovered", "abandoned", "failed"):
-        routing = _resolve_routing(step_id, status, state_raw, phase)
+        routing = _resolve_routing(step_id, status, state_raw, phase, outputs=outputs)
         if routing == _HALT_CAP_EXCEEDED:
             # Retry cap exhausted — rewrite entry to blocked so dispatch exits 2.
             readiness.mark_node_status(state_raw, phase, step_id, "completed")
@@ -509,6 +561,16 @@ def _apply_routing(
             node_status = "failed" if status == "failed" else "completed"
             readiness.mark_node_status(state_raw, phase, step_id, node_status)
             state_raw["status"] = "blocked"
+        elif routing.startswith(_DAG_RESET_PREFIX):
+            from orchestrator_next.reset_step import apply_dag_reset
+
+            target = routing[len(_DAG_RESET_PREFIX) :]
+            apply_dag_reset(
+                state_raw, phase, target, keep_history_for=step_id,
+            )
+            # Ensure the gate itself is pending so it re-runs after the fixer path.
+            readiness.mark_node_status(state_raw, phase, step_id, "reset")
+            state_raw["status"] = "active"
         elif routing == "advance" or status in _SUCCESS_STATUSES:
             # "advance", or routing is an explicit on_success target step_id
             # (e.g. review -> ticket-qa) — the step genuinely passed,
@@ -651,12 +713,18 @@ def record(
     history.append(entry)
     state_raw["step_history"] = history
 
-    _apply_routing(entry, step_id, phase, status, state_raw)
-    state = _state_from_raw(state_raw)
-    nxt = readiness.next_ready_node(state)
-    next_step = {"phase": state_raw.get("phase", ""), "step_id": nxt} if nxt else None
-    if next_step:
+    _apply_routing(entry, step_id, phase, status, state_raw, outputs=outputs)
+    if status == "await_input":
+        # Do not advance: same step stays next until it returns completed.
+        # Node is intentionally not marked completed in _apply_routing.
+        next_step = {"phase": phase, "step_id": step_id}
         state_raw["next_step"] = next_step
+    else:
+        state = _state_from_raw(state_raw)
+        nxt = readiness.next_ready_node(state)
+        next_step = {"phase": state_raw.get("phase", ""), "step_id": nxt} if nxt else None
+        if next_step:
+            state_raw["next_step"] = next_step
 
     _accumulate_issues(state_raw, phase, step_id, payload)
 

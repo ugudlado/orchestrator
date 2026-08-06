@@ -16,6 +16,9 @@ import re
 import subprocess
 import sys
 import time
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -328,8 +331,14 @@ def run_agent_step(
 # Script step execution — canonical path (lifted from bin/orchestrator inline
 # arm; dead exit-10 soft-fail intentionally NOT carried).
 # ---------------------------------------------------------------------------
-def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[bool, str]:
-    """Run an inline script step. Returns (ok, new_state_path).
+def run_script_step(
+    action: dict,
+    *,
+    state_yaml_path: str,
+    state=None,
+    user_direction: str = "",
+) -> tuple[bool, str, str | None]:
+    """Run an inline script step. Returns (ok, new_state_path, recorded_status).
 
     ok=False  → script exited nonzero AND step has no on_failure routing: the
     workflow must abort (deterministic scripts like merge-to-main / create-worktree
@@ -337,8 +346,14 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
     ok=False is returned ONLY when re-dispatch would loop; if the contract has
     on_failure, the failure is recorded and the loop retries (ok=True).
 
+    recorded_status is the status written to step_history (``completed``,
+    ``await_input``, ``failed``, …), or None when nothing was recorded.
+
     For archive-completed-change: durable pre-write BEFORE running (state file
-    moves), so the entry survives the relocation; returns (True, relocated_path).
+    moves), so the entry survives the relocation; returns (True, relocated_path, status).
+
+    ``user_direction`` is exposed as ``ORCHESTRATOR_USER_DIRECTION`` for scripts
+    that emit ``await_input`` and need the next resume text (ACP parity with agents).
     """
     from orchestrator_next.parser import ScriptStepContract, load_contract_for_step
     from orchestrator_next.paths import config_root
@@ -351,7 +366,10 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
     contract = load_contract_for_step(step_id)
     if not isinstance(contract, ScriptStepContract):
         raise ContractDispatchError(f"run_script_step called on non-script contract: {step_id}")
-    env = inline_script_env(state, state_yaml_path, action_env=action.get("env", {}))
+    action_env = dict(action.get("env") or {})
+    if user_direction:
+        action_env["ORCHESTRATOR_USER_DIRECTION"] = user_direction
+    env = inline_script_env(state, state_yaml_path, action_env=action_env)
     # parser absolutizes run: relative to the contract dir, so the script's own
     # directory IS the step dir.
     env["ORCHESTRATOR_STEP_DIR"] = os.path.dirname(contract.run)
@@ -406,28 +424,52 @@ def run_script_step(action: dict, *, state_yaml_path: str, state=None) -> tuple[
         # target in the schemas is an agent step). A failed deterministic script
         # can't self-heal via re-dispatch, so abort — matches the old CLI inline
         # arm's sys.exit(3). ok=False signals the loop to stop.
-        return False, new_state_path
+        return False, new_state_path, "failed" if not state_mutating else None
 
-    outputs = _parse_stdout_outputs(proc)
+    parsed = _parse_stdout_outputs(proc)
+    status, outputs = _script_status_and_outputs(parsed)
     if not state_mutating:
-        if not isinstance(outputs.get("reason"), str) or not str(outputs.get("reason")).strip():
+        if status != "await_input" and (
+            not isinstance(outputs.get("reason"), str) or not str(outputs.get("reason")).strip()
+        ):
             outputs = {**outputs, "reason": "inline script completed"}
         payload = {
             "step_id": step_id, "phase": phase, "attempt": attempt,
-            "status": "completed", "outputs": outputs,
+            "status": status, "outputs": outputs,
             "usage": {"duration_ms": script_duration_ms},
-            "evidence": {"outputs": outputs, "summary": "inline script completed"},
+            "evidence": {"outputs": outputs, "summary": f"inline script {status}"},
         }
-        if isinstance(outputs.get("state_patch"), dict):
+        if isinstance(parsed.get("state_patch"), dict):
+            payload["state_patch"] = parsed["state_patch"]
+        elif isinstance(outputs.get("state_patch"), dict):
             payload["state_patch"] = outputs["state_patch"]
         record(state_yaml_path, payload)
     # Relocate state path if the script moved it (archive-completed-change emits
     # archive_record.archive_path when it succeeds).
     new_state_path = _relocate_after_archive(outputs, new_state_path)
 
-    _log(f"✓ {step_id}  done  status=completed")
+    _log(f"✓ {step_id}  done  status={status}")
     _log_cost_so_far(new_state_path)
-    return True, new_state_path
+    return True, new_state_path, status if not state_mutating else "completed"
+
+
+def _script_status_and_outputs(parsed: dict) -> tuple[str, dict]:
+    """Split script stdout JSON into (status, outputs).
+
+    Accepts either the structured form ``{status, outputs: {...}}`` or the
+    legacy flat outputs dict (status defaults to completed).
+    """
+    if not isinstance(parsed, dict):
+        return "completed", {}
+    raw_status = parsed.get("status")
+    raw_outputs = parsed.get("outputs")
+    if isinstance(raw_status, str) and isinstance(raw_outputs, dict):
+        return raw_status, dict(raw_outputs)
+    if isinstance(raw_status, str):
+        return raw_status, {
+            k: v for k, v in parsed.items() if k not in ("status", "state_patch")
+        }
+    return "completed", dict(parsed)
 
 
 def _parse_stdout_outputs(proc) -> dict:
@@ -502,11 +544,120 @@ def _finalize_state(state_yaml_path: str) -> None:
 # ---------------------------------------------------------------------------
 # The loop
 # ---------------------------------------------------------------------------
-def run_loop(state_yaml_path: str, *, repo_root: str, models_yaml: str) -> int:
+
+# Exit codes (unchanged for CLI): 1 complete · 2 blocked · 3 error.
+# drive_loop also uses 0 = paused for await_input (ACP multi-turn only).
+LOOP_PAUSED = 0
+
+
+@dataclass(frozen=True)
+class LoopResult:
+    """Result of one drive_loop invocation (CLI or ACP)."""
+    code: int
+    state_yaml_path: str
+    awaiting_step_id: str | None = None
+
+
+# Process-lifetime cache: models.yaml path keyed by (env, config root mtime hint).
+_models_yaml_resolved: str | None = None
+_models_yaml_cache_key: str = ""
+
+
+def resolve_models_yaml(explicit: str = "", *, repo_root: str = "") -> str:
+    """Resolve models.yaml once per process (or when env/config root changes)."""
+    global _models_yaml_resolved, _models_yaml_cache_key
+    env_override = os.environ.get("ORCHESTRATOR_MODELS_CONFIG", "")
+    cfg = os.environ.get("ORCHESTRATOR_CONFIG", "")
+    key = f"{explicit}|{env_override}|{cfg}|{repo_root}"
+    if _models_yaml_resolved is not None and key == _models_yaml_cache_key:
+        return _models_yaml_resolved
+
+    path = ""
+    if explicit and Path(explicit).is_file():
+        path = explicit
+    elif env_override and Path(env_override).is_file():
+        path = env_override
+    else:
+        candidates: list[Path] = []
+        if cfg:
+            candidates.append(Path(cfg) / "models.yaml")
+        try:
+            from orchestrator_next.dispatch import _models_yaml_path
+            p = _models_yaml_path()
+            if p:
+                candidates.append(Path(p))
+        except Exception:  # noqa: BLE001
+            pass
+        if repo_root:
+            root = Path(repo_root)
+            candidates.extend([
+                root / ".orchestrator" / "config" / "models.yaml",
+                root / "config" / "models.yaml",
+            ])
+        for cand in candidates:
+            if cand.is_file():
+                path = str(cand)
+                break
+
+    _models_yaml_cache_key = key
+    _models_yaml_resolved = path
+    return path
+
+
+def _maybe_pause_await_input(
+    step_id: str,
+    status: str | None,
+    pause_on_await_input: bool,
+    emit: Callable[..., None],
+    *,
+    state_yaml_path: str,
+    ok: bool,
+) -> LoopResult | None:
+    """Return LOOP_PAUSED / error LoopResult when status is await_input; else None."""
+    if status != "await_input" or not ok:
+        return None
+    if pause_on_await_input:
+        emit("await_input", step_id=step_id)
+        return LoopResult(LOOP_PAUSED, state_yaml_path, awaiting_step_id=step_id)
+    _log(
+        f"ERROR: step {step_id} returned await_input but "
+        "pause_on_await_input is off — refusing to spin"
+    )
+    emit("error", message=f"{step_id} await_input without pause support")
+    return LoopResult(3, state_yaml_path)
+
+
+def drive_loop(
+    state_yaml_path: str,
+    *,
+    repo_root: str,
+    models_yaml: str = "",
+    tmp_dir: Path | None = None,
+    keep_tmp: bool = False,
+    user_direction: str = "",
+    pause_on_await_input: bool = False,
+    on_event: Callable[[str, dict[str, Any]], None] | None = None,
+) -> LoopResult:
+    """Shared dispatch → execute → record loop for CLI and ACP.
+
+    When ``pause_on_await_input`` is set and a step records ``status:
+    await_input``, returns ``LoopResult(code=0, awaiting_step_id=...)`` so the
+    caller can collect more input and continue the same step. Ticket/feature
+    runs leave ``pause_on_await_input=False`` (default) and keep looping.
+    """
     import tempfile
-    tmp_dir = Path(tempfile.mkdtemp())
+    import shutil
+
+    models_yaml = resolve_models_yaml(models_yaml)
+    owns_tmp = tmp_dir is None
+    if tmp_dir is None:
+        tmp_dir = Path(tempfile.mkdtemp(prefix="orc-loop-"))
+
+    def emit(event: str, **payload: Any) -> None:
+        if on_event is not None:
+            on_event(event, payload)
+
     try:
-        # Operator rerun cleanup (spawn_failure_cap), as bash did on entry.
         try:
             from orchestrator_next.spawn_resume import apply_spawn_failure_resume
             apply_spawn_failure_resume(state_yaml_path)
@@ -516,52 +667,146 @@ def run_loop(state_yaml_path: str, *, repo_root: str, models_yaml: str) -> int:
         while True:
             if not os.path.isfile(state_yaml_path):
                 _log("Workflow complete (state archived).")
-                return 1
+                emit("complete", archived=True)
+                return LoopResult(1, state_yaml_path)
+
             state = load_state(state_yaml_path)
             try:
                 action, code = dispatch(state, state_yaml_path)
             except (ContractDispatchError, ContractNotFoundError, ContractError) as exc:
                 _log(f"Contract error: {exc}")
-                return 3
+                emit("error", message=str(exc))
+                return LoopResult(3, state_yaml_path)
             if code == 1:
                 _log("Workflow complete.")
                 _finalize_state(state_yaml_path)
                 autocommit_state(state_yaml_path)
-                return 1
+                emit("complete")
+                return LoopResult(1, state_yaml_path)
             if code == 2:
                 _log("Workflow blocked.")
                 autocommit_state(state_yaml_path, push=True)
                 _notify_blocked(state_yaml_path, state.raw,
                                 (action or {}).get("reason") or "blocked (signoff or halt)")
-                return 2
+                emit("blocked", reason=(action or {}).get("reason") or "blocked")
+                return LoopResult(2, state_yaml_path)
+
+            step_id = action.get("step_id", "?")
 
             if action.get("model"):
-                _log(f"→ {action['step_id']}  phase={action.get('phase','main')}  "
+                if user_direction:
+                    base = action.get("instruction") or ""
+                    action["instruction"] = (
+                        f"{base}\n\nUser direction: {user_direction}"
+                        if base
+                        else f"User direction: {user_direction}"
+                    )
+                    # Consume direction for this turn so a later step doesn't
+                    # re-inject the same text.
+                    user_direction = ""
+                _log(f"→ {step_id}  phase={action.get('phase','main')}  "
                      f"kind=agent  model={action['model']}  attempt={action.get('attempt',1)}")
+                emit("step_start", step_id=step_id, kind="agent", model=action.get("model"))
                 payload = run_agent_step(
                     action, repo_root=repo_root, models_yaml=models_yaml,
                     state_raw=state.raw,
                     state_yaml_path=state_yaml_path, tmp_dir=tmp_dir,
                 )
-                result, rc = record(state_yaml_path, payload)
+                _, rc = record(state_yaml_path, payload)
                 if rc == 3:
-                    # bad payload shape → record as failed (retryable), not fatal.
-                    _log(f"WARN: record rejected payload for {action['step_id']} — recording failed")
+                    _log(f"WARN: record rejected payload for {step_id} — recording failed")
                     record(state_yaml_path, _failed_payload(action, 3))
                 else:
-                    _log(f"✓ {action['step_id']}  done  status={payload.get('status','completed')}")
+                    _log(f"✓ {step_id}  done  status={payload.get('status','completed')}")
                     _log_cost_so_far(state_yaml_path)
+                status = payload.get("status")
+                emit("step_done", step_id=step_id, kind="agent",
+                     status=status, rc=rc)
+                paused = _maybe_pause_await_input(
+                    step_id, status, pause_on_await_input, emit,
+                    state_yaml_path=state_yaml_path, ok=(rc == 0),
+                )
+                if paused is not None:
+                    return paused
             elif action.get("run"):
-                ok, state_yaml_path = run_script_step(action, state_yaml_path=state_yaml_path, state=state)
+                script_direction = ""
+                if user_direction:
+                    script_direction = user_direction
+                    user_direction = ""
+                _log(f"→ {step_id}  phase={action.get('phase','main')}  kind=script")
+                emit("step_start", step_id=step_id, kind="script")
+                ok, state_yaml_path, status = run_script_step(
+                    action,
+                    state_yaml_path=state_yaml_path,
+                    state=state,
+                    user_direction=script_direction,
+                )
+                emit("step_done", step_id=step_id, kind="script", ok=ok, status=status)
                 if not ok:
                     _log("Workflow aborted: deterministic script step failed.")
                     autocommit_state(state_yaml_path, push=True)
-                    return 3
+                    emit("error", message=f"{step_id} script failed")
+                    return LoopResult(3, state_yaml_path)
+                paused = _maybe_pause_await_input(
+                    step_id, status, pause_on_await_input, emit,
+                    state_yaml_path=state_yaml_path, ok=True,
+                )
+                if paused is not None:
+                    return paused
             else:
-                _log("dispatch returned no actionable step; continuing")
+                _log("dispatch returned no actionable step; stopping")
+                emit("idle", step_id=step_id)
+                return LoopResult(3, state_yaml_path)
     finally:
-        import shutil
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        if owns_tmp and not keep_tmp:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def run_loop(
+    state_yaml_path: str,
+    *,
+    repo_root: str,
+    models_yaml: str,
+    user_direction: str = "",
+) -> int:
+    """CLI entry — exit 0 paused (await_input), 1 complete, 2 blocked, 3 error."""
+    result = drive_loop(
+        state_yaml_path,
+        repo_root=repo_root,
+        models_yaml=models_yaml,
+        user_direction=user_direction,
+        pause_on_await_input=True,
+    )
+    if result.code == LOOP_PAUSED:
+        ask = ""
+        ticket = ""
+        schema = "feature"
+        try:
+            raw = yaml.safe_load(Path(result.state_yaml_path).read_text(encoding="utf-8")) or {}
+            ticket = str(raw.get("ticket_id") or raw.get("slug") or raw.get("change_id") or "")
+            schema = str(raw.get("schema") or "feature")
+            for entry in reversed(raw.get("step_history") or []):
+                if isinstance(entry, dict) and entry.get("status") == "await_input":
+                    outs = entry.get("outputs") or {}
+                    if isinstance(outs, dict):
+                        ask = str(outs.get("ask") or "")
+                    break
+        except (OSError, yaml.YAMLError):
+            pass
+        step = result.awaiting_step_id or "?"
+        _log(f"paused: awaiting user input at step {step}")
+        if ask:
+            _log(f"ask: {ask}")
+        hint_id = ticket or "<run_id>"
+        _log(
+            f'resume: orchestrator {schema} {hint_id} "<your feedback or approval>"'
+        )
+        print(f"run_id={hint_id}", flush=True)
+        print(f"awaiting_step_id={step}", flush=True)
+        if ask:
+            print(f"ask: {ask}", flush=True)
+        return LOOP_PAUSED
+    return result.code
 
 
 # ---------------------------------------------------------------------------
@@ -614,15 +859,24 @@ def _resolve_archived_state(slug: str, repo_root: str) -> str:
 def _write_initial_state(
     state_yaml: Path, *, slug: str, schema: str, repo_root: str,
     active: list[str], prior_path: str, config_pack: str = "",
+    worktree_path: str = "",
+    user_input: str = "",
+    ticket_id: str = "",
 ) -> None:
     """Write the initial state.yaml, carrying identity fields from the most
-    recent prior state file when provided."""
+    recent prior state file when provided.
+
+    ``slug`` / ``change_id`` are the run identity (UUID for new opaque-input runs).
+    ``user_input`` is opaque text for the workflow (ticket id or brief) — never
+    used as identity. ``ticket_id`` is only set when explicitly provided (or
+    carried from prior); it is not defaulted from slug.
+    """
     prior_context: dict = {}
     if prior_path:
         try:
             prior_raw = yaml.safe_load(Path(prior_path).read_text()) or {}
             for key in ("worktree_path", "branch", "repo_root", "change_id", "slug",
-                        "ticket_id", "config_pack"):
+                        "ticket_id", "config_pack", "user_input"):
                 if prior_raw.get(key):
                     prior_context[key] = prior_raw[key]
         except (OSError, yaml.YAMLError):
@@ -636,7 +890,6 @@ def _write_initial_state(
     state = {
         "change_id": prior_context.get("change_id") or slug,
         "slug": slug,
-        "ticket_id": prior_context.get("ticket_id") or slug,
         "schema": schema,
         "status": "active",
         "repo_root": repo_root,
@@ -647,10 +900,17 @@ def _write_initial_state(
         "created_at": now,
         "started_at": now,
     }
+    tid = (ticket_id or prior_context.get("ticket_id") or "").strip()
+    if tid:
+        state["ticket_id"] = tid
+    ui = (user_input or prior_context.get("user_input") or "").strip()
+    if ui:
+        state["user_input"] = ui
     if config_pack:
         state["config_pack"] = config_pack
-    if prior_context.get("worktree_path"):
-        state["worktree_path"] = prior_context["worktree_path"]
+    wt = worktree_path or prior_context.get("worktree_path") or ""
+    if wt:
+        state["worktree_path"] = wt
     if prior_context.get("branch"):
         state["branch"] = prior_context["branch"]
 
@@ -658,15 +918,76 @@ def _write_initial_state(
     _log(f"seeded: {state_yaml}")
 
 
-def _seed_state(slug: str, schema: str, repo_root: str, *, config_pack: str = "") -> str:
+def _schema_active_steps(schema: str, repo_root: str = "") -> list[str]:
+    """Load step ids for a workflow schema (pack-aware when possible)."""
+    from orchestrator_next.paths import WorkflowRefError, config_root, resolve_workflow_ref
+    from orchestrator_next.workflow_steps import step_id_of
+
+    schema_yaml: Path | None = None
+    try:
+        root = Path(repo_root) if repo_root else None
+        _, wf, cfg = resolve_workflow_ref(schema, root)
+        cand = cfg / "workflows" / f"{wf}.yaml"
+        if cand.is_file():
+            schema_yaml = cand
+    except WorkflowRefError:
+        pass
+    if schema_yaml is None:
+        schema_yaml = config_root() / "workflows" / f"{schema}.yaml"
+    if not schema_yaml.is_file():
+        raise FileNotFoundError(f"schema '{schema}' not found: {schema_yaml}")
+    schema_doc = yaml.safe_load(schema_yaml.read_text(encoding="utf-8")) or {}
+    active = [
+        sid
+        for entry in schema_doc.get("steps", [])
+        if (sid := step_id_of(entry))
+    ]
+    if not active:
+        raise ValueError(f"schema '{schema}' declares no steps")
+    return active
+
+
+def seed_state_file(
+    state_yaml: Path,
+    *,
+    slug: str,
+    schema: str,
+    repo_root: str,
+    worktree_path: str = "",
+    config_pack: str = "",
+    prior_path: str = "",
+    user_input: str = "",
+    ticket_id: str = "",
+) -> None:
+    """Seed ``state_yaml`` and run generate_plan (shared by ticket + session paths)."""
+    active = _schema_active_steps(schema, repo_root)
+    state_yaml.parent.mkdir(parents=True, exist_ok=True)
+    _write_initial_state(
+        state_yaml,
+        slug=slug,
+        schema=schema,
+        repo_root=repo_root,
+        active=active,
+        prior_path=prior_path,
+        config_pack=config_pack,
+        worktree_path=worktree_path,
+        user_input=user_input,
+        ticket_id=ticket_id,
+    )
+    from orchestrator_next import generate_plan as _gp
+    _gp.generate_plan(str(state_yaml))
+
+
+def _seed_state(
+    slug: str,
+    schema: str,
+    repo_root: str,
+    *,
+    config_pack: str = "",
+    user_input: str = "",
+) -> str:
     """Seed a state file; return its path.
     Idempotent: reuse the newest matching state yaml if present."""
-    from orchestrator_next.paths import config_root
-    schema_yaml = config_root() / "workflows" / f"{schema}.yaml"
-    if not schema_yaml.is_file():
-        _log(f"ERROR: schema '{schema}' not found: {schema_yaml}")
-        raise SystemExit(7)
-
     state_dir = Path(repo_root) / ".orchestrator" / slug
     patterns = []
     if config_pack:
@@ -680,19 +1001,6 @@ def _seed_state(slug: str, schema: str, repo_root: str, *, config_pack: str = ""
         _log(f"state file exists at {existing[-1]} (idempotent skip)")
         return str(existing[-1])
 
-    # The steps list IS the plan — no gate-filtering (ORC-108).
-    from orchestrator_next.workflow_steps import step_id_of
-
-    schema_doc = yaml.safe_load(schema_yaml.read_text()) or {}
-    active = [
-        sid
-        for entry in schema_doc.get("steps", [])
-        if (sid := step_id_of(entry))
-    ]
-    if not active:
-        _log(f"ERROR: schema '{schema}' declares no steps")
-        raise SystemExit(1)
-
     state_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
     file_schema = f"{config_pack}_{schema}" if config_pack else schema
@@ -700,41 +1008,50 @@ def _seed_state(slug: str, schema: str, repo_root: str, *, config_pack: str = ""
     prior = sorted(state_dir.glob("*_state.yaml"))
     prior_path = str(prior[-1]) if prior else ""
 
-    _write_initial_state(
-        state_yaml,
-        slug=slug,
-        schema=schema,
-        repo_root=repo_root,
-        active=active,
-        prior_path=prior_path,
-        config_pack=config_pack,
-    )
-
-    from orchestrator_next import generate_plan as _gp
     try:
-        _gp.generate_plan(str(state_yaml))
+        seed_state_file(
+            state_yaml,
+            slug=slug,
+            schema=schema,
+            repo_root=repo_root,
+            config_pack=config_pack,
+            prior_path=prior_path,
+            user_input=user_input,
+        )
+    except FileNotFoundError as exc:
+        _log(f"ERROR: {exc}")
+        raise SystemExit(7) from exc
+    except ValueError as exc:
+        _log(f"ERROR: {exc}")
+        raise SystemExit(1) from exc
     except Exception as exc:
         state_yaml.unlink(missing_ok=True)
         _log(f"error: generate_plan failed: {exc}")
-        raise SystemExit(2)
+        raise SystemExit(2) from exc
 
     _log(f"init-workflow: {slug} ({config_pack + '/' if config_pack else ''}{schema}) ready at {state_yaml}")
     return str(state_yaml)
 
 
 def run_cmd(argv: list[str]) -> int:
-    """`orchestrator run <ticket> [--schema S] [--repo P] [--models-config PATH] [flag=value ...]`."""
+    """`orchestrator run <input…> [--schema S] [--repo P] …`
+
+    Engine stays dumb about ticket vs free text: positional args are opaque.
+    New runs mint a UUID ``run_id`` as change_id/slug and store the text as
+    ``user_input`` for the workflow. If the first positional already has active
+    state for this schema, that run is resumed (remaining args = user_direction).
+    """
     from orchestrator_next.models_config_cli import consume_models_config_argv
 
     argv = consume_models_config_argv(argv)
 
-    ticket_id = ""
     schema_ref = "feature"
     repo_arg = ""
     seed_only = False
     flag_overrides: list[str] = []
     agent_route_flags: list[str] = []
     routes_override_arg = ""
+    positionals: list[str] = []
 
     args = list(argv)
     while args:
@@ -746,31 +1063,37 @@ def run_cmd(argv: list[str]) -> int:
         elif a == "--routes-override":
             routes_override_arg = args.pop(0)
         elif a == "--seed-only":
-            # Seed state.yaml and stop — do NOT drive. For external drivers (e.g. a
-            # Claude Code cloud session) that walk next/done themselves instead of
-            # letting the engine spawn per-step subprocesses. See DRIVE.md.
             seed_only = True
         elif a in ("--help", "-h"):
             _log(
-                "Usage: orchestrator run <ticket-id> [--schema S] [--repo PATH] "
-                "[--models-config PATH] [--seed-only] [flag=value ...]"
+                "Usage: orchestrator run <input|run_id> […] [--schema S] [--repo PATH] "
+                "[--models-config PATH] [--seed-only] [flag=value ...]\n"
+                "  New run: opaque input (ticket id or free text) → prints run_id=.\n"
+                "  Resume:  run_id [\"feedback\"] when state already exists."
             )
             return 7
         elif a.startswith("-"):
             _log(f"ERROR: unknown option: {a}")
             return 7
-        elif not ticket_id:
-            ticket_id = a
-        elif "=" in a:
+        elif "=" in a and positionals:
+            if _AGENT_ROUTE_RE.match(a):
+                agent_route_flags.append(a)
+            else:
+                flag_overrides.append(a)
+        elif "=" in a and not positionals:
+            # Allow flag=value before input for compatibility
             if _AGENT_ROUTE_RE.match(a):
                 agent_route_flags.append(a)
             else:
                 flag_overrides.append(a)
         else:
-            _log(f"ERROR: unexpected argument: {a}")
-            return 7
-    if not ticket_id:
-        _log("Usage: orchestrator run <ticket-id> [--schema S] [--models-config PATH] ...")
+            positionals.append(a)
+
+    if not positionals:
+        _log(
+            'Usage: orchestrator run <input|run_id> […]  '
+            'e.g. orchestrator feature "add login"  or  orchestrator feature ORC-1'
+        )
         return 7
 
     # No repo-side marker file required — any git repo (or cwd) is runnable;
@@ -785,7 +1108,6 @@ def run_cmd(argv: list[str]) -> int:
             repo_root = os.getcwd()
     os.environ["REPO_ROOT"] = repo_root
 
-    # Resolve feature vs mypack/feature → pin ORCHESTRATOR_CONFIG for this run.
     from orchestrator_next.paths import WorkflowRefError, resolve_workflow_ref
     try:
         config_pack, schema, cfg_root = resolve_workflow_ref(
@@ -796,55 +1118,66 @@ def run_cmd(argv: list[str]) -> int:
         return 7
     os.environ["ORCHESTRATOR_CONFIG"] = str(cfg_root)
 
-    # Route-override env (model_routes.py reads these from os.environ).
     if routes_override_arg:
         os.environ["ORCHESTRATOR_ROUTES_YAML"] = os.path.abspath(routes_override_arg)
     if agent_route_flags:
         os.environ["ORCHESTRATOR_MODEL_ROUTE_OVERRIDES"] = _build_route_overrides(agent_route_flags)
 
-    slug = ticket_id.lower()
-
-    # State resolution (mirrors orchestrator-run.sh): resolve an existing state
-    # BEFORE seeding, so a re-run resumes instead of seeding a duplicate. `complete`
-    # is a separate teardown workflow that must NOT be driven from a feature state
-    # whose DAG is exhausted — resolve its own *_complete_state.yaml, and if the
-    # feature was already archived, resolve the archived state for merge/teardown.
-    state_yaml_path = _resolve_active_state(
-        slug, schema, repo_root, config_pack=config_pack
-    )
-    if not state_yaml_path and schema == "complete":
-        state_yaml_path = _resolve_archived_state(slug, repo_root)
-        if state_yaml_path:
-            _log(f"Resuming complete on archived state: {state_yaml_path}")
-    if not state_yaml_path:
-        state_yaml_path = _seed_state(
-            slug, schema, repo_root, config_pack=config_pack
+    first = positionals[0]
+    # Resume if this id already has active (or complete-schema archived) state.
+    # Try exact slug and lowercase (legacy ticket dirs used lowercase).
+    resume_slug = ""
+    state_yaml_path = ""
+    for candidate in (first, first.lower()):
+        found = _resolve_active_state(
+            candidate, schema, repo_root, config_pack=config_pack
         )
+        if found:
+            resume_slug = candidate
+            state_yaml_path = found
+            break
+    if not state_yaml_path and schema == "complete":
+        for candidate in (first, first.lower()):
+            found = _resolve_archived_state(candidate, repo_root)
+            if found:
+                resume_slug = candidate
+                state_yaml_path = found
+                _log(f"Resuming complete on archived state: {state_yaml_path}")
+                break
 
-    # --seed-only: stop here. The caller (external driver) walks next/done itself.
-    # Print the path on its own final line so callers can `tail -1` it.
+    user_direction = ""
+    user_input = ""
+    if state_yaml_path:
+        run_id = resume_slug
+        user_direction = " ".join(positionals[1:]).strip()
+        _log(f"resuming run_id={run_id}")
+    else:
+        run_id = str(uuid.uuid4())
+        user_input = " ".join(positionals).strip()
+        state_yaml_path = _seed_state(
+            run_id, schema, repo_root, config_pack=config_pack, user_input=user_input,
+        )
+        print(f"run_id={run_id}", flush=True)
+        _log(f"started run_id={run_id} user_input={user_input[:120]!r}")
+
     if seed_only:
         _log(f"seeded (seed-only): {state_yaml_path}")
         print(state_yaml_path)
         return 0
 
-    # models.yaml resolution (override > pack > global).
-    models_yaml = os.environ.get("ORCHESTRATOR_MODELS_CONFIG", "")
-    if not models_yaml:
-        for cand in (
-            cfg_root / "models.yaml",
-            Path(repo_root) / ".orchestrator" / "config" / "models.yaml",
-            Path(repo_root) / "config" / "models.yaml",
-        ):
-            if cand.is_file():
-                models_yaml = str(cand)
-                break
-
     ref_label = f"{config_pack}/{schema}" if config_pack else schema
-    _log(f"Running workflow: ticket={ticket_id} schema={ref_label} state={state_yaml_path}")
+    _log(f"Running workflow: run_id={run_id} schema={ref_label} state={state_yaml_path}")
+    if user_direction:
+        _log(f"user_direction: {user_direction[:200]}")
+    models_yaml = resolve_models_yaml(repo_root=repo_root)
     if models_yaml and os.environ.get("ORCHESTRATOR_MODELS_CONFIG"):
         _log(f"models override: {models_yaml}")
-    return run_loop(state_yaml_path, repo_root=repo_root, models_yaml=models_yaml)
+    return run_loop(
+        state_yaml_path,
+        repo_root=repo_root,
+        models_yaml=models_yaml,
+        user_direction=user_direction,
+    )
 
 
 if __name__ == "__main__":

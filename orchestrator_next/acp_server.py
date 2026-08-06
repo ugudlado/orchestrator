@@ -19,20 +19,22 @@ Wire format (matches agentclientprotocol.org + Hermes' own ACP client):
 
 Everything on stdout is a valid ACP message; diagnostics go to stderr.
 
-The research workflow (config/workflows/research.yaml) runs through the real
-engine: seed state, dispatch, run each step, stream session/update
-notifications as steps progress, return a completion result.
+Workflows run through the real engine: seed state, dispatch, run each step,
+stream session/update notifications as steps progress, return a completion.
 """
 from __future__ import annotations
 
 import json
 import os
 import re
-import subprocess
 import sys
 import tempfile
 import uuid
+from contextvars import ContextVar
 from pathlib import Path
+from typing import Any, Callable
+
+import yaml
 
 # ---------------------------------------------------------------------------
 # Protocol helpers
@@ -42,8 +44,15 @@ from pathlib import Path
 # "User:\nx", any case). The workflow topic is the last user turn.
 _USER_MARKER = re.compile(r"^\s*user\s*:\s*(?=\S)", re.MULTILINE | re.IGNORECASE)
 
+# Optional in-process sink (acp_client); None → stdout (Hermes / `orchestrator acp`).
+_send_sink: ContextVar[Callable[[dict], None] | None] = ContextVar("acp_send_sink", default=None)
+
 def _send(obj: dict) -> None:
-    """Write one JSON-RPC message to stdout (the ACP channel)."""
+    """Write one JSON-RPC message to the active sink (stdout or in-process)."""
+    sink = _send_sink.get()
+    if sink is not None:
+        sink(obj)
+        return
     sys.stdout.write(json.dumps(obj) + "\n")
     sys.stdout.flush()
 
@@ -62,6 +71,7 @@ def _notify(session_id: str, text: str, kind: str = "agent_message_chunk") -> No
         "jsonrpc": "2.0",
         "method": "session/update",
         "params": {
+            "sessionId": session_id,
             "update": {
                 "sessionUpdate": kind,
                 "content": {"type": "text", "text": text},
@@ -70,47 +80,80 @@ def _notify(session_id: str, text: str, kind: str = "agent_message_chunk") -> No
     })
 
 
+class RedisRequiredError(RuntimeError):
+    """Raised when a session workflow needs Redis but none is configured."""
+
+
+def redis_url() -> str:
+    return (
+        os.environ.get("ORCHESTRATOR_ACP_REDIS_URL")
+        or os.environ.get("REDIS_URL")
+        or ""
+    ).strip()
+
+
+def require_redis():
+    """Return a Redis client or raise RedisRequiredError with a clear message."""
+    client = _redis_client()
+    if client is None:
+        raise RedisRequiredError(
+            "Redis is required for session workflows (research / --resume). "
+            "Set REDIS_URL or ORCHESTRATOR_ACP_REDIS_URL."
+        )
+    return client
+
+
+def reset_redis_client_cache() -> None:
+    """Clear the lazy Redis singleton (tests / URL changes)."""
+    global _redis, _redis_checked
+    _redis = None
+    _redis_checked = False
+
+
+def session_workspace(repo_root: str, session_id: str) -> Path:
+    """Artifact workspace for a session run (no durable *_state.yaml here)."""
+    return Path(repo_root) / ".orchestrator" / "sessions" / session_id
+
 # ---------------------------------------------------------------------------
-# Research workflow driver (real engine)
+# Workflow driver (real engine via shared drive_loop)
 # ---------------------------------------------------------------------------
 
 def _final_state_text(state_yaml_path: str) -> str:
     """Human summary of a completed run: step history + artifact pointers."""
-    try:
-        import yaml
-        raw = yaml.safe_load(Path(state_yaml_path).read_text(encoding="utf-8")) or {}
-    except Exception:  # noqa: BLE001
+    from orchestrator_next.report import load_state as load_state_raw
+
+    raw = load_state_raw(state_yaml_path)
+    if not raw:
         return "workflow finished"
-    steps = []
-    for entry in raw.get("step_history") or []:
-        sid = entry.get("step_id") if isinstance(entry, dict) else None
-        status = entry.get("status") if isinstance(entry, dict) else None
-        if sid:
-            steps.append(f"- {sid}: {status}")
+    steps = [
+        f"- {entry.get('step_id')}: {entry.get('status')}"
+        for entry in (raw.get("step_history") or [])
+        if isinstance(entry, dict) and entry.get("step_id")
+    ]
     parts = [f"workflow '{raw.get('schema', '?')}' completed"]
     if steps:
         parts.append("steps:\n" + "\n".join(steps))
     return "\n".join(parts)
 
 
+def _ask_from_state(state_yaml_path: str) -> str:
+    """Pull outputs.ask from the latest step_history entry, if any."""
+    from orchestrator_next.report import load_state as load_state_raw
+
+    raw = load_state_raw(state_yaml_path) or {}
+    hist = raw.get("step_history") or []
+    if not hist or not isinstance(hist[-1], dict):
+        return ""
+    ask = (hist[-1].get("outputs") or {}).get("ask")
+    return str(ask).strip() if ask else ""
+
+
 def _extract_topic(prompt_text: str) -> str:
-    """Pull the actual user request out of the formatted ACP prompt.
-
-    Hermes sends the whole conversation (system + transcript + user) as one
-    prompt text. The workflow topic is the last User: section, not the system
-    preamble or model hints.
-
-    Matches the user-role marker at a line boundary in any of the common
-    formats — ``User: text`` (inline), ``User:\\ntext`` (block), lowercase
-    ``user:``, and capitalised variants — then returns everything after the
-    LAST match (the most recent user turn).
-    """
+    """Last user turn from a Hermes-style ACP transcript (not the system preamble)."""
     text = prompt_text.strip()
-    # Take everything after the LAST user-role marker (most recent turn).
     matches = list(_USER_MARKER.finditer(text))
     if matches:
         text = text[matches[-1].end():].strip()
-    # Drop trailing instructions the client appends after the transcript.
     for cut in ("\nContinue the conversation", "\nAvailable tools"):
         pos = text.find(cut)
         if pos != -1:
@@ -119,144 +162,244 @@ def _extract_topic(prompt_text: str) -> str:
     return text or "research"
 
 
+def _seed_session_state(
+    session_id: str,
+    schema: str,
+    repo_root: str,
+    state_path: Path,
+    *,
+    workspace: Path,
+) -> None:
+    """Seed workflow state into ``state_path`` via shared ``seed_state_file``."""
+    from orchestrator_next.run_loop import seed_state_file
+
+    workspace.mkdir(parents=True, exist_ok=True)
+    seed_state_file(
+        state_path,
+        slug=session_id,
+        schema=schema,
+        repo_root=repo_root,
+        worktree_path=str(workspace),
+        # Session identity: keep ticket_id=session_id for step env / CHANGE_ID compat.
+        ticket_id=session_id,
+    )
+
+
+def _rematerialize_state(state_path: Path, content: str, repo_root: str, workspace: Path) -> None:
+    """Write a resumed session's state text, rebinding machine-specific paths.
+
+    ``repo_root`` / ``worktree_path`` were stamped by whichever machine ran the
+    session last; on resume they must point at this machine's paths instead.
+    """
+    try:
+        raw = yaml.safe_load(content) or {}
+    except yaml.YAMLError:
+        state_path.write_text(content, encoding="utf-8")
+        return
+    if isinstance(raw, dict):
+        raw["repo_root"] = repo_root
+        raw["worktree_path"] = str(workspace)
+        content = yaml.safe_dump(raw, sort_keys=False, allow_unicode=True)
+    state_path.write_text(content, encoding="utf-8")
+
+
+_LIVE_STATE_KEY = "_live_state_path"  # in-process only; never persisted to Redis
+
+
+def _unlock_failed_for_retry(state_path: str) -> str | None:
+    """Reset a failed/blocked node so drive_loop can re-run it. Returns step_id if unlocked."""
+    from orchestrator_next.reset_step import apply_dag_reset
+
+    path = Path(state_path)
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    phase = str(raw.get("phase") or "main")
+    failed_step: str | None = None
+    for entry in reversed(raw.get("step_history") or []):
+        if isinstance(entry, dict) and entry.get("status") == "failed":
+            failed_step = str(entry.get("step_id") or "")
+            phase = str(entry.get("phase") or phase)
+            break
+    if not failed_step:
+        nxt = raw.get("next_step") if isinstance(raw.get("next_step"), dict) else {}
+        failed_step = str(nxt.get("step_id") or "") or None
+    if not failed_step:
+        return None
+    try:
+        apply_dag_reset(raw, phase, failed_step, keep_history_for=failed_step)
+    except ValueError:
+        return None
+    raw["status"] = "active"
+    path.write_text(
+        yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    return failed_step
+
+
+def _snapshot_state_to_session(session_state: dict, state_yaml_path: str) -> None:
+    """Copy temp state.yaml into Redis-backed session fields; drop durable path."""
+    path = Path(state_yaml_path)
+    if path.is_file():
+        session_state["state_yaml_content"] = path.read_text(encoding="utf-8")
+    session_state.pop("state_yaml_path", None)
+
+
+def _discard_temp_state(path: str | None) -> None:
+    if not path:
+        return
+    try:
+        Path(path).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def run_workflow(
     topic: str, session_id: str, repo_root: str,
     *,
     schema: str = "research",
     session_state: dict | None = None,
 ) -> dict:
-    """Run or continue a workflow through the real engine (multi-turn aware).
+    """Run or continue a session workflow via drive_loop.
 
-    Generic driver — the workflow config decides where input is needed:
-    steps whose contract declares ``await_input: true`` pause the run; the
-    next prompt's text is injected as "User direction" and the step runs.
-    Steps without await_input run automatically (fire-and-forget), so a
-    workflow designed for one-shot use keeps working unchanged.
-
-    The caller keeps ``session_state`` (per-session dict) across prompts.
+    Durable source of truth is ``session_state['state_yaml_content']`` (Redis).
+    Within a process, reuses ``_live_state_path`` so prompts do not rematerialize
+    every turn. ``change_id`` / slug / ticket_id are the session_id.
     """
-    from orchestrator_next.run_loop import (
-        run_agent_step,
-        run_script_step,
-        _seed_state,
-    )
-    from orchestrator_next.parser import load_state
-    from orchestrator_next.record import record
-    from orchestrator_next.paths import config_root
+    from orchestrator_next.run_loop import LOOP_PAUSED, drive_loop, resolve_models_yaml
 
     if session_state is None:
         session_state = {}
-    state_yaml_path = session_state.get("state_yaml_path")
-    prompt = _extract_topic(topic)
-    tmp_dir = Path(session_state.get("tmp_dir") or tempfile.mkdtemp(prefix="orc-acp-"))
-    session_state["tmp_dir"] = str(tmp_dir)
+    prompt = _extract_topic(topic) if topic.strip() else ""
+    # Strip a leading schema token when the agent declared it in the prompt text.
+    if prompt:
+        parts = prompt.strip().split(maxsplit=1)
+        known = set(_available_schemas(repo_root))
+        if parts and parts[0].strip(" ,.:;").lower() in known:
+            prompt = parts[1] if len(parts) > 1 else ""
 
-    def _new_workflow() -> str:
-        slug_src = prompt
-        # Strip a leading schema keyword so the slug is clean
-        # ("research postgres" → slug "postgres", not "research-postgres").
-        if slug_src:
-            first = slug_src.strip().split(maxsplit=1)[0].strip(" ,.:;").lower()
-            if first in _SCHEMA_HINTS:
-                rest = slug_src.strip().split(maxsplit=1)[1:] 
-                slug_src = rest[0] if rest else ""
-        slug = "".join(c if c.isalnum() or c in "-_" else "-" for c in slug_src.lower()).strip("-")
-        if not slug:
-            slug = schema
-        slug = slug[:80].rstrip("-")  # keep state filenames sane
-        return _seed_state(slug, schema, repo_root)
+    workspace = session_workspace(repo_root, session_id)
+    workspace.mkdir(parents=True, exist_ok=True)
+    tmp_dir = Path(tempfile.mkdtemp(prefix="orc-acp-"))
 
-    if not state_yaml_path:
-        state_yaml_path = _new_workflow()
-        session_state["state_yaml_path"] = state_yaml_path
-        _notify(session_id, f"🔍 Workflow: {schema} on '{prompt}'")
-        _notify(session_id, f"  state: {state_yaml_path}")
+    live = session_state.get(_LIVE_STATE_KEY)
+    reuse_live = bool(live and Path(str(live)).is_file())
+    seeded_fresh = False
+    if reuse_live:
+        state_yaml_path = str(live)
     else:
-        # Continuation — the new prompt text guides the awaited step.
-        _notify(session_id, f"➡️ continuing workflow: '{prompt}'")
+        fd, state_yaml_path = tempfile.mkstemp(
+            prefix=f"orc-sess-{session_id[:8]}-", suffix="_state.yaml",
+        )
+        os.close(fd)
+        content = session_state.get("state_yaml_content")
+        if content:
+            _rematerialize_state(Path(state_yaml_path), str(content), repo_root, workspace)
+        else:
+            _seed_session_state(
+                session_id, schema, repo_root, Path(state_yaml_path), workspace=workspace,
+            )
+            seeded_fresh = True
+            _notify(session_id, f"🔍 Workflow: {schema} (session {session_id})")
+            if prompt:
+                _notify(session_id, f"  topic: {prompt}")
+        session_state[_LIVE_STATE_KEY] = state_yaml_path
 
+    keep_live = False
     try:
-        state_yaml = state_yaml_path
-        while True:
-            if not Path(state_yaml).is_file():
-                _notify(session_id, "✅ workflow complete (state archived)")
-                session_state.pop("state_yaml_path", None)
-                session_state.pop("tmp_dir", None)
-                session_state.pop("awaiting_step_id", None)
-                break
-            state = load_state(state_yaml)
-            from orchestrator_next.dispatch import dispatch
+        if not seeded_fresh:
+            if session_state.get("status") == "failed" and prompt:
+                unlocked = _unlock_failed_for_retry(state_yaml_path)
+                if unlocked:
+                    _notify(session_id, f"🔄 retrying failed step: {unlocked}")
+            _notify(
+                session_id,
+                "➡️ continuing workflow" + (f": '{prompt}'" if prompt else ""),
+            )
 
-            try:
-                action, code = dispatch(state, state_yaml)
-            except Exception as exc:  # noqa: BLE001
-                _error_to_notify(session_id, f"dispatch error: {exc}")
-                return _completion("completed", f"workflow error: {exc}")
-
-            if code == 1:
-                _notify(session_id, "✅ workflow complete")
-                session_state.pop("state_yaml_path", None)
-                session_state.pop("tmp_dir", None)
-                session_state.pop("awaiting_step_id", None)
-                break
-            if code == 2:
-                _notify(session_id, "⛔ workflow blocked")
-                break
-            if code == 3:
-                _notify(session_id, "❌ workflow error")
-                break
-
-            step_id = action.get("step_id", "?")
-            needs_input = bool(action.get("await_input"))
-
-            # Config-declared input gate: pause until the client sends the
-            # next prompt (which becomes the User direction for this step).
-            if needs_input and session_state.get("awaiting_step_id") != step_id:
-                session_state["awaiting_step_id"] = step_id
-                _notify(session_id, f"⏸ {step_id} — input required; send direction to continue")
-                break
-
-            if action.get("model"):
-                _notify(session_id, f"→ {step_id} (agent, {action.get('model')})")
-                # Inject the user's continuation text as guidance for the agent.
-                if prompt:
-                    base = action.get("instruction") or ""
-                    action["instruction"] = (
-                        f"{base}\n\nUser direction: {prompt}"
-                        if base
-                        else f"User direction: {prompt}"
+        def on_event(kind: str, payload: dict) -> None:
+            step_id = payload.get("step_id", "?")
+            if kind == "await_input":
+                ask = _ask_from_state(state_yaml_path)
+                msg = f"⏸ {step_id} — input required"
+                if ask:
+                    msg += f"\nask: {ask}"
+                _notify(session_id, msg)
+            elif kind == "step_start":
+                if payload.get("kind") == "agent":
+                    _notify(session_id, f"→ {step_id} (agent, {payload.get('model')})")
+                else:
+                    _notify(session_id, f"→ {step_id} (script)")
+            elif kind == "step_done":
+                if payload.get("kind") == "agent":
+                    _notify(
+                        session_id,
+                        f"  ✓ {step_id} {payload.get('status', '?')} (rc={payload.get('rc')})",
                     )
-                payload = run_agent_step(
-                    action,
-                    repo_root=repo_root,
-                    models_yaml=str(config_root() / "models.yaml"),
-                    state_raw=state.raw,
-                    state_yaml_path=state_yaml,
-                    tmp_dir=tmp_dir,
+                else:
+                    ok = payload.get("ok", True)
+                    _notify(session_id, f"  ✓ {step_id} done" if ok else f"  ✗ {step_id} failed")
+            elif kind == "complete":
+                msg = (
+                    "✅ workflow complete (state archived)"
+                    if payload.get("archived")
+                    else "✅ workflow complete"
                 )
-                result, rc = record(state_yaml, payload)
-                _notify(session_id, f"  ✓ {step_id} {payload.get('status', '?')} (rc={rc})")
-                if needs_input:
-                    session_state.pop("awaiting_step_id", None)
-            elif action.get("run"):
-                _notify(session_id, f"→ {step_id} (script)")
-                ok, state_yaml = run_script_step(action, state_yaml_path=state_yaml, state=state)
-                _notify(session_id, f"  ✓ {step_id} done" if ok else f"  ✗ {step_id} failed")
-                if not ok:
-                    break
-                if needs_input:
-                    session_state.pop("awaiting_step_id", None)
-            else:
-                _notify(session_id, f"→ {step_id} (no action)")
-                break
+                _notify(session_id, msg)
+            elif kind == "blocked":
+                _notify(session_id, "⛔ workflow blocked")
+            elif kind == "error":
+                _notify(session_id, f"❌ {payload.get('message', 'workflow error')}")
+
+        result = drive_loop(
+            state_yaml_path,
+            repo_root=repo_root,
+            models_yaml=resolve_models_yaml(repo_root=repo_root),
+            tmp_dir=tmp_dir,
+            keep_tmp=False,
+            user_direction=prompt,
+            pause_on_await_input=True,
+            on_event=on_event,
+        )
+        state_yaml_path = result.state_yaml_path
+        session_state[_LIVE_STATE_KEY] = state_yaml_path
+        _snapshot_state_to_session(session_state, state_yaml_path)
+        ask = _ask_from_state(state_yaml_path)
+
+        if result.code == LOOP_PAUSED:
+            session_state["status"] = "await_input"
+            session_state["awaiting_step_id"] = result.awaiting_step_id
+            session_state["ask"] = ask
+            keep_live = True
+            return _completion("await_input", ask or _final_state_text(state_yaml_path))
+
+        session_state.pop("awaiting_step_id", None)
+        session_state.pop("ask", None)
+
+        if result.code == 1:
+            session_state["status"] = "completed"
+            return _completion("completed", _final_state_text(state_yaml_path))
+
+        if result.code == 3:
+            session_state["status"] = "failed"
+            keep_live = True  # allow --resume retry without rematerialize
+            return _completion("failed", _final_state_text(state_yaml_path))
+
+        if result.code == 2:
+            session_state["status"] = "blocked"
+            keep_live = True
+            return _completion("cancelled", _final_state_text(state_yaml_path))
+
+        session_state["status"] = "active"
+        keep_live = True
+        return _completion("completed", _final_state_text(state_yaml_path))
     finally:
-        pass  # tmp_dir cleaned when session ends via close()
-
-    return _completion("completed", _final_state_text(state_yaml_path))
-
-
-def _error_to_notify(session_id: str, text: str) -> None:
-    _notify(session_id, text, kind="agent_thought_chunk")
+        import shutil
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        if not keep_live:
+            live_path = session_state.pop(_LIVE_STATE_KEY, None)
+            _discard_temp_state(live_path if live_path else state_yaml_path)
 
 
 def _completion(outcome: str, text: str) -> dict:
@@ -277,38 +420,35 @@ def _cleanup_session(session: dict) -> None:
     if tmp_dir:
         import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
+    _discard_temp_state(workflow.pop(_LIVE_STATE_KEY, None))
     workflow.pop("state_yaml_path", None)
     workflow.pop("awaiting_step_id", None)
+    # Artifact workspace is removed by session/close via _delete_session_artifacts.
 
 
 # ---------------------------------------------------------------------------
-# Session persistence (cross-process + cross-environment continuation)
+# Session persistence (RunStore — Redis or local file, cross-process continuation)
 # ---------------------------------------------------------------------------
 
-def _session_store_dir() -> Path:
-    """Directory holding persisted ACP sessions (survives server restarts)."""
-    root = os.environ.get("ORCHESTRATOR_ACP_SESSION_DIR") or str(
-        Path.home() / ".orchestrator" / "acp-sessions"
-    )
-    d = Path(root)
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def _session_store_path(session_id: str) -> Path:
-    return _session_store_dir() / f"{session_id}.json"
+_redis = None
+_redis_checked = False
 
 
 def _redis_client():
-    """Lazy Redis client if configured; None otherwise."""
-    url = os.environ.get("ORCHESTRATOR_ACP_REDIS_URL") or os.environ.get("REDIS_URL")
+    """Lazy Redis singleton if configured; None otherwise."""
+    global _redis, _redis_checked
+    if _redis_checked:
+        return _redis
+    _redis_checked = True
+    url = redis_url()
     if not url:
         return None
     try:
         import redis  # type: ignore
-        return redis.from_url(url, decode_responses=True)
+        _redis = redis.from_url(url, decode_responses=True)
     except ImportError:
-        return None
+        _redis = None
+    return _redis
 
 
 def _session_redis_key(session_id: str) -> str:
@@ -316,168 +456,137 @@ def _session_redis_key(session_id: str) -> str:
 
 
 def _save_session(session_id: str, session: dict) -> None:
-    """Persist a session's resumable state (best-effort).
+    """Persist session meta + state_yaml_content snapshot to the RunStore."""
+    from orchestrator_next.run_store import open_store
 
-    Carries the state.yaml CONTENT (not just its path) so a session can be
-    resumed from a different machine/cloud environment: the store is the
-    source of truth for 'wherever we left off'.
-    """
-    try:
-        workflow = dict(session.get("workflow") or {})
-        state_yaml_path = workflow.get("state_yaml_path")
-        if state_yaml_path and Path(state_yaml_path).is_file():
-            try:
-                workflow["state_yaml_content"] = Path(state_yaml_path).read_text(
-                    encoding="utf-8"
-                )
-            except OSError:
-                workflow.pop("state_yaml_content", None)
-        payload = {
-            "cwd": session.get("cwd"),
-            "schema": session.get("schema", "research"),
-            "mcpServers": session.get("mcpServers") or [],
-            "workflow": workflow,
-        }
-        encoded = json.dumps(payload, indent=2)
-        client = _redis_client()
-        if client is not None:
-            client.set(_session_redis_key(session_id), encoded)
-        else:
-            _session_store_path(session_id).write_text(encoded, encoding="utf-8")
-    except OSError:
-        pass  # persistence is best-effort
+    workflow = dict(session.get("workflow") or {})
+    state_yaml_path = workflow.get("state_yaml_path") or workflow.get(_LIVE_STATE_KEY)
+    if state_yaml_path and Path(str(state_yaml_path)).is_file():
+        try:
+            workflow["state_yaml_content"] = Path(str(state_yaml_path)).read_text(
+                encoding="utf-8"
+            )
+        except OSError as exc:
+            raise RuntimeError(f"failed reading temp state for session {session_id}: {exc}") from exc
+    # Never persist process-local paths for session runs.
+    workflow.pop("state_yaml_path", None)
+    workflow.pop(_LIVE_STATE_KEY, None)
+    payload = {
+        "cwd": session.get("cwd"),
+        "schema": session.get("schema", "research"),
+        "workflow": workflow,
+    }
+    encoded = json.dumps(payload, separators=(",", ":"))
+    open_store().save(session_id, encoded)
 
 
 def _load_session(session_id: str) -> dict | None:
-    """Restore a persisted session, or None if unknown.
+    """Restore a persisted session from the RunStore. No rematerialize."""
+    from orchestrator_next.run_store import open_store
 
-    If the stored workflow references a state.yaml that does not exist on
-    this machine but its content was persisted, materialize it so the engine
-    can dispatch the next step from exactly where the workflow left off.
-    """
     try:
-        client = _redis_client()
-        if client is not None:
-            raw = client.get(_session_redis_key(session_id))
-        else:
-            path = _session_store_path(session_id)
-            if not path.is_file():
-                return None
-            raw = path.read_text(encoding="utf-8")
+        raw = open_store().load(session_id)
         if not raw:
             return None
         data = json.loads(raw)
         if not isinstance(data, dict):
             return None
         workflow = dict(data.get("workflow") or {})
-        state_yaml_path = workflow.get("state_yaml_path")
-        state_yaml_content = workflow.get("state_yaml_content")
-        if state_yaml_path and state_yaml_content and not Path(state_yaml_path).is_file():
-            try:
-                Path(state_yaml_path).parent.mkdir(parents=True, exist_ok=True)
-                Path(state_yaml_path).write_text(state_yaml_content, encoding="utf-8")
-            except OSError:
-                pass
+        workflow.pop("state_yaml_path", None)
+        workflow.pop(_LIVE_STATE_KEY, None)
+        # Stored cwd is a hint — rebind to this machine if it doesn't exist here.
+        cwd = str(data.get("cwd") or "")
+        if not cwd or not Path(cwd).is_dir():
+            cwd = os.getcwd()
         return {
-            "cwd": str(data.get("cwd") or os.getcwd()),
+            "cwd": cwd,
             "schema": str(data.get("schema") or "research").strip(),
-            "mcpServers": data.get("mcpServers") or [],
             "workflow": workflow,
         }
-    except (OSError, json.JSONDecodeError):
+    except (json.JSONDecodeError, TypeError):
         return None
 
 
+def _delete_session_artifacts(repo_root: str, session_id: str) -> None:
+    import shutil
+    workspace = session_workspace(repo_root, session_id)
+    if workspace.is_dir():
+        shutil.rmtree(workspace, ignore_errors=True)
+
+
 def _delete_session_store(session_id: str) -> None:
+    from orchestrator_next.run_store import open_store
+
     try:
-        client = _redis_client()
-        if client is not None:
-            client.delete(_session_redis_key(session_id))
-        else:
-            _session_store_path(session_id).unlink(missing_ok=True)
+        open_store().delete(session_id)
     except OSError:
         pass
 
 
-def _persisted_session_ids() -> list[str]:
-    """Session ids present in the persistent store (survive restarts).
+def _session_load_result(session_id: str, session: dict) -> dict:
+    """Payload for session/load — enough status for CLI resume decisions."""
+    workflow = session.get("workflow") or {}
+    return {
+        "sessionId": session_id,
+        "cwd": session.get("cwd"),
+        "schema": session.get("schema", "research"),
+        "status": workflow.get("status") or "active",
+        "awaiting_step_id": workflow.get("awaiting_step_id"),
+        "ask": workflow.get("ask") or "",
+        "has_state": bool(workflow.get("state_yaml_content")),
+    }
 
-    Union with the in-memory sessions in ``session/list`` so a client can
-    discover resumable sessions after a server restart (the advertised
-    cross-process continuation feature).
-    """
-    client = _redis_client()
-    if client is not None:
-        try:
-            keys = client.keys(_session_redis_key("*"))
-        except OSError:
-            return []
-        return [k.rsplit(":", 1)[-1] for k in keys]
+
+def _persisted_session_ids() -> list[str]:
+    """Session ids in the RunStore (for post-restart discovery)."""
+    from orchestrator_next.run_store import open_store
+
     try:
-        return [p.stem for p in _session_store_dir().glob("*.json")]
-    except OSError:
+        return open_store().list_ids()
+    except (OSError, RedisRequiredError):
         return []
 
 
-def _available_schemas() -> list[str]:
-    """Installed workflow schema names (workflow yaml files in the pack)."""
+def _available_schemas(repo_root: str | None = None) -> list[str]:
+    """Installed workflow schema names."""
     try:
-        from orchestrator_next.paths import config_root
-        wf_dir = config_root() / "workflows"
-        if wf_dir.is_dir():
-            return sorted(p.stem for p in wf_dir.glob("*.yaml"))
+        from orchestrator_next.paths import list_workflows
+        root = Path(repo_root) if repo_root else None
+        names = sorted(list_workflows(root).keys())
+        if names:
+            return names
     except Exception:  # noqa: BLE001
         pass
     return ["research"]
 
 
-# Keyword hints for request-driven schema routing. The FIRST matching schema
-# whose keyword appears in the request wins; if none or several match, the
-# server asks the user which workflow to run.
-_SCHEMA_HINTS: dict[str, tuple[str, ...]] = {
-    "research": ("research", "investigate", "findings", "report on"),
-    "feature": ("feature", "new capability", "add ability"),
-    "bugfix": ("bugfix", "bug fix", "fix bug", "defect", "crash"),
-    "design": ("design", "architecture", "plan out", "blueprint"),
-    "implement": ("implement", "implementing", "build it", "write code"),
-    "patch": ("patch", "apply patch"),
-    "complete": ("complete", "finish", "wrap up"),
-}
+def _route_schema(text: str, repo_root: str | None = None) -> str | None:
+    """Return an explicitly declared installed schema name, else None.
 
-
-def _route_schema(text: str) -> str | None:
-    """Read the workflow schema the AGENT declared; None if not declared.
-
-    The first step of any agent driving the orchestrator is to understand
-    which workflow schema the request needs and SAY it — either as the first
-    word ("research postgres indexing") or a "schema: X" declaration. The
-    orchestrator NEVER guesses from synonyms: if the request doesn't
-    explicitly name a schema, we ask the agent to declare one.
+    Synonyms are intentionally NOT matched — undeclared requests ask the agent.
+    Uses ``_available_schemas`` only (no parallel hard-coded name list).
     """
+    known = {n.lower() for n in _available_schemas(repo_root)}
+    if not known:
+        return None
     low = (text or "").strip().lower()
     if not low:
         return None
     first_word = low.split(maxsplit=1)[0].strip(" ,.:;")
-    if first_word in _SCHEMA_HINTS:
+    if first_word in known:
         return first_word
-    for prefix in ("schema:", "workflow:", "run the", "use the"):
+    for prefix in ("schema:", "workflow:"):
         if low.startswith(prefix):
             rest = low[len(prefix):].strip()
-            word = rest.split(maxsplit=1)[0].strip(" ,.:;\"'")
-            if word in _SCHEMA_HINTS:
+            word = rest.split(maxsplit=1)[0].strip(" ,.:;\"'") if rest else ""
+            if word in known:
                 return word
-            # "run the research workflow on X" → "research" is not first
-            # after "run the"; scan the next few tokens for a schema name.
-            tokens = rest.split()
-            for tok in tokens[:4]:
-                if tok.strip(" ,.:;\"'") in _SCHEMA_HINTS:
-                    return tok.strip(" ,.:;\"'")
     return None
 
 
-def _ask_schema(session_id: str) -> dict:
+def _ask_schema(session_id: str, repo_root: str | None = None) -> dict:
     """Stream a schema-selection question back to the client."""
-    schemas = ", ".join(_available_schemas())
+    schemas = ", ".join(_available_schemas(repo_root))
     question = (
         "Which workflow should I run? "
         f"Available: {schemas}.\n"
@@ -495,6 +604,44 @@ class AcpServer:
     def __init__(self) -> None:
         self.sessions: dict[str, dict] = {}
 
+    def invoke(
+        self,
+        method: str,
+        params: dict | None = None,
+        *,
+        on_update: Callable[[str], None] | None = None,
+    ) -> dict:
+        """In-process JSON-RPC call. Returns result dict; raises AcpRpcError on error."""
+        box: dict[str, Any] = {}
+
+        def sink(obj: dict) -> None:
+            if obj.get("method") == "session/update":
+                update = (obj.get("params") or {}).get("update") or {}
+                content = update.get("content") or {}
+                text = content.get("text", "") if isinstance(content, dict) else ""
+                if text and on_update is not None:
+                    on_update(text)
+                return
+            if "error" in obj:
+                box["error"] = obj["error"]
+            elif "result" in obj:
+                box["result"] = obj["result"]
+
+        token = _send_sink.set(sink)
+        try:
+            self.handle({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": method,
+                "params": params or {},
+            })
+        finally:
+            _send_sink.reset(token)
+        if "error" in box:
+            err = box["error"] or {}
+            raise AcpRpcError(err.get("code", -32000), str(err.get("message", "error")))
+        return box.get("result") or {}
+
     def handle(self, msg: dict) -> None:
         method = msg.get("method")
         message_id = msg.get("id")
@@ -504,10 +651,8 @@ class AcpServer:
             _result(message_id, {
                 "protocolVersion": 1,
                 "capabilities": {
-                    "fs": {"readTextFile": True, "writeTextFile": True},
-                    # Workflow schema discovery — the AGENT's first step is to
-                    # pick which workflow to run; the server only executes what
-                    # the agent declares (never infers from request text).
+                    "fs": {"readTextFile": False, "writeTextFile": False},
+                    # Agent declares which schema to run; server lists what's installed.
                     "workflows": {"schemas": _available_schemas()},
                 },
                 "agentCapabilities": {},
@@ -521,10 +666,8 @@ class AcpServer:
 
         if method == "session/new":
             session_id = str(uuid.uuid4())
-            # Schema is the SERVER's decision, resolved from the request at
-            # first session/prompt. An explicit env pin (ORCHESTRATOR_ACP_SCHEMA)
-            # or client hint still wins; otherwise the schema stays unset and
-            # the first prompt is routed (or asks if unclear).
+            # Explicit env pin or client hint wins; otherwise schema stays ""
+            # until the first prompt declares one (or we ask).
             schema = str(
                 params.get("schema")
                 or os.environ.get("ORCHESTRATOR_ACP_SCHEMA", "")
@@ -532,87 +675,109 @@ class AcpServer:
             ).strip()
             self.sessions[session_id] = {
                 "cwd": params.get("cwd") or os.getcwd(),
-                "mcpServers": params.get("mcpServers") or [],
-                # Workflow schema (workflow yaml name) this session drives.
-                # "" = unset → route from the first prompt's request.
-                "schema": schema,
-                # Set when we asked the user which workflow; the next prompt
-                # text is the answer (e.g. "research <topic>").
-                "awaiting_schema": False,
-                # Multi-turn workflow state: {state_yaml_path, tmp_dir,
-                # awaiting_step_id}. Cleared when the workflow completes or
-                # the session is closed.
-                "workflow": {},
+                "schema": schema,  # "" = unset → route from first prompt
+                "workflow": {"status": "active"},
             }
-            _save_session(session_id, self.sessions[session_id])
+            try:
+                _save_session(session_id, self.sessions[session_id])
+            except Exception as exc:  # noqa: BLE001
+                _error(message_id, -32011, f"failed to persist session: {exc}")
+                return
             _result(message_id, {"sessionId": session_id})
             return
 
         if method == "session/load":
             session_id = params.get("sessionId")
-            restored = _load_session(session_id) if session_id else None
+            try:
+                restored = _load_session(session_id) if session_id else None
+            except OSError as exc:
+                _error(message_id, -32010, f"session store unavailable: {exc}")
+                return
             if restored is None:
                 _error(message_id, -32002, f"unknown session: {session_id}")
                 return
             self.sessions[session_id] = restored
-            _result(message_id, {
-                "sessionId": session_id,
-                "cwd": restored.get("cwd"),
-                "schema": restored.get("schema", "research"),
-            })
+            _result(message_id, _session_load_result(session_id, restored))
             return
 
         if method == "session/prompt":
             session_id = params.get("sessionId")
             if session_id not in self.sessions:
-                _error(message_id, -32001, f"unknown session: {session_id}")
-                return
+                # Allow prompt after restart if the store has the session.
+                try:
+                    restored = _load_session(session_id) if session_id else None
+                except OSError as exc:
+                    _error(message_id, -32010, f"session store unavailable: {exc}")
+                    return
+                if restored is None:
+                    _error(message_id, -32001, f"unknown session: {session_id}")
+                    return
+                self.sessions[session_id] = restored
             prompt = params.get("prompt") or []
-            text = " ".join(
-                str(p.get("text", "")) for p in prompt if isinstance(p, dict)
-            ).strip()
-            if not text:
+            if isinstance(prompt, str):
+                text = prompt.strip()
+            else:
+                text = " ".join(
+                    str(p.get("text", "")) for p in prompt if isinstance(p, dict)
+                ).strip()
+            session = self.sessions[session_id]
+            workflow = session.setdefault("workflow", {})
+            has_state = bool(workflow.get("state_yaml_content"))
+            if not text and not has_state:
                 _error(message_id, -32602, "empty prompt")
                 return
+
+            from orchestrator_next.run_store import open_store
+
             try:
-                session = self.sessions[session_id]
+                store = open_store()
+            except RedisRequiredError as exc:
+                _error(message_id, -32010, str(exc))
+                return
+            if not store.lock(session_id):
+                _error(message_id, -32012, "session busy — another process is running it")
+                return
+            try:
                 repo_root = str(session.get("cwd") or os.getcwd())
 
-                # Request-driven schema routing (server-side decision). If the
-                # schema isn't pinned yet and no workflow is in flight, resolve
-                # it from the request text; if unclear, ask the user and wait
-                # for their answer as the next prompt.
-                if not session.get("schema") and not session.get("workflow", {}).get("state_yaml_path"):
+                # Explicit declaration only (first word / "schema: X"); ask if missing.
+                if not session.get("schema") and not has_state:
                     route_text = _extract_topic(text)
-                    routed = _route_schema(route_text)
+                    routed = _route_schema(route_text, repo_root=repo_root)
                     if routed is None:
-                        session["awaiting_schema"] = True
                         _save_session(session_id, session)
-                        _result(message_id, _ask_schema(session_id))
+                        _result(message_id, _ask_schema(session_id, repo_root=repo_root))
                         return
                     session["schema"] = routed
-                    session["awaiting_schema"] = False
                     _notify(session_id, f"📋 routing to workflow: {routed}")
 
                 result = run_workflow(
                     text, session_id, repo_root,
                     schema=str(session.get("schema") or "research"),
-                    session_state=session.setdefault("workflow", {}),
+                    session_state=workflow,
                 )
-                # Workflow complete → drop the persisted session (done).
-                if not session.get("workflow", {}).get("state_yaml_path"):
-                    _delete_session_store(session_id)
-                else:
-                    _save_session(session_id, session)
+                # Keep completed/failed/paused sessions in the store for --resume status.
+                _save_session(session_id, session)
                 _result(message_id, result)
             except Exception as exc:  # noqa: BLE001
+                workflow["status"] = "failed"
+                try:
+                    _save_session(session_id, session)
+                except Exception:  # noqa: BLE001
+                    pass
                 _error(message_id, -32603, f"workflow error: {exc}")
+            finally:
+                store.unlock(session_id)
             return
 
         if method == "session/close":
             session_id = params.get("sessionId")
+            repo_root = None
             if session_id in self.sessions:
-                _cleanup_session(self.sessions[session_id])
+                sess = self.sessions[session_id]
+                repo_root = str(sess.get("cwd") or os.getcwd())
+                _cleanup_session(sess)
+                _delete_session_artifacts(repo_root, session_id)
                 del self.sessions[session_id]
             _delete_session_store(session_id)
             _result(message_id, {})
@@ -628,87 +793,33 @@ class AcpServer:
         _error(message_id, -32601, f"method not found: {method}")
 
 
-def acp_run_main(argv: list[str]) -> int:
-    """`orchestrator acp-run <topic>` — ACP client driver.
-
-    Spawns the ACP server as a subprocess, performs initialize → session/new →
-    session/prompt, forwards streamed session/update notifications to stdout
-    live, and prints the final result. Exit 0 on completed, 1 on error.
-    """
-    if not argv:
-        print("usage: orchestrator acp-run <topic>", file=sys.stderr)
-        return 7
-    topic = " ".join(argv).strip()
-
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "orchestrator_next.acp_server"],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        text=True, bufsize=1,
-    )
-    next_id = 0
-
-    def request(method: str, params: dict) -> tuple[dict, list[str]]:
-        nonlocal next_id
-        next_id += 1
-        req_id = next_id
-        proc.stdin.write(json.dumps(
-            {"jsonrpc": "2.0", "id": req_id, "method": method, "params": params}
-        ) + "\n")
-        proc.stdin.flush()
-        updates: list[str] = []
-        while True:
-            line = proc.stdout.readline()
-            if not line:
-                break
-            msg = json.loads(line)
-            if msg.get("method") == "session/update":
-                update = msg.get("params", {}).get("update", {})
-                text = (update.get("content") or {}).get("text", "")
-                if text:
-                    print(text, flush=True)
-                    updates.append(text)
-                continue
-            if msg.get("id") == req_id:
-                return msg, updates
-        return {"error": {"message": "server closed"}}, updates
-
-    try:
-        msg, _ = request("initialize", {
-            "protocolVersion": 1, "clientCapabilities": {},
-            "clientInfo": {"name": "orchestrator-acp-run", "version": "0.1"},
-        })
-        if msg.get("error"):
-            print(f"error: initialize failed: {msg['error']}", file=sys.stderr)
-            return 1
-        msg, _ = request("session/new", {"cwd": os.getcwd(), "mcpServers": []})
-        if msg.get("error") or not msg.get("result", {}).get("sessionId"):
-            print(f"error: session/new failed: {msg}", file=sys.stderr)
-            return 1
-        session_id = msg["result"]["sessionId"]
-        msg, _ = request("session/prompt", {
-            "sessionId": session_id,
-            "prompt": [{"type": "text", "text": topic}],
-        })
-        if msg.get("error"):
-            print(f"error: session/prompt failed: {msg['error']}", file=sys.stderr)
-            return 1
-        outcome = msg.get("result", {}).get("outcome", {}).get("outcome")
-        msgs = msg.get("result", {}).get("outcome", {}).get("messages", [])
-        if msgs:
-            text = msgs[0].get("content", [{}])[0].get("text", "")
-            print("\n" + text)
-        return 0 if outcome == "completed" else 1
-    finally:
-        proc.stdin.close()
-        try:
-            proc.wait(timeout=10)
-        except Exception:
-            proc.kill()
+class AcpRpcError(Exception):
+    def __init__(self, code: int, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
 def main() -> int:
+    """Stdio ACP loop with a reader thread so stdin stays drained during long prompts."""
+    import queue
+    import threading
+
     server = AcpServer()
-    for line in sys.stdin:
+    lines: queue.Queue[str | None] = queue.Queue()
+
+    def _stdin_reader() -> None:
+        try:
+            for line in sys.stdin:
+                lines.put(line)
+        finally:
+            lines.put(None)
+
+    threading.Thread(target=_stdin_reader, name="acp-stdin", daemon=True).start()
+    while True:
+        line = lines.get()
+        if line is None:
+            break
         line = line.strip()
         if not line:
             continue

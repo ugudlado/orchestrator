@@ -15,7 +15,16 @@ steps:
   - id: code-review
     on_failure: implement
     max_retries: 8
+  - id: human-review # human feedback after review; may reset_to implement|design|…
+    on_failure: implement
+    max_retries: 8
   - ticket-qa # ticket -> Verify
   - learn
   - persist-learnings
+  # complete phase (merge / teardown) — runs only after human-review completes
+  - mark-change-completed
+  - archive-completed-change
+  - merge-to-main
+  - remove-worktree
+  - ticket-done
   - workflow-report

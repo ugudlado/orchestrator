@@ -1,17 +1,20 @@
 # Research workflow (ORC-ACP).
 #
-# CLI: `orchestrator research <topic>` — same driver as other workflows:
-# orchestrator run --schema research → in-process loop (run_loop.py).
-# Also drivable over ACP: `orchestrator acp` → session/prompt runs this
-# workflow and streams each step as agent_message_chunk.
+# CLI: `orchestrator research "<prompt>"` — session-driven via acp_client
+# (Redis session state; no durable *_state.yaml). Resume with:
+#   orchestrator --resume <session_id> ["optional input"]
+# Also drivable over ACP stdio: `orchestrator acp` (same handlers).
 #
-# Input:  <id> = free-form research topic string (slug-safe).
-# Output: spec/changes/<slug>/topic.md   (intake context)
-#         spec/changes/<slug>/sources.json (Tavily search results)
-#         spec/changes/<slug>/findings.md  (synthesized research report)
-#         spec/changes/<slug>/report.md    (run metrics via workflow-report)
+# Identity: change_id / slug / ticket_id = session_id.
+# Artifacts: .orchestrator/sessions/<session_id>/ (intake.json, topic.md, …)
+#
+# intake-research is an agent step: emits status await_input until checklist
+# (topic, audience, depth) is full; then synthesize-findings / workflow-report.
+#
+# Web search is NOT a fixed Tavily script — synthesize-findings uses whichever
+# search/browse tools the routed agent already has (cursor-agent, etc.).
+mode: session
 steps:
   - intake-research
-  - search-web
   - synthesize-findings
   - workflow-report

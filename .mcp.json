@@ -1,9 +1,10 @@
 {
   "mcpServers": {
     "backlog": {
-      "url": "${BACKLOG_URL}/projects/${BACKLOG_PROJECT_ID}/mcp",
+      "url": "${BACKLOG_URL}/mcp",
       "headers": {
-        "Authorization": "Bearer ${BACKLOG_TOKEN}"
+        "Authorization": "Bearer ${BACKLOG_TOKEN}",
+        "X-Backlog-Project": "${BACKLOG_PROJECT_ID}"
       },
       "type": "http",
       "env": {

@@ -30,16 +30,23 @@ from pathlib import Path
 def _usage() -> None:
     print(
         "Usage:\n"
-        "  orchestrator <workflow> <ticket-id> [--repo PATH] [--models-config PATH] [flag=value ...]\n"
+        "  orchestrator <workflow> <input|run_id> [\"resume text\"] [--repo PATH] …\n"
         "      Run a workflow from .orchestrator/<pack>/workflows/<workflow>.yaml.\n"
-        "      Unique names: `orchestrator feature ORC-1`, `orchestrator bugfix ORC-2`.\n"
-        "      Ambiguous names: `orchestrator mypack/feature ORC-1`.\n"
+        "      Input is opaque (ticket id or free text); prints run_id= on start.\n"
+        "      Resume: `orchestrator feature <run_id> \"your feedback\"`.\n"
+        "      Ambiguous names: `orchestrator mypack/feature …`.\n"
+        "  orchestrator research \"<prompt>\"\n"
+        "      Session-driven research (Redis required). Prints session_id.\n"
+        "  orchestrator --resume <session_id> [\"optional input\"]\n"
+        "      Resume a session: answer await_input, retry failed, or continue.\n"
         "  orchestrator config pull <git-or-path> [pack] [--skills] [--ref REF]\n"
         "      Install into .orchestrator/<pack>/ (pack defaults to source basename).\n"
         "  orchestrator doctor [--models-config PATH]\n"
         "      Check that workflow config and model routing look correct.\n"
         "  orchestrator report --state <state.yaml> | --all [--repo PATH] [--json]\n"
         "  orchestrator graph <workflow>\n"
+        "  orchestrator acp\n"
+        "      ACP stdio server (Hermes / editor clients).\n"
         "\n"
         "  --models-config PATH  Override models.yaml for this invocation\n"
         "                        (also: models.config=PATH)",
@@ -202,6 +209,17 @@ def main() -> None:
     from orchestrator_next.models_config_cli import consume_models_config_argv
 
     args = sys.argv[1:]
+    # Global --resume before verb routing (session-driven ACP).
+    if args and args[0] == "--resume":
+        if len(args) < 2:
+            print(
+                'usage: orchestrator --resume <session_id> ["optional input"]',
+                file=sys.stderr,
+            )
+            sys.exit(7)
+        from orchestrator_next.acp_client import resume_main
+        _default_repo_root_env()
+        sys.exit(resume_main(args[1], " ".join(args[2:]).strip()))
     # config-path needs no config root set — it's how you discover the value
     # to put in ORCHESTRATOR_CONFIG in the first place.
     if args and args[0] == "config-path":
@@ -226,31 +244,29 @@ def main() -> None:
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
         "next", "done", "graph", "doctor", "reset-step", "run", "validate-workflow",
-        "report", "acp", "acp-run",
+        "report", "acp",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
-    # ORC-ACP: `orchestrator acp` — Agent Client Protocol server over stdio.
     if args[0] == "acp":
         from orchestrator_next.acp_server import main as acp_main
         sys.exit(acp_main())
-    # ORC-ACP: `orchestrator acp-run <topic>` — drive the ACP server as a client.
-    if args[0] == "acp-run":
-        from orchestrator_next.acp_server import acp_run_main
-        sys.exit(acp_run_main(args[1:]))
     # Apply --models-config early so every verb that resolves routes sees it.
     # `run` / workflow subcommands also consume it inside run_cmd; applying here
     # is idempotent and covers next/doctor.
     verb, *rest = args
     rest = consume_models_config_argv(rest)
     args = [verb, *rest]
+    # Session-driven schemas (research): ACP client + Redis, not ticket run path.
+    from orchestrator_next.acp_client import is_session_schema, start_schema_main
+    if args[0] in _wf_subcommands and is_session_schema(args[0]):
+        sys.exit(start_schema_main(args[0], args[1:]))
     # Every verb except doctor needs a second argument.
     if len(args) < 2 and args[0] != "doctor":
         _usage()
     # Workflow tokens (bare or pack/workflow) → run --schema <ref>.
     if args[0] in _wf_subcommands:
         _run_verb([args[1], "--schema", args[0], *args[2:]])
-
     if args[0] == "run":
         _run_verb(args[1:])
 
@@ -362,7 +378,7 @@ def main() -> None:
     if action.get("run"):
         from orchestrator_next.run_loop import run_script_step as _run_script_step
 
-        _ok, _new_path = _run_script_step(action, state_yaml_path=state_yaml_path)
+        _ok, _new_path, _status = _run_script_step(action, state_yaml_path=state_yaml_path)
         sys.exit(0 if _ok else 3)
 
 

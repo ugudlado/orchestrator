@@ -29,7 +29,8 @@ models:
   strong: { model_id: claude-opus-5, tool: claude }
   standard: { model_id: claude-sonnet-5, tool: claude }
   code: { model_id: composer-2.5, tool: cursor }
-  acp-light: { model_id: deepseek-v4-flash, tool: hermes }
+  # ACP research synthesize — local cursor-agent (hermes optional elsewhere).
+  acp-light: { model_id: composer-2.5, tool: cursor }
 
 step_models:
   design: strong
@@ -41,4 +42,6 @@ step_models:
   design-review: standard
   ux-critique: standard
   implement: code
+  human-review: standard
+  intake-research: acp-light
   synthesize-findings: acp-light

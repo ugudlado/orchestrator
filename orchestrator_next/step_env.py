@@ -9,7 +9,7 @@ Canonical names (both legacy and ORCHESTRATOR_* aliases are always set together
 when a value exists):
 
   STATE_YAML_PATH, ORCHESTRATOR_STATE_YAML_PATH
-  REPO_ROOT, ORCHESTRATOR_REPO_ROOT
+  REPO_ROOT, ORCHESTRATOR_REPO_ROOT, ORCHESTRATOR_HOME (same value as REPO_ROOT)
   CHANGE_ID, ORCHESTRATOR_CHANGE_ID
   ORCHESTRATOR_STEP_DIR (set by run_loop; each script.sh resolves its own payload)
   ORCHESTRATOR_PROMPT_DIR (agent steps; resolved prompt directory for colocation)
@@ -86,6 +86,7 @@ def inline_script_env(
     if repo_root:
         env.setdefault("REPO_ROOT", repo_root)
         env.setdefault("ORCHESTRATOR_REPO_ROOT", repo_root)
+        env.setdefault("ORCHESTRATOR_HOME", repo_root)
     if change_id:
         env["CHANGE_ID"] = change_id
         env.setdefault("ORCHESTRATOR_CHANGE_ID", change_id)

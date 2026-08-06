@@ -29,6 +29,7 @@ spec/changes/*/state.yaml
 spec/changes/*/plan.yaml
 
 .env
+n8n/.env
 .mcp.json
 # Tracked exception: contains only ${VAR} placeholders (no secrets); must clone
 # into cloud sessions so the backlog MCP server exists there. See docs/cloud-environment.md.

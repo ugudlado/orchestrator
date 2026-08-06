@@ -1,4 +1,4 @@
-"""Regression test: --help must surface public workflows and doctor."""
+"""Regression test: --help must surface workflow usage, session resume, and doctor."""
 import subprocess
 import sys
 
@@ -10,5 +10,5 @@ def test_help_lists_workflows_and_doctor():
         text=True,
     )
     output = result.stdout + result.stderr
-    for token in ("feature", "bugfix", "doctor", "--models-config"):
+    for token in ("<workflow>", "--resume", "doctor", "--models-config"):
         assert token in output, f"--help missing {token!r}"
