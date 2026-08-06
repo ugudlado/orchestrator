@@ -66,6 +66,18 @@ APPROACH:
 
 ## Instructions
 
+**Check inputs first.** If `discovery.md` does not exist at the path above,
+do not invent scope from the codebase — fail immediately:
+
+```text
+COMPLETION:
+  step_id: design
+  status: failed
+  outputs:
+    reason: "missing inputs: discovery.md"
+    reset_to: explore
+```
+
 ## Part 1: Design Selection
 
 1. Read the discovery brief at $WORKFLOW_STATE_DIR/$CHANGE_ID/discovery.md for

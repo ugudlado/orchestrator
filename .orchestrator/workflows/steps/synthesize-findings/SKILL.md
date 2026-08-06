@@ -34,6 +34,18 @@ Under the same workspace dir:
 
 ## Instructions
 
+**Check inputs first.** If neither `intake.json` nor `topic.md` exists under
+the workspace dir, do not invent a topic — fail immediately:
+
+```text
+COMPLETION:
+  step_id: synthesize-findings
+  status: failed
+  outputs:
+    reason: "missing inputs: intake.json, topic.md"
+    reset_to: intake-research
+```
+
 1. Read `intake.json` and/or `topic.md`. Note **Topic**, **Audience**, and **Depth**.
 2. Search the web (or browse docs) with whatever tools you have — pick the
    right tool for the job (site search, docs fetch, general web search). Prefer

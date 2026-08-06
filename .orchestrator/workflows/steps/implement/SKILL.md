@@ -84,6 +84,17 @@ project. Project-specific rules live with the project's prompt and learnings.
 2. **Both `design.md` and `tasks.yaml` absent (patch schema)? Do NOT block or stop** —
    Read `developer/reference/edge-cases.md` before
    proceeding; it tells you to derive work from `ticket-context.md` instead.
+   **Only one of the two present** (design.md without tasks.yaml, or vice
+   versa) is not the patch case — that's a broken/partial prior run. Do not
+   invent scope from the codebase; fail immediately instead:
+   ```text
+   COMPLETION:
+     step_id: implement
+     status: failed
+     outputs:
+       reason: "missing inputs: <the absent file>"
+       reset_to: design
+   ```
 3. Read `tasks.yaml`. Identify all tasks where `status` is `pending` (or absent).
    Tasks with `status: completed` are done — skip them entirely.
    Reopened tasks (`status: pending` with a non-empty `reviews` list) are in

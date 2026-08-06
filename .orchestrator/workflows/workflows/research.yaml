@@ -6,7 +6,7 @@
 #
 # Identity: change_id / slug / ticket_id = session_id.
 # Artifacts: the workflow owns placement — see intake-research/SKILL.md
-# ($REPO_ROOT/.orchestrator/research/$CHANGE_ID/intake.json, topic.md, …)
+# ($REPO_ROOT/spec/changes/$CHANGE_ID/intake.json, topic.md, …)
 #
 # intake-research is an agent step: emits status await_input until checklist
 # (topic, audience, depth) is full; then synthesize-findings / workflow-report.
