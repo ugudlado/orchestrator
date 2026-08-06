@@ -234,7 +234,7 @@ def run_workflow(
         if parts and parts[0].strip(" ,.:;").lower() in known:
             prompt = parts[1] if len(parts) > 1 else ""
 
-    tmp_dir = Path(tempfile.mkdtemp(prefix="orc-acp-"))
+    tmp_dir = Path(tempfile.mkdtemp(prefix="orc-session-"))
 
     live = session_state.get(_LIVE_STATE_KEY)
     reuse_live = bool(live and Path(str(live)).is_file())

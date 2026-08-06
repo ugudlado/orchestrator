@@ -78,10 +78,12 @@ Pick the schema from the request (`feature`, `bugfix`, `chore`, `patch`, …).
 STATE=$(orchestrator run <slug> --schema <schema> --seed-only | tail -1)
 ```
 
-`--seed-only` creates `state.yaml` under `.orchestrator/<slug>/` and stops — it does
+`--seed-only` mints a run_id, saves its state to the RunStore (Redis — required, see
+Durability below), and materializes it to a stable local path under
+`~/.orchestrator/state/<run_id>.yaml` — never inside the repo. It stops there; it does
 **not** drive the workflow (that's your job, via the loop below). The path is printed on
-the last line. It's idempotent: re-running resolves the existing state instead of seeding
-a duplicate.
+the last line and the `run_id=` line above it. Re-running `orchestrator run <run_id>`
+with the same id resumes rather than seeding a duplicate.
 
 ## 3. The drive loop
 
@@ -153,19 +155,19 @@ echo '{
 
 ## Durability (resume after a block)
 
-`state.yaml` lives in the repo working tree (`.orchestrator/<slug>/`). The cloud session's
-filesystem is **ephemeral** — it's gone when the session ends.
+State lives in the RunStore (Redis — `REDIS_URL` / `ORCHESTRATOR_ACP_REDIS_URL`), not in
+the repo. The cloud session's filesystem is **ephemeral** — it's gone when the session
+ends — but that no longer matters for state: every `orchestrator done` persists the
+run's current state back to Redis (the materialized local file is a per-invocation
+working copy, not the durable record). `orchestrator doctor` PINGs Redis and fails
+fast if it's unreachable — provision one before driving a cloud run.
 
-You get durability for free: because `CLAUDE_CODE_REMOTE=true` marks the session headless,
-every `orchestrator done` auto-commits the state dir (`git add -f` — it's gitignored), and
-when a step transitions the run to **blocked** it also pushes (`git push origin HEAD`).
+Resuming after a block or a lost session: `orchestrator <schema> <run_id> "<feedback>"`
+re-materializes the state from Redis (rebinding `repo_root` to wherever this session's
+checkout lives) and continues from where it left off.
 
-The one case you still handle manually: ending a session mid-run **without** a block —
-push the branch yourself so the auto-commits survive:
-
-```bash
-git push origin HEAD
-```
+Repo artifacts the workflow itself wrote (code changes, `spec/changes/<id>/` docs) are
+still yours to commit and push as normal — that part hasn't changed.
 
 A future session resumes by pulling the branch and re-running `next "$STATE"`. Without the
 state on the remote, a blocked workflow **cannot be resumed** — it must be re-seeded.

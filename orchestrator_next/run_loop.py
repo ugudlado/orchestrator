@@ -34,7 +34,7 @@ from orchestrator_next.dispatch import ContractDispatchError, dispatch
 from orchestrator_next.parse_completion import parse_completion
 from orchestrator_next.parser import ContractError, ContractNotFoundError, load_state
 from orchestrator_next.pricing import format_cost_so_far, format_last_step_usage
-from orchestrator_next.record import autocommit_state, record
+from orchestrator_next.record import record
 from orchestrator_next.usage_adapters import ZEROED_USAGE, split_stdout
 
 _COMPLETION_CONTRACT = """
@@ -519,11 +519,13 @@ def _finalize_state(state_yaml_path: str) -> None:
             raw = yaml.safe_load(f) or {}
         raw["status"] = "completed"
         raw["next_step"] = None
-        Path(state_yaml_path).write_text(
-            yaml.safe_dump(raw, sort_keys=False, allow_unicode=True)
-        )
+        path = Path(state_yaml_path)
+        path.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True))
     except OSError as exc:
         _log(f"finalize_state: {exc}")
+        return
+    from orchestrator_next.record import _persist_if_materialized
+    _persist_if_materialized(path, raw)
 
 
 # ---------------------------------------------------------------------------
@@ -665,12 +667,10 @@ def drive_loop(
             if code == 1:
                 _log("Workflow complete.")
                 _finalize_state(state_yaml_path)
-                autocommit_state(state_yaml_path)
                 emit("complete")
                 return LoopResult(1, state_yaml_path)
             if code == 2:
                 _log("Workflow blocked.")
-                autocommit_state(state_yaml_path, push=True)
                 _notify_blocked(state_yaml_path, state.raw,
                                 (action or {}).get("reason") or "blocked (signoff or halt)")
                 emit("blocked", reason=(action or {}).get("reason") or "blocked")
@@ -729,7 +729,6 @@ def drive_loop(
                 emit("step_done", step_id=step_id, kind="script", ok=ok, status=status)
                 if not ok:
                     _log("Workflow aborted: deterministic script step failed.")
-                    autocommit_state(state_yaml_path, push=True)
                     emit("error", message=f"{step_id} script failed")
                     return LoopResult(3, state_yaml_path)
                 paused = _maybe_pause_await_input(
