@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import pytest
+import yaml
 
-from orchestrator_next.run_store import RedisRunStore, open_store
+from orchestrator_next.run_store import RedisRunStore, materialize, open_store, persist
 from orchestrator_next.tests.acp_redis_fake import FakeRedis
 
 
@@ -55,3 +56,57 @@ def test_open_store_raises_on_misconfigured_redis(monkeypatch):
     monkeypatch.setattr(acp, "_redis_client", lambda: None)
     with pytest.raises(RedisRequiredError):
         open_store()
+
+
+def test_archive_renames_and_drops_ttl():
+    fake = FakeRedis()
+    store = RedisRunStore(fake)
+    store.save("run-1", '{"a": 1}')
+    assert "run-1" in store.list_ids()
+
+    store.archive("run-1")
+
+    assert "run-1" not in store.list_ids()
+    assert "run-1" in store.list_ids(archived=True)
+    assert store.load("run-1") is None  # live key gone
+    from orchestrator_next.run_store import REDIS_ARCHIVE_PREFIX
+    assert fake.ttl(f"{REDIS_ARCHIVE_PREFIX}run-1") == -1  # persisted, no TTL
+
+
+def test_lock_refresh_extends_ttl():
+    fake = FakeRedis()
+    store = RedisRunStore(fake)
+    assert store.lock("run-1")
+    from orchestrator_next.run_store import LOCK_TTL, REDIS_LOCK_PREFIX
+    assert fake.ttl(f"{REDIS_LOCK_PREFIX}run-1") == LOCK_TTL
+
+    fake.ttls[f"{REDIS_LOCK_PREFIX}run-1"] = 1  # simulate near-expiry
+    store.refresh_lock("run-1")
+    assert fake.ttl(f"{REDIS_LOCK_PREFIX}run-1") == LOCK_TTL
+
+
+def test_materialize_writes_stable_path_and_persist_round_trips(tmp_path, monkeypatch):
+    monkeypatch.setenv("ORCHESTRATOR_HOME_DIR", str(tmp_path))
+    store = RedisRunStore(FakeRedis())
+    store.save("run-1", yaml.safe_dump({"change_id": "run-1", "repo_root": "/old/machine"}))
+
+    path = materialize(store, "run-1", repo_root="/new/machine")
+    assert path == tmp_path / "state" / "run-1.yaml"
+    raw = yaml.safe_load(path.read_text())
+    assert raw["repo_root"] == "/new/machine"
+
+    # Same run_id materializes to the same path (stable across --seed-only / next / done).
+    path2 = materialize(store, "run-1", repo_root="/new/machine")
+    assert path2 == path
+
+    raw["status"] = "completed"
+    path.write_text(yaml.safe_dump(raw))
+    persist(store, "run-1", path)
+    assert "completed" in store.load("run-1")
+
+
+def test_materialize_raises_for_unknown_run(tmp_path, monkeypatch):
+    monkeypatch.setenv("ORCHESTRATOR_HOME_DIR", str(tmp_path))
+    store = RedisRunStore(FakeRedis())
+    with pytest.raises(FileNotFoundError):
+        materialize(store, "does-not-exist")

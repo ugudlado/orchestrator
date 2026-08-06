@@ -10,6 +10,7 @@ class FakeRedis:
 
     def __init__(self) -> None:
         self.store: dict[str, str] = {}
+        self.ttls: dict[str, int | None] = {}
 
     def ping(self) -> bool:
         return True
@@ -18,12 +19,14 @@ class FakeRedis:
         if nx and key in self.store:
             return None
         self.store[key] = value
+        self.ttls[key] = ex
         return True
 
     def get(self, key: str) -> str | None:
         return self.store.get(key)
 
     def delete(self, key: str) -> int:
+        self.ttls.pop(key, None)
         return 1 if self.store.pop(key, None) is not None else 0
 
     def scan_iter(self, match: str = "*"):
@@ -31,6 +34,25 @@ class FakeRedis:
         for k in list(self.store):
             if k.startswith(prefix):
                 yield k
+
+    def rename(self, src: str, dst: str) -> bool:
+        if src not in self.store:
+            raise KeyError(f"no such key: {src}")
+        self.store[dst] = self.store.pop(src)
+        self.ttls[dst] = self.ttls.pop(src, None)
+        return True
+
+    def persist(self, key: str) -> bool:
+        if key not in self.store:
+            return False
+        self.ttls[key] = None
+        return True
+
+    def ttl(self, key: str) -> int:
+        if key not in self.store:
+            return -2
+        ex = self.ttls.get(key)
+        return -1 if ex is None else ex
 
 
 def install_fake_redis(monkeypatch) -> FakeRedis:
