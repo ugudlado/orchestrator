@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from orchestrator_next.run_loop import run_cmd, seed_state_file
+from orchestrator_next.tests.acp_redis_fake import install_fake_redis
 
 
 def _git_repo(tmp_path: Path) -> Path:
@@ -111,6 +112,7 @@ def test_seed_user_input_not_as_ticket_id(tmp_path, monkeypatch):
 
 
 def test_run_cmd_mints_uuid_and_stores_brief(tmp_path, monkeypatch, capsys):
+    fake = install_fake_redis(monkeypatch)
     repo = _git_repo(tmp_path)
     pack = _mini_pack(tmp_path)
     monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))
@@ -123,10 +125,10 @@ def test_run_cmd_mints_uuid_and_stores_brief(tmp_path, monkeypatch, capsys):
     assert "run_id=" in out
     run_id = [ln.split("=", 1)[1].strip() for ln in out.splitlines() if ln.startswith("run_id=")][0]
     assert len(run_id) == 36
-    state_dir = repo / ".orchestrator" / run_id
-    states = list(state_dir.glob("*_lite_state.yaml"))
-    assert states
-    raw = yaml.safe_load(states[-1].read_text())
+    # Completed runs are archived, not deleted.
+    from orchestrator_next.run_store import REDIS_ARCHIVE_PREFIX
+    stored = fake.store[f"{REDIS_ARCHIVE_PREFIX}{run_id}"]
+    raw = yaml.safe_load(stored)
     assert raw["user_input"] == "add empty-title validation"
     assert raw["change_id"] == run_id
     brief = repo / "spec" / "changes" / run_id / "ticket-context.md"
@@ -136,6 +138,7 @@ def test_run_cmd_mints_uuid_and_stores_brief(tmp_path, monkeypatch, capsys):
 
 
 def test_run_cmd_ticket_shaped_writes_stub_without_backlog(tmp_path, monkeypatch, capsys):
+    fake = install_fake_redis(monkeypatch)
     repo = _git_repo(tmp_path)
     pack = _mini_pack(tmp_path)
     monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))
@@ -147,17 +150,17 @@ def test_run_cmd_ticket_shaped_writes_stub_without_backlog(tmp_path, monkeypatch
     run_id = [ln.split("=", 1)[1].strip() for ln in out.splitlines() if ln.startswith("run_id=")][0]
     # Identity is UUID, not orc-42
     assert run_id.lower() != "orc-42"
-    assert (repo / ".orchestrator" / run_id).is_dir()
-    assert not (repo / ".orchestrator" / "orc-42").exists()
     ctx = repo / "spec" / "changes" / run_id / "ticket-context.md"
     assert ctx.is_file()
     text = ctx.read_text()
     assert "ORC-42" in text
-    raw = yaml.safe_load(next((repo / ".orchestrator" / run_id).glob("*_state.yaml")).read_text())
+    from orchestrator_next.run_store import REDIS_ARCHIVE_PREFIX
+    raw = yaml.safe_load(fake.store[f"{REDIS_ARCHIVE_PREFIX}{run_id}"])
     assert raw.get("ticket_id") == "ORC-42"  # state_patch from step
 
 
 def test_run_cmd_resume_by_run_id(tmp_path, monkeypatch, capsys):
+    install_fake_redis(monkeypatch)
     repo = _git_repo(tmp_path)
     pack = _mini_pack(tmp_path)
     monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))
@@ -166,10 +169,11 @@ def test_run_cmd_resume_by_run_id(tmp_path, monkeypatch, capsys):
     run_cmd(["hello world", "--schema", "lite", "--repo", str(repo)])
     out1 = capsys.readouterr().out
     run_id = [ln.split("=", 1)[1].strip() for ln in out1.splitlines() if ln.startswith("run_id=")][0]
-    # Second call with run_id resumes (workflow already complete → still exits 1 quickly)
+    # The run already completed and was archived (not deleted) — a second
+    # call with the same id reports completed-archived rather than minting
+    # a fresh run under the same id.
     code = run_cmd([run_id, "ignored-direction", "--schema", "lite", "--repo", str(repo)])
-    assert code in (1, 0, 3)  # complete or idle
-    capsys.readouterr()
-    # Should not print a new run_id= for resume (or may print pause run_id)
-    states = list((repo / ".orchestrator" / run_id).glob("*_state.yaml"))
-    assert len(states) == 1  # no second seed dir
+    assert code == 1
+    out2 = capsys.readouterr().out
+    assert f"run_id={run_id}" in out2
+    assert "archived" in out2

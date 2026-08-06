@@ -12,17 +12,15 @@ this agent runtime. Do **not** expect a pre-built `sources.json` or Tavily key.
 
 ## Inputs
 
-Workspace dir is `$REPO_ROOT/.orchestrator/research/$CHANGE_ID/` (same dir
-intake-research wrote to). Prefer these files:
+Workspace dir is `$REPO_ROOT/spec/changes/$CHANGE_ID/` (same dir
+intake-research wrote to):
 
 - `<workspace>/intake.json` — structured intake (topic, audience, depth).
 - `<workspace>/topic.md` — human-readable brief from intake-research.
 
-If only legacy `spec/changes/<slug>/topic.md` exists (non-session runs), use that.
-
 ## Outputs
 
-Under the same workspace dir (or legacy change dir if that is where intake lived):
+Under the same workspace dir:
 
 - `findings.md` — required research report.
 - `sources.md` — optional short citation ledger (title + URL per source you
@@ -30,7 +28,7 @@ Under the same workspace dir (or legacy change dir if that is where intake lived
 
 ## Verify
 
-- `findings.md` exists under the workspace dir (or legacy change dir).
+- `findings.md` exists under the workspace dir.
 - Every Key Finding cites a URL that appears in Sources.
 - No fabricated URLs.
 

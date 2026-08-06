@@ -305,27 +305,28 @@ def report_for_state(state_path: str, repo_root: str) -> dict | None:
     return payload
 
 
-def find_state_files(repo_root: str) -> list[Path]:
-    """Every state.yaml under a repo: active runs and archived ones."""
-    patterns = (
-        os.path.join(repo_root, ".orchestrator", "*", "state.yaml"),
-        os.path.join(repo_root, ".orchestrator", "*", "*_state.yaml"),
-        os.path.join(repo_root, "spec", "changes", "archive", "*", "state.yaml"),
-        os.path.join(repo_root, "spec", "changes", "archive", "*", "*_state.yaml"),
-    )
-    files: list[Path] = []
-    seen: set[Path] = set()
-    for pattern in patterns:
-        for p in sorted(_glob.glob(pattern)):
-            path = Path(p)
-            if path not in seen and path.is_file():
-                seen.add(path)
-                files.append(path)
-    return files
+def find_all_states() -> list[dict]:
+    """Every run's state in the RunStore: live runs and archived ones."""
+    from orchestrator_next.run_store import open_store
+
+    store = open_store()
+    states: list[dict] = []
+    for archived in (False, True):
+        for run_id in store.list_ids(archived=archived):
+            text = store.load(run_id, archived=archived)
+            if not text:
+                continue
+            try:
+                raw = yaml.safe_load(text) or {}
+            except yaml.YAMLError:
+                continue
+            if isinstance(raw, dict):
+                states.append(raw)
+    return states
 
 
-def aggregate(state_files: list[Path]) -> dict:
-    """Cross-workflow per-step aggregates over many state.yaml files.
+def aggregate(states: list[dict]) -> dict:
+    """Cross-workflow per-step aggregates over many run states.
 
     A "run" is one step_id appearing in one workflow (change_id): attempts are
     collapsed per run first, so retry_rate = runs that needed >1 attempt and
@@ -334,9 +335,8 @@ def aggregate(state_files: list[Path]) -> dict:
     # (step_id, change_id) -> collapsed run
     runs: dict[tuple[str, str], dict] = {}
     workflows: set[str] = set()
-    for path in state_files:
-        state = load_state(path)
-        cid = change_id_of(state) or str(path)
+    for state in states:
+        cid = change_id_of(state) or "?"
         for entry in state.get("step_history") or []:
             if not isinstance(entry, dict):
                 continue
@@ -381,7 +381,7 @@ def aggregate(state_files: list[Path]) -> dict:
     ]
     return {
         "workflows": len(workflows),
-        "state_files": len(state_files),
+        "state_files": len(states),
         "steps": steps,
         "totals": {
             "cost_usd": round(sum(s["total_cost_usd"] for s in steps), 6),
@@ -443,8 +443,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
     if all_mode:
-        root = repo_root or os.getcwd()
-        agg = aggregate(find_state_files(root))
+        agg = aggregate(find_all_states())
         render_aggregate(agg)
         if as_json:
             print(json.dumps(agg))

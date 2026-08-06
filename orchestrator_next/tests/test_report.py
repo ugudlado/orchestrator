@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import io
 import sys
-from pathlib import Path
 
 import pytest
+import yaml
 
 from orchestrator_next import report as report_mod
 
@@ -332,24 +332,18 @@ def test_each_attempt_reason_survives_collapse():
 # ---------------------------------------------------------------------------
 
 
-def _write_state(tmp_path: Path, cid: str, entries: list[dict]) -> Path:
-    import yaml
-
-    d = tmp_path / ".orchestrator" / cid
-    d.mkdir(parents=True, exist_ok=True)
-    path = d / "state.yaml"
-    path.write_text(yaml.safe_dump({"change_id": cid, "step_history": entries}))
-    return path
+def _state_dict(cid: str, entries: list[dict]) -> dict:
+    return {"change_id": cid, "step_history": entries}
 
 
 def test_aggregate_math_across_workflows(tmp_path):
-    a = _write_state(tmp_path, "feat-a", [
+    a = _state_dict("feat-a", [
         {"step_id": "implement", "status": "failed", "attempt": 1,
          "usage": {"duration_ms": 1000, "cost_usd": 1.0}},
         {"step_id": "implement", "status": "completed", "attempt": 2,
          "usage": {"duration_ms": 3000, "cost_usd": 2.0}},
     ])
-    b = _write_state(tmp_path, "feat-b", [
+    b = _state_dict("feat-b", [
         {"step_id": "implement", "status": "completed", "attempt": 1,
          "usage": {"duration_ms": 2000, "cost_usd": 1.0}},
         {"step_id": "review", "status": "failed", "attempt": 1,
@@ -373,12 +367,16 @@ def test_aggregate_math_across_workflows(tmp_path):
     assert agg["totals"]["cost_usd"] == 4.5
 
 
-def test_find_state_files_covers_active_and_archive(tmp_path):
-    active = _write_state(tmp_path, "feat-a", [])
-    arch_dir = tmp_path / "spec" / "changes" / "archive" / "20260101-feat-z"
-    arch_dir.mkdir(parents=True)
-    import yaml
-    archived = arch_dir / "state.yaml"
-    archived.write_text(yaml.safe_dump({"change_id": "feat-z", "step_history": []}))
-    files = report_mod.find_state_files(str(tmp_path))
-    assert active in files and archived in files
+def test_find_all_states_covers_live_and_archived(monkeypatch):
+    from orchestrator_next.tests.acp_redis_fake import install_fake_redis
+    from orchestrator_next.run_store import open_store
+
+    install_fake_redis(monkeypatch)
+    store = open_store()
+    store.save("feat-a", yaml.safe_dump({"change_id": "feat-a", "step_history": []}))
+    store.save("feat-z", yaml.safe_dump({"change_id": "feat-z", "step_history": []}))
+    store.archive("feat-z")
+
+    states = report_mod.find_all_states()
+    cids = {s.get("change_id") for s in states}
+    assert cids == {"feat-a", "feat-z"}

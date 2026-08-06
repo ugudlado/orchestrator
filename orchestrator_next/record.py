@@ -638,6 +638,26 @@ def _safe_write_yaml(path: Path, state_raw: dict[str, Any], pre_write_bytes: byt
 # Headless durability — auto-commit state so ephemeral runs can resume
 # ---------------------------------------------------------------------------
 
+def _persist_if_materialized(path: Path, state_raw: dict[str, Any]) -> None:
+    """Save back to the RunStore, but only for a materialized run path.
+
+    Tests and any other caller writing directly to an arbitrary state.yaml
+    (not under the RunStore's stable state dir) never touch Redis — this
+    keeps `record()` usable without a store configured, matching how it's
+    called throughout the test suite.
+    """
+    from orchestrator_next.run_store import _state_root
+
+    if path.resolve().parent != _state_root():
+        return
+    change_id = str(state_raw.get("change_id") or "")
+    if not change_id:
+        return
+    from orchestrator_next.run_store import open_store, persist
+
+    persist(open_store(), change_id, path)
+
+
 def _headless() -> bool:
     """Headless = nobody at a terminal to keep state alive (CI job, cloud
     sandbox). Opt-in via ORCHESTRATOR_HEADLESS=1; cloud sessions already
@@ -732,6 +752,12 @@ def record(
         _safe_write_yaml(path, state_raw, pre_write_bytes)
     except _RecordError as e:
         return (e.reason, e.code)
+
+    # A materialized run (path under the RunStore's stable state dir) persists
+    # its durable copy back to the store on every write — this is what makes
+    # standalone `orchestrator done` (a separate process from the one that
+    # last wrote state) durable without state ever living in the repo.
+    _persist_if_materialized(path, state_raw)
 
     # Headless: state changed on disk — commit it; push once when the run
     # transitions to blocked (that's the resume-later case, incl. the

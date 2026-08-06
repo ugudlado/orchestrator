@@ -572,3 +572,23 @@ def test_load_session_unknown_raises(monkeypatch):
         assert False, "expected UnknownSessionError"
     except UnknownSessionError:
         pass
+
+
+def test_close_session_archives_not_deletes(tmp_path, monkeypatch):
+    fake = _install_fake_redis(monkeypatch)
+    sessions = Sessions()
+    sid = sessions.new_session(cwd=str(tmp_path), schema="research")
+
+    sessions.close_session(sid)
+
+    from orchestrator_next.run_store import REDIS_ARCHIVE_PREFIX, REDIS_KEY_PREFIX
+    assert f"{REDIS_KEY_PREFIX}{sid}" not in fake.store
+    assert f"{REDIS_ARCHIVE_PREFIX}{sid}" in fake.store
+    assert sid not in sessions.sessions
+
+
+def test_close_session_never_persisted_is_a_noop(tmp_path, monkeypatch):
+    """Closing a session id that was never saved must not raise."""
+    _install_fake_redis(monkeypatch)
+    sessions = Sessions()
+    sessions.close_session("never-existed")  # must not raise

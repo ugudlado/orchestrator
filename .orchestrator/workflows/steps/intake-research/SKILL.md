@@ -14,8 +14,9 @@ durable `*_state.yaml`. Session state lives in Redis; you only write artifacts.
 
 - `$CHANGE_ID` / `$ORCHESTRATOR_CHANGE_ID` is the **session id** (not a topic slug).
 - The workflow (not the engine) owns artifact placement: use
-  `$REPO_ROOT/.orchestrator/research/$CHANGE_ID/` as the workspace dir —
-  create it if missing.
+  `$REPO_ROOT/spec/changes/$CHANGE_ID/` as the workspace dir — create it if
+  missing. (Tracked in git, unlike `.orchestrator/`, so research output
+  actually reaches the repo.)
 - Read/write:
   - `<workspace>/intake.json` — structured checklist (source of truth)
   - `<workspace>/topic.md` — short human-readable brief (written only when complete)

@@ -14,7 +14,7 @@ from typing import Protocol
 
 
 class RunStore(Protocol):
-    def load(self, run_id: str) -> str | None: ...
+    def load(self, run_id: str, *, archived: bool = False) -> str | None: ...
     def save(self, run_id: str, text: str) -> None: ...
     def delete(self, run_id: str) -> None: ...
     def list_ids(self, *, archived: bool = False) -> list[str]: ...
@@ -52,8 +52,9 @@ class RedisRunStore:
     def _lock_key(self, run_id: str) -> str:
         return f"{REDIS_LOCK_PREFIX}{run_id}"
 
-    def load(self, run_id: str) -> str | None:
-        return self.client.get(self._key(run_id))
+    def load(self, run_id: str, *, archived: bool = False) -> str | None:
+        key = self._archive_key(run_id) if archived else self._key(run_id)
+        return self.client.get(key)
 
     def save(self, run_id: str, text: str) -> None:
         self.client.set(self._key(run_id), text, ex=SESSION_TTL)

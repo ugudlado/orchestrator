@@ -454,12 +454,19 @@ def _load_session(session_id: str) -> dict | None:
         return None
 
 
-def _delete_session_store(session_id: str) -> None:
+def _archive_session_store(session_id: str) -> None:
+    """On close, archive rather than delete — the archived key is the
+    machine-readable audit trail (see run_store.RedisRunStore.archive).
+    A session that was never persisted (or already archived) has no live
+    key to rename — that's a normal close, not an error."""
     from orchestrator_next.run_store import open_store
 
+    store = open_store()
+    if store.load(session_id) is None:
+        return
     try:
-        open_store().delete(session_id)
-    except OSError:
+        store.archive(session_id)
+    except Exception:  # noqa: BLE001 — best-effort; close must not raise
         pass
 
 
@@ -641,7 +648,7 @@ class Sessions:
         if session_id in self.sessions:
             _cleanup_session(self.sessions[session_id])
             del self.sessions[session_id]
-        _delete_session_store(session_id)
+        _archive_session_store(session_id)
 
     def list_sessions(self) -> list[str]:
         ids = set(self.sessions.keys())

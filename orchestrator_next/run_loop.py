@@ -349,8 +349,9 @@ def run_script_step(
     recorded_status is the status written to step_history (``completed``,
     ``await_input``, ``failed``, …), or None when nothing was recorded.
 
-    For archive-completed-change: durable pre-write BEFORE running (state file
-    moves), so the entry survives the relocation; returns (True, relocated_path, status).
+    For state-mutating steps (archive-completed-change): durable pre-write
+    BEFORE running, so the entry survives even if the script itself fails
+    partway through.
 
     ``user_direction`` is exposed as ``ORCHESTRATOR_USER_DIRECTION`` for scripts
     that emit ``await_input`` and need the next resume text (ACP parity with agents).
@@ -444,9 +445,6 @@ def run_script_step(
         elif isinstance(outputs.get("state_patch"), dict):
             payload["state_patch"] = outputs["state_patch"]
         record(state_yaml_path, payload)
-    # Relocate state path if the script moved it (archive-completed-change emits
-    # archive_record.archive_path when it succeeds).
-    new_state_path = _relocate_after_archive(outputs, new_state_path)
 
     _log(f"✓ {step_id}  done  status={status}")
     _log_cost_so_far(new_state_path)
@@ -481,19 +479,6 @@ def _parse_stdout_outputs(proc) -> dict:
         except (json.JSONDecodeError, ValueError):
             pass
     return {}
-
-
-def _relocate_after_archive(outputs, default) -> str:
-    """Relocate state path when a script emits archive_record.archive_path."""
-    archive_path = (outputs.get("archive_record") or {}).get("archive_path") or ""
-    if not archive_path:
-        return default
-    repo_root = os.environ.get("REPO_ROOT", "")
-    candidate = os.path.join(repo_root, archive_path, "state.yaml")
-    if os.path.isfile(candidate):
-        _log(f"  state relocated: {candidate}")
-        return candidate
-    return default
 
 
 # ---------------------------------------------------------------------------
@@ -825,37 +810,6 @@ def _build_route_overrides(flags: list[str]) -> str:
     return json.dumps(data)
 
 
-def _resolve_active_state(
-    slug: str, schema: str, repo_root: str, *, config_pack: str = ""
-) -> str:
-    """Newest active state for this slug/schema(/pack), or "" if none."""
-    state_dir = Path(repo_root) / ".orchestrator" / slug
-    if not state_dir.is_dir():
-        return ""
-    matches: list[Path] = []
-    if config_pack:
-        matches.extend(state_dir.glob(f"*_{config_pack}_{schema}_state.yaml"))
-    matches.extend(state_dir.glob(f"*_{schema}_state.yaml"))
-    # Prefer pack-scoped files when both exist.
-    matches = sorted(set(matches))
-    return str(matches[-1]) if matches else ""
-
-
-def _resolve_archived_state(slug: str, repo_root: str) -> str:
-    """Archived state under spec/changes/archive/ for an already-completed
-    feature, or "" if none. Used by `complete` teardown when the active state
-    was already archived. Mirrors orchestrator-run.sh resolve_archived_state_yaml.
-    """
-    archive = Path(repo_root) / "spec" / "changes" / "archive"
-    direct = archive / slug / "state.yaml"
-    if direct.is_file():
-        return str(direct)
-    for dated in sorted(archive.glob(f"*-{slug}/state.yaml")):
-        if dated.is_file():
-            return str(dated)
-    return ""
-
-
 def _write_initial_state(
     state_yaml: Path, *, slug: str, schema: str, repo_root: str,
     active: list[str], prior_path: str, config_pack: str = "",
@@ -978,61 +932,6 @@ def seed_state_file(
     _gp.generate_plan(str(state_yaml))
 
 
-def _seed_state(
-    slug: str,
-    schema: str,
-    repo_root: str,
-    *,
-    config_pack: str = "",
-    user_input: str = "",
-) -> str:
-    """Seed a state file; return its path.
-    Idempotent: reuse the newest matching state yaml if present."""
-    state_dir = Path(repo_root) / ".orchestrator" / slug
-    patterns = []
-    if config_pack:
-        patterns.append(f"*_{config_pack}_{schema}_state.yaml")
-    patterns.append(f"*_{schema}_state.yaml")
-    existing: list[Path] = []
-    for pat in patterns:
-        existing.extend(state_dir.glob(pat))
-    existing = sorted(set(existing))
-    if existing:
-        _log(f"state file exists at {existing[-1]} (idempotent skip)")
-        return str(existing[-1])
-
-    state_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    file_schema = f"{config_pack}_{schema}" if config_pack else schema
-    state_yaml = state_dir / f"{timestamp}_{file_schema}_state.yaml"
-    prior = sorted(state_dir.glob("*_state.yaml"))
-    prior_path = str(prior[-1]) if prior else ""
-
-    try:
-        seed_state_file(
-            state_yaml,
-            slug=slug,
-            schema=schema,
-            repo_root=repo_root,
-            config_pack=config_pack,
-            prior_path=prior_path,
-            user_input=user_input,
-        )
-    except FileNotFoundError as exc:
-        _log(f"ERROR: {exc}")
-        raise SystemExit(7) from exc
-    except ValueError as exc:
-        _log(f"ERROR: {exc}")
-        raise SystemExit(1) from exc
-    except Exception as exc:
-        state_yaml.unlink(missing_ok=True)
-        _log(f"error: generate_plan failed: {exc}")
-        raise SystemExit(2) from exc
-
-    _log(f"init-workflow: {slug} ({config_pack + '/' if config_pack else ''}{schema}) ready at {state_yaml}")
-    return str(state_yaml)
-
-
 def run_cmd(argv: list[str]) -> int:
     """`orchestrator run <input…> [--schema S] [--repo P] …`
 
@@ -1123,40 +1022,63 @@ def run_cmd(argv: list[str]) -> int:
     if agent_route_flags:
         os.environ["ORCHESTRATOR_MODEL_ROUTE_OVERRIDES"] = _build_route_overrides(agent_route_flags)
 
+    from orchestrator_next.run_store import _state_root, materialize, open_store, persist
+
+    store = open_store()  # RedisRequiredError propagates — no silent fallback
+
     first = positionals[0]
-    # Resume if this id already has active (or complete-schema archived) state.
-    # Try exact slug and lowercase (legacy ticket dirs used lowercase).
-    resume_slug = ""
-    state_yaml_path = ""
+    # Resume if this id (or its lowercase form) is a known LIVE run_id in the store.
+    resume_run_id = ""
     for candidate in (first, first.lower()):
-        found = _resolve_active_state(
-            candidate, schema, repo_root, config_pack=config_pack
-        )
-        if found:
-            resume_slug = candidate
-            state_yaml_path = found
+        if store.load(candidate) is not None:
+            resume_run_id = candidate
             break
-    if not state_yaml_path and schema == "complete":
+    # Not live — an archived (already-completed) run_id still resolves so the
+    # `complete` teardown schema (or a status check) can operate on it, but
+    # doesn't re-seed a fresh run under the same id.
+    archived_run_id = ""
+    if not resume_run_id:
         for candidate in (first, first.lower()):
-            found = _resolve_archived_state(candidate, repo_root)
-            if found:
-                resume_slug = candidate
-                state_yaml_path = found
-                _log(f"Resuming complete on archived state: {state_yaml_path}")
+            if candidate in store.list_ids(archived=True):
+                archived_run_id = candidate
                 break
 
     user_direction = ""
     user_input = ""
-    if state_yaml_path:
-        run_id = resume_slug
+    if archived_run_id and not resume_run_id:
+        run_id = archived_run_id
+        user_direction = " ".join(positionals[1:]).strip()
+        _log(f"run_id={run_id} is completed (archived)")
+        print(f"run_id={run_id}", flush=True)
+        print("status=completed (archived)", flush=True)
+        return 1
+    if resume_run_id:
+        run_id = resume_run_id
         user_direction = " ".join(positionals[1:]).strip()
         _log(f"resuming run_id={run_id}")
+        state_yaml_path = str(materialize(store, run_id, repo_root=repo_root))
     else:
         run_id = str(uuid.uuid4())
         user_input = " ".join(positionals).strip()
-        state_yaml_path = _seed_state(
-            run_id, schema, repo_root, config_pack=config_pack, user_input=user_input,
-        )
+        state_path = _state_root() / f"{run_id}.yaml"
+        state_yaml_path = str(state_path)
+        try:
+            seed_state_file(
+                state_path,
+                slug=run_id, schema=schema, repo_root=repo_root,
+                config_pack=config_pack, user_input=user_input,
+            )
+        except FileNotFoundError as exc:
+            _log(f"ERROR: {exc}")
+            return 7
+        except ValueError as exc:
+            _log(f"ERROR: {exc}")
+            return 1
+        except Exception as exc:  # noqa: BLE001
+            state_path.unlink(missing_ok=True)
+            _log(f"error: generate_plan failed: {exc}")
+            return 2
+        persist(store, run_id, state_yaml_path)
         print(f"run_id={run_id}", flush=True)
         _log(f"started run_id={run_id} user_input={user_input[:120]!r}")
 
@@ -1172,12 +1094,23 @@ def run_cmd(argv: list[str]) -> int:
     models_yaml = resolve_models_yaml(repo_root=repo_root)
     if models_yaml and os.environ.get("ORCHESTRATOR_MODELS_CONFIG"):
         _log(f"models override: {models_yaml}")
-    return run_loop(
-        state_yaml_path,
-        repo_root=repo_root,
-        models_yaml=models_yaml,
-        user_direction=user_direction,
-    )
+
+    if not store.lock(run_id):
+        _log(f"ERROR: run {run_id} is busy — another process is driving it")
+        return 7
+    try:
+        code = run_loop(
+            state_yaml_path,
+            repo_root=repo_root,
+            models_yaml=models_yaml,
+            user_direction=user_direction,
+        )
+    finally:
+        store.unlock(run_id)
+    if code == 1:
+        store.archive(run_id)
+        _log(f"archived: run_id={run_id}")
+    return code
 
 
 if __name__ == "__main__":
