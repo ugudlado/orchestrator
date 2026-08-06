@@ -1,12 +1,12 @@
-# Research workflow (ORC-ACP).
+# Research workflow.
 #
-# CLI: `orchestrator research "<prompt>"` — session-driven via acp_client
+# CLI: `orchestrator research "<prompt>"` — session-driven via session_cli
 # (Redis session state; no durable *_state.yaml). Resume with:
 #   orchestrator --resume <session_id> ["optional input"]
-# Also drivable over ACP stdio: `orchestrator acp` (same handlers).
 #
 # Identity: change_id / slug / ticket_id = session_id.
-# Artifacts: .orchestrator/sessions/<session_id>/ (intake.json, topic.md, …)
+# Artifacts: the workflow owns placement — see intake-research/SKILL.md
+# ($REPO_ROOT/.orchestrator/research/$CHANGE_ID/intake.json, topic.md, …)
 #
 # intake-research is an agent step: emits status await_input until checklist
 # (topic, audience, depth) is full; then synthesize-findings / workflow-report.

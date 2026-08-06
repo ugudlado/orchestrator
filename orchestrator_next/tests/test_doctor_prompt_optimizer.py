@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from orchestrator_next.doctor import check_prompt_optimizer, run_all
+from orchestrator_next.tests.acp_redis_fake import install_fake_redis
 
 
 def test_prompt_optimizer_warns_when_unset(monkeypatch):
@@ -54,6 +55,7 @@ def test_prompt_optimizer_passes_when_directory_and_uv_exist(tmp_path, monkeypat
 
 
 def test_run_all_includes_prompt_optimizer_check(tmp_path, monkeypatch, capsys):
+    install_fake_redis(monkeypatch)
     config_root = tmp_path / "config"
     (config_root / "workflows").mkdir(parents=True)
     (config_root / "steps").mkdir()

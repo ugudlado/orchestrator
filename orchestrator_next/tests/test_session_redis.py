@@ -13,28 +13,8 @@ from orchestrator_next.sessions import (
     _load_session,
     _save_session,
     reset_redis_client_cache,
-    session_workspace,
 )
 from orchestrator_next.tests.acp_redis_fake import install_fake_redis as _install_fake_redis
-
-
-def test_file_backend_save_load_ignores_session_cwd(tmp_path, monkeypatch):
-    """Save/load must resolve the same store root regardless of the session's
-    client-declared cwd — that cwd is only for artifact placement."""
-    monkeypatch.delenv("REDIS_URL", raising=False)
-    monkeypatch.delenv("ORCHESTRATOR_ACP_REDIS_URL", raising=False)
-    reset_redis_client_cache()
-    monkeypatch.chdir(tmp_path)
-
-    other_cwd = str(tmp_path / "elsewhere")
-    _save_session("sess-x", {
-        "cwd": other_cwd,
-        "schema": "research",
-        "workflow": {"status": "await_input"},
-    })
-    restored = _load_session("sess-x")
-    assert restored is not None
-    assert restored["schema"] == "research"
 
 
 def test_require_redis_errors_clearly(monkeypatch):
@@ -49,7 +29,7 @@ def test_require_redis_errors_clearly(monkeypatch):
 
 
 def test_session_run_leaves_no_durable_state_yaml(tmp_path, monkeypatch):
-    """After a session prompt, Redis holds state; no *_state.yaml under sessions/."""
+    """After a session prompt, Redis holds state; no leftover *_state.yaml file."""
     fake = _install_fake_redis(monkeypatch)
 
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
@@ -89,11 +69,6 @@ def test_session_run_leaves_no_durable_state_yaml(tmp_path, monkeypatch):
     # In-process session keeps a live temp path for the next prompt
     live = sessions.sessions[sid]["workflow"].get(sess_mod._LIVE_STATE_KEY)
     assert live and Path(live).is_file()
-
-    # No durable *_state.yaml under session workspace
-    ws = session_workspace(str(tmp_path), sid)
-    leftovers = list(ws.rglob("*_state.yaml")) if ws.exists() else []
-    assert leftovers == []
 
     # load_session reports status for CLI
     loaded = sessions.load_session(sid)
@@ -197,9 +172,10 @@ def test_cross_process_resume_rematerializes(tmp_path, monkeypatch):
     assert stored["workflow"]["status"] == "completed"
 
 
-def test_resume_rebinds_repo_root_and_worktree_path(tmp_path, monkeypatch):
-    """Rematerialized state.yaml on resume carries THIS machine's paths, not
-    whichever machine ran the session last (path rebinding)."""
+def test_resume_rebinds_repo_root(tmp_path, monkeypatch):
+    """Rematerialized state.yaml on resume carries THIS machine's repo_root,
+    not whichever machine ran the session last (path rebinding). worktree_path
+    stays unset — session runs don't get an engine-chosen artifact dir."""
     _install_fake_redis(monkeypatch)
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
     import orchestrator_next.run_loop as run_loop
@@ -233,7 +209,7 @@ def test_resume_rebinds_repo_root_and_worktree_path(tmp_path, monkeypatch):
     sessions2.sessions[sid]["cwd"] = str(resumed_cwd)
     sessions2.prompt_session(sid, "answer")
     assert seen["repo_root"] == str(resumed_cwd)
-    assert seen["worktree_path"] == str(resumed_cwd / ".orchestrator" / "sessions" / sid)
+    assert not seen["worktree_path"]
 
 
 def test_resume_failed_with_direction_retries(tmp_path, monkeypatch):
@@ -428,50 +404,36 @@ def test_session_cli_resume_failed_with_input_retries(tmp_path, monkeypatch):
     assert stored["workflow"]["status"] == "completed"
 
 
-def test_session_cli_start_works_without_redis(tmp_path, monkeypatch):
-    """No REDIS_URL → file-backed RunStore, session still starts."""
+def test_session_cli_start_fails_fast_without_redis(tmp_path, monkeypatch):
+    """No REDIS_URL → RedisRequiredError, not a silent file-backed fallback."""
     from orchestrator_next import session_cli
-    from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
-    import orchestrator_next.run_loop as run_loop
+    from orchestrator_next.sessions import RedisRequiredError
 
     monkeypatch.delenv("REDIS_URL", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_ACP_REDIS_URL", raising=False)
     reset_redis_client_cache()
     monkeypatch.chdir(tmp_path)
 
-    def fake_drive(state_yaml_path, **kwargs):
-        raw = yaml.safe_load(Path(state_yaml_path).read_text()) or {}
-        raw.setdefault("step_history", []).append({
-            "step_id": "intake-research",
-            "phase": "main",
-            "status": "await_input",
-            "outputs": {"ask": "Who is the audience?"},
-        })
-        Path(state_yaml_path).write_text(yaml.safe_dump(raw))
-        return LoopResult(LOOP_PAUSED, state_yaml_path, awaiting_step_id="intake-research")
-
-    monkeypatch.setattr(run_loop, "drive_loop", fake_drive)
-
-    out = session_cli.start_schema("research", "hello", cwd=str(tmp_path))
-    assert out["status"] == "await_input"
-
-    store_dir = tmp_path / ".orchestrator" / "sessions" / "_state"
-    assert list(store_dir.glob("*.yaml"))
+    try:
+        session_cli.start_schema("research", "hello", cwd=str(tmp_path))
+        assert False, "expected RedisRequiredError"
+    except RedisRequiredError as exc:
+        assert "REDIS_URL" in str(exc) or "ORCHESTRATOR_ACP_REDIS_URL" in str(exc)
 
 
 def test_session_cli_start_raises_on_misconfigured_redis(monkeypatch):
     """REDIS_URL set but unusable (no redis package / bad connection) still raises."""
     from orchestrator_next import session_cli
-    from orchestrator_next.sessions import SessionError
+    from orchestrator_next.sessions import RedisRequiredError
 
     monkeypatch.setenv("REDIS_URL", "redis://fake")
     reset_redis_client_cache()
     monkeypatch.setattr(sess_mod, "_redis_client", lambda: None)
     try:
         session_cli.start_schema("research", "hello", cwd="/tmp")
-        assert False, "expected SessionError"
-    except SessionError as exc:
-        assert "redis" in exc.message.lower()
+        assert False, "expected RedisRequiredError"
+    except RedisRequiredError as exc:
+        assert "redis" in str(exc).lower()
 
 
 def test_cli_help_has_no_acp_run():
@@ -602,7 +564,8 @@ def test_cli_rejects_acp_run():
     assert "acp-run" not in combined.lower()
 
 
-def test_load_session_unknown_raises():
+def test_load_session_unknown_raises(monkeypatch):
+    _install_fake_redis(monkeypatch)
     sessions = Sessions()
     try:
         sessions.load_session("does-not-exist")

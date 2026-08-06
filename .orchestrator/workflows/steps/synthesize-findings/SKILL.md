@@ -12,17 +12,17 @@ this agent runtime. Do **not** expect a pre-built `sources.json` or Tavily key.
 
 ## Inputs
 
-Session workspace is `$WORKTREE_PATH` / `$ORCHESTRATOR_WORKFLOW_DIR`
-(`.orchestrator/sessions/<session_id>/` for ACP research). Prefer these files:
+Workspace dir is `$REPO_ROOT/.orchestrator/research/$CHANGE_ID/` (same dir
+intake-research wrote to). Prefer these files:
 
-- `$WORKTREE_PATH/intake.json` — structured intake (topic, audience, depth).
-- `$WORKTREE_PATH/topic.md` — human-readable brief from intake-research.
+- `<workspace>/intake.json` — structured intake (topic, audience, depth).
+- `<workspace>/topic.md` — human-readable brief from intake-research.
 
 If only legacy `spec/changes/<slug>/topic.md` exists (non-session runs), use that.
 
 ## Outputs
 
-Under the same session workspace (or legacy change dir if that is where intake lived):
+Under the same workspace dir (or legacy change dir if that is where intake lived):
 
 - `findings.md` — required research report.
 - `sources.md` — optional short citation ledger (title + URL per source you
@@ -30,7 +30,7 @@ Under the same session workspace (or legacy change dir if that is where intake l
 
 ## Verify
 
-- `findings.md` exists under the session workspace (or legacy change dir).
+- `findings.md` exists under the workspace dir (or legacy change dir).
 - Every Key Finding cites a URL that appears in Sources.
 - No fabricated URLs.
 

@@ -13,11 +13,12 @@ durable `*_state.yaml`. Session state lives in Redis; you only write artifacts.
 ## Session workspace
 
 - `$CHANGE_ID` / `$ORCHESTRATOR_CHANGE_ID` is the **session id** (not a topic slug).
-- Artifacts go under the session workspace (`$WORKTREE_PATH` / `$ORCHESTRATOR_WORKFLOW_DIR`),
-  which is `.orchestrator/sessions/<session_id>/` for ACP research runs.
+- The workflow (not the engine) owns artifact placement: use
+  `$REPO_ROOT/.orchestrator/research/$CHANGE_ID/` as the workspace dir —
+  create it if missing.
 - Read/write:
-  - `$WORKTREE_PATH/intake.json` — structured checklist (source of truth)
-  - `$WORKTREE_PATH/topic.md` — short human-readable brief (written only when complete)
+  - `<workspace>/intake.json` — structured checklist (source of truth)
+  - `<workspace>/topic.md` — short human-readable brief (written only when complete)
 
 ## Checklist (keep small)
 
@@ -31,7 +32,7 @@ Optional (fill if the user volunteers; do not block on them): `constraints`, `ou
 
 ## Instructions
 
-1. **Load prior intake** — If `$WORKTREE_PATH/intake.json` exists, parse it.
+1. **Load prior intake** — If `<workspace>/intake.json` exists, parse it.
    Merge new facts from the latest user direction (prompt / User direction).
 2. **Seed topic** — If `topic` is empty, take it from the latest user text
    (first turn is usually the topic). Do not invent a different topic.
@@ -88,7 +89,7 @@ COMPLETION:
     intake_file: <abs path to intake.json>
     topic_file: <abs path to topic.md>
     reason: >
-      Checklist complete (topic, audience, depth); artifacts written under session workspace.
+      Checklist complete (topic, audience, depth); artifacts written under the workflow's own workspace dir.
 ```
 
 ## Rules

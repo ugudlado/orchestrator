@@ -1,23 +1,14 @@
-"""RunStore: file and Redis backends behave identically (Phase 3)."""
+"""RunStore: Redis-backed store, mandatory (no file-store fallback)."""
 from __future__ import annotations
 
 import pytest
 
-from orchestrator_next.run_store import FileRunStore, RedisRunStore, open_store
+from orchestrator_next.run_store import RedisRunStore, open_store
 from orchestrator_next.tests.acp_redis_fake import FakeRedis
 
 
-def _file_store(tmp_path):
-    return FileRunStore(tmp_path / "_state")
-
-
-def _redis_store(tmp_path):
-    return RedisRunStore(FakeRedis())
-
-
-@pytest.mark.parametrize("make_store", [_file_store, _redis_store])
-def test_save_load_delete_round_trip(tmp_path, make_store):
-    store = make_store(tmp_path)
+def test_save_load_delete_round_trip():
+    store = RedisRunStore(FakeRedis())
     assert store.load("run-1") is None
 
     store.save("run-1", '{"a": 1}')
@@ -32,13 +23,14 @@ def test_save_load_delete_round_trip(tmp_path, make_store):
     assert "run-1" not in store.list_ids()
 
 
-def test_open_store_uses_file_backend_without_redis_url(tmp_path, monkeypatch):
+def test_open_store_raises_without_redis_url(tmp_path, monkeypatch):
+    from orchestrator_next.sessions import RedisRequiredError
+
     monkeypatch.delenv("REDIS_URL", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_ACP_REDIS_URL", raising=False)
     monkeypatch.chdir(tmp_path)
-    store = open_store()
-    assert isinstance(store, FileRunStore)
-    assert store.root == tmp_path / ".orchestrator" / "sessions" / "_state"
+    with pytest.raises(RedisRequiredError):
+        open_store()
 
 
 def test_open_store_uses_redis_when_configured(monkeypatch):

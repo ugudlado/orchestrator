@@ -11,6 +11,9 @@ class FakeRedis:
     def __init__(self) -> None:
         self.store: dict[str, str] = {}
 
+    def ping(self) -> bool:
+        return True
+
     def set(self, key: str, value: str, ex: int | None = None, nx: bool = False):
         if nx and key in self.store:
             return None

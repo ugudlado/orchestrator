@@ -68,11 +68,6 @@ def reset_redis_client_cache() -> None:
     _redis_checked = False
 
 
-def session_workspace(repo_root: str, session_id: str) -> Path:
-    """Artifact workspace for a session run (no durable *_state.yaml here)."""
-    return Path(repo_root) / ".orchestrator" / "sessions" / session_id
-
-
 def _final_state_text(state_yaml_path: str) -> str:
     """Human summary of a completed run: step history + artifact pointers."""
     from orchestrator_next.report import load_state as load_state_raw
@@ -122,28 +117,29 @@ def _seed_session_state(
     schema: str,
     repo_root: str,
     state_path: Path,
-    *,
-    workspace: Path,
 ) -> None:
-    """Seed workflow state into ``state_path`` via shared ``seed_state_file``."""
+    """Seed workflow state into ``state_path`` via shared ``seed_state_file``.
+
+    ``worktree_path`` is left unset — artifact placement is entirely the
+    workflow's decision (pack steps derive their own dir from CHANGE_ID /
+    REPO_ROOT), not something the engine prescribes for session runs.
+    """
     from orchestrator_next.run_loop import seed_state_file
 
-    workspace.mkdir(parents=True, exist_ok=True)
     seed_state_file(
         state_path,
         slug=session_id,
         schema=schema,
         repo_root=repo_root,
-        worktree_path=str(workspace),
         ticket_id=session_id,
     )
 
 
-def _rematerialize_state(state_path: Path, content: str, repo_root: str, workspace: Path) -> None:
+def _rematerialize_state(state_path: Path, content: str, repo_root: str) -> None:
     """Write a resumed session's state text, rebinding machine-specific paths.
 
-    ``repo_root`` / ``worktree_path`` were stamped by whichever machine ran the
-    session last; on resume they must point at this machine's paths instead.
+    ``repo_root`` was stamped by whichever machine ran the session last; on
+    resume it must point at this machine's path instead.
     """
     try:
         raw = yaml.safe_load(content) or {}
@@ -152,7 +148,6 @@ def _rematerialize_state(state_path: Path, content: str, repo_root: str, workspa
         return
     if isinstance(raw, dict):
         raw["repo_root"] = repo_root
-        raw["worktree_path"] = str(workspace)
         content = yaml.safe_dump(raw, sort_keys=False, allow_unicode=True)
     state_path.write_text(content, encoding="utf-8")
 
@@ -239,8 +234,6 @@ def run_workflow(
         if parts and parts[0].strip(" ,.:;").lower() in known:
             prompt = parts[1] if len(parts) > 1 else ""
 
-    workspace = session_workspace(repo_root, session_id)
-    workspace.mkdir(parents=True, exist_ok=True)
     tmp_dir = Path(tempfile.mkdtemp(prefix="orc-acp-"))
 
     live = session_state.get(_LIVE_STATE_KEY)
@@ -255,11 +248,9 @@ def run_workflow(
         os.close(fd)
         content = session_state.get("state_yaml_content")
         if content:
-            _rematerialize_state(Path(state_yaml_path), str(content), repo_root, workspace)
+            _rematerialize_state(Path(state_yaml_path), str(content), repo_root)
         else:
-            _seed_session_state(
-                session_id, schema, repo_root, Path(state_yaml_path), workspace=workspace,
-            )
+            _seed_session_state(session_id, schema, repo_root, Path(state_yaml_path))
             seeded_fresh = True
             notify(f"🔍 Workflow: {schema} (session {session_id})")
             if prompt:
@@ -379,7 +370,6 @@ def _cleanup_session(session: dict) -> None:
     _discard_temp_state(workflow.pop(_LIVE_STATE_KEY, None))
     workflow.pop("state_yaml_path", None)
     workflow.pop("awaiting_step_id", None)
-    # Artifact workspace is removed by close_session via _delete_session_artifacts.
 
 
 # ---------------------------------------------------------------------------
@@ -408,7 +398,9 @@ def _redis_client():
 
 
 def _session_redis_key(session_id: str) -> str:
-    return f"orc:acp:session:{session_id}"
+    from orchestrator_next.run_store import REDIS_KEY_PREFIX
+
+    return f"{REDIS_KEY_PREFIX}{session_id}"
 
 
 def _save_session(session_id: str, session: dict) -> None:
@@ -462,13 +454,6 @@ def _load_session(session_id: str) -> dict | None:
         return None
 
 
-def _delete_session_artifacts(repo_root: str, session_id: str) -> None:
-    import shutil
-    workspace = session_workspace(repo_root, session_id)
-    if workspace.is_dir():
-        shutil.rmtree(workspace, ignore_errors=True)
-
-
 def _delete_session_store(session_id: str) -> None:
     from orchestrator_next.run_store import open_store
 
@@ -493,13 +478,14 @@ def _session_load_result(session_id: str, session: dict) -> dict:
 
 
 def _persisted_session_ids() -> list[str]:
-    """Session ids in the RunStore (for post-restart discovery)."""
+    """Session ids in the RunStore (for post-restart discovery).
+
+    Redis unreachable propagates — a listing that silently omitted persisted
+    sessions would misreport "no sessions" instead of "store unavailable".
+    """
     from orchestrator_next.run_store import open_store
 
-    try:
-        return open_store().list_ids()
-    except (OSError, RedisRequiredError):
-        return []
+    return open_store().list_ids()
 
 
 def _available_schemas(repo_root: str | None = None) -> list[str]:
@@ -572,6 +558,8 @@ class Sessions:
         }
         try:
             _save_session(session_id, self.sessions[session_id])
+        except RedisRequiredError:
+            raise
         except Exception as exc:  # noqa: BLE001
             raise SessionError(-32011, f"failed to persist session: {exc}") from exc
         return session_id
@@ -651,10 +639,7 @@ class Sessions:
 
     def close_session(self, session_id: str) -> None:
         if session_id in self.sessions:
-            sess = self.sessions[session_id]
-            repo_root = str(sess.get("cwd") or os.getcwd())
-            _cleanup_session(sess)
-            _delete_session_artifacts(repo_root, session_id)
+            _cleanup_session(self.sessions[session_id])
             del self.sessions[session_id]
         _delete_session_store(session_id)
 
