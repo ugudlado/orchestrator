@@ -94,7 +94,7 @@ if [ -n "$candidate" ]; then
   if ! json="$(backlog_api_get_task "$candidate" 2>"$err_file")"; then
     err="$(cat "$err_file" 2>/dev/null || true)"
     rm -f "$err_file"
-    _fail "[TICKET FETCH FAILED] GET /api/tasks/${candidate} failed — do not invent scope from the codebase" "$err"
+    _fail "[TICKET FETCH FAILED] GET tasks/${candidate} failed — do not invent scope from the codebase" "$err"
   fi
   rm -f "$err_file"
   printf '%s' "$json" | backlog_api_format_plain >"$OUT"

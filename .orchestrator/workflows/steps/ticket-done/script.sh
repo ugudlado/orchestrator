@@ -51,7 +51,7 @@ elif backlog_api_put_status "$ticket_id" "$TICKET_SYNC_STATUS"; then
     echo "WARN ${TICKET_SYNC_LOG_PREFIX}: comment post failed for ${ticket_id}" >&2
 else
   echo "ERROR ${TICKET_SYNC_LOG_PREFIX}: REST status update failed for ${ticket_id}" >&2
-  printf '%s\n' "{\"status\": \"failed\", \"outputs\": {}, \"evidence\": {\"summary\": \"PUT /api/tasks/${ticket_id} status failed\"}}"
+  printf '%s\n' "{\"status\": \"failed\", \"outputs\": {}, \"evidence\": {\"summary\": \"PUT tasks/${ticket_id} status failed\"}}"
   exit 1
 fi
 

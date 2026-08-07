@@ -9,16 +9,14 @@
 # default, which could silently resolve to the WRONG project; it now returns 400 instead.
 #
 # Project resolution (first non-empty wins) — env-only, no config file read:
-#   1. BACKLOG_PROJECT      — env alias (name); takes precedence, see note below.
-#   2. BACKLOG_PROJECT_ID   — env (id/guid/name).
-# Any value may be an id, guid, or project name. Keeping this env-only (no
-# spec/project.yaml fallback) means the CLI's ticketing behavior never
-# depends on repo-committed config — only on the environment it's invoked in.
+#   1. BACKLOG_PROJECT_ID   — env (guid); preferred, the nested routes address by guid.
+#   2. BACKLOG_PROJECT      — env alias (name); legacy fallback.
+# Keeping this env-only (no spec/project.yaml fallback) means the CLI's
+# ticketing behavior never depends on repo-committed config — only on the
+# environment it's invoked in.
 
 backlog_api_project() {
-  # BACKLOG_PROJECT (name) takes precedence: the REST API doesn't resolve the
-  # guid until the server ships the guid migration (tasks/project-guid-column).
-  printf '%s' "${BACKLOG_PROJECT:-${BACKLOG_PROJECT_ID:-}}"
+  printf '%s' "${BACKLOG_PROJECT_ID:-${BACKLOG_PROJECT:-}}"
 }
 
 # Which ticketing backend this environment uses (e.g. "backlog") — the engine
@@ -41,35 +39,42 @@ backlog_api_base() {
   printf '%s' "$base"
 }
 
-# URL-encode the project ref (names may contain spaces).
-_backlog_project_q() {
-  python3 -c 'import sys,urllib.parse; print("project=" + urllib.parse.quote(sys.argv[1]))' "$(backlog_api_project)"
+# URL-encode the project ref as a path segment (names may contain spaces).
+_backlog_project_seg() {
+  python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$(backlog_api_project)"
 }
 
-# GET /api/tasks/:id?project=… → JSON on stdout. Returns curl/http failure as nonzero.
-backlog_api_get_task() {
-  local ticket_id="$1"
+# Base URL for project-nested task routes (BKG-547 nested REST under project guids).
+_backlog_tasks_base() {
   local base
   base="$(backlog_api_base)" || return 1
+  printf '%s/api/projects/%s/tasks' "$base" "$(_backlog_project_seg)"
+}
+
+# GET /api/projects/:guid/tasks/:id → JSON on stdout. Returns curl/http failure as nonzero.
+backlog_api_get_task() {
+  local ticket_id="$1"
+  local tasks
+  tasks="$(_backlog_tasks_base)" || return 1
   curl -fsS \
     -H "Authorization: Bearer ${BACKLOG_TOKEN}" \
     -H "Accept: application/json" \
-    "${base}/api/tasks/${ticket_id}?$(_backlog_project_q)"
+    "${tasks}/${ticket_id}"
 }
 
-# PUT /api/tasks/:id?project=… {"status": "..."} — partial update.
+# PUT /api/projects/:guid/tasks/:id {"status": "..."} — partial update.
 backlog_api_put_status() {
   local ticket_id="$1"
   # NOT `status`: that name is read-only in zsh, so sourcing this there would fail confusingly.
   local new_status="$2"
-  local base
-  base="$(backlog_api_base)" || return 1
+  local tasks
+  tasks="$(_backlog_tasks_base)" || return 1
   curl -fsS -X PUT \
     -H "Authorization: Bearer ${BACKLOG_TOKEN}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
     -d "{\"status\":$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$new_status")}" \
-    "${base}/api/tasks/${ticket_id}?$(_backlog_project_q)" >/dev/null
+    "${tasks}/${ticket_id}" >/dev/null
 }
 
 # The correlation key joining a ticket to the prompt-optimizer ledger rows of
@@ -88,22 +93,22 @@ backlog_api_correlation_line() {
   return 0
 }
 
-# POST /api/history?project=… {"taskId","body"} — appends a timeline comment
-# with the correlation key trailing the given text. Best-effort by contract:
-# callers sync ticket status, and a lost comment must not fail that step.
+# POST /api/projects/:guid/tasks/:id/comments {"body"} — appends a timeline
+# comment with the correlation key trailing the given text. Best-effort by
+# contract: callers sync ticket status, and a lost comment must not fail that step.
 backlog_api_post_comment() {
   local ticket_id="$1"
   local text="$2"
-  local base correlation
-  base="$(backlog_api_base)" || return 1
+  local tasks correlation
+  tasks="$(_backlog_tasks_base)" || return 1
   correlation="$(backlog_api_correlation_line "$ticket_id")"
   curl -fsS -X POST \
     -H "Authorization: Bearer ${BACKLOG_TOKEN}" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json" \
-    -d "$(python3 -c 'import json,sys; print(json.dumps({"taskId": sys.argv[1], "body": "\n\n".join(a for a in sys.argv[2:] if a)}))' \
-      "$ticket_id" "$text" "$correlation")" \
-    "${base}/api/history?$(_backlog_project_q)" >/dev/null
+    -d "$(python3 -c 'import json,sys; print(json.dumps({"body": "\n\n".join(a for a in sys.argv[1:] if a)}))' \
+      "$text" "$correlation")" \
+    "${tasks}/${ticket_id}/comments" >/dev/null
 }
 
 # JSON task on stdin → plain-text body for agent prompts (title/status/ACs/…).
