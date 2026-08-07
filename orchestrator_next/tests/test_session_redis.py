@@ -17,17 +17,6 @@ from orchestrator_next.sessions import (
 from orchestrator_next.tests.acp_redis_fake import install_fake_redis as _install_fake_redis
 
 
-def test_require_redis_errors_clearly(monkeypatch):
-    monkeypatch.delenv("REDIS_URL", raising=False)
-    monkeypatch.delenv("ORCHESTRATOR_ACP_REDIS_URL", raising=False)
-    reset_redis_client_cache()
-    try:
-        sess_mod.require_redis()
-        assert False, "expected RedisRequiredError"
-    except sess_mod.RedisRequiredError as exc:
-        assert "REDIS_URL" in str(exc) or "ORCHESTRATOR_ACP_REDIS_URL" in str(exc)
-
-
 def test_session_run_leaves_no_durable_state_yaml(tmp_path, monkeypatch):
     """After a session prompt, Redis holds state; no leftover *_state.yaml file."""
     fake = _install_fake_redis(monkeypatch)
@@ -43,6 +32,7 @@ def test_session_run_leaves_no_durable_state_yaml(tmp_path, monkeypatch):
             "status": "await_input",
             "outputs": {"ask": "Who is the audience?"},
         })
+        raw["awaiting"] = {"step_id": "intake-research", "ask": "Who is the audience?"}
         raw["next_step"] = {"phase": "main", "step_id": "intake-research"}
         Path(state_yaml_path).write_text(yaml.safe_dump(raw))
         return LoopResult(LOOP_PAUSED, state_yaml_path, awaiting_step_id="intake-research")

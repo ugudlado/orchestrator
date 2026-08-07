@@ -32,6 +32,8 @@ SESSION_TTL = int(os.environ.get("ORCHESTRATOR_ACP_SESSION_TTL", 14 * 86400))
 # refresh more often if a single step ever runs past ~15 minutes.
 LOCK_TTL = 900
 
+REDIS_START_HINT = "Start one: `brew services start redis` or `docker run -d -p 6379:6379 redis`."
+
 REDIS_KEY_PREFIX = "orc:run:live:"
 REDIS_ARCHIVE_PREFIX = "orc:run:archive:"
 REDIS_LOCK_PREFIX = "orc:run:lock:"
@@ -99,9 +101,7 @@ def open_store() -> RunStore:
 
     if not redis_url():
         raise RedisRequiredError(
-            "Redis is required (REDIS_URL or ORCHESTRATOR_ACP_REDIS_URL unset). "
-            "Start one: `brew services start redis` or "
-            "`docker run -d -p 6379:6379 redis`."
+            f"Redis is required (REDIS_URL or ORCHESTRATOR_ACP_REDIS_URL unset). {REDIS_START_HINT}"
         )
     from orchestrator_next.sessions import _redis_client
 
@@ -109,8 +109,7 @@ def open_store() -> RunStore:
     if client is None:
         raise RedisRequiredError(
             "REDIS_URL is set but the redis client is unavailable "
-            "(package missing or connection failed). Start one: "
-            "`brew services start redis` or `docker run -d -p 6379:6379 redis`."
+            f"(package missing or connection failed). {REDIS_START_HINT}"
         )
     return RedisRunStore(client)
 
@@ -119,6 +118,27 @@ def _state_root() -> Path:
     """Machine-local materialization dir — never inside a repo, never gitignored
     (nothing to ignore: it isn't under any repo)."""
     return Path(os.environ.get("ORCHESTRATOR_HOME_DIR", "~/.orchestrator")).expanduser() / "state"
+
+
+def rebind_repo_root(text: str, repo_root: str) -> str:
+    """Rewrite ``repo_root`` in state YAML text to this machine's path.
+
+    ``repo_root`` was stamped by whichever machine ran this state last; on
+    resume it must point at this machine's path instead. Non-dict/unparseable
+    YAML is returned unchanged rather than raised on.
+    """
+    import yaml
+
+    if not repo_root:
+        return text
+    try:
+        raw = yaml.safe_load(text) or {}
+    except yaml.YAMLError:
+        return text
+    if not isinstance(raw, dict):
+        return text
+    raw["repo_root"] = repo_root
+    return yaml.safe_dump(raw, sort_keys=False, allow_unicode=True)
 
 
 def materialize(store: "RunStore", run_id: str, *, repo_root: str = "") -> Path:
@@ -130,19 +150,10 @@ def materialize(store: "RunStore", run_id: str, *, repo_root: str = "") -> Path:
     is given, rebind the materialized state's ``repo_root`` to it (a resume on
     a different machine/checkout must not keep the previous machine's path).
     """
-    import yaml
-
     text = store.load(run_id)
     if text is None:
         raise FileNotFoundError(f"no state for run_id={run_id}")
-    if repo_root:
-        try:
-            raw = yaml.safe_load(text) or {}
-        except yaml.YAMLError:
-            raw = None
-        if isinstance(raw, dict):
-            raw["repo_root"] = repo_root
-            text = yaml.safe_dump(raw, sort_keys=False, allow_unicode=True)
+    text = rebind_repo_root(text, repo_root)
     path = _state_root() / f"{run_id}.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")

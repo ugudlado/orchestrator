@@ -50,17 +50,6 @@ def redis_url() -> str:
     ).strip()
 
 
-def require_redis():
-    """Return a Redis client or raise RedisRequiredError with a clear message."""
-    client = _redis_client()
-    if client is None:
-        raise RedisRequiredError(
-            "Redis is required for session workflows (research / --resume). "
-            "Set REDIS_URL or ORCHESTRATOR_ACP_REDIS_URL."
-        )
-    return client
-
-
 def reset_redis_client_cache() -> None:
     """Clear the lazy Redis singleton (tests / URL changes)."""
     global _redis, _redis_checked
@@ -68,11 +57,8 @@ def reset_redis_client_cache() -> None:
     _redis_checked = False
 
 
-def _final_state_text(state_yaml_path: str) -> str:
+def _final_state_text(raw: dict) -> str:
     """Human summary of a completed run: step history + artifact pointers."""
-    from orchestrator_next.report import load_state as load_state_raw
-
-    raw = load_state_raw(state_yaml_path)
     if not raw:
         return "workflow finished"
     steps = [
@@ -86,28 +72,16 @@ def _final_state_text(state_yaml_path: str) -> str:
     return "\n".join(parts)
 
 
-def _ask_from_state(state_yaml_path: str) -> str:
-    """Pull outputs.ask from the latest step_history entry, if any."""
-    from orchestrator_next.report import load_state as load_state_raw
-
-    raw = load_state_raw(state_yaml_path) or {}
-    hist = raw.get("step_history") or []
-    if not hist or not isinstance(hist[-1], dict):
-        return ""
-    ask = (hist[-1].get("outputs") or {}).get("ask")
-    return str(ask).strip() if ask else ""
-
-
-def _options_from_state(state_yaml_path: str) -> list:
-    """Pull the awaiting block's options list, if any (see record.py)."""
-    from orchestrator_next.report import load_state as load_state_raw
-
-    raw = load_state_raw(state_yaml_path) or {}
+def _awaiting(raw: dict) -> dict:
+    """The awaiting block (ask + options), if any (see record.py)."""
     awaiting = raw.get("awaiting")
-    if not isinstance(awaiting, dict):
-        return []
-    options = awaiting.get("options")
-    return options if isinstance(options, list) else []
+    return awaiting if isinstance(awaiting, dict) else {}
+
+
+def _load_state_raw(state_yaml_path: str) -> dict:
+    from orchestrator_next.report import load_state as load_state_raw
+
+    return load_state_raw(state_yaml_path) or {}
 
 
 def _extract_topic(prompt_text: str) -> str:
@@ -148,20 +122,10 @@ def _seed_session_state(
 
 
 def _rematerialize_state(state_path: Path, content: str, repo_root: str) -> None:
-    """Write a resumed session's state text, rebinding machine-specific paths.
+    """Write a resumed session's state text, rebinding machine-specific paths."""
+    from orchestrator_next.run_store import rebind_repo_root
 
-    ``repo_root`` was stamped by whichever machine ran the session last; on
-    resume it must point at this machine's path instead.
-    """
-    try:
-        raw = yaml.safe_load(content) or {}
-    except yaml.YAMLError:
-        state_path.write_text(content, encoding="utf-8")
-        return
-    if isinstance(raw, dict):
-        raw["repo_root"] = repo_root
-        content = yaml.safe_dump(raw, sort_keys=False, allow_unicode=True)
-    state_path.write_text(content, encoding="utf-8")
+    state_path.write_text(rebind_repo_root(content, repo_root), encoding="utf-8")
 
 
 _LIVE_STATE_KEY = "_live_state_path"  # in-process only; never persisted to Redis
@@ -286,7 +250,7 @@ def run_workflow(
         def on_event(kind: str, payload: dict) -> None:
             step_id = payload.get("step_id", "?")
             if kind == "await_input":
-                ask = _ask_from_state(state_yaml_path)
+                ask = str(_awaiting(_load_state_raw(state_yaml_path)).get("ask") or "")
                 msg = f"⏸ {step_id} — input required"
                 if ask:
                     msg += f"\nask: {ask}"
@@ -329,19 +293,25 @@ def run_workflow(
         state_yaml_path = result.state_yaml_path
         session_state[_LIVE_STATE_KEY] = state_yaml_path
         _snapshot_state_to_session(session_state, state_yaml_path)
-        ask = _ask_from_state(state_yaml_path)
+        raw = _load_state_raw(state_yaml_path)
+        final_text = _final_state_text(raw)
+        # A completed run (code 1) discards its live temp state; every other
+        # outcome (paused / failed / blocked / still active) keeps it so a
+        # later --resume can continue without rematerializing from Redis.
+        keep_live = result.code != 1
 
         if result.code == LOOP_PAUSED:
+            awaiting = _awaiting(raw)
+            ask = str(awaiting.get("ask") or "")
             session_state["status"] = "await_input"
             session_state["awaiting_step_id"] = result.awaiting_step_id
             session_state["ask"] = ask
-            options = _options_from_state(state_yaml_path)
-            if options:
+            options = awaiting.get("options")
+            if isinstance(options, list) and options:
                 session_state["options"] = options
             else:
                 session_state.pop("options", None)
-            keep_live = True
-            return _completion("await_input", ask or _final_state_text(state_yaml_path))
+            return _completion("await_input", ask or final_text)
 
         session_state.pop("awaiting_step_id", None)
         session_state.pop("ask", None)
@@ -349,21 +319,18 @@ def run_workflow(
 
         if result.code == 1:
             session_state["status"] = "completed"
-            return _completion("completed", _final_state_text(state_yaml_path))
+            return _completion("completed", final_text)
 
         if result.code == 3:
             session_state["status"] = "failed"
-            keep_live = True  # allow --resume retry without rematerialize
-            return _completion("failed", _final_state_text(state_yaml_path))
+            return _completion("failed", final_text)
 
         if result.code == 2:
             session_state["status"] = "blocked"
-            keep_live = True
-            return _completion("cancelled", _final_state_text(state_yaml_path))
+            return _completion("cancelled", final_text)
 
         session_state["status"] = "active"
-        keep_live = True
-        return _completion("completed", _final_state_text(state_yaml_path))
+        return _completion("completed", final_text)
     finally:
         import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -432,7 +399,9 @@ def _save_session(session_id: str, session: dict) -> None:
 
     workflow = dict(session.get("workflow") or {})
     state_yaml_path = workflow.get("state_yaml_path") or workflow.get(_LIVE_STATE_KEY)
-    if state_yaml_path and Path(str(state_yaml_path)).is_file():
+    # _snapshot_state_to_session may already have read this turn's content —
+    # only re-read from disk when the caller hasn't.
+    if not workflow.get("state_yaml_content") and state_yaml_path and Path(str(state_yaml_path)).is_file():
         try:
             workflow["state_yaml_content"] = Path(str(state_yaml_path)).read_text(
                 encoding="utf-8"

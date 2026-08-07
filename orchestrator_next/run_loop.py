@@ -34,7 +34,7 @@ from orchestrator_next.dispatch import ContractDispatchError, dispatch
 from orchestrator_next.parse_completion import parse_completion
 from orchestrator_next.parser import ContractError, ContractNotFoundError, load_state
 from orchestrator_next.pricing import format_cost_so_far, format_last_step_usage
-from orchestrator_next.record import record
+from orchestrator_next.record import _find_workflow_node, record
 from orchestrator_next.usage_adapters import ZEROED_USAGE, split_stdout
 
 _COMPLETION_CONTRACT = """
@@ -565,7 +565,7 @@ def _route_awaiting_input(state_yaml_path: str, user_direction: str) -> bool:
         raw["status"] = "active"
         _log(f"awaiting-input: user selected {label!r} → reset to {reset_to!r}")
     else:
-        node = _find_node_in_raw(raw, phase, step_id)
+        node = _find_workflow_node(raw, phase, step_id)
         if node is not None:
             node["status"] = "completed"
         history = list(raw.get("step_history") or [])
@@ -577,15 +577,9 @@ def _route_awaiting_input(state_yaml_path: str, user_direction: str) -> bool:
             ) + 1,
         })
         raw["step_history"] = history
-        from orchestrator_next.parser import State as _State
-        state = _State(
-            change_id=raw.get("change_id", ""), phase=phase,
-            repo_root=str(raw.get("repo_root") or ""),
-            workflow_dir=str(raw.get("worktree_path") or ""),
-            workflow_plan=raw.get("workflow_plan", {}) or {}, step_history=[], raw=raw,
-        )
+        from orchestrator_next.record import _state_from_raw
         from orchestrator_next import readiness
-        nxt = readiness.next_ready_node(state)
+        nxt = readiness.next_ready_node(_state_from_raw(raw))
         raw["next_step"] = {"phase": phase, "step_id": nxt} if nxt else None
         _log(f"awaiting-input: user selected {label!r} → advance")
 
@@ -594,16 +588,6 @@ def _route_awaiting_input(state_yaml_path: str, user_direction: str) -> bool:
     from orchestrator_next.record import _persist_if_materialized
     _persist_if_materialized(path, raw)
     return True
-
-
-def _find_node_in_raw(state_raw: dict, phase: str, step_id: str) -> dict | None:
-    phase_block = (state_raw.get("workflow_plan") or {}).get(phase)
-    if not isinstance(phase_block, dict):
-        return None
-    for node in phase_block.get("nodes") or []:
-        if isinstance(node, dict) and node.get("id") == step_id:
-            return node
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1080,13 +1064,8 @@ def run_cmd(argv: list[str]) -> int:
         elif a.startswith("-"):
             _log(f"ERROR: unknown option: {a}")
             return 7
-        elif "=" in a and positionals:
-            if _AGENT_ROUTE_RE.match(a):
-                agent_route_flags.append(a)
-            else:
-                flag_overrides.append(a)
-        elif "=" in a and not positionals:
-            # Allow flag=value before input for compatibility
+        elif "=" in a:
+            # Allowed both before and after the positional input.
             if _AGENT_ROUTE_RE.match(a):
                 agent_route_flags.append(a)
             else:
@@ -1153,7 +1132,6 @@ def run_cmd(argv: list[str]) -> int:
     user_input = ""
     if archived_run_id and not resume_run_id:
         run_id = archived_run_id
-        user_direction = " ".join(positionals[1:]).strip()
         _log(f"run_id={run_id} is completed (archived)")
         print(f"run_id={run_id}", flush=True)
         print("status=completed (archived)", flush=True)

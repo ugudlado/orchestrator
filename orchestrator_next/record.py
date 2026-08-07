@@ -210,6 +210,14 @@ def _node_ids(state_raw: dict[str, Any], phase: str) -> list[str]:
     return [str(n.get("id", "")) for n in nodes if isinstance(n, dict) and n.get("id")]
 
 
+def _is_at_or_before(ids: list[str], target: str, step_id: str) -> bool:
+    """True if `target` is a valid reset point: a node id in `ids` that does
+    not come after `step_id` in DAG order."""
+    if target not in ids:
+        return False
+    return not (step_id in ids and ids.index(target) > ids.index(step_id))
+
+
 def _bump_failure_retries(step_id: str, node: dict[str, Any] | None, state_raw: dict[str, Any]) -> str | None:
     """Increment on_failure retry count. Return halt_cap_exceeded or None to continue."""
     max_r = int((node or {}).get("max_retries") or _DEFAULT_MAX_RETRY_ROUNDS)
@@ -265,7 +273,7 @@ def _resolve_routing(
                     f"[record] {step_id}: outputs.reset_to={reset_to!r} not in "
                     f"workflow_plan[{phase}] — falling back to static on_failure\n"
                 )
-            elif step_id in ids and ids.index(reset_to) > ids.index(step_id):
+            elif not _is_at_or_before(ids, reset_to, step_id):
                 sys.stderr.write(
                     f"[record] {step_id}: outputs.reset_to={reset_to!r} is after "
                     f"current step — falling back to static on_failure\n"
@@ -461,9 +469,7 @@ def _validate_options(
         if reset_to is None:
             continue
         reset_to = str(reset_to).strip()
-        if not reset_to or reset_to not in ids or (
-            step_id in ids and ids.index(reset_to) > ids.index(step_id)
-        ):
+        if not reset_to or not _is_at_or_before(ids, reset_to, step_id):
             raise _RecordError(
                 {
                     "reason": "invalid_options",

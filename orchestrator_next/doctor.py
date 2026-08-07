@@ -418,7 +418,7 @@ def check_redis() -> CheckResult:
 
     url = redis_url() or "redis://localhost:6379"
     try:
-        from orchestrator_next.run_store import open_store
+        from orchestrator_next.run_store import REDIS_START_HINT, open_store
 
         client = open_store().client  # type: ignore[attr-defined]
         client.ping()
@@ -426,9 +426,7 @@ def check_redis() -> CheckResult:
         return CheckResult("redis", "FAIL", str(exc))
     except Exception as exc:  # noqa: BLE001
         return CheckResult(
-            "redis", "FAIL",
-            f"PING failed against {url}: {exc}. Start one: "
-            "`brew services start redis` or `docker run -d -p 6379:6379 redis`.",
+            "redis", "FAIL", f"PING failed against {url}: {exc}. {REDIS_START_HINT}",
         )
     return CheckResult("redis", "PASS", f"connected ({url})")
 
