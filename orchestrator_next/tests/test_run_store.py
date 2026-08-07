@@ -73,6 +73,20 @@ def test_archive_renames_and_drops_ttl():
     assert fake.ttl(f"{REDIS_ARCHIVE_PREFIX}run-1") == -1  # persisted, no TTL
 
 
+def test_archive_is_idempotent_when_already_archived():
+    """Real Redis raises on RENAME of a missing key — archive() must guard
+    so a re-entrant archive call (double-call, crash-and-retry) is a no-op
+    rather than propagating a raw Redis error."""
+    fake = FakeRedis()
+    store = RedisRunStore(fake)
+    store.save("run-1", '{"a": 1}')
+
+    store.archive("run-1")
+    store.archive("run-1")  # must not raise
+
+    assert "run-1" in store.list_ids(archived=True)
+
+
 def test_lock_refresh_extends_ttl():
     fake = FakeRedis()
     store = RedisRunStore(fake)

@@ -592,3 +592,39 @@ def test_close_session_never_persisted_is_a_noop(tmp_path, monkeypatch):
     _install_fake_redis(monkeypatch)
     sessions = Sessions()
     sessions.close_session("never-existed")  # must not raise
+
+
+def test_resume_await_input_option_matching_schema_name_not_stripped(tmp_path, monkeypatch):
+    """An option label (e.g. "design") that happens to match an installed
+    schema name must reach drive_loop verbatim while awaiting input — the
+    schema-routing strip only applies to a *new* topic, never to a resume
+    answering an await_input prompt."""
+    from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
+    import orchestrator_next.run_loop as run_loop
+
+    _install_fake_redis(monkeypatch)
+    monkeypatch.setattr(sess_mod, "_available_schemas", lambda repo_root: ["research", "design"])
+
+    calls = {"directions": []}
+
+    def fake_drive(state_yaml_path, **kwargs):
+        calls["directions"].append(kwargs.get("user_direction") or "")
+        raw = yaml.safe_load(Path(state_yaml_path).read_text()) or {}
+        raw.setdefault("step_history", []).append({
+            "step_id": "human-review",
+            "phase": "main",
+            "status": "await_input",
+            "outputs": {"ask": "approve or rework?"},
+        })
+        Path(state_yaml_path).write_text(yaml.safe_dump(raw))
+        return LoopResult(LOOP_PAUSED, state_yaml_path, awaiting_step_id="human-review")
+
+    monkeypatch.setattr(run_loop, "drive_loop", fake_drive)
+
+    sessions = Sessions()
+    sid = sessions.new_session(cwd=str(tmp_path), schema="research")
+    sessions.prompt_session(sid, "topic")
+    calls["directions"].clear()
+
+    sessions.prompt_session(sid, "design")
+    assert calls["directions"] == ["design"]

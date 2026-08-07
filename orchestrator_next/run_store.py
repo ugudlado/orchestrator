@@ -77,7 +77,14 @@ class RedisRunStore:
 
     def archive(self, run_id: str) -> None:
         """Rename the live key to the archive namespace and drop its TTL —
-        archived runs persist until manual cleanup, not automatic expiry."""
+        archived runs persist until manual cleanup, not automatic expiry.
+
+        A no-op if the live key is already gone (e.g. archived already) —
+        real Redis raises on RENAME of a missing key; check first so callers
+        don't need their own existence guard.
+        """
+        if self.client.get(self._key(run_id)) is None:
+            return
         self.client.rename(self._key(run_id), self._archive_key(run_id))
         self.client.persist(self._archive_key(run_id))
 

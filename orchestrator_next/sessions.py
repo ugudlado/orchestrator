@@ -239,8 +239,13 @@ def run_workflow(
 
     if session_state is None:
         session_state = {}
+    # ponytail: schema-name stripping only applies to a *new* topic, never to
+    # text answering an awaiting-input prompt (e.g. an option label that
+    # happens to match a schema name, like "design") — else it gets swallowed
+    # and the option match never fires.
+    awaiting_input = session_state.get("status") == "await_input"
     prompt = _extract_topic(topic) if topic.strip() else ""
-    if prompt:
+    if prompt and not awaiting_input:
         parts = prompt.strip().split(maxsplit=1)
         known = set(_available_schemas(repo_root))
         if parts and parts[0].strip(" ,.:;").lower() in known:
