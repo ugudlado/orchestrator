@@ -408,6 +408,7 @@ def _validate_agent_usage(
 
 def _validate_payload(
     payload: dict[str, Any],
+    state_raw: dict[str, Any] | None = None,
 ) -> tuple[str, str, str, dict[str, Any], Any, Any]:
     """Validate a done-payload end-to-end. Returns (step_id, phase, status, outputs, contract, agent)."""
     step_id, phase, status = _validate_shape(payload)
@@ -417,7 +418,63 @@ def _validate_payload(
     status = _enforce_required_outputs(contract, status, outputs)
     agent = _validate_agent_usage(payload, step_id, status, contract)
     _require_reason(outputs, step_id, status)
+    if status == "await_input":
+        _validate_options(outputs, step_id, phase, state_raw or {})
     return step_id, phase, status, outputs, contract, agent
+
+
+def _validate_options(
+    outputs: dict[str, Any], step_id: str, phase: str, state_raw: dict[str, Any],
+) -> None:
+    """Validate outputs.options for an await_input payload, if present.
+
+    Each option needs a non-empty ``label``. An optional ``reset_to`` must
+    name a node id at-or-before the current step in this phase (reuses the
+    same at-or-before rule _resolve_routing applies to outputs.reset_to on
+    failure) — a target after the current step, or not in the DAG at all,
+    is a record-time error rather than a routing surprise at resume time.
+    """
+    options = outputs.get("options")
+    if options is None:
+        return
+    if not isinstance(options, list) or not options:
+        raise _RecordError(
+            {
+                "reason": "invalid_options",
+                "step_id": step_id,
+                "hint": "outputs.options must be a non-empty list when present",
+            },
+            3,
+        )
+    ids = _node_ids(state_raw, phase)
+    for opt in options:
+        if not isinstance(opt, dict) or not str(opt.get("label") or "").strip():
+            raise _RecordError(
+                {
+                    "reason": "invalid_options",
+                    "step_id": step_id,
+                    "hint": "every option needs a non-empty label",
+                },
+                3,
+            )
+        reset_to = opt.get("reset_to")
+        if reset_to is None:
+            continue
+        reset_to = str(reset_to).strip()
+        if not reset_to or reset_to not in ids or (
+            step_id in ids and ids.index(reset_to) > ids.index(step_id)
+        ):
+            raise _RecordError(
+                {
+                    "reason": "invalid_options",
+                    "step_id": step_id,
+                    "hint": (
+                        f"option reset_to={reset_to!r} must be a node id "
+                        f"at or before {step_id!r} in phase {phase!r}"
+                    ),
+                },
+                3,
+            )
 
 
 def _require_reason(outputs: dict[str, Any], step_id: str, status: str) -> None:
@@ -664,7 +721,7 @@ def record(
     path = Path(state_yaml_path)
     try:
         state_raw, pre_write_bytes = _load_state_safe(path)
-        step_id, phase, status, outputs, contract, agent = _validate_payload(payload)
+        step_id, phase, status, outputs, contract, agent = _validate_payload(payload, state_raw)
     except _RecordError as e:
         return (e.reason, e.code)
 
@@ -687,7 +744,13 @@ def record(
         # Node is intentionally not marked completed in _apply_routing.
         next_step = {"phase": phase, "step_id": step_id}
         state_raw["next_step"] = next_step
+        awaiting: dict[str, Any] = {"step_id": step_id, "ask": outputs.get("ask") or ""}
+        if isinstance(outputs.get("options"), list):
+            awaiting["options"] = outputs["options"]
+        state_raw["awaiting"] = awaiting
     else:
+        # Any terminal status clears a stale awaiting block from a prior turn.
+        state_raw.pop("awaiting", None)
         state = _state_from_raw(state_raw)
         nxt = readiness.next_ready_node(state)
         next_step = {"phase": state_raw.get("phase", ""), "step_id": nxt} if nxt else None

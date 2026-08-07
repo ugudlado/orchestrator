@@ -112,6 +112,123 @@ def test_await_input_does_not_require_reason(tmp_path, monkeypatch):
     assert code == 0, result
 
 
+def test_await_input_persists_awaiting_block_with_options(tmp_path, monkeypatch):
+    empty = tmp_path / "empty_contracts"
+    empty.mkdir()
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(empty))
+
+    path = _state(tmp_path)
+    result, code = record(path, {
+        "step_id": "intake",
+        "phase": "main",
+        "status": "await_input",
+        "outputs": {
+            "ask": "Review passed. Ship it, or send back?",
+            "options": [
+                {"label": "approve"},
+                {"label": "rework implementation", "reset_to": "intake"},
+            ],
+        },
+    })
+    assert code == 0, result
+
+    raw = yaml.safe_load(open(path))
+    assert raw["awaiting"] == {
+        "step_id": "intake",
+        "ask": "Review passed. Ship it, or send back?",
+        "options": [
+            {"label": "approve"},
+            {"label": "rework implementation", "reset_to": "intake"},
+        ],
+    }
+
+
+def test_await_input_option_missing_label_rejected(tmp_path, monkeypatch):
+    empty = tmp_path / "empty_contracts"
+    empty.mkdir()
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(empty))
+
+    path = _state(tmp_path)
+    result, code = record(path, {
+        "step_id": "intake",
+        "phase": "main",
+        "status": "await_input",
+        "outputs": {"ask": "?", "options": [{"reset_to": "intake"}]},
+    })
+    assert code == 3
+    assert result["reason"] == "invalid_options"
+
+
+def test_await_input_option_reset_to_unknown_node_rejected(tmp_path, monkeypatch):
+    empty = tmp_path / "empty_contracts"
+    empty.mkdir()
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(empty))
+
+    path = _state(tmp_path)
+    result, code = record(path, {
+        "step_id": "intake",
+        "phase": "main",
+        "status": "await_input",
+        "outputs": {"ask": "?", "options": [{"label": "x", "reset_to": "does-not-exist"}]},
+    })
+    assert code == 3
+    assert result["reason"] == "invalid_options"
+
+
+def test_await_input_option_reset_to_after_current_step_rejected(tmp_path, monkeypatch):
+    """intake is before synthesize in the DAG — an option pointing forward is invalid."""
+    empty = tmp_path / "empty_contracts"
+    empty.mkdir()
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(empty))
+
+    path = _state(tmp_path)
+    result, code = record(path, {
+        "step_id": "intake",
+        "phase": "main",
+        "status": "await_input",
+        "outputs": {"ask": "?", "options": [{"label": "x", "reset_to": "synthesize"}]},
+    })
+    assert code == 3
+    assert result["reason"] == "invalid_options"
+
+
+def test_await_input_options_empty_list_rejected(tmp_path, monkeypatch):
+    empty = tmp_path / "empty_contracts"
+    empty.mkdir()
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(empty))
+
+    path = _state(tmp_path)
+    result, code = record(path, {
+        "step_id": "intake",
+        "phase": "main",
+        "status": "await_input",
+        "outputs": {"ask": "?", "options": []},
+    })
+    assert code == 3
+    assert result["reason"] == "invalid_options"
+
+
+def test_awaiting_block_cleared_on_completed(tmp_path, monkeypatch):
+    empty = tmp_path / "empty_contracts"
+    empty.mkdir()
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(empty))
+
+    path = _state(tmp_path)
+    record(path, {
+        "step_id": "intake", "phase": "main", "status": "await_input",
+        "outputs": {"ask": "?", "options": [{"label": "approve"}]},
+    })
+    raw = yaml.safe_load(open(path))
+    assert "awaiting" in raw
+
+    record(path, {
+        "step_id": "intake", "phase": "main", "status": "completed",
+        "outputs": {"reason": "done"},
+    })
+    raw = yaml.safe_load(open(path))
+    assert "awaiting" not in raw
+
+
 def test_completed_after_await_input_advances(tmp_path, monkeypatch):
     empty = tmp_path / "empty_contracts"
     empty.mkdir()

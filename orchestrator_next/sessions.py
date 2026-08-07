@@ -98,6 +98,18 @@ def _ask_from_state(state_yaml_path: str) -> str:
     return str(ask).strip() if ask else ""
 
 
+def _options_from_state(state_yaml_path: str) -> list:
+    """Pull the awaiting block's options list, if any (see record.py)."""
+    from orchestrator_next.report import load_state as load_state_raw
+
+    raw = load_state_raw(state_yaml_path) or {}
+    awaiting = raw.get("awaiting")
+    if not isinstance(awaiting, dict):
+        return []
+    options = awaiting.get("options")
+    return options if isinstance(options, list) else []
+
+
 def _extract_topic(prompt_text: str) -> str:
     """Last user turn from a Hermes-style ACP transcript (not the system preamble)."""
     text = prompt_text.strip()
@@ -318,11 +330,17 @@ def run_workflow(
             session_state["status"] = "await_input"
             session_state["awaiting_step_id"] = result.awaiting_step_id
             session_state["ask"] = ask
+            options = _options_from_state(state_yaml_path)
+            if options:
+                session_state["options"] = options
+            else:
+                session_state.pop("options", None)
             keep_live = True
             return _completion("await_input", ask or _final_state_text(state_yaml_path))
 
         session_state.pop("awaiting_step_id", None)
         session_state.pop("ask", None)
+        session_state.pop("options", None)
 
         if result.code == 1:
             session_state["status"] = "completed"
@@ -480,6 +498,7 @@ def _session_load_result(session_id: str, session: dict) -> dict:
         "status": workflow.get("status") or "active",
         "awaiting_step_id": workflow.get("awaiting_step_id"),
         "ask": workflow.get("ask") or "",
+        "options": workflow.get("options") or [],
         "has_state": bool(workflow.get("state_yaml_content")),
     }
 

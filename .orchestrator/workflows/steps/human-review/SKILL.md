@@ -6,9 +6,11 @@ user-invocable: true
 
 # Human Review
 
-**Intent:** Pause for a human after automated `code-review` passes. Interpret
-their freeform reply: approve and advance, ask again, or send the workflow back
-to an earlier step with updated tasks / design notes.
+**Intent:** Pause for a human after automated `code-review` passes. Offer
+deterministic options (approve / send back to a specific step); the engine
+matches a label or option number and routes without re-dispatching this
+step. Only genuinely freeform text (no option match) reaches you to
+interpret — see the escape-hatch instruction below.
 
 ## Context
 
@@ -24,40 +26,27 @@ Only emit a step id that exists on this workflow:
 
 `explore` · `ux-design` · `design` · `implement`
 
-Do **not** invent ids. Prefer the earliest step that must re-run:
-
-| Intent                                      | `reset_to`  |
-| ------------------------------------------- | ----------- |
-| Code / test fixes, new implementation tasks | `implement` |
-| AC / design wrong, approach change          | `design`    |
-| Discovery / problem framing wrong           | `explore`   |
-| UI direction wrong                          | `ux-design` |
-
 ## Instructions
 
 1. **Load context** — Skim latest `code-review.md` (or step_history summary) and
    `tasks.yaml`. Note what passed and what is still open.
 
-2. **No User direction** — Do not invent approval. Record `await_input` with a
-   short `ask` that:
-   - States review passed (one line)
-   - Invites freeform feedback **or** an explicit ship/approve intent
-   - Mentions they can request design vs implement changes
+2. **First ask (no User direction yet)** — Return `await_input` with the
+   options block below. Always include `approve` and at least the `implement`
+   rework option; add `design`/`explore`/`ux-design` options only when there's
+   a specific known concern for that layer.
 
-3. **Unclear User direction** — Record `await_input` again with a clarifying
-   `ask` (one question). Do not guess `reset_to`.
-
-4. **Approve / ship** — Human clearly accepts the current work (e.g. ship,
-   approve, LGTM, merge, “looks good”). Return `completed`. Do not reset.
-
-5. **More work** — Human wants changes:
-   - Update `tasks.yaml`: add new tasks and/or reopen existing ones with the
-     feedback captured (notes / `reviews[]` per existing task schema).
-   - If design/AC must change, update `design.md` (and tasks) consistently.
-   - Return `failed` with `outputs.reset_to` set to the correct earlier step
-     (table above). Include `outputs.reason` summarizing the human ask.
-   - Engine resets that step and everything after it; you will be asked again
-     after the next successful `code-review`.
+3. **Escape hatch — User direction present but didn't match an offered
+   option** (the engine already tried; you're only reached because nothing
+   matched). Interpret it:
+   - Clearly approval-shaped (ship / approve / LGTM / merge / "looks good") →
+     return `completed`.
+   - Describes concrete rework → update `tasks.yaml` (add/reopen tasks with
+     the feedback in `reviews[]`) and, if design/AC changed, update
+     `design.md` too. Return `failed` with `outputs.reset_to` set to the
+     earliest step that must re-run and `outputs.reason` summarizing the ask.
+   - Still unclear → return `await_input` again with a clarifying `ask` and
+     the same (or narrowed) options list. Do not guess `reset_to`.
 
 ## COMPLETION — need human input
 
@@ -66,12 +55,16 @@ COMPLETION:
   step_id: human-review
   status: await_input
   outputs:
-    ask: >
-      Code review passed. Reply with approval to continue toward merge, or
-      describe changes (I can send work back to implement or design).
+    ask: "Code review passed. Ship it, or send back for changes?"
+    options:
+      - label: approve
+      - label: rework implementation
+        reset_to: implement
+      - label: rework design
+        reset_to: design
 ```
 
-## COMPLETION — approved
+## COMPLETION — approved (escape hatch: freeform text read as approval)
 
 ```text
 COMPLETION:
@@ -81,7 +74,7 @@ COMPLETION:
     reason: Human approved after code-review.
 ```
 
-## COMPLETION — send back
+## COMPLETION — send back (escape hatch: freeform text read as rework)
 
 ```text
 COMPLETION:
@@ -100,5 +93,6 @@ COMPLETION:
 - Always set `reset_to` when status is `failed` for a rework path (otherwise
   the workflow falls back to static `on_failure: implement`).
 - Never `reset_to` a step after `human-review` in the DAG.
-- On re-entry after `await_input`, treat User direction as the answer to the
-  previous `ask`.
+- The escape-hatch instructions only apply when the engine did NOT already
+  match User direction to an offered option — that match short-circuits this
+  step entirely (advance or reset applied directly, no re-dispatch).

@@ -82,6 +82,7 @@ def resume_session(
     ask = str(loaded.get("ask") or "")
     awaiting = loaded.get("awaiting_step_id")
     schema = loaded.get("schema") or "?"
+    options = loaded.get("options") or []
 
     print(f"session_id={session_id}", flush=True)
     print(f"status={status} schema={schema}", flush=True)
@@ -89,6 +90,8 @@ def resume_session(
         print(f"awaiting_step_id={awaiting}", flush=True)
     if ask:
         print(f"ask: {ask}", flush=True)
+    for i, opt in enumerate(options, start=1):
+        print(f"option_{i}: {(opt or {}).get('label') or ''}", flush=True)
 
     if status == "completed":
         print("session already completed — not re-running", flush=True)

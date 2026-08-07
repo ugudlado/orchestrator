@@ -511,6 +511,102 @@ def _notify_blocked(state_yaml_path: str, state_raw: dict[str, Any], reason: str
 
 
 # ---------------------------------------------------------------------------
+# await_input option routing — deterministic resume when user text matches
+# a label the awaiting step offered (see record.py's awaiting/options block).
+# ---------------------------------------------------------------------------
+def _match_awaiting_option(text: str, options: list[dict]) -> dict | None:
+    """Exact label match, label's first word, or 1-based option number."""
+    norm = (text or "").strip().lower()
+    if not norm:
+        return None
+    if norm.isdigit():
+        idx = int(norm) - 1
+        if 0 <= idx < len(options):
+            return options[idx]
+        return None
+    for opt in options:
+        label = str(opt.get("label") or "").strip().lower()
+        if not label:
+            continue
+        if norm == label or norm == label.split()[0]:
+            return opt
+    return None
+
+
+def _route_awaiting_input(state_yaml_path: str, user_direction: str) -> bool:
+    """If state is awaiting input with options and user_direction matches one,
+    apply it deterministically and return True (caller loops again without
+    re-dispatching the step). No match, no awaiting block, or no options →
+    return False and the step re-runs with the raw text (agent interprets it).
+    """
+    try:
+        raw = yaml.safe_load(Path(state_yaml_path).read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return False
+    awaiting = raw.get("awaiting")
+    if not isinstance(awaiting, dict):
+        return False
+    options = awaiting.get("options")
+    if not isinstance(options, list) or not options:
+        return False
+    opt = _match_awaiting_option(user_direction, options)
+    if opt is None:
+        return False
+
+    step_id = str(awaiting.get("step_id") or "")
+    phase = str(raw.get("phase") or "main")
+    label = str(opt.get("label") or "")
+    reset_to = str(opt.get("reset_to") or "").strip()
+    raw.pop("awaiting", None)
+
+    if reset_to:
+        from orchestrator_next.reset_step import apply_dag_reset
+        apply_dag_reset(raw, phase, reset_to, keep_history_for=step_id)
+        raw["status"] = "active"
+        _log(f"awaiting-input: user selected {label!r} → reset to {reset_to!r}")
+    else:
+        node = _find_node_in_raw(raw, phase, step_id)
+        if node is not None:
+            node["status"] = "completed"
+        history = list(raw.get("step_history") or [])
+        history.append({
+            "step_id": step_id, "phase": phase, "status": "completed",
+            "outputs": {"reason": f"user selected: {label}"},
+            "attempt": len(
+                [h for h in history if isinstance(h, dict) and h.get("step_id") == step_id]
+            ) + 1,
+        })
+        raw["step_history"] = history
+        from orchestrator_next.parser import State as _State
+        state = _State(
+            change_id=raw.get("change_id", ""), phase=phase,
+            repo_root=str(raw.get("repo_root") or ""),
+            workflow_dir=str(raw.get("worktree_path") or ""),
+            workflow_plan=raw.get("workflow_plan", {}) or {}, step_history=[], raw=raw,
+        )
+        from orchestrator_next import readiness
+        nxt = readiness.next_ready_node(state)
+        raw["next_step"] = {"phase": phase, "step_id": nxt} if nxt else None
+        _log(f"awaiting-input: user selected {label!r} → advance")
+
+    path = Path(state_yaml_path)
+    path.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True))
+    from orchestrator_next.record import _persist_if_materialized
+    _persist_if_materialized(path, raw)
+    return True
+
+
+def _find_node_in_raw(state_raw: dict, phase: str, step_id: str) -> dict | None:
+    phase_block = (state_raw.get("workflow_plan") or {}).get(phase)
+    if not isinstance(phase_block, dict):
+        return None
+    for node in phase_block.get("nodes") or []:
+        if isinstance(node, dict) and node.get("id") == step_id:
+            return node
+    return None
+
+
+# ---------------------------------------------------------------------------
 # State finalization
 # ---------------------------------------------------------------------------
 def _finalize_state(state_yaml_path: str) -> None:
@@ -657,6 +753,10 @@ def drive_loop(
                 emit("complete", archived=True)
                 return LoopResult(1, state_yaml_path)
 
+            if user_direction and _route_awaiting_input(state_yaml_path, user_direction):
+                user_direction = ""
+                continue
+
             state = load_state(state_yaml_path)
             try:
                 action, code = dispatch(state, state_yaml_path)
@@ -763,18 +863,18 @@ def run_loop(
     )
     if result.code == LOOP_PAUSED:
         ask = ""
+        options: list = []
         ticket = ""
         schema = "feature"
         try:
             raw = yaml.safe_load(Path(result.state_yaml_path).read_text(encoding="utf-8")) or {}
             ticket = str(raw.get("ticket_id") or raw.get("slug") or raw.get("change_id") or "")
             schema = str(raw.get("schema") or "feature")
-            for entry in reversed(raw.get("step_history") or []):
-                if isinstance(entry, dict) and entry.get("status") == "await_input":
-                    outs = entry.get("outputs") or {}
-                    if isinstance(outs, dict):
-                        ask = str(outs.get("ask") or "")
-                    break
+            awaiting = raw.get("awaiting")
+            if isinstance(awaiting, dict):
+                ask = str(awaiting.get("ask") or "")
+                if isinstance(awaiting.get("options"), list):
+                    options = awaiting["options"]
         except (OSError, yaml.YAMLError):
             pass
         step = result.awaiting_step_id or "?"
@@ -782,13 +882,20 @@ def run_loop(
         if ask:
             _log(f"ask: {ask}")
         hint_id = ticket or "<run_id>"
+        for i, opt in enumerate(options, start=1):
+            label = str((opt or {}).get("label") or "")
+            _log(f"  {i}. {label}")
+        example = str((options[0] or {}).get("label") or "your feedback or approval") if options else "your feedback or approval"
         _log(
-            f'resume: orchestrator {schema} {hint_id} "<your feedback or approval>"'
+            f'resume: orchestrator {schema} {hint_id} "{example}"'
+            + ("  (or a number 1-{})".format(len(options)) if options else "")
         )
         print(f"run_id={hint_id}", flush=True)
         print(f"awaiting_step_id={step}", flush=True)
         if ask:
             print(f"ask: {ask}", flush=True)
+        for i, opt in enumerate(options, start=1):
+            print(f"option_{i}: {(opt or {}).get('label') or ''}", flush=True)
         return LOOP_PAUSED
     return result.code
 
