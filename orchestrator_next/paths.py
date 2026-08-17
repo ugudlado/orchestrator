@@ -23,7 +23,7 @@ class WorkflowRefError(RuntimeError):
     """Raised when a workflow name / pack/workflow ref cannot be resolved."""
 
 
-PACK_GIT_URL = "https://github.com/ugudlado/prompt-packs.git"
+PACK_GIT_URL = "https://github.com/ugudlado/skills.git"
 WORKFLOW_CONFIG_GIT_URL = "https://github.com/ugudlado/workflows.git"
 PACK_DOWNLOAD_HINT = (
     f"git clone --depth 1 {PACK_GIT_URL} ~/.orchestrator/pack "
