@@ -132,3 +132,22 @@ def test_run_store_and_state_store_share_one_db(tmp_path, monkeypatch):
     assert run_store.load("blob-1") == '{"a": 1}'
     doc, _tok = store.load(handle)
     assert doc["change_id"] == "orc-1"
+
+
+def test_open_store_follows_state_url_sqlite(tmp_path, monkeypatch):
+    """Run blobs ride the same ORCHESTRATOR_STATE_URL as workflow state."""
+    monkeypatch.setenv("ORCHESTRATOR_STATE_URL", f"sqlite:///{str(tmp_path / 'central.db').lstrip('/')}")
+    store = open_store()
+    assert isinstance(store, SqliteRunStore)
+    assert store.db_path == tmp_path / "central.db"
+    store.save("r1", "x")
+    assert store.load("r1") == "x"
+
+
+def test_open_store_follows_state_url_postgres(monkeypatch):
+    from orchestrator_next.run_store import PostgresRunStore
+
+    monkeypatch.setenv("ORCHESTRATOR_STATE_URL", "postgresql://user@db.example/orch")
+    store = open_store()
+    assert isinstance(store, PostgresRunStore)
+    assert store.dsn == "postgresql://user@db.example/orch"

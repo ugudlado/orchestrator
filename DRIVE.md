@@ -158,8 +158,11 @@ echo '{
 State lives in the RunStore (SQLite, `~/.orchestrator/orchestrator.db`), not in the repo.
 Every `orchestrator done` persists the run's current state back to the store (the
 materialized local file is a per-invocation working copy, not the durable record).
-The store is per-machine: a run resumes on the machine that started it as long as
-`~/.orchestrator` survives. `orchestrator doctor` checks the store opens.
+By default the store is per-machine: a run resumes on the machine that started
+it as long as `~/.orchestrator` survives. Point `ORCHESTRATOR_STATE_URL` at a
+central db (sqlite:// or postgresql://) and workflow state AND run blobs both
+live there — that's the cross-environment setup. `orchestrator doctor` checks
+the store opens.
 
 Resuming after a block or a lost session on the same machine:
 `orchestrator <schema> <run_id> "<feedback>"` re-materializes the state from the store
