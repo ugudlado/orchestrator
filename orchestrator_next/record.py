@@ -404,6 +404,15 @@ def _load_state_safe(path: Path) -> tuple[dict[str, Any], bytes]:
     # Hand-edits that corrupt YAML surface far downstream (dispatch crashes on
     # malformed YAML three calls later). Capture pre-write bytes so we can
     # restore the file if either the initial parse or post-write parse fails.
+    from orchestrator_next import state_store
+
+    handle = state_store.parse_handle(str(path))
+    if not handle.is_file:
+        # SQL-backed run: the store returns (doc, version) and the version IS
+        # the compare-and-swap token, exactly as pre_write_bytes is for a file.
+        state_raw, token = state_store.open_store(handle)[0].load(handle)
+        return state_raw, token
+
     with open(path, "rb") as f:
         pre_write_bytes = f.read()
 
@@ -558,7 +567,31 @@ def _accumulate_issues(
 
 
 def _safe_write_yaml(path: Path, state_raw: dict[str, Any], pre_write_bytes: bytes) -> None:
-    """Write YAML and validate post-write parse, restoring bytes and raising _RecordError on failure."""
+    """Write the run back, restoring/raising _RecordError on failure.
+
+    `pre_write_bytes` is the compare-and-swap token from `_load_state_safe`:
+    the previous file bytes for a file-backed run, a version integer for a
+    SQL-backed one. Either way a concurrent modification is now detected rather
+    than silently clobbered — which is the precondition for parallel dispatch.
+    """
+    from orchestrator_next import state_store
+
+    handle = state_store.parse_handle(str(path))
+    if not handle.is_file:
+        try:
+            state_store.save_doc(handle, state_raw, pre_write_bytes)
+        except state_store.StateConflictError as e:
+            raise _RecordError(
+                {
+                    "reason": "state_write_conflict",
+                    "detail": str(e),
+                    "hint": ("another writer updated this run since it was read. "
+                             "Reload the state and re-record."),
+                },
+                4,
+            ) from e
+        return
+
     try:
         _safe_write_yaml_base(path, state_raw, pre_write_bytes)
     except yaml.YAMLError as e:
@@ -584,6 +617,91 @@ def _headless() -> bool:
         os.environ.get("ORCHESTRATOR_HEADLESS") == "1"
         or os.environ.get("CLAUDE_CODE_REMOTE") == "true"
     )
+
+
+def apply_task_updates(
+    payload: dict[str, Any],
+    state_raw: dict[str, Any],
+    *,
+    worktree: str = "",
+) -> list[dict[str, Any]]:
+    """Apply a step's `task_updates` to tasks.yaml, serialized and re-read.
+
+    Why the engine does this instead of the agent
+    ---------------------------------------------
+    `implement/SKILL.md` tells every step to read tasks.yaml, flip its own task
+    to `completed`, and write the whole file back. Run two of those at once and
+    you get a lost update — measured at 7 of 8 updates lost with 8 workers on
+    perfectly disjoint source files. The file is a shared singleton; disjoint
+    `files:` scopes do not help.
+
+    So the agent stops writing it. It reports what it finished in its COMPLETION
+    payload and the engine applies it here, under the worktree lock, with a
+    fresh read every time. Exactly the `state_patch` pattern the script steps
+    already use — the agent proposes, the engine commits.
+
+    Payload shape (each entry is merged into the matching task, id required):
+
+        task_updates:
+          - {id: "T-3", status: completed, tokens_in: 8100, duration_s: 92}
+
+    Returns the entries actually applied. Unknown ids are dropped with a warning
+    rather than silently creating a task: an id the design never wrote is far
+    more likely to be a hallucinated task than a real one.
+    """
+    updates = payload.get("task_updates")
+    if not isinstance(updates, list) or not updates:
+        return []
+
+    from orchestrator_next.worktree_lock import git_lock
+
+    base = worktree or state_raw.get("worktree_path") or state_raw.get("repo_root") or ""
+    change_id = str(state_raw.get("change_id") or state_raw.get("slug") or "")
+    tasks_path = Path(base) / "spec" / "changes" / change_id / "tasks.yaml"
+    if not tasks_path.is_file():
+        sys.stderr.write(f"[record] no tasks.yaml at {tasks_path} — task_updates dropped\n")
+        return []
+
+    applied: list[dict[str, Any]] = []
+    # The same lock the git calls take. tasks.yaml is not in the index, but it
+    # is a per-change singleton with exactly the same contention shape, and one
+    # lock is easier to reason about than two.
+    with git_lock(base, label="tasks.yaml"):
+        try:
+            doc = yaml.safe_load(tasks_path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError) as exc:
+            sys.stderr.write(f"[record] tasks.yaml unreadable ({exc}) — updates dropped\n")
+            return []
+        tasks = doc.get("tasks")
+        if not isinstance(tasks, list):
+            sys.stderr.write("[record] tasks.yaml has no tasks list — updates dropped\n")
+            return []
+
+        by_id = {str(t.get("id")): t for t in tasks if isinstance(t, dict)}
+        for upd in updates:
+            if not isinstance(upd, dict):
+                continue
+            tid = str(upd.get("id") or "")
+            target = by_id.get(tid)
+            if target is None:
+                sys.stderr.write(f"[record] task_updates: unknown task id {tid!r} — dropped\n")
+                continue
+            for key, value in upd.items():
+                if key == "id":
+                    continue
+                target[key] = value
+            applied.append(dict(upd))
+
+        if applied:
+            try:
+                tasks_path.write_text(
+                    yaml.safe_dump(doc, sort_keys=False, allow_unicode=True),
+                    encoding="utf-8",
+                )
+            except OSError as exc:
+                sys.stderr.write(f"[record] tasks.yaml write failed ({exc})\n")
+                return []
+    return applied
 
 
 def autocommit_state(state_yaml_path: str, *, push: bool = False) -> None:
