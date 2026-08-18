@@ -113,5 +113,6 @@ def inline_script_env(
     # engine's own interpreter, not a bare `python3` off inherited PATH —
     # under `uv tool install`, that generic python3 won't have the package.
     env.setdefault("ORCHESTRATOR_PYTHON", sys.executable)
+    env.setdefault("ORCHESTRATOR_HOME", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     return env

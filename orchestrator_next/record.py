@@ -716,8 +716,26 @@ def autocommit_state(state_yaml_path: str, *, push: bool = False) -> None:
     """
     if not _headless():
         return
-    state_dir = str(Path(state_yaml_path).resolve().parent)
-    slug = Path(state_dir).name
+    from orchestrator_next import state_store
+
+    handle = state_store.parse_handle(state_yaml_path)
+    if handle.scheme not in ("file", "sqlite"):
+        return  # state lives server-side (e.g. postgresql) — nothing local to commit
+    target = Path(handle.location).resolve()
+    state_dir = str(target.parent)
+    if handle.scheme == "sqlite":
+        # WAL means the .db file alone can lag committed writes — fold it in first.
+        try:
+            import sqlite3
+            with sqlite3.connect(target) as conn:
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception:  # noqa: BLE001 — durability is best-effort
+            pass
+        pathspec = str(target)
+        slug = handle.run_id or target.stem
+    else:
+        pathspec = state_dir
+        slug = Path(state_dir).name
 
     # Ambient GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE (e.g. leaked from a pre-commit
     # hook subprocess) override -C and redirect these calls at the wrong repo.
@@ -729,10 +747,10 @@ def autocommit_state(state_yaml_path: str, *, push: bool = False) -> None:
         )
 
     try:
-        _git("add", "-f", "--", state_dir)
-        if _git("diff", "--cached", "--quiet", "--", state_dir).returncode != 0:
+        _git("add", "-f", "--", pathspec)
+        if _git("diff", "--cached", "--quiet", "--", pathspec).returncode != 0:
             proc = _git("commit", "-m", f"wip: orchestrator state for {slug}",
-                        "--", state_dir)
+                        "--", pathspec)
             if proc.returncode != 0:
                 sys.stderr.write(
                     f"[record] state auto-commit failed: {proc.stderr.strip()}\n")
