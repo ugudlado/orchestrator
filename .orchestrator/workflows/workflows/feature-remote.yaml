@@ -18,12 +18,12 @@ steps:
   - ux-critique
   - id: implement
     on_failure: design
-  - id: verify-changes # changes on the branch satisfy the requirement, evidence cited
-    on_failure: implement
   - ticket-review # ticket -> Review
   - id: code-review
     on_failure: implement
     max_retries: 8
+  - id: verify-changes # requirement met on the branch, evidence cited — the gate before human review
+    on_failure: implement
   - id: human-review # human feedback after review; may reset_to implement|design|…
     on_failure: implement
     max_retries: 8
