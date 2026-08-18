@@ -1,16 +1,10 @@
-# feature-remote — feature workflow with remote (buzz) agent steps whose
-# signed Nostr reply events are verified before the run proceeds.
+# feature-remote — feature workflow for remote (buzz) agent execution.
 #
-# SCHEMA LIMITATION: a step id may appear only once per workflow. The DAG
-# promoter (orchestrator_next/generate_plan.py `_topo_sort`) keys nodes by
-# `id`, and dispatch resolves contracts by node id (steps/<id>/contract.yaml),
-# so there is no per-node id vs step-ref separation — the same step cannot be
-# inserted after each agent step (explore, ux-design, design, design-review,
-# ux-critique, implement, code-review, learn all map to roster roles).
-# Until node aliasing exists, a single verify-completion node runs after the
-# highest-stakes remote step (implement); it derives the step to verify from
-# state step_history (or BUZZ_VERIFIED_STEP) and checks the signed reply
-# event against ORCHESTRATOR_ROSTER.
+# Transport trust (reply signatures, roster identity) is NOT a workflow
+# concern — lib/buzz/await_reply.py rejects unauthentic replies before the
+# loop ever sees them. The workflow verifies the WORK: verify-changes checks
+# the run branch against the requirement (acceptance criteria, tasks, project
+# checks) after implement, and routes back to implement when unmet.
 steps:
   - check-rerun # halt if this feature is already archived (workflow's own decision)
   - create-worktree # creates worktree + branch; writes worktree_path+branch to state
@@ -24,7 +18,7 @@ steps:
   - ux-critique
   - id: implement
     on_failure: design
-  - id: verify-completion # verify implement's signed buzz reply (see limitation note above)
+  - id: verify-changes # changes on the branch satisfy the requirement, evidence cited
     on_failure: implement
   - ticket-review # ticket -> Review
   - id: code-review

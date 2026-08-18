@@ -1,4 +1,4 @@
-"""Tests for the pack's Nostr completion verifier and verify-completion step.
+"""Tests for the buzz transport trust gate (verify_event + await_reply).
 
 Schnorr SIGNING is implemented here (test-only) so the tests can mint signed
 events and prove verify_event accepts genuine events and rejects tampering.
@@ -7,8 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
-import subprocess
+import subprocess  # noqa: F401 — used by the CLI self-test
 import sys
 import time
 from pathlib import Path
@@ -17,7 +16,6 @@ import pytest
 
 _REPO = Path(__file__).resolve().parents[2]
 _LIB = _REPO / ".orchestrator" / "workflows" / "lib" / "buzz" / "verify_event.py"
-_STEP_DIR = _REPO / ".orchestrator" / "workflows" / "steps" / "verify-completion"
 
 
 def _load(name: str, path: Path):
@@ -28,7 +26,6 @@ def _load(name: str, path: Path):
 
 
 ve = _load("verify_event_under_test", _LIB)
-vc = _load("verify_completion_under_test", _STEP_DIR / "verify_completion.py")
 
 _N = ve._N
 
@@ -220,122 +217,33 @@ def test_minimal_roster_parser_matches_shape():
     assert data["agents"]["implementer"]["pubkey"] == "ab" * 32
 
 
-# --- completion fence parsing ------------------------------------------------
+# --- transport gate: await_reply.accept_event -------------------------------
 
 
-def test_parse_completion_valid_block():
-    data = vc.parse_completion(COMPLETION_CONTENT)
-    assert data["status"] == "success"
-    assert data["outputs"]["summary"] == "implemented the thing"
-    assert data["usage"]["input_tokens"] == 120
+ar = _load("await_reply_under_test", _LIB.parent / "await_reply.py")
 
 
-def test_parse_completion_missing_block():
-    with pytest.raises(ValueError, match="no fenced"):
-        vc.parse_completion("just prose, no fence")
+def test_accept_event_returns_block_for_genuine_reply():
+    event = mint_event()
+    block = ar.accept_event(event, event["pubkey"])
+    assert block is not None and "status: success" in block
 
 
-def test_parse_completion_bad_status():
-    content = "```completion\nstatus: maybe\n```\n"
-    with pytest.raises(ValueError, match="status must be"):
-        vc.parse_completion(content)
+def test_accept_event_rejects_wrong_author():
+    event = mint_event()
+    assert ar.accept_event(event, "2" * 64) is None
 
 
-def test_parse_completion_malformed_yaml():
-    content = "```completion\nstatus: [unclosed\n```\n"
-    with pytest.raises(ValueError, match="not valid YAML"):
-        vc.parse_completion(content)
+def test_accept_event_rejects_forged_signature(capsys):
+    event = mint_event()
+    event["content"] = COMPLETION_CONTENT + "\n(tampered)"
+    assert ar.accept_event(event, event["pubkey"]) is None
+    assert "rejected reply" in capsys.readouterr().err
 
 
-# --- step script end-to-end --------------------------------------------------
-
-
-def _run_step(env_extra: dict, cwd: Path) -> subprocess.CompletedProcess:
-    env = {
-        **os.environ,
-        "ORCHESTRATOR_PYTHON": sys.executable,
-        **env_extra,
-    }
-    return subprocess.run(
-        ["bash", str(_STEP_DIR / "script.sh")],
-        env=env,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-
-
-def test_step_script_passes_on_valid_event(tmp_path):
-    event = mint_event(seckey=7)
-    roster = write_roster(tmp_path, event["pubkey"])
-    event_path = tmp_path / "reply.json"
-    event_path.write_text(json.dumps(event), encoding="utf-8")
-
-    proc = _run_step(
-        {
-            "BUZZ_REPLY_EVENT": str(event_path),
-            "ORCHESTRATOR_ROSTER": str(roster),
-            "BUZZ_VERIFIED_STEP": "implement",
-        },
-        tmp_path,
-    )
-    assert proc.returncode == 0, proc.stderr
-    payload = json.loads(proc.stdout.strip().splitlines()[-1])
-    assert payload["status"] == "completed"
-    assert payload["outputs"]["verified_step"] == "implement"
-    assert payload["outputs"]["completion_status"] == "success"
-    assert payload["outputs"]["event_id"] == event["id"]
-
-
-def test_step_script_fails_on_tampered_event(tmp_path):
-    event = mint_event(seckey=7)
-    roster = write_roster(tmp_path, event["pubkey"])
-    event["content"] += "\n<!-- tampered -->"
-    event_path = tmp_path / "reply.json"
-    event_path.write_text(json.dumps(event), encoding="utf-8")
-
-    proc = _run_step(
-        {
-            "BUZZ_REPLY_EVENT": str(event_path),
-            "ORCHESTRATOR_ROSTER": str(roster),
-            "BUZZ_VERIFIED_STEP": "implement",
-        },
-        tmp_path,
-    )
-    assert proc.returncode == 1
-    assert "id mismatch" in proc.stderr
-    payload = json.loads(proc.stdout.strip().splitlines()[-1])
-    assert payload["status"] == "failed"
-
-
-def test_step_script_derives_step_from_state_history(tmp_path):
-    event = mint_event(seckey=7)
-    roster = write_roster(tmp_path, event["pubkey"])
-    event_path = tmp_path / "reply.json"
-    event_path.write_text(json.dumps(event), encoding="utf-8")
-    state = tmp_path / "state.yaml"
-    state.write_text(
-        "change_id: t1\n"
-        "step_history:\n"
-        "  - step_id: create-worktree\n"
-        "    status: completed\n"
-        "  - step_id: implement\n"
-        "    status: completed\n",
-        encoding="utf-8",
-    )
-
-    proc = _run_step(
-        {
-            "BUZZ_REPLY_EVENT": str(event_path),
-            "ORCHESTRATOR_ROSTER": str(roster),
-            "STATE_YAML_PATH": str(state),
-        },
-        tmp_path,
-    )
-    assert proc.returncode == 0, proc.stderr
-    payload = json.loads(proc.stdout.strip().splitlines()[-1])
-    assert payload["outputs"]["verified_step"] == "implement"
+def test_accept_event_ignores_fence_less_chatter():
+    event = mint_event(content="just prose, no fence")
+    assert ar.accept_event(event, event["pubkey"]) is None
 
 
 def test_verify_event_cli_self_test(tmp_path):

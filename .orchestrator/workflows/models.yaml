@@ -74,6 +74,7 @@ step_models:
   design-review: standard
   ux-critique: standard
   implement: code
+  verify-changes: standard
   human-review: standard
   intake-research: acp-light
   synthesize-findings: acp-light

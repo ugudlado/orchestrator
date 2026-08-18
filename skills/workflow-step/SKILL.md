@@ -42,9 +42,12 @@ Repeat until `orchestrator next <state>` exits nonzero
      --channel $BUZZ_CHANNEL --pubkey <agent_pubkey> \
      --out <tmp>/reply-<step_id>.json --timeout 3600
    ```
-   c. If the workflow includes a `verify-completion` step, hand it the reply
-   event file (`<tmp>/reply-<step_id>.json`) before recording done.
-   d. Map the completion block to a done payload (table below) and pipe it:
+   `await_reply` only surfaces replies that are cryptographically genuine
+   and authored by the expected pubkey — transport trust is its job, not a
+   workflow step's. (`verify-changes`, when the workflow includes it, is an
+   ordinary step that checks the WORK on the branch against the requirement;
+   it needs nothing special from this loop.)
+   c. Map the completion block to a done payload (table below) and pipe it:
    `echo '<payload JSON>' | orchestrator done <state>`.
 
 ## Completion → done-payload mapping

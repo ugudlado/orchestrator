@@ -16,13 +16,45 @@ Fence extraction mirrors buzz-workflow completion.rs extract_completion_block.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 BUZZ_BIN = "buzz"
 FENCE_OPEN = "```completion"
+
+
+def _verify_event_module():
+    path = Path(__file__).resolve().parent / "verify_event.py"
+    spec = importlib.util.spec_from_file_location("buzz_verify_event", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def accept_event(event: dict, pubkey: str) -> str | None:
+    """The transport trust gate: return the completion block body iff the event
+    is authored by `pubkey` AND cryptographically genuine AND carries a fence.
+
+    Signature/identity verification is a transport concern and lives here — a
+    forged or tampered event is skipped (with a stderr note), never surfaced
+    to the workflow. The workflow's own verify step checks the WORK, not the
+    envelope.
+    """
+    if str(event.get("pubkey", "")).lower() != pubkey:
+        return None
+    block = extract_completion_block(event.get("content") or "")
+    if block is None:
+        return None
+    try:
+        _verify_event_module().verify_event(event)
+    except ValueError as exc:
+        print(f"await_reply: rejected reply {event.get('id', '?')}: {exc}", file=sys.stderr)
+        return None
+    return block
 
 
 def extract_completion_block(content: str) -> str | None:
@@ -86,10 +118,7 @@ def main() -> int:
 
     while True:
         for event in fetch_events(ns.channel, since):
-            if str(event.get("pubkey", "")).lower() != pubkey:
-                continue
-            content = event.get("content") or ""
-            block = extract_completion_block(content)
+            block = accept_event(event, pubkey)
             if block is None:
                 continue
             with open(ns.out, "w", encoding="utf-8") as fh:

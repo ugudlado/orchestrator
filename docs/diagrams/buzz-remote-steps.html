@@ -55,7 +55,7 @@
 
     <svg viewBox="0 0 1000 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="buzz-steps-title buzz-steps-desc">
       <title id="buzz-steps-title">Remote agents over the relay</title>
-      <desc id="buzz-steps-desc">Design sequence for one workflow step executed on a remote machine: the TeamLead agent dispatches a step with its local orchestrator tool, posts it as a plain-language signed mention on the buzz relay, the remote buzz-acp harness delivers it to its local agent CLI over ACP, the agent works in its own checkout and pushes the run branch, replies with a completion block, and a verify-completion step in the workflow DAG checks the signature against the roster before the run advances.</desc>
+      <desc id="buzz-steps-desc">Design sequence for one workflow step executed on a remote machine: the TeamLead agent dispatches a step with its local orchestrator tool, posts it as a plain-language signed mention on the buzz relay, the remote buzz-acp harness delivers it to its local agent CLI over ACP, the agent works in its own checkout and pushes the run branch, replies with a completion block which the transport tooling accepts only if cryptographically genuine and from the rostered agent; the workflow itself stays transport-free, with an ordinary verify-changes step checking the work against the requirement.</desc>
       <defs>
         <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
         <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
@@ -130,11 +130,11 @@
       <rect x="156" y="444" width="88" height="12" rx="2" fill="#f5f5f5"/>
       <text x="200" y="453" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">REPLY EVENT</text>
 
-      <!-- m10: verify-completion runs as a DAG node (script step), then done -->
+      <!-- m10: transport gate inside await_reply, then done -->
       <path d="M104,496 H152 Q160,496 160,504 V512 Q160,520 152,520 H104"
             fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
       <rect x="172" y="500" width="112" height="12" rx="2" fill="#f5f5f5"/>
-      <text x="176" y="509" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">VERIFY STEP</text>
+      <text x="176" y="509" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">ACCEPT + DONE</text>
 
       <!-- m11: coordinator → git — pull for script steps (optional) -->
       <line x1="104" y1="552" x2="896" y2="552" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
@@ -186,7 +186,7 @@
       <text x="530" y="648" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">ACP · MACHINE-LOCAL ONLY</text>
 
       <line x1="700" y1="644" x2="732" y2="644" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
-      <text x="740" y="648" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">VERIFY-COMPLETION = A DAG NODE (SIG == ROSTER PUBKEY, RECORDED)</text>
+      <text x="740" y="648" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">TRANSPORT GATE IN AWAIT_REPLY (SIG == ROSTER) · WORK CHECKED BY THE VERIFY-CHANGES STEP</text>
     </svg>
   </div>
 </body>

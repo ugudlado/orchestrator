@@ -44,6 +44,15 @@ learn: |
   @{agent_name} now that {change_id} is wrapping up, could you do a short retro? Notes and history are in {context_path}. What went well, what dragged, and what should we change about how we run the next one — concrete suggestions only.
   Work on branch {branch} in your own checkout of {repo_url}, push your work before replying, and end your reply with a ```completion block (status, outputs.summary, reason, usage).
 
+verify-changes: |
+  {agent_name}, before we move on — could you double-check that what landed on
+  {branch} actually covers the requirement for {change_id}? Walk the acceptance
+  criteria in {context_path}, point at the code or test that satisfies each
+  one, and run the project checks. If anything is missing, say exactly what.
+  Work on branch {branch} in your own checkout of {repo_url}, push anything
+  you add before replying, and end your reply with a ```completion block
+  (status, outputs.summary, reason, usage).
+
 _default: |
   @{agent_name} there's a piece of work on {change_id} that needs your hands — background is in {context_path}. Please pick it up and do what the context asks, and reply here with what you did and anything the rest of us should know.
   Work on branch {branch} in your own checkout of {repo_url}, push your work before replying, and end your reply with a ```completion block (status, outputs.summary, reason, usage).
