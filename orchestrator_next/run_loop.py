@@ -1037,6 +1037,7 @@ def run_cmd(argv: list[str]) -> int:
     schema_ref = "feature"
     repo_arg = ""
     seed_only = False
+    ticket_id_arg = ""
     flag_overrides: list[str] = []
     agent_route_flags: list[str] = []
     routes_override_arg = ""
@@ -1053,10 +1054,12 @@ def run_cmd(argv: list[str]) -> int:
             routes_override_arg = args.pop(0)
         elif a == "--seed-only":
             seed_only = True
+        elif a == "--ticket-id":
+            ticket_id_arg = args.pop(0) if args else ""
         elif a in ("--help", "-h"):
             _log(
                 "Usage: orchestrator run <input|run_id> […] [--schema S] [--repo PATH] "
-                "[--models-config PATH] [--seed-only] [flag=value ...]\n"
+                "[--models-config PATH] [--ticket-id ID] [--seed-only] [flag=value ...]\n"
                 "  New run: opaque input (ticket id or free text) → prints run_id=.\n"
                 "  Resume:  run_id [\"feedback\"] when state already exists."
             )
@@ -1144,13 +1147,15 @@ def run_cmd(argv: list[str]) -> int:
     else:
         run_id = str(uuid.uuid4())
         user_input = " ".join(positionals).strip()
+        run_slug = ticket_id_arg.strip().lower() or run_id
         state_path = _state_root() / f"{run_id}.yaml"
         state_yaml_path = str(state_path)
         try:
             seed_state_file(
                 state_path,
-                slug=run_id, schema=schema, repo_root=repo_root,
+                slug=run_slug, schema=schema, repo_root=repo_root,
                 config_pack=config_pack, user_input=user_input,
+                ticket_id=ticket_id_arg,
             )
         except FileNotFoundError as exc:
             _log(f"ERROR: {exc}")

@@ -137,6 +137,28 @@ def test_run_cmd_mints_uuid_and_stores_brief(tmp_path, monkeypatch, capsys):
     assert "Feature brief" in brief.read_text()
 
 
+def test_run_cmd_explicit_ticket_id_seeds_ticket_identity(tmp_path, monkeypatch, capsys):
+    fake = install_fake_redis(monkeypatch)
+    repo = _git_repo(tmp_path)
+    pack = _mini_pack(tmp_path)
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+
+    code = run_cmd([
+        "ORC-42", "--ticket-id", "ORC-42", "--schema", "lite",
+        "--repo", str(repo), "--seed-only",
+    ])
+
+    assert code == 0
+    out = capsys.readouterr().out
+    run_id = [ln.split("=", 1)[1].strip() for ln in out.splitlines() if ln.startswith("run_id=")][0]
+    from orchestrator_next.run_store import REDIS_KEY_PREFIX
+    raw = yaml.safe_load(fake.store[f"{REDIS_KEY_PREFIX}{run_id}"])
+    assert raw["ticket_id"] == "ORC-42"
+    assert raw["user_input"] == "ORC-42"
+    assert raw["change_id"] == "orc-42"
+
+
 def test_run_cmd_ticket_shaped_writes_stub_without_backlog(tmp_path, monkeypatch, capsys):
     fake = install_fake_redis(monkeypatch)
     repo = _git_repo(tmp_path)

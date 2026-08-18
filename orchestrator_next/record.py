@@ -710,14 +710,15 @@ def _persist_if_materialized(path: Path, state_raw: dict[str, Any]) -> None:
     """
     from orchestrator_next.run_store import _state_root
 
-    if path.resolve().parent != _state_root():
-        return
-    change_id = str(state_raw.get("change_id") or "")
-    if not change_id:
+    resolved = path.resolve()
+    if resolved.parent != _state_root():
         return
     from orchestrator_next.run_store import open_store, persist
 
-    persist(open_store(), change_id, path)
+    # Key by the materialized filename (the run_id run_cmd locked/seeded under),
+    # not change_id — with `--ticket-id` the slug diverges from the run_id and
+    # keying by change_id would fork every record() into a second store key.
+    persist(open_store(), resolved.stem, path)
 
 
 def record(
