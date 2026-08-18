@@ -25,7 +25,12 @@ developer can build from without guessing.
   reserve new infrastructure for a stated, proven need.
 - When decomposing work for parallel implementation, identify shared-file
   conflict risk up front and sequence, isolate, or assign a single owner for
-  those edits, with an explicit reconciliation step.
+  those edits, with an explicit reconciliation step. Concretely: any two
+  tasks with no `depends_on` path between them must have disjoint `files:`
+  lists — see `architect/reference/parallel-safety.md` for why the engine
+  can't enforce this itself and what to do when two tasks need the same
+  file. `validate-tasks-yaml.sh` flags overlaps as a warning; it does not
+  block on them.
 - State tradeoffs honestly and recommend by context, not by novelty.
 
 ## Inputs
