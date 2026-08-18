@@ -177,8 +177,18 @@ def generate_plan(state_yaml_path: str) -> None:
 
     state_raw = dict(state.raw)
     state_raw["workflow_plan"] = promoted
-    Path(state_yaml_path).write_text(
-        yaml.safe_dump(state_raw, sort_keys=False, default_flow_style=False, allow_unicode=True),
-        encoding="utf-8",
-    )
-    print(f"state.yaml workflow_plan promoted to nodes shape: {state_yaml_path}", file=sys.stderr)
+
+    from orchestrator_next import state_store
+
+    handle = state_store.parse_handle(state_yaml_path)
+    if handle.is_file:
+        Path(handle.location).write_text(
+            yaml.safe_dump(state_raw, sort_keys=False, default_flow_style=False,
+                           allow_unicode=True),
+            encoding="utf-8",
+        )
+    else:
+        store, h = state_store.open_store(handle)
+        _doc, token = store.load(h)
+        store.save(h, state_raw, token)
+    print(f"workflow_plan promoted to nodes shape: {state_yaml_path}", file=sys.stderr)

@@ -123,6 +123,60 @@ if errors:
         print(f"Error: {e}", file=sys.stderr)
     sys.exit(1)
 
+# --- Parallel-safety check (advisory only — see reference/parallel-safety.md) ---
+# Two tasks that have no depends_on path between them (in either direction) may
+# be dispatched in the same parallel batch. If their `files` lists overlap,
+# that is a same-file race the engine cannot see or arbitrate: it serializes
+# shared singletons (git index, tasks.yaml itself) but has no notion of which
+# byte ranges within a file two tasks intend to touch. This never fails the
+# build — it is a warning, not a rule the validator enforces — because the fix
+# is a design decision (add depends_on, merge the tasks, or split the file),
+# not something to be autofixed here.
+by_id = {t["id"]: t for t in tasks if isinstance(t, dict) and t.get("id")}
+
+ancestors: dict[str, set] = {}
+
+def _ancestors(task_id, _stack=None):
+    if task_id in ancestors:
+        return ancestors[task_id]
+    _stack = _stack or set()
+    if task_id in _stack:
+        return set()  # cycle guard; cycles are already reported above
+    _stack = _stack | {task_id}
+    result: set = set()
+    for dep in by_id.get(task_id, {}).get("depends_on") or []:
+        if dep in by_id:
+            result.add(dep)
+            result |= _ancestors(dep, _stack)
+    ancestors[task_id] = result
+    return result
+
+for tid in by_id:
+    _ancestors(tid)
+
+warnings = []
+ids = list(by_id)
+for i, a in enumerate(ids):
+    for b in ids[i + 1:]:
+        if a in ancestors.get(b, set()) or b in ancestors.get(a, set()):
+            continue  # ordered — can never land in the same batch
+        files_a = set(by_id[a].get("files") or [])
+        files_b = set(by_id[b].get("files") or [])
+        shared = files_a & files_b
+        if shared:
+            warnings.append(
+                f"'{a}' and '{b}' have no depends_on edge between them but "
+                f"both list {sorted(shared)} — if these are ever dispatched "
+                f"in the same parallel batch, last write wins. Add a "
+                f"depends_on edge, merge the tasks, or split the file."
+            )
+
+if warnings:
+    for w in warnings:
+        print(f"Warning (parallel-safety): {w}", file=sys.stderr)
+
 print(f"OK: {path} is valid ({len(tasks)} tasks)")
+if warnings:
+    print(f"  {len(warnings)} parallel-safety warning(s) — see stderr", file=sys.stderr)
 sys.exit(0)
 PYEOF

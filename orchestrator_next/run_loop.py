@@ -11,6 +11,7 @@ Exit codes (protocol, unchanged):
 from __future__ import annotations
 
 import json
+import copy
 import os
 import re
 import subprocess
@@ -26,7 +27,7 @@ from typing import Any
 import yaml
 
 from orchestrator_next import model_routes
-from orchestrator_next.dispatch import ContractDispatchError, dispatch
+from orchestrator_next.dispatch import ContractDispatchError, dispatch_batch
 # dispatch.py defines its own ContractDispatchError(RuntimeError); parser raises
 # ContractNotFoundError(ValueError) for a missing script payload and
 # ContractError(ValueError) for a malformed contract. Catch all three so any
@@ -281,7 +282,10 @@ def run_agent_step(
         _log(f"ERROR: no route for model '{model}'")
         raise SystemExit(4)
     model_id = route["model_id"]
-    binary, template = _resolve_tool_template(tool_name, models_yaml)
+    tool_spec = model_routes.resolve_tool_spec(tool_name, models_yaml)
+    binary = tool_spec["binary"]
+    template = tool_spec["args_template"]
+    transport = str(tool_spec.get("transport") or "argv")
 
     meta = _workflow_meta(state_raw, state_yaml_path)
     step_context = json.dumps(action.get("step_context") or {})
@@ -297,25 +301,51 @@ def run_agent_step(
     stderr_path = tmp_dir / f"err_{step_id}.txt"
     usage_path = tmp_dir / f"usage_{step_id}.json"
     fallback_note = f"  (fallback #{route['active_index']} for {model})" if route["is_fallback"] else ""
-    _log(f"  invoking {tool_name} ({binary})" + (f"  model={model_id}" if model_id else "") + fallback_note)
+    _log(f"  invoking {tool_name} ({binary}, {transport})"
+         + (f"  model={model_id}" if model_id else "") + fallback_note)
     agent_env = dict(action.get("env") or {})
     prompt_dir = action.get("prompt_dir") or agent_env.get("ORCHESTRATOR_PROMPT_DIR")
     if prompt_dir:
         agent_env["ORCHESTRATOR_PROMPT_DIR"] = str(prompt_dir)
-    rc = invoke_tool(tool_name, binary, template, prompt, str(prompt_file),
-                     model_id, work_dir, stdout_path, stderr_path,
-                     extra_env=agent_env,
-                     usage_file=str(usage_path))
-    if rc != 0:
-        stderr_tail = stderr_path.read_text(errors="replace")[-2000:] if stderr_path.exists() else ""
-        _log(f"WARN: tool '{binary}' exited {rc}")
-        if stderr_tail.strip():
-            _log(f"  stderr: {stderr_tail.strip()}")
-        return _failed_payload(action, rc)
 
-    adapter_tool = "cursor-agent" if tool_name == "cursor" else tool_name
-    norm = split_stdout(adapter_tool, stdout_path, route_model=model_id or None,
-                        usage_file=str(usage_path))
+    if transport == "acp":
+        # ACP path: one negotiated protocol replaces the per-tool argv template
+        # AND the per-tool stdout adapter. run_turn returns the same
+        # NormalizedResult shape split_stdout does, so everything below this
+        # branch is identical for both transports.
+        from orchestrator_next import acp_client
+
+        norm = acp_client.run_turn(
+            command=binary,
+            args=list(tool_spec.get("acp_args") or []),
+            prompt=prompt,
+            cwd=work_dir,
+            model_id=model_id,
+            env=agent_env,
+            timeout_s=int(tool_spec.get("timeout_s") or acp_client.DEFAULT_TIMEOUT_S),
+        )
+        acp_meta = norm.pop("acp", None) or {}
+        if acp_meta.get("stop_reason") in ("error", "timeout"):
+            _log(f"WARN: acp turn ended {acp_meta.get('stop_reason')}"
+                 + (f" — {acp_meta['error']}" if acp_meta.get("error") else ""))
+            # 6 = tool subprocess failure, matching the argv path's exit code
+            # vocabulary so the spawn-failure cap counts it the same way.
+            return _failed_payload(action, 6)
+    else:
+        rc = invoke_tool(tool_name, binary, template, prompt, str(prompt_file),
+                         model_id, work_dir, stdout_path, stderr_path,
+                         extra_env=agent_env,
+                         usage_file=str(usage_path))
+        if rc != 0:
+            stderr_tail = stderr_path.read_text(errors="replace")[-2000:] if stderr_path.exists() else ""
+            _log(f"WARN: tool '{binary}' exited {rc}")
+            if stderr_tail.strip():
+                _log(f"  stderr: {stderr_tail.strip()}")
+            return _failed_payload(action, rc)
+
+        adapter_tool = "cursor-agent" if tool_name == "cursor" else tool_name
+        norm = split_stdout(adapter_tool, stdout_path, route_model=model_id or None,
+                            usage_file=str(usage_path))
     usage = {k: v for k, v in norm.items() if k != "assistant_text"}
     try:
         completion = parse_completion(norm.get("assistant_text") or "")
@@ -612,6 +642,70 @@ def _finalize_state(state_yaml_path: str) -> None:
 # The loop
 # ---------------------------------------------------------------------------
 
+def _state_exists(state_yaml_path: str) -> bool:
+    """Is this run still addressable? A file run disappears when archived; a
+    stored run does not, so `exists` is the backend's question, not os.path's."""
+    from orchestrator_next import state_store
+
+    try:
+        store, handle = state_store.open_store(state_yaml_path)
+        return store.exists(handle)
+    except (ValueError, OSError):
+        return False
+
+
+def _finish_agent_step(state_yaml_path: str, action: dict, payload: dict) -> None:
+    """Record one agent step's outcome, tolerating write contention."""
+    result, rc = _record_with_retry(state_yaml_path, payload)
+    if rc == 3:
+        _log(f"WARN: record rejected payload for {action['step_id']} — recording failed")
+        _record_with_retry(state_yaml_path, _failed_payload(action, 3))
+        return
+    if rc == 4:
+        _log(f"WARN: could not record {action['step_id']} — state write conflict")
+        return
+    _log(f"✓ {action['step_id']}  done  status={payload.get('status','completed')}")
+    _log_cost_so_far(state_yaml_path)
+
+
+DEFAULT_MAX_PARALLEL = 4
+_RECORD_CONFLICT_RETRIES = 6
+
+
+def max_parallel() -> int:
+    """Steps to run concurrently. `ORCHESTRATOR_MAX_PARALLEL=1` restores serial."""
+    raw = os.environ.get("ORCHESTRATOR_MAX_PARALLEL")
+    if not raw:
+        return DEFAULT_MAX_PARALLEL
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return DEFAULT_MAX_PARALLEL
+
+
+def _record_with_retry(state_yaml_path: str, payload: dict) -> tuple[dict, int]:
+    """record(), retried when another worker won the compare-and-swap.
+
+    Two workers finishing at once both read-modify-write the same run. The
+    store refuses the loser (exit 4, `state_write_conflict`) rather than letting
+    it clobber — so the loser simply re-reads and re-applies. Its own step
+    outcome is unaffected by whatever the winner wrote, because appending a
+    history entry and flipping one node's status commute.
+    """
+    delay = 0.02
+    for attempt in range(_RECORD_CONFLICT_RETRIES):
+        result, rc = record(state_yaml_path, payload)
+        if rc != 4 or (result or {}).get("reason") != "state_write_conflict":
+            return result, rc
+        time.sleep(delay)
+        delay = min(delay * 2, 0.5)
+        if attempt == _RECORD_CONFLICT_RETRIES - 2:
+            _log(f"WARN: record contention on {payload.get('step_id')} — retrying")
+    _log(f"ERROR: could not record {payload.get('step_id')} after "
+         f"{_RECORD_CONFLICT_RETRIES} conflict retries")
+    return {"reason": "state_write_conflict"}, 4
+
+
 # Exit codes (unchanged for CLI): 1 complete · 2 blocked · 3 error.
 # drive_loop also uses 0 = paused for await_input (ACP multi-turn only).
 LOOP_PAUSED = 0
@@ -732,7 +826,7 @@ def drive_loop(
             pass
 
         while True:
-            if not os.path.isfile(state_yaml_path):
+            if not _state_exists(state_yaml_path):
                 _log("Workflow complete (state archived).")
                 emit("complete", archived=True)
                 return LoopResult(1, state_yaml_path)
@@ -741,13 +835,16 @@ def drive_loop(
                 user_direction = ""
                 continue
 
-            state = load_state(state_yaml_path)
             try:
-                action, code = dispatch(state, state_yaml_path)
+                actions, code = dispatch_batch(
+                    state_yaml_path, max_parallel=max_parallel()
+                )
             except (ContractDispatchError, ContractNotFoundError, ContractError) as exc:
                 _log(f"Contract error: {exc}")
                 emit("error", message=str(exc))
                 return LoopResult(3, state_yaml_path)
+            state = load_state(state_yaml_path)
+            action = actions[0] if actions else {}
             if code == 1:
                 _log("Workflow complete.")
                 _finalize_state(state_yaml_path)
@@ -760,52 +857,23 @@ def drive_loop(
                 emit("blocked", reason=(action or {}).get("reason") or "blocked")
                 return LoopResult(2, state_yaml_path)
 
-            step_id = action.get("step_id", "?")
+            agent_actions = [a for a in actions if a.get("model")]
+            script_actions = [a for a in actions if not a.get("model") and a.get("run")]
 
-            if action.get("model"):
-                if user_direction:
-                    base = action.get("instruction") or ""
-                    action["instruction"] = (
-                        f"{base}\n\nUser direction: {user_direction}"
-                        if base
-                        else f"User direction: {user_direction}"
-                    )
-                    # Consume direction for this turn so a later step doesn't
-                    # re-inject the same text.
-                    user_direction = ""
-                _log(f"→ {step_id}  phase={action.get('phase','main')}  "
-                     f"kind=agent  model={action['model']}  attempt={action.get('attempt',1)}")
-                emit("step_start", step_id=step_id, kind="agent", model=action.get("model"))
-                payload = run_agent_step(
-                    action, repo_root=repo_root, models_yaml=models_yaml,
-                    state_raw=state.raw,
-                    state_yaml_path=state_yaml_path, tmp_dir=tmp_dir,
-                )
-                _, rc = record(state_yaml_path, payload)
-                if rc == 3:
-                    _log(f"WARN: record rejected payload for {step_id} — recording failed")
-                    record(state_yaml_path, _failed_payload(action, 3))
-                else:
-                    _log(f"✓ {step_id}  done  status={payload.get('status','completed')}")
-                    _log_cost_so_far(state_yaml_path)
-                status = payload.get("status")
-                emit("step_done", step_id=step_id, kind="agent",
-                     status=status, rc=rc)
-                paused = _maybe_pause_await_input(
-                    step_id, status, pause_on_await_input, emit,
-                    state_yaml_path=state_yaml_path, ok=(rc == 0),
-                )
-                if paused is not None:
-                    return paused
-            elif action.get("run"):
+            # Script steps stay strictly serial. They mutate the checkout
+            # (worktree create/remove, merge, archive) and several relocate the
+            # state handle itself — running two at once is not a concurrency
+            # problem, it is a correctness one.
+            for act in script_actions:
+                step_id = act.get("step_id", "?")
                 script_direction = ""
                 if user_direction:
                     script_direction = user_direction
                     user_direction = ""
-                _log(f"→ {step_id}  phase={action.get('phase','main')}  kind=script")
+                _log(f"→ {step_id}  phase={act.get('phase','main')}  kind=script")
                 emit("step_start", step_id=step_id, kind="script")
                 ok, state_yaml_path, status = run_script_step(
-                    action,
+                    act,
                     state_yaml_path=state_yaml_path,
                     state=state,
                     user_direction=script_direction,
@@ -821,10 +889,83 @@ def drive_loop(
                 )
                 if paused is not None:
                     return paused
-            else:
-                _log("dispatch returned no actionable step; stopping")
-                emit("idle", step_id=step_id)
-                return LoopResult(3, state_yaml_path)
+
+            if len(agent_actions) == 1:
+                act = agent_actions[0]
+                step_id = act.get("step_id", "?")
+                if user_direction:
+                    base = act.get("instruction") or ""
+                    act["instruction"] = (
+                        f"{base}\n\nUser direction: {user_direction}"
+                        if base
+                        else f"User direction: {user_direction}"
+                    )
+                    # Consume direction for this turn so a later step doesn't
+                    # re-inject the same text.
+                    user_direction = ""
+                _log(f"→ {step_id}  phase={act.get('phase','main')}  "
+                     f"kind=agent  model={act['model']}  attempt={act.get('attempt',1)}")
+                emit("step_start", step_id=step_id, kind="agent", model=act.get("model"))
+                payload = run_agent_step(
+                    act, repo_root=repo_root, models_yaml=models_yaml,
+                    state_raw=state.raw,
+                    state_yaml_path=state_yaml_path, tmp_dir=tmp_dir,
+                )
+                _, rc = _record_with_retry(state_yaml_path, payload)
+                if rc == 3:
+                    _log(f"WARN: record rejected payload for {step_id} — recording failed")
+                    _record_with_retry(state_yaml_path, _failed_payload(act, 3))
+                else:
+                    _log(f"✓ {step_id}  done  status={payload.get('status','completed')}")
+                    _log_cost_so_far(state_yaml_path)
+                status = payload.get("status")
+                emit("step_done", step_id=step_id, kind="agent",
+                     status=status, rc=rc)
+                paused = _maybe_pause_await_input(
+                    step_id, status, pause_on_await_input, emit,
+                    state_yaml_path=state_yaml_path, ok=(rc == 0),
+                )
+                if paused is not None:
+                    return paused
+
+            elif len(agent_actions) > 1:
+                _log(f"→ {len(agent_actions)} steps in parallel: "
+                     + ", ".join(a["step_id"] for a in agent_actions))
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+
+                def _run(act: dict) -> tuple[dict, dict]:
+                    # Each worker gets its own state_raw copy: run_agent_step
+                    # only reads it, and sharing one dict across threads would
+                    # be a data race waiting to happen.
+                    return act, run_agent_step(
+                        act, repo_root=repo_root, models_yaml=models_yaml,
+                        state_raw=copy.deepcopy(state.raw),
+                        state_yaml_path=state_yaml_path, tmp_dir=tmp_dir,
+                    )
+
+                awaiting_ids: list[str] = []
+                with ThreadPoolExecutor(max_workers=len(agent_actions)) as pool:
+                    futures = [pool.submit(_run, a) for a in agent_actions]
+                    for fut in as_completed(futures):
+                        act, payload = fut.result()
+                        # Recorded as each finishes, not batched at the end:
+                        # a crash mid-batch must not lose the steps that landed.
+                        _finish_agent_step(state_yaml_path, act, payload)
+                        emit("step_done", step_id=act.get("step_id", "?"),
+                             kind="agent", status=payload.get("status"))
+                        if payload.get("status") == "await_input":
+                            awaiting_ids.append(act.get("step_id", "?"))
+                if awaiting_ids:
+                    # Pause only after the whole batch has drained and recorded.
+                    paused = _maybe_pause_await_input(
+                        awaiting_ids[0], "await_input", pause_on_await_input, emit,
+                        state_yaml_path=state_yaml_path, ok=True,
+                    )
+                    if paused is not None:
+                        return paused
+
+            elif not actions:
+                _log("dispatch returned no actionable step; continuing")
     finally:
         if owns_tmp and not keep_tmp:
             shutil.rmtree(tmp_dir, ignore_errors=True)

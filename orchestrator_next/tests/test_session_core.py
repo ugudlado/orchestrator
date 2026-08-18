@@ -210,7 +210,10 @@ def test_drive_loop_pauses_on_await_input(tmp_path, monkeypatch):
         "instruction": "ask", "attempt": 1,
         "step_context": {},
     }
-    monkeypatch.setattr("orchestrator_next.run_loop.dispatch", lambda state, path: (action, 0))
+    monkeypatch.setattr(
+        "orchestrator_next.run_loop.dispatch_batch",
+        lambda path, max_parallel=1: ([action], 0),
+    )
     monkeypatch.setattr(spawn_resume, "apply_spawn_failure_resume", lambda *a, **k: None)
 
     def fake_agent_step(action, **kwargs):
