@@ -339,6 +339,16 @@ def main() -> None:
 
     # --- Agent path (exit 0 + JSON with model key) ---
     if action.get("model"):
+        roster_path = os.environ.get("ORCHESTRATOR_ROSTER")
+        if roster_path:
+            from orchestrator_next.buzz_adapter import BuzzRosterError, enrich_action
+
+            try:
+                action = enrich_action(action, roster_path)
+            except BuzzRosterError as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                sys.exit(3)
+
         from datetime import datetime, timezone
         _started_at = action.get("started_at") or datetime.now(timezone.utc).isoformat()
         try:
