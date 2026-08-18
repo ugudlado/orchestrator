@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-VALID_STATUSES = frozenset({"completed", "recovered", "abandoned", "failed"})
+VALID_STATUSES = frozenset({"completed", "recovered", "abandoned", "failed", "await_input"})
 
 
 def _indent_under_completion(header: str, body_lines: list[str]) -> str:

@@ -361,7 +361,10 @@ def aggregate(states: list[dict]) -> dict:
         )
         agg["runs"] += 1
         agg["retried"] += 1 if run["attempts"] > 1 else 0
-        agg["failed"] += 1 if run["status"] != "completed" else 0
+        # A pause for human input and a recovered step are not failures — only
+        # count terminal not-completed outcomes, or a healthy paused run reads
+        # as Fail% 100 in the table.
+        agg["failed"] += 1 if run["status"] not in ("completed", "recovered", "await_input") else 0
         agg["duration_ms"] += run["duration_ms"]
         agg["cost_usd"] += run["cost_usd"]
 

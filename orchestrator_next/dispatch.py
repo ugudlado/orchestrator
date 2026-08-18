@@ -166,6 +166,29 @@ def _claim_nodes(
     return True
 
 
+def _persist_blocked_status(state_yaml_path: str, state_raw: dict) -> None:
+    """Best-effort: mark state.yaml status=blocked when the spawn-failure cap
+    fires, mirroring the retry-cap path in record.py (~:624) which persists
+    blocked so a consumer reading state.yaml alone (not just the CLI exit
+    code) can see the run is stuck. Uses the same load/save-with-token path
+    as _claim_nodes; a lost race or missing file is tolerated — the CLI exit
+    code 2 remains the authoritative signal either way.
+    """
+    from orchestrator_next import state_store
+
+    handle = state_store.parse_handle(state_yaml_path)
+    try:
+        store, h = state_store.open_store(handle)
+        fresh, token = store.load(h)
+    except (state_store.StateNotFoundError, OSError):
+        return
+    fresh["status"] = "blocked"
+    try:
+        store.save(h, fresh, token)
+    except (state_store.StateConflictError, yaml.YAMLError):
+        pass
+
+
 def _build_action_base(
     contract: StepContract,
     step_id: str,
@@ -249,6 +272,7 @@ def _dispatch_fresh(
             f"failures for {state.phase}/{next_step_id}",
             file=sys.stderr,
         )
+        _persist_blocked_status(state_yaml_path, state.raw)
         return {"reason": "spawn_failure_cap"}, 2
 
     attempt = compute_attempt(state.step_history, state.phase, next_step_id, include_in_progress=True)

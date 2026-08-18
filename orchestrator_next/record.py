@@ -305,7 +305,13 @@ def _resolve_routing(
 
 
 def _utcnow_iso() -> str:
-    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Microsecond precision (not whole-second truncation): started_at is
+    # stamped by run_loop with datetime.isoformat() (microseconds included).
+    # Truncating ended_at to whole seconds while started_at keeps
+    # microseconds let ended_at round DOWN below started_at for fast
+    # (sub-second) steps, producing negative duration_ms. isoformat() with
+    # both stamps at matching precision keeps the subtraction non-negative.
+    return _dt.datetime.now(_dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _state_from_raw(state_raw: dict[str, Any]) -> State:
@@ -596,7 +602,10 @@ def _build_history_entry(
             ended_dt = _dt.datetime.fromisoformat(
                 str(entry["ended_at"]).replace("Z", "+00:00")
             )
-            usage["duration_ms"] = int((ended_dt - started_dt).total_seconds() * 1000)
+            # Floor at 0: defends against any remaining precision mismatch
+            # (e.g. a payload-supplied started_at with coarser precision than
+            # our own ended_at, or clock skew) still yielding a negative value.
+            usage["duration_ms"] = max(0, int((ended_dt - started_dt).total_seconds() * 1000))
         except (TypeError, ValueError):
             pass
     entry["outputs"] = dict(outputs)

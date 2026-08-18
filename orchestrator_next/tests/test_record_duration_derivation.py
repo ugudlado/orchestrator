@@ -49,3 +49,15 @@ def test_null_usage_still_gets_duration_ms():
     ended_dt = datetime.fromisoformat(entry["ended_at"].replace("Z", "+00:00"))
     expected = int((ended_dt - started_dt).total_seconds() * 1000)
     assert entry["usage"]["duration_ms"] == expected
+
+
+def test_sub_second_step_does_not_record_negative_duration():
+    """started_at at T.9s with ended_at (now) landing at T+1 rounded down to T
+    used to floor-truncate ended_at to whole seconds while started_at kept
+    microsecond precision, producing a negative duration for fast steps.
+    """
+    from datetime import timedelta, timezone
+
+    started = datetime.now(timezone.utc) - timedelta(milliseconds=100)
+    entry = _call({"started_at": started.isoformat(), "usage": {}})
+    assert entry["usage"]["duration_ms"] >= 0
