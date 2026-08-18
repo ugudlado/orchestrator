@@ -93,6 +93,42 @@ def resolve_tool_template(tool_name: str, routes_yaml: str | None) -> tuple[str,
     return tool_name, []
 
 
+def resolve_tool_spec(tool_name: str, routes_yaml: str | None) -> dict[str, Any]:
+    """Return the full `tools.<tool_name>` entry, resolved wholesale-wins.
+
+    Superset of `resolve_tool_template`, which stays as-is so every existing
+    caller and test keeps its exact tuple contract. This one exposes the whole
+    entry so a transport can be selected without the caller re-reading YAML:
+
+        tools:
+          claude:                       # ACP transport
+            binary: npx
+            transport: acp
+            acp_args: ["-y", "@zed-industries/claude-agent-acp"]
+          claude-cli:                   # legacy argv transport (unchanged)
+            binary: claude
+            args_template: ["--model", "{model_id}", "-p", ...]
+
+    `transport` defaults to "argv" so an entry that predates ACP behaves
+    exactly as before — this is an additive field, not a migration.
+    """
+    for _label, path in reversed(_layer_chain(routes_yaml)):
+        entry = _tools_map(path).get(tool_name)
+        if isinstance(entry, dict):
+            spec = dict(entry)
+            spec.setdefault("binary", tool_name)
+            spec.setdefault("args_template", [])
+            spec.setdefault("transport", "argv")
+            spec.setdefault("acp_args", [])
+            return spec
+    return {
+        "binary": tool_name,
+        "args_template": [],
+        "transport": "argv",
+        "acp_args": [],
+    }
+
+
 def _winning_alias_entry(alias: str, routes_yaml: str | None) -> tuple[Any, str]:
     """Return (raw entry, source label) for `alias` from the highest-precedence
     FILE layer that names it — dict (scalar route) or list (fallback chain).
