@@ -112,3 +112,23 @@ def test_materialize_raises_for_unknown_run(tmp_path, monkeypatch):
     store = SqliteRunStore(tmp_path / "runs.db")
     with pytest.raises(FileNotFoundError):
         materialize(store, "does-not-exist")
+
+
+def test_run_store_and_state_store_share_one_db(tmp_path, monkeypatch):
+    """One db file for everything: RunStore tables coexist with StateStore's."""
+    from orchestrator_next import state_store as ss
+
+    monkeypatch.setenv("ORCHESTRATOR_HOME_DIR", str(tmp_path))
+    db = ss.default_db_path()
+    assert db == tmp_path / "orchestrator.db"
+
+    run_store = SqliteRunStore()
+    assert run_store.db_path == db
+    run_store.save("blob-1", '{"a": 1}')
+
+    store, handle = ss.open_store(f"sqlite:///{str(db).lstrip('/')}#orc-1")
+    store.create(handle, {"change_id": "orc-1", "status": "active"})
+
+    assert run_store.load("blob-1") == '{"a": 1}'
+    doc, _tok = store.load(handle)
+    assert doc["change_id"] == "orc-1"

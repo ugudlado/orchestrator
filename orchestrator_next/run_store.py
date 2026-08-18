@@ -5,7 +5,7 @@ state lives in the RunStore for as long as it's alive; on completion it's
 archived (renamed, TTL removed), never deleted — the archived key is the
 machine-readable audit trail. Nothing is ever written into the repo.
 
-Backend: one local SQLite file (`~/.orchestrator/runs.db`) — zero services
+Backend: the shared orchestrator SQLite db (`~/.orchestrator/orchestrator.db`, see state_store.default_db_path) — zero services
 required. Cross-environment continuation would need a shared backend behind
 the same protocol; the Redis one was deleted Aug 2026 as unused.
 """
@@ -45,16 +45,18 @@ class SqliteRunStore:
     """
 
     def __init__(self, db_path: Path | str | None = None) -> None:
-        self.db_path = Path(db_path) if db_path else _state_root().parent / "runs.db"
+        from orchestrator_next.state_store import default_db_path
+
+        self.db_path = Path(db_path) if db_path else default_db_path()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._conn()) as conn, conn:
             conn.execute(
-                "CREATE TABLE IF NOT EXISTS runs ("
+                "CREATE TABLE IF NOT EXISTS run_blobs ("
                 " run_id TEXT PRIMARY KEY, text TEXT NOT NULL,"
                 " archived INTEGER NOT NULL DEFAULT 0)"
             )
             conn.execute(
-                "CREATE TABLE IF NOT EXISTS locks ("
+                "CREATE TABLE IF NOT EXISTS run_locks ("
                 " run_id TEXT PRIMARY KEY, expires_at REAL NOT NULL)"
             )
 
@@ -64,7 +66,7 @@ class SqliteRunStore:
     def load(self, run_id: str, *, archived: bool = False) -> str | None:
         with closing(self._conn()) as conn:
             row = conn.execute(
-                "SELECT text FROM runs WHERE run_id = ? AND archived = ?",
+                "SELECT text FROM run_blobs WHERE run_id = ? AND archived = ?",
                 (run_id, int(archived)),
             ).fetchone()
         return row[0] if row else None
@@ -72,19 +74,19 @@ class SqliteRunStore:
     def save(self, run_id: str, text: str) -> None:
         with closing(self._conn()) as conn, conn:
             conn.execute(
-                "INSERT INTO runs (run_id, text, archived) VALUES (?, ?, 0) "
+                "INSERT INTO run_blobs (run_id, text, archived) VALUES (?, ?, 0) "
                 "ON CONFLICT(run_id) DO UPDATE SET text = excluded.text, archived = 0",
                 (run_id, text),
             )
 
     def delete(self, run_id: str) -> None:
         with closing(self._conn()) as conn, conn:
-            conn.execute("DELETE FROM runs WHERE run_id = ? AND archived = 0", (run_id,))
+            conn.execute("DELETE FROM run_blobs WHERE run_id = ? AND archived = 0", (run_id,))
 
     def list_ids(self, *, archived: bool = False) -> list[str]:
         with closing(self._conn()) as conn:
             rows = conn.execute(
-                "SELECT run_id FROM runs WHERE archived = ?", (int(archived),)
+                "SELECT run_id FROM run_blobs WHERE archived = ?", (int(archived),)
             ).fetchall()
         return [r[0] for r in rows]
 
@@ -92,9 +94,9 @@ class SqliteRunStore:
         now = time.time()
         with closing(self._conn()) as conn, conn:
             cur = conn.execute(
-                "INSERT INTO locks (run_id, expires_at) VALUES (?, ?) "
+                "INSERT INTO run_locks (run_id, expires_at) VALUES (?, ?) "
                 "ON CONFLICT(run_id) DO UPDATE SET expires_at = excluded.expires_at "
-                "WHERE locks.expires_at < ?",
+                "WHERE run_locks.expires_at < ?",
                 (run_id, now + LOCK_TTL, now),
             )
             return cur.rowcount > 0
@@ -102,26 +104,26 @@ class SqliteRunStore:
     def refresh_lock(self, run_id: str) -> None:
         with closing(self._conn()) as conn, conn:
             conn.execute(
-                "INSERT INTO locks (run_id, expires_at) VALUES (?, ?) "
+                "INSERT INTO run_locks (run_id, expires_at) VALUES (?, ?) "
                 "ON CONFLICT(run_id) DO UPDATE SET expires_at = excluded.expires_at",
                 (run_id, time.time() + LOCK_TTL),
             )
 
     def unlock(self, run_id: str) -> None:
         with closing(self._conn()) as conn, conn:
-            conn.execute("DELETE FROM locks WHERE run_id = ?", (run_id,))
+            conn.execute("DELETE FROM run_locks WHERE run_id = ?", (run_id,))
 
     def archive(self, run_id: str) -> None:
         """Flip the live row to archived; no-op when no live row exists."""
         with closing(self._conn()) as conn, conn:
             conn.execute(
-                "UPDATE runs SET archived = 1 WHERE run_id = ? AND archived = 0",
+                "UPDATE run_blobs SET archived = 1 WHERE run_id = ? AND archived = 0",
                 (run_id,),
             )
 
 
 def open_store() -> RunStore:
-    """The local SQLite RunStore (`~/.orchestrator/runs.db`)."""
+    """The RunStore, in the shared orchestrator SQLite db."""
     return SqliteRunStore()
 
 

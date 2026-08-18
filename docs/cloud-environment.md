@@ -75,7 +75,7 @@ BACKLOG_TOKEN=<your-backlog-token>
 - `BACKLOG_URL` / `BACKLOG_TOKEN` — backlog remote mode reads these env vars **before**
   falling back to `~/.config/backlog/config.yml` (which doesn't exist in the cloud). This
   is how the cloud session reaches the _same_ backend your laptop does.
-- Run state lives in the local RunStore (SQLite, `~/.orchestrator/runs.db` — see
+- Run state lives in the local RunStore (SQLite, `~/.orchestrator/orchestrator.db` — see
   [`DRIVE.md`](../DRIVE.md#durability-resume-after-a-block)). It is per-machine: a run
   survives session resets only as far as the sandbox home directory does, and cannot yet
   resume on a different machine. `orchestrator doctor` checks the store opens — run that

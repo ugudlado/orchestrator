@@ -44,7 +44,7 @@ Per-repo customization without forking the engine:
 - **Prompts**: agent steps carry their charter as `prompt: SKILL.md` inside the step dir. `orchestrator config pull … --skills` optionally symlinks those into `<repo>/skills/<name>/` for IDE discovery. Absolute prompt paths are rejected.
 - **Quality gates & verify commands**: gate thresholds are step-owned (vendor the pack to change them); review/QA steps discover the repo's test/lint commands from its own docs and manifests. Repos should also carry commit-time verification (pre-commit/husky/biome) — doctor WARNs when none is present, so breakage is caught at commit, not only at the QA gate.
 - **Ticketing**: env-driven — `BACKLOG_URL`+`BACKLOG_TOKEN` present means backlog; unset means ticket steps skip cleanly. The engine and doctor have zero ticketing logic; workflow scripts own it, so new backends are a script change.
-- **Headless/CI**: `ORCHESTRATOR_NOTIFY_CMD` pipes a blocked-run event to any shell command. Durability is the RunStore, not git — state lives in the local SQLite db (`~/.orchestrator/runs.db`) for the run's lifetime; it is per-machine (`orchestrator doctor` checks the store opens).
+- **Headless/CI**: `ORCHESTRATOR_NOTIFY_CMD` pipes a blocked-run event to any shell command. Durability is the RunStore, not git — state lives in the local SQLite db (`~/.orchestrator/orchestrator.db`) for the run's lifetime; it is per-machine (`orchestrator doctor` checks the store opens).
 
 Upgrades: `uv tool upgrade orchestrator` (or reinstall from git). Config ships with the wheel, so engine+config always match.
 

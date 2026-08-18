@@ -155,7 +155,7 @@ echo '{
 
 ## Durability (resume after a block)
 
-State lives in the RunStore (SQLite, `~/.orchestrator/runs.db`), not in the repo.
+State lives in the RunStore (SQLite, `~/.orchestrator/orchestrator.db`), not in the repo.
 Every `orchestrator done` persists the run's current state back to the store (the
 materialized local file is a per-invocation working copy, not the durable record).
 The store is per-machine: a run resumes on the machine that started it as long as

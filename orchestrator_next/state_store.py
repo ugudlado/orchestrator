@@ -136,7 +136,18 @@ def parse_handle(handle: str | os.PathLike[str] | StateHandle) -> StateHandle:
 
 ENV_STATE_BACKEND = "ORCHESTRATOR_STATE_BACKEND"
 DEFAULT_BACKEND = "sqlite"
-DEFAULT_DB_RELPATH = os.path.join(".orchestrator", "state.db")
+
+
+def default_db_path() -> Path:
+    """The ONE SQLite file every orchestrator store shares.
+
+    Workflow state (this module) and run/session blobs (run_store) live as
+    separate tables in the same `~/.orchestrator/orchestrator.db` — one db to
+    manage, back up, or point somewhere else. A remote/central db is the
+    ORCHESTRATOR_STATE_URL override, not a second file.
+    """
+    home = Path(os.environ.get("ORCHESTRATOR_HOME_DIR", "~/.orchestrator")).expanduser()
+    return home / "orchestrator.db"
 
 
 def default_backend() -> str:
@@ -147,17 +158,16 @@ def default_backend() -> str:
 def default_state_url(repo_root: str = "") -> str:
     """The store new runs are created in.
 
-    Precedence: ORCHESTRATOR_STATE_URL, then the backend default. SQLite lives
-    at `<repo>/.orchestrator/state.db` — the same directory the per-run YAML
-    files used to sit in, so nothing about where state lives moves.
+    Precedence: ORCHESTRATOR_STATE_URL, then the backend default: the shared
+    machine-global SQLite db (see default_db_path). Run ids carry
+    slug + timestamp + schema, so runs from every repo coexist in one table.
     """
     explicit = os.environ.get(ENV_STATE_URL, "").strip()
     if explicit:
         return explicit
     if default_backend() == "file":
         return ""
-    root = repo_root or os.environ.get("ORCHESTRATOR_REPO_ROOT") or os.getcwd()
-    return "sqlite:///" + str(Path(root).resolve() / DEFAULT_DB_RELPATH).lstrip("/")
+    return "sqlite:///" + str(default_db_path()).lstrip("/")
 
 
 def run_id_for(slug: str, schema: str, config_pack: str = "", stamp: str = "") -> str:
