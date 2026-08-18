@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CLI Run Lifecycle</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #eb6c36;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1200px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Sequence · Orchestrator · Entry path A</p>
+    <h1>How the CLI drives a workflow</h1>
+
+    <svg viewBox="0 0 1000 660" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="cli-run-title cli-run-desc">
+      <title id="cli-run-title">How the CLI drives a workflow</title>
+      <desc id="cli-run-desc">Sequence of one orchestrator run: the CLI seeds and locks a run in the shared database, hands it to the drive loop, which repeatedly claims ready steps, fans agent steps out in parallel, and records each result until the workflow completes and the run is archived.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- lifelines -->
+      <line x1="100" y1="80" x2="100" y2="560" stroke="rgba(45,49,66,0.25)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="300" y1="80" x2="300" y2="560" stroke="rgba(45,49,66,0.25)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="500" y1="80" x2="500" y2="560" stroke="rgba(45,49,66,0.25)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="700" y1="80" x2="700" y2="560" stroke="rgba(45,49,66,0.25)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="900" y1="80" x2="900" y2="560" stroke="rgba(45,49,66,0.25)" stroke-width="1" stroke-dasharray="4,4"/>
+
+      <!-- loop fragment frame (drawn before messages' masks but after lifelines) -->
+      <rect x="248" y="216" width="712" height="236" rx="4" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <rect x="248" y="216" width="40" height="16" rx="2" fill="#f5f5f5" stroke="rgba(45,49,66,0.22)" stroke-width="1"/>
+      <text x="268" y="228" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.12em">LOOP</text>
+      <text x="296" y="228" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.04em">[until complete · blocked · await_input]</text>
+
+      <!-- activation bars -->
+      <rect x="96" y="104" width="8" height="432" fill="rgba(79,93,117,0.10)" stroke="rgba(79,93,117,0.40)" stroke-width="0.8"/>
+      <rect x="496" y="192" width="8" height="296" fill="rgba(79,93,117,0.10)" stroke="rgba(79,93,117,0.40)" stroke-width="0.8"/>
+      <rect x="696" y="256" width="8" height="64" fill="rgba(79,93,117,0.10)" stroke="rgba(79,93,117,0.40)" stroke-width="0.8"/>
+      <rect x="896" y="396" width="8" height="36" fill="rgba(79,93,117,0.10)" stroke="rgba(79,93,117,0.40)" stroke-width="0.8"/>
+
+      <!-- m1: run_cmd → db  seed + persist -->
+      <line x1="104" y1="112" x2="296" y2="112" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="148" y="92" width="104" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="200" y="101" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SEED + PERSIST</text>
+
+      <!-- m2: run_cmd → db  lock -->
+      <line x1="104" y1="152" x2="296" y2="152" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="156" y="132" width="88" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="200" y="141" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">LOCK RUN_ID</text>
+
+      <!-- m3: run_cmd → drive_loop -->
+      <line x1="104" y1="192" x2="496" y2="192" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="264" y="172" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="300" y="181" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">RUN_LOOP</text>
+
+      <!-- m4: drive_loop → dispatch_batch -->
+      <line x1="504" y1="264" x2="696" y2="264" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="564" y="244" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="600" y="253" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">DISPATCH</text>
+
+      <!-- m5: dispatch_batch → db  CAS claim (right to left) -->
+      <line x1="696" y1="292" x2="304" y2="292" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="464" y="272" width="72" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="500" y="281" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">CAS CLAIM</text>
+
+      <!-- m6: dispatch_batch → drive_loop  return actions -->
+      <line x1="696" y1="320" x2="504" y2="320" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <rect x="572" y="300" width="56" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="600" y="309" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ACTIONS</text>
+
+      <!-- m7: drive_loop self-message  parallel agent steps (accent) -->
+      <path d="M504,348 H560 Q568,348 568,356 V364 Q568,372 560,372 H504"
+            fill="none" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <rect x="580" y="352" width="128" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="584" y="361" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">RUN_AGENT_STEP ×N</text>
+
+      <!-- m8: drive_loop → record  completion payload -->
+      <line x1="504" y1="404" x2="896" y2="404" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="660" y="384" width="80" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="700" y="393" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">COMPLETION</text>
+
+      <!-- m9: record → db  CAS save (right to left, crosses dispatch lifeline) -->
+      <line x1="896" y1="432" x2="304" y2="432" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="560" y="412" width="80" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="600" y="421" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">CAS SAVE</text>
+
+      <!-- m10: drive_loop → run_cmd  return exit code -->
+      <line x1="496" y1="488" x2="104" y2="488" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <rect x="252" y="468" width="96" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="300" y="477" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">CODE 1 | 2 | 3</text>
+
+      <!-- m11: run_cmd → db  unlock + archive -->
+      <line x1="104" y1="528" x2="296" y2="528" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="140" y="508" width="120" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="200" y="517" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">UNLOCK · ARCHIVE</text>
+
+      <!-- ================= actors ================= -->
+      <rect x="20" y="32" width="160" height="48" rx="6" fill="#f5f5f5"/>
+      <rect x="20" y="32" width="160" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="100" y="52" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">run_cmd</text>
+      <text x="100" y="68" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">orchestrator run</text>
+
+      <rect x="220" y="32" width="160" height="48" rx="6" fill="#f5f5f5"/>
+      <rect x="220" y="32" width="160" height="48" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <text x="300" y="52" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">orchestrator.db</text>
+      <text x="300" y="68" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">local or STATE_URL</text>
+
+      <rect x="420" y="32" width="160" height="48" rx="6" fill="#f5f5f5"/>
+      <rect x="420" y="32" width="160" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="500" y="52" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">drive_loop</text>
+      <text x="500" y="68" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">run_loop.py</text>
+
+      <rect x="620" y="32" width="160" height="48" rx="6" fill="#f5f5f5"/>
+      <rect x="620" y="32" width="160" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="700" y="52" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">dispatch_batch</text>
+      <text x="700" y="68" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">dispatch.py</text>
+
+      <rect x="820" y="32" width="160" height="48" rx="6" fill="#f5f5f5"/>
+      <rect x="820" y="32" width="160" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <text x="900" y="52" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">record()</text>
+      <text x="900" y="68" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">record.py</text>
+
+      <!-- ================= legend ================= -->
+      <line x1="30" y1="588" x2="970" y2="588" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="30" y="608" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <line x1="110" y1="604" x2="142" y2="604" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <text x="150" y="608" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">CALL</text>
+
+      <line x1="210" y1="604" x2="242" y2="604" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <text x="250" y="608" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">RETURN</text>
+
+      <line x1="330" y1="604" x2="362" y2="604" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <text x="370" y="608" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">PARALLEL FAN-OUT (SEE ACP TURN DIAGRAM)</text>
+
+      <text x="700" y="608" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">SESSIONS PATH ENTERS THE SAME LOOP AT RUN_LOOP</text>
+    </svg>
+  </div>
+</body>
+</html>

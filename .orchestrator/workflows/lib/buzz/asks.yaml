@@ -1,0 +1,49 @@
+# Ask templates for TeamLead → buzz channel posts, one per rostered step id
+# (see roster steps: mapping). Channel text is plain teammate language — no
+# orchestrator jargon. Placeholders: {agent_name} {branch} {repo_url}
+# {change_id} {context_path}. Every template must keep the standing
+# instructions: work on branch {branch} in your own checkout, push before
+# replying, end the reply with a ```completion block.
+#
+# Format constraint (render_ask.py fallback parser): top-level `step_id: |`
+# block scalars only — no flow style, no nesting.
+
+explore: |
+  @{agent_name} could you take a first look at {change_id}? The background notes are in {context_path} — read through the relevant parts of the codebase and write up what you find: where the change would land, what it touches, and anything risky we should know before designing.
+  Work on branch {branch} in your own checkout of {repo_url}, push your work before replying, and end your reply with a ```completion block (status, outputs.summary, reason, usage).
+
+diagnose: |
+  @{agent_name} we have a bug to chase down for {change_id} — details are in {context_path}. Please reproduce it if you can, trace it to a root cause, and write up what's actually going wrong (not just where the symptom shows).
+  Work on branch {branch} in your own checkout of {repo_url}, push your work before replying, and end your reply with a ```completion block (status, outputs.summary, reason, usage).
+
+ux-design: |
+  @{agent_name} can you sketch the user experience for {change_id}? Context lives in {context_path}. Cover the flows and screens involved, and note any interaction decisions the rest of us need to weigh in on.
+  Work on branch {branch} in your own checkout of {repo_url}, push your work before replying, and end your reply with a ```completion block (status, outputs.summary, reason, usage).
+
+ux-critique: |
+  @{agent_name} please give the UX work for {change_id} a hard look — artifacts and context are under {context_path}. Call out what works, what doesn't, and anything a user would trip over; be specific enough that fixes are actionable.
+  Work on branch {branch} in your own checkout of {repo_url}, push your work before replying, and end your reply with a ```completion block (status, outputs.summary, reason, usage).
+
+design: |
+  @{agent_name} time to design {change_id} — discovery notes and context are in {context_path}. Please write up the approach and break it into implementable tasks, keeping the change as small as it honestly can be.
+  Work on branch {branch} in your own checkout of {repo_url}, push your work before replying, and end your reply with a ```completion block (status, outputs.summary, reason, usage).
+
+design-review: |
+  @{agent_name} could you review the design for {change_id}? It's on the branch, with background in {context_path}. Check that it's complete, that the task breakdown holds together, and flag anything you'd push back on before we build it.
+  Work on branch {branch} in your own checkout of {repo_url}, push your work before replying, and end your reply with a ```completion block (status, outputs.summary, reason, usage).
+
+implement: |
+  @{agent_name} the design for {change_id} is ready to build — it's on the branch, context in {context_path}. Please implement the planned tasks with tests, and keep commits scoped so they're easy to review.
+  Work on branch {branch} in your own checkout of {repo_url}, push your work before replying, and end your reply with a ```completion block (status, outputs.summary, reason, usage).
+
+code-review: |
+  @{agent_name} can you review the implementation of {change_id}? The changes are on the branch, background in {context_path}. Look for correctness issues and anything that doesn't meet our bar; small nitpicks are fine to note but call out blockers clearly.
+  Work on branch {branch} in your own checkout of {repo_url}, push your work before replying, and end your reply with a ```completion block (status, outputs.summary, reason, usage).
+
+learn: |
+  @{agent_name} now that {change_id} is wrapping up, could you do a short retro? Notes and history are in {context_path}. What went well, what dragged, and what should we change about how we run the next one — concrete suggestions only.
+  Work on branch {branch} in your own checkout of {repo_url}, push your work before replying, and end your reply with a ```completion block (status, outputs.summary, reason, usage).
+
+_default: |
+  @{agent_name} there's a piece of work on {change_id} that needs your hands — background is in {context_path}. Please pick it up and do what the context asks, and reply here with what you did and anything the rest of us should know.
+  Work on branch {branch} in your own checkout of {repo_url}, push your work before replying, and end your reply with a ```completion block (status, outputs.summary, reason, usage).

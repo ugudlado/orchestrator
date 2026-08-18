@@ -1,0 +1,45 @@
+# feature-remote — feature workflow with remote (buzz) agent steps whose
+# signed Nostr reply events are verified before the run proceeds.
+#
+# SCHEMA LIMITATION: a step id may appear only once per workflow. The DAG
+# promoter (orchestrator_next/generate_plan.py `_topo_sort`) keys nodes by
+# `id`, and dispatch resolves contracts by node id (steps/<id>/contract.yaml),
+# so there is no per-node id vs step-ref separation — the same step cannot be
+# inserted after each agent step (explore, ux-design, design, design-review,
+# ux-critique, implement, code-review, learn all map to roster roles).
+# Until node aliasing exists, a single verify-completion node runs after the
+# highest-stakes remote step (implement); it derives the step to verify from
+# state step_history (or BUZZ_VERIFIED_STEP) and checks the signed reply
+# event against ORCHESTRATOR_ROSTER.
+steps:
+  - check-rerun # halt if this feature is already archived (workflow's own decision)
+  - create-worktree # creates worktree + branch; writes worktree_path+branch to state
+  - load-ticket-context # REST fetch ticket body → ticket-context.md (loop stays agnostic)
+  - explore
+  - ux-design
+  - design
+  - id: design-review
+    on_failure: design
+  - ticket-start # ticket -> In Progress (implement entry)
+  - ux-critique
+  - id: implement
+    on_failure: design
+  - id: verify-completion # verify implement's signed buzz reply (see limitation note above)
+    on_failure: implement
+  - ticket-review # ticket -> Review
+  - id: code-review
+    on_failure: implement
+    max_retries: 8
+  - id: human-review # human feedback after review; may reset_to implement|design|…
+    on_failure: implement
+    max_retries: 8
+  - ticket-qa # ticket -> Verify
+  - learn
+  - persist-learnings
+  # complete phase (merge / teardown) — runs only after human-review completes
+  - mark-change-completed
+  - archive-completed-change
+  - merge-to-main
+  - remove-worktree
+  - ticket-done
+  - workflow-report
