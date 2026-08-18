@@ -130,18 +130,42 @@ def _persist_node_status(
     step_id: str,
     state_raw: dict,
 ) -> None:
-    """Mark a node's status to in_progress in state.yaml on disk."""
-    path = Path(state_yaml_path)
+    """Claim a node by marking it in_progress in the state store."""
+    _claim_nodes(state_yaml_path, phase, [step_id], state_raw=state_raw)
+
+
+def _claim_nodes(
+    state_yaml_path: str,
+    phase: str,
+    step_ids: list[str],
+    state_raw: dict,
+) -> bool:
+    """Mark every id in `step_ids` in_progress in ONE compare-and-swap write.
+
+    Claiming the whole batch atomically is what makes parallel dispatch safe:
+    either this worker owns all of them or it owns none and re-reads. A
+    per-node write would leave a window where two workers each claim a
+    different half of the same ready set from the same stale snapshot.
+
+    Returns True when the claim landed, False on a lost race (caller re-reads).
+    """
+    from orchestrator_next import state_store
+
+    handle = state_store.parse_handle(state_yaml_path)
+    store, h = state_store.open_store(handle)
     try:
-        with open(path, "rb") as f:
-            pre_bytes = f.read()
-    except OSError:
-        return
-    readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
+        _fresh, token = store.load(h)
+    except (state_store.StateNotFoundError, OSError):
+        return False
+    for step_id in step_ids:
+        readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
     try:
-        _safe_write_yaml(path, state_raw, pre_bytes)
+        store.save(h, state_raw, token)
+    except state_store.StateConflictError:
+        return False
     except yaml.YAMLError:
-        pass  # pre_bytes already restored by safe_write_yaml
+        return False  # file backend already restored the prior bytes
+    return True
 
 
 def _build_action_base(
@@ -209,9 +233,13 @@ def _handle_resume(
 
 
 def _dispatch_fresh(
-    state: State, state_yaml_path: str, next_step_id: str
+    state: State, state_yaml_path: str, next_step_id: str, *, claim: bool = True
 ) -> tuple[dict[str, Any], int]:
-    """Dispatch a fresh (non-resume) step node."""
+    """Dispatch a fresh (non-resume) step node.
+
+    `claim=False` builds the action without writing the in_progress claim —
+    used by `dispatch_batch`, which claims the whole batch in one write.
+    """
     contract = load_contract_for_step(next_step_id)
 
     spawn_failures = _consecutive_spawn_failures(
@@ -240,7 +268,8 @@ def _dispatch_fresh(
     else:
         action["run"] = contract.run
 
-    _persist_node_status(state_yaml_path, state.phase, next_step_id, state_raw=state.raw)
+    if claim:
+        _persist_node_status(state_yaml_path, state.phase, next_step_id, state_raw=state.raw)
     return action, 0
 
 
@@ -280,6 +309,72 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
         return {}, 1
 
     return _dispatch_fresh(state, state_yaml_path, next_step_id)
+
+
+MAX_CLAIM_RETRIES = 8
+
+
+def dispatch_batch(
+    state_yaml_path: str, *, max_parallel: int = 1
+) -> tuple[list[dict[str, Any]], int]:
+    """Claim up to `max_parallel` ready steps in one atomic write.
+
+    Serial equivalence: with `max_parallel == 1` this returns exactly what
+    `dispatch()` returns, wrapped in a list — same blocking checks, same resume
+    path, same exit codes. Parallelism is opt-in and the serial path is
+    unchanged, which is why the existing suite still passes untouched.
+
+    Exit codes match `dispatch()`: 0 actions, 1 complete, 2 blocked, 3 contract.
+
+    A step that is `in_progress` is a claim held by someone else, so the batch
+    ready-set excludes it (`ready_nodes(exclude_claimed=True)`). The single
+    exception is the resume path, which deliberately re-dispatches an
+    `in_progress` step whose process died — that is handled before we get here,
+    by `dispatch()`.
+    """
+    from orchestrator_next.parser import load_state
+
+    for _attempt in range(MAX_CLAIM_RETRIES):
+        state = load_state(state_yaml_path)
+
+        # Blocking status and crash-resume are inherently serial decisions —
+        # defer to dispatch() so there is exactly one implementation of each.
+        last = state.step_history[-1] if state.step_history else None
+        if last is not None and last.phase == state.phase and (
+            last.status in _BLOCKING_STATUSES
+            or (last.status == "in_progress" and last.ended_at is None)
+        ):
+            action, code = dispatch(state, state_yaml_path)
+            return ([action] if code == 0 else []), code
+
+        if max_parallel <= 1:
+            action, code = dispatch(state, state_yaml_path)
+            return ([action] if code == 0 else []), code
+
+        ready = readiness.ready_nodes(state, exclude_claimed=True)
+        if not ready:
+            # Nothing claimable. Either the phase is done, or every remaining
+            # node is claimed by a worker still running — the caller decides
+            # which by checking whether it has work in flight.
+            return [], 1 if not readiness.ready_nodes(state) else 0
+
+        chosen = ready[:max_parallel]
+        actions: list[dict[str, Any]] = []
+        for step_id in chosen:
+            action, code = _dispatch_fresh(state, state_yaml_path, step_id,
+                                           claim=False)
+            if code != 0:
+                # A spawn-failure cap (or contract problem) on any node is a
+                # whole-run condition; surface it rather than silently running
+                # the rest of the batch.
+                return ([], code) if code != 0 else ([action], code)
+            actions.append(action)
+
+        if _claim_nodes(state_yaml_path, state.phase, chosen, state_raw=state.raw):
+            return actions, 0
+        # Lost the race — someone claimed part of our set. Re-read and retry.
+
+    return [], 2
 
 
 def emit_json(obj: dict[str, Any]) -> str:

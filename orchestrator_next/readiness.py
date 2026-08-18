@@ -104,12 +104,24 @@ def is_node_ready(state: State, node_id: str) -> bool:
 
 
 
-def ready_nodes(state: State) -> list[str]:
+def ready_nodes(state: State, *, exclude_claimed: bool = False) -> list[str]:
     """Return every ready (not-completed, deps satisfied) node id in
-    declaration order for the current phase."""
+    declaration order for the current phase.
+
+    ``exclude_claimed`` drops nodes already marked ``in_progress``. Serial
+    dispatch does NOT want this: a crashed step leaves an ``in_progress`` node
+    that must be re-dispatched, and ``dispatch()`` handles that through its
+    resume path. Parallel dispatch DOES want it, because there an
+    ``in_progress`` node is a claim held by another worker and handing it out
+    twice would run the same step concurrently with itself.
+    """
     nodes = phase_nodes(state, state.phase)
     by_id = {_node_id(n): n for n in nodes}
-    return [_node_id(n) for n in nodes if _is_node_ready(state, _node_id(n), nodes, by_id)]
+    out = [_node_id(n) for n in nodes if _is_node_ready(state, _node_id(n), nodes, by_id)]
+    if exclude_claimed:
+        out = [nid for nid in out
+               if str((by_id.get(nid) or {}).get("status") or "") != "in_progress"]
+    return out
 
 
 def next_ready_node(state: State) -> str | None:
