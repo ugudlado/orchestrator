@@ -8,7 +8,7 @@ import os
 import sys
 from typing import Any, Callable
 
-from orchestrator_next.sessions import RedisRequiredError, SessionError, Sessions
+from orchestrator_next.sessions import SessionError, Sessions
 
 
 def _is_uuid(text: str) -> bool:
@@ -129,9 +129,6 @@ def start_schema_main(schema: str, argv: list[str]) -> int:
     bare = schema.split("/", 1)[-1]
     try:
         out = start_schema(bare, prompt)
-    except RedisRequiredError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 7
     except SessionError as exc:
         print(f"error: {exc.message}", file=sys.stderr)
         return 3
@@ -145,9 +142,6 @@ def resume_main(session_id: str, user_input: str = "") -> int:
         return 7
     try:
         out = resume_session(session_id, user_input)
-    except RedisRequiredError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 7
     except SessionError as exc:
         print(f"error: {exc.message}", file=sys.stderr)
         return 3

@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 
 from orchestrator_next.run_loop import run_cmd, seed_state_file
-from orchestrator_next.tests.acp_redis_fake import install_fake_redis
+from orchestrator_next.tests.store_fixture import install_test_store
 
 
 def _git_repo(tmp_path: Path) -> Path:
@@ -112,7 +112,7 @@ def test_seed_user_input_not_as_ticket_id(tmp_path, monkeypatch):
 
 
 def test_run_cmd_mints_uuid_and_stores_brief(tmp_path, monkeypatch, capsys):
-    fake = install_fake_redis(monkeypatch)
+    store = install_test_store(monkeypatch)
     repo = _git_repo(tmp_path)
     pack = _mini_pack(tmp_path)
     monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))
@@ -126,9 +126,7 @@ def test_run_cmd_mints_uuid_and_stores_brief(tmp_path, monkeypatch, capsys):
     run_id = [ln.split("=", 1)[1].strip() for ln in out.splitlines() if ln.startswith("run_id=")][0]
     assert len(run_id) == 36
     # Completed runs are archived, not deleted.
-    from orchestrator_next.run_store import REDIS_ARCHIVE_PREFIX
-    stored = fake.store[f"{REDIS_ARCHIVE_PREFIX}{run_id}"]
-    raw = yaml.safe_load(stored)
+    raw = yaml.safe_load(store.load(run_id, archived=True))
     assert raw["user_input"] == "add empty-title validation"
     assert raw["change_id"] == run_id
     brief = repo / "spec" / "changes" / run_id / "ticket-context.md"
@@ -138,7 +136,7 @@ def test_run_cmd_mints_uuid_and_stores_brief(tmp_path, monkeypatch, capsys):
 
 
 def test_run_cmd_explicit_ticket_id_seeds_ticket_identity(tmp_path, monkeypatch, capsys):
-    fake = install_fake_redis(monkeypatch)
+    store = install_test_store(monkeypatch)
     repo = _git_repo(tmp_path)
     pack = _mini_pack(tmp_path)
     monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))
@@ -152,15 +150,14 @@ def test_run_cmd_explicit_ticket_id_seeds_ticket_identity(tmp_path, monkeypatch,
     assert code == 0
     out = capsys.readouterr().out
     run_id = [ln.split("=", 1)[1].strip() for ln in out.splitlines() if ln.startswith("run_id=")][0]
-    from orchestrator_next.run_store import REDIS_KEY_PREFIX
-    raw = yaml.safe_load(fake.store[f"{REDIS_KEY_PREFIX}{run_id}"])
+    raw = yaml.safe_load(store.load(run_id))
     assert raw["ticket_id"] == "ORC-42"
     assert raw["user_input"] == "ORC-42"
     assert raw["change_id"] == "orc-42"
 
 
 def test_run_cmd_ticket_shaped_writes_stub_without_backlog(tmp_path, monkeypatch, capsys):
-    fake = install_fake_redis(monkeypatch)
+    store = install_test_store(monkeypatch)
     repo = _git_repo(tmp_path)
     pack = _mini_pack(tmp_path)
     monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))
@@ -176,13 +173,12 @@ def test_run_cmd_ticket_shaped_writes_stub_without_backlog(tmp_path, monkeypatch
     assert ctx.is_file()
     text = ctx.read_text()
     assert "ORC-42" in text
-    from orchestrator_next.run_store import REDIS_ARCHIVE_PREFIX
-    raw = yaml.safe_load(fake.store[f"{REDIS_ARCHIVE_PREFIX}{run_id}"])
+    raw = yaml.safe_load(store.load(run_id, archived=True))
     assert raw.get("ticket_id") == "ORC-42"  # state_patch from step
 
 
 def test_run_cmd_resume_by_run_id(tmp_path, monkeypatch, capsys):
-    install_fake_redis(monkeypatch)
+    install_test_store(monkeypatch)
     repo = _git_repo(tmp_path)
     pack = _mini_pack(tmp_path)
     monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))

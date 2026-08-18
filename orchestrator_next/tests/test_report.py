@@ -368,10 +368,10 @@ def test_aggregate_math_across_workflows(tmp_path):
 
 
 def test_find_all_states_covers_live_and_archived(monkeypatch):
-    from orchestrator_next.tests.acp_redis_fake import install_fake_redis
+    from orchestrator_next.tests.store_fixture import install_test_store
     from orchestrator_next.run_store import open_store
 
-    install_fake_redis(monkeypatch)
+    install_test_store(monkeypatch)
     store = open_store()
     store.save("feat-a", yaml.safe_dump({"change_id": "feat-a", "step_history": []}))
     store.save("feat-z", yaml.safe_dump({"change_id": "feat-z", "step_history": []}))

@@ -36,7 +36,7 @@ def _usage() -> None:
         "      Resume: `orchestrator feature <run_id> \"your feedback\"`.\n"
         "      Ambiguous names: `orchestrator mypack/feature …`.\n"
         "  orchestrator research \"<prompt>\"\n"
-        "      Session-driven research (Redis required). Prints session_id.\n"
+        "      Session-driven research. Prints session_id.\n"
         "  orchestrator --resume <session_id> [\"optional input\"]\n"
         "      Resume a session: answer await_input, retry failed, or continue.\n"
         "  orchestrator config pull <git-or-path> [pack] [--skills] [--ref REF]\n"

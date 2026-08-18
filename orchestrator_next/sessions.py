@@ -2,8 +2,7 @@
 Session-driven workflow runs (research / --resume), in-process only.
 
 A session is created, prompted (possibly many times across process restarts),
-and closed. State persists in the RunStore (Redis or local file — see
-run_store.py); a process's ``Sessions`` instance only caches in-memory copies
+and closed. State persists in the RunStore (see run_store.py); a process's ``Sessions`` instance only caches in-memory copies
 for the current run's lifetime.
 
 No wire protocol here — callers are Python (the CLI's session_cli.py, or a
@@ -36,25 +35,6 @@ class SessionError(Exception):
 
 class UnknownSessionError(SessionError):
     pass
-
-
-class RedisRequiredError(RuntimeError):
-    """Raised when a session workflow needs Redis but none is configured."""
-
-
-def redis_url() -> str:
-    return (
-        os.environ.get("ORCHESTRATOR_ACP_REDIS_URL")
-        or os.environ.get("REDIS_URL")
-        or ""
-    ).strip()
-
-
-def reset_redis_client_cache() -> None:
-    """Clear the lazy Redis singleton (tests / URL changes)."""
-    global _redis, _redis_checked
-    _redis = None
-    _redis_checked = False
 
 
 def _final_state_text(raw: dict) -> str:
@@ -128,7 +108,7 @@ def _rematerialize_state(state_path: Path, content: str, repo_root: str) -> None
     state_path.write_text(rebind_repo_root(content, repo_root), encoding="utf-8")
 
 
-_LIVE_STATE_KEY = "_live_state_path"  # in-process only; never persisted to Redis
+_LIVE_STATE_KEY = "_live_state_path"  # in-process only; never persisted to the store
 
 
 def _unlock_failed_for_retry(state_path: str) -> str | None:
@@ -164,7 +144,7 @@ def _unlock_failed_for_retry(state_path: str) -> str | None:
 
 
 def _snapshot_state_to_session(session_state: dict, state_yaml_path: str) -> None:
-    """Copy temp state.yaml into Redis-backed session fields; drop durable path."""
+    """Copy temp state.yaml into store-backed session fields; drop durable path."""
     path = Path(state_yaml_path)
     if path.is_file():
         session_state["state_yaml_content"] = path.read_text(encoding="utf-8")
@@ -191,7 +171,7 @@ def run_workflow(
 ) -> dict:
     """Run or continue a session workflow via drive_loop.
 
-    Durable source of truth is ``session_state['state_yaml_content']`` (Redis).
+    Durable source of truth is ``session_state['state_yaml_content']`` (RunStore).
     Within a process, reuses ``_live_state_path`` so prompts do not rematerialize
     every turn. ``change_id`` / slug / ticket_id are the session_id.
     """
@@ -297,7 +277,7 @@ def run_workflow(
         final_text = _final_state_text(raw)
         # A completed run (code 1) discards its live temp state; every other
         # outcome (paused / failed / blocked / still active) keeps it so a
-        # later --resume can continue without rematerializing from Redis.
+        # later --resume can continue without rematerializing from the store.
         keep_live = result.code != 1
 
         if result.code == LOOP_PAUSED:
@@ -363,35 +343,8 @@ def _cleanup_session(session: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Session persistence (RunStore — Redis or local file, cross-process continuation)
+# Session persistence (RunStore — cross-process continuation)
 # ---------------------------------------------------------------------------
-
-_redis = None
-_redis_checked = False
-
-
-def _redis_client():
-    """Lazy Redis singleton if configured; None otherwise."""
-    global _redis, _redis_checked
-    if _redis_checked:
-        return _redis
-    _redis_checked = True
-    url = redis_url()
-    if not url:
-        return None
-    try:
-        import redis  # type: ignore
-        _redis = redis.from_url(url, decode_responses=True)
-    except ImportError:
-        _redis = None
-    return _redis
-
-
-def _session_redis_key(session_id: str) -> str:
-    from orchestrator_next.run_store import REDIS_KEY_PREFIX
-
-    return f"{REDIS_KEY_PREFIX}{session_id}"
-
 
 def _save_session(session_id: str, session: dict) -> None:
     """Persist session meta + state_yaml_content snapshot to the RunStore."""
@@ -448,7 +401,7 @@ def _load_session(session_id: str) -> dict | None:
 
 def _archive_session_store(session_id: str) -> None:
     """On close, archive rather than delete — the archived key is the
-    machine-readable audit trail (see run_store.RedisRunStore.archive).
+    machine-readable audit trail (see run_store.SqliteRunStore.archive).
     A session that was never persisted (or already archived) has no live
     key to rename — that's a normal close, not an error."""
     from orchestrator_next.run_store import open_store
@@ -480,7 +433,7 @@ def _session_load_result(session_id: str, session: dict) -> dict:
 def _persisted_session_ids() -> list[str]:
     """Session ids in the RunStore (for post-restart discovery).
 
-    Redis unreachable propagates — a listing that silently omitted persisted
+    A broken store propagates — a listing that silently omitted persisted
     sessions would misreport "no sessions" instead of "store unavailable".
     """
     from orchestrator_next.run_store import open_store
@@ -558,8 +511,6 @@ class Sessions:
         }
         try:
             _save_session(session_id, self.sessions[session_id])
-        except RedisRequiredError:
-            raise
         except Exception as exc:  # noqa: BLE001
             raise SessionError(-32011, f"failed to persist session: {exc}") from exc
         return session_id
@@ -599,7 +550,7 @@ class Sessions:
 
         from orchestrator_next.run_store import open_store
 
-        store = open_store()  # RedisRequiredError propagates to caller
+        store = open_store()
         if not store.lock(session_id):
             raise SessionError(-32012, "session busy — another process is running it")
         try:

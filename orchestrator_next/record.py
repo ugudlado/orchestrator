@@ -744,7 +744,9 @@ def _persist_if_materialized(path: Path, state_raw: dict[str, Any]) -> None:
     from orchestrator_next.run_store import _state_root
 
     resolved = path.resolve()
-    if resolved.parent != _state_root():
+    # resolve() both sides: a symlinked home (macOS /var → /private/var) must
+    # not silently skip the persist.
+    if resolved.parent != _state_root().resolve():
         return
     from orchestrator_next.run_store import open_store, persist
 

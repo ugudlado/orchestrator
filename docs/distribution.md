@@ -44,7 +44,7 @@ Per-repo customization without forking the engine:
 - **Prompts**: agent steps carry their charter as `prompt: SKILL.md` inside the step dir. `orchestrator config pull … --skills` optionally symlinks those into `<repo>/skills/<name>/` for IDE discovery. Absolute prompt paths are rejected.
 - **Quality gates & verify commands**: gate thresholds are step-owned (vendor the pack to change them); review/QA steps discover the repo's test/lint commands from its own docs and manifests. Repos should also carry commit-time verification (pre-commit/husky/biome) — doctor WARNs when none is present, so breakage is caught at commit, not only at the QA gate.
 - **Ticketing**: env-driven — `BACKLOG_URL`+`BACKLOG_TOKEN` present means backlog; unset means ticket steps skip cleanly. The engine and doctor have zero ticketing logic; workflow scripts own it, so new backends are a script change.
-- **Headless/CI**: `ORCHESTRATOR_NOTIFY_CMD` pipes a blocked-run event to any shell command. Durability is Redis, not git — state lives in the RunStore for the run's lifetime, so a headless/cloud environment needs `REDIS_URL`/`ORCHESTRATOR_ACP_REDIS_URL` reachable (provision one; `orchestrator doctor` PINGs it and fails fast if it isn't).
+- **Headless/CI**: `ORCHESTRATOR_NOTIFY_CMD` pipes a blocked-run event to any shell command. Durability is the RunStore, not git — state lives in the local SQLite db (`~/.orchestrator/runs.db`) for the run's lifetime; it is per-machine (`orchestrator doctor` checks the store opens).
 
 Upgrades: `uv tool upgrade orchestrator` (or reinstall from git). Config ships with the wheel, so engine+config always match.
 
@@ -87,6 +87,6 @@ Orca already pulls tickets from the backlog (`runtime-backlog-client.ts`). The c
 
 1. **Run from a ticket**: a "Run workflow" action on an orca ticket spawns `orchestrator run <id> --schema <s>` in a PTY (orca already has terminal panes) with `ORCHESTRATOR_CONFIG` set. Ticket state changes flow through the backlog both already talk to — no new protocol.
 2. **Progress without polling**: `ORCHESTRATOR_NOTIFY_CMD` pointed at a small curl to an orca endpoint gives orca block events as JSON. The hook exists today.
-3. **Later, if needed**: `orchestrator report --state <path> --json` or `--all --json` for a step-by-step progress view — state lives in the RunStore (Redis), not a YAML file on disk, so a progress reader talks to the CLI/report output, not the filesystem.
+3. **Later, if needed**: `orchestrator report --state <path> --json` or `--all --json` for a step-by-step progress view — state lives in the RunStore (SQLite), not a YAML file on disk, so a progress reader talks to the CLI/report output, not the filesystem.
 
 Skipped: an embedded/library integration (importing `orchestrator_next` into orca's runtime) — crosses the process boundary for no benefit while the CLI + notify hook covers launch, progress, and completion.

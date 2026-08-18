@@ -67,7 +67,6 @@ this). The first cloud session may prompt to **trust the hook** before it runs.
 ORCHESTRATOR_SKIP_USAGE_CHECK=1
 BACKLOG_URL=https://<your-public-backlog-host>
 BACKLOG_TOKEN=<your-backlog-token>
-REDIS_URL=redis://<your-reachable-redis-host>:6379
 ```
 
 - `ORCHESTRATOR_SKIP_USAGE_CHECK=1` — the session has no subprocess token count; this
@@ -76,14 +75,11 @@ REDIS_URL=redis://<your-reachable-redis-host>:6379
 - `BACKLOG_URL` / `BACKLOG_TOKEN` — backlog remote mode reads these env vars **before**
   falling back to `~/.config/backlog/config.yml` (which doesn't exist in the cloud). This
   is how the cloud session reaches the _same_ backend your laptop does.
-- `REDIS_URL` (or `ORCHESTRATOR_ACP_REDIS_URL`) — **required, no fallback.** Run state
-  lives in Redis for the lifetime of a run (see [`DRIVE.md`](../DRIVE.md#durability-resume-after-a-block));
-  the cloud sandbox's filesystem is ephemeral and a local `redis-server` inside the
-  sandbox doesn't survive a session reset. This has the same reachability constraint as
-  `BACKLOG_URL` above — a `localhost` or Tailscale-only Redis is not reachable from the
-  sandbox; it needs a publicly reachable host (or the same tunnel/Funnel setup used for
-  the backlog backend). `orchestrator doctor` PINGs it and fails the check if it isn't
-  reachable — run that first, not `orchestrator run`, when diagnosing a broken cloud setup.
+- Run state lives in the local RunStore (SQLite, `~/.orchestrator/runs.db` — see
+  [`DRIVE.md`](../DRIVE.md#durability-resume-after-a-block)). It is per-machine: a run
+  survives session resets only as far as the sandbox home directory does, and cannot yet
+  resume on a different machine. `orchestrator doctor` checks the store opens — run that
+  first, not `orchestrator run`, when diagnosing a broken cloud setup.
 
 > **Secrets caveat:** Claude Code on the web has no secrets store yet. Env vars are stored
 > in the environment config in plaintext, visible to anyone who can edit the environment.

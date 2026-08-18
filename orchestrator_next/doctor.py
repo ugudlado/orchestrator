@@ -412,23 +412,16 @@ def check_model_route_sources(config_root: Path) -> CheckResult:
     return CheckResult("model route sources", "PASS", detail)
 
 
-def check_redis() -> CheckResult:
-    """Redis is mandatory (session runs / ticket RunStore) — PING it."""
-    from orchestrator_next.sessions import RedisRequiredError, redis_url
-
-    url = redis_url() or "redis://localhost:6379"
+def check_run_store() -> CheckResult:
+    """RunStore health — the local SQLite db must open and answer a query."""
     try:
-        from orchestrator_next.run_store import REDIS_START_HINT, open_store
+        from orchestrator_next.run_store import SqliteRunStore
 
-        client = open_store().client  # type: ignore[attr-defined]
-        client.ping()
-    except RedisRequiredError as exc:
-        return CheckResult("redis", "FAIL", str(exc))
+        store = SqliteRunStore()
+        store.list_ids()
     except Exception as exc:  # noqa: BLE001
-        return CheckResult(
-            "redis", "FAIL", f"PING failed against {url}: {exc}. {REDIS_START_HINT}",
-        )
-    return CheckResult("redis", "PASS", f"connected ({url})")
+        return CheckResult("run store", "FAIL", f"sqlite store unusable: {exc}")
+    return CheckResult("run store", "PASS", f"sqlite ({store.db_path})")
 
 
 # ---------------------------------------------------------------------------
@@ -474,7 +467,7 @@ def run_all() -> int:
         check_contract_aliases_resolve(config_root),  # D4: contract/agent-config safety net (WARN)
         check_prompt_optimizer(),
         check_symlinks(repo_root, orch_home),
-        check_redis(),
+        check_run_store(),
     ]
     print(_format_table(results))
     if any(r.status == "FAIL" for r in results):

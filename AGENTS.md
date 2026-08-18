@@ -107,7 +107,7 @@ wheel.
 ### Dev CLI
 
 ```bash
-uv sync --extra dev   # installs engine + dev/redis extras into .venv
+uv sync --extra dev   # installs engine + dev extras into .venv
 python -m orchestrator_next --help
 pytest orchestrator_next/tests/ -q
 ```

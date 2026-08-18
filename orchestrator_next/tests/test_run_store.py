@@ -1,15 +1,26 @@
-"""RunStore: Redis-backed store, mandatory (no file-store fallback)."""
+"""RunStore: one local SQLite backend."""
 from __future__ import annotations
 
 import pytest
 import yaml
 
-from orchestrator_next.run_store import RedisRunStore, materialize, open_store, persist
-from orchestrator_next.tests.acp_redis_fake import FakeRedis
+from orchestrator_next.run_store import (
+    SqliteRunStore,
+    materialize,
+    open_store,
+    persist,
+)
 
 
-def test_save_load_delete_round_trip():
-    store = RedisRunStore(FakeRedis())
+def test_open_store_uses_local_sqlite(tmp_path, monkeypatch):
+    monkeypatch.setenv("ORCHESTRATOR_HOME_DIR", str(tmp_path))
+    store = open_store()
+    assert isinstance(store, SqliteRunStore)
+    assert str(store.db_path).startswith(str(tmp_path))
+
+
+def test_sqlite_store_round_trip_and_archive(tmp_path):
+    store = SqliteRunStore(tmp_path / "runs.db")
     assert store.load("run-1") is None
 
     store.save("run-1", '{"a": 1}')
@@ -19,66 +30,40 @@ def test_save_load_delete_round_trip():
     store.save("run-1", '{"a": 2}')
     assert store.load("run-1") == '{"a": 2}'
 
-    store.delete("run-1")
+    store.archive("run-1")
     assert store.load("run-1") is None
     assert "run-1" not in store.list_ids()
-
-
-def test_open_store_raises_without_redis_url(tmp_path, monkeypatch):
-    from orchestrator_next.sessions import RedisRequiredError
-
-    monkeypatch.delenv("REDIS_URL", raising=False)
-    monkeypatch.delenv("ORCHESTRATOR_ACP_REDIS_URL", raising=False)
-    monkeypatch.chdir(tmp_path)
-    with pytest.raises(RedisRequiredError):
-        open_store()
-
-
-def test_open_store_uses_redis_when_configured(monkeypatch):
-    import orchestrator_next.sessions as acp
-    from orchestrator_next.sessions import reset_redis_client_cache
-
-    fake = FakeRedis()
-    monkeypatch.setenv("REDIS_URL", "redis://fake")
-    reset_redis_client_cache()
-    monkeypatch.setattr(acp, "_redis_client", lambda: fake)
-    store = open_store()
-    assert isinstance(store, RedisRunStore)
-    assert store.client is fake
-
-
-def test_open_store_raises_on_misconfigured_redis(monkeypatch):
-    import orchestrator_next.sessions as acp
-    from orchestrator_next.sessions import RedisRequiredError, reset_redis_client_cache
-
-    monkeypatch.setenv("REDIS_URL", "redis://fake")
-    reset_redis_client_cache()
-    monkeypatch.setattr(acp, "_redis_client", lambda: None)
-    with pytest.raises(RedisRequiredError):
-        open_store()
-
-
-def test_archive_renames_and_drops_ttl():
-    fake = FakeRedis()
-    store = RedisRunStore(fake)
-    store.save("run-1", '{"a": 1}')
-    assert "run-1" in store.list_ids()
-
-    store.archive("run-1")
-
-    assert "run-1" not in store.list_ids()
+    assert store.load("run-1", archived=True) == '{"a": 2}'
     assert "run-1" in store.list_ids(archived=True)
-    assert store.load("run-1") is None  # live key gone
-    from orchestrator_next.run_store import REDIS_ARCHIVE_PREFIX
-    assert fake.ttl(f"{REDIS_ARCHIVE_PREFIX}run-1") == -1  # persisted, no TTL
+
+    store.save("run-2", '{"b": 1}')
+    store.delete("run-2")
+    assert store.load("run-2") is None
+    assert "run-2" not in store.list_ids()
+
+    store.delete("run-3")  # deleting a missing run is a no-op
+    store.archive("run-3")  # archiving a missing run is a no-op
 
 
-def test_archive_is_idempotent_when_already_archived():
-    """Real Redis raises on RENAME of a missing key — archive() must guard
-    so a re-entrant archive call (double-call, crash-and-retry) is a no-op
-    rather than propagating a raw Redis error."""
-    fake = FakeRedis()
-    store = RedisRunStore(fake)
+def test_sqlite_lock_is_exclusive_until_unlocked_or_expired(tmp_path, monkeypatch):
+    import orchestrator_next.run_store as rs
+
+    store = SqliteRunStore(tmp_path / "runs.db")
+    assert store.lock("run-1") is True
+    assert store.lock("run-1") is False  # second claimant loses
+
+    store.unlock("run-1")
+    assert store.lock("run-1") is True  # freed lock is claimable again
+
+    # An expired lock ages out (TTL semantics).
+    future = rs.time.time() + rs.LOCK_TTL * 3
+    monkeypatch.setattr(rs.time, "time", lambda: future)
+    assert store.lock("run-1") is True
+
+
+def test_archive_is_idempotent_when_already_archived(tmp_path):
+    """A re-entrant archive call (double-call, crash-and-retry) is a no-op."""
+    store = SqliteRunStore(tmp_path / "runs.db")
     store.save("run-1", '{"a": 1}')
 
     store.archive("run-1")
@@ -87,21 +72,24 @@ def test_archive_is_idempotent_when_already_archived():
     assert "run-1" in store.list_ids(archived=True)
 
 
-def test_lock_refresh_extends_ttl():
-    fake = FakeRedis()
-    store = RedisRunStore(fake)
-    assert store.lock("run-1")
-    from orchestrator_next.run_store import LOCK_TTL, REDIS_LOCK_PREFIX
-    assert fake.ttl(f"{REDIS_LOCK_PREFIX}run-1") == LOCK_TTL
+def test_lock_refresh_extends_expiry(tmp_path, monkeypatch):
+    import orchestrator_next.run_store as rs
 
-    fake.ttls[f"{REDIS_LOCK_PREFIX}run-1"] = 1  # simulate near-expiry
+    store = SqliteRunStore(tmp_path / "runs.db")
+    assert store.lock("run-1")
+
+    # Move time just short of expiry, refresh, then past the original expiry:
+    # the refreshed lock must still hold.
+    base = rs.time.time()
+    monkeypatch.setattr(rs.time, "time", lambda: base + rs.LOCK_TTL - 1)
     store.refresh_lock("run-1")
-    assert fake.ttl(f"{REDIS_LOCK_PREFIX}run-1") == LOCK_TTL
+    monkeypatch.setattr(rs.time, "time", lambda: base + rs.LOCK_TTL + 1)
+    assert store.lock("run-1") is False  # refreshed lock still held
 
 
 def test_materialize_writes_stable_path_and_persist_round_trips(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_HOME_DIR", str(tmp_path))
-    store = RedisRunStore(FakeRedis())
+    store = SqliteRunStore(tmp_path / "runs.db")
     store.save("run-1", yaml.safe_dump({"change_id": "run-1", "repo_root": "/old/machine"}))
 
     path = materialize(store, "run-1", repo_root="/new/machine")
@@ -121,6 +109,6 @@ def test_materialize_writes_stable_path_and_persist_round_trips(tmp_path, monkey
 
 def test_materialize_raises_for_unknown_run(tmp_path, monkeypatch):
     monkeypatch.setenv("ORCHESTRATOR_HOME_DIR", str(tmp_path))
-    store = RedisRunStore(FakeRedis())
+    store = SqliteRunStore(tmp_path / "runs.db")
     with pytest.raises(FileNotFoundError):
         materialize(store, "does-not-exist")

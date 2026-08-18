@@ -1253,7 +1253,7 @@ def run_cmd(argv: list[str]) -> int:
 
     from orchestrator_next.run_store import _state_root, materialize, open_store, persist
 
-    store = open_store()  # RedisRequiredError propagates — no silent fallback
+    store = open_store()
 
     first = positionals[0]
     # Resume if this id (or its lowercase form) is a known LIVE run_id in the store.

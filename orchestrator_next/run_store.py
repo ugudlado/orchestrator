@@ -1,14 +1,20 @@
-"""RunStore — durable backing for session/run state. Redis, mandatory.
+"""RunStore — durable backing for session/run state.
 
-One key per run id, holding the JSON/YAML payload the caller persists. No
-file-store fallback: a run's state lives in the RunStore for as long as it's
-alive; on completion it's archived (renamed, TTL removed), never deleted —
-the archived key is the machine-readable audit trail. Nothing is ever
-written into the repo.
+One key per run id, holding the JSON/YAML payload the caller persists. A run's
+state lives in the RunStore for as long as it's alive; on completion it's
+archived (renamed, TTL removed), never deleted — the archived key is the
+machine-readable audit trail. Nothing is ever written into the repo.
+
+Backend: one local SQLite file (`~/.orchestrator/runs.db`) — zero services
+required. Cross-environment continuation would need a shared backend behind
+the same protocol; the Redis one was deleted Aug 2026 as unused.
 """
 from __future__ import annotations
 
 import os
+import sqlite3
+import time
+from contextlib import closing
 from pathlib import Path
 from typing import Protocol
 
@@ -24,94 +30,99 @@ class RunStore(Protocol):
     def archive(self, run_id: str) -> None: ...
 
 
-# Refreshed on every save; overridable for cloud multi-day sessions.
-SESSION_TTL = int(os.environ.get("ORCHESTRATOR_ACP_SESSION_TTL", 14 * 86400))
-
 # ponytail: fixed lock TTL, refreshed once per drive_loop iteration (a step
 # taking longer than this between iterations loses the lock) — raise this or
 # refresh more often if a single step ever runs past ~15 minutes.
 LOCK_TTL = 900
 
-REDIS_START_HINT = "Start one: `brew services start redis` or `docker run -d -p 6379:6379 redis`."
 
-REDIS_KEY_PREFIX = "orc:run:live:"
-REDIS_ARCHIVE_PREFIX = "orc:run:archive:"
-REDIS_LOCK_PREFIX = "orc:run:lock:"
+class SqliteRunStore:
+    """The RunStore, on one local SQLite file.
 
+    Locks carry TTL semantics via an ``expires_at`` column, so a crashed
+    driver's lock still ages out after LOCK_TTL. The db is one machine's —
+    cross-environment continuation would need a shared backend.
+    """
 
-class RedisRunStore:
-    """Key ``orc:run:live:<id>`` → payload text, on a Redis client."""
+    def __init__(self, db_path: Path | str | None = None) -> None:
+        self.db_path = Path(db_path) if db_path else _state_root().parent / "runs.db"
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        with closing(self._conn()) as conn, conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS runs ("
+                " run_id TEXT PRIMARY KEY, text TEXT NOT NULL,"
+                " archived INTEGER NOT NULL DEFAULT 0)"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS locks ("
+                " run_id TEXT PRIMARY KEY, expires_at REAL NOT NULL)"
+            )
 
-    def __init__(self, client) -> None:
-        self.client = client
-
-    def _key(self, run_id: str) -> str:
-        return f"{REDIS_KEY_PREFIX}{run_id}"
-
-    def _archive_key(self, run_id: str) -> str:
-        return f"{REDIS_ARCHIVE_PREFIX}{run_id}"
-
-    def _lock_key(self, run_id: str) -> str:
-        return f"{REDIS_LOCK_PREFIX}{run_id}"
+    def _conn(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.db_path, timeout=30)
 
     def load(self, run_id: str, *, archived: bool = False) -> str | None:
-        key = self._archive_key(run_id) if archived else self._key(run_id)
-        return self.client.get(key)
+        with closing(self._conn()) as conn:
+            row = conn.execute(
+                "SELECT text FROM runs WHERE run_id = ? AND archived = ?",
+                (run_id, int(archived)),
+            ).fetchone()
+        return row[0] if row else None
 
     def save(self, run_id: str, text: str) -> None:
-        self.client.set(self._key(run_id), text, ex=SESSION_TTL)
+        with closing(self._conn()) as conn, conn:
+            conn.execute(
+                "INSERT INTO runs (run_id, text, archived) VALUES (?, ?, 0) "
+                "ON CONFLICT(run_id) DO UPDATE SET text = excluded.text, archived = 0",
+                (run_id, text),
+            )
 
     def delete(self, run_id: str) -> None:
-        self.client.delete(self._key(run_id))
+        with closing(self._conn()) as conn, conn:
+            conn.execute("DELETE FROM runs WHERE run_id = ? AND archived = 0", (run_id,))
 
     def list_ids(self, *, archived: bool = False) -> list[str]:
-        prefix = self._archive_key("") if archived else self._key("")
-        return [k[len(prefix):] for k in self.client.scan_iter(match=f"{prefix}*")]
+        with closing(self._conn()) as conn:
+            rows = conn.execute(
+                "SELECT run_id FROM runs WHERE archived = ?", (int(archived),)
+            ).fetchall()
+        return [r[0] for r in rows]
 
     def lock(self, run_id: str) -> bool:
-        return bool(self.client.set(self._lock_key(run_id), "1", nx=True, ex=LOCK_TTL))
+        now = time.time()
+        with closing(self._conn()) as conn, conn:
+            cur = conn.execute(
+                "INSERT INTO locks (run_id, expires_at) VALUES (?, ?) "
+                "ON CONFLICT(run_id) DO UPDATE SET expires_at = excluded.expires_at "
+                "WHERE locks.expires_at < ?",
+                (run_id, now + LOCK_TTL, now),
+            )
+            return cur.rowcount > 0
 
     def refresh_lock(self, run_id: str) -> None:
-        self.client.set(self._lock_key(run_id), "1", ex=LOCK_TTL)
+        with closing(self._conn()) as conn, conn:
+            conn.execute(
+                "INSERT INTO locks (run_id, expires_at) VALUES (?, ?) "
+                "ON CONFLICT(run_id) DO UPDATE SET expires_at = excluded.expires_at",
+                (run_id, time.time() + LOCK_TTL),
+            )
 
     def unlock(self, run_id: str) -> None:
-        self.client.delete(self._lock_key(run_id))
+        with closing(self._conn()) as conn, conn:
+            conn.execute("DELETE FROM locks WHERE run_id = ?", (run_id,))
 
     def archive(self, run_id: str) -> None:
-        """Rename the live key to the archive namespace and drop its TTL —
-        archived runs persist until manual cleanup, not automatic expiry.
-
-        A no-op if the live key is already gone (e.g. archived already) —
-        real Redis raises on RENAME of a missing key; check first so callers
-        don't need their own existence guard.
-        """
-        if self.client.get(self._key(run_id)) is None:
-            return
-        self.client.rename(self._key(run_id), self._archive_key(run_id))
-        self.client.persist(self._archive_key(run_id))
+        """Flip the live row to archived; no-op when no live row exists."""
+        with closing(self._conn()) as conn, conn:
+            conn.execute(
+                "UPDATE runs SET archived = 1 WHERE run_id = ? AND archived = 0",
+                (run_id,),
+            )
 
 
 def open_store() -> RunStore:
-    """Redis-backed RunStore. Raises RedisRequiredError if unreachable.
-
-    No fallback of any kind — a misconfigured or absent Redis fails loudly
-    with a start hint, rather than silently degrading to local files.
-    """
-    from orchestrator_next.sessions import RedisRequiredError, redis_url
-
-    if not redis_url():
-        raise RedisRequiredError(
-            f"Redis is required (REDIS_URL or ORCHESTRATOR_ACP_REDIS_URL unset). {REDIS_START_HINT}"
-        )
-    from orchestrator_next.sessions import _redis_client
-
-    client = _redis_client()
-    if client is None:
-        raise RedisRequiredError(
-            "REDIS_URL is set but the redis client is unavailable "
-            f"(package missing or connection failed). {REDIS_START_HINT}"
-        )
-    return RedisRunStore(client)
+    """The local SQLite RunStore (`~/.orchestrator/runs.db`)."""
+    return SqliteRunStore()
 
 
 def _state_root() -> Path:

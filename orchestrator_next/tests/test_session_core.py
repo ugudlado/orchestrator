@@ -5,7 +5,7 @@ Covers the two critical review findings from the original ACP work:
    prompt text — supporting inline ("User: <text>"), block ("User:\\n<text>")
    and lowercase ("user: <text>") role markers — instead of returning the
    whole formatted prompt when the exact "\\nUser:\\n" marker is absent.
-2. list_sessions must report persisted sessions (file/redis store), not just
+2. list_sessions must report persisted sessions (RunStore), not just
    in-memory ones, so a client can discover resumable sessions after a
    process restart (the advertised cross-process continuation feature).
 """
@@ -21,7 +21,7 @@ from orchestrator_next.sessions import (
     _route_schema,
     _save_session,
 )
-from orchestrator_next.tests.acp_redis_fake import install_fake_redis as _install_fake_redis
+from orchestrator_next.tests.store_fixture import install_test_store as _install_test_store
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +137,7 @@ def test_session_list_includes_persisted_sessions(monkeypatch, tmp_path):
     """A session persisted by a PREVIOUS process must be listed by a fresh
     Sessions registry (empty in-memory state) — otherwise the cross-process
     continuation feature is undiscoverable after restart."""
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
 
     # Simulate a previous process that created + saved a session.
     _save_session("sess-restart-1", {
@@ -152,7 +152,7 @@ def test_session_list_includes_persisted_sessions(monkeypatch, tmp_path):
 
 def test_session_list_includes_in_memory_sessions(monkeypatch, tmp_path):
     """In-memory sessions (current process) still appear."""
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
 
     sessions = Sessions()
     session_id = sessions.new_session(cwd=str(tmp_path))
@@ -161,7 +161,7 @@ def test_session_list_includes_in_memory_sessions(monkeypatch, tmp_path):
 
 def test_session_list_dedupes_persisted_and_memory(monkeypatch, tmp_path):
     """A session that is both in memory AND persisted appears exactly once."""
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
 
     _save_session("sess-both", {
         "cwd": str(tmp_path), "schema": "research",
@@ -178,7 +178,7 @@ def test_session_list_dedupes_persisted_and_memory(monkeypatch, tmp_path):
 
 def test_notify_includes_updates(monkeypatch, tmp_path):
     """prompt_session's on_update callback fires for schema-ask notifications."""
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
 
     sessions = Sessions()
     sessions.sessions["sess-n"] = {

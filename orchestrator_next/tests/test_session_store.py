@@ -1,4 +1,4 @@
-"""Redis session rematerialize + resume (Phases 2-3 of the original ACP plan)."""
+"""Session store rematerialize + resume (Phases 2-3 of the original ACP plan)."""
 from __future__ import annotations
 
 import json
@@ -12,14 +12,13 @@ from orchestrator_next.sessions import (
     UnknownSessionError,
     _load_session,
     _save_session,
-    reset_redis_client_cache,
 )
-from orchestrator_next.tests.acp_redis_fake import install_fake_redis as _install_fake_redis
+from orchestrator_next.tests.store_fixture import install_test_store as _install_test_store
 
 
 def test_session_run_leaves_no_durable_state_yaml(tmp_path, monkeypatch):
-    """After a session prompt, Redis holds state; no leftover *_state.yaml file."""
-    fake = _install_fake_redis(monkeypatch)
+    """After a session prompt, the store holds state; no leftover *_state.yaml file."""
+    store = _install_test_store(monkeypatch)
 
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
 
@@ -46,10 +45,10 @@ def test_session_run_leaves_no_durable_state_yaml(tmp_path, monkeypatch):
     result = sessions.prompt_session(sid, "postgres indexing")
     assert (result.get("outcome") or {}).get("outcome") == "await_input"
 
-    # Redis has snapshot
-    key = sess_mod._session_redis_key(sid)
-    assert key in fake.store
-    stored = json.loads(fake.store[key])
+    # Store has snapshot
+    text = store.load(sid)
+    assert text is not None
+    stored = json.loads(text)
     assert "state_yaml_content" in stored["workflow"]
     assert stored["workflow"].get("status") == "await_input"
     assert "Who is the audience?" in (stored["workflow"].get("ask") or "")
@@ -68,7 +67,7 @@ def test_session_run_leaves_no_durable_state_yaml(tmp_path, monkeypatch):
 
 
 def test_resume_await_input_continues_same_step(tmp_path, monkeypatch):
-    fake = _install_fake_redis(monkeypatch)
+    store = _install_test_store(monkeypatch)
     calls = {"n": 0, "directions": [], "paths": []}
 
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
@@ -111,18 +110,18 @@ def test_resume_await_input_continues_same_step(tmp_path, monkeypatch):
     assert calls["paths"][0] == calls["paths"][1]
     assert "practical ops guide" in calls["directions"][1]
 
-    # Fresh process simulation: only Redis → rematerialize
+    # Fresh process simulation: only the store → rematerialize
     sessions2 = Sessions()
     loaded = sessions2.load_session(sid)
     assert loaded["status"] == "completed"
-    stored = json.loads(fake.store[sess_mod._session_redis_key(sid)])
+    stored = json.loads(store.load(sid))
     assert stored["workflow"]["status"] == "completed"
     assert sess_mod._LIVE_STATE_KEY not in stored["workflow"]
 
 
 def test_cross_process_resume_rematerializes(tmp_path, monkeypatch):
     """After load_session in a new process, a new temp path is used."""
-    fake = _install_fake_redis(monkeypatch)
+    store = _install_test_store(monkeypatch)
     calls = {"n": 0, "paths": []}
 
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
@@ -158,7 +157,7 @@ def test_cross_process_resume_rematerializes(tmp_path, monkeypatch):
     sessions2.prompt_session(sid, "practical ops guide")
     assert calls["n"] == 2
     assert calls["paths"][0] != calls["paths"][1]
-    stored = json.loads(fake.store[sess_mod._session_redis_key(sid)])
+    stored = json.loads(store.load(sid))
     assert stored["workflow"]["status"] == "completed"
 
 
@@ -166,7 +165,7 @@ def test_resume_rebinds_repo_root(tmp_path, monkeypatch):
     """Rematerialized state.yaml on resume carries THIS machine's repo_root,
     not whichever machine ran the session last (path rebinding). worktree_path
     stays unset — session runs don't get an engine-chosen artifact dir."""
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
     import orchestrator_next.run_loop as run_loop
 
@@ -203,7 +202,7 @@ def test_resume_rebinds_repo_root(tmp_path, monkeypatch):
 
 
 def test_resume_failed_with_direction_retries(tmp_path, monkeypatch):
-    fake = _install_fake_redis(monkeypatch)
+    store = _install_test_store(monkeypatch)
     calls = {"n": 0, "directions": []}
     from orchestrator_next.run_loop import LoopResult
     import orchestrator_next.run_loop as run_loop
@@ -234,7 +233,7 @@ def test_resume_failed_with_direction_retries(tmp_path, monkeypatch):
     sessions = Sessions()
     sid = sessions.new_session(cwd=str(tmp_path), schema="research")
     sessions.prompt_session(sid, "topic")
-    stored = json.loads(fake.store[sess_mod._session_redis_key(sid)])
+    stored = json.loads(store.load(sid))
     assert stored["workflow"]["status"] == "failed"
 
     sessions2 = Sessions()
@@ -248,7 +247,7 @@ def test_resume_failed_with_direction_retries(tmp_path, monkeypatch):
 
 
 def test_change_id_is_session_id(tmp_path, monkeypatch):
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
     seen = {}
 
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
@@ -273,8 +272,8 @@ def test_change_id_is_session_id(tmp_path, monkeypatch):
 def test_session_cli_resume_reports_completed_without_rerun(tmp_path, monkeypatch):
     from orchestrator_next import session_cli
 
-    fake = _install_fake_redis(monkeypatch)
-    # Pre-seed a completed session in Redis
+    store = _install_test_store(monkeypatch)
+    # Pre-seed a completed session in the store
     _save_session("sess-done", {
         "cwd": str(tmp_path),
         "schema": "research",
@@ -283,7 +282,7 @@ def test_session_cli_resume_reports_completed_without_rerun(tmp_path, monkeypatc
             "state_yaml_content": "change_id: sess-done\nstatus: completed\n",
         },
     })
-    assert sess_mod._session_redis_key("sess-done") in fake.store
+    assert store.load("sess-done") is not None
 
     out = session_cli.resume_session("sess-done", "should be ignored", cwd=str(tmp_path), on_update=lambda t: None)
     assert out["status"] == "completed"
@@ -293,7 +292,7 @@ def test_session_cli_resume_reports_completed_without_rerun(tmp_path, monkeypatc
 def test_session_cli_resume_failed_without_input_reports(tmp_path, monkeypatch, capsys):
     from orchestrator_next import session_cli
 
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
     _save_session("sess-fail", {
         "cwd": str(tmp_path),
         "schema": "research",
@@ -313,7 +312,7 @@ def test_session_cli_resume_await_input_with_input(tmp_path, monkeypatch, capsys
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
     import orchestrator_next.run_loop as run_loop
 
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
     calls = {"directions": []}
 
     def fake_drive(state_yaml_path, **kwargs):
@@ -351,7 +350,7 @@ def test_session_cli_resume_failed_with_input_retries(tmp_path, monkeypatch):
     from orchestrator_next.run_loop import LoopResult
     import orchestrator_next.run_loop as run_loop
 
-    fake = _install_fake_redis(monkeypatch)
+    store = _install_test_store(monkeypatch)
     calls = {"n": 0, "directions": []}
 
     def fake_drive(state_yaml_path, **kwargs):
@@ -382,7 +381,7 @@ def test_session_cli_resume_failed_with_input_retries(tmp_path, monkeypatch):
     sessions = Sessions()
     sid = sessions.new_session(cwd=str(tmp_path), schema="research")
     sessions.prompt_session(sid, "topic")
-    assert json.loads(fake.store[sess_mod._session_redis_key(sid)])["workflow"]["status"] == "failed"
+    assert json.loads(store.load(sid))["workflow"]["status"] == "failed"
 
     out = session_cli.resume_session(
         sid, "try again with clearer scope", cwd=str(tmp_path), on_update=lambda t: None,
@@ -390,40 +389,8 @@ def test_session_cli_resume_failed_with_input_retries(tmp_path, monkeypatch):
     assert calls["n"] == 2
     assert "try again with clearer scope" in calls["directions"][1]
     assert out["result"] is not None
-    stored = json.loads(fake.store[sess_mod._session_redis_key(sid)])
+    stored = json.loads(store.load(sid))
     assert stored["workflow"]["status"] == "completed"
-
-
-def test_session_cli_start_fails_fast_without_redis(tmp_path, monkeypatch):
-    """No REDIS_URL → RedisRequiredError, not a silent file-backed fallback."""
-    from orchestrator_next import session_cli
-    from orchestrator_next.sessions import RedisRequiredError
-
-    monkeypatch.delenv("REDIS_URL", raising=False)
-    monkeypatch.delenv("ORCHESTRATOR_ACP_REDIS_URL", raising=False)
-    reset_redis_client_cache()
-    monkeypatch.chdir(tmp_path)
-
-    try:
-        session_cli.start_schema("research", "hello", cwd=str(tmp_path))
-        assert False, "expected RedisRequiredError"
-    except RedisRequiredError as exc:
-        assert "REDIS_URL" in str(exc) or "ORCHESTRATOR_ACP_REDIS_URL" in str(exc)
-
-
-def test_session_cli_start_raises_on_misconfigured_redis(monkeypatch):
-    """REDIS_URL set but unusable (no redis package / bad connection) still raises."""
-    from orchestrator_next import session_cli
-    from orchestrator_next.sessions import RedisRequiredError
-
-    monkeypatch.setenv("REDIS_URL", "redis://fake")
-    reset_redis_client_cache()
-    monkeypatch.setattr(sess_mod, "_redis_client", lambda: None)
-    try:
-        session_cli.start_schema("research", "hello", cwd="/tmp")
-        assert False, "expected RedisRequiredError"
-    except RedisRequiredError as exc:
-        assert "redis" in str(exc).lower()
 
 
 def test_cli_help_has_no_acp_run():
@@ -442,7 +409,7 @@ def test_cli_help_has_no_acp_run():
 
 def test_concurrent_resume_returns_session_busy(tmp_path, monkeypatch):
     """A second prompt_session while the first holds the lock errors -32012."""
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
     import orchestrator_next.run_loop as run_loop
 
@@ -468,7 +435,7 @@ def test_concurrent_resume_returns_session_busy(tmp_path, monkeypatch):
 
 
 def test_load_session_rebinds_nonexistent_cwd(tmp_path, monkeypatch):
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
     _save_session("sess-y", {
         "cwd": "/nonexistent/machine/path",
         "schema": "research",
@@ -480,40 +447,10 @@ def test_load_session_rebinds_nonexistent_cwd(tmp_path, monkeypatch):
     assert Path(restored["cwd"]).is_dir()
 
 
-def test_redis_save_sets_ttl(monkeypatch):
-    fake = _install_fake_redis(monkeypatch)
-    calls = []
-    orig_set = fake.set
-
-    def spy_set(key, value, ex=None, nx=False):
-        calls.append(ex)
-        return orig_set(key, value, ex=ex, nx=nx)
-
-    monkeypatch.setattr(fake, "set", spy_set)
-    _save_session("sess-ttl", {"cwd": "/tmp", "schema": "research", "workflow": {}})
-    assert calls and calls[-1]
-
-
-def test_load_session_connection_error_is_not_unknown_session(monkeypatch):
-    """Redis outage must surface distinctly, not read as 'unknown session'."""
-    class BrokenClient:
-        def get(self, key):
-            raise ConnectionError("redis down")
-
-    monkeypatch.setenv("REDIS_URL", "redis://fake")
-    reset_redis_client_cache()
-    monkeypatch.setattr(sess_mod, "_redis_client", lambda: BrokenClient())
-    try:
-        _load_session("sess-z")
-        assert False, "expected ConnectionError to propagate"
-    except ConnectionError:
-        pass
-
-
 def test_start_schema_main_redirects_bare_uuid_to_resume(tmp_path, monkeypatch, capsys):
     from orchestrator_next import session_cli
 
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
     _save_session("11111111-1111-1111-1111-111111111111", {
         "cwd": str(tmp_path), "schema": "research", "workflow": {"status": "active"},
     })
@@ -530,7 +467,7 @@ def test_start_schema_main_runs_normally_for_non_uuid_prompt(tmp_path, monkeypat
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
     import orchestrator_next.run_loop as run_loop
 
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
 
     def fake_drive(state_yaml_path, **kwargs):
         return LoopResult(LOOP_PAUSED, state_yaml_path, awaiting_step_id="intake-research")
@@ -555,7 +492,7 @@ def test_cli_rejects_acp_run():
 
 
 def test_load_session_unknown_raises(monkeypatch):
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
     sessions = Sessions()
     try:
         sessions.load_session("does-not-exist")
@@ -565,21 +502,20 @@ def test_load_session_unknown_raises(monkeypatch):
 
 
 def test_close_session_archives_not_deletes(tmp_path, monkeypatch):
-    fake = _install_fake_redis(monkeypatch)
+    store = _install_test_store(monkeypatch)
     sessions = Sessions()
     sid = sessions.new_session(cwd=str(tmp_path), schema="research")
 
     sessions.close_session(sid)
 
-    from orchestrator_next.run_store import REDIS_ARCHIVE_PREFIX, REDIS_KEY_PREFIX
-    assert f"{REDIS_KEY_PREFIX}{sid}" not in fake.store
-    assert f"{REDIS_ARCHIVE_PREFIX}{sid}" in fake.store
+    assert store.load(sid) is None
+    assert store.load(sid, archived=True) is not None
     assert sid not in sessions.sessions
 
 
 def test_close_session_never_persisted_is_a_noop(tmp_path, monkeypatch):
     """Closing a session id that was never saved must not raise."""
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
     sessions = Sessions()
     sessions.close_session("never-existed")  # must not raise
 
@@ -592,7 +528,7 @@ def test_resume_await_input_option_matching_schema_name_not_stripped(tmp_path, m
     from orchestrator_next.run_loop import LOOP_PAUSED, LoopResult
     import orchestrator_next.run_loop as run_loop
 
-    _install_fake_redis(monkeypatch)
+    _install_test_store(monkeypatch)
     monkeypatch.setattr(sess_mod, "_available_schemas", lambda repo_root: ["research", "design"])
 
     calls = {"directions": []}
