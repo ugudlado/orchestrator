@@ -115,3 +115,14 @@ def test_idempotent_on_already_pending(tmp_path):
     nodes = {n["id"]: n["status"] for n in state["workflow_plan"]["implement"]["nodes"]}
     assert nodes["design"] == "pending"
     assert nodes["design-review"] == "pending"
+
+
+def test_reactivates_blocked_workflow(tmp_path):
+    p = _write_state(tmp_path, [{"id": "design", "status": "failed"}])
+    state = _load(p)
+    state["status"] = "blocked"
+    p.write_text(yaml.safe_dump(state))
+
+    reset_step("design", str(p))
+
+    assert _load(p)["status"] == "active"

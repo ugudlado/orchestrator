@@ -92,6 +92,7 @@ def reset_step(step_id: str, state_yaml_path: str) -> None:
 
     phase = str(state_raw.get("phase") or "implement")
     apply_dag_reset(state_raw, phase, step_id)
+    state_raw["status"] = "active"
 
     tmp_path = path.with_suffix(".tmp")
     tmp_path.write_text(
