@@ -198,6 +198,93 @@ def _default_repo_root_env() -> None:
     os.environ["REPO_ROOT"] = top or os.getcwd()
 
 
+def _state_verb(argv: list[str]) -> int:
+    """`orchestrator state <migrate|list|show|project>` — state-store admin.
+
+    The store is selected by URL, so every subcommand takes one:
+      file:  /path/to/x_state.yaml        (or a bare path)
+      sqlite: sqlite:///path/state.db#<run-id>
+      pg:     postgresql://user@host/db#<run-id>
+
+    ORCHESTRATOR_STATE_URL supplies a default store for `list` and `migrate`.
+    """
+    import json as _json
+    from orchestrator_next import state_store as ss
+
+    usage = (
+        "usage:\n"
+        "  orchestrator state list   [<store-url>]\n"
+        "  orchestrator state show   <handle> [--json]\n"
+        "  orchestrator state migrate <state.yaml>... --to <store-url>\n"
+        "  orchestrator state project <handle> <dest.yaml>\n"
+    )
+    if not argv:
+        sys.stderr.write(usage)
+        return 3
+    sub, rest = argv[0], argv[1:]
+
+    try:
+        if sub == "list":
+            url = rest[0] if rest else (ss.default_state_url() or os.getcwd())
+            store, handle = ss.open_store(url if "#" in url or "://" in url else url)
+            runs = store.list_runs(handle)
+            if not runs:
+                print("no runs found")
+                return 0
+            print(f"{'run':<44}{'schema':<10}{'status':<10}{'steps':>6}")
+            for r in runs:
+                print(f"{str(r['run_id'])[-43:]:<44}{r['schema']:<10}"
+                      f"{r['status']:<10}{r['steps']:>6}")
+            return 0
+
+        if sub == "show":
+            if not rest:
+                sys.stderr.write(usage)
+                return 3
+            doc, _token, _h = ss.load_doc(rest[0])
+            if "--json" in rest:
+                print(_json.dumps(doc, indent=2, sort_keys=False))
+            else:
+                import yaml as _yaml
+                print(_yaml.safe_dump(doc, sort_keys=False, allow_unicode=True))
+            return 0
+
+        if sub == "migrate":
+            if "--to" not in rest:
+                sys.stderr.write(usage)
+                return 3
+            cut = rest.index("--to")
+            sources, target = rest[:cut], rest[cut + 1:]
+            if not sources or not target:
+                sys.stderr.write(usage)
+                return 3
+            dest = target[0]
+            failures = 0
+            for src in sources:
+                try:
+                    handle = ss.import_yaml(src, dest)
+                    print(f"  migrated {src} -> {handle}")
+                except (FileExistsError, ValueError, OSError) as exc:
+                    sys.stderr.write(f"  SKIP {src}: {exc}\n")
+                    failures += 1
+            return 1 if failures and failures == len(sources) else 0
+
+        if sub == "project":
+            if len(rest) < 2:
+                sys.stderr.write(usage)
+                return 3
+            out = ss.project_yaml(rest[0], rest[1])
+            print(out)
+            return 0
+
+    except (ss.StateNotFoundError, ss.StateConflictError, ValueError) as exc:
+        sys.stderr.write(f"orchestrator state: {exc}\n")
+        return 3
+
+    sys.stderr.write(usage)
+    return 3
+
+
 def main() -> None:
     from orchestrator_next.models_config_cli import consume_models_config_argv
 
@@ -226,7 +313,7 @@ def main() -> None:
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
         "next", "done", "graph", "doctor", "reset-step", "run", "validate-workflow",
-        "report",
+        "report", "state",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
@@ -236,6 +323,9 @@ def main() -> None:
     verb, *rest = args
     rest = consume_models_config_argv(rest)
     args = [verb, *rest]
+    if args[0] == "state":
+        sys.exit(_state_verb(args[1:]))
+
     # Every verb except doctor needs a second argument.
     if len(args) < 2 and args[0] != "doctor":
         _usage()

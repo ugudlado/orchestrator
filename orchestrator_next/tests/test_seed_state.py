@@ -97,6 +97,12 @@ def _run_seed(
     tmp_path instead of the real ~/.config/orchestrator.
     """
     env = os.environ.copy()
+    # These two tests assert the FILE seeder's contract (a *_state.yaml on
+    # disk). SQLite is now the default backend, so pin the backend explicitly
+    # rather than letting the default decide what they are testing.
+    # test_seed_state_sqlite below covers the default path.
+    env["ORCHESTRATOR_STATE_BACKEND"] = "file"
+    env.pop("ORCHESTRATOR_STATE_URL", None)
     env["REPO_ROOT"] = str(repo_root)
     env["WORKTREE_BASE_DIR"] = str(worktree_base)
     env["ORCHESTRATOR_HOME"] = _ORCHESTRATOR_HOME

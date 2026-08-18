@@ -409,12 +409,20 @@ def load_state(state_yaml_path: str) -> State:
 
     Does NOT load step contracts — those are loaded on demand by dispatch.py.
     """
-    path = Path(state_yaml_path).resolve()
-    if not path.is_file():
-        raise FileNotFoundError(f"state.yaml not found: {state_yaml_path}")
+    # `state_yaml_path` is a HANDLE, not necessarily a path: a bare path or
+    # file:// URL reads the YAML file exactly as before, while sqlite:// and
+    # postgresql:// read the run out of a store. See state_store.py.
+    from orchestrator_next import state_store
 
-    with open(path, "r") as f:
-        raw = yaml.safe_load(f)
+    handle = state_store.parse_handle(state_yaml_path)
+    if handle.is_file:
+        path = Path(handle.location).resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"state.yaml not found: {state_yaml_path}")
+        with open(path, "r") as f:
+            raw = yaml.safe_load(f)
+    else:
+        raw, _token, _h = state_store.load_doc(handle)
 
     if not isinstance(raw, dict):
         raise ValueError(f"state.yaml is not a YAML mapping: {state_yaml_path}")

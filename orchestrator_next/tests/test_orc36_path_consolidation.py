@@ -57,6 +57,10 @@ def _run_seed(slug: str, schema: str, *, repo_root: Path, worktree_base: Path,
     of the real ~/.config/orchestrator.
     """
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    # Asserts the FILE seeder's on-disk layout; SQLite is now the default, so
+    # pin the backend rather than letting the default decide the subject.
+    env["ORCHESTRATOR_STATE_BACKEND"] = "file"
+    env.pop("ORCHESTRATOR_STATE_URL", None)
     env["REPO_ROOT"] = str(repo_root)
     env["ORCHESTRATOR_HOME"] = _ORCHESTRATOR_HOME
     env["WORKTREE_BASE_DIR"] = str(worktree_base)
