@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orchestrator System Map</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #eb6c36;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1200px; width: 100%; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 900px; display: block; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · The whole system</p>
+    <h1>Pack, engine, relay, agents</h1>
+
+    <svg viewBox="0 0 1000 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="sysmap-title sysmap-desc">
+      <title id="sysmap-title">Pack, engine, relay, agents</title>
+      <desc id="sysmap-desc">System map of the orchestrator: the workflow pack configures the engine, TeamLead drives the engine as a local tool and converses over the buzz relay, remote machines run a buzz-acp harness that hands work to an agent CLI over machine-local ACP, and the run branch on the git remote is the shared workspace.</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/></marker>
+        <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+        <marker id="arrow-open" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polyline points="0 0, 8 3, 0 6" fill="none" stroke="#4f5d75" stroke-width="1.2"/></marker>
+      </defs>
+
+      <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+      <!-- ================= zones ================= -->
+      <!-- MACHINE A -->
+      <rect x="24" y="152" width="432" height="384" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="140" y="156" width="200" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="240" y="165" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">MACHINE A · TEAMLEAD'S HOST</text>
+
+      <!-- MACHINE B -->
+      <rect x="704" y="152" width="272" height="384" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <rect x="756" y="156" width="168" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="840" y="165" fill="rgba(45,49,66,0.40)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">MACHINE B · REMOTE AGENT</text>
+
+      <!-- ================= arrows ================= -->
+
+      <!-- pack → engine (install-time, dashed; bridges over the ask/reply corridor) -->
+      <path d="M380,104 V196 a 8,8 0 0,0 0,16 V220 a 8,8 0 0,0 0,16 V320"
+            fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+      <rect x="388" y="140" width="88" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="392" y="149" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">CONFIG PULL</text>
+
+      <!-- TeamLead → engine (next/done via corridor under row1) -->
+      <path d="M130,248 V272 Q130,280 138,280 H260 Q268,280 268,288 V320"
+            fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="148" y="260" width="88" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="152" y="269" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">NEXT · DONE</text>
+
+      <!-- engine → local ACP agents -->
+      <line x1="252" y1="352" x2="220" y2="352" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <rect x="196" y="332" width="80" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="236" y="341" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">ACP LOCAL</text>
+
+      <!-- engine → orchestrator.db -->
+      <line x1="342" y1="384" x2="342" y2="456" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="354" y="412" width="44" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="358" y="421" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">STATE</text>
+
+      <!-- TeamLead → relay (ask) and relay → TeamLead (reply) -->
+      <line x1="220" y1="204" x2="496" y2="204" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <rect x="316" y="184" width="84" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="358" y="193" fill="#eb6c36" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">SIGNED ASK</text>
+
+      <line x1="496" y1="228" x2="220" y2="228" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <rect x="318" y="238" width="80" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="358" y="247" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">COMPLETION</text>
+
+      <!-- relay → harness (mention push) and harness → relay (reply) -->
+      <line x1="664" y1="204" x2="720" y2="204" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow-open)"/>
+      <rect x="660" y="184" width="64" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="692" y="193" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">MENTION</text>
+
+      <line x1="720" y1="228" x2="664" y2="228" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="672" y="238" width="44" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="694" y="247" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">REPLY</text>
+
+      <!-- harness → agent CLI (machine-local ACP) -->
+      <line x1="840" y1="248" x2="840" y2="320" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <rect x="852" y="276" width="32" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="856" y="285" fill="#2e5aa8" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">ACP</text>
+
+      <!-- agent CLI → git remote (push) -->
+      <line x1="840" y1="392" x2="840" y2="584" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="852" y="480" width="40" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="856" y="489" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">PUSH</text>
+
+      <!-- git remote → engine (pull, dashed; bridges the ACP-local line) -->
+      <path d="M760,616 H244 Q236,616 236,608 V360 a 8,8 0 0,1 0,-16 V336 Q236,328 244,328 H252"
+            fill="none" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <rect x="480" y="596" width="88" height="12" rx="2" fill="#f5f5f5"/>
+      <text x="524" y="605" fill="#7a8399" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.06em">PULL BRANCH</text>
+
+      <!-- ================= nodes ================= -->
+
+      <!-- workflows pack -->
+      <rect x="280" y="40" width="200" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="280" y="40" width="200" height="64" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="288" y="46" width="32" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="304" y="55" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PACK</text>
+      <text x="380" y="68" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">workflows repo</text>
+      <text x="380" y="84" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">steps · DAGs · models · personas</text>
+
+      <!-- TeamLead (focal) -->
+      <rect x="40" y="184" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="40" y="184" width="180" height="64" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1"/>
+      <rect x="48" y="190" width="36" height="12" rx="2" fill="transparent" stroke="rgba(235,108,54,0.40)" stroke-width="0.8"/>
+      <text x="66" y="199" fill="rgba(235,108,54,0.9)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">AGENT</text>
+      <text x="130" y="216" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">TeamLead</text>
+      <text x="130" y="232" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">workflow-step skill</text>
+
+      <!-- local ACP agents -->
+      <rect x="40" y="320" width="180" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="40" y="320" width="180" height="72" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="48" y="326" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="62" y="335" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EXT</text>
+      <text x="130" y="352" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">local agents</text>
+      <text x="130" y="368" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">claude · codex · cursor</text>
+      <text x="130" y="380" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">for locally-run steps</text>
+
+      <!-- orchestrator engine -->
+      <rect x="252" y="320" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="252" y="320" width="180" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="260" y="326" width="36" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="278" y="335" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ENGINE</text>
+      <text x="342" y="352" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">orchestrator</text>
+      <text x="342" y="368" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">dispatch · record · verify</text>
+
+      <!-- orchestrator.db -->
+      <rect x="252" y="456" width="180" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="252" y="456" width="180" height="64" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="260" y="462" width="28" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.40)" stroke-width="0.8"/>
+      <text x="274" y="471" fill="rgba(79,93,117,0.9)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">SQL</text>
+      <text x="342" y="488" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">orchestrator.db</text>
+      <text x="342" y="504" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">state · runs · locks</text>
+
+      <!-- buzz relay -->
+      <rect x="496" y="184" width="168" height="80" rx="6" fill="#f5f5f5"/>
+      <rect x="496" y="184" width="168" height="80" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="504" y="190" width="36" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.40)" stroke-width="0.8"/>
+      <text x="522" y="199" fill="rgba(79,93,117,0.9)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">NOSTR</text>
+      <text x="580" y="220" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">buzz relay</text>
+      <text x="580" y="236" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">signed events</text>
+      <text x="580" y="248" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">channel = the record</text>
+
+      <!-- buzz-acp harness -->
+      <rect x="720" y="184" width="240" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="720" y="184" width="240" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+      <rect x="728" y="190" width="52" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="754" y="199" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">HARNESS</text>
+      <text x="840" y="216" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">buzz-acp</text>
+      <text x="840" y="232" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">agent keypair · relay tether</text>
+
+      <!-- remote agent CLI -->
+      <rect x="720" y="320" width="240" height="72" rx="6" fill="#f5f5f5"/>
+      <rect x="720" y="320" width="240" height="72" rx="6" fill="rgba(45,49,66,0.03)" stroke="rgba(45,49,66,0.30)" stroke-width="1"/>
+      <rect x="728" y="326" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+      <text x="742" y="335" fill="rgba(45,49,66,0.8)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">EXT</text>
+      <text x="840" y="352" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">agent CLI</text>
+      <text x="840" y="368" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">claude · codex · cursor</text>
+      <text x="840" y="380" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">own checkout · run branch</text>
+
+      <!-- git remote -->
+      <rect x="760" y="584" width="200" height="64" rx="6" fill="#f5f5f5"/>
+      <rect x="760" y="584" width="200" height="64" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+      <rect x="768" y="590" width="28" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.40)" stroke-width="0.8"/>
+      <text x="782" y="599" fill="rgba(79,93,117,0.9)" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">GIT</text>
+      <text x="860" y="616" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">git remote</text>
+      <text x="860" y="632" fill="#4f5d75" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">run branch = workspace</text>
+
+      <!-- ================= legend ================= -->
+      <line x1="30" y1="688" x2="970" y2="688" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+      <text x="30" y="708" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">LEGEND</text>
+
+      <line x1="110" y1="704" x2="142" y2="704" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+      <text x="150" y="708" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">HUMAN-LANGUAGE ASK</text>
+
+      <line x1="310" y1="704" x2="342" y2="704" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+      <text x="350" y="708" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">ACP · MACHINE-LOCAL ONLY</text>
+
+      <line x1="550" y1="704" x2="582" y2="704" stroke="#4f5d75" stroke-width="1" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+      <text x="590" y="708" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">ASYNC / INSTALL-TIME</text>
+
+      <text x="770" y="708" fill="#4f5d75" font-size="8" font-family="'Geist Mono', monospace">SKILLS REPO SHIPS TEAMLEAD'S TOOLING</text>
+    </svg>
+  </div>
+</body>
+</html>
