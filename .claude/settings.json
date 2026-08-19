@@ -56,7 +56,6 @@
       "~/code/feature_worktrees"
     ]
   },
-  "enableAllProjectMcpServers": true,
   "hooks": {
     "SessionStart": [
       {
