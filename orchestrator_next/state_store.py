@@ -284,7 +284,8 @@ CREATE TABLE IF NOT EXISTS runs (
     doc           TEXT NOT NULL,
     version       INTEGER NOT NULL,
     created_at    TEXT,
-    updated_at    TEXT
+    updated_at    TEXT,
+    tenant_id     TEXT NOT NULL DEFAULT 'default'
 )
 """
 # Derived index for cross-run reporting. Rebuilt on every save; never the
@@ -307,14 +308,44 @@ CREATE TABLE IF NOT EXISTS step_history (
     cache_creation_input_tokens INTEGER,
     cost_usd    REAL,
     duration_ms INTEGER,
+    tenant_id   TEXT NOT NULL DEFAULT 'default',
     PRIMARY KEY (run_id, seq)
+)
+"""
+# Learn proposes scenario rows; a human (or the pack's persist-learnings step)
+# marks them accepted; `orchestrator pack publish-scenarios` exports the
+# accepted ones into the step's scenarios/train.jsonl. Plan phase 3.3.
+_DDL_LEARN_RESULTS = """
+CREATE TABLE IF NOT EXISTS learn_results (
+    run_id       TEXT,
+    step_id      TEXT,
+    proposed_row TEXT,
+    accepted     INTEGER,
+    created_at   TEXT
 )
 """
 _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_runs_slug ON runs(slug)",
     "CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status)",
+    "CREATE INDEX IF NOT EXISTS idx_runs_tenant ON runs(tenant_id)",
     "CREATE INDEX IF NOT EXISTS idx_hist_step ON step_history(step_id)",
+    "CREATE INDEX IF NOT EXISTS idx_learn_step ON learn_results(step_id)",
 )
+
+ENV_TENANT = "ORCHESTRATOR_TENANT"
+DEFAULT_TENANT = "default"
+
+#: Columns added after the first release — `_ensure_schema` back-fills them on
+#: every connect so an existing db upgrades in place without a migrate step.
+_ADDED_COLUMNS = (
+    ("runs", "tenant_id", "TEXT NOT NULL DEFAULT 'default'"),
+    ("step_history", "tenant_id", "TEXT NOT NULL DEFAULT 'default'"),
+)
+
+
+def current_tenant() -> str:
+    """Tenant new runs are written under (ORCHESTRATOR_TENANT, else 'default')."""
+    return (os.environ.get(ENV_TENANT) or "").strip() or DEFAULT_TENANT
 
 
 def _now() -> str:
@@ -365,8 +396,25 @@ class _SqlStoreBase:
         cur = conn.cursor()
         cur.execute(_DDL_RUNS)
         cur.execute(_DDL_HISTORY)
+        cur.execute(_DDL_LEARN_RESULTS)
+        self._add_missing_columns(conn)
         for ddl in _DDL_INDEXES:
             cur.execute(ddl)
+
+    def _existing_columns(self, conn, table: str) -> set[str]:  # pragma: no cover
+        raise NotImplementedError
+
+    def _add_missing_columns(self, conn) -> None:
+        """In-place upgrade for dbs created before a column existed.
+
+        `_ensure_schema` runs on every connect, so this has to be idempotent:
+        it asks the db which columns are there and only ALTERs the gaps.
+        """
+        cur = conn.cursor()
+        for table, column, decl in _ADDED_COLUMNS:
+            if column in self._existing_columns(conn, table):
+                continue
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
     def _q(self, sql: str) -> str:
         return sql if self.ph == "?" else sql.replace("?", "%s")
@@ -393,20 +441,21 @@ class _SqlStoreBase:
     def create(self, handle: StateHandle, doc: dict[str, Any]) -> Token:
         run_id = self._require_run_id(handle)
         now = _now()
+        tenant = current_tenant()
         with self._connect(handle) as conn:
             self._ensure_schema(conn)
             cur = conn.cursor()
             cur.execute(
                 self._q("INSERT INTO runs (run_id, slug, change_id, ticket_id, "
                         "schema_name, config_pack, status, repo_root, worktree_path, "
-                        "branch, doc, version, created_at, updated_at) "
-                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),
+                        "branch, doc, version, created_at, updated_at, tenant_id) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),
                 (run_id, doc.get("slug"), doc.get("change_id"), doc.get("ticket_id"),
                  doc.get("schema"), doc.get("config_pack"), doc.get("status"),
                  doc.get("repo_root"), doc.get("worktree_path"), doc.get("branch"),
-                 json.dumps(doc), 1, now, now),
+                 json.dumps(doc), 1, now, now, tenant),
             )
-            self._write_history(conn, run_id, doc)
+            self._write_history(conn, run_id, doc, tenant)
         return 1
 
     def save(self, handle: StateHandle, doc: dict[str, Any], token: Token) -> Token:
@@ -434,18 +483,68 @@ class _SqlStoreBase:
                     f"run {run_id!r} changed since it was read "
                     f"(expected version {token}) — reload and retry"
                 )
-            self._write_history(conn, run_id, doc)
+            cur.execute(self._q("SELECT tenant_id FROM runs WHERE run_id = ?"), (run_id,))
+            row = cur.fetchone()
+            self._write_history(conn, run_id, doc, (row and row[0]) or DEFAULT_TENANT)
         return new_version
 
-    def _write_history(self, conn, run_id: str, doc: dict[str, Any]) -> None:
+    def _write_history(self, conn, run_id: str, doc: dict[str, Any],
+                       tenant: str = DEFAULT_TENANT) -> None:
         cur = conn.cursor()
         cur.execute(self._q("DELETE FROM step_history WHERE run_id = ?"), (run_id,))
         rows = _history_rows(doc)
         if rows:
             cur.executemany(
-                self._q("INSERT INTO step_history VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"),
-                [(run_id, *r) for r in rows],
+                self._q(
+                    "INSERT INTO step_history "
+                    "(run_id, seq, step_id, phase, status, agent, attempt, started_at, "
+                    "ended_at, model, input_tokens, output_tokens, "
+                    "cache_read_input_tokens, cache_creation_input_tokens, cost_usd, "
+                    "duration_ms, tenant_id) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                ),
+                [(run_id, *r, tenant) for r in rows],
             )
+
+    # -- learn results (plan phase 3.3) -----------------------------------
+    def add_learn_row(self, handle: StateHandle, run_id: str, step_id: str,
+                      proposed_row: dict[str, Any], accepted: bool | None) -> None:
+        """Record one scenario row proposed by a learn step."""
+        with self._connect(handle) as conn:
+            self._ensure_schema(conn)
+            conn.cursor().execute(
+                self._q("INSERT INTO learn_results "
+                        "(run_id, step_id, proposed_row, accepted, created_at) "
+                        "VALUES (?,?,?,?,?)"),
+                (run_id, step_id, json.dumps(proposed_row, sort_keys=True),
+                 None if accepted is None else int(bool(accepted)), _now()),
+            )
+
+    def list_learn_rows(self, handle: StateHandle,
+                        accepted: bool | None = None) -> list[dict[str, Any]]:
+        """Proposed rows, newest last. `accepted=True` filters to the exported set."""
+        sql = ("SELECT run_id, step_id, proposed_row, accepted, created_at "
+               "FROM learn_results")
+        params: tuple = ()
+        if accepted is not None:
+            sql += " WHERE accepted = ?"
+            params = (int(bool(accepted)),)
+        sql += " ORDER BY created_at"
+        with self._connect(handle) as conn:
+            self._ensure_schema(conn)
+            cur = conn.cursor()
+            cur.execute(self._q(sql), params)
+            rows = cur.fetchall()
+        return [
+            {
+                "run_id": r[0],
+                "step_id": r[1],
+                "proposed_row": json.loads(r[2]) if r[2] else {},
+                "accepted": None if r[3] is None else bool(r[3]),
+                "created_at": r[4],
+            }
+            for r in rows
+        ]
 
     def exists(self, handle: StateHandle) -> bool:
         try:
@@ -480,6 +579,11 @@ class SqliteStore(_SqlStoreBase):
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
+    def _existing_columns(self, conn, table: str) -> set[str]:
+        cur = conn.cursor()
+        cur.execute(f"PRAGMA table_info({table})")
+        return {row[1] for row in cur.fetchall()}
+
 
 class PostgresStore(_SqlStoreBase):
     """Same schema and same optimistic-concurrency contract, over psycopg.
@@ -502,6 +606,14 @@ class PostgresStore(_SqlStoreBase):
             ) from exc
         return psycopg.connect(handle.location)
 
+    def _existing_columns(self, conn, table: str) -> set[str]:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = %s",
+            (table,),
+        )
+        return {row[0] for row in cur.fetchall()}
+
 
 # ---------------------------------------------------------------------------
 # Convenience API used by the engine
@@ -515,6 +627,20 @@ def load_doc(handle: str | StateHandle) -> tuple[dict[str, Any], Token, StateHan
 def save_doc(handle: str | StateHandle, doc: dict[str, Any], token: Token) -> Token:
     store, h = open_store(handle)
     return store.save(h, doc, token)
+
+
+def add_learn_row(handle: str | StateHandle, run_id: str, step_id: str,
+                  proposed_row: dict[str, Any], accepted: bool | None = None) -> None:
+    """Record a learn-proposed scenario row. Callers rarely hold a store."""
+    store, h = open_store(handle)
+    store.add_learn_row(h, run_id, step_id, proposed_row, accepted)
+
+
+def list_learn_rows(handle: str | StateHandle,
+                    accepted: bool | None = None) -> list[dict[str, Any]]:
+    """Learn-proposed rows; `accepted=True` is what `pack publish-scenarios` exports."""
+    store, h = open_store(handle)
+    return store.list_learn_rows(h, accepted)
 
 
 def project_yaml(handle: str | StateHandle, dest: str | os.PathLike[str]) -> Path:

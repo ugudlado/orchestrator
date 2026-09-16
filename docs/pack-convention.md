@@ -56,7 +56,7 @@ version: 3
 kind: judgment
 max_turns: 40
 tools: [fs.read, fs.write, shell.run]
-side_effects: [] # e.g. [write:git, write:ticket]
+side_effects: [] # e.g. [write:git, write:ticket, write:workspace]
 in:
   discovery: { artifact: discovery.md }
   ticket: { artifact: ticket-context.md, optional: true }
@@ -71,9 +71,21 @@ out:
   never writes paths) or `type:` (a value carried in the done payload).
   `optional: true` exempts an entry from enforcement.
 - `tools:` is the capability allowlist handed to the harness.
-- `side_effects:` names what the step changes outside its artifacts
-  (`write:git`, `write:ticket`). Phase 3 refuses a recipe where a `write:*`
-  step has no preceding gate.
+- `side_effects:` names what the step changes outside its artifacts.
+  `validate-workflow` refuses a recipe where a `write:*` step has no
+  preceding gate:
+
+  | Value             | Meaning                                             | Needs a gate |
+  | ----------------- | --------------------------------------------------- | ------------ |
+  | `write:git`       | commits, branches, merges in the checkout           | yes          |
+  | `write:ticket`    | transitions or comments on the tracker              | yes          |
+  | `write:<other>`   | anything else a pack names                          | yes          |
+  | `write:workspace` | run infrastructure: worktree create/remove, archive | no           |
+
+  `write:workspace` is exempt because it builds the place the gate's own
+  artifacts live — a worktree-create step writes git before any gate could
+  exist, so requiring one would make every recipe unstartable.
+
 - `max_turns:` caps a judgment step's tool-use loop.
 - On a gate: `show:` (artifact names to render) and `approve_as:` (the token
   downstream steps declare via `requires:`).
@@ -116,9 +128,13 @@ Any other key is ignored by the engine.
 
 **Gate steps**
 
-- Reported by `orchestrator step` as `status: blocked`, `kind: gate`.
-- Resumption (`approve` / `cancel` and the token itself) lands in Phase 3;
-  until then a gate stops the run.
+- Reported by `orchestrator step` as `status: blocked`, `kind: gate`, with a
+  preview of the `show:` artifacts and a freshly minted token. Polling `step`
+  re-returns that same token rather than issuing a second one.
+- `orchestrator approve <run> <token> [--edits '{...}']` resumes the run and
+  binds the token to the gate's `approve_as` name; `orchestrator cancel <run>`
+  aborts instead. A step declaring `requires: <that name>` stays undispatched
+  (`status: needs_you`) until the approval lands.
 
 **Exit codes**: the v2 verbs (`start`, `step`, `done`, `status`, `events`)
 exit 0 and carry the run's condition in the JSON `status` field
@@ -145,3 +161,15 @@ engine doesn't support.
 Bump the protocol integer only on a breaking change to section 2 or 3 above
 (contract keys or step protocol semantics) — not for adding new workflows,
 steps, or optional fields.
+
+## 6. Learn results
+
+A `learn` step does not write scenarios directly into the pack. It proposes
+rows into the engine's `learn_results` table (`run_id`, `step_id`,
+`proposed_row`, `accepted`, `created_at`) in the state DB, where they sit
+unaccepted until a human — or the pack's own `persist-learnings` step — marks
+a row accepted. `orchestrator pack publish-scenarios <pack> [--step <id>]`
+then exports every accepted row into
+`.orchestrator/<pack>/steps/<step_id>/scenarios/train.jsonl`, deduped by the
+sha256 of each row's canonical JSON, so re-running it is idempotent. Runs stay
+out of git; only the reviewed scenarios cross back into the pack.

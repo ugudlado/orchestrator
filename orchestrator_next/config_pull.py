@@ -19,6 +19,7 @@ Optional ``--skills`` symlinks each step's SKILL.md into ``<repo>/skills/<name>/
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -33,6 +34,7 @@ from urllib.parse import urlparse
 import yaml
 
 from orchestrator_next.paths import WORKFLOW_CONFIG_GIT_URL
+from orchestrator_next.trust import TrustError, check_source, verify_signature
 
 _STEP_EXCLUDE_DIR_NAMES = frozenset({"runs", "__pycache__", ".pytest_cache"})
 _CONFIG_ENTRIES = (
@@ -179,6 +181,92 @@ def _copy_step(src_step: Path, dst_step: Path) -> None:
             shutil.copy2(child, dst_step / child.name)
 
 
+# ---------------------------------------------------------------------------
+# Lock contents (plan phase 3.2 — the `recipes.lock` concept, kept colocated
+# as <pack>/config-lock.yaml rather than inventing a second file)
+# ---------------------------------------------------------------------------
+#: Contract fields `config update` diffs before letting a pack move.
+LOCK_CONTRACT_FIELDS = ("version", "kind", "tools", "side_effects")
+
+
+#: The lock cannot hash itself, and skills/ symlinks are a local export choice.
+_TREE_HASH_EXCLUDE_NAMES = frozenset({"config-lock.yaml"})
+
+
+def tree_sha256(root: Path) -> str:
+    """Content hash of a pack tree — the identity of a non-git source.
+
+    Hashes every file under the pack root (path + bytes, sorted), so a
+    hand-edited step changes the digest. This is both the `commit` a non-git
+    source records and the `pack_sha256` drift detection compares against.
+    """
+    digest = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        if any(part in _STEP_EXCLUDE_DIR_NAMES for part in path.parts):
+            continue
+        if path.name in _TREE_HASH_EXCLUDE_NAMES:
+            continue
+        digest.update(str(path.relative_to(root)).encode("utf-8"))
+        try:
+            digest.update(path.read_bytes())
+        except OSError:
+            continue
+    return digest.hexdigest()
+
+
+def _load_yaml(path: Path) -> dict[str, Any]:
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def read_step_contract(step_dir: Path) -> dict[str, Any]:
+    """The contract fields the lock and `config update` care about.
+
+    Read with plain `yaml.safe_load` rather than `parser.load_contract` on
+    purpose: the lock must stay readable for a pack whose contract shape the
+    installed engine does not understand yet, and `config update` must be able
+    to diff an old contract against a new one without either side having to
+    validate.
+    """
+    for name in ("contract.yaml", f"{step_dir.name}.yaml"):
+        candidate = step_dir / name
+        if candidate.is_file():
+            doc = _load_yaml(candidate)
+            if doc:
+                return {k: doc.get(k) for k in LOCK_CONTRACT_FIELDS if k in doc}
+    return {}
+
+
+def read_pack_contracts(pack_root: Path) -> dict[str, dict[str, Any]]:
+    """`{step_id: {version, kind, tools, side_effects}}` for a pack on disk."""
+    steps_dir = pack_root / "steps"
+    if not steps_dir.is_dir():
+        return {}
+    return {
+        step.name: read_step_contract(step)
+        for step in sorted(steps_dir.iterdir())
+        if step.is_dir()
+    }
+
+
+def read_lock(pack_dir: Path) -> dict[str, Any]:
+    """The pack's config-lock.yaml (empty dict when absent/unreadable)."""
+    return _load_yaml(pack_dir / "config-lock.yaml")
+
+
+def pack_tree_hash(pack_dir: Path) -> str | None:
+    """Hash of the pack as it sits in the consumer repo.
+
+    Compared against the lock's `pack_sha256` to catch a hand-edited pack. The
+    lock's `commit` names the *source*; this names the *installation*, and the
+    two are not interchangeable — the copy excludes some source entries.
+    """
+    return tree_sha256(pack_dir) if pack_dir.is_dir() else None
+
+
 def pull_into_pack(
     config_root: Path,
     repo_root: Path,
@@ -240,15 +328,25 @@ def pull_into_pack(
     if ensure_scratch_gitignored(repo_root):
         _log(f"gitignore: added scratch ignore to {repo_root / '.gitignore'}")
 
+    # `commit` is the plan's pack identity: git HEAD for a repo source, sha256
+    # of the whole pulled tree otherwise. `source_sha` is kept as the legacy
+    # alias so older readers keep working.
+    commit = source_sha or tree_sha256(config_root)
     lock = {
         "version": 1,
         "pack": pack_name,
         "source": source_label,
         "source_sha": source_sha,
+        "commit": commit,
+        "pack_sha256": tree_sha256(dest),
         "pulled_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "export_skills": export_skills,
         "skills": skills_exported,
         "entries": copied,
+        "steps": {
+            step_id: fields.get("version")
+            for step_id, fields in read_pack_contracts(dest).items()
+        },
     }
     (dest / "config-lock.yaml").write_text(
         yaml.safe_dump(lock, sort_keys=False, default_flow_style=False),
@@ -258,6 +356,9 @@ def pull_into_pack(
 
 
 def fetch_source(source: str, ref: str | None) -> tuple[Path, str, str | None, Path | None]:
+    # Trust is checked BEFORE anything is fetched — a pack is executable
+    # content, so an unlisted remote must never even be cloned.
+    _log(f"trust: {check_source(source)}")
     path = Path(source)
     if path.exists():
         root = find_pack_config_root(path.resolve())
@@ -278,6 +379,11 @@ def fetch_source(source: str, ref: str | None) -> tuple[Path, str, str | None, P
         raise RuntimeError(f"git clone failed: {proc.stderr.strip() or proc.stdout.strip()}")
     checkout = tmp / "src"
     sha = _git(checkout, "rev-parse", "HEAD").stdout.strip() or None
+    try:
+        _log(f"signature: {verify_signature(checkout, ref)}")
+    except TrustError:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
     root = find_pack_config_root(checkout)
     label = source if not ref else f"{source}@{ref}"
     return root, label, sha, tmp
@@ -304,6 +410,144 @@ def pull(
     finally:
         if cleanup is not None:
             shutil.rmtree(cleanup, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# `orchestrator config update [pack]` — plan phase 3.2
+# ---------------------------------------------------------------------------
+def diff_contracts(
+    old: dict[str, dict[str, Any]],
+    new: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Human-readable per-step contract changes between two packs.
+
+    A pack bump can silently widen a step's `tools` or add a `write:` side
+    effect, which is exactly the thing a consumer must see before it lands.
+    """
+    lines: list[str] = []
+    for step_id in sorted(set(old) | set(new)):
+        if step_id not in old:
+            lines.append(f"+ {step_id}: new step ({_fmt_fields(new[step_id])})")
+            continue
+        if step_id not in new:
+            lines.append(f"- {step_id}: removed")
+            continue
+        for field in LOCK_CONTRACT_FIELDS:
+            before, after = old[step_id].get(field), new[step_id].get(field)
+            if before != after:
+                lines.append(
+                    f"~ {step_id}.{field}: {_fmt_value(before)} -> {_fmt_value(after)}"
+                )
+    return lines
+
+
+def _fmt_value(value: Any) -> str:
+    if value is None:
+        return "(unset)"
+    if isinstance(value, list):
+        return "[" + ", ".join(str(v) for v in value) + "]"
+    return str(value)
+
+
+def _fmt_fields(fields: dict[str, Any]) -> str:
+    return ", ".join(f"{k}={_fmt_value(v)}" for k, v in fields.items()) or "(no contract)"
+
+
+def update(
+    *,
+    repo_root: Path,
+    pack_name: str,
+    apply: bool,
+    ref: str | None = None,
+) -> tuple[list[str], dict[str, Any] | None]:
+    """Re-pull a pack's recorded source and diff its contracts.
+
+    Returns ``(diff_lines, lock)`` — ``lock`` is None on a dry run.
+    """
+    dest = repo_root / ".orchestrator" / pack_name
+    if not dest.is_dir():
+        raise FileNotFoundError(f"no pack at {dest} — run `orchestrator config pull` first")
+    lock = read_lock(dest)
+    source = str(lock.get("source") or "")
+    if not source:
+        raise RuntimeError(
+            f"{dest / 'config-lock.yaml'} has no `source` — re-pull the pack explicitly"
+        )
+    # The lock stores "<url>@<ref>" when the original pull pinned a ref.
+    if ref is None and "@" in source and not Path(source).exists():
+        source, _, ref = source.rpartition("@")
+
+    old_contracts = read_pack_contracts(dest)
+    config_root, label, sha, cleanup = fetch_source(source, ref)
+    try:
+        new_contracts = read_pack_contracts(config_root)
+        lines = diff_contracts(old_contracts, new_contracts)
+        if not apply:
+            return lines, None
+        new_lock = pull_into_pack(
+            config_root,
+            repo_root,
+            pack_name,
+            export_skills=bool(lock.get("export_skills")),
+            source_label=label,
+            source_sha=sha,
+        )
+        return lines, new_lock
+    finally:
+        if cleanup is not None:
+            shutil.rmtree(cleanup, ignore_errors=True)
+
+
+def update_main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="orchestrator config update",
+        description=(
+            "Re-pull a pack's recorded source and show what changed in its step "
+            "contracts. Nothing is written without --yes."
+        ),
+    )
+    parser.add_argument("pack", nargs="?", default=None, help="pack under .orchestrator/")
+    parser.add_argument("--repo", default=None, help="consumer repo root")
+    parser.add_argument("--ref", default=None, help="git branch/tag to update to")
+    parser.add_argument("--yes", action="store_true", help="apply the update")
+    args = parser.parse_args(argv)
+
+    repo_root = resolve_repo_root(args.repo)
+    pack_name = args.pack
+    if not pack_name:
+        from orchestrator_next.paths import list_config_packs
+
+        packs = list_config_packs(repo_root)
+        if len(packs) != 1:
+            names = ", ".join(p[0] for p in packs) or "(none)"
+            print(
+                f"error: name the pack to update (packs under "
+                f"{repo_root / '.orchestrator'}: {names})",
+                file=sys.stderr,
+            )
+            return 1
+        pack_name = packs[0][0]
+
+    try:
+        lines, new_lock = update(
+            repo_root=repo_root, pack_name=pack_name, apply=args.yes, ref=args.ref
+        )
+    except (OSError, RuntimeError, FileNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if lines:
+        print(f"contract changes in pack {pack_name!r}:")
+        for line in lines:
+            print(f"  {line}")
+    else:
+        print(f"pack {pack_name!r}: no contract changes")
+    if new_lock is None:
+        print("\ndry run — re-run with --yes to apply.")
+    else:
+        print(f"\nupdated {repo_root / '.orchestrator' / pack_name} "
+              f"(commit {new_lock.get('commit')})")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

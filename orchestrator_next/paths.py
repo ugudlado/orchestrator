@@ -26,8 +26,7 @@ class WorkflowRefError(RuntimeError):
 PACK_GIT_URL = "https://github.com/ugudlado/skills.git"
 WORKFLOW_CONFIG_GIT_URL = "https://github.com/ugudlado/workflows.git"
 PACK_DOWNLOAD_HINT = (
-    f"git clone --depth 1 {PACK_GIT_URL} ~/.orchestrator/pack "
-    "(base roles); or pull workflows into the repo: "
+    "pull a workflow pack into the repo: "
     f"orchestrator config pull {WORKFLOW_CONFIG_GIT_URL} [pack-name]"
 )
 
@@ -109,8 +108,11 @@ def config_root_with_source() -> tuple[Path, str]:
     Resolution order (first hit wins):
       1. ORCHESTRATOR_CONFIG — explicit config root ("env")
       2. Exactly one ``<repo>/.orchestrator/<pack>/`` ("vendored")
-      3. Engine checkout ``config/`` ("checkout")
-      4. ``~/.orchestrator/pack/config/`` ("pack")
+
+    Plan phase 3.2 deleted the two implicit fallbacks (the engine checkout's
+    ``config/`` and ``~/.orchestrator/pack/config``): a run must be able to say
+    exactly which pulled, locked pack it came from, and a silent global
+    fallback makes that unanswerable.
 
     Multiple vendored packs with no env → ConfigRootError (use pack/workflow).
     """
@@ -129,16 +131,9 @@ def config_root_with_source() -> tuple[Path, str]:
                 "pass a workflow as <pack>/<workflow> or set ORCHESTRATOR_CONFIG — "
                 + PACK_DOWNLOAD_HINT
             )
-    checkout = bundled_config_root()
-    if (checkout / "workflows").is_dir():
-        return checkout, "checkout"
-    pack = pack_root() / "config"
-    if (pack / "workflows").is_dir():
-        return pack, "pack"
     raise ConfigRootError(
-        f"no workflow config found (checked ORCHESTRATOR_CONFIG, "
-        f"repo .orchestrator/<pack>/, {pack}) — "
-        + PACK_DOWNLOAD_HINT
+        "no workflow config found (checked ORCHESTRATOR_CONFIG and "
+        "repo .orchestrator/<pack>/) — " + PACK_DOWNLOAD_HINT
     )
 
 
@@ -154,7 +149,7 @@ def list_workflows(
     """Map bare workflow name → [(pack_name, config_root), ...]."""
     packs = list_config_packs(repo_root)
     if not packs:
-        # Fall back to active config_root (checkout / global pack / env).
+        # Fall back to the active config_root (ORCHESTRATOR_CONFIG).
         try:
             root = config_root()
         except ConfigRootError:

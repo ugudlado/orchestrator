@@ -36,8 +36,6 @@ def test_multiple_packs_without_env_errors(tmp_path, monkeypatch):
     monkeypatch.setenv("REPO_ROOT", str(tmp_path))
     for name in ("mypack", "mypack1"):
         (tmp_path / ".orchestrator" / name / "workflows").mkdir(parents=True)
-    monkeypatch.setattr(paths, "bundled_config_root", lambda: tmp_path / "nope" / "config")
-    monkeypatch.setattr(paths, "pack_root", lambda: tmp_path / "missing-pack")
     with pytest.raises(paths.ConfigRootError, match="multiple config packs"):
         config_root()
 
@@ -63,7 +61,13 @@ def test_workflow_mode_reads_session_flag(tmp_path, monkeypatch):
     assert workflow_mode("feature", tmp_path) == "ticket"
 
 
-def test_unset_falls_back_to_checkout_config(tmp_path, monkeypatch):
+def test_checkout_and_global_pack_fallbacks_are_gone(tmp_path, monkeypatch):
+    """Plan 3.2: the ladder is env -> single vendored pack, and nothing else.
+
+    Both deleted levels are staged here (an engine checkout `config/` and a
+    `~/.orchestrator/pack/config`) — resolution must still fail, or a run could
+    silently execute a pack no lock ever vouched for.
+    """
     import orchestrator_next.paths as paths
 
     monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
@@ -71,8 +75,11 @@ def test_unset_falls_back_to_checkout_config(tmp_path, monkeypatch):
     monkeypatch.delenv("ORCHESTRATOR_REPO_ROOT", raising=False)
     checkout = tmp_path / "checkout" / "config"
     (checkout / "workflows").mkdir(parents=True)
+    (tmp_path / "pack" / "config" / "workflows").mkdir(parents=True)
     monkeypatch.setattr(paths, "bundled_config_root", lambda: checkout)
-    assert paths.config_root() == checkout
+    monkeypatch.setattr(paths, "pack_root", lambda: tmp_path / "pack")
+    with pytest.raises(paths.ConfigRootError):
+        paths.config_root()
 
 
 def test_unique_workflow_bare_name(tmp_path, monkeypatch):
@@ -100,21 +107,28 @@ def test_ambiguous_workflow_requires_pack_prefix(tmp_path, monkeypatch):
     assert root == tmp_path / ".orchestrator" / "mypack1"
 
 
-def test_pack_tier_and_download_hint(tmp_path, monkeypatch):
+def test_resolution_ladder_has_exactly_two_levels(tmp_path, monkeypatch):
     import orchestrator_next.paths as paths
 
-    monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
     monkeypatch.delenv("REPO_ROOT", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_REPO_ROOT", raising=False)
-    monkeypatch.setattr(paths, "bundled_config_root", lambda: tmp_path / "no-checkout" / "config")
-    monkeypatch.setattr(paths, "pack_root", lambda: tmp_path / "pack")
 
-    (tmp_path / "pack" / "config" / "workflows").mkdir(parents=True)
-    root, source = paths.config_root_with_source()
-    assert root == tmp_path / "pack" / "config"
-    assert source == "pack"
+    # Level 1: explicit env.
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(tmp_path / "explicit"))
+    assert paths.config_root_with_source() == (tmp_path / "explicit", "env")
 
-    monkeypatch.setattr(paths, "pack_root", lambda: tmp_path / "missing-pack")
+    # Level 2: exactly one vendored pack.
+    monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
+    monkeypatch.setenv("REPO_ROOT", str(tmp_path))
+    pack = tmp_path / ".orchestrator" / "only"
+    (pack / "workflows").mkdir(parents=True)
+    assert paths.config_root_with_source() == (pack, "vendored")
+
+    # Nothing else: no repo root, no env -> error naming only those two.
+    monkeypatch.delenv("REPO_ROOT", raising=False)
     with pytest.raises(paths.ConfigRootError) as exc:
         paths.config_root_with_source()
-    assert "config pull" in str(exc.value) or "git clone" in str(exc.value)
+    msg = str(exc.value)
+    assert "ORCHESTRATOR_CONFIG" in msg and ".orchestrator/<pack>/" in msg
+    assert "config pull" in msg
+    assert "~/.orchestrator/pack" not in msg

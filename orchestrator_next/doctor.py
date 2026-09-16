@@ -88,8 +88,8 @@ def check_symlinks(repo_root: Path, orch_home: Path) -> CheckResult:
 # ---------------------------------------------------------------------------
 
 def check_config_source(source: str, config_root: Path) -> CheckResult:
-    """Report which of the 3 config_root() tiers resolved: env, vendored, or
-    bundled (see paths.config_root_with_source). Informational — never FAILs;
+    """Report which config_root() tier resolved: env or vendored (see
+    paths.config_root_with_source). Informational — never FAILs;
     check_config_root below still enforces the required layout."""
     return CheckResult("config source", "PASS", f"{source}: {config_root}")
 
@@ -380,6 +380,64 @@ def check_run_store() -> CheckResult:
     return CheckResult("run store", "PASS", f"sqlite ({store.db_path})")
 
 
+def check_pack_trust_and_lock(repo_root: Path) -> CheckResult:
+    """Lock presence, trust status and pack drift — plan phase 3.2.
+
+    A pulled pack is executable content, so three things must stay answerable:
+    where it came from (the lock), whether that source is listed
+    (``~/.orchestrator/trust.toml``), and whether the installed copy still
+    matches what was pulled (commit/tree hash vs the lock's ``commit``). A
+    drifted pack means someone hand-edited steps the lock still vouches for.
+    """
+    from orchestrator_next import trust as trust_mod
+    from orchestrator_next.config_pull import pack_tree_hash, read_lock
+    from orchestrator_next.paths import list_config_packs
+
+    packs = list_config_packs(repo_root)
+    if not packs:
+        return CheckResult("pack trust", "WARN", f"no packs under {repo_root / '.orchestrator'}")
+
+    if trust_mod.trust_all_enabled():
+        prefix = f"{trust_mod.ENV_TRUST_ALL}=1 (trust bypassed)"
+        trust_doc = None
+    else:
+        prefix = ""
+        try:
+            trust_doc = trust_mod.load_trust()
+        except trust_mod.TrustError as exc:
+            return CheckResult("pack trust", "WARN", str(exc))
+
+    notes: list[str] = [prefix] if prefix else []
+    worst = "PASS"
+    for name, pack_dir in packs:
+        lock = read_lock(pack_dir)
+        if not lock:
+            notes.append(f"{name}: no config-lock.yaml (pulled by hand?)")
+            worst = "WARN"
+            continue
+        source = str(lock.get("source") or "")
+        if not prefix:
+            if trust_doc is None:
+                notes.append(f"{name}: no {trust_mod.trust_file()}")
+                worst = "WARN"
+            elif source and not trust_mod.is_local_source(source) and not (
+                trust_mod.source_allowed(source, trust_doc)
+            ):
+                notes.append(f"{name}: source {source} matches no [[allow]] entry")
+                worst = "WARN"
+        locked = lock.get("pack_sha256")
+        current = pack_tree_hash(pack_dir)
+        if locked and current and locked != current:
+            notes.append(
+                f"{name}: drifted from lock (pulled at commit "
+                f"{str(lock.get('commit') or '?')[:12]}) — hand-edited since the pull"
+            )
+            worst = "WARN"
+    if worst == "PASS" and not notes:
+        notes.append(f"{len(packs)} pack(s) locked and trusted")
+    return CheckResult("pack trust", worst, "; ".join(notes))
+
+
 # ---------------------------------------------------------------------------
 # run_all + formatting
 # ---------------------------------------------------------------------------
@@ -422,6 +480,7 @@ def run_all() -> int:
         check_contract_aliases_resolve(config_root),  # D4: contract/agent-config safety net (WARN)
         check_prompt_optimizer(),
         check_symlinks(repo_root, orch_home),
+        check_pack_trust_and_lock(repo_root),
         check_run_store(),
     ]
     print(_format_table(results))
