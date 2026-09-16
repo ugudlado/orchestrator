@@ -26,7 +26,6 @@ from orchestrator_next.pricing import (
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_BIN_ORCHESTRATOR = _REPO_ROOT / "bin" / "orchestrator"
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +285,7 @@ def _run_next(tmp_path: Path, state_path: Path, contracts: Path, cfg: Path) -> d
         "ORCHESTRATOR_CONFIG": str(cfg),
     }
     proc = subprocess.run(
-        [sys.executable, str(_BIN_ORCHESTRATOR), "next", str(state_path)],
+        [sys.executable, "-m", "orchestrator_next", "next", str(state_path)],
         capture_output=True,
         text=True,
         env=env,
@@ -419,7 +418,7 @@ def test_next_cli_emits_estimated_cost_so_far(tmp_path):
         "ORCHESTRATOR_CONFIG": str(cfg),
     }
     proc = subprocess.run(
-        [sys.executable, str(_BIN_ORCHESTRATOR), "next", str(state_path)],
+        [sys.executable, "-m", "orchestrator_next", "next", str(state_path)],
         capture_output=True,
         text=True,
         env=env,

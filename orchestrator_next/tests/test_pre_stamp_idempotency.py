@@ -23,7 +23,6 @@ import yaml
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_BIN_ORCHESTRATOR = _REPO_ROOT / "bin" / "orchestrator"
 
 
 def _write_state_with_completed_step(tmp_path: Path) -> Path:
@@ -111,7 +110,7 @@ def test_pre_stamp_does_not_orphan_completed_attempt(tmp_path):
         "ORCHESTRATOR_CONFIG": str(cfg),
     }
     result = subprocess.run(
-        [sys.executable, str(_BIN_ORCHESTRATOR), "next", str(state_path)],
+        [sys.executable, "-m", "orchestrator_next", "next", str(state_path)],
         capture_output=True,
         text=True,
         env=env,
@@ -160,7 +159,7 @@ def test_pre_stamp_still_writes_for_new_step(tmp_path):
         "ORCHESTRATOR_CONFIG": str(cfg),
     }
     subprocess.run(
-        [sys.executable, str(_BIN_ORCHESTRATOR), "next", str(state_path)],
+        [sys.executable, "-m", "orchestrator_next", "next", str(state_path)],
         capture_output=True,
         text=True,
         env=env,
