@@ -273,15 +273,59 @@ def test_a_claimed_step_is_not_handed_out_twice(run_handle):
     assert ready_nodes(state) == ["seed"], "serial resume still sees it, by design"
 
 
-def test_batch_claim_is_all_or_nothing(run_handle):
-    """Two dispatchers racing the same ready set: one gets it, one re-reads."""
+def test_batch_claim_is_all_or_nothing(run_handle, monkeypatch):
+    """Two dispatchers racing the same ready set: one gets it, one re-reads.
+
+    Deterministic by construction. A barrier holds both dispatchers just after
+    each has taken its compare-and-swap token and read the same snapshot, so
+    both decide on version N and the loser necessarily attempts its claim after
+    the winner has committed N+1. That is the exact interleaving that used to
+    let both win: the claim re-read its own token, saw N+1, and saved cleanly.
+    Without the fix this fails every run, not one in fifty.
+    """
     _record(run_handle, _turn("seed"))
 
+    import orchestrator_next.dispatch as dsp
+
+    real_token = dsp.read_claim_token
+    real_claim = dsp._claim_nodes
+
+    decided = threading.Barrier(2, timeout=10)   # both hold a token for vN
+    committed = threading.Event()                # the winner has written vN+1
+    turn = threading.Semaphore(1)                # claims run one at a time
+    seen_token = threading.local()
+
+    def gated_token(path):
+        token = real_token(path)
+        if not getattr(seen_token, "done", False):
+            seen_token.done = True
+            try:
+                decided.wait()
+            except threading.BrokenBarrierError:
+                pass
+        return token
+
+    def gated_claim(*args, **kwargs):
+        # Serialize the two claims, and make the second one start strictly
+        # after the first has committed. That is the interleaving the bug
+        # needed: the loser decided on vN but claims against a store at vN+1.
+        with turn:
+            first = not committed.is_set()
+            won = real_claim(*args, **kwargs)
+            if first:
+                committed.set()
+            return won
+
+    monkeypatch.setattr(dsp, "read_claim_token", gated_token)
+    monkeypatch.setattr(dsp, "_claim_nodes", gated_claim)
+
     results: list[list[str]] = []
+    lock = threading.Lock()
 
     def grab(_i) -> None:
         actions, code = dispatch_batch(run_handle, max_parallel=4)
-        results.append([a["step_id"] for a in actions] if code == 0 else [])
+        with lock:
+            results.append([a["step_id"] for a in actions] if code == 0 else [])
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         list(pool.map(grab, range(2)))
@@ -388,3 +432,29 @@ def test_script_steps_stay_serial(tmp_path, monkeypatch):
     peaks = [int(x) for x in (tmp_path / "peak").read_text().split()]
     assert peaks, "no script ran"
     assert max(peaks) == 1, f"script steps overlapped (peak concurrency {max(peaks)})"
+
+
+# ------------------------------------------------- store compare-and-swap
+@pytest.mark.parametrize("backend", ["sqlite", "file"])
+def test_store_save_rejects_a_stale_token(tmp_path, backend):
+    """The primitive the batch claim rests on: a token may be spent once.
+
+    Two saves carrying the same token must not both land. Whatever the batch
+    claim does above, if this breaks, parallel dispatch has no safety at all.
+    """
+    if backend == "sqlite":
+        handle = f"sqlite:///{tmp_path}/cas.db#run-1"
+    else:
+        handle = str(tmp_path / "cas_state.yaml")
+
+    store, h = ss.open_store(handle)
+    store.create(h, {"change_id": "cas", "phase": "main", "n": 0})
+
+    _doc, token = store.load(h)
+    store.save(h, {"change_id": "cas", "phase": "main", "n": 1}, token)
+
+    with pytest.raises(ss.StateConflictError):
+        store.save(h, {"change_id": "cas", "phase": "main", "n": 2}, token)
+
+    fresh, _ = store.load(h)
+    assert fresh["n"] == 1, "the losing write must not have landed"

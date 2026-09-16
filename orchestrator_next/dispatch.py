@@ -122,6 +122,10 @@ def _prompt_dir_map(state: State) -> dict[str, str]:
 
 
 
+# Distinguishes "caller supplied no token" from a legitimately falsy token.
+_UNSET: Any = object()
+
+
 def _persist_node_status(
     state_yaml_path: str,
     phase: str,
@@ -132,11 +136,31 @@ def _persist_node_status(
     _claim_nodes(state_yaml_path, phase, [step_id], state_raw=state_raw)
 
 
+def read_claim_token(state_yaml_path: str):
+    """Return the store token for the snapshot a claim decision will be made on.
+
+    The caller must take this token BEFORE choosing which nodes to claim, and
+    hand it back to `_claim_nodes`. Taking it inside the claim instead would
+    compare against a row that may already have moved since the decision, which
+    validates nothing — see `_claim_nodes`.
+    """
+    from orchestrator_next import state_store
+
+    handle = state_store.parse_handle(state_yaml_path)
+    store, h = state_store.open_store(handle)
+    try:
+        _doc, token = store.load(h)
+    except (state_store.StateNotFoundError, OSError):
+        return None
+    return token
+
+
 def _claim_nodes(
     state_yaml_path: str,
     phase: str,
     step_ids: list[str],
     state_raw: dict,
+    token: Any = _UNSET,
 ) -> bool:
     """Mark every id in `step_ids` in_progress in ONE compare-and-swap write.
 
@@ -145,15 +169,26 @@ def _claim_nodes(
     per-node write would leave a window where two workers each claim a
     different half of the same ready set from the same stale snapshot.
 
+    `token` MUST be the token read at the same time as the snapshot the claim
+    decision was made from (see `read_claim_token`). Re-reading the token here
+    would defeat the compare-and-swap: a worker that decided on version N, then
+    entered the claim after a rival committed N+1, would read N+1, save cleanly,
+    and both workers would believe they owned the batch.
+
     Returns True when the claim landed, False on a lost race (caller re-reads).
     """
     from orchestrator_next import state_store
 
     handle = state_store.parse_handle(state_yaml_path)
     store, h = state_store.open_store(handle)
-    try:
-        _fresh, token = store.load(h)
-    except (state_store.StateNotFoundError, OSError):
+    if token is _UNSET:
+        # Serial callers that hold no snapshot token: read one now. Safe only
+        # because nothing else is dispatching concurrently on that path.
+        try:
+            _doc, token = store.load(h)
+        except (state_store.StateNotFoundError, OSError):
+            return False
+    if token is None:
         return False
     for step_id in step_ids:
         readiness.mark_node_status(state_raw, phase, step_id, "in_progress")
@@ -357,6 +392,11 @@ def dispatch_batch(
     from orchestrator_next.parser import load_state
 
     for _attempt in range(MAX_CLAIM_RETRIES):
+        # Take the CAS token FIRST, then read the snapshot we decide on. Any
+        # rival write that lands between here and our claim moves the row past
+        # this token, so the claim's save is rejected and we re-read. Reading
+        # the token later (inside the claim) would silently validate nothing.
+        claim_token = read_claim_token(state_yaml_path)
         state = load_state(state_yaml_path)
 
         # Blocking status and crash-resume are inherently serial decisions —
@@ -396,7 +436,8 @@ def dispatch_batch(
                 return ([], code) if code != 0 else ([action], code)
             actions.append(action)
 
-        if _claim_nodes(state_yaml_path, state.phase, chosen, state_raw=state.raw):
+        if _claim_nodes(state_yaml_path, state.phase, chosen, state_raw=state.raw,
+                        token=claim_token):
             return actions, 0
         # Lost the race — someone claimed part of our set. Re-read and retry.
 
