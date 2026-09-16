@@ -202,7 +202,7 @@ def test_generate_claude_types_are_optional(
 def test_types_resolution_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """--types wins over ~/.claude/types, which wins over $CLAUDE_CODE_TYPES."""
+    """--types wins over $CLAUDE_CODE_TYPES, which wins over ~/.claude/types."""
     flag = tmp_path / "flag.d.ts"
     default = tmp_path / "default.d.ts"
     env = tmp_path / "env.d.ts"
@@ -213,14 +213,14 @@ def test_types_resolution_order(
     monkeypatch.setenv(pack_export.TYPES_ENV_VAR, str(env))
 
     assert pack_export.resolve_types_path(flag) == flag
+    assert pack_export.resolve_types_path(None) == env
+
+    monkeypatch.delenv(pack_export.TYPES_ENV_VAR)
     assert pack_export.resolve_types_path(None) == default
 
     monkeypatch.setattr(
         pack_export, "DEFAULT_TYPES_PATH", tmp_path / "gone.d.ts"
     )
-    assert pack_export.resolve_types_path(None) == env
-
-    monkeypatch.delenv(pack_export.TYPES_ENV_VAR)
     assert pack_export.resolve_types_path(None) is None
 
 

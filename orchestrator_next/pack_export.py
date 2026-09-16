@@ -361,30 +361,31 @@ DEFAULT_TYPES_PATH = Path.home() / ".claude" / "types" / "claude-code.d.ts"
 TYPES_ENV_VAR = "CLAUDE_CODE_TYPES"
 
 TYPES_SOURCES_HINT = (
-    "--types <path>, ~/.claude/types/claude-code.d.ts (written by "
-    "/plugin-types), or $CLAUDE_CODE_TYPES"
+    "--types <path>, $CLAUDE_CODE_TYPES, or "
+    "~/.claude/types/claude-code.d.ts (written by /plugin-types)"
 )
 
 
 def resolve_types_path(explicit: str | Path | None = None) -> Path | None:
     """The `claude-code.d.ts` to copy into the plugin, or None when there is none.
 
-    First hit wins: the `--types` flag, then `~/.claude/types/claude-code.d.ts`
-    (where `/plugin-types` writes), then `$CLAUDE_CODE_TYPES`. An explicit path
-    that does not exist is an error; the other two are simply skipped.
+    First hit wins: the `--types` flag, then `$CLAUDE_CODE_TYPES`, then
+    `~/.claude/types/claude-code.d.ts` (where `/plugin-types` writes). The
+    two explicit sources outrank the ambient file. An explicit path that does
+    not exist is an error; the ambient one is simply skipped.
     """
     if explicit:
         path = Path(explicit).expanduser()
         if not path.is_file():
             raise PackExportError(f"--types {path} does not exist")
         return path
-    if DEFAULT_TYPES_PATH.is_file():
-        return DEFAULT_TYPES_PATH
     from_env = os.environ.get(TYPES_ENV_VAR, "").strip()
     if from_env:
         path = Path(from_env).expanduser()
         if path.is_file():
             return path
+    if DEFAULT_TYPES_PATH.is_file():
+        return DEFAULT_TYPES_PATH
     return None
 
 
@@ -449,8 +450,8 @@ orchestrator wheel, so `pack` copies it in from the first of these that
 exists:
 
 1. `orchestrator pack --target claude --types <path/to/claude-code.d.ts>`
-2. `~/.claude/types/claude-code.d.ts`, where `/plugin-types` writes it
-3. `$CLAUDE_CODE_TYPES`
+2. `$CLAUDE_CODE_TYPES`
+3. `~/.claude/types/claude-code.d.ts`, where `/plugin-types` writes it
 
 With none of them, `types/` is simply not written and `pack` says so. The
 plugin still loads and runs either way: only `tsc` needs the declarations.
