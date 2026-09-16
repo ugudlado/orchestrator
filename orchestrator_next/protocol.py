@@ -118,14 +118,25 @@ def _persist(state_yaml_path: str) -> None:
 # step payload construction
 # ---------------------------------------------------------------------------
 def _recipe_artifacts_root(state_raw: dict[str, Any]) -> str:
-    """The run's recipe-declared ``artifacts_root`` template, or "" when absent."""
+    """The run's recipe-declared ``artifacts_root`` template, or "" when absent.
+
+    ``start`` copies the template into state at seed time, so the answer does
+    not depend on the pack still being resolvable from wherever this process
+    happens to be running. Re-reading the recipe is the fallback for runs
+    seeded before that, and is given the run's own ``repo_root`` so it finds
+    the pack the run was started from rather than whatever the cwd implies.
+    """
     from orchestrator_next.parser import load_recipe
+
+    persisted = state_raw.get("artifacts_root")
+    if isinstance(persisted, str) and persisted:
+        return persisted
 
     schema = str(state_raw.get("schema") or "")
     if not schema:
         return ""
     try:
-        return load_recipe(schema).artifacts_root
+        return load_recipe(schema, str(state_raw.get("repo_root") or "")).artifacts_root
     except Exception:  # noqa: BLE001 — an unreadable recipe falls back to the default
         return ""
 

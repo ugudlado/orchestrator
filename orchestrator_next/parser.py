@@ -601,15 +601,36 @@ class Recipe:
     raw: dict[str, Any] = field(default_factory=dict)
 
 
-def load_recipe(schema_name: str) -> Recipe:
+def load_recipe(schema_name: str, repo_root: str | Path = "") -> Recipe:
     """Load ``<config>/workflows/<name>.yaml`` into a Recipe.
 
     ``artifacts_root`` and ``inputs`` are the two Phase 2.1 additions; both are
     optional, so an unmigrated recipe loads unchanged.
-    """
-    from orchestrator_next.paths import config_root
 
-    path = config_root() / "workflows" / f"{schema_name}.yaml"
+    ``repo_root`` is the run's own, from state. Without it the pack is resolved
+    from the ambient cwd/env, which is wrong for every caller that already
+    knows which run it is acting on: a step executing inside a worktree has no
+    pack under its cwd, so the lookup either failed or silently found some
+    *other* repo's recipe of the same name and dropped its ``artifacts_root``.
+    Resolution mirrors ``run_loop._schema_active_steps``.
+    """
+    from orchestrator_next.paths import (
+        WorkflowRefError,
+        config_root,
+        resolve_workflow_ref,
+    )
+
+    path: Path | None = None
+    if repo_root:
+        try:
+            _pack, wf, cfg = resolve_workflow_ref(schema_name, Path(repo_root))
+            candidate = cfg / "workflows" / f"{wf}.yaml"
+            if candidate.is_file():
+                path = candidate
+        except (WorkflowRefError, OSError):
+            path = None
+    if path is None:
+        path = config_root() / "workflows" / f"{schema_name}.yaml"
     if not path.is_file():
         raise FileNotFoundError(f"Schema file not found: {path}")
     doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}

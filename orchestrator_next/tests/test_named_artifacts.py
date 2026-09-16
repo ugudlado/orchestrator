@@ -436,3 +436,70 @@ def test_wiring_still_fails_when_every_upstream_step_is_migrated(
     with pytest.raises(SystemExit):
         validate_workflow.validate_workflow("wf", str(tmp_path / "repo"))
     assert "think: in.ghost" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# regression: artifacts_root must not depend on the ambient cwd/env
+# ---------------------------------------------------------------------------
+def _vendored_pack(tmp_path, monkeypatch):
+    """A pack vendored under ``<repo>/.orchestrator/wfpack/``, as a consumer has.
+
+    No ``ORCHESTRATOR_CONFIG`` and no ``REPO_ROOT``: that is the situation every
+    verb after ``start`` runs in, and the one the unit tests used to paper over.
+    """
+    repo = tmp_path / "repo"
+    root = repo / ".orchestrator" / "wfpack"
+    (root / "workflows").mkdir(parents=True)
+    (root / "workflows" / "wf.yaml").write_text(
+        yaml.safe_dump(
+            {"artifacts_root": "spec/changes/{slug}", "steps": ["brief"]},
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
+    monkeypatch.delenv("ORCHESTRATOR_REPO_ROOT", raising=False)
+    monkeypatch.delenv("REPO_ROOT", raising=False)
+    return repo
+
+
+def test_load_recipe_finds_the_runs_own_pack_from_repo_root(tmp_path, monkeypatch):
+    repo = _vendored_pack(tmp_path, monkeypatch)
+    # cwd is somewhere else entirely — a worktree, as a dispatched step sees it.
+    monkeypatch.chdir(tmp_path)
+    assert parser.load_recipe("wf", str(repo)).artifacts_root == "spec/changes/{slug}"
+
+
+def test_artifact_base_uses_artifacts_root_persisted_in_state(tmp_path, monkeypatch):
+    """A run carries its template, so no pack lookup happens at all."""
+    _vendored_pack(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    state = {
+        "slug": "r1", "change_id": "r1", "schema": "wf",
+        "repo_root": str(tmp_path / "repo"),
+        "artifacts_root": "spec/changes/{slug}",
+    }
+    assert protocol._artifact_base(state) == (
+        tmp_path / "repo" / "spec" / "changes" / "r1"
+    )
+
+
+def test_artifact_base_falls_back_to_the_runs_repo_root(tmp_path, monkeypatch):
+    """A run seeded before the template was persisted still resolves its pack.
+
+    Without the run's ``repo_root`` this silently returned the engine default,
+    so artifacts were hashed at a path no step ever wrote to.
+    """
+    repo = _vendored_pack(tmp_path, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    state = {
+        "slug": "r1", "change_id": "r1", "schema": "wf", "repo_root": str(repo),
+    }
+    assert protocol._artifact_base(state) == repo / "spec" / "changes" / "r1"
+
+
+def test_seed_persists_the_recipes_artifacts_root(tmp_path, monkeypatch):
+    from orchestrator_next import run_loop
+
+    repo = _vendored_pack(tmp_path, monkeypatch)
+    assert run_loop._recipe_artifacts_root_for("wf", str(repo)) == "spec/changes/{slug}"

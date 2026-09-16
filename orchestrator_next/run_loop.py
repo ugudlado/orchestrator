@@ -1147,6 +1147,13 @@ def _write_initial_state(
     sha = _pack_sha_for(schema, repo_root)
     if sha:
         state["pack_sha"] = sha
+    # Pin the recipe's artifacts_root now, while the pack is still resolvable
+    # from this repo_root. Later verbs run from a worktree (or any cwd) where
+    # the pack cannot be found, and a silent miss sends artifacts to the
+    # engine default instead of where the steps actually write them.
+    artifacts_root = _recipe_artifacts_root_for(schema, repo_root)
+    if artifacts_root:
+        state["artifacts_root"] = artifacts_root
     wt = worktree_path or prior_context.get("worktree_path") or ""
     if wt:
         state["worktree_path"] = wt
@@ -1155,6 +1162,20 @@ def _write_initial_state(
 
     state_yaml.write_text(yaml.safe_dump(state, sort_keys=False, allow_unicode=True))
     _log(f"seeded: {state_yaml}")
+
+
+def _recipe_artifacts_root_for(schema: str, repo_root: str = "") -> str:
+    """The recipe's ``artifacts_root`` template, or "" when it declares none.
+
+    Best-effort: a recipe that cannot be read here is not a reason to refuse to
+    seed the run, since the default artifacts base still works.
+    """
+    from orchestrator_next.parser import load_recipe
+
+    try:
+        return load_recipe(schema, repo_root).artifacts_root
+    except Exception:  # noqa: BLE001 — an unreadable recipe falls back to the default
+        return ""
 
 
 def _schema_active_steps(schema: str, repo_root: str = "") -> list[str]:

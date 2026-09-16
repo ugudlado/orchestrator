@@ -43,3 +43,29 @@ returning without `next` short-circuits. `on(...).catch(h)` once.
 → await `turn.complete[agentId]` → parse JSON block from `answer` →
 `$.process.run(['orchestrator','done',run,step,'--out',…,'--usage',…])`;
 gate: `$.ui.ask` → `orchestrator approve`; `needs_you`: report, stop.
+
+## The 10s hook budget, and driving a long run anyway
+
+A `tool.call` hook gets **10,000ms of real time**. Past it the engine reports
+`exceeded 10000ms budget (tool.call; skipped; what is below it ran in its
+place)`, answers the call itself, and the MCP tool fails with "registered the
+tool … but no tool.call hook answered this call". Driving a whole recipe inside
+the `run` hook therefore cannot work — a single judgment step outlives it.
+
+**Background work survives the hook returning.** Verified against 2.1.273
+(`.tmp/mod-e2e-4.log`): `run` settled in 565.4ms with a `result`, and the
+unawaited loop then drove `explore` → `design` → `design-review`, spawning
+three subagents over the following eight minutes. `$.agent.spawn`,
+`$.process.run` and `$.ui.status` all keep working after the hook settles, so
+no `$.clock.after`/`every` tick scheduling is needed. The bundled `diff` mod
+uses the same `void asyncFn().catch(…)` shape from its own hooks.
+
+So `run` starts the run, kicks the loop off unawaited into a module-scope map
+keyed by slug, and returns an acknowledgement inside a second; `status` reads
+that record back beside `orchestrator status --json`.
+
+**Unattended (`-p`) mode:** the loop is only alive as long as the session is.
+A `-p` prompt that returns immediately takes the driver down with it, and
+`$.ui.ask` rejects with nobody to ask, so a gate leaves the run standing for
+`orchestrator approve` from a shell. To exercise a `-p` run end to end, tell
+the agent to poll the status tool on a sleep so the session stays up.

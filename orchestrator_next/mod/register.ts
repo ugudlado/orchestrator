@@ -57,7 +57,7 @@ const MODELS: Record<string, string> = {
 function pluginOf(tool: string): string {
   const match = /^mcp__(.+)__[^_]+$/.exec(tool)
 
-  return match === null ? '' : match[1]
+  return match?.[1] ?? ''
 }
 
 /**
@@ -98,6 +98,34 @@ type RunRecord = {
   lastStep: string | null
   status: string
 }
+
+/**
+ * What a background driver reports about itself, for the `status` tool.
+ *
+ * The loop outlives the `run` tool call that started it, so the only way the
+ * main agent can see where it stands is to read this back.
+ */
+type DriverRecord = {
+  run: string
+  slug: string
+  /** Where the loop is: still driving, or why it stopped. */
+  phase: 'running' | 'done' | 'needs_you' | 'error' | 'cancelled'
+  step: string | null
+  /** The loop's closing words, once it has any. */
+  detail: string
+  startedAt: number
+}
+
+/**
+ * The live background drivers, keyed by slug.
+ *
+ * A `tool.call` hook has a ten-second budget: the engine skips a hook that
+ * overruns it and answers the call itself, which is what made driving the loop
+ * inside `run` fail. The loop therefore runs UNAWAITED, outside the hook's
+ * dispatch, and the promise is parked here so a second `run` on the same slug
+ * joins the running loop instead of starting a rival one.
+ */
+const drivers = new Map<string, { record: DriverRecord; done: Promise<void> }>()
 
 /**
  * This module's state, at module scope because the engine only follows `$`
@@ -244,15 +272,24 @@ export function register(on: On) {
     const args = argsOf(e)
 
     if (e.tool === state.served.status) {
-      const ref = stringArg(e, 'run') || state.active?.run || ''
+      const ref = stringArg(e, 'run') || state.active?.slug || state.active?.run || ''
 
       if (ref === '') {
         return { result: 'orchestrator: no run in this session; pass `run`.' }
       }
 
+      // The driver's own view first: `orchestrator status` reports what the run
+      // has recorded, which says nothing about whether a loop is still driving
+      // it or died with an error it never got to record.
+      const driver = drivers.get(ref)?.record
       const ran = await cli(['orchestrator', 'status', ref, '--json'])
+      const live =
+        driver === undefined
+          ? 'driver: not running in this session.'
+          : `driver: ${driver.phase} at ${driver.step ?? '-'}` +
+            (driver.detail === '' ? '' : `\n${driver.detail}`)
 
-      return { result: ran.stdout || ran.stderr }
+      return { result: `${live}\n\n${ran.stdout || ran.stderr}` }
     }
 
     const recipe = stringArg(e, 'recipe')
@@ -278,17 +315,70 @@ export function register(on: On) {
       return { result: `orchestrator start failed: ${String(error)}` }
     }
 
+    const running = drivers.get(start.slug)
+
+    if (running !== undefined && running.record.phase === 'running') {
+      return {
+        result:
+          `orchestrator: ${start.slug} is already running (run ${start.run_id}), ` +
+          `at ${running.record.step ?? '-'}. Call the status tool for progress.`,
+      }
+    }
+
     state.active = { run: start.run_id, slug: start.slug }
     state.gateToken = null
 
-    try {
-      return { result: await drive($, cli, start, start.next) }
-    } finally {
-      state.active = null
-      state.gateToken = null
-      state.ours.clear()
-      state.waiting.clear()
-      $.ui.status('orchestrator: idle')
+    const record: DriverRecord = {
+      run: start.run_id,
+      slug: start.slug,
+      phase: 'running',
+      step: start.next.step_id ?? null,
+      detail: '',
+      startedAt: Date.now(),
+    }
+
+    // Unawaited on purpose: see `drivers`. The engine keeps the module's
+    // environment alive after the hook settles, so the loop goes on running
+    // (the subagent it spawns, and the CLI calls after it, are what the debug
+    // log shows continuing past the tool's return).
+    const done = drive($, cli, start, start.next, record)
+      .then(detail => {
+        record.detail = detail
+        if (record.phase === 'running') {
+          record.phase = 'done'
+        }
+      })
+      .catch((error: unknown) => {
+        record.phase = 'error'
+        record.detail = `orchestrator: ${start.slug} driver failed: ${String(error)}`
+      })
+      .finally(() => {
+        // A finished run leaves its record in `drivers` for `status` to read;
+        // only the session-wide switches are cleared.
+        if (state.active?.slug === start.slug) {
+          state.active = null
+        }
+        state.gateToken = null
+        // The spawn bookkeeping is per-run: every agent this loop waited on has
+        // settled by now, so dropping it keeps a long session from growing a
+        // map of dead agent ids. Not cleared while another run is live, since
+        // the sets are shared and that run still needs its own entries.
+        if (state.active === null) {
+          state.ours.clear()
+          state.waiting.clear()
+        }
+        $.ui.status(`orchestrator: ${start.slug} ${record.phase}`)
+        $.ui.toast(`orchestrator: ${start.slug} ${record.phase}`)
+      })
+
+    drivers.set(start.slug, { record, done })
+
+    return {
+      result:
+        `orchestrator: run ${start.slug} started (run_id ${start.run_id}).\n` +
+        'It is driving in the background: progress shows in the status line, ' +
+        'gates will prompt you, and a toast lands when it finishes. Call the ' +
+        'status tool for where it stands.',
     }
   })
 }
@@ -305,6 +395,7 @@ async function drive(
   cli: Cli,
   start: StartResult,
   first: StepResult,
+  record: DriverRecord,
 ): Promise<string> {
   const run = start.run_id
   let result = first
@@ -312,6 +403,8 @@ async function drive(
 
   for (;;) {
     const stepId = result.step_id ?? null
+
+    record.step = stepId
 
     $.ui.status(`orchestrator: ${start.slug} ${stepId ?? '-'} ${result.status}`)
 
@@ -331,6 +424,8 @@ async function drive(
     }
 
     if (result.status === 'needs_you' || result.status === 'error') {
+      record.phase = result.status
+
       return (
         `orchestrator: ${start.slug} stopped (${result.status}).\n` +
         `${JSON.stringify(result, null, 2)}\n` +
@@ -358,6 +453,8 @@ async function drive(
 
       if (answered.next === null) {
         if (answered.unattended === true) {
+          record.phase = 'needs_you'
+
           return (
             `orchestrator: ${start.slug} is waiting at gate ${gate.step_id}; ` +
             'there is nobody to ask in this session, so the run is left ' +
@@ -367,6 +464,8 @@ async function drive(
             'then run this recipe on the same slug again to resume.'
           )
         }
+
+        record.phase = 'cancelled'
 
         return (
           `orchestrator: ${start.slug} cancelled at gate ${gate.step_id}.` +
@@ -381,6 +480,8 @@ async function drive(
 
     // A `blocked` with no gate payload, or any other status the engine did
     // not pair with work: nothing to act on, so report it rather than spin.
+    record.phase = 'error'
+
     return (
       `orchestrator: ${start.slug} ${result.status} with nothing to do.\n` +
       JSON.stringify(result, null, 2)
