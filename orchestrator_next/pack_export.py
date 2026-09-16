@@ -433,7 +433,7 @@ lets the CLI batch the script steps, spawns one subagent per judgment step
 to approve each gate, and reports the final status. The `status` tool prints
 a run's nodes, usage and cost.
 
-While a run is active, Edit/Write/MultiEdit/NotebookEdit and `git commit` /
+While a run is active, Edit/Write/NotebookEdit and `git commit` /
 `git push` are refused **inside the subagents this plugin spawned** until a
 gate is approved. Your own session is never gated, and a subagent started any
 other way is not either — the hook only knows the agent ids it spawned.
