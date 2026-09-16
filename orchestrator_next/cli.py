@@ -339,6 +339,8 @@ def main() -> None:
         "report", "state",
         # protocol v2 (docs/protocol-v2.md §3)
         "start", "step", "status", "events", "headless",
+        # Phase 4.3: pack -> plugin generator
+        "pack",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
@@ -360,8 +362,8 @@ def main() -> None:
         from orchestrator_next.protocol import main as _protocol_main
         sys.exit(_protocol_main(args[0], args[1:]))
 
-    # Every verb except doctor needs a second argument.
-    if len(args) < 2 and args[0] != "doctor":
+    # Every verb except doctor/pack needs a second argument.
+    if len(args) < 2 and args[0] not in ("doctor", "pack"):
         _usage()
     # Workflow tokens (bare or pack/workflow) → run --schema <ref>.
     if args[0] in _wf_subcommands:
@@ -379,6 +381,10 @@ def main() -> None:
     if args[0] == "doctor":
         from orchestrator_next.doctor import _doctor_main
         sys.exit(_doctor_main(args[1:]))
+
+    if args[0] == "pack":
+        from orchestrator_next.pack_export import pack_export_cmd
+        sys.exit(pack_export_cmd(args[1:]))
 
     if args[0] == "report":
         from orchestrator_next.report import main as _report_main
