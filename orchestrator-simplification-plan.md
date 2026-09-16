@@ -158,13 +158,13 @@ steps:
 
 ## Phase 0 — Freeze and baseline (½ day)
 
-- [ ] Tag current `main` as `v0-two-driver`.
-- [ ] Record test count (540) and line count (9,597) as the baseline.
-- [ ] Write `docs/protocol-v2.md` from the sections above so every phase has a spec to point at.
-- [ ] Decide: `orchestrator run` (self-drive) is deprecated in favour of harness-driven + headless. Announce in README.
-- [ ] Tests must run via `.venv/bin/python -m pytest` — bare `pytest` picks homebrew python without dev extras and fakes 22 failures; pin in Makefile.
-- [ ] Commit working tree of `feat/acp-server` as WIP (20 `.claude/skills` deletions = Phase 4.4 done; `bridge.py` NOT committed — drop it).
-- [ ] gitignore `.pnpm-store/`.
+- [x] Tag current `main` as `v0-two-driver`.
+- [x] Record test count (538) and line count (9,597) as the baseline.
+- [x] Write `docs/protocol-v2.md` from the sections above so every phase has a spec to point at.
+- [x] Decide: `orchestrator run` (self-drive) is deprecated in favour of harness-driven + headless. Announce in README.
+- [x] Tests must run via `.venv/bin/python -m pytest` — bare `pytest` picks homebrew python without dev extras and fakes 22 failures; pin in Makefile.
+- [x] Commit working tree of `feat/acp-server` as WIP (20 `.claude/skills` deletions = Phase 4.4 done; `bridge.py` NOT committed — drop it).
+- [x] gitignore `.pnpm-store/`.
 
 **Exit:** protocol doc merged; nothing else changes.
 

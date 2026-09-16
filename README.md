@@ -3,6 +3,12 @@
 Config-driven, LLM-agnostic workflow engine for deterministic multi-step
 development workflows (design → implement → review → QA → learn).
 
+> **Deprecation notice:** `orchestrator run` (self-drive) and the
+> `next`/`done` exit-code protocol (exit codes 0-3) are deprecated in favor
+> of harness-driven `start`/`step`/`done` plus `--headless` mode. See
+> [`docs/protocol-v2.md`](docs/protocol-v2.md) for the new CLI protocol and
+> the v1 → v2 migration mapping.
+
 ## Get started
 
 ### 1. Install uv (if needed)
@@ -54,3 +60,15 @@ cd orchestrator
 See `AGENTS.md` (`CLAUDE.md` is a symlink) and `docs/distribution.md` for CLI
 reference, pack layout, model routing, ticketing env vars, and headless/CI
 notes.
+
+### Running tests
+
+```bash
+uv sync --extra dev
+.venv/bin/python -m pytest orchestrator_next/tests -q
+# or: make test
+```
+
+Use `.venv/bin/python -m pytest` (or `make test`) — a bare `pytest` on PATH
+may resolve to a system interpreter without the `acp`/dev extras installed,
+which silently fakes failures.

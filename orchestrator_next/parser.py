@@ -27,8 +27,8 @@ class ContractNotFoundError(ValueError):
 class AgentStepContract:
     """Contract for steps dispatched to an agent subprocess."""
     id: str
-    model: str | None
     instruction: str
+    model: str | None = None
     # Resolved prompt directory (skills/<name> or legacy step dir). Exported as
     # ORCHESTRATOR_PROMPT_DIR so learn can colocate scenarios beside the charter.
     prompt_dir: str | None = None
@@ -332,7 +332,6 @@ def _make_contract(
                     )
         return AgentStepContract(
             **shared,
-            model=data.get("model") or None,
             instruction=instruction,
             prompt_dir=prompt_dir,
             default_outputs=default_outputs,

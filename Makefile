@@ -67,4 +67,4 @@ stale: ## Detect stale/abandoned workflow state directories
 	fi
 
 test: ## Run orchestrator_next unit tests
-	@poetry run pytest -q
+	@.venv/bin/python -m pytest orchestrator_next/tests -q
