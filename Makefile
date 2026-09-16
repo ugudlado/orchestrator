@@ -62,8 +62,10 @@ stale: ## Detect stale/abandoned workflow state directories
 test: ## Run orchestrator_next unit tests
 	@.venv/bin/python -m pytest orchestrator_next/tests -q
 
+# CLAUDE_CODE_TYPES=<path to claude-code.d.ts> (from anthropics/claude-code mods/types) enables the typecheck
 plugin: ## Generate the Claude Code plugin dir from the local pack
-	@.venv/bin/python -m orchestrator_next.cli pack --target claude --out .tmp/plugin-claude
+	@.venv/bin/python -m orchestrator_next.cli pack --target claude --out .tmp/plugin-claude $(if $(CLAUDE_CODE_TYPES),--types $(CLAUDE_CODE_TYPES),)
 
 mod-check: plugin ## Type-check the generated Claude Mod hooks against claude-code.d.ts
-	@npx -y typescript@5 tsc -p .tmp/plugin-claude/tsconfig.json --noEmit
+	@test -f .tmp/plugin-claude/types/claude-code.d.ts || { echo "set CLAUDE_CODE_TYPES=<claude-code.d.ts> to typecheck"; exit 1; }
+	@$(or $(shell command -v tsc),npx -y typescript@5 tsc) -p .tmp/plugin-claude/tsconfig.json --noEmit
