@@ -28,7 +28,11 @@ from typing import Any
 REDACTED = "[redacted]"
 
 #: Sub-dicts of a step_history entry whose keys are contract-declared names.
-_SCANNED_SECTIONS = ("out", "in", "edits")
+#: `outputs` is the spelling record.py actually writes; `out` is the protocol
+#: v2 payload spelling. Both are scanned so either shape redacts. `evidence`
+#: nests a second copy of the same outputs under `evidence.outputs`, so it has
+#: to be scanned too — redact_mapping recurses from there.
+_SCANNED_SECTIONS = ("outputs", "out", "in", "edits", "evidence")
 
 #: Keys inside an artifact record that must survive redaction untouched.
 _ARTIFACT_KEYS = frozenset({"artifact", "path", "sha256"})

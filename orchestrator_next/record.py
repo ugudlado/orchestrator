@@ -18,6 +18,7 @@ import yaml
 
 from orchestrator_next.parser import AgentStepContract, ContractError, State, compute_attempt, load_contract_for_step, safe_write_yaml as _safe_write_yaml_base
 from orchestrator_next import readiness
+from orchestrator_next.redact import redact_entry
 from orchestrator_next.paths import ConfigRootError
 from orchestrator_next.pricing import _compute_cost_usd
 
@@ -933,6 +934,12 @@ def record(
         return (e.reason, e.code)
 
     entry = _build_history_entry(payload, step_id, phase, status, outputs, agent, state_raw)
+    # Strip contract-declared PII before the entry reaches the run doc. Must
+    # happen here: redact_entry returns a copy, and _apply_routing mutates the
+    # appended dict in place, so redacting after the append would edit a
+    # discarded object. `outputs` stays unredacted for _record_artifacts and
+    # routing — artifact paths and hashes are not PII (see redact.py).
+    entry = redact_entry(entry, getattr(contract, "pii", None) or [])
 
     state_patch = payload.get("state_patch")
     if isinstance(state_patch, dict):

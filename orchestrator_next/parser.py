@@ -55,6 +55,10 @@ class AgentStepContract:
     inputs: dict[str, dict] = field(default_factory=dict)   # contract `in:`
     outputs: dict[str, dict] = field(default_factory=dict)  # contract `out:`
     validate: str = ""  # shell script run after out: artifacts land
+    # Names from this step's in:/out: whose VALUES must never reach the run
+    # doc. record.py redacts them out of the history entry; artifact paths
+    # and hashes survive (see redact.py).
+    pii: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -72,6 +76,10 @@ class ScriptStepContract:
     inputs: dict[str, dict] = field(default_factory=dict)
     outputs: dict[str, dict] = field(default_factory=dict)
     validate: str = ""  # shell script run after out: artifacts land
+    # Names from this step's in:/out: whose VALUES must never reach the run
+    # doc. record.py redacts them out of the history entry; artifact paths
+    # and hashes survive (see redact.py).
+    pii: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -91,6 +99,10 @@ class GateStepContract:
     inputs: dict[str, dict] = field(default_factory=dict)
     outputs: dict[str, dict] = field(default_factory=dict)
     validate: str = ""  # shell script run after out: artifacts land
+    # Names from this step's in:/out: whose VALUES must never reach the run
+    # doc. record.py redacts them out of the history entry; artifact paths
+    # and hashes survive (see redact.py).
+    pii: list[str] = field(default_factory=list)
 
 
 StepContract = AgentStepContract | ScriptStepContract | GateStepContract
@@ -436,6 +448,7 @@ def _v2_fields(step_id: str, data: dict[str, Any]) -> dict[str, Any]:
         "inputs": _parse_io_map(step_id, "in", data.get("in")),
         "outputs": _parse_io_map(step_id, "out", data.get("out")),
         "validate": _validate_script(step_id, data.get("validate")),
+        "pii": _str_list(step_id, "pii", data.get("pii")),
     }
 
 
