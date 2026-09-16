@@ -492,6 +492,25 @@ def start(
         raise ProtocolError("missing <slug>")
     slug = slug.strip()
 
+    # Resume rather than re-seed: a second `start` on a live slug used to mint a
+    # fresh run_id and strand the first one mid-step, so a driver that calls
+    # `start` to pick a run back up (the Claude mod's `run` tool does) lost the
+    # work already recorded. An unresolvable slug falls through and seeds.
+    try:
+        existing = resolve_run(slug)
+    except ProtocolError:
+        existing = ""
+    if existing:
+        raw = yaml.safe_load(Path(existing).read_text(encoding="utf-8")) or {}
+        next_result, _code = step(existing)
+        return {
+            "run_id": str(raw.get("run_id") or ""),
+            "slug": slug.lower(),
+            "state": existing,
+            "resumed": True,
+            "next": next_result,
+        }, 0
+
     repo_root = os.environ.get("REPO_ROOT", "") or os.getcwd()
     try:
         config_pack, schema, cfg_root = resolve_workflow_ref(

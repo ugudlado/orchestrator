@@ -50,6 +50,25 @@ const MODELS: Record<string, string> = {
   code: 'sonnet',
 }
 
+/**
+ * The plugin's own name, from one of the tool names the engine handed back.
+ * `mcp__<plugin>__<tool>`; anything else yields `''` and leaves types bare.
+ */
+function pluginOf(tool: string): string {
+  const match = /^mcp__(.+)__[^_]+$/.exec(tool)
+
+  return match === null ? '' : match[1]
+}
+
+/**
+ * The agent type for a step: the pack's agents load under `<plugin>:<id>`,
+ * so that is what `$.agent.spawn` is asked for whenever the plugin's name is
+ * known. Falls back to the bare id only when it is not.
+ */
+function agentTypeOf(stepId: string): string {
+  return state.plugin === '' ? stepId : `${state.plugin}:${stepId}`
+}
+
 /** Exec steps batch inside one `step` call, so give the child ten minutes. */
 const STEP_TIMEOUT_MS = 600_000
 
@@ -104,6 +123,16 @@ const state = {
    * plugin's name is its manifest's, so nothing here guesses it.
    */
   served: { run: '', status: '' },
+
+  /**
+   * This plugin's name, read off a served tool name (`mcp__<plugin>__run`).
+   * A pack's agents load namespaced as `<plugin>:<step id>`, and
+   * `subagentType` takes the resolved name exactly (AgentSpawnInput,
+   * claude-code.d.ts:224), so a bare step id either misses or, worse,
+   * case-folds onto a built-in: asking for `explore` silently ran the
+   * engine's own `Explore` while `design` refused outright.
+   */
+  plugin: '',
 }
 
 export function register(on: On) {
@@ -153,6 +182,7 @@ export function register(on: On) {
 
     state.served.run = runTool.tool
     state.served.status = statusTool.tool
+    state.plugin = pluginOf(runTool.tool)
 
     $.ui.status('orchestrator: idle')
 
@@ -327,6 +357,17 @@ async function drive(
       lastStderr = answered.stderr
 
       if (answered.next === null) {
+        if (answered.unattended === true) {
+          return (
+            `orchestrator: ${start.slug} is waiting at gate ${gate.step_id}; ` +
+            'there is nobody to ask in this session, so the run is left ' +
+            'standing. Approve it from a shell:\n' +
+            `  orchestrator status ${start.slug} --json\n` +
+            `  orchestrator approve ${start.slug} <token>\n` +
+            'then run this recipe on the same slug again to resume.'
+          )
+        }
+
         return (
           `orchestrator: ${start.slug} cancelled at gate ${gate.step_id}.` +
           (answered.stderr === '' ? '' : `\nstderr: ${answered.stderr}`)
@@ -357,7 +398,7 @@ async function runJudgment(
   const stepId = payload.step_id
 
   const spawned = await $.agent.spawn({
-    subagentType: stepId,
+    subagentType: agentTypeOf(stepId),
     model: payload.model === undefined ? undefined : MODELS[payload.model],
     cwd: payload.cwd,
     description: stepId,
@@ -449,15 +490,27 @@ async function runGate(
   cli: Cli,
   run: string,
   gate: GatePayload,
-): Promise<{ next: StepResult | null; stderr: string }> {
+): Promise<{ next: StepResult | null; stderr: string; unattended?: boolean }> {
   const shown = (gate.show ?? []).join(', ')
 
   const question =
     `Approve ${gate.step_id}?` + (shown === '' ? '' : ` (review: ${shown})`)
 
-  const answer = await $.ui
-    .ask(question, { options: ['approve', 'cancel'], header: 'gate' })
-    .catch(() => 'cancel')
+  // `$.ui.ask` rejects both when the person dismisses it and in a `-p` run
+  // where there is nobody to ask (claude-code.d.ts:1908). Those are not the
+  // same answer: a dismissal is a cancel, but an unattended run must leave
+  // the gate standing for `orchestrator approve` from a shell rather than
+  // destroy the run. Neither case is consent, so only the literal label is.
+  let answer: string
+
+  try {
+    answer = await $.ui.ask(question, {
+      options: ['approve', 'cancel'],
+      header: 'gate',
+    })
+  } catch {
+    return { next: null, stderr: '', unattended: true }
+  }
 
   if (answer !== 'approve') {
     const ran = await cli(['orchestrator', 'cancel', run, '--json'])

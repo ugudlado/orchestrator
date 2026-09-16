@@ -234,3 +234,30 @@ def test_step_on_unknown_run_is_an_engine_error(pack, capsys):
     assert code == protocol.EXIT_ERROR
     printed = json.loads(capsys.readouterr().out)
     assert printed["status"] == "error"
+
+
+def test_start_on_a_live_slug_resumes_rather_than_reseeds(pack, repo):
+    """A second ``start`` on the same slug picks the run back up.
+
+    It used to mint a fresh ``run_id`` and strand the first run mid-step, so a
+    driver that calls ``start`` to resume (the Claude mod's ``run`` tool does)
+    silently lost every step already recorded.
+    """
+    first, code = protocol.start("mini", "p-resume")
+    assert code == 0
+    assert first.get("resumed") is not True
+
+    second, code = protocol.start("mini", "p-resume")
+    assert code == 0
+    assert second["resumed"] is True
+    assert second["run_id"] == first["run_id"]
+    assert second["state"] == first["state"]
+    assert second["next"]["step_id"] == first["next"]["step_id"]
+
+
+def test_start_on_an_unknown_slug_still_seeds(pack, repo):
+    """The resume path must not swallow a genuinely new run."""
+    result, code = protocol.start("mini", "p-fresh")
+    assert code == 0
+    assert result.get("resumed") is not True
+    assert result["run_id"]
