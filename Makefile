@@ -1,4 +1,4 @@
-.PHONY: setup install onboard install-cli use-local doctor stale help test
+.PHONY: use-local doctor stale help test plugin mod-check
 
 # Default target
 .DEFAULT_GOAL := help
@@ -7,13 +7,6 @@ ORCHESTRATOR_HOME ?= $(HOME)/.config/orchestrator
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[32m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
-
-setup: onboard ## Alias for onboard
-
-onboard: ## Repo-local install: CLI → ~/.local/bin, vendor config/
-	@bash ./install.sh
-
-install: onboard ## Alias for onboard
 
 use-local: ## Point ORCHESTRATOR_HOME at this repo (run from any repo with a config/ dir)
 	@PROFILE=$${SHELL_PROFILE:-$(HOME)/.zshrc}; \
@@ -68,3 +61,9 @@ stale: ## Detect stale/abandoned workflow state directories
 
 test: ## Run orchestrator_next unit tests
 	@.venv/bin/python -m pytest orchestrator_next/tests -q
+
+plugin: ## Generate the Claude Code plugin dir from the local pack
+	@.venv/bin/python -m orchestrator_next.cli pack --target claude --out .tmp/plugin-claude
+
+mod-check: plugin ## Type-check the generated Claude Mod hooks against claude-code.d.ts
+	@npx -y typescript@5 tsc -p .tmp/plugin-claude/tsconfig.json --noEmit

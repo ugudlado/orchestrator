@@ -77,10 +77,16 @@ First hit wins:
 1. `ORCHESTRATOR_CONFIG` (explicit pack root)
 2. Exactly one `.orchestrator/<pack>/` with `workflows/`
 3. Multiple packs → must use `<pack>/<workflow>` (or set `ORCHESTRATOR_CONFIG`)
-4. Engine checkout `config/` (dev)
-5. `~/.orchestrator/pack/config` (legacy global)
+
+No implicit fallback: the engine checkout's `config/` and
+`~/.orchestrator/pack/config` were removed (plan phase 3.2) so a run can always
+name the pulled, locked pack it came from.
 
 `orchestrator config-path` prints the active root.
+`orchestrator config update [pack] [--yes]` re-pulls the locked source and
+diffs each step's contract (`version`, `kind`, `tools`, `side_effects`) before
+anything is written. Remote pulls require an `[[allow]]` entry in
+`~/.orchestrator/trust.toml` (`ORCHESTRATOR_TRUST_ALL=1` bypasses).
 
 Optional: `BACKLOG_URL` / `BACKLOG_TOKEN` / `BACKLOG_PROJECT` for ticket sync
 (unset → ticket steps no-op). Cloud/headless: see
@@ -92,7 +98,6 @@ Optional: `BACKLOG_URL` / `BACKLOG_TOKEN` / `BACKLOG_PROJECT` for ticket sync
 
 ```text
 orchestrator/
-├── bin/orchestrator
 ├── orchestrator_next/          # Python package (CLI, dispatch, pack pull)
 ├── docs/                       # distribution.md, cloud-environment.md, …
 ├── AGENTS.md                   # this file (CLAUDE.md → symlink)

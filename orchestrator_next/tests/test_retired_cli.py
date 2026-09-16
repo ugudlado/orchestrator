@@ -127,7 +127,6 @@ class TestNoProductionReferencesToRetiredVerbs(unittest.TestCase):
                 "rg",
                 "-l",
                 "orchestrator (cost|metrics)",
-                "bin/",
                 "orchestrator_next/",
                 "--glob",
                 "!**/archive/**",

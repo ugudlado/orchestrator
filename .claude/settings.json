@@ -6,7 +6,6 @@
       "Bash(pip install:*)",
       "Bash(npm i:*)",
       "Bash(git push:*)",
-      "Bash(python bin/orchestrator:*)",
       "Edit(./**)",
       "Skill",
       "WebFetch",

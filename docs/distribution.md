@@ -8,13 +8,7 @@ Two repos: [`orchestrator`](https://github.com/ugudlado/orchestrator) (engine, i
 
 ## Steps: another person / another repo, today
 
-**From an orchestrator checkout** (repo-local; no shell-profile edits):
-
-```bash
-./install.sh    # make onboard — CLI + vendored config
-```
-
-**Wheel + per-repo pack** (no engine checkout):
+**Wheel + per-repo pack** — the only install path (no engine checkout needed):
 
 ```bash
 # 1. Install the CLI (uv keeps it isolated; pipx also works)
@@ -36,7 +30,7 @@ orchestrator feature TICKET-1
 # multiple packs: orchestrator mypack/feature TICKET-1
 ```
 
-Config resolution (first hit wins, repo→global): `ORCHESTRATOR_CONFIG` env → exactly one `<repo>/.orchestrator/<pack>/` (legacy flat `.orchestrator/` / `.orchestrator/config/` still accepted) → dev-checkout `config/` → `~/.orchestrator/pack/config` (downloaded pack). Multiple packs under `.orchestrator/` with no env → hard error: pass `orchestrator <pack>/<workflow> <id>` or set `ORCHESTRATOR_CONFIG`. No hit → hard error with the `config pull` one-liner. `doctor` reports which source resolved. Each pulled pack carries `workflows/`, `steps/` (agent steps include `SKILL.md`), and `models.yaml`.
+Config resolution (first hit wins): `ORCHESTRATOR_CONFIG` env → exactly one `<repo>/.orchestrator/<pack>/` (legacy flat `.orchestrator/` / `.orchestrator/config/` still accepted). The dev-checkout `config/` and `~/.orchestrator/pack/config` fallbacks were removed in plan phase 3.2 — a run must be able to name the locked pack it came from. Multiple packs under `.orchestrator/` with no env → hard error: pass `orchestrator <pack>/<workflow> <id>` or set `ORCHESTRATOR_CONFIG`. No hit → hard error with the `config pull` one-liner. `doctor` reports which source resolved. Each pulled pack carries `workflows/`, `steps/` (agent steps include `SKILL.md`), and `models.yaml`.
 
 Per-repo customization without forking the engine:
 
@@ -44,6 +38,31 @@ Per-repo customization without forking the engine:
 - **Quality gates & verify commands**: gate thresholds are step-owned (vendor the pack to change them); review/QA steps discover the repo's test/lint commands from its own docs and manifests. Repos should also carry commit-time verification (pre-commit/husky/biome) — doctor WARNs when none is present, so breakage is caught at commit, not only at the QA gate.
 - **Ticketing**: env-driven — `BACKLOG_URL`+`BACKLOG_TOKEN` present means backlog; unset means ticket steps skip cleanly. The engine and doctor have zero ticketing logic; workflow scripts own it, so new backends are a script change.
 - **Headless/CI**: `ORCHESTRATOR_NOTIFY_CMD` pipes a blocked-run event to any shell command. Durability is the RunStore, not git — state lives in the local SQLite db (`~/.orchestrator/orchestrator.db`) for the run's lifetime; per-machine by default, or central via `ORCHESTRATOR_STATE_URL` (`orchestrator doctor` checks the store opens).
+
+## Pack trust and the lock
+
+A pack is executable content, so a **remote** `config pull` is refused unless
+`~/.orchestrator/trust.toml` lists the source:
+
+```toml
+require_signed = false      # true → the pulled ref must pass git verify-tag/commit
+
+[[allow]]
+source = "https://github.com/ugudlado/*"    # fnmatch glob
+```
+
+A **local path** source is always allowed (the trust list governs the network).
+`ORCHESTRATOR_TRUST_ALL=1` bypasses every check — for dev and tests.
+
+Each pull writes `<repo>/.orchestrator/<pack>/config-lock.yaml`: the `source`,
+the `commit` (the source repo's git HEAD, or a sha256 of the pulled tree when
+there is none), `pulled_at`, and `steps: {<step_id>: <contract version>}`.
+`orchestrator config update [pack]` re-pulls that recorded source into a temp
+dir and prints a per-step diff of `version` / `kind` / `tools` /
+`side_effects` — a pack bump that widens a step's tools or adds a `write:`
+side effect is visible before it lands. Nothing is written without `--yes`.
+`orchestrator doctor` reports missing locks, untrusted sources, and a pack
+that has drifted from its locked commit (someone hand-edited the pulled copy).
 
 Upgrades: `uv tool upgrade orchestrator` (or reinstall from git). Config ships with the wheel, so engine+config always match.
 
@@ -77,7 +96,7 @@ The real prerequisite is the **agent CLI binaries themselves**: pack defaults ne
 3. **Tagged releases** — cut `v0.x` git tags so installs are pinnable (`uv tool install git+...@v0.3`) and upgrades are deliberate. No PyPI needed until there's an external audience; git tags are free.
 4. **`doctor` as the onboarding contract** — make `orchestrator doctor` verify exactly the setup steps above (config resolvable, git repo, commit-time verification present). Every future "setup didn't work" report becomes a missing doctor check.
 5. **Doctor: verify agent CLI binaries** — resolve every alias used by the installed contracts through the model-routing layers and check each `tool` binary is on PATH. Today a missing `cursor-agent` fails mid-workflow at the implement step instead of at `doctor` time; the fix message should show the `~/.orchestrator/models.yaml` reroute example.
-6. **README quickstart** — the four-command block above belongs at the top of the repo README for people who don't have this doc.
+6. **README quickstart** — DONE: the install/pull/run block above is now at the top of the repo README.
 7. **Per-repo workflow overrides** — pull another pack into `<repo>/.orchestrator/<pack>/` (`orchestrator config pull … <pack>`). A repo can hold multiple packs side by side; disambiguate runs with `<pack>/<workflow>`. Whole-pack only, deliberately — per-step overlay merging (the old config-repo-split plan) stays dead until a real consumer needs partial overrides.
 
 ## Orca integration
