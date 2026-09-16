@@ -4,7 +4,7 @@
 ORCHESTRATOR_MODELS_CONFIG for the process. That file is the highest-precedence
 YAML layer in model_routes._layer_chain — above config-root and
 ~/.orchestrator/models.yaml — so a one-off file can override tiers,
-step_models, and tools for a single invocation.
+step_models, and fallback chains for a single invocation.
 """
 from __future__ import annotations
 

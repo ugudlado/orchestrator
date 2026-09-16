@@ -306,14 +306,26 @@ Config knobs: `ORCHESTRATOR_STATE_URL`, `ORCHESTRATOR_MAX_PARALLEL`.
 
 ## Phase 4 — Surfaces
 
-### 4.1 Claude Mod (early access; keep plugin+skill path until GA)
+### 4.1 Claude Code plugin (Mod API verified NOT to exist, Sept 2026)
 
-- [ ] `hooks/hooks.json` → `modules: ["./orchestrator.ts"]`.
-- [ ] `tool.register("orchestrator.run")`: loop over `step`; on `judgment` → `$.agent.spawn({model: MODELS[alias], system, tools, cwd, input, schema, maxTurns})`; on `gate` → `$.ui.ask`; on `needs_you` → report and stop.
-- [ ] `tool.call` wrapper on connector/write tools: deny unless current gate token in `$.store`.
-- [ ] `ui.render AbovePrompt`: step list with status/attempts/cost from `status --json`.
-- [ ] Alias→model table in `$.store` with fallback chains; record actual model in `--usage`.
-- [ ] Register token-check handler as early as possible (outer in the onion).
+Verified against code.claude.com/docs/en/plugins-reference + hooks: no
+`modules:` loader, no `tool.register`/`$.agent.spawn`/`$.ui.ask`. Use the
+plugin primitives that do exist:
+
+- [ ] `.claude-plugin/plugin.json` + `skills/orchestrate/SKILL.md`: the skill
+      drives the loop via Bash — `orchestrator step --json`; on `judgment` →
+      Agent tool with `subagent_type: <step_id>`; on `gate` → AskUserQuestion
+      (approve / edit / cancel) then `orchestrator approve`; on `needs_you` →
+      report and stop.
+- [ ] `agents/<step_id>.md` generated from each pack step (SKILL.md body +
+      `tools:` allowlist + `model:` alias mapped via models.yaml). Fresh
+      context per step = principle 3.
+- [ ] `hooks/hooks.json` PreToolUse on write-capable tools (Edit/Write/Bash
+      git push, MCP write tools): deny unless the current run's gate token
+      is present (`orchestrator status --json` → `gate_token`).
+- [ ] Status pane: no native API. `orchestrator status` printed by the skill
+      after each step; optional monitor of the run's events file.
+- [ ] Usage: subagent result carries usage; skill passes it to `done --usage`.
 
 ### 4.2 Codex plugin
 
@@ -354,7 +366,7 @@ Config knobs: `ORCHESTRATOR_STATE_URL`, `ORCHESTRATOR_MAX_PARALLEL`.
 
 ## Risks
 
-- **Mod API drift** — early access, may change without notice. Mitigation: plugin+skill path stays first-class until GA; Mod is additive.
+- **Mod API** — does not exist (verified Sept 2026); plugin+skill+hooks is the only path. Structured subagent output must be parsed from the agent's final message, not a schema.
 - **Contract migration of 23 steps** — mechanical but wide. Mitigation: `kind` inference and a `--legacy-completion` flag during Phase 1–2 so steps migrate one at a time.
 - **Gate fatigue** — measured via `v_gate_stats`; tune which steps gate per recipe, not globally.
 - **Headless tool runner scope creep** — cap at `fs`, `shell`, `git`; anything else is an exec skill.

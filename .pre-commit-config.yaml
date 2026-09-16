@@ -37,7 +37,7 @@ repos:
       # test still shows up as unused (mirrors backlog's knip --production).
       - id: vulture
         name: vulture
-        entry: bash -c 'poetry run vulture orchestrator_next --exclude orchestrator_next/tests,orchestrator_next/.pytest_cache --min-confidence 80'
+        entry: bash -c '"$(pwd)/.venv/bin/vulture" orchestrator_next --exclude orchestrator_next/tests,orchestrator_next/.pytest_cache --min-confidence 80'
         language: system
         pass_filenames: false
         types: [python]

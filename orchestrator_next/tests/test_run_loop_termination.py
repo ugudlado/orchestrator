@@ -6,8 +6,8 @@ The ONLY termination mechanism for a repeatedly-failing agent is the spawn-
 failure cap (dispatch._is_spawn_failure → quality_bar.max_spawn_failures), and
 that requires the failed payload to carry usage model="none" + zero tokens.
 
-A fake `claude` that ALWAYS emits a bad COMPLETION must drive run_loop to a
-BOUNDED exit, capped at max_spawn_failures attempts. The state.yaml step_history
+A fake agent runner that ALWAYS emits a bad COMPLETION must drive run_loop to
+a BOUNDED exit, capped at max_spawn_failures attempts. The state.yaml step_history
 length is the hard ceiling — if the loop spun, history would blow past the cap
 (and pytest's own run would hang, which is itself the loud failure).
 """
@@ -30,12 +30,11 @@ def test_persistently_failing_agent_terminates(tmp_path, monkeypatch):
     (repo / "spec").mkdir(parents=True)
     (repo / "README.md").write_text("repo\n")
 
-    # Fake claude that NEVER emits a valid COMPLETION block.
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    bad = bin_dir / "claude"
-    bad.write_text("#!/usr/bin/env bash\necho '{\"type\":\"result\",\"result\":\"no completion\"}'\n")
-    bad.chmod(0o755)
+    # Fake agent runner that NEVER emits a valid COMPLETION block.
+    monkeypatch.setattr(
+        run_loop, "AGENT_RUNNER",
+        lambda payload: {"assistant_text": "no completion", **run_loop.ZEROED_USAGE},
+    )
 
     # Agent contract via override dir.
     contracts = tmp_path / "c"
@@ -55,7 +54,6 @@ def test_persistently_failing_agent_terminates(tmp_path, monkeypatch):
         ("bad-agent",),
         alias="opus",
         models={"opus": {"model_id": "claude-opus-4-7", "tool": "claude"}},
-        tools={"claude": {"binary": str(bad), "args_template": ["-p", "{prompt}"]}},
     )
 
     sd = repo / ".orchestrator" / "term"
@@ -121,7 +119,7 @@ def test_malformed_contract_returns_exit_3_not_crash(tmp_path, monkeypatch):
 
 
 def test_spawn_failure_cap_halts(tmp_path, monkeypatch):
-    """Ported from spawn_failure_halt.bats: an agent whose tool ALWAYS exits 1
+    """Ported from spawn_failure_halt.bats: an agent whose runner ALWAYS raises
     (a spawn failure: model=none, zero tokens) must trip the spawn-failure cap
     and halt the workflow (exit 2), not spin. This exercises the path that
     _failed_payload's usage model='none' shape makes countable."""
@@ -129,14 +127,15 @@ def test_spawn_failure_cap_halts(tmp_path, monkeypatch):
     (repo / "spec").mkdir(parents=True)
     (repo / "README.md").write_text("repo\n")
 
-    # claude that ALWAYS exits 1 with empty stdout — the spawn-failure signal.
-    bin_dir = tmp_path / "bin"; bin_dir.mkdir()
-    bad = bin_dir / "claude"
-    bad.write_text("#!/usr/bin/env bash\nexit 1\n")
-    bad.chmod(0o755)
+    # A runner that ALWAYS blows up — the spawn-failure signal.
+    def _boom(_payload):
+        raise RuntimeError("runner unavailable")
+
+    monkeypatch.setattr(run_loop, "AGENT_RUNNER", _boom)
 
     contracts = tmp_path / "c"
-    d = contracts / "spawner"; d.mkdir(parents=True)
+    d = contracts / "spawner"
+    d.mkdir(parents=True)
     (d / "contract.yaml").write_text(yaml.safe_dump({
         "id": "spawner", "version": 2,
         "instruction": "x", "outputs": [],
@@ -151,10 +150,10 @@ def test_spawn_failure_cap_halts(tmp_path, monkeypatch):
         ("spawner",),
         alias="opus",
         models={"opus": {"model_id": "claude-opus-4-7", "tool": "claude"}},
-        tools={"claude": {"binary": str(bad), "args_template": ["-p", "{prompt}"]}},
     )
 
-    sd = repo / ".orchestrator" / "spawn"; sd.mkdir(parents=True)
+    sd = repo / ".orchestrator" / "spawn"
+    sd.mkdir(parents=True)
     sy = sd / "20260101T000000_feature_state.yaml"
     # on_failure points back to itself → re-dispatches → accumulates spawn failures.
     sy.write_text(yaml.safe_dump({

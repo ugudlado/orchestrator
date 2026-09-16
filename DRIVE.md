@@ -5,8 +5,9 @@ for an orchestrator workflow. The orchestrator engine computes the next step; **
 execute it with your own model.** No subprocess is spawned, no per-step model routing —
 you are the agent for every step.
 
-This is the cloud/Slack path. The local path (`orchestrator run`) self-drives by
-spawning per-step model subprocesses; ignore that here.
+This is the cloud/Slack path. The engine no longer spawns vendor CLIs at all —
+`orchestrator run` reaches a model through a single agent-runner seam. See
+`docs/protocol-v2.md` for the target protocol.
 
 ---
 
@@ -179,6 +180,6 @@ state on the remote, a blocked workflow **cannot be resumed** — it must be re-
 
 ## What you are NOT doing
 
-- Not spawning `claude`/`pi`/`cursor` subprocesses — **you** are the model for every step.
+- **You** are the model for every step; the engine never spawns a vendor CLI.
 - Not using `models.yaml` per-step routing — one session, one model, by design.
 - Not relying on the engine for ticket transitions — that's you, via MCP.

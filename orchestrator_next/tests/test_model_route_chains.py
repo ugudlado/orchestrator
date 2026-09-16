@@ -59,7 +59,6 @@ def test_chain_picks_first_available_candidate(monkeypatch, tmp_path, real_binar
             {"tool": "cursor", "model_id": "composer-2.5"},
             {"tool": "claude", "model_id": "claude-sonnet-4-6"},
         ]},
-        tools={"cursor": {"binary": "cursor-agent"}, "claude": {"binary": "claude"}},
     )
     _setup_home(monkeypatch, home)
     _no_env_overrides(monkeypatch)
@@ -86,7 +85,6 @@ def test_chain_falls_back_to_second_candidate_when_first_binary_absent(monkeypat
             {"tool": "cursor", "model_id": "composer-2.5"},
             {"tool": "claude", "model_id": "claude-sonnet-4-6"},
         ]},
-        tools={"cursor": {"binary": "cursor-agent"}, "claude": {"binary": "claude"}},
     )
     _setup_home(monkeypatch, home)
     _no_env_overrides(monkeypatch)
@@ -112,7 +110,6 @@ def test_chain_exhausted_yields_empty_route(monkeypatch, tmp_path):
             {"tool": "cursor", "model_id": "composer-2.5"},
             {"tool": "claude", "model_id": "claude-sonnet-4-6"},
         ]},
-        tools={"cursor": {"binary": "cursor-agent"}, "claude": {"binary": "claude"}},
     )
     _setup_home(monkeypatch, home)
     _no_env_overrides(monkeypatch)
@@ -139,7 +136,7 @@ def test_run_loop_raises_exit_4_when_chain_exhausted(monkeypatch, tmp_path):
     with pytest.raises(SystemExit) as exc_info:
         run_agent_step(
             action, repo_root=str(tmp_path), models_yaml=str(routes_yaml),
-            state_raw={}, state_yaml_path=str(tmp_path / "state.yaml"), tmp_dir=tmp_path,
+            state_raw={}, state_yaml_path=str(tmp_path / "state.yaml"),
         )
     assert exc_info.value.code == 4
 

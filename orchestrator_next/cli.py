@@ -35,10 +35,6 @@ def _usage() -> None:
         "      Input is opaque (ticket id or free text); prints run_id= on start.\n"
         "      Resume: `orchestrator feature <run_id> \"your feedback\"`.\n"
         "      Ambiguous names: `orchestrator mypack/feature …`.\n"
-        "  orchestrator research \"<prompt>\"\n"
-        "      Session-driven research. Prints session_id.\n"
-        "  orchestrator --resume <session_id> [\"optional input\"]\n"
-        "      Resume a session: answer await_input, retry failed, or continue.\n"
         "  orchestrator config pull <git-or-path> [pack] [--skills] [--ref REF]\n"
         "      Install into .orchestrator/<pack>/ (pack defaults to source basename).\n"
         "  orchestrator doctor [--models-config PATH]\n"
@@ -294,17 +290,6 @@ def main() -> None:
     from orchestrator_next.models_config_cli import consume_models_config_argv
 
     args = sys.argv[1:]
-    # Global --resume before verb routing (session-driven ACP).
-    if args and args[0] == "--resume":
-        if len(args) < 2:
-            print(
-                'usage: orchestrator --resume <session_id> ["optional input"]',
-                file=sys.stderr,
-            )
-            sys.exit(7)
-        from orchestrator_next.session_cli import resume_main
-        _default_repo_root_env()
-        sys.exit(resume_main(args[1], " ".join(args[2:]).strip()))
     # config-path needs no config root set — it's how you discover the value
     # to put in ORCHESTRATOR_CONFIG in the first place.
     if args and args[0] == "config-path":
@@ -342,10 +327,6 @@ def main() -> None:
     if args[0] == "state":
         sys.exit(_state_verb(args[1:]))
 
-    # Session-driven schemas (research): session_cli, not the ticket run path.
-    from orchestrator_next.session_cli import is_session_schema, start_schema_main
-    if args[0] in _wf_subcommands and is_session_schema(args[0]):
-        sys.exit(start_schema_main(args[0], args[1:]))
     # Every verb except doctor needs a second argument.
     if len(args) < 2 and args[0] != "doctor":
         _usage()
@@ -429,16 +410,6 @@ def main() -> None:
 
     # --- Agent path (exit 0 + JSON with model key) ---
     if action.get("model"):
-        roster_path = os.environ.get("ORCHESTRATOR_ROSTER")
-        if roster_path:
-            from orchestrator_next.buzz_adapter import BuzzRosterError, enrich_action
-
-            try:
-                action = enrich_action(action, roster_path)
-            except BuzzRosterError as exc:
-                print(f"error: {exc}", file=sys.stderr)
-                sys.exit(3)
-
         from datetime import datetime, timezone
         _started_at = action.get("started_at") or datetime.now(timezone.utc).isoformat()
         try:

@@ -157,15 +157,19 @@ def test_contract_aliases_resolve_warns_on_unrouted_alias(tmp_path, monkeypatch)
     assert "gpt5-turbo" in result.detail
 
 
-def test_contract_aliases_resolve_warns_when_binary_missing(tmp_path, monkeypatch):
+def test_contract_aliases_resolve_warns_when_alias_has_no_route(tmp_path, monkeypatch):
+    """An alias with no entry in any layer is a config fault and must WARN.
+
+    A binary missing from PATH is NOT: the engine does not spawn a vendor CLI,
+    so machine state says nothing about whether the config resolves.
+    """
     home = tmp_path / "home"
     monkeypatch.setattr(Path, "home", lambda: home)
     monkeypatch.delenv("ORCHESTRATOR_MODELS_CONFIG", raising=False)
-    monkeypatch.setenv("PATH", "/nonexistent-empty-dir")  # claude not on PATH
 
     _write_models(
         tmp_path / "models.yaml",
-        {"strong": {"tool": "claude", "model_id": "claude-opus-5"}},
+        {"other": {"tool": "claude", "model_id": "claude-opus-5"}},
         step_models={"my-step": "strong"},
     )
     _write_contract(tmp_path / "steps", "my-step", prompt="SKILL.md")
@@ -173,6 +177,4 @@ def test_contract_aliases_resolve_warns_when_binary_missing(tmp_path, monkeypatc
     result = check_contract_aliases_resolve(tmp_path)
     assert result.status == "WARN"
     assert "strong" in result.detail
-    assert "claude" in result.detail
-    assert "~/.orchestrator/models.yaml" in result.detail
-    assert "tool" in result.detail
+    assert "no route" in result.detail

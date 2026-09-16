@@ -44,11 +44,6 @@ def _step_models_map(path: str | None) -> dict[str, Any]:
     return step_models if isinstance(step_models, dict) else {}
 
 
-def _tools_map(path: str | None) -> dict[str, Any]:
-    tools = _load_yaml(path).get("tools")
-    return tools if isinstance(tools, dict) else {}
-
-
 def user_models_path() -> Path:
     """User-level model routing override at ~/.orchestrator/models.yaml."""
     return Path.home() / ".orchestrator" / "models.yaml"
@@ -71,62 +66,6 @@ def _layer_chain(routes_yaml: str | None) -> list[tuple[str, str]]:
     }
     is_global = bool(routes_yaml) and Path(routes_yaml).resolve() in global_floors
     return [cfg, home, env] if is_global else [home, cfg, env]
-
-
-def resolve_tool_template(tool_name: str, routes_yaml: str | None) -> tuple[str, list[str]]:
-    """Return (binary, args_template) for `tool_name` from the layered `tools:`
-    block (same `_layer_chain` precedence as `models:`).
-
-    Wholesale-wins: the highest-precedence layer that defines `tool_name` owns
-    its entire entry — no cross-layer field merge (same rule as D3's `models:`
-    resolution). Falls back to (tool_name, []) when no layer defines it, so
-    callers keep working with a bare binary name on PATH.
-    """
-    # _layer_chain is lowest-to-highest precedence; walk highest-first so the
-    # first layer that names the tool wins wholesale.
-    for _label, path in reversed(_layer_chain(routes_yaml)):
-        entry = _tools_map(path).get(tool_name)
-        if isinstance(entry, dict):
-            binary = entry.get("binary") or tool_name
-            template = entry.get("args_template") or []
-            return binary, list(template)
-    return tool_name, []
-
-
-def resolve_tool_spec(tool_name: str, routes_yaml: str | None) -> dict[str, Any]:
-    """Return the full `tools.<tool_name>` entry, resolved wholesale-wins.
-
-    Superset of `resolve_tool_template`, which stays as-is so every existing
-    caller and test keeps its exact tuple contract. This one exposes the whole
-    entry so a transport can be selected without the caller re-reading YAML:
-
-        tools:
-          claude:                       # ACP transport
-            binary: npx
-            transport: acp
-            acp_args: ["-y", "@zed-industries/claude-agent-acp"]
-          claude-cli:                   # legacy argv transport (unchanged)
-            binary: claude
-            args_template: ["--model", "{model_id}", "-p", ...]
-
-    `transport` defaults to "argv" so an entry that predates ACP behaves
-    exactly as before — this is an additive field, not a migration.
-    """
-    for _label, path in reversed(_layer_chain(routes_yaml)):
-        entry = _tools_map(path).get(tool_name)
-        if isinstance(entry, dict):
-            spec = dict(entry)
-            spec.setdefault("binary", tool_name)
-            spec.setdefault("args_template", [])
-            spec.setdefault("transport", "argv")
-            spec.setdefault("acp_args", [])
-            return spec
-    return {
-        "binary": tool_name,
-        "args_template": [],
-        "transport": "argv",
-        "acp_args": [],
-    }
 
 
 def _winning_alias_entry(alias: str, routes_yaml: str | None) -> tuple[Any, str]:
@@ -155,10 +94,15 @@ def _winning_alias_entry(alias: str, routes_yaml: str | None) -> tuple[Any, str]
     return None, ""
 
 
-def _binary_on_path(tool_name: str, routes_yaml: str | None) -> bool:
+def _binary_on_path(tool_name: str) -> bool:
+    """Is this candidate's backend available locally?
+
+    Fallback chains PATH-gate on the tool name itself. The `tools:` block that
+    used to map a tool to a binary + argv template went away with vendor
+    spawning; a chain candidate now names its backend directly.
+    """
     import shutil
-    binary, _template = resolve_tool_template(tool_name, routes_yaml)
-    return bool(shutil.which(binary))
+    return bool(shutil.which(tool_name))
 
 
 def resolve_step_alias(
@@ -200,8 +144,7 @@ def resolve_route(alias: str, routes_yaml: str | None) -> dict[str, Any]:
         it must never silently become "no route" (exit 4). This preserves
         today's behavior for every alias that hasn't opted into a chain.
       - list route (chain)   → PATH-gated; the first candidate whose
-        `tool`'s tools:-resolved binary is on PATH wins. If every
-        candidate's binary is absent, tool/model_id come back "" so the
+        `tool` is on PATH wins. If every candidate's tool is absent, tool/model_id come back "" so the
         run_loop caller raises the existing no-route error (exit 4).
 
     ORCHESTRATOR_MODEL_ROUTE_OVERRIDES (JSON env) and CLI model.<alias>.<field>=
@@ -217,7 +160,7 @@ def resolve_route(alias: str, routes_yaml: str | None) -> dict[str, Any]:
         chosen, chosen_idx = None, -1
         for idx, cand in enumerate(candidates):
             tool = cand.get("tool")
-            if tool and _binary_on_path(str(tool), routes_yaml):
+            if tool and _binary_on_path(str(tool)):
                 chosen, chosen_idx = cand, idx
                 break
         entry = chosen or {}

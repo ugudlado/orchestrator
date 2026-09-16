@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from orchestrator_next.doctor import check_no_silent_fallback, check_tools_available
+from orchestrator_next.doctor import check_no_silent_fallback
 
 
 def _write_models(path: Path, models: dict, tools: dict | None = None) -> None:
@@ -55,21 +55,3 @@ def test_warns_when_alias_on_fallback_candidate(monkeypatch, tmp_path):
     result = check_no_silent_fallback(config_root)
     assert result.status == "WARN"
     assert "composer" in result.detail
-
-
-def test_check_tools_available_handles_chain_aliases(monkeypatch, tmp_path):
-    """RULE 3 must not silently drop list-shaped (chain) aliases from the
-    PATH check — every subprocess named anywhere in a chain should count."""
-    config_root = tmp_path / "config"
-    # check_tools_available reads config_root/models.yaml directly (not
-    # layered), so no Path.home() isolation is needed here — but keep PATH clean.
-    monkeypatch.setenv("PATH", "/nonexistent-empty-dir")
-    _write_models(config_root / "models.yaml", {"composer": [
-        {"tool": "cursor", "model_id": "composer-2.5"},
-        {"tool": "claude", "model_id": "claude-sonnet-4-6"},
-    ]})
-
-    result = check_tools_available(config_root)
-    assert result.status == "WARN"
-    assert "cursor" in result.detail
-    assert "claude" in result.detail

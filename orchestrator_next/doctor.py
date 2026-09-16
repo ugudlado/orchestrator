@@ -246,37 +246,6 @@ def check_step_dispatch_kind(config_root: Path) -> CheckResult:
     return CheckResult("step dispatch kind", "PASS", "all steps are agent- or script-driven")
 
 
-def check_tools_available(config_root: Path) -> CheckResult:
-    """RULE 3 (WARN): every distinct tool: in models.yaml is on PATH.
-
-    WARN, not FAIL: a config is valid even if a backend (e.g. cursor) is not
-    installed on this machine — that's machine state, not config integrity.
-    """
-    import shutil
-
-    models_yaml = config_root / "models.yaml"
-    if not models_yaml.is_file():
-        return CheckResult("tools available", "WARN", "models.yaml not found")
-    try:
-        data = yaml.safe_load(models_yaml.read_text()) or {}
-    except Exception as exc:  # noqa: BLE001
-        return CheckResult("tools available", "WARN", f"models.yaml parse: {exc}")
-    tools: set[str] = set()
-    for entry in (data.get("models") or {}).values():
-        candidates = entry if isinstance(entry, list) else [entry]
-        for cand in candidates:
-            if isinstance(cand, dict) and cand.get("tool"):
-                tools.add(str(cand["tool"]))
-    missing = sorted(s for s in tools if not shutil.which(s))
-    if missing:
-        return CheckResult(
-            "tools available", "WARN", f"not on PATH: {', '.join(missing)}"
-        )
-    return CheckResult(
-        "tools available", "PASS", f"all {len(tools)} tool backends on PATH"
-    )
-
-
 def check_prompt_optimizer() -> CheckResult:
     """WARN when the optional prompt-optimizer integration is not runnable."""
     import shutil
@@ -310,17 +279,13 @@ def check_prompt_optimizer() -> CheckResult:
 
 def check_contract_aliases_resolve(config_root: Path) -> CheckResult:
     """D4: every prompt step must have a step_models entry whose tier alias
-    resolves to an available route (tool with a binary on PATH) somewhere in
-    the layer chain. Catch missing mappings and missing binaries here instead
-    of at dispatch time (exit 4).
-    """
-    import shutil
+    resolves to a route somewhere in the layer chain. Catch missing mappings
+    here instead of at dispatch time (exit 4).
 
-    from orchestrator_next.model_routes import (
-        resolve_route,
-        resolve_step_alias,
-        resolve_tool_template,
-    )
+    This no longer probes a binary on PATH: the engine does not spawn a vendor
+    CLI, so whether one is installed says nothing about config integrity.
+    """
+    from orchestrator_next.model_routes import resolve_route, resolve_step_alias
 
     routes_yaml = str(config_root / "models.yaml")
     missing_map: list[str] = []
@@ -352,17 +317,8 @@ def check_contract_aliases_resolve(config_root: Path) -> CheckResult:
     unresolved: list[str] = []
     for alias in sorted(a for a in aliases if a):
         route = resolve_route(alias, routes_yaml)
-        tool_name = route.get("tool") or ""
-        if not tool_name:
+        if not (route.get("tool") or route.get("model_id")):
             unresolved.append(f"{alias} (no route in any layer)")
-            continue
-        binary, _template = resolve_tool_template(tool_name, routes_yaml)
-        if not shutil.which(binary):
-            unresolved.append(
-                f"{alias} -> {tool_name} ({binary} not on PATH) — reroute via "
-                f"~/.orchestrator/models.yaml, e.g. "
-                f"models: {{{alias}: {{model_id: <id>, tool: claude}}}}"
-            )
 
     if unresolved:
         return CheckResult(
@@ -461,7 +417,6 @@ def run_all() -> int:
         check_models_layer_present(config_root),     # D4: loosened models.yaml presence (WARN)
         check_workflow_steps_resolve(config_root),  # rule 1
         check_step_dispatch_kind(config_root),      # rule 2
-        check_tools_available(config_root),  # rule 3 (WARN)
         check_model_route_sources(config_root),
         check_no_silent_fallback(config_root),      # D3 guard rail (WARN)
         check_contract_aliases_resolve(config_root),  # D4: contract/agent-config safety net (WARN)

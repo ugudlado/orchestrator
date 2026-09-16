@@ -12,15 +12,12 @@ dependencies = [
 # vendor (.orchestrator/) or a downloaded pack (~/.orchestrator/pack).
 #
 # Optional extras:
-#   acp — Agent Client Protocol transport for driving claude/codex/cursor agents
 #   dev — test/lint tooling
 [project.optional-dependencies]
-acp = ["agent-client-protocol>=0.12"]
 dev = [
     "pytest>=8.0",
     "ruff>=0.4",
     "vulture>=2.16",
-    "agent-client-protocol>=0.12",  # tests exercise the ACP transport
 ]
 
 [project.scripts]

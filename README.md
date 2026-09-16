@@ -70,5 +70,5 @@ uv sync --extra dev
 ```
 
 Use `.venv/bin/python -m pytest` (or `make test`) — a bare `pytest` on PATH
-may resolve to a system interpreter without the `acp`/dev extras installed,
+may resolve to a system interpreter without the dev extras installed,
 which silently fakes failures.
