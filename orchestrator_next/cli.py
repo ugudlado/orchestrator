@@ -42,6 +42,14 @@ def _usage() -> None:
         "  orchestrator report --state <state.yaml> | --all [--repo PATH] [--json]\n"
         "  orchestrator graph <workflow>\n"
         "\n"
+        "  Protocol v2 (harness-driven; see docs/protocol-v2.md):\n"
+        "  orchestrator start <recipe> <slug> [--inputs JSON] [--ticket-id ID] --json\n"
+        "  orchestrator step <run> --json\n"
+        "  orchestrator done <run> <step_id> --out JSON --usage JSON [--status S]\n"
+        "  orchestrator status <run> --json | orchestrator events <run> --json\n"
+        "  orchestrator run --headless <recipe> <slug>   (engine drives the model)\n"
+        "  orchestrator headless <run>                   (resume a headless run)\n"
+        "\n"
         "  --models-config PATH  Override models.yaml for this invocation\n"
         "                        (also: models.config=PATH)",
         file=sys.stderr,
@@ -286,6 +294,20 @@ def _state_verb(argv: list[str]) -> int:
     return 3
 
 
+def _is_v2_done(rest: list[str]) -> bool:
+    """True when `done` was called in the protocol-v2 form.
+
+    v2:  done <run> <step_id> --out JSON --usage JSON
+    v1:  done <state.yaml>              (JSON payload on stdin — deprecated)
+
+    The flags are the discriminator: the v1 form never took any. A bare
+    `done <run> <step_id>` is also v2, since v1 took exactly one argument.
+    """
+    if any(a in ("--out", "--usage", "--status") for a in rest):
+        return True
+    return len([a for a in rest if not a.startswith("-")]) >= 2
+
+
 def main() -> None:
     from orchestrator_next.models_config_cli import consume_models_config_argv
 
@@ -315,6 +337,8 @@ def main() -> None:
     _core_verbs = (
         "next", "done", "graph", "doctor", "reset-step", "run", "validate-workflow",
         "report", "state",
+        # protocol v2 (docs/protocol-v2.md §3)
+        "start", "step", "status", "events", "headless",
     )
     if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
         _usage()
@@ -327,6 +351,15 @@ def main() -> None:
     if args[0] == "state":
         sys.exit(_state_verb(args[1:]))
 
+    # --- protocol v2 verbs (docs/protocol-v2.md §3) ------------------------
+    # `done` is shared with the deprecated stdin-JSON form; `_is_v2_done`
+    # picks between them by argument shape.
+    if args[0] in ("start", "step", "status", "events") or (
+        args[0] == "done" and _is_v2_done(args[1:])
+    ):
+        from orchestrator_next.protocol import main as _protocol_main
+        sys.exit(_protocol_main(args[0], args[1:]))
+
     # Every verb except doctor needs a second argument.
     if len(args) < 2 and args[0] != "doctor":
         _usage()
@@ -334,7 +367,14 @@ def main() -> None:
     if args[0] in _wf_subcommands:
         _run_verb([args[1], "--schema", args[0], *args[2:]])
     if args[0] == "run":
+        if "--headless" in args:
+            rest2 = [a for a in args[1:] if a != "--headless"]
+            from orchestrator_next.headless import run_headless_cmd
+            sys.exit(run_headless_cmd(rest2))
         _run_verb(args[1:])
+    if args[0] == "headless":
+        from orchestrator_next.headless import resume_headless_cmd
+        sys.exit(resume_headless_cmd(args[1:]))
 
     if args[0] == "doctor":
         from orchestrator_next.doctor import _doctor_main

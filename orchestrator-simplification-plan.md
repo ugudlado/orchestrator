@@ -306,26 +306,27 @@ Config knobs: `ORCHESTRATOR_STATE_URL`, `ORCHESTRATOR_MAX_PARALLEL`.
 
 ## Phase 4 — Surfaces
 
-### 4.1 Claude Code plugin (Mod API verified NOT to exist, Sept 2026)
+### 4.1 Claude Mod (early access — VERIFIED real, Sept 2026)
 
-Verified against code.claude.com/docs/en/plugins-reference + hooks: no
-`modules:` loader, no `tool.register`/`$.agent.spawn`/`$.ui.ask`. Use the
-plugin primitives that do exist:
+Verified: github.com/anthropics/claude-code/tree/main/mods; loads locally with
+`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir`. API notes:
+`docs/claude-mod-api-notes.md`. Constraint: `$.agent.spawn` takes only
+prompt/subagentType/model/cwd — no system prompt, tools, schema, maxTurns.
 
-- [ ] `.claude-plugin/plugin.json` + `skills/orchestrate/SKILL.md`: the skill
-      drives the loop via Bash — `orchestrator step --json`; on `judgment` →
-      Agent tool with `subagent_type: <step_id>`; on `gate` → AskUserQuestion
-      (approve / edit / cancel) then `orchestrator approve`; on `needs_you` →
-      report and stop.
-- [ ] `agents/<step_id>.md` generated from each pack step (SKILL.md body +
-      `tools:` allowlist + `model:` alias mapped via models.yaml). Fresh
-      context per step = principle 3.
-- [ ] `hooks/hooks.json` PreToolUse on write-capable tools (Edit/Write/Bash
-      git push, MCP write tools): deny unless the current run's gate token
-      is present (`orchestrator status --json` → `gate_token`).
-- [ ] Status pane: no native API. `orchestrator status` printed by the skill
-      after each step; optional monitor of the run's events file.
-- [ ] Usage: subagent result carries usage; skill passes it to `done --usage`.
+- [ ] `hooks/hooks.json` → `modules: ["./register.ts"]`; `.claude-plugin/plugin.json`.
+- [ ] `session.start` → `$.tool.register({name: "run"})`; serve via `tool.call`.
+- [ ] Loop: `$.process.run(orchestrator step --json)`; on `judgment` →
+      `$.agent.spawn({subagentType: <step_id>, model, cwd, prompt: <in + out_schema>})`,
+      await `turn.complete` by `agentId`, parse JSON block from `answer`,
+      `orchestrator done --out --usage` (usage from `e.usage`); on `gate` →
+      `$.ui.ask`; on `needs_you` → report and stop.
+- [ ] `agents/<step_id>.md` generated per pack step (SKILL.md + `tools:` +
+      `model:` frontmatter) — this is where isolation/tools/model live (4.3).
+- [ ] `on('tool.call')` deny on write-capable tools unless the run's gate
+      token is in `$.store`. Register early (outer in the onion).
+- [ ] `$.ui.status` one-liner per step; optional Pane from `status --json`.
+- [ ] Fallback when function hooks are off: `skills/orchestrate/SKILL.md`
+      drives the same loop via Bash + Agent tool + AskUserQuestion.
 
 ### 4.2 Codex plugin
 
@@ -366,7 +367,7 @@ plugin primitives that do exist:
 
 ## Risks
 
-- **Mod API** — does not exist (verified Sept 2026); plugin+skill+hooks is the only path. Structured subagent output must be parsed from the agent's final message, not a schema.
+- **Mod API drift** — early access, gated by `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS`; may change without notice. Mitigation: skill+Agent-tool fallback stays first-class. Structured subagent output is parsed from `turn.complete.answer`, not a schema.
 - **Contract migration of 23 steps** — mechanical but wide. Mitigation: `kind` inference and a `--legacy-completion` flag during Phase 1–2 so steps migrate one at a time.
 - **Gate fatigue** — measured via `v_gate_stats`; tune which steps gate per recipe, not globally.
 - **Headless tool runner scope creep** — cap at `fs`, `shell`, `git`; anything else is an exec skill.

@@ -1,0 +1,664 @@
+"""Protocol v2 CLI verbs: ``start`` / ``step`` / ``done`` / ``status`` / ``events``.
+
+See ``docs/protocol-v2.md`` §3-§5. The engine never spawns a model here: it
+computes the next step, hands the harness a payload, validates what comes
+back, and records it.
+
+Every verb in this module exits 0 on success and encodes the run's condition
+in the JSON ``status`` field; exit 3 is reserved for an engine error (bad
+arguments, unknown run, rejected ``done`` payload). The pre-v2 verbs
+(``next`` / ``done <state.yaml>`` / ``run``) keep their own exit-code
+protocol untouched.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+import uuid
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from orchestrator_next.parser import (
+    AgentStepContract,
+    GateStepContract,
+    KIND_EXEC,
+    KIND_GATE,
+    KIND_JUDGMENT,
+    ContractError,
+    ContractNotFoundError,
+    load_contract_for_step,
+    load_state,
+)
+
+# Engine error. Everything else — including a blocked or failed run — is a
+# successful call that reports a status.
+EXIT_ERROR = 3
+
+# Guards a pathological recipe (or a script step that never advances the DAG)
+# from spinning `step` forever while it batches exec steps.
+MAX_EXEC_BATCH = 64
+
+
+class ProtocolError(RuntimeError):
+    """A verb could not be served: bad arguments, unknown run, invalid output."""
+
+
+# ---------------------------------------------------------------------------
+# run resolution
+# ---------------------------------------------------------------------------
+def resolve_run(ref: str) -> str:
+    """Return a state handle for ``ref``: a slug, a run_id, or a state path.
+
+    Tried in order — an existing path or store URL wins, then a live run in the
+    RunStore (by run_id, then lowercased), then a run whose ``slug`` /
+    ``ticket_id`` / ``change_id`` matches. Raises ProtocolError when nothing
+    resolves, so the caller can report it rather than seeding a second run.
+    """
+    from orchestrator_next import state_store
+    from orchestrator_next.run_store import materialize, open_store
+
+    if not ref or not str(ref).strip():
+        raise ProtocolError("missing <run>: pass a slug, run_id, or state path")
+    ref = str(ref).strip()
+
+    # A path or an explicit store URL is already a handle.
+    if "://" in ref or os.path.sep in ref or ref.endswith((".yaml", ".yml")):
+        handle = state_store.parse_handle(ref)
+        if not handle.is_file or Path(handle.location).is_file():
+            return ref
+        raise ProtocolError(f"no state file at {ref}")
+
+    store = open_store()
+    repo_root = os.environ.get("REPO_ROOT", "")
+    for candidate in (ref, ref.lower()):
+        if store.load(candidate) is not None:
+            return str(materialize(store, candidate, repo_root=repo_root))
+
+    # Slug / ticket-id lookup: scan live runs for a matching identity field.
+    for run_id in store.list_ids():
+        text = store.load(run_id)
+        if not text:
+            continue
+        try:
+            raw = yaml.safe_load(text) or {}
+        except yaml.YAMLError:
+            continue
+        if not isinstance(raw, dict):
+            continue
+        identities = {
+            str(raw.get(k) or "").lower()
+            for k in ("slug", "ticket_id", "change_id")
+        }
+        if ref.lower() in identities - {""}:
+            return str(materialize(store, run_id, repo_root=repo_root))
+
+    raise ProtocolError(f"no run found for {ref!r} (not a run_id, slug, or state path)")
+
+
+def _persist(state_yaml_path: str) -> None:
+    """Write a materialized run back to the RunStore (no-op otherwise)."""
+    from orchestrator_next.run_store import _state_root, open_store, persist
+
+    path = Path(state_yaml_path)
+    try:
+        if path.parent.resolve() != _state_root().resolve():
+            return
+    except OSError:
+        return
+    try:
+        persist(open_store(), path.stem, path)
+    except (OSError, ValueError):
+        pass
+
+
+# ---------------------------------------------------------------------------
+# step payload construction
+# ---------------------------------------------------------------------------
+def _artifact_base(state_raw: dict[str, Any]) -> Path:
+    """Directory that named artifacts resolve against.
+
+    Phase 1.3 keeps this at the pack's existing convention —
+    ``<worktree|repo>/spec/changes/<slug>``. Phase 2.1 replaces it with an
+    engine-owned ``run_dir(slug)``; nothing outside this function should
+    assume the layout.
+    """
+    base = os.path.expanduser(
+        str(state_raw.get("worktree_path") or "")
+    ) or str(state_raw.get("repo_root") or "") or os.getcwd()
+    slug = str(state_raw.get("slug") or state_raw.get("change_id") or "")
+    return Path(base) / "spec" / "changes" / slug
+
+
+def _resolve_io(specs: dict[str, dict], base: Path) -> tuple[dict[str, str], dict[str, dict]]:
+    """Split an ``in:``/``out:`` block into resolved paths and a value schema.
+
+    Artifact entries become absolute paths under ``base``; ``type:`` entries
+    stay as schema so the harness knows what scalars to return.
+    """
+    paths: dict[str, str] = {}
+    schema: dict[str, dict] = {}
+    for name, spec in specs.items():
+        artifact = spec.get("artifact")
+        if artifact:
+            paths[name] = str(base / str(artifact))
+        else:
+            schema[name] = {k: v for k, v in spec.items() if k != "artifact"}
+    return paths, schema
+
+
+def _judgment_payload(
+    action: dict[str, Any],
+    contract: AgentStepContract,
+    state_raw: dict[str, Any],
+    state_yaml_path: str,
+    repo_root: str,
+) -> dict[str, Any]:
+    """Build the protocol-v2 judgment payload (docs/protocol-v2.md §4)."""
+    from orchestrator_next import model_routes
+    from orchestrator_next.run_loop import (
+        _structured_output_contract,
+        build_agent_payload,
+        resolve_models_yaml,
+    )
+
+    models_yaml = resolve_models_yaml(repo_root=repo_root)
+    base = _artifact_base(state_raw)
+    in_paths, _in_schema = _resolve_io(contract.inputs, base)
+    out_paths, out_schema = _resolve_io(contract.outputs, base)
+
+    # A migrated step (declares out:) gets the structured-output tail; an
+    # unmigrated one keeps the legacy COMPLETION block (protocol v2 §10).
+    output_contract = (
+        _structured_output_contract(action["step_id"], out_paths, out_schema)
+        if contract.outputs
+        else None
+    )
+    base_payload = build_agent_payload(
+        action,
+        repo_root=repo_root,
+        models_yaml=models_yaml,
+        state_raw=state_raw,
+        state_yaml_path=state_yaml_path,
+        output_contract=output_contract,
+    )
+    route = model_routes.resolve_route(action["model"], models_yaml)
+
+    return {
+        "status": "ready",
+        "kind": KIND_JUDGMENT,
+        "step_id": action["step_id"],
+        "payload": {
+            "step_id": action["step_id"],
+            "phase": action.get("phase", "main"),
+            "attempt": action.get("attempt", 1),
+            "model": action["model"],
+            "model_id": route.get("model_id") or "",
+            "max_turns": contract.max_turns,
+            "tools": list(contract.tools),
+            "side_effects": list(contract.side_effects),
+            "system": base_payload["prompt"],
+            "in": in_paths,
+            "out": out_paths,
+            "out_schema": out_schema,
+            "cwd": base_payload["cwd"],
+            "env": base_payload.get("env") or {},
+        },
+    }
+
+
+def _gate_payload(step_id: str, contract: GateStepContract) -> dict[str, Any]:
+    """A gate is reported, never executed — Phase 3 adds the token."""
+    return {
+        "status": "blocked",
+        "kind": KIND_GATE,
+        "step_id": step_id,
+        "payload": {
+            "step_id": step_id,
+            "show": list(contract.show),
+            "approve_as": contract.approve_as,
+            "gate_token": None,
+            "hint": "gates are not resumable yet (protocol v2 §7, Phase 3)",
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# verb: step
+# ---------------------------------------------------------------------------
+def step(run_ref: str) -> tuple[dict[str, Any], int]:
+    """Advance the run: execute consecutive exec steps, stop at judgment/gate.
+
+    Returns ``(result, exit_code)``. ``result['status']`` is one of
+    ``ready|running|done|blocked|needs_you|error`` (protocol v2 §3).
+    """
+    from orchestrator_next.dispatch import ContractDispatchError, dispatch
+    from orchestrator_next.run_loop import run_script_step
+
+    state_yaml_path = resolve_run(run_ref)
+    repo_root = os.environ.get("REPO_ROOT", "") or os.getcwd()
+
+    for _ in range(MAX_EXEC_BATCH):
+        if not Path(state_yaml_path).is_file():
+            return {"status": "done", "step_id": None,
+                    "detail": "run archived"}, 0
+        state = load_state(state_yaml_path)
+        _pin_config(state.raw)
+        try:
+            action, code = dispatch(state, state_yaml_path)
+        except (ContractDispatchError, ContractNotFoundError, ContractError) as exc:
+            return {"status": "error", "step_id": None, "detail": str(exc)}, 0
+        except FileNotFoundError as exc:
+            return {"status": "error", "step_id": None, "detail": str(exc)}, 0
+
+        if code == 1:
+            return {"status": "done", "step_id": None}, 0
+        if code == 2:
+            return {
+                "status": "blocked",
+                "kind": None,
+                "step_id": (action or {}).get("step_id"),
+                "detail": (action or {}).get("reason") or "blocked (signoff or halt)",
+            }, 0
+        if code != 0:
+            return {"status": "error", "step_id": None,
+                    "detail": f"dispatch exit {code}"}, 0
+
+        step_id = action["step_id"]
+        try:
+            contract = load_contract_for_step(step_id)
+        except (FileNotFoundError, ContractError, ContractNotFoundError) as exc:
+            return {"status": "error", "step_id": step_id, "detail": str(exc)}, 0
+
+        if isinstance(contract, GateStepContract):
+            return _gate_payload(step_id, contract), 0
+
+        if isinstance(contract, AgentStepContract):
+            result = _judgment_payload(
+                action, contract, state.raw, state_yaml_path, repo_root
+            )
+            _persist(state_yaml_path)
+            return result, 0
+
+        # exec step: run it here and loop, so the harness never sees it.
+        ok, state_yaml_path, _status = run_script_step(
+            action, state_yaml_path=state_yaml_path, state=state
+        )
+        _persist(state_yaml_path)
+        if not ok:
+            return {
+                "status": "error",
+                "kind": KIND_EXEC,
+                "step_id": step_id,
+                "detail": f"exec step {step_id} failed and has no retry routing",
+            }, 0
+
+    return {
+        "status": "needs_you",
+        "step_id": None,
+        "detail": f"ran {MAX_EXEC_BATCH} exec steps without reaching a judgment "
+                  "step — the recipe is probably not advancing",
+    }, 0
+
+
+def _pin_config(state_raw: dict[str, Any]) -> None:
+    """Point ORCHESTRATOR_CONFIG at the pack this run was seeded from."""
+    if os.environ.get("ORCHESTRATOR_CONFIG"):
+        return
+    pack = str(state_raw.get("config_pack") or "")
+    repo = str(state_raw.get("repo_root") or "") or os.environ.get("REPO_ROOT", "")
+    if pack and repo:
+        os.environ["ORCHESTRATOR_CONFIG"] = str(Path(repo) / ".orchestrator" / pack)
+    if repo and not os.environ.get("REPO_ROOT"):
+        os.environ["REPO_ROOT"] = repo
+
+
+# ---------------------------------------------------------------------------
+# verb: start
+# ---------------------------------------------------------------------------
+def start(
+    recipe_ref: str,
+    slug: str,
+    *,
+    inputs: dict[str, Any] | None = None,
+    ticket_id: str = "",
+) -> tuple[dict[str, Any], int]:
+    """Seed a run and return its identity plus the first ``step`` result."""
+    from orchestrator_next.paths import WorkflowRefError, resolve_workflow_ref
+    from orchestrator_next.run_loop import seed_state_file
+    from orchestrator_next.run_store import _state_root, open_store, persist
+
+    if not slug or not slug.strip():
+        raise ProtocolError("missing <slug>")
+    slug = slug.strip()
+
+    repo_root = os.environ.get("REPO_ROOT", "") or os.getcwd()
+    try:
+        config_pack, schema, cfg_root = resolve_workflow_ref(
+            recipe_ref, Path(repo_root)
+        )
+    except (WorkflowRefError, FileNotFoundError) as exc:
+        raise ProtocolError(str(exc)) from exc
+    os.environ["ORCHESTRATOR_CONFIG"] = str(cfg_root)
+
+    run_id = str(uuid.uuid4())
+    state_path = _state_root() / f"{run_id}.yaml"
+    user_input = json.dumps(inputs, sort_keys=True) if inputs else slug
+    try:
+        seed_state_file(
+            state_path,
+            slug=slug.lower(),
+            schema=schema,
+            repo_root=repo_root,
+            config_pack=config_pack,
+            user_input=user_input,
+            ticket_id=ticket_id,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        state_path.unlink(missing_ok=True)
+        raise ProtocolError(str(exc)) from exc
+
+    if inputs:
+        raw = yaml.safe_load(state_path.read_text(encoding="utf-8")) or {}
+        raw["inputs"] = inputs
+        state_path.write_text(
+            yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8"
+        )
+    persist(open_store(), run_id, state_path)
+
+    next_result, _code = step(str(state_path))
+    return {
+        "run_id": run_id,
+        "slug": slug.lower(),
+        "state": str(state_path),
+        "next": next_result,
+    }, 0
+
+
+# ---------------------------------------------------------------------------
+# verb: done
+# ---------------------------------------------------------------------------
+def validate_out(
+    contract: Any, out: dict[str, Any], state_raw: dict[str, Any]
+) -> list[str]:
+    """Return the list of ``out`` violations for a structured done payload.
+
+    Artifact outs must exist on disk under the run's artifact base; ``type:
+    enum`` outs must carry one of the declared values; any other declared
+    ``type:`` out must simply be present. An empty list means the payload
+    satisfies the contract.
+    """
+    declared = getattr(contract, "outputs", None) or {}
+    if not declared:
+        return []
+    base = _artifact_base(state_raw)
+    problems: list[str] = []
+    for name, spec in declared.items():
+        optional = bool(spec.get("optional"))
+        artifact = spec.get("artifact")
+        if artifact:
+            path = Path(str(out.get(name) or (base / str(artifact))))
+            if not path.is_absolute():
+                path = base / path
+            if not path.is_file():
+                if not optional:
+                    problems.append(f"out.{name}: artifact not found at {path}")
+            continue
+        if name not in out or out[name] is None:
+            if not optional:
+                problems.append(f"out.{name}: missing (declared type: {spec.get('type')})")
+            continue
+        if spec.get("type") == "enum":
+            values = spec.get("values") or []
+            if out[name] not in values:
+                problems.append(
+                    f"out.{name}: {out[name]!r} not one of {values}"
+                )
+    return problems
+
+
+def done(
+    run_ref: str,
+    step_id: str,
+    *,
+    out: dict[str, Any],
+    usage: dict[str, Any],
+    status: str = "completed",
+) -> tuple[dict[str, Any], int]:
+    """Record a judgment step's structured result, then return the next step.
+
+    Rejects the call (exit 3) when ``out`` does not satisfy the contract's
+    ``out:`` block — the harness is expected to fix the step's output and
+    retry, rather than have the engine record a half-finished step.
+    """
+    from orchestrator_next.run_loop import _record_with_retry
+
+    if status not in {"completed", "abandoned"}:
+        raise ProtocolError(
+            f"--status must be completed or abandoned (got {status!r})"
+        )
+
+    state_yaml_path = resolve_run(run_ref)
+    state = load_state(state_yaml_path)
+    _pin_config(state.raw)
+
+    try:
+        contract = load_contract_for_step(step_id)
+    except (FileNotFoundError, ContractError, ContractNotFoundError) as exc:
+        raise ProtocolError(str(exc)) from exc
+
+    if status == "completed":
+        problems = validate_out(contract, out, state.raw)
+        if problems:
+            raise ProtocolError(
+                "out does not satisfy the step contract: " + "; ".join(problems)
+            )
+
+    outputs = dict(out)
+    outputs.setdefault(
+        "reason",
+        f"{step_id} {status} (structured out, protocol v2)",
+    )
+    payload: dict[str, Any] = {
+        "step_id": step_id,
+        "phase": state.phase or "main",
+        "status": status,
+        "outputs": outputs,
+        "usage": dict(usage or {}),
+    }
+    if isinstance(contract, AgentStepContract):
+        # record.py requires `agent` on a completed agent step and enforces the
+        # usage-token guard against it (docs/protocol-v2.md §5).
+        payload["agent"] = _step_alias(step_id)
+
+    result, code = _record_with_retry(state_yaml_path, payload)
+    if code != 0:
+        raise ProtocolError(
+            f"record rejected the done payload: {json.dumps(result, sort_keys=True)}"
+        )
+    _persist(state_yaml_path)
+
+    next_result, _ = step(state_yaml_path)
+    return {
+        "status": "ok",
+        "step_id": step_id,
+        "attempt": (result or {}).get("attempt"),
+        "next": next_result,
+    }, 0
+
+
+def _step_alias(step_id: str) -> str:
+    """The models.yaml tier alias for this step, or "" when unroutable."""
+    from orchestrator_next.dispatch import _models_yaml_path
+    from orchestrator_next.model_routes import resolve_step_alias
+
+    try:
+        return resolve_step_alias(step_id, None, _models_yaml_path()) or ""
+    except Exception:  # noqa: BLE001 — an unroutable step still records
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# verbs: status / events
+# ---------------------------------------------------------------------------
+def status(run_ref: str) -> tuple[dict[str, Any], int]:
+    """Report nodes, usage totals, and gate state for a run."""
+    from orchestrator_next.parser import phase_nodes
+    from orchestrator_next.pricing import sum_cost_usd
+
+    state_yaml_path = resolve_run(run_ref)
+    state = load_state(state_yaml_path)
+    _pin_config(state.raw)
+
+    attempts: dict[str, int] = {}
+    for entry in state.step_history:
+        if entry.attempt:
+            attempts[entry.step_id] = max(attempts.get(entry.step_id, 0), int(entry.attempt))
+
+    nodes = []
+    for phase in state.workflow_plan:
+        for node in phase_nodes(state, phase):
+            step_id = str(node.get("id", ""))
+            if not step_id:
+                continue
+            nodes.append({
+                "id": step_id,
+                "phase": phase,
+                "kind": _kind_of(step_id),
+                "status": str(node.get("status") or "pending"),
+                "attempts": attempts.get(step_id, 0),
+            })
+
+    totals = {"input_tokens": 0, "output_tokens": 0}
+    for entry in state.step_history:
+        u = entry.usage if isinstance(entry.usage, dict) else {}
+        for key in totals:
+            value = u.get(key)
+            if isinstance(value, (int, float)):
+                totals[key] += int(value)
+    try:
+        cost = round(sum_cost_usd(state.raw), 6)
+    except Exception:  # noqa: BLE001 — pricing is informational
+        cost = 0.0
+
+    return {
+        "run_id": Path(state_yaml_path).stem,
+        "slug": state.raw.get("slug") or state.change_id,
+        "state": state_yaml_path,
+        "run_status": state.raw.get("status") or "active",
+        "phase": state.phase,
+        "nodes": nodes,
+        "artifacts": [],   # Phase 2.3 records {name, path, sha256}
+        "usage": totals,
+        "cost_usd": cost,
+        "gate_token": None,  # Phase 3.1
+    }, 0
+
+
+def _kind_of(step_id: str) -> str:
+    try:
+        contract = load_contract_for_step(step_id)
+    except Exception:  # noqa: BLE001 — a missing contract is not a status failure
+        return "unknown"
+    return getattr(contract, "kind", KIND_JUDGMENT)
+
+
+def events(run_ref: str, *, since: str = "") -> tuple[list[dict[str, Any]], int]:
+    """Return step_history entries, optionally those at or after ``since``."""
+    state_yaml_path = resolve_run(run_ref)
+    state = load_state(state_yaml_path)
+    out = []
+    for entry in state.step_history:
+        raw = dict(entry.raw)
+        if since:
+            stamp = str(raw.get("ended_at") or raw.get("started_at") or "")
+            if stamp and stamp < since:
+                continue
+        out.append(raw)
+    return out, 0
+
+
+# ---------------------------------------------------------------------------
+# CLI plumbing
+# ---------------------------------------------------------------------------
+def _pop_flag(args: list[str], flag: str) -> str | None:
+    """Remove ``--flag value`` from args and return the value."""
+    if flag not in args:
+        return None
+    i = args.index(flag)
+    if i + 1 >= len(args):
+        raise ProtocolError(f"{flag} needs a value")
+    value = args[i + 1]
+    del args[i:i + 2]
+    return value
+
+
+def _json_flag(args: list[str], flag: str, *, default: Any = None) -> Any:
+    raw = _pop_flag(args, flag)
+    if raw is None:
+        return default
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ProtocolError(f"{flag} must be valid JSON — {exc}") from exc
+
+
+def main(verb: str, argv: list[str]) -> int:
+    """Dispatch one protocol-v2 verb. Always prints JSON; exit 3 on error."""
+    args = list(argv)
+    if "--json" in args:
+        args.remove("--json")
+    try:
+        if verb == "start":
+            if len(args) < 2:
+                raise ProtocolError("usage: orchestrator start <recipe> <slug> "
+                                    "[--inputs JSON] [--ticket-id ID] --json")
+            inputs = _json_flag(args, "--inputs")
+            ticket_id = _pop_flag(args, "--ticket-id") or ""
+            if inputs is not None and not isinstance(inputs, dict):
+                raise ProtocolError("--inputs must be a JSON object")
+            result, code = start(args[0], args[1], inputs=inputs, ticket_id=ticket_id)
+        elif verb == "step":
+            if not args:
+                raise ProtocolError("usage: orchestrator step <run> --json")
+            result, code = step(args[0])
+        elif verb == "done":
+            if len(args) < 2:
+                raise ProtocolError(
+                    "usage: orchestrator done <run> <step_id> --out JSON "
+                    "--usage JSON [--status completed|abandoned]"
+                )
+            run_ref, step_id = args[0], args[1]
+            rest = args[2:]
+            out = _json_flag(rest, "--out", default={})
+            usage = _json_flag(rest, "--usage", default={})
+            st = _pop_flag(rest, "--status") or "completed"
+            if not isinstance(out, dict):
+                raise ProtocolError("--out must be a JSON object")
+            if not isinstance(usage, dict):
+                raise ProtocolError("--usage must be a JSON object")
+            result, code = done(run_ref, step_id, out=out, usage=usage, status=st)
+        elif verb == "status":
+            if not args:
+                raise ProtocolError("usage: orchestrator status <run> --json")
+            result, code = status(args[0])
+        elif verb == "events":
+            if not args:
+                raise ProtocolError("usage: orchestrator events <run> "
+                                    "[--since TS] --json")
+            since = _pop_flag(args, "--since") or ""
+            entries, code = events(args[0], since=since)
+            for entry in entries:
+                print(json.dumps(entry, sort_keys=True, default=str))
+            return code
+        else:  # pragma: no cover — cli.py routes only the verbs above
+            raise ProtocolError(f"unknown protocol verb: {verb}")
+    except ProtocolError as exc:
+        print(json.dumps({"status": "error", "error": str(exc)}, sort_keys=True))
+        return EXIT_ERROR
+
+    print(json.dumps(result, sort_keys=True, indent=2, default=str))
+    sys.stdout.flush()
+    return code

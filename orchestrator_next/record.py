@@ -98,10 +98,19 @@ def _enforce_required_outputs(contract: Any, status: str, outputs: dict[str, Any
     Returns status unchanged if: status not in _SUCCESS_STATUSES, contract is None,
     contract has no required_outputs_for_completed, or all required values match.
     On any mismatch, writes a stderr note and returns 'failed'.
+
+    This is the LEGACY COMPLETION-era check. A contract that declares an
+    ``out:`` block has migrated to protocol v2's structured output, which
+    ``protocol.validate_out`` enforces before the payload ever reaches record;
+    running both would double-validate the same step against two vocabularies.
+    TODO(Phase 1.3 exit): delete this function and parse_completion.py once
+    every step in the pack declares ``out:``.
     """
     if status not in _SUCCESS_STATUSES:
         return status
     if not isinstance(contract, AgentStepContract):
+        return status
+    if contract.outputs:
         return status
     required = contract.required_outputs_for_completed
     if not required:
@@ -932,7 +941,7 @@ def main(argv: list[str]) -> int:
     result, code = record(state_yaml_path, payload)
     print(json.dumps(result, sort_keys=True, indent=2))
     # Surface the running cost total mid-run for standalone/self-driven callers
-    # (DRIVE.md walks next/done itself). Re-derived from the just-written state.
+    # (a caller walking next/done itself). Re-derived from the just-written state.
     if code == 0:
         try:
             from orchestrator_next.pricing import format_cost_so_far

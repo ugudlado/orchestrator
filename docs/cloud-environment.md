@@ -2,7 +2,12 @@
 
 Configures a Claude Code on the web environment so a Slack `@Claude` session (or any
 cloud session for this repo) can install the orchestrator, reach the backlog backend
-via MCP, and drive a workflow per [`DRIVE.md`](../DRIVE.md).
+via MCP, and drive a workflow.
+
+The loop itself is `orchestrator run --headless <recipe> <slug>`: the engine walks
+`step` / `done` in-process and calls the model API directly, so a cloud session needs
+no driver script of its own. `orchestrator headless <run>` resumes an existing run.
+This replaces the hand-walked `next` / `done` loop the deleted `DRIVE.md` described.
 
 Installation lives in a repo SessionStart hook (section 1), so it travels with the clone.
 The only things you configure in the **environment settings dialog** at claude.ai/code are
@@ -69,6 +74,10 @@ BACKLOG_URL=https://<your-public-backlog-host>
 BACKLOG_TOKEN=<your-backlog-token>
 ```
 
+Headless mode additionally needs the model SDK and a credential:
+install with `pip install -e '.[headless]'` and let the Anthropic SDK resolve
+`ANTHROPIC_API_KEY` (or an `ant auth login` profile) from the environment.
+
 - `ORCHESTRATOR_SKIP_USAGE_CHECK=1` — the session has no subprocess token count; this
   lets `orchestrator done` accept agent steps without real usage (cost records as $0 for
   those steps — known limitation).
@@ -76,7 +85,7 @@ BACKLOG_TOKEN=<your-backlog-token>
   falling back to `~/.config/backlog/config.yml` (which doesn't exist in the cloud). This
   is how the cloud session reaches the _same_ backend your laptop does.
 - Run state lives in the local RunStore (SQLite, `~/.orchestrator/orchestrator.db` — see
-  [`DRIVE.md`](../DRIVE.md#durability-resume-after-a-block)). By default it is per-machine: a run
+  `orchestrator status <run> --json`). By default it is per-machine: a run
   survives session resets only as far as the sandbox home directory does. For resume
   across machines, set `ORCHESTRATOR_STATE_URL` to a reachable central db
   (postgresql:// or a shared sqlite path) — workflow state and run blobs both follow it. `orchestrator doctor` checks the store opens — run that
@@ -121,7 +130,7 @@ uses your **default** environment. To make this reliable:
 
 - Keep **one** cloud environment (edit the default rather than creating a second), so there's
   nothing else for Slack to land on.
-- Put everything that _can_ live in the repo there — `.mcp.json`, `DRIVE.md`,
+- Put everything that _can_ live in the repo there — `.mcp.json`,
   `.claude/settings.json` + `cloud-setup.sh` all clone in automatically, independent of
   environment. Only the **secrets** (`BACKLOG_URL`, `BACKLOG_TOKEN`,
   `ORCHESTRATOR_SKIP_USAGE_CHECK`) must live in the environment.

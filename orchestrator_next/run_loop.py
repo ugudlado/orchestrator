@@ -120,10 +120,51 @@ def _now_ms() -> int:
 # ---------------------------------------------------------------------------
 # Prompt assembly — faithful port of run-workflow.sh build_prompt()
 # ---------------------------------------------------------------------------
+def _structured_output_contract(
+    step_id: str, out_paths: dict[str, str], out_schema: dict[str, dict]
+) -> str:
+    """The protocol-v2 replacement for the COMPLETION block.
+
+    A migrated step writes its artifacts to the named paths and ends with one
+    JSON object naming the values the contract declared. The harness lifts that
+    object into ``orchestrator done --out``.
+    """
+    lines = [
+        "\n---",
+        "When you are finished, write every artifact below to its exact path, "
+        "then end your output with a single fenced ```json block — nothing after it.",
+    ]
+    if out_paths:
+        lines.append("\nArtifacts to write:")
+        lines += [f"  {name}: {path}" for name, path in sorted(out_paths.items())]
+    if out_schema:
+        lines.append("\nValues to report in the JSON block:")
+        for name, spec in sorted(out_schema.items()):
+            if spec.get("type") == "enum":
+                lines.append(f"  {name}: one of {spec.get('values')}")
+            else:
+                lines.append(f"  {name}: {spec.get('type', 'string')}")
+    keys = sorted(set(out_paths) | set(out_schema))
+    example = {k: (out_paths.get(k) or f"<{k}>") for k in keys}
+    example["reason"] = "<why this step can advance, 1-4 sentences>"
+    lines.append(
+        "\nFinal block (exact shape):\n```json\n"
+        + json.dumps(example, indent=2, sort_keys=True)
+        + "\n```"
+    )
+    lines.append(
+        f"\nIf {step_id} cannot complete, emit the same block with "
+        '"status": "failed" and a "reason" explaining why.'
+    )
+    return "\n".join(lines) + "\n"
+
+
 def build_prompt(
     instruction: str,
     step_context: str,
     workflow_meta: str,
+    *,
+    output_contract: str | None = None,
 ) -> str:
     """Assemble the agent prompt. Ticket body is not injected here — the
     load-ticket-context workflow step writes
@@ -131,10 +172,15 @@ def build_prompt(
 
     `instruction` already carries this step's own learnings.md content, if
     any (parser.load_contract_for_step inlines it — see steps/<id>/learnings.md).
+
+    ``output_contract`` overrides the trailing COMPLETION contract: a step that
+    declares ``out:`` gets the protocol-v2 structured-output instructions
+    instead (Phase 1.3). Omitted → the legacy COMPLETION block, unchanged.
     """
+    tail = _COMPLETION_CONTRACT if output_contract is None else output_contract
     return (
         f"{instruction}\n\n{workflow_meta}\n\n"
-        f"Step context:\n{step_context}\n{_COMPLETION_CONTRACT}\n"
+        f"Step context:\n{step_context}\n{tail}\n"
     )
 
 
@@ -228,11 +274,15 @@ AGENT_RUNNER: Callable[[dict], dict] = _no_agent_runner
 def build_agent_payload(
     action: dict, *, repo_root: str, models_yaml: str,
     state_raw: dict, state_yaml_path: str,
+    output_contract: str | None = None,
 ) -> dict:
     """Build the judgment payload handed to the agent runner.
 
     `model` is the tier alias resolved to a concrete route by `model_routes`;
     the runner decides what to do with it.
+
+    ``output_contract`` is the protocol-v2 structured-output tail for a
+    migrated step; omitted, the prompt keeps the legacy COMPLETION block.
     """
     route = model_routes.resolve_route(action["model"], models_yaml)
     if not route["tool"] and not route["model_id"]:
@@ -257,7 +307,10 @@ def build_agent_payload(
         "phase": action.get("phase", "main"),
         "model": action["model"],
         "model_id": route["model_id"],
-        "prompt": build_prompt(action.get("instruction", ""), step_context, meta),
+        "prompt": build_prompt(
+            action.get("instruction", ""), step_context, meta,
+            output_contract=output_contract,
+        ),
         "cwd": work_dir,
         "env": env,
     }

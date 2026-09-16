@@ -22,7 +22,11 @@ from typing import Any
 
 import yaml
 
-from orchestrator_next.parser import ContractError, load_contract_for_step
+from orchestrator_next.parser import (
+    AgentStepContract,
+    ContractError,
+    load_contract_for_step,
+)
 
 # Schemas that have no standard seed shape — skip the generate_plan smoke.
 _SKIP_EXPAND = {"complete"}
@@ -51,16 +55,29 @@ def _step_ids(schema: dict[str, Any]) -> list[str]:
 
 
 def _check_contracts(step_ids: list[str]) -> None:
-    """Load each step contract via the parser; report missing or invalid contracts."""
+    """Load each step contract via the parser; report missing or invalid contracts.
+
+    Contract loading is where protocol-v2 shape errors surface: an unknown
+    ``kind:``, a malformed ``in:``/``out:`` block, or a bad ``tools:`` list all
+    raise ContractError in the parser and fail here. A judgment step with no
+    ``out:`` is only a warning while the pack migrates (plan Phase 1.2).
+    """
     missing = []
     invalid = []
     for step_id in step_ids:
         try:
-            load_contract_for_step(step_id)
+            contract = load_contract_for_step(step_id)
         except FileNotFoundError:
             missing.append(step_id)
         except ContractError as exc:
             invalid.append((step_id, str(exc)))
+        else:
+            if isinstance(contract, AgentStepContract) and not contract.outputs:
+                print(
+                    f"WARN: {step_id}: judgment step declares no out: — "
+                    "still using the legacy COMPLETION block (protocol v2 §10)",
+                    file=sys.stderr,
+                )
     if missing:
         print("ERROR: missing contracts:", file=sys.stderr)
         for s in missing:

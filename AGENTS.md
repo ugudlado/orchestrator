@@ -83,8 +83,8 @@ First hit wins:
 `orchestrator config-path` prints the active root.
 
 Optional: `BACKLOG_URL` / `BACKLOG_TOKEN` / `BACKLOG_PROJECT` for ticket sync
-(unset → ticket steps no-op). Cloud/headless: see `DRIVE.md` and
-`docs/cloud-environment.md`.
+(unset → ticket steps no-op). Cloud/headless: see
+`docs/cloud-environment.md` and `docs/protocol-v2.md`.
 
 ---
 
@@ -95,7 +95,6 @@ orchestrator/
 ├── bin/orchestrator
 ├── orchestrator_next/          # Python package (CLI, dispatch, pack pull)
 ├── docs/                       # distribution.md, cloud-environment.md, …
-├── DRIVE.md                    # Claude Code cloud driver loop
 ├── AGENTS.md                   # this file (CLAUDE.md → symlink)
 └── (optional) config/          # present only in some checkouts / tests
 ```
@@ -129,7 +128,8 @@ pytest orchestrator_next/tests/ -q
 
 - `ORCHESTRATOR_HEADLESS=1` or `CLAUDE_CODE_REMOTE=true` → state auto-commit;
   push on block/abort.
-- Cloud Slack/Claude sessions: follow `DRIVE.md` (`--seed-only` + `next`/`done`).
+- Cloud Slack/Claude sessions: `orchestrator run --headless <recipe> <slug>`
+  (resume with `orchestrator headless <run>`); see `docs/cloud-environment.md`.
 
 ### Exit codes (`next` / drive protocol)
 

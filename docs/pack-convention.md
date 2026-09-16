@@ -1,6 +1,6 @@
 # Config Pack Convention
 
-**Protocol version: 1**
+**Protocol version: 2**
 
 A config pack is a directory of workflow schemas + step directories that the
 orchestrator engine can dispatch. This doc is the contract a pack author
@@ -8,16 +8,21 @@ targets — it doesn't require reading engine source. It documents behavior
 that already exists in code; this doc is the authoring surface, dispatch is
 the enforcement.
 
+Protocol v2 is specified in [`protocol-v2.md`](protocol-v2.md); that doc is
+normative where the two disagree. What changed from v1: `kind`, `in`, `out`,
+`tools`, `side_effects`, and `max_turns` became load-bearing contract keys,
+and a judgment step reports structured JSON instead of a `COMPLETION:` block.
+
 ## 1. Layout
 
 ```
 <pack-root>/
-  pack.yaml              # name, version, description, protocol: 1
+  pack.yaml              # name, version, description, protocol: 2
   workflows/*.yaml        # workflow schema definitions
   steps/<id>/
-    contract.yaml         # id, version, model|run, optional flags
-    prompt.md              # agent steps
-    script.sh               # script steps
+    contract.yaml         # id, version, kind, in/out, prompt|run
+    SKILL.md               # judgment steps (prompt.md also accepted)
+    script.sh               # exec steps
   steps/lib/              # optional, shared shell helpers (this pack only)
 ```
 
@@ -26,58 +31,116 @@ A pack may ship its own `steps/lib/`. Depending on another pack's `lib/`
 
 ## 2. `contract.yaml` keys
 
-The minimal shape dispatch reads:
-
 - `id` — must match the step's directory name.
 - `version` — integer, bumped on any change to the contract's behavior.
-- Exactly one of:
-  - `model: <alias>` — agent step. **Required for agent steps; there is no
-    engine default.** The alias must be one of the vocabulary names (e.g.
-    `opus`, `sonnet`, `composer`) — never a concrete model id.
-  - `run: script.sh` — script step. Dispatch keys off `run:` alone; a
-    `kind: script` field, if present, is decorative and ignored.
+- `kind` — `exec` | `judgment` | `gate`. Inferred when absent (`run:` →
+  `exec`, `prompt:` → `judgment`); an explicit value that contradicts the
+  payload is an error. v1's `agent` / `script` spellings still read as
+  `judgment` / `exec`.
+- Exactly one payload, except on a gate:
+  - `prompt: SKILL.md` — judgment step. Resolved inside the step dir first,
+    then the skills search path.
+  - `run: script.sh` — exec step.
+  - a `kind: gate` step has neither; it is metadata the engine renders for a
+    human.
 
-Optional: `state_mutating`, `default_outputs`. Any other key is ignored by
-the engine.
+**`model:` is rejected.** The capability alias for a step lives in
+`models.yaml` under `step_models:`, never in the contract (protocol v2
+principle 7). A contract that sets `model:` fails to load.
+
+### Typed I/O
+
+```yaml
+id: design
+version: 3
+kind: judgment
+max_turns: 40
+tools: [fs.read, fs.write, shell.run]
+side_effects: [] # e.g. [write:git, write:ticket]
+in:
+  discovery: { artifact: discovery.md }
+  ticket: { artifact: ticket-context.md, optional: true }
+out:
+  design: { artifact: design.md }
+  tasks: { artifact: tasks.yaml }
+  complexity: { type: enum, values: [XS, S, M, L, XL] }
+```
+
+- `in:` / `out:` map a **name** to a spec. Each spec declares either
+  `artifact:` (a file, resolved to an absolute path by the engine — the pack
+  never writes paths) or `type:` (a value carried in the done payload).
+  `optional: true` exempts an entry from enforcement.
+- `tools:` is the capability allowlist handed to the harness.
+- `side_effects:` names what the step changes outside its artifacts
+  (`write:git`, `write:ticket`). Phase 3 refuses a recipe where a `write:*`
+  step has no preceding gate.
+- `max_turns:` caps a judgment step's tool-use loop.
+- On a gate: `show:` (artifact names to render) and `approve_as:` (the token
+  downstream steps declare via `requires:`).
+
+Optional legacy keys: `state_mutating`, `default_outputs`,
+`required_outputs_for_completed`. The last two apply only to a step that has
+**not** declared `out:` — a migrated step is validated against `out:` instead.
+Any other key is ignored by the engine.
 
 ## 3. Step protocol
 
-**Script steps**
+**Exec steps**
 
 - Exit 0 = success, nonzero = failure (retried per routing policy).
 - Environment provided: `REPO_ROOT`, `CHANGE_ID`, `STATE_YAML_PATH`, and
   others per the engine's step-env contract.
 - **The last line of stdout must be a JSON object** — its keys become step
   outputs.
+- `orchestrator step` runs every consecutive exec step internally; the
+  harness only ever sees a judgment or a gate.
 - Caveat — `state_mutating` steps are recorded `completed` _before_ they
-  run. A nonzero exit there aborts the run (exit 3) instead of recording a
-  retryable `failed`. Don't put fallible logic behind `state_mutating`; keep
-  it for deterministic teardown/bookkeeping only.
+  run. A nonzero exit there aborts the run instead of recording a retryable
+  `failed`. Don't put fallible logic behind `state_mutating`; keep it for
+  deterministic teardown/bookkeeping only.
 
-**Agent steps**
+**Judgment steps**
 
-- The prompt is assembled from `prompt.md` plus step context.
-- The agent must end its output with a `COMPLETION:` YAML block.
-- A malformed/missing block, or a nonzero subprocess exit, both become a
-  retryable `failed` step — never a hang, never a silent pass. A
-  non-conforming pack cannot hang the engine.
+- The prompt is assembled from the step's charter plus step context.
+- A step that declares `out:` ends with a single fenced `json` block naming
+  its declared values; the harness passes that to
+  `orchestrator done <run> <step_id> --out '{...}' --usage '{...}'`.
+- A step that declares no `out:` still uses the legacy `COMPLETION:` YAML
+  block. Both paths coexist while a pack migrates.
+- `--usage` must carry `input_tokens` and `output_tokens`, at least one
+  nonzero, or the record is rejected. `ORCHESTRATOR_SKIP_USAGE_CHECK` is a
+  test/fixture escape hatch, not a production one.
+- A malformed final block, a missing artifact, or a value outside a declared
+  enum all become a rejected `done` (exit 3) or a retryable `failed` step —
+  never a hang, never a silent pass.
 
-**Exit codes surfaced by `orchestrator run`**: `1` complete, `2` blocked
-(needs user action), `3` error.
+**Gate steps**
+
+- Reported by `orchestrator step` as `status: blocked`, `kind: gate`.
+- Resumption (`approve` / `cancel` and the token itself) lands in Phase 3;
+  until then a gate stops the run.
+
+**Exit codes**: the v2 verbs (`start`, `step`, `done`, `status`, `events`)
+exit 0 and carry the run's condition in the JSON `status` field
+(`ready | running | done | blocked | needs_you | error`); exit 3 is an engine
+error. The deprecated `run` / `next` / `done <state.yaml>` verbs keep the v1
+codes: `1` complete, `2` blocked, `3` error.
 
 ## 4. Aliases
 
-Packs speak in capability-tier aliases (`opus`, `sonnet`, `composer`, …),
-never concrete model ids. What an alias resolves to on a given machine is an
-agent-config concern (`~/.orchestrator/models.yaml`), not the pack's.
+Packs speak in capability-tier aliases (`strong`, `standard`, `fast`,
+`code`), never concrete model ids. What an alias resolves to on a given
+machine is an agent-config concern (`models.yaml` `step_models:` plus
+`~/.orchestrator/models.yaml`), not the pack's.
 
 Dispatch refuses to run a step whose alias has no route on the current
-machine. That refusal (exit 4) is the documented behavior — not a bug in the
-pack.
+machine. That refusal is documented behavior — not a bug in the pack.
 
 ## 5. Protocol versioning
 
-`pack.yaml` declares `protocol: 1`. `orchestrator config pull` installs packs under `<repo>/.orchestrator/<pack>/` and refuses a pack whose protocol the engine doesn't support.
+`pack.yaml` declares `protocol: 2`. `orchestrator config pull` installs packs
+under `<repo>/.orchestrator/<pack>/` and refuses a pack whose protocol the
+engine doesn't support.
 
 Bump the protocol integer only on a breaking change to section 2 or 3 above
 (contract keys or step protocol semantics) — not for adding new workflows,

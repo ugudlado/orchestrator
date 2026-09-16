@@ -12,12 +12,18 @@ dependencies = [
 # vendor (.orchestrator/) or a downloaded pack (~/.orchestrator/pack).
 #
 # Optional extras:
-#   dev — test/lint tooling
+#   dev      — test/lint tooling
+#   headless — the model client `orchestrator run --headless` drives. The
+#              engine core never imports it; harness-driven runs need no SDK.
 [project.optional-dependencies]
+headless = [
+    "anthropic>=0.40",
+]
 dev = [
     "pytest>=8.0",
     "ruff>=0.4",
     "vulture>=2.16",
+    "anthropic>=0.40",
 ]
 
 [project.scripts]

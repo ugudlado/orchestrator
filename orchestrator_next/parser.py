@@ -23,6 +23,18 @@ class ContractNotFoundError(ValueError):
     """Raised when a step contract script payload is missing or invalid."""
 
 
+# --- protocol v2 step kinds (docs/protocol-v2.md §3) ------------------------
+KIND_EXEC = "exec"
+KIND_JUDGMENT = "judgment"
+KIND_GATE = "gate"
+VALID_KINDS = frozenset({KIND_EXEC, KIND_JUDGMENT, KIND_GATE})
+
+# Protocol v1 spelled the (decorative) kind `agent` / `script`. v2 renames them
+# to judgment / exec and makes them load-bearing; the old spellings stay
+# readable so a v1 pack doesn't fail to load mid-migration.
+_KIND_ALIASES = {"agent": KIND_JUDGMENT, "script": KIND_EXEC}
+
+
 @dataclass
 class AgentStepContract:
     """Contract for steps dispatched to an agent subprocess."""
@@ -35,6 +47,13 @@ class AgentStepContract:
     state_mutating: bool = False
     default_outputs: dict = field(default_factory=dict)
     required_outputs_for_completed: list = field(default_factory=list)
+    # --- protocol v2 (Phase 1.2) ---
+    kind: str = KIND_JUDGMENT
+    max_turns: int | None = None
+    tools: list[str] = field(default_factory=list)
+    side_effects: list[str] = field(default_factory=list)
+    inputs: dict[str, dict] = field(default_factory=dict)   # contract `in:`
+    outputs: dict[str, dict] = field(default_factory=dict)  # contract `out:`
 
 
 @dataclass
@@ -45,9 +64,33 @@ class ScriptStepContract:
     # When true, the driver records the step BEFORE running the script so
     # state.yaml is consistent even if the script moves or rewrites it.
     state_mutating: bool = False
+    # --- protocol v2 (Phase 1.2) ---
+    kind: str = KIND_EXEC
+    tools: list[str] = field(default_factory=list)
+    side_effects: list[str] = field(default_factory=list)
+    inputs: dict[str, dict] = field(default_factory=dict)
+    outputs: dict[str, dict] = field(default_factory=dict)
 
 
-StepContract = AgentStepContract | ScriptStepContract
+@dataclass
+class GateStepContract:
+    """Contract for a signoff gate (protocol v2 §7).
+
+    Phase 1.2 parses and validates it; dispatching one reports
+    ``status: blocked`` / ``kind: gate``. Tokens arrive in Phase 3.
+    """
+    id: str
+    kind: str = KIND_GATE
+    state_mutating: bool = False
+    show: list[str] = field(default_factory=list)
+    approve_as: str = ""
+    tools: list[str] = field(default_factory=list)
+    side_effects: list[str] = field(default_factory=list)
+    inputs: dict[str, dict] = field(default_factory=dict)
+    outputs: dict[str, dict] = field(default_factory=dict)
+
+
+StepContract = AgentStepContract | ScriptStepContract | GateStepContract
 
 
 _FRONTMATTER_DELIM = "---"
@@ -305,6 +348,93 @@ def _contract_search_dirs() -> list[str]:
 
 
 
+# ---------------------------------------------------------------------------
+# protocol v2 contract keys (Phase 1.2)
+# ---------------------------------------------------------------------------
+def _str_list(step_id: str, key: str, value: Any) -> list[str]:
+    """Coerce a contract list-of-strings key, rejecting anything else."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or any(not isinstance(v, str) for v in value):
+        raise ContractError(
+            f"step contract {step_id}: {key}: must be a list of strings (got {value!r})"
+        )
+    return list(value)
+
+
+def _parse_io_map(step_id: str, key: str, value: Any) -> dict[str, dict]:
+    """Parse a contract ``in:`` / ``out:`` block into ``{name: spec}``.
+
+    Each entry is a mapping declaring either ``artifact:`` (a file the step
+    reads or writes) or ``type:`` (a scalar value carried in the done payload).
+    Malformed entries are a hard ContractError — protocol v2 §6 makes these
+    load-bearing, so silently ignoring a typo would drop validation.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ContractError(
+            f"step contract {step_id}: {key}: must be a mapping of name -> spec"
+        )
+    parsed: dict[str, dict] = {}
+    for name, spec in value.items():
+        if not isinstance(spec, dict):
+            raise ContractError(
+                f"step contract {step_id}: {key}.{name} must be a mapping "
+                f"(e.g. {{artifact: design.md}} or {{type: enum, values: [...]}})"
+            )
+        if "artifact" not in spec and "type" not in spec:
+            raise ContractError(
+                f"step contract {step_id}: {key}.{name} must declare artifact: or type:"
+            )
+        if "artifact" in spec and not isinstance(spec["artifact"], str):
+            raise ContractError(
+                f"step contract {step_id}: {key}.{name}.artifact must be a string"
+            )
+        if spec.get("type") == "enum" and not isinstance(spec.get("values"), list):
+            raise ContractError(
+                f"step contract {step_id}: {key}.{name} type: enum requires values: [...]"
+            )
+        parsed[str(name)] = dict(spec)
+    return parsed
+
+
+def _resolve_kind(step_id: str, data: dict[str, Any], run: str | None) -> str:
+    """Return the validated step kind, inferring it when absent.
+
+    Inference (protocol v2 §10 migration): ``run:`` -> exec, ``prompt:`` ->
+    judgment. An explicit ``kind:`` must match that shape, except ``gate``
+    which stands alone.
+    """
+    raw = data.get("kind")
+    inferred = KIND_EXEC if run is not None else KIND_JUDGMENT
+    if raw is None:
+        return inferred
+    if isinstance(raw, str):
+        raw = _KIND_ALIASES.get(raw, raw)
+    if not isinstance(raw, str) or raw not in VALID_KINDS:
+        raise ContractError(
+            f"step contract {step_id}: unknown kind: {raw!r} "
+            f"(expected one of {', '.join(sorted(VALID_KINDS))})"
+        )
+    if raw != KIND_GATE and raw != inferred:
+        raise ContractError(
+            f"step contract {step_id}: kind: {raw!r} conflicts with the step's "
+            f"payload ({'run:' if run is not None else 'prompt:'} implies {inferred!r})"
+        )
+    return raw
+
+
+def _v2_fields(step_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    """The protocol-v2 keys shared by every contract kind."""
+    return {
+        "tools": _str_list(step_id, "tools", data.get("tools")),
+        "side_effects": _str_list(step_id, "side_effects", data.get("side_effects")),
+        "inputs": _parse_io_map(step_id, "in", data.get("in")),
+        "outputs": _parse_io_map(step_id, "out", data.get("out")),
+    }
+
+
 def _make_contract(
     step_id: str,
     data: dict[str, Any],
@@ -312,9 +442,23 @@ def _make_contract(
     instruction: str,
     prompt_dir: str | None = None,
 ) -> StepContract:
+    kind = _resolve_kind(step_id, data, run)
+    v2 = _v2_fields(step_id, data)
+
+    if kind == KIND_GATE:
+        return GateStepContract(
+            id=data.get("id", step_id),
+            state_mutating=bool(data.get("state_mutating", False)),
+            show=_str_list(step_id, "show", data.get("show")),
+            approve_as=str(data.get("approve_as") or ""),
+            **v2,
+        )
+
     shared = dict(
         id=data.get("id", step_id),
         state_mutating=bool(data.get("state_mutating", False)),
+        kind=kind,
+        **v2,
     )
     if run is None:
         raw_defaults = data.get("default_outputs")
@@ -330,12 +474,19 @@ def _make_contract(
                     _sys.stderr.write(
                         f"[parser] malformed required_outputs_for_completed entry skipped: {entry!r}\n"
                     )
+        raw_turns = data.get("max_turns")
+        if raw_turns is not None and (not isinstance(raw_turns, int) or isinstance(raw_turns, bool) or raw_turns < 1):
+            raise ContractError(
+                f"step contract {step_id}: max_turns: must be a positive integer "
+                f"(got {raw_turns!r})"
+            )
         return AgentStepContract(
             **shared,
             instruction=instruction,
             prompt_dir=prompt_dir,
             default_outputs=default_outputs,
             required_outputs_for_completed=req,
+            max_turns=raw_turns,
         )
     return ScriptStepContract(**shared, run=run)
 
@@ -352,6 +503,16 @@ def load_contract_for_step(step_id: str) -> StepContract:
             contract_dir = os.path.join(d, step_id)
             with open(dir_contract, "r") as f:
                 data = yaml.safe_load(f)
+
+            if not isinstance(data, dict):
+                raise ContractError(
+                    f"step contract {step_id}: contract.yaml must be a YAML mapping"
+                )
+
+            # A gate has neither a script nor a prompt payload — it is pure
+            # metadata the engine renders for a human (protocol v2 §7).
+            if data.get("kind") == KIND_GATE:
+                return _make_contract(step_id, data, None, "", prompt_dir=None)
 
             is_script = bool(data.get("run"))
             if is_script:
