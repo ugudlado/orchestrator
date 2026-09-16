@@ -250,7 +250,7 @@ def test_drive_runs_the_recipe_to_completion(pack, repo):
     """exec -> judgment -> done, with the engine calling the model itself."""
     started, _ = protocol.start("mini", "h-run")
     run = started["state"]
-    notes = repo / "spec" / "changes" / "h-run" / "notes.md"
+    notes = repo / ".orchestrator" / "runs" / "h-run" / "artifacts" / "notes.md"
 
     client = FakeClient([
         _response([_tool_block("t1", "fs_write",

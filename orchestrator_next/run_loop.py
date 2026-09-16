@@ -618,7 +618,27 @@ def _route_awaiting_input(state_yaml_path: str, user_direction: str) -> bool:
     path.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True))
     from orchestrator_next.record import _persist_if_materialized
     _persist_if_materialized(path, raw)
-    return True
+    discard_scratch(raw)
+
+
+def discard_scratch(state_raw: dict) -> bool:
+    """Delete the run's scratch dir (Phase 2.4): artifacts survive, scratch does not.
+
+    Returns True when a directory was removed. Never raises — a run that
+    finished should not fail on cleanup of a throwaway directory.
+    """
+    import shutil
+
+    from orchestrator_next.paths import scratch_dir
+
+    try:
+        path = scratch_dir(state_raw)
+    except (OSError, ValueError):
+        return False
+    if not path.is_dir():
+        return False
+    shutil.rmtree(path, ignore_errors=True)
+    return not path.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -637,6 +657,8 @@ def _finalize_state(state_yaml_path: str) -> None:
         return
     from orchestrator_next.record import _persist_if_materialized
     _persist_if_materialized(path, raw)
+    # Phase 2.4: a finished run keeps its artifacts and drops its scratch.
+    discard_scratch(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -1024,12 +1046,44 @@ def _build_route_overrides(flags: list[str]) -> str:
     return json.dumps(data)
 
 
+def _new_run_id() -> str:
+    from orchestrator_next.paths import new_run_id
+
+    return new_run_id()
+
+
+def _pack_sha_for(schema: str, repo_root: str) -> str:
+    """Identify the pack this run was seeded from (best effort)."""
+    from orchestrator_next.paths import (
+        ConfigRootError,
+        WorkflowRefError,
+        config_root,
+        pack_sha,
+        resolve_workflow_ref,
+    )
+
+    try:
+        _pack, _wf, cfg = resolve_workflow_ref(
+            schema, Path(repo_root) if repo_root else None
+        )
+    except (WorkflowRefError, OSError):
+        try:
+            cfg = config_root()
+        except (ConfigRootError, OSError):
+            return ""
+    try:
+        return pack_sha(cfg)
+    except OSError:
+        return ""
+
+
 def _write_initial_state(
     state_yaml: Path, *, slug: str, schema: str, repo_root: str,
     active: list[str], prior_path: str, config_pack: str = "",
     worktree_path: str = "",
     user_input: str = "",
     ticket_id: str = "",
+    run_id: str = "",
 ) -> None:
     """Write the initial state.yaml, carrying identity fields from the most
     recent prior state file when provided.
@@ -1058,7 +1112,9 @@ def _write_initial_state(
     state = {
         "change_id": prior_context.get("change_id") or slug,
         "slug": slug,
+        "run_id": run_id or _new_run_id(),
         "schema": schema,
+        "recipe": schema,
         "status": "active",
         "repo_root": repo_root,
         "workflow_plan": {"main": {"active": active, "filtered": []}},
@@ -1076,6 +1132,9 @@ def _write_initial_state(
         state["user_input"] = ui
     if config_pack:
         state["config_pack"] = config_pack
+    sha = _pack_sha_for(schema, repo_root)
+    if sha:
+        state["pack_sha"] = sha
     wt = worktree_path or prior_context.get("worktree_path") or ""
     if wt:
         state["worktree_path"] = wt
@@ -1126,6 +1185,7 @@ def seed_state_file(
     prior_path: str = "",
     user_input: str = "",
     ticket_id: str = "",
+    run_id: str = "",
 ) -> None:
     """Seed ``state_yaml`` and run generate_plan (shared by ticket + session paths)."""
     active = _schema_active_steps(schema, repo_root)
@@ -1141,6 +1201,7 @@ def seed_state_file(
         worktree_path=worktree_path,
         user_input=user_input,
         ticket_id=ticket_id,
+        run_id=run_id,
     )
     from orchestrator_next import generate_plan as _gp
     _gp.generate_plan(str(state_yaml))

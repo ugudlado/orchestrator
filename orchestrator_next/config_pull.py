@@ -233,6 +233,13 @@ def pull_into_pack(
             dest_skill.symlink_to(rel, target_is_directory=True)
             skills_exported.append(export_name)
 
+    # A pulled pack means this repo will host runs: make sure their scratch
+    # directories are ignored before the first one appears (plan Phase 2.1).
+    from orchestrator_next.paths import ensure_scratch_gitignored
+
+    if ensure_scratch_gitignored(repo_root):
+        _log(f"gitignore: added scratch ignore to {repo_root / '.gitignore'}")
+
     lock = {
         "version": 1,
         "pack": pack_name,

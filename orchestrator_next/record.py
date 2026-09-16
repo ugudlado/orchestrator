@@ -859,6 +859,68 @@ def apply_task_updates(
     return applied
 
 
+def _artifact_base_for(state_raw: dict[str, Any]) -> Path:
+    """The run's artifacts base — resolved the same way the dispatcher does."""
+    from orchestrator_next.protocol import _artifact_base
+
+    return _artifact_base(state_raw)
+
+
+def _record_artifacts(
+    state_raw: dict[str, Any],
+    phase: str,
+    step_id: str,
+    contract: Any,
+    outputs: dict[str, Any],
+) -> None:
+    """Hash a completed step's declared artifacts onto its plan node (Phase 2.3).
+
+    Stores ``artifacts: [{name, path, sha256}]`` — plus the input hashes a
+    resume needs — on the step's plan node, and runs the contract's
+    ``validate:`` script when one is declared.
+
+    Existence of a declared ``out:`` artifact is *not* enforced here: that is
+    ``protocol.validate_out``'s job on the ``done`` verb, and the pre-v2
+    ``orchestrator done <state.yaml>`` callers legitimately record steps whose
+    artifacts the pack manages itself. What record owns is the hash, and a
+    ``validate:`` script that rejects what landed.
+    """
+    from orchestrator_next import artifacts as _art
+
+    declared_out = getattr(contract, "outputs", None) or {}
+    declared_in = getattr(contract, "inputs", None) or {}
+    if not declared_out and not declared_in:
+        return
+
+    base = _artifact_base_for(state_raw)
+    try:
+        recorded = _art.collect(declared_out, base, overrides=outputs, require=False)
+    except OSError:
+        recorded = []
+
+    script = str(getattr(contract, "validate", "") or "")
+    if script and recorded:
+        cwd = str(state_raw.get("worktree_path") or state_raw.get("repo_root") or ".")
+        try:
+            _art.run_validate(script, os.path.expanduser(cwd))
+        except (_art.ArtifactError, OSError) as exc:
+            raise _RecordError(
+                {"error": "validate_failed", "step_id": step_id, "detail": str(exc)}, 3
+            ) from exc
+
+    node = _find_workflow_node(state_raw, phase, step_id)
+    if node is None:
+        return
+    if recorded:
+        node["artifacts"] = recorded
+    inputs_seen = [
+        {"name": name, "sha256": digest}
+        for name, digest in sorted(_art.current_hashes(declared_in, base).items())
+    ]
+    if inputs_seen:
+        node["input_artifacts"] = inputs_seen
+
+
 def record(
     state_yaml_path: str, payload: dict[str, Any],
 ) -> tuple[dict[str, Any], int]:
@@ -882,6 +944,12 @@ def record(
     ]
     history.append(entry)
     state_raw["step_history"] = history
+
+    if status in ("completed", "recovered"):
+        try:
+            _record_artifacts(state_raw, phase, step_id, contract, outputs)
+        except _RecordError as e:
+            return (e.reason, e.code)
 
     _apply_routing(entry, step_id, phase, status, state_raw, outputs=outputs)
     if status == "await_input":

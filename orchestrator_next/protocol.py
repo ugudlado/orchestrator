@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -117,19 +117,61 @@ def _persist(state_yaml_path: str) -> None:
 # ---------------------------------------------------------------------------
 # step payload construction
 # ---------------------------------------------------------------------------
-def _artifact_base(state_raw: dict[str, Any]) -> Path:
-    """Directory that named artifacts resolve against.
+def _recipe_artifacts_root(state_raw: dict[str, Any]) -> str:
+    """The run's recipe-declared ``artifacts_root`` template, or "" when absent."""
+    from orchestrator_next.parser import load_recipe
 
-    Phase 1.3 keeps this at the pack's existing convention —
-    ``<worktree|repo>/spec/changes/<slug>``. Phase 2.1 replaces it with an
-    engine-owned ``run_dir(slug)``; nothing outside this function should
-    assume the layout.
+    schema = str(state_raw.get("schema") or "")
+    if not schema:
+        return ""
+    try:
+        return load_recipe(schema).artifacts_root
+    except Exception:  # noqa: BLE001 — an unreadable recipe falls back to the default
+        return ""
+
+
+def _artifact_base(state_raw: dict[str, Any]) -> Path:
+    """Directory that named artifacts resolve against (plan Phase 2.1).
+
+    Engine-owned by default: ``<worktree|repo>/.orchestrator/runs/<slug>/artifacts/``.
+    A recipe may override the location with ``artifacts_root:`` (e.g. the pack's
+    historical ``spec/changes/{slug}``). Nothing outside this function should
+    assume either layout.
     """
-    base = os.path.expanduser(
-        str(state_raw.get("worktree_path") or "")
-    ) or str(state_raw.get("repo_root") or "") or os.getcwd()
-    slug = str(state_raw.get("slug") or state_raw.get("change_id") or "")
-    return Path(base) / "spec" / "changes" / slug
+    from orchestrator_next.paths import artifacts_dir
+
+    return artifacts_dir(state_raw, _recipe_artifacts_root(state_raw))
+
+
+def _scratch_base(state_raw: dict[str, Any]) -> Path:
+    """The run's throwaway workspace — created on demand, discarded on archive."""
+    from orchestrator_next.paths import scratch_dir
+
+    return scratch_dir(state_raw)
+
+
+def render_placeholders(
+    text: str, in_paths: dict[str, str], out_paths: dict[str, str]
+) -> str:
+    """Substitute ``{in.x}`` / ``{out.y}`` in a charter with resolved paths.
+
+    Unknown names are left verbatim so a prompt never silently loses meaning;
+    ``validate-workflow`` is what turns an unknown name into an error.
+    """
+    if "{in." not in text and "{out." not in text:
+        return text
+    for prefix, mapping in (("in", in_paths), ("out", out_paths)):
+        for name, path in mapping.items():
+            text = text.replace("{%s.%s}" % (prefix, name), path)
+    return text
+
+
+def placeholder_names(text: str) -> set[tuple[str, str]]:
+    """Every ``{in.x}`` / ``{out.y}`` reference in a charter, as (side, name)."""
+    return {
+        (m.group(1), m.group(2))
+        for m in re.finditer(r"\{(in|out)\.([A-Za-z0-9_-]+)\}", text or "")
+    }
 
 
 def _resolve_io(specs: dict[str, dict], base: Path) -> tuple[dict[str, str], dict[str, dict]]:
@@ -168,6 +210,10 @@ def _judgment_payload(
     base = _artifact_base(state_raw)
     in_paths, _in_schema = _resolve_io(contract.inputs, base)
     out_paths, out_schema = _resolve_io(contract.outputs, base)
+    # The step is about to write here; a judgment step should never have to
+    # mkdir its own artifact base.
+    if out_paths:
+        base.mkdir(parents=True, exist_ok=True)
 
     # A migrated step (declares out:) gets the structured-output tail; an
     # unmigrated one keeps the legacy COMPLETION block (protocol v2 §10).
@@ -199,7 +245,9 @@ def _judgment_payload(
             "max_turns": contract.max_turns,
             "tools": list(contract.tools),
             "side_effects": list(contract.side_effects),
-            "system": base_payload["prompt"],
+            "system": render_placeholders(
+                base_payload["prompt"], in_paths, out_paths
+            ),
             "in": in_paths,
             "out": out_paths,
             "out_schema": out_schema,
@@ -327,6 +375,7 @@ def start(
 ) -> tuple[dict[str, Any], int]:
     """Seed a run and return its identity plus the first ``step`` result."""
     from orchestrator_next.paths import WorkflowRefError, resolve_workflow_ref
+    from orchestrator_next.paths import new_run_id as paths_new_run_id
     from orchestrator_next.run_loop import seed_state_file
     from orchestrator_next.run_store import _state_root, open_store, persist
 
@@ -343,7 +392,7 @@ def start(
         raise ProtocolError(str(exc)) from exc
     os.environ["ORCHESTRATOR_CONFIG"] = str(cfg_root)
 
-    run_id = str(uuid.uuid4())
+    run_id = paths_new_run_id()
     state_path = _state_root() / f"{run_id}.yaml"
     user_input = json.dumps(inputs, sort_keys=True) if inputs else slug
     try:
@@ -355,6 +404,7 @@ def start(
             config_pack=config_pack,
             user_input=user_input,
             ticket_id=ticket_id,
+            run_id=run_id,
         )
     except (FileNotFoundError, ValueError) as exc:
         state_path.unlink(missing_ok=True)
@@ -518,18 +568,25 @@ def status(run_ref: str) -> tuple[dict[str, Any], int]:
             attempts[entry.step_id] = max(attempts.get(entry.step_id, 0), int(entry.attempt))
 
     nodes = []
+    all_artifacts: list[dict[str, Any]] = []
     for phase in state.workflow_plan:
         for node in phase_nodes(state, phase):
             step_id = str(node.get("id", ""))
             if not step_id:
                 continue
+            node_artifacts = [
+                a for a in (node.get("artifacts") or []) if isinstance(a, dict)
+            ]
             nodes.append({
                 "id": step_id,
                 "phase": phase,
                 "kind": _kind_of(step_id),
                 "status": str(node.get("status") or "pending"),
                 "attempts": attempts.get(step_id, 0),
+                "artifacts": node_artifacts,
             })
+            for a in node_artifacts:
+                all_artifacts.append({**a, "step_id": step_id})
 
     totals = {"input_tokens": 0, "output_tokens": 0}
     for entry in state.step_history:
@@ -544,13 +601,14 @@ def status(run_ref: str) -> tuple[dict[str, Any], int]:
         cost = 0.0
 
     return {
-        "run_id": Path(state_yaml_path).stem,
+        "run_id": str(state.raw.get("run_id") or Path(state_yaml_path).stem),
         "slug": state.raw.get("slug") or state.change_id,
         "state": state_yaml_path,
         "run_status": state.raw.get("status") or "active",
         "phase": state.phase,
         "nodes": nodes,
-        "artifacts": [],   # Phase 2.3 records {name, path, sha256}
+        "artifacts": all_artifacts,   # {name, path, sha256, step_id}
+        "artifacts_base": str(_artifact_base(state.raw)),
         "usage": totals,
         "cost_usd": cost,
         "gate_token": None,  # Phase 3.1

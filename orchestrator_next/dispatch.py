@@ -126,6 +126,67 @@ def _prompt_dir_map(state: State) -> dict[str, str]:
 _UNSET: Any = object()
 
 
+def _skip_unchanged(
+    state: State, ready: list[str], state_yaml_path: str, token: Any = _UNSET
+) -> tuple[list[str], bool]:
+    """Drop ready nodes whose recorded artifacts still hash the same.
+
+    A re-queued node that already has `artifacts:` recorded, whose declared
+    in/out files are byte-identical to what the step last produced, has nothing
+    left to do. Marking it completed here is what makes a resume cheap instead
+    of a full re-run.
+
+    The skip mutates `state.raw`, so it is written back through `_claim_nodes` —
+    the same compare-and-swap save a claim uses. A lost race is harmless: the
+    nodes stay pending and the next pass re-evaluates them.
+
+    Returns `(ids still needing dispatch, whether a skip was written)`. The
+    second element matters to a caller holding a CAS token: the write spends
+    that token, so the caller must re-read before claiming anything.
+    """
+    from orchestrator_next.artifacts import node_is_unchanged
+    from orchestrator_next.protocol import _artifact_base
+
+    nodes = phase_nodes(state, state.phase)
+    skipped: list[str] = []
+    remaining: list[str] = []
+    base: Any = None
+
+    for step_id in ready:
+        node = readiness.find_node(nodes, step_id)
+        if not node or not node.get("artifacts"):
+            remaining.append(step_id)
+            continue
+        try:
+            contract = load_contract_for_step(step_id)
+        except Exception:
+            # No readable contract means nothing to compare against; let the
+            # normal dispatch path raise the real error.
+            remaining.append(step_id)
+            continue
+        if base is None:
+            base = _artifact_base(state.raw)
+        try:
+            unchanged = node_is_unchanged(node, contract, base)
+        except OSError:
+            unchanged = False
+        if not unchanged:
+            remaining.append(step_id)
+            continue
+        readiness.mark_node_status(state.raw, state.phase, step_id, "completed")
+        # find_node returns the live dict inside state.raw, so this lands in
+        # the document the CAS save writes.
+        node["skipped_unchanged"] = True
+        skipped.append(step_id)
+
+    if skipped:
+        # Attempt the write either way; a conflict just means the next pass
+        # re-evaluates. The token is spent regardless, hence the flag.
+        _claim_nodes(state_yaml_path, state.phase, [], state_raw=state.raw,
+                     token=token)
+    return remaining, bool(skipped)
+
+
 def _persist_node_status(
     state_yaml_path: str,
     phase: str,
@@ -360,12 +421,21 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             return {}, 3
         return _handle_resume(state, state_yaml_path, last)
 
-    next_step_id = readiness.next_ready_node(state)
+    # Completing a node unblocks its dependents, so a skip makes the ready set
+    # stale. Drain until a pass skips nothing, otherwise a chain of unchanged
+    # nodes would report the phase complete with successors still pending. Each
+    # pass completes at least one node, so this terminates.
+    for _ in range(len(phase_nodes(state, state.phase)) + 1):
+        ready, skipped = _skip_unchanged(
+            state, readiness.ready_nodes(state), state_yaml_path
+        )
+        if not skipped:
+            break
 
-    if next_step_id is None:
+    if not ready:
         return {}, 1
 
-    return _dispatch_fresh(state, state_yaml_path, next_step_id)
+    return _dispatch_fresh(state, state_yaml_path, ready[0])
 
 
 MAX_CLAIM_RETRIES = 8
@@ -417,7 +487,16 @@ def dispatch_batch(
             action, code = dispatch(state, state_yaml_path)
             return ([action] if code == 0 else []), code
 
-        ready = readiness.ready_nodes(state, exclude_claimed=True)
+        ready, skipped = _skip_unchanged(
+            state,
+            readiness.ready_nodes(state, exclude_claimed=True),
+            state_yaml_path,
+            token=claim_token,
+        )
+        if skipped:
+            # The skip spent our CAS token. Re-read before claiming, so the
+            # claim compares against the version the skip just produced.
+            continue
         if not ready:
             # Nothing claimable. Either the phase is done, or every remaining
             # node is claimed by a worker still running — the caller decides

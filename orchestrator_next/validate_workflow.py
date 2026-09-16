@@ -120,6 +120,89 @@ def _smoke_expand(schema_name: str, step_ids: list[str], repo_root: str) -> None
             raise SystemExit(1)
 
 
+def _charter_text(contract: Any) -> str:
+    """The step's charter body, or "" for a step that has no prompt."""
+    return str(getattr(contract, "instruction", "") or "")
+
+
+def _check_wiring(schema_name: str, step_ids: list[str]) -> None:
+    """Every ``in:`` artifact must be produced upstream, or be a recipe input.
+
+    Walks the recipe in declaration order, accumulating the artifact names each
+    step declares in ``out:``. A step whose ``in:`` names something no earlier
+    step produces (and that the recipe does not declare under ``inputs:``) is a
+    wiring error, unless that input is marked ``optional: true``.
+
+    Also rejects a charter that templates an ``{in.x}`` / ``{out.y}`` the step's
+    own contract never declared.
+    """
+    from orchestrator_next.parser import ContractError as _CE
+    from orchestrator_next.parser import load_recipe
+    from orchestrator_next.protocol import placeholder_names
+
+    try:
+        recipe = load_recipe(schema_name)
+    except (FileNotFoundError, _CE) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+    produced: set[str] = set(recipe.inputs)
+    errors: list[str] = []
+    unmigrated: list[str] = []
+
+    for step_id in step_ids:
+        try:
+            contract = load_contract_for_step(step_id)
+        except (FileNotFoundError, ContractError):
+            continue  # _check_contracts already reported this
+        inputs = getattr(contract, "inputs", None) or {}
+        outputs = getattr(contract, "outputs", None) or {}
+        if not inputs and not outputs:
+            # An unmigrated step declares no I/O at all, so the engine cannot
+            # see what it produces. Treat it as an unknown producer rather than
+            # reporting every downstream in: as unwired (plan Phase 1.2 is
+            # still mid-migration in the pack).
+            unmigrated.append(step_id)
+            continue
+
+        for name, spec in sorted(inputs.items()):
+            if not spec.get("artifact"):
+                continue  # a scalar in: is supplied by the harness, not a file
+            if spec.get("optional"):
+                continue
+            if name not in produced:
+                if unmigrated:
+                    # Some upstream step is unmigrated and may well write this
+                    # file; the engine cannot prove it either way, so warn.
+                    print(
+                        f"WARN: {step_id}: in.{name} has no declared producer — "
+                        f"upstream steps {', '.join(unmigrated)} declare no out: yet",
+                        file=sys.stderr,
+                    )
+                    continue
+                errors.append(
+                    f"{step_id}: in.{name} is not produced by any upstream step "
+                    f"(add it to the recipe's inputs:, mark it optional:, or "
+                    f"declare it in an earlier step's out:)"
+                )
+
+        declared = set(inputs) | set(outputs)
+        for side, name in sorted(placeholder_names(_charter_text(contract))):
+            if name not in declared:
+                errors.append(
+                    f"{step_id}: charter references {{{side}.{name}}} but the "
+                    f"contract declares no {side}: entry named {name!r}"
+                )
+
+        produced |= set(outputs)
+
+    if errors:
+        print("ERROR: artifact wiring:", file=sys.stderr)
+        for e in errors:
+            print(f"  - {e}", file=sys.stderr)
+        raise SystemExit(1)
+
+
 def validate_workflow(schema_name: str, repo_root: str) -> None:
     from orchestrator_next.paths import config_root
     wf_path = config_root() / "workflows" / f"{schema_name}.yaml"
@@ -128,6 +211,7 @@ def validate_workflow(schema_name: str, repo_root: str) -> None:
     schema = _load_schema(schema_name)
     step_ids = _step_ids(schema)
     _check_contracts(step_ids)
+    _check_wiring(schema_name, step_ids)
 
     if schema_name in _SKIP_EXPAND:
         print(f"OK: contracts valid ({schema_name} — expand-plan smoke skipped)", file=sys.stderr)

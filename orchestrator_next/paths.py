@@ -243,3 +243,111 @@ def workflow_mode(name: str, repo_root: Path | None = None) -> str:
         return "ticket"
     doc = yaml.safe_load(schema_yaml.read_text(encoding="utf-8")) or {}
     return str(doc.get("mode") or "ticket")
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.1 — engine-owned run base paths
+# ---------------------------------------------------------------------------
+#: Line added to a consumer repo's .gitignore so scratch never gets committed.
+SCRATCH_GITIGNORE_LINE = ".orchestrator/runs/*/scratch/"
+
+
+def run_base(state_raw: dict) -> Path:
+    """The checkout a run's paths hang off: its worktree, else its repo root."""
+    base = os.path.expanduser(str(state_raw.get("worktree_path") or "")) or str(
+        state_raw.get("repo_root") or ""
+    )
+    return Path(base) if base else Path.cwd()
+
+
+def run_slug(state_raw: dict) -> str:
+    return str(state_raw.get("slug") or state_raw.get("change_id") or "")
+
+
+def run_dir(slug: str, repo_root: str | Path) -> Path:
+    """Engine-owned per-run directory: ``<repo>/.orchestrator/runs/<slug>/``."""
+    return Path(repo_root) / ".orchestrator" / "runs" / slug
+
+
+def artifacts_dir(state_raw: dict, artifacts_root: str | None = None) -> Path:
+    """Where a run's named artifacts live.
+
+    Default is ``run_dir(slug)/artifacts/``. A recipe may override with
+    ``artifacts_root: spec/changes/{slug}`` — a template resolved against the
+    run's worktree (or repo root when there is none).
+    """
+    base = run_base(state_raw)
+    slug = run_slug(state_raw)
+    if artifacts_root:
+        rendered = str(artifacts_root).format(slug=slug)
+        path = Path(rendered)
+        return path if path.is_absolute() else base / path
+    return run_dir(slug, base) / "artifacts"
+
+
+def scratch_dir(state_raw: dict) -> Path:
+    """Throwaway per-run workspace — gitignored, discarded on archive."""
+    return run_dir(run_slug(state_raw), run_base(state_raw)) / "scratch"
+
+
+def ensure_scratch_gitignored(repo_root: str | Path) -> bool:
+    """Append the scratch ignore line to ``<repo>/.gitignore`` when absent.
+
+    Returns True when the file was modified. Best-effort: an unwritable repo
+    is not an error the engine should fail a run over.
+    """
+    path = Path(repo_root) / ".gitignore"
+    try:
+        text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    except OSError:
+        return False
+    if SCRATCH_GITIGNORE_LINE in text.splitlines():
+        return False
+    suffix = "" if (not text or text.endswith("\n")) else "\n"
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{suffix}# orchestrator per-run scratch (never committed)\n"
+                    f"{SCRATCH_GITIGNORE_LINE}\n")
+    except OSError:
+        return False
+    return True
+
+
+def new_run_id() -> str:
+    """A sortable, stdlib-only run identifier (UUIDv7 — time-ordered)."""
+    import uuid
+
+    return str(uuid.uuid7())
+
+
+def pack_sha(config_root_path: str | Path) -> str:
+    """Identify the exact pack a run was seeded from.
+
+    A git checkout answers with its HEAD sha; anything else (a vendored copy,
+    a wheel-bundled pack) falls back to the sha256 of the workflow YAML files,
+    so the field is always populated and always changes when the pack does.
+    """
+    import hashlib
+    import subprocess
+
+    root = Path(config_root_path)
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    digest = hashlib.sha256()
+    wf_dir = root / "workflows"
+    if wf_dir.is_dir():
+        for path in sorted(wf_dir.glob("*.yaml")):
+            try:
+                digest.update(path.name.encode("utf-8"))
+                digest.update(path.read_bytes())
+            except OSError:
+                continue
+    return digest.hexdigest()

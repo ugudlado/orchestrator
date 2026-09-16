@@ -107,7 +107,9 @@ def pack(tmp_path, repo, monkeypatch):
 
 
 def _artifacts(repo: Path) -> Path:
-    return repo / "spec" / "changes" / "p-run"
+    """The engine-owned artifacts base (plan Phase 2.1) — the `mini` recipe
+    declares no artifacts_root, so this is where named artifacts land."""
+    return repo / ".orchestrator" / "runs" / "p-run" / "artifacts"
 
 
 def test_start_runs_exec_then_stops_at_judgment(pack, repo):

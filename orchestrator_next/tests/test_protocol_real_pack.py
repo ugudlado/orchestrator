@@ -12,6 +12,7 @@ is the contract surface, which is what Phase 1.2/1.3 changed.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 from pathlib import Path
@@ -118,9 +119,17 @@ def test_walks_explore_design_design_review(seeded, repo):
         assert "COMPLETION:" not in payload["system"].split("---")[-1]
         assert "```json" in payload["system"]
         assert payload["cwd"] == str(repo)
-        # Every declared artifact resolves under the engine-owned base.
+        # Every declared artifact resolves under the run's artifact base —
+        # here the pack's own `artifacts_root: spec/changes/{slug}` override.
         for path in payload["out"].values():
             assert path.startswith(str(art))
+        # Phase 2.2: the charter's {in.x} / {out.y} are already resolved to
+        # absolute paths — the agent never sees a placeholder.
+        assert "{in." not in payload["system"]
+        assert "{out." not in payload["system"]
+        for name, path in payload["out"].items():
+            if name in ("discovery", "design", "tasks"):
+                assert path in payload["system"], name
 
         # Write whatever artifacts this step declared, then report them.
         for name, spec in outs[expected].items():
@@ -143,6 +152,22 @@ def test_walks_explore_design_design_review(seeded, repo):
     done_ids = {n["id"] for n in status["nodes"] if n["status"] == "completed"}
     assert set(MIGRATED) <= done_ids
     assert status["usage"]["input_tokens"] == 1500
+
+    # Phase 2.3: every artifact the real steps wrote is recorded by hash,
+    # against the override base rather than the engine default.
+    assert status["artifacts_base"] == str(art)
+    recorded = {(a["step_id"], a["name"], a["path"]) for a in status["artifacts"]}
+    assert ("explore", "discovery", "discovery.md") in recorded
+    assert ("design", "tasks", "tasks.yaml") in recorded
+    # A hash is what that node saw when it completed, not a live checksum:
+    # design-review rewrote design.md after design recorded it, so the two
+    # design.md rows legitimately differ.
+    by_step = {(a["step_id"], a["name"]): a["sha256"] for a in status["artifacts"]}
+    assert by_step[("design", "design")] != by_step[("design-review", "design")]
+    assert by_step[("design-review", "design")] == hashlib.sha256(
+        (art / "design.md").read_bytes()).hexdigest()
+    assert by_step[("explore", "discovery")] == hashlib.sha256(
+        (art / "discovery.md").read_bytes()).hexdigest()
 
 
 def test_done_rejects_a_design_that_never_wrote_tasks_yaml(seeded, repo):

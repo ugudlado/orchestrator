@@ -54,6 +54,7 @@ class AgentStepContract:
     side_effects: list[str] = field(default_factory=list)
     inputs: dict[str, dict] = field(default_factory=dict)   # contract `in:`
     outputs: dict[str, dict] = field(default_factory=dict)  # contract `out:`
+    validate: str = ""  # shell script run after out: artifacts land
 
 
 @dataclass
@@ -70,6 +71,7 @@ class ScriptStepContract:
     side_effects: list[str] = field(default_factory=list)
     inputs: dict[str, dict] = field(default_factory=dict)
     outputs: dict[str, dict] = field(default_factory=dict)
+    validate: str = ""  # shell script run after out: artifacts land
 
 
 @dataclass
@@ -88,6 +90,7 @@ class GateStepContract:
     side_effects: list[str] = field(default_factory=list)
     inputs: dict[str, dict] = field(default_factory=dict)
     outputs: dict[str, dict] = field(default_factory=dict)
+    validate: str = ""  # shell script run after out: artifacts land
 
 
 StepContract = AgentStepContract | ScriptStepContract | GateStepContract
@@ -432,7 +435,19 @@ def _v2_fields(step_id: str, data: dict[str, Any]) -> dict[str, Any]:
         "side_effects": _str_list(step_id, "side_effects", data.get("side_effects")),
         "inputs": _parse_io_map(step_id, "in", data.get("in")),
         "outputs": _parse_io_map(step_id, "out", data.get("out")),
+        "validate": _validate_script(step_id, data.get("validate")),
     }
+
+
+def _validate_script(step_id: str, value: Any) -> str:
+    """Parse a contract's optional ``validate:`` shell script."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ContractError(
+            f"step contract {step_id}: validate: must be a shell command string"
+        )
+    return value
 
 
 def _make_contract(
@@ -560,6 +575,57 @@ def _parse_history_entry(raw: dict[str, Any]) -> StepHistoryEntry:
         ended_at=str(ended_at) if ended_at is not None else None,
         usage=raw.get("usage", {}),
         raw=raw,
+    )
+
+
+@dataclass
+class Recipe:
+    """A workflow YAML: its steps plus the Phase 2.1 run-level declarations."""
+    name: str
+    steps: list
+    artifacts_root: str = ""          # template, e.g. "spec/changes/{slug}"
+    inputs: dict[str, dict] = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict)
+
+
+def load_recipe(schema_name: str) -> Recipe:
+    """Load ``<config>/workflows/<name>.yaml`` into a Recipe.
+
+    ``artifacts_root`` and ``inputs`` are the two Phase 2.1 additions; both are
+    optional, so an unmigrated recipe loads unchanged.
+    """
+    from orchestrator_next.paths import config_root
+
+    path = config_root() / "workflows" / f"{schema_name}.yaml"
+    if not path.is_file():
+        raise FileNotFoundError(f"Schema file not found: {path}")
+    doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(doc, dict):
+        raise ContractError(f"workflow {schema_name}: top level must be a mapping")
+
+    root = doc.get("artifacts_root") or ""
+    if root and not isinstance(root, str):
+        raise ContractError(f"workflow {schema_name}: artifacts_root must be a string")
+
+    raw_inputs = doc.get("inputs") or {}
+    if not isinstance(raw_inputs, dict):
+        raise ContractError(f"workflow {schema_name}: inputs must be a mapping")
+    inputs: dict[str, dict] = {}
+    for name, spec in raw_inputs.items():
+        if spec is None:
+            spec = {}
+        if not isinstance(spec, dict):
+            raise ContractError(
+                f"workflow {schema_name}: inputs.{name} must be a mapping"
+            )
+        inputs[str(name)] = dict(spec)
+
+    return Recipe(
+        name=schema_name,
+        steps=list(doc.get("steps") or []),
+        artifacts_root=str(root),
+        inputs=inputs,
+        raw=doc,
     )
 
 

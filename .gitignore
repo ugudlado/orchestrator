@@ -75,3 +75,6 @@ node_modules/
 
 # pnpm content-addressable store (never commit)
 .pnpm-store/
+
+# Per-run engine scratch (Phase 2.1) — artifacts are kept, scratch never is
+.orchestrator/runs/*/scratch/
