@@ -7,6 +7,7 @@ Two-path dispatch protocol:
   exit 1                        → workflow complete; driver reads state.yaml
   exit 2                        → step blocked; driver reads state.yaml
   exit 3                        → ContractDispatchError (missing agent: and run:)
+  exit 4                        → next step `requires:` an unapproved gate token
 
 No action field. No signal field. No verify_phase.
 """
@@ -56,6 +57,12 @@ def _resolved_model(step_id: str, contract: AgentStepContract) -> str:
 def _step_in_plan(state, phase: str, step_id: str) -> bool:
     """True when step_id is a node in workflow_plan for this phase."""
     return any(str(n.get("id", "")) == step_id for n in phase_nodes(state, phase))
+
+
+# A ready step whose `requires:` gate token has not been approved. Not a
+# failure and not a block: the run resumes the moment someone approves, so it
+# gets its own code rather than being folded into exit 2 (halt).
+EXIT_GATE_REQUIRED = 4
 
 
 class ContractDispatchError(RuntimeError):
@@ -357,6 +364,35 @@ def _dispatch_fresh(
     `claim=False` builds the action without writing the in_progress claim —
     used by `dispatch_batch`, which claims the whole batch in one write.
     """
+    from orchestrator_next import gates
+
+    node = readiness.find_node(phase_nodes(state, state.phase), next_step_id) or {}
+
+    # A `requires:` token that is not approved yet means the human has not
+    # signed off on the gate that guards this step. That is a decision the
+    # engine cannot make, hence needs_you rather than a failure.
+    required = str(node.get("requires") or "")
+    if required and not gates.token_is_approved(state.raw, required):
+        return {
+            "step_id": next_step_id,
+            "reason": "gate_token_required",
+            "requires": required,
+            "detail": (
+                f"step {next_step_id!r} requires the {required!r} gate token; "
+                f"approve the gate that declares approve_as: {required}"
+            ),
+        }, 4
+
+    # A gate is pure recipe metadata: no contract file to load, nothing to run.
+    if gates.node_is_gate(node):
+        return {
+            "step_id": next_step_id,
+            "phase": state.phase,
+            "kind": gates.GATE_KIND,
+            "show": [str(s) for s in (node.get("show") or [])],
+            "approve_as": str(node.get("approve_as") or ""),
+        }, 0
+
     contract = load_contract_for_step(next_step_id)
 
     spawn_failures = _consecutive_spawn_failures(
@@ -399,6 +435,7 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
     exit 1 → workflow complete
     exit 2 → step blocked
     exit 3 → ContractDispatchError
+    exit 4 → next step requires an unapproved gate token
     """
     last = state.step_history[-1] if state.step_history else None
 
@@ -481,11 +518,11 @@ def dispatch_batch(
             or (last.status == "in_progress" and last.ended_at is None)
         ):
             action, code = dispatch(state, state_yaml_path)
-            return ([action] if code == 0 else []), code
+            return ([action] if code in (0, EXIT_GATE_REQUIRED) else []), code
 
         if max_parallel <= 1:
             action, code = dispatch(state, state_yaml_path)
-            return ([action] if code == 0 else []), code
+            return ([action] if code in (0, EXIT_GATE_REQUIRED) else []), code
 
         ready, skipped = _skip_unchanged(
             state,

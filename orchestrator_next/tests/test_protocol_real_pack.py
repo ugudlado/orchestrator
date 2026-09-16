@@ -170,6 +170,123 @@ def test_walks_explore_design_design_review(seeded, repo):
         (art / "discovery.md").read_bytes()).hexdigest()
 
 
+def test_recipe_gates_implement_behind_design_signoff():
+    """The real recipe declares the gate and binds implement to its token."""
+    recipe = yaml.safe_load(
+        (PACK / "workflows" / "feature.yaml").read_text(encoding="utf-8"))
+    entries = recipe["steps"]
+    gate = next(e for e in entries
+                if isinstance(e, dict) and e.get("gate") == "design-signoff")
+    assert gate["show"] == ["design", "tasks"]
+    assert gate["approve_as"] == "impl_token"
+
+    implement = next(e for e in entries
+                     if isinstance(e, dict) and e.get("id") == "implement")
+    assert implement["requires"] == "impl_token"
+
+    ids = [s if isinstance(s, str) else (s.get("id") or s.get("gate"))
+           for s in entries]
+    assert ids.index("design-review") < ids.index("design-signoff") \
+        < ids.index("implement")
+
+    from orchestrator_next.parser import load_contract_for_step
+    os.environ["ORCHESTRATOR_CONFIG"] = str(PACK)
+    assert "write:git" in load_contract_for_step("implement").side_effects
+
+
+@pytest.fixture
+def seeded_with_gate(tmp_path, repo, monkeypatch):
+    """Plan: explore -> design -> design-review -> gate -> implement."""
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(PACK))
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+    monkeypatch.setenv("ORCHESTRATOR_HOME_DIR", str(tmp_path / "orchome"))
+    monkeypatch.setenv("ORCHESTRATOR_STATE_BACKEND", "file")
+    monkeypatch.delenv("ORCHESTRATOR_STATE_URL", raising=False)
+
+    state = tmp_path / "gate_state.yaml"
+    state.write_text(yaml.safe_dump({
+        "change_id": "e2e", "slug": "e2e", "schema": "feature",
+        "config_pack": "workflows", "status": "active", "phase": "main",
+        "repo_root": str(repo), "worktree_path": str(repo),
+        "workflow_plan": {"main": {"nodes": [
+            {"id": "explore", "depends_on": [], "status": "pending"},
+            {"id": "design", "depends_on": ["explore"], "status": "pending"},
+            {"id": "design-review", "depends_on": ["design"],
+             "status": "pending"},
+            {"id": "design-signoff", "depends_on": ["design-review"],
+             "status": "pending", "kind": "gate",
+             "show": ["design", "tasks"], "approve_as": "impl_token"},
+            {"id": "implement", "depends_on": ["design-signoff"],
+             "status": "pending", "requires": "impl_token"},
+        ], "filtered": []}},
+        "step_history": [],
+    }, sort_keys=False), encoding="utf-8")
+    return str(state)
+
+
+def test_gate_blocks_then_approve_dispatches_implement(seeded_with_gate, repo):
+    """explore -> design -> design-review -> gate (blocked) -> approve -> implement."""
+    run = seeded_with_gate
+    art = _artifacts(repo)
+    outs = {
+        "explore": {"discovery": "discovery.md"},
+        "design": {"design": "design.md", "tasks": "tasks.yaml",
+                   "complexity": "M"},
+        "design-review": {"design": "design.md", "verdict": "pass"},
+    }
+    for expected in MIGRATED:
+        result, _ = protocol.step(run)
+        assert result["step_id"] == expected, result
+        for name, spec in outs[expected].items():
+            if str(spec).endswith((".md", ".yaml")):
+                (art / str(spec)).write_text(f"{expected}:{name}\n",
+                                             encoding="utf-8")
+        protocol.done(run, expected, out=outs[expected],
+                      usage={"input_tokens": 100, "output_tokens": 20,
+                             "model": "claude-sonnet-5"})
+
+    blocked, code = protocol.step(run)
+    assert code == 0
+    assert blocked["status"] == "blocked"
+    assert blocked["kind"] == "gate"
+    assert blocked["step_id"] == "design-signoff"
+
+    preview = blocked["payload"]["preview"]
+    assert preview["token_name"] == "impl_token"
+    # Both `show:` artifacts resolve to files the real steps just wrote.
+    assert set(preview["show"]) == {"design", "tasks"}
+    for name in ("design", "tasks"):
+        assert preview["show"][name]["exists"] is True
+        assert preview["show"][name]["sha256"] == hashlib.sha256(
+            Path(preview["show"][name]["path"]).read_bytes()).hexdigest()
+
+    token = blocked["payload"]["token"]
+    approved, _ = protocol.approve(run, token, edits={"note": "looks right"})
+    assert approved["gate_id"] == "design-signoff"
+    assert approved["next"]["step_id"] == "implement"
+    assert approved["next"]["status"] == "ready"
+
+    st, _ = protocol.status(run)
+    assert st["gate_token"] == token
+    assert st["run_status"] == "active"
+
+
+def test_implement_is_withheld_until_the_gate_is_approved(seeded_with_gate):
+    """Marking the gate node done by hand is not the same as approving it."""
+    run = seeded_with_gate
+    raw = yaml.safe_load(Path(run).read_text(encoding="utf-8"))
+    for node in raw["workflow_plan"]["main"]["nodes"]:
+        if node["id"] != "implement":
+            node["status"] = "completed"
+    Path(run).write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+
+    result, code = protocol.step(run)
+    assert code == 0
+    assert result["status"] == "needs_you"
+    assert result["step_id"] == "implement"
+    assert result["requires"] == "impl_token"
+
+
 def test_done_rejects_a_design_that_never_wrote_tasks_yaml(seeded, repo):
     """The out: block is enforced against the real design contract."""
     art = _artifacts(repo)

@@ -27,7 +27,11 @@ from typing import Any
 import yaml
 
 from orchestrator_next import model_routes
-from orchestrator_next.dispatch import ContractDispatchError, dispatch_batch
+from orchestrator_next.dispatch import (
+    EXIT_GATE_REQUIRED,
+    ContractDispatchError,
+    dispatch_batch,
+)
 # dispatch.py defines its own ContractDispatchError(RuntimeError); parser raises
 # ContractNotFoundError(ValueError) for a missing script payload and
 # ContractError(ValueError) for a malformed contract. Catch all three so any
@@ -863,6 +867,14 @@ def drive_loop(
             _notify_blocked(state_yaml_path, state.raw,
                             (action or {}).get("reason") or "blocked (signoff or halt)")
             emit("blocked", reason=(action or {}).get("reason") or "blocked")
+            return LoopResult(2, state_yaml_path)
+        if code == EXIT_GATE_REQUIRED:
+            # The next step is guarded by a gate nobody has approved. Stop
+            # rather than spin: `orchestrator approve <run> <token>` is what
+            # unsticks it (docs/protocol-v2.md §7).
+            detail = (action or {}).get("detail") or "gate token required"
+            _log(f"Workflow blocked: {detail}")
+            emit("blocked", reason="gate_token_required")
             return LoopResult(2, state_yaml_path)
 
         agent_actions = [a for a in actions if a.get("model")]

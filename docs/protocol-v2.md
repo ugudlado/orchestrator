@@ -65,8 +65,8 @@ Replaces `next` / `done` + exit codes 0-3.
 | `step`                      | `orchestrator step <run> --json`                                  | `{status, kind, step_id, payload}`      |
 | `done`                      | `orchestrator done <run> <step_id> --out '{...}' --usage '{...}'` | ack                                     |
 | `approve`                   | `orchestrator approve <run> <token> [--edits '{...}']`            | resumes blocked run                     |
-| `cancel`                    | `orchestrator cancel <run>`                                       | aborts run                              |
-| `status`                    | `orchestrator status <run> --json`                                | nodes, attempts, artifacts, cost        |
+| `cancel`                    | `orchestrator cancel <run>`                                       | aborts run, cancels pending gates       |
+| `status`                    | `orchestrator status <run> --json`                                | nodes, attempts, artifacts, cost, gates |
 | `events`                    | `orchestrator events <run> --since <ts> --json`                   | event stream                            |
 | `validate`                  | `orchestrator validate <recipe>`                                  | wiring, in/out, gates-before-writes     |
 | `doctor` / `graph` / `pack` | unchanged in spirit                                               | `pack --target claude\|codex` (Phase 4) |
@@ -201,9 +201,21 @@ steps:
    and binds the token to `X` for any downstream step declaring
    `requires: X`.
 4. `orchestrator cancel <run>` aborts instead.
-5. A step with non-empty `side_effects` containing `write:*` and no
-   preceding gate is a `validate` error (Phase 3.1) — TBD (Phase 3): exact
-   validation rule wording.
+5. A step with non-empty `side_effects` containing `write:*` must sit behind
+   a gate: either some `{gate: ...}` entry appears earlier in the recipe, or
+   the step declares `requires: <token>` naming an earlier gate's
+   `approve_as`. Otherwise `validate` fails. A `requires:` naming no upstream
+   gate, and a gate with no `approve_as`, are also errors. Protocol v1's
+   `signoff_policy` has no reader left in the engine: `validate` warns that it
+   is deprecated and ignored rather than synthesizing an implicit gate.
+
+Token state lives on the run under `gates:`, one record per gate
+(`{token, token_name, gate_id, issued_at, status, approved_at?, edits?}`).
+`step` at a gate is idempotent — polling a blocked run re-returns the token
+already issued, never a second one. A step whose `requires:` token is not yet
+approved reports `status: needs_you`, not `blocked`: the engine has nothing
+left to decide. `status --json` carries `gate_token` (the most recently
+approved token) and the full `gates` list.
 
 ---
 

@@ -46,6 +46,8 @@ def _usage() -> None:
         "  orchestrator start <recipe> <slug> [--inputs JSON] [--ticket-id ID] --json\n"
         "  orchestrator step <run> --json\n"
         "  orchestrator done <run> <step_id> --out JSON --usage JSON [--status S]\n"
+        "  orchestrator approve <run> <token> [--edits JSON]   (resume a gate)\n"
+        "  orchestrator cancel <run>                           (abort a run)\n"
         "  orchestrator status <run> --json | orchestrator events <run> --json\n"
         "  orchestrator run --headless <recipe> <slug>   (engine drives the model)\n"
         "  orchestrator headless <run>                   (resume a headless run)\n"
@@ -323,22 +325,27 @@ def main() -> None:
             sys.exit(2)
         sys.exit(0)
     if args and args[0] == "config":
-        if len(args) < 2 or args[1] != "pull":
-            print(
-                "usage: orchestrator config pull <git-or-path> [pack] "
-                "[--repo PATH] [--ref REF] [--skills]",
-                file=sys.stderr,
-            )
-            sys.exit(3)
-        from orchestrator_next.config_pull import main as _config_pull_main
-        sys.exit(_config_pull_main(args[2:]))
+        sub = args[1] if len(args) > 1 else ""
+        if sub == "pull":
+            from orchestrator_next.config_pull import main as _config_pull_main
+            sys.exit(_config_pull_main(args[2:]))
+        if sub == "update":
+            from orchestrator_next.config_pull import update_main as _config_update_main
+            sys.exit(_config_update_main(args[2:]))
+        print(
+            "usage: orchestrator config pull <git-or-path> [pack] "
+            "[--repo PATH] [--ref REF] [--skills]\n"
+            "       orchestrator config update [pack] [--repo PATH] [--ref REF] [--yes]",
+            file=sys.stderr,
+        )
+        sys.exit(3)
     _default_repo_root_env()
     _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
         "next", "done", "graph", "doctor", "reset-step", "run", "validate-workflow",
         "report", "state",
         # protocol v2 (docs/protocol-v2.md §3)
-        "start", "step", "status", "events", "headless",
+        "start", "step", "status", "events", "headless", "approve", "cancel",
         # Phase 4.3: pack -> plugin generator
         "pack",
     )
@@ -356,7 +363,7 @@ def main() -> None:
     # --- protocol v2 verbs (docs/protocol-v2.md §3) ------------------------
     # `done` is shared with the deprecated stdin-JSON form; `_is_v2_done`
     # picks between them by argument shape.
-    if args[0] in ("start", "step", "status", "events") or (
+    if args[0] in ("start", "step", "status", "events", "approve", "cancel") or (
         args[0] == "done" and _is_v2_done(args[1:])
     ):
         from orchestrator_next.protocol import main as _protocol_main
@@ -383,6 +390,9 @@ def main() -> None:
         sys.exit(_doctor_main(args[1:]))
 
     if args[0] == "pack":
+        if len(args) > 1 and args[1] == "publish-scenarios":
+            from orchestrator_next.publish_scenarios import publish_scenarios_cmd
+            sys.exit(publish_scenarios_cmd(args[2:]))
         from orchestrator_next.pack_export import pack_export_cmd
         sys.exit(pack_export_cmd(args[1:]))
 

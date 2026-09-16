@@ -43,11 +43,18 @@ def _load_schema(schema_name: str) -> dict[str, Any]:
 
 
 def _step_ids(schema: dict[str, Any]) -> list[str]:
-    """Extract step IDs from a schema's top-level steps list."""
-    from orchestrator_next.workflow_steps import step_id_of
+    """Step IDs from a schema's top-level steps list, gates excluded.
+
+    A gate has no ``steps/<id>/`` directory — the recipe entry is the whole
+    contract — so contract and wiring checks must not look for one.
+    ``_check_gates`` validates gates instead.
+    """
+    from orchestrator_next.workflow_steps import is_gate_entry, step_id_of
 
     ids = []
     for entry in schema.get("steps") or []:
+        if is_gate_entry(entry):
+            continue
         sid = step_id_of(entry)
         if sid:
             ids.append(sid)
@@ -203,6 +210,86 @@ def _check_wiring(schema_name: str, step_ids: list[str]) -> None:
         raise SystemExit(1)
 
 
+def _check_gates(schema_name: str, schema: dict[str, Any]) -> None:
+    """A step with a ``write:*`` side effect must sit behind a gate.
+
+    Two ways to satisfy it, both checked in recipe (topological) order:
+
+    1. some ``{gate: ...}`` entry appears earlier in the recipe, or
+    2. the step declares ``requires: <name>`` matching an earlier gate's
+       ``approve_as``.
+
+    Form 2 is the precise one — it names *which* approval authorizes the write —
+    so a `requires:` that names no upstream gate is itself an error.
+
+    `signoff_policy` (protocol v1's phase-boundary approval knob) has no live
+    reader left in the engine; a recipe still carrying one gets a deprecation
+    warning pointing at gates, not an implicit gate. Synthesizing a gate the
+    author never wrote would park runs at a step nobody expects.
+    """
+    from orchestrator_next.workflow_steps import is_gate_entry, normalize_step_entry
+
+    entries = schema.get("steps") or []
+    if schema.get("signoff_policy"):
+        print(
+            "WARN: signoff_policy: is deprecated and ignored — declare an "
+            "explicit {gate: <id>, show: [...], approve_as: <token>} entry "
+            "instead (docs/protocol-v2.md §7)",
+            file=sys.stderr,
+        )
+
+    seen_gate = False
+    gate_tokens: set[str] = set()
+    errors: list[str] = []
+
+    for entry in entries:
+        if is_gate_entry(entry):
+            seen_gate = True
+            approve_as = str(normalize_step_entry(entry).get("approve_as") or "")
+            if not approve_as:
+                errors.append(
+                    f"gate {normalize_step_entry(entry).get('id')!r}: "
+                    "approve_as: is required (it names the token downstream "
+                    "steps declare in requires:)"
+                )
+            else:
+                gate_tokens.add(approve_as)
+            continue
+
+        normalized = normalize_step_entry(entry)
+        step_id = str(normalized.get("id") or "")
+        if not step_id:
+            continue
+
+        requires = str(normalized.get("requires") or "")
+        if requires and requires not in gate_tokens:
+            errors.append(
+                f"{step_id}: requires: {requires!r} names no upstream gate "
+                f"(no earlier entry declares approve_as: {requires})"
+            )
+
+        try:
+            contract = load_contract_for_step(step_id)
+        except (FileNotFoundError, ContractError):
+            continue  # _check_contracts already reported this
+        writes = [
+            e for e in (getattr(contract, "side_effects", None) or [])
+            if str(e).startswith("write:")
+        ]
+        if writes and not (requires or seen_gate):
+            errors.append(
+                f"{step_id}: side_effects {writes} write outside the run but no "
+                f"gate precedes the step — add a {{gate: ...}} entry before it, "
+                f"or requires: <token> naming an upstream gate"
+            )
+
+    if errors:
+        print("ERROR: gates before writes:", file=sys.stderr)
+        for e in errors:
+            print(f"  - {e}", file=sys.stderr)
+        raise SystemExit(1)
+
+
 def validate_workflow(schema_name: str, repo_root: str) -> None:
     from orchestrator_next.paths import config_root
     wf_path = config_root() / "workflows" / f"{schema_name}.yaml"
@@ -212,6 +299,7 @@ def validate_workflow(schema_name: str, repo_root: str) -> None:
     step_ids = _step_ids(schema)
     _check_contracts(step_ids)
     _check_wiring(schema_name, step_ids)
+    _check_gates(schema_name, schema)
 
     if schema_name in _SKIP_EXPAND:
         print(f"OK: contracts valid ({schema_name} — expand-plan smoke skipped)", file=sys.stderr)

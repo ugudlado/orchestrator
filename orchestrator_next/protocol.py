@@ -257,20 +257,98 @@ def _judgment_payload(
     }
 
 
-def _gate_payload(step_id: str, contract: GateStepContract) -> dict[str, Any]:
-    """A gate is reported, never executed — Phase 3 adds the token."""
+def _gate_payload(
+    step_id: str,
+    show: list[str],
+    approve_as: str,
+    state_raw: dict[str, Any],
+    state_yaml_path: str,
+) -> dict[str, Any]:
+    """Park the run at a gate: mint (or re-return) its token and preview.
+
+    Idempotent by construction — ``gates.issue_token`` reuses the gate's open
+    record, so polling ``step`` at a blocked gate never invalidates the token a
+    reviewer already has.
+    """
+    from orchestrator_next import gates
+
+    record = gates.issue_token(state_raw, step_id, approve_as)
+    state_raw["status"] = "blocked"
+    _save_state(state_yaml_path, state_raw)
+
     return {
         "status": "blocked",
         "kind": KIND_GATE,
         "step_id": step_id,
         "payload": {
-            "step_id": step_id,
-            "show": list(contract.show),
-            "approve_as": contract.approve_as,
-            "gate_token": None,
-            "hint": "gates are not resumable yet (protocol v2 §7, Phase 3)",
+            "preview": {
+                "step_id": step_id,
+                "show": gates.preview(show, _show_paths(state_raw, show)),
+                "token_name": approve_as,
+            },
+            "token": record["token"],
         },
     }
+
+
+def _show_paths(state_raw: dict[str, Any], show: list[str]) -> dict[str, str]:
+    """Resolve the gate's ``show:`` artifact names to paths.
+
+    A name is whatever an upstream step declared under ``out:``; the last
+    producer wins, which is what a reviewer wants to see. Names the recipe
+    never produced resolve to nothing and are reported as missing.
+    """
+    from orchestrator_next.parser import phase_nodes
+
+    base = _artifact_base(state_raw)
+    wanted = set(show)
+    found: dict[str, str] = {}
+    state = load_state_from_raw(state_raw)
+    for phase in state.workflow_plan:
+        for node in phase_nodes(state, phase):
+            step_id = str(node.get("id", ""))
+            if not step_id:
+                continue
+            try:
+                contract = load_contract_for_step(step_id)
+            except Exception:  # noqa: BLE001 — a gate preview is best-effort
+                continue
+            for name, spec in (getattr(contract, "outputs", None) or {}).items():
+                if name in wanted and spec.get("artifact"):
+                    found[name] = str(base / str(spec["artifact"]))
+    return found
+
+
+def load_state_from_raw(state_raw: dict[str, Any]) -> Any:
+    """A State view over an in-memory doc, for helpers that walk the plan."""
+    from orchestrator_next.parser import State
+
+    return State(
+        change_id=str(state_raw.get("change_id") or ""),
+        phase=str(state_raw.get("phase") or "main"),
+        repo_root=str(state_raw.get("repo_root") or ""),
+        workflow_dir=str(state_raw.get("worktree_path") or ""),
+        workflow_plan=state_raw.get("workflow_plan") or {},
+        step_history=[],
+        raw=state_raw,
+    )
+
+
+def _save_state(state_yaml_path: str, state_raw: dict[str, Any]) -> None:
+    """Write the run doc back through the state store, then the RunStore."""
+    from orchestrator_next import state_store
+
+    handle = state_store.parse_handle(state_yaml_path)
+    store, h = state_store.open_store(handle)
+    try:
+        _doc, token = store.load(h)
+    except (state_store.StateNotFoundError, OSError):
+        return
+    try:
+        store.save(h, state_raw, token)
+    except (state_store.StateConflictError, yaml.YAMLError):
+        return
+    _persist(state_yaml_path)
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +360,11 @@ def step(run_ref: str) -> tuple[dict[str, Any], int]:
     Returns ``(result, exit_code)``. ``result['status']`` is one of
     ``ready|running|done|blocked|needs_you|error`` (protocol v2 §3).
     """
-    from orchestrator_next.dispatch import ContractDispatchError, dispatch
+    from orchestrator_next.dispatch import (
+        EXIT_GATE_REQUIRED,
+        ContractDispatchError,
+        dispatch,
+    )
     from orchestrator_next.run_loop import run_script_step
 
     state_yaml_path = resolve_run(run_ref)
@@ -310,18 +392,45 @@ def step(run_ref: str) -> tuple[dict[str, Any], int]:
                 "step_id": (action or {}).get("step_id"),
                 "detail": (action or {}).get("reason") or "blocked (signoff or halt)",
             }, 0
+        if code == EXIT_GATE_REQUIRED:
+            # A human has to approve the gate before this step may run; the
+            # engine has nothing further to decide (docs/protocol-v2.md §7).
+            return {
+                "status": "needs_you",
+                "kind": KIND_GATE,
+                "step_id": (action or {}).get("step_id"),
+                "requires": (action or {}).get("requires"),
+                "detail": (action or {}).get("detail") or "gate token required",
+            }, 0
         if code != 0:
             return {"status": "error", "step_id": None,
                     "detail": f"dispatch exit {code}"}, 0
 
         step_id = action["step_id"]
+
+        # A gate lives in the recipe, not in steps/: dispatch tags the action
+        # rather than loading a contract that does not exist.
+        if action.get("kind") == KIND_GATE:
+            return _gate_payload(
+                step_id,
+                list(action.get("show") or []),
+                str(action.get("approve_as") or ""),
+                state.raw,
+                state_yaml_path,
+            ), 0
+
         try:
             contract = load_contract_for_step(step_id)
         except (FileNotFoundError, ContractError, ContractNotFoundError) as exc:
             return {"status": "error", "step_id": step_id, "detail": str(exc)}, 0
 
         if isinstance(contract, GateStepContract):
-            return _gate_payload(step_id, contract), 0
+            # A pack that still ships a `kind: gate` contract file: the
+            # contract carries show/approve_as instead of the recipe entry.
+            return _gate_payload(
+                step_id, list(contract.show), contract.approve_as,
+                state.raw, state_yaml_path,
+            ), 0
 
         if isinstance(contract, AgentStepContract):
             result = _judgment_payload(
@@ -551,10 +660,96 @@ def _step_alias(step_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# verbs: approve / cancel
+# ---------------------------------------------------------------------------
+def approve(
+    run_ref: str, token: str, *, edits: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], int]:
+    """Approve a blocked gate and hand back the step that follows it.
+
+    Completing the gate node is what unblocks its dependents; binding the token
+    to its ``approve_as`` name is what satisfies any downstream
+    ``requires:``. ``edits`` is stored verbatim in the gate record — the engine
+    never interprets it, it is the reviewer's note to the next step.
+    """
+    from orchestrator_next import gates, readiness
+
+    state_yaml_path = resolve_run(run_ref)
+    state = load_state(state_yaml_path)
+    _pin_config(state.raw)
+
+    try:
+        record = gates.approve_token(state.raw, token, edits)
+    except gates.GateError as exc:
+        raise ProtocolError(str(exc)) from exc
+
+    gate_id = str(record.get("gate_id") or "")
+    readiness.mark_node_status(state.raw, state.phase, gate_id, "completed")
+    state.raw["status"] = "active"
+    _append_gate_history(state.raw, record)
+    _save_state(state_yaml_path, state.raw)
+
+    next_result, _ = step(state_yaml_path)
+    return {
+        "status": "ok",
+        "gate_id": gate_id,
+        "token_name": record.get("token_name"),
+        "approved_at": record.get("approved_at"),
+        "edits": record.get("edits"),
+        "next": next_result,
+    }, 0
+
+
+def _append_gate_history(state_raw: dict[str, Any], record: dict[str, Any]) -> None:
+    """Record the approval in step_history so `events` and the report see it."""
+    history = state_raw.setdefault("step_history", [])
+    if not isinstance(history, list):
+        return
+    entry = {
+        "step_id": record.get("gate_id"),
+        "phase": state_raw.get("phase") or "main",
+        "status": "completed",
+        "attempt": 1,
+        "started_at": record.get("issued_at"),
+        "ended_at": record.get("approved_at"),
+        "kind": KIND_GATE,
+        "outputs": {
+            "reason": f"gate {record.get('gate_id')} approved",
+            "token_name": record.get("token_name"),
+        },
+    }
+    if record.get("edits") is not None:
+        entry["outputs"]["edits"] = record["edits"]
+    history.append(entry)
+
+
+def cancel(run_ref: str) -> tuple[dict[str, Any], int]:
+    """Abort a run: every pending gate is cancelled and the run is closed."""
+    from orchestrator_next import gates
+
+    state_yaml_path = resolve_run(run_ref)
+    state = load_state(state_yaml_path)
+    _pin_config(state.raw)
+
+    cancelled = []
+    for record in gates.gate_records(state.raw):
+        if record.get("status") == "pending":
+            record["status"] = "cancelled"
+            cancelled.append(record.get("gate_id"))
+    state.raw["status"] = "cancelled"
+    _save_state(state_yaml_path, state.raw)
+
+    result, _ = status(state_yaml_path)
+    result["cancelled_gates"] = cancelled
+    return result, 0
+
+
+# ---------------------------------------------------------------------------
 # verbs: status / events
 # ---------------------------------------------------------------------------
 def status(run_ref: str) -> tuple[dict[str, Any], int]:
     """Report nodes, usage totals, and gate state for a run."""
+    from orchestrator_next import gates
     from orchestrator_next.parser import phase_nodes
     from orchestrator_next.pricing import sum_cost_usd
 
@@ -580,7 +775,8 @@ def status(run_ref: str) -> tuple[dict[str, Any], int]:
             nodes.append({
                 "id": step_id,
                 "phase": phase,
-                "kind": _kind_of(step_id),
+                "kind": (KIND_GATE if gates.node_is_gate(node)
+                         else _kind_of(step_id)),
                 "status": str(node.get("status") or "pending"),
                 "attempts": attempts.get(step_id, 0),
                 "artifacts": node_artifacts,
@@ -611,7 +807,9 @@ def status(run_ref: str) -> tuple[dict[str, Any], int]:
         "artifacts_base": str(_artifact_base(state.raw)),
         "usage": totals,
         "cost_usd": cost,
-        "gate_token": None,  # Phase 3.1
+        # The most recently approved token, and every gate this run has seen.
+        "gate_token": gates.latest_approved_token(state.raw),
+        "gates": gates.gate_records(state.raw),
     }, 0
 
 
@@ -698,6 +896,21 @@ def main(verb: str, argv: list[str]) -> int:
             if not isinstance(usage, dict):
                 raise ProtocolError("--usage must be a JSON object")
             result, code = done(run_ref, step_id, out=out, usage=usage, status=st)
+        elif verb == "approve":
+            if len(args) < 2:
+                raise ProtocolError(
+                    "usage: orchestrator approve <run> <token> [--edits JSON]"
+                )
+            run_ref, token = args[0], args[1]
+            rest = args[2:]
+            edits = _json_flag(rest, "--edits")
+            if edits is not None and not isinstance(edits, dict):
+                raise ProtocolError("--edits must be a JSON object")
+            result, code = approve(run_ref, token, edits=edits)
+        elif verb == "cancel":
+            if not args:
+                raise ProtocolError("usage: orchestrator cancel <run>")
+            result, code = cancel(args[0])
         elif verb == "status":
             if not args:
                 raise ProtocolError("usage: orchestrator status <run> --json")

@@ -25,7 +25,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from orchestrator_next.protocol import ProtocolError, done, resolve_run, start, step
+from orchestrator_next.protocol import (
+    ProtocolError,
+    approve,
+    done,
+    resolve_run,
+    start,
+    step,
+)
 
 # Per-tool-call wall clock. A step that needs longer than this from one shell
 # command is doing exec-step work.
@@ -340,10 +347,32 @@ def install_agent_runner(client: Any) -> None:
     run_loop.AGENT_RUNNER = _runner
 
 
-def drive(run_ref: str, *, client: Any | None = None) -> int:
+def _print_gate_preview(result: dict[str, Any]) -> None:
+    """Show what a human would need to approve this gate, then the command."""
+    payload = result.get("payload") or {}
+    preview = payload.get("preview") or {}
+    token = payload.get("token") or ""
+    _log(f"gate {result.get('step_id')} — approve to continue")
+    for name, entry in (preview.get("show") or {}).items():
+        state = "missing" if not entry.get("exists") else entry.get("sha256", "")[:12]
+        _log(f"  show.{name}: {entry.get('path')} [{state}]")
+    print(json.dumps({"status": "blocked", "kind": "gate",
+                      "step_id": result.get("step_id"),
+                      "payload": payload}, sort_keys=True, indent=2, default=str))
+    _log(f"resume with: orchestrator approve <run> {token}")
+
+
+def drive(
+    run_ref: str, *, client: Any | None = None, auto_approve: bool = False
+) -> int:
     """Walk step/done to completion. Returns a CLI exit code.
 
-    0 complete · 2 blocked or needs_you · 3 error.
+    0 complete or parked at a gate · 2 needs_you · 3 error.
+
+    A gate stops an unattended run by design: exit 0 with the preview printed,
+    so a cron job does not read "failed" when it is simply waiting on a person.
+    ``auto_approve`` is for pipelines that have already decided the run may
+    write; it approves each gate with the token the engine just issued.
     """
     client = client or build_client()
     install_agent_runner(client)
@@ -354,6 +383,18 @@ def drive(run_ref: str, *, client: Any | None = None) -> int:
         if status_value == "done":
             _log("run complete")
             return 0
+        if status_value == "blocked" and result.get("kind") == "gate":
+            token = (result.get("payload") or {}).get("token") or ""
+            if not auto_approve:
+                _print_gate_preview(result)
+                return 0
+            _log(f"auto-approving gate {result.get('step_id')}")
+            try:
+                approve(run_ref, token, edits={"auto_approved": True})
+            except ProtocolError as exc:
+                _log(f"auto-approve rejected: {exc}")
+                return 3
+            continue
         if status_value in ("blocked", "needs_you"):
             _log(f"{status_value}: {result.get('detail') or result.get('kind')}")
             return 2
@@ -406,9 +447,12 @@ def run_headless_cmd(argv: list[str]) -> int:
         i = args.index("--ticket-id")
         ticket_id = args[i + 1] if i + 1 < len(args) else ""
         del args[i:i + 2]
+    auto_approve = "--auto-approve" in args
+    args = [a for a in args if a != "--auto-approve"]
     positionals = [a for a in args if not a.startswith("-")]
     if len(positionals) < 2:
-        _log("usage: orchestrator run --headless <recipe> <slug> [--inputs JSON]")
+        _log("usage: orchestrator run --headless <recipe> <slug> "
+             "[--inputs JSON] [--auto-approve]")
         return 3
 
     try:
@@ -420,7 +464,7 @@ def run_headless_cmd(argv: list[str]) -> int:
     print(json.dumps({k: v for k, v in started.items() if k != "next"},
                      sort_keys=True))
     try:
-        return drive(started["state"])
+        return drive(started["state"], auto_approve=auto_approve)
     except HeadlessError as exc:
         _log(str(exc))
         return 3
@@ -428,12 +472,13 @@ def run_headless_cmd(argv: list[str]) -> int:
 
 def resume_headless_cmd(argv: list[str]) -> int:
     """`orchestrator headless <run>` — resume an existing run in headless mode."""
+    auto_approve = "--auto-approve" in argv
     positionals = [a for a in argv if not a.startswith("-")]
     if not positionals:
-        _log("usage: orchestrator headless <run>")
+        _log("usage: orchestrator headless <run> [--auto-approve]")
         return 3
     try:
-        return drive(resolve_run(positionals[0]))
+        return drive(resolve_run(positionals[0]), auto_approve=auto_approve)
     except (ProtocolError, HeadlessError) as exc:
         _log(str(exc))
         return 3

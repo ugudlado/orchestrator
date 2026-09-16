@@ -77,6 +77,17 @@ def _build_step_node(step_id: str, phase_def: dict[str, Any]) -> dict[str, Any]:
         if val is not None:
             node[edge_key] = val
 
+    # Protocol v2 §7 gates. A gate has no contract file — the recipe entry is
+    # the contract — so its `show` / `approve_as` must survive into the node,
+    # which is the only thing dispatch reads at runtime.
+    if step_entry.get("gate"):
+        node["kind"] = "gate"
+        node["show"] = [str(s) for s in (step_entry.get("show") or [])]
+        node["approve_as"] = str(step_entry.get("approve_as") or "")
+    requires = step_entry.get("requires")
+    if requires:
+        node["requires"] = str(requires)
+
     return node
 
 
