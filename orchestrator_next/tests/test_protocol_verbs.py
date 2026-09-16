@@ -261,3 +261,48 @@ def test_start_on_an_unknown_slug_still_seeds(pack, repo):
     assert code == 0
     assert result.get("resumed") is not True
     assert result["run_id"]
+
+
+def test_done_prices_a_step_whose_usage_names_no_model(pack, repo):
+    """A harness that reports tokens but not the model still gets a cost.
+
+    The Claude mod sent only `{input_tokens, output_tokens}`, so pricing found
+    no `usage.model`, recorded no cost, and `status --json` summed every agent
+    step to `cost_usd: 0.0`. `done` now falls back to the model the dispatcher
+    routed the step to, and flags the figure as an estimate.
+    """
+    import yaml as _yaml
+
+    (pack / "pricing.yaml").write_text(
+        "models:\n"
+        "  - model_id: mock-model\n"
+        "    input_usd: 3.0\n"
+        "    output_usd: 15.0\n"
+        "    cache_read_usd: 0.0\n"
+        "    cache_creation_usd: 0.0\n"
+        '    effective_from: "2000-01-01T00:00:00"\n',
+        encoding="utf-8",
+    )
+    from orchestrator_next import pricing as _pricing_mod
+    _pricing_mod._load_pricing_table.cache_clear()
+
+    started, _ = protocol.start("mini", "p-run")
+    run = started["state"]
+    (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
+
+    _result, code = protocol.done(
+        run, "think",
+        out={"notes": str(_artifacts(repo) / "notes.md"), "complexity": "M"},
+        usage={"input_tokens": 1_000_000, "output_tokens": 0},
+    )
+    assert code == 0
+
+    raw = _yaml.safe_load(Path(run).read_text(encoding="utf-8"))
+    entry = next(e for e in raw["step_history"] if e["step_id"] == "think")
+    assert entry["usage"]["model"] == "mock-model"
+    assert entry["usage"]["cost_partial"] is True
+    assert entry["usage"]["cost_usd"] == pytest.approx(3.0)
+
+    from orchestrator_next.pricing import sum_cost_usd
+    assert sum_cost_usd(raw) == pytest.approx(3.0)
+    _pricing_mod._load_pricing_table.cache_clear()

@@ -575,7 +575,7 @@ const recordAbandoned = (
   run: string,
   stepId: string,
   reason: string,
-  usage: UsageCounts = { input_tokens: 0, output_tokens: 0 },
+  usage: UsageCounts = usageOf(undefined),
 ) => recordDone(cli, run, stepId, { reason }, usage, 'abandoned')
 
 /**

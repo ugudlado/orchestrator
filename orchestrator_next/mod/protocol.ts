@@ -59,15 +59,28 @@ export type StartResult = {
   next: StepResult
 }
 
-/** The token counts `orchestrator done --usage` takes (record.py's guard). */
+/**
+ * What `orchestrator done --usage` takes (record.py's guard).
+ *
+ * All four token counts, plus the model that answered: pricing.py keys its
+ * rate lookup on `usage.model`, and with no model it records no cost at all,
+ * so dropping it silently zeroed every agent step's `cost_usd`.
+ */
 export type UsageCounts = {
   input_tokens: number
   output_tokens: number
+  cache_read_input_tokens: number
+  cache_creation_input_tokens: number
+  /** The id the API reported (TurnUsage.model, d.ts:8709); "" when unknown. */
+  model: string
 }
 
 /**
- * The four token counts of `TurnUsage` (claude-code.d.ts:8709, over
- * ModelForkUsage at d.ts:4178) reduced to the two `done --usage` records.
+ * The `TurnUsage` of a finished turn (claude-code.d.ts:8709, over
+ * ModelForkUsage at d.ts:4178) as `done --usage` records it.
+ *
+ * The two cache counts are billed too, so leaving them out undercounts the
+ * step rather than merely losing detail.
  *
  * A turn that got no response carries no usage (d.ts:8418), and record.py
  * refuses a completed agent step with zero tokens, so the caller must decide
@@ -76,10 +89,16 @@ export type UsageCounts = {
 export function usageOf(usage: {
   input_tokens?: number
   output_tokens?: number
+  cache_read_input_tokens?: number
+  cache_creation_input_tokens?: number
+  model?: string
 } | undefined): UsageCounts {
   return {
     input_tokens: usage?.input_tokens ?? 0,
     output_tokens: usage?.output_tokens ?? 0,
+    cache_read_input_tokens: usage?.cache_read_input_tokens ?? 0,
+    cache_creation_input_tokens: usage?.cache_creation_input_tokens ?? 0,
+    model: usage?.model ?? '',
   }
 }
 

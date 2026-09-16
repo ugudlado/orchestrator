@@ -20,7 +20,7 @@ from orchestrator_next.parser import AgentStepContract, ContractError, State, co
 from orchestrator_next import readiness
 from orchestrator_next.redact import redact_entry
 from orchestrator_next.paths import ConfigRootError
-from orchestrator_next.pricing import _compute_cost_usd
+from orchestrator_next.pricing import _billable_token_units, _compute_cost_usd
 
 
 class _RecordError(Exception):
@@ -590,6 +590,16 @@ def _build_history_entry(
         if resolved_model is not None and computed_cost is not None:
             usage["model"] = resolved_model
             usage["cost_usd"] = computed_cost
+        elif resolved_model is not None and _billable_token_units(usage) > 0:
+            # A model with no pricing row: the step really did bill tokens, so
+            # say the cost is unknown rather than leave a bare 0 that sums into
+            # a total reading as free.
+            usage["model"] = resolved_model
+            usage["cost_partial"] = True
+            sys.stderr.write(
+                f"[record] cost_usd: no pricing row for {resolved_model!r}; "
+                f"recording usage with cost_partial\n"
+            )
 
     entry: dict[str, Any] = {
         "step_id": step_id,

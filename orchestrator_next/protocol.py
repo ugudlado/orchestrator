@@ -661,6 +661,17 @@ def done(
         # record.py requires `agent` on a completed agent step and enforces the
         # usage-token guard against it (docs/protocol-v2.md §5).
         payload["agent"] = _step_alias(step_id)
+        # pricing.py keys its rate lookup on `usage.model` and records no cost
+        # at all without one, so a harness that reports tokens but not which
+        # model answered used to zero the step silently. Fall back to the model
+        # the dispatcher routed this step to, and say the cost is an estimate
+        # rather than a reading.
+        step_usage = payload["usage"]
+        if step_usage and not step_usage.get("model"):
+            routed = _step_model_id(step_id)
+            if routed:
+                step_usage["model"] = routed
+                step_usage["cost_partial"] = True
 
     result, code = _record_with_retry(state_yaml_path, payload)
     if code != 0:
@@ -685,6 +696,25 @@ def _step_alias(step_id: str) -> str:
 
     try:
         return resolve_step_alias(step_id, None, _models_yaml_path()) or ""
+    except Exception:  # noqa: BLE001 — an unroutable step still records
+        return ""
+
+
+def _step_model_id(step_id: str) -> str:
+    """The concrete model id this step routes to, or "" when unroutable.
+
+    The step's ``model_id`` is what the dispatcher told the harness to run, so
+    it is the right thing to price against when the harness did not report
+    which model actually answered.
+    """
+    from orchestrator_next.dispatch import _models_yaml_path
+    from orchestrator_next.model_routes import resolve_route
+
+    alias = _step_alias(step_id)
+    if not alias:
+        return ""
+    try:
+        return str(resolve_route(alias, _models_yaml_path()).get("model_id") or "")
     except Exception:  # noqa: BLE001 — an unroutable step still records
         return ""
 
