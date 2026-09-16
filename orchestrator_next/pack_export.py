@@ -232,7 +232,8 @@ def _map_tools_claude(step_id: str, tools: list[str]) -> tuple[list[str], list[s
     mapped: list[str] = []
     warnings: list[str] = []
     for cap in tools:
-        claude_tools = TOOL_MAP.get(cap)
+        # ponytail: any git.* capability is Bash; the contract vocabulary is open-ended there
+        claude_tools = TOOL_MAP.get(cap) or (["Bash"] if cap.startswith("git.") else None)
         if claude_tools is None:
             warnings.append(f"step {step_id}: unknown tool capability {cap!r}, omitted")
             continue
