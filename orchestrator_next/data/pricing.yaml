@@ -87,6 +87,16 @@ models:
     cache_creation_usd: 3.75
     effective_from: "2026-06-09T00:00:00"
 
+  # NOTE: claude-fable-5-1 / claude-fable-5 / claude-mythos-5-1 / claude-mythos-5
+  # are intentionally NOT priced here. The claude-api skill states input/output
+  # ($10/$50 per MTok) and cache-read rates (Fable 5.1 & Mythos 5.1: $0.25/MTok;
+  # Fable 5 & Mythos 5: $1/MTok) but never states a cache_creation_usd (cache
+  # write) rate for this family, and this schema has no optional fields — every
+  # row requires all four rates. Rather than guess cache_creation_usd (every
+  # other row's write rate is a model-specific multiple of input, not a fixed
+  # ratio we can safely extrapolate), these rows are left out per the "don't
+  # guess" rule. Add them once the cache-write rate is confirmed.
+
   - model_id: coder
     input_usd: 0.0
     output_usd: 0.0
