@@ -68,7 +68,7 @@ Replaces `next` / `done` + exit codes 0-3.
 | `cancel`                    | `orchestrator cancel <run>`                                       | aborts run, cancels pending gates       |
 | `status`                    | `orchestrator status <run> --json`                                | nodes, attempts, artifacts, cost, gates |
 | `events`                    | `orchestrator events <run> --since <ts> --json`                   | event stream                            |
-| `validate`                  | `orchestrator validate <recipe>`                                  | wiring, in/out, gates-before-writes     |
+| `validate`                  | `orchestrator validate <recipe> [--json]`                         | wiring, in/out, gates-before-writes     |
 | `doctor` / `graph` / `pack` | unchanged in spirit                                               | `pack --target claude\|codex` (Phase 4) |
 
 `step` executes every consecutive exec step internally and returns only at a
@@ -205,7 +205,13 @@ steps:
    a gate: either some `{gate: ...}` entry appears earlier in the recipe, or
    the step declares `requires: <token>` naming an earlier gate's
    `approve_as`. Otherwise `validate` fails. A `requires:` naming no upstream
-   gate, and a gate with no `approve_as`, are also errors. Protocol v1's
+   gate, and a gate with no `approve_as`, are also errors.
+
+   `write:workspace` is the one exempt value. It names the writes that
+   provision the run's own workspace — worktree create and remove, state
+   archive — which cannot sit behind a gate because they build the directory
+   the gate's artifacts live in. `write:git` on the same step still needs an
+   approval upstream; the exemption covers the value, not the step. Protocol v1's
    `signoff_policy` has no reader left in the engine: `validate` warns that it
    is deprecated and ignored rather than synthesizing an implicit gate.
 

@@ -463,3 +463,93 @@ def test_headless_auto_approve_walks_through_the_gate(run, monkeypatch, capsys):
     done_ids = {e["step_id"] for e in raw["step_history"]
                 if e["status"] == "completed"}
     assert "implement" in done_ids
+
+
+# ---------------------------------------------------------------------------
+# 8. write:workspace is exempt from the gate requirement
+# ---------------------------------------------------------------------------
+def _set_side_effects(pack, step_id, side_effects):
+    contract = pack / "steps" / step_id / "contract.yaml"
+    doc = yaml.safe_load(contract.read_text())
+    doc["side_effects"] = side_effects
+    contract.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+
+
+def test_validate_exempts_write_workspace_from_needing_a_gate(pack, monkeypatch,
+                                                              capsys):
+    """Provisioning the run's own workspace cannot sit behind a gate.
+
+    A worktree-create step writes git before any gate could exist — the gate's
+    own artifacts live in the directory it makes — so requiring one would make
+    every recipe unstartable.
+    """
+    recipe = pack / "workflows" / "feature.yaml"
+    recipe.write_text(yaml.safe_dump({
+        "name": "feature", "steps": ["design", "implement"],
+    }, sort_keys=False), encoding="utf-8")
+    _set_side_effects(pack, "implement", ["write:workspace"])
+
+    code, err = _validate(pack, monkeypatch, capsys)
+    assert code == 0, err
+    assert "gates before writes" not in err
+
+
+def test_validate_still_requires_a_gate_beside_a_workspace_write(pack,
+                                                                 monkeypatch,
+                                                                 capsys):
+    """The exemption covers only write:workspace, not whatever rides with it."""
+    recipe = pack / "workflows" / "feature.yaml"
+    recipe.write_text(yaml.safe_dump({
+        "name": "feature", "steps": ["design", "implement"],
+    }, sort_keys=False), encoding="utf-8")
+    _set_side_effects(pack, "implement", ["write:workspace", "write:ticket"])
+
+    code, err = _validate(pack, monkeypatch, capsys)
+    assert code == 1
+    assert "write:ticket" in err
+    assert "write:workspace" not in err
+
+
+# ---------------------------------------------------------------------------
+# 9. validate-workflow --json
+# ---------------------------------------------------------------------------
+def _validate_json(pack_root, monkeypatch, capsys):
+    from orchestrator_next.validate_workflow import main
+
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack_root))
+    code = main(["feature", "--json"])
+    return code, json.loads(capsys.readouterr().out)
+
+
+def test_validate_json_reports_ok_with_no_errors(pack, monkeypatch, capsys):
+    code, doc = _validate_json(pack, monkeypatch, capsys)
+    assert code == 0
+    assert doc == {"ok": True, "errors": [], "warnings": []}
+
+
+def test_validate_json_lists_each_error(pack, monkeypatch, capsys):
+    recipe = pack / "workflows" / "feature.yaml"
+    recipe.write_text(yaml.safe_dump({
+        "name": "feature",
+        "steps": ["design", {"id": "implement", "requires": "ghost_token"}],
+    }, sort_keys=False), encoding="utf-8")
+
+    code, doc = _validate_json(pack, monkeypatch, capsys)
+    assert code == 1
+    assert doc["ok"] is False
+    assert any("ghost_token" in e for e in doc["errors"])
+    # The `ERROR:` header is dropped in favor of its bullets.
+    assert "gates before writes:" not in doc["errors"]
+
+
+def test_validate_json_separates_warnings_from_errors(pack, monkeypatch, capsys):
+    recipe = pack / "workflows" / "feature.yaml"
+    doc_in = yaml.safe_load(recipe.read_text())
+    doc_in["signoff_policy"] = {"phases": ["design"]}
+    recipe.write_text(yaml.safe_dump(doc_in, sort_keys=False), encoding="utf-8")
+
+    code, doc = _validate_json(pack, monkeypatch, capsys)
+    assert code == 0
+    assert doc["ok"] is True
+    assert doc["errors"] == []
+    assert any("signoff_policy" in w for w in doc["warnings"])

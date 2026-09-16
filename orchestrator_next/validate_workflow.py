@@ -210,8 +210,26 @@ def _check_wiring(schema_name: str, step_ids: list[str]) -> None:
         raise SystemExit(1)
 
 
+# A write that provisions the run's own workspace: worktree create/remove,
+# state archive. It cannot sit behind a gate because it is what builds the
+# place the gate's artifacts live — requiring one would make every recipe
+# unstartable. Every other `write:*` (git, ticket, anything a pack invents)
+# still needs an approval upstream.
+WORKSPACE_WRITE = "write:workspace"
+
+
+def _gated_writes(contract: Any) -> list[str]:
+    """The step's ``write:*`` side effects that a gate must authorize."""
+    return [
+        e for e in (getattr(contract, "side_effects", None) or [])
+        if str(e).startswith("write:") and str(e) != WORKSPACE_WRITE
+    ]
+
+
 def _check_gates(schema_name: str, schema: dict[str, Any]) -> None:
     """A step with a ``write:*`` side effect must sit behind a gate.
+
+    ``write:workspace`` is exempt — see ``WORKSPACE_WRITE``.
 
     Two ways to satisfy it, both checked in recipe (topological) order:
 
@@ -272,10 +290,7 @@ def _check_gates(schema_name: str, schema: dict[str, Any]) -> None:
             contract = load_contract_for_step(step_id)
         except (FileNotFoundError, ContractError):
             continue  # _check_contracts already reported this
-        writes = [
-            e for e in (getattr(contract, "side_effects", None) or [])
-            if str(e).startswith("write:")
-        ]
+        writes = _gated_writes(contract)
         if writes and not (requires or seen_gate):
             errors.append(
                 f"{step_id}: side_effects {writes} write outside the run but no "
@@ -309,23 +324,74 @@ def validate_workflow(schema_name: str, repo_root: str) -> None:
     print(f"OK: {schema_name} — contracts valid, expand-plan succeeded", file=sys.stderr)
 
 
+def _split_diagnostics(text: str) -> tuple[list[str], list[str]]:
+    """Split captured stderr into (errors, warnings).
+
+    Every check already writes a human-readable diagnostic line; ``--json``
+    reuses those rather than threading a second result type through each
+    check. An ``ERROR:`` header is followed by ``  - <detail>`` bullets, which
+    carry the specifics, so a header with bullets under it is dropped in
+    favor of them.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    pending_header = ""
+    for line in text.splitlines():
+        if line.startswith("  - "):
+            errors.append(line[4:].strip())
+            pending_header = ""
+            continue
+        if pending_header:
+            errors.append(pending_header)
+            pending_header = ""
+        if line.startswith("ERROR: "):
+            pending_header = line[len("ERROR: "):].strip()
+        elif line.startswith("WARN: "):
+            warnings.append(line[len("WARN: "):].strip())
+    if pending_header:
+        errors.append(pending_header)
+    return errors, warnings
+
+
 def main(args: list[str] | None = None) -> int:
+    import contextlib
+    import io
+    import json
+
     if args is None:
         args = sys.argv[1:]
+    as_json = "--json" in args
+    args = [a for a in args if a != "--json"]
     if not args:
-        print("usage: orchestrator validate-workflow <schema-name>", file=sys.stderr)
+        print("usage: orchestrator validate-workflow <schema-name> [--json]",
+              file=sys.stderr)
         return 1
     schema_name = args[0]
     repo_root = os.environ.get("ORCHESTRATOR_HOME") or str(Path(__file__).resolve().parents[1])
     from orchestrator_next.paths import ConfigRootError
-    try:
-        validate_workflow(schema_name, repo_root)
-    except ConfigRootError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
-    except SystemExit as exc:
-        return int(exc.code) if exc.code is not None else 1
-    return 0
+
+    captured = io.StringIO()
+    # --json speaks to a script, so the diagnostics belong in the document,
+    # not interleaved on stderr. Without it nothing is captured and the
+    # human-readable output is byte-identical to before.
+    redirect = contextlib.redirect_stderr(captured) if as_json \
+        else contextlib.nullcontext()
+
+    code = 0
+    with redirect:
+        try:
+            validate_workflow(schema_name, repo_root)
+        except ConfigRootError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            code = 1
+        except SystemExit as exc:
+            code = int(exc.code) if exc.code is not None else 1
+
+    if as_json:
+        errors, warnings = _split_diagnostics(captured.getvalue())
+        print(json.dumps({"ok": code == 0, "errors": errors,
+                          "warnings": warnings}, sort_keys=True, indent=2))
+    return code
 
 
 if __name__ == "__main__":
