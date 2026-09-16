@@ -226,7 +226,19 @@ def build_client() -> Any:
             "headless mode needs the Anthropic SDK: "
             "pip install 'orchestrator[headless]'"
         ) from exc
-    return anthropic.Anthropic()
+    client = anthropic.Anthropic()
+    # The SDK resolves credentials lazily, on the first request — which, in
+    # this driver, happens several judgment turns into a run (after any
+    # earlier script steps already did their work). Check the same chain it
+    # would use up front so a missing key fails before anything runs, with a
+    # clear message instead of a bare TypeError deep in the tool-use loop.
+    if not client.api_key and not getattr(client, "auth_token", None):
+        raise HeadlessError(
+            "headless mode needs Anthropic credentials: set ANTHROPIC_API_KEY "
+            "(or ANTHROPIC_AUTH_TOKEN, or run `ant auth login`) before "
+            "`orchestrator run --headless`."
+        )
+    return client
 
 
 def run_judgment(
