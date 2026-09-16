@@ -10,7 +10,7 @@ help: ## Show this help
 
 setup: onboard ## Alias for onboard
 
-onboard: ## Repo-local install: CLI → ~/.local/bin, vendor config/, keep skills/operator
+onboard: ## Repo-local install: CLI → ~/.local/bin, vendor config/
 	@bash ./install.sh
 
 install: onboard ## Alias for onboard
@@ -68,4 +68,3 @@ stale: ## Detect stale/abandoned workflow state directories
 
 test: ## Run orchestrator_next unit tests
 	@poetry run pytest -q
-

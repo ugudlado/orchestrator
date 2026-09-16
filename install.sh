@@ -2,8 +2,7 @@
 # Repo-local install (no shell-profile edits):
 #   1. Symlink CLI → ~/.local/bin/orchestrator
 #   2. Vendor workflows pack into this repo's config/
-#   3. Ensure skills/operator (workflow creator) is present in-repo
-#   4. doctor
+#   3. doctor
 #
 # Usage:
 #   ./install.sh                 # full install
@@ -139,16 +138,6 @@ setup_repo_config() {
   echo "  checkout config/: $ORCHESTRATOR_DIR/config"
 }
 
-ensure_operator_skill() {
-  echo "Checking in-repo workflow creator skill..."
-  local src="$ORCHESTRATOR_DIR/skills/operator/SKILL.md"
-  if [ -f "$src" ]; then
-    echo "  present: skills/operator/"
-  else
-    die "missing skills/operator/SKILL.md — keep the workflow creator skill in this repo"
-  fi
-}
-
 run_doctor() {
   if [ "$SKIP_DOCTOR" -eq 1 ]; then
     echo "Skipping doctor (--skip-doctor)"
@@ -181,11 +170,9 @@ print_done() {
   echo "Install complete (repo-local)."
   echo "  CLI:    $(command -v orchestrator 2>/dev/null || echo "$ORCHESTRATOR_INSTALL_BIN/orchestrator")"
   echo "  Config: $ORCHESTRATOR_DIR/.orchestrator/$PACK_NAME  (config/ → pack)"
-  echo "  Skill:  $ORCHESTRATOR_DIR/skills/operator"
   echo
   echo "Next:"
   echo "  orchestrator doctor"
-  echo "  # workflow creator lives in-repo — open this repo in an agent and use /operator"
   echo "  orchestrator feature TICKET-1"
   echo "  # or: orchestrator $PACK_NAME/feature TICKET-1"
 }
@@ -195,7 +182,6 @@ main() {
   setup_python_deps
   setup_cli
   setup_repo_config
-  ensure_operator_skill
   run_doctor
   print_done
 }

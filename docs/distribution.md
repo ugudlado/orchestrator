@@ -11,8 +11,7 @@ Two repos: [`orchestrator`](https://github.com/ugudlado/orchestrator) (engine, i
 **From an orchestrator checkout** (repo-local; no shell-profile edits):
 
 ```bash
-./install.sh    # make onboard — CLI + vendored config + in-repo skills/operator
-# agents in this repo: /operator  → scaffold into config/ / .orchestrator/<pack>/
+./install.sh    # make onboard — CLI + vendored config
 ```
 
 **Wheel + per-repo pack** (no engine checkout):

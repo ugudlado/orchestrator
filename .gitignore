@@ -50,8 +50,8 @@ n8n/.env
 .orchestrator/workflows/
 
 # Skills live in their own repo (ugudlado/skills) and are installed here via
-# `npx skills` — nothing under skills/ is vendored anymore (operator and
-# workflow-step moved to that repo Aug 2026).
+# `npx skills` — nothing under skills/ is vendored anymore
+# (workflow-creator moved to that repo Aug 2026).
 skills/
 .agents/skills/
 .claude/skills/backlog/
@@ -72,3 +72,6 @@ node_modules/
 .orchestrator/workflows/**/runs/cache/
 .orchestrator/workflows/**/*.pyc
 .worktrees/
+
+# pnpm content-addressable store (never commit)
+.pnpm-store/
