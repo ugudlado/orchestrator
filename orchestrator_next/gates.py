@@ -114,6 +114,22 @@ def issue_token(
     return record
 
 
+def cancel_pending(state_raw: dict[str, Any], gate_id: str) -> bool:
+    """Withdraw ``gate_id``'s open token. True when one was actually cancelled.
+
+    Used when a gate that already minted turns out to guard work a later
+    review rejected: the outstanding token would otherwise stay approvable.
+    Cancelling is safe because ``issue_token`` mints a fresh record once the
+    gate is trustworthy again.
+    """
+    record = pending_gate(state_raw, gate_id)
+    if record is None:
+        return False
+    record["status"] = "cancelled"
+    record["cancelled_at"] = _utcnow()
+    return True
+
+
 def approve_token(
     state_raw: dict[str, Any], token: str, edits: dict[str, Any] | None = None
 ) -> dict[str, Any]:
@@ -137,6 +153,112 @@ def approve_token(
             record["edits"] = edits
         return record
     raise GateError("unknown or expired gate token")
+
+
+def provenance(
+    state_raw: dict[str, Any], show: list[str]
+) -> dict[str, dict[str, Any]]:
+    """Who stands behind each ``show:`` artifact.
+
+    For every named artifact this returns the node that declared it as an
+    output (``produced_by``) with that node's ``producer_status`` and
+    ``attempts``, the *last* node that actually wrote it (``written_by`` — a
+    reviewer whose contract declares ``out: <the thing it reviews>`` counts,
+    which is how a rejected design came to be authored by its own reviewer),
+    and ``last_verdict``, the most recent verdict any node recorded while
+    producing it.
+
+    Read-only: everything comes from the plan and step_history already on the
+    run, including the per-node artifact hashes the engine records.
+    """
+    wanted = set(show)
+    out: dict[str, dict[str, Any]] = {
+        name: {"produced_by": "", "producer_status": "", "attempts": 0,
+               "written_by": "", "last_verdict": ""}
+        for name in show
+    }
+
+    plan = state_raw.get("workflow_plan") or {}
+    by_node: dict[str, dict[str, Any]] = {}
+    for phase_block in plan.values():
+        if not isinstance(phase_block, dict):
+            continue
+        for node in phase_block.get("nodes") or []:
+            if isinstance(node, dict) and node.get("id"):
+                by_node[str(node["id"])] = node
+            for rec in (node or {}).get("artifacts") or []:
+                if not isinstance(rec, dict):
+                    continue
+                name = str(rec.get("name") or "")
+                if name in wanted:
+                    entry = out[name]
+                    entry["produced_by"] = str(node.get("id") or "")
+                    entry["producer_status"] = str(node.get("status") or "")
+                    entry["attempts"] = int(node.get("attempts") or 0) or 1
+
+    # step_history is append-only and in order, so the last writer wins.
+    for hist in state_raw.get("step_history") or []:
+        if not isinstance(hist, dict):
+            continue
+        step_id = str(hist.get("step_id") or "")
+        verdict = str(((hist.get("outputs") or {}) if isinstance(
+            hist.get("outputs"), dict) else {}).get("verdict") or "")
+        for rec in hist.get("artifacts") or []:
+            if not isinstance(rec, dict):
+                continue
+            name = str(rec.get("name") or "")
+            if name not in wanted:
+                continue
+            entry = out[name]
+            entry["written_by"] = step_id
+            # A re-review that passed must clear an earlier rejection, so this
+            # overwrites rather than accumulating.
+            entry["last_verdict"] = verdict
+            if not entry["produced_by"]:
+                entry["produced_by"] = step_id
+                node = by_node.get(step_id) or {}
+                entry["producer_status"] = str(
+                    node.get("status") or hist.get("status") or "")
+                entry["attempts"] = int(hist.get("attempt") or 0) or 1
+
+    for name in show:
+        entry = out[name]
+        if not entry["produced_by"]:
+            continue
+        node = by_node.get(entry["produced_by"]) or {}
+        if node.get("status"):
+            entry["producer_status"] = str(node["status"])
+        if node.get("attempts"):
+            entry["attempts"] = int(node["attempts"])
+    return out
+
+
+def untrusted(
+    prov: dict[str, dict[str, Any]], fail_verdicts: frozenset[str] | set[str]
+) -> list[str]:
+    """Reasons this gate must not mint, one per artifact that fails the check.
+
+    An artifact is untrusted when nothing produced it, when its producing node
+    is not ``completed``, or when the most recent verdict recorded against it
+    is one the contract calls a failure. Empty list means the gate may mint.
+    """
+    problems: list[str] = []
+    for name, entry in sorted(prov.items()):
+        producer = entry.get("produced_by") or ""
+        status = entry.get("producer_status") or ""
+        verdict = entry.get("last_verdict") or ""
+        if not producer:
+            problems.append(f"{name}: no step produced it")
+            continue
+        if status and status != "completed":
+            problems.append(f"{name}: {producer} is {status}, not completed")
+            continue
+        if verdict in fail_verdicts:
+            problems.append(
+                f"{name}: last reviewed by {entry.get('written_by') or producer}"
+                f" ({verdict})"
+            )
+    return problems
 
 
 def preview(

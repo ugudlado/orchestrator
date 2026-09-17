@@ -23,7 +23,7 @@ from orchestrator_next.parser import KIND_GATE
 # a minimal pack: write -> gate -> guarded write
 # ---------------------------------------------------------------------------
 @pytest.fixture
-def pack(tmp_path):
+def gates_pack(tmp_path):
     """A pack whose recipe is: design (writes design.md) | gate | implement."""
     root = tmp_path / "pack"
     (root / "workflows").mkdir(parents=True)
@@ -59,7 +59,12 @@ def pack(tmp_path):
 
 
 @pytest.fixture
-def run(tmp_path, pack, monkeypatch):
+def pack(gates_pack):
+    return gates_pack
+
+
+@pytest.fixture
+def gates_run(tmp_path, pack, monkeypatch):
     """A seeded state whose plan is the pack's three nodes, gate in the middle."""
     repo = tmp_path / "repo"
     (repo / ".orchestrator" / "runs" / "g1" / "artifacts").mkdir(parents=True)
@@ -86,6 +91,11 @@ def run(tmp_path, pack, monkeypatch):
         "step_history": [],
     }, sort_keys=False), encoding="utf-8")
     return str(state)
+
+
+@pytest.fixture
+def run(gates_run):
+    return gates_run
 
 
 def _artifacts(run_path):

@@ -279,6 +279,40 @@ def _gate_payload(
     """
     from orchestrator_next import gates
 
+    entries = gates.preview(show, _show_paths(state_raw, show))
+    prov = gates.provenance(state_raw, show)
+    for name, entry in entries.items():
+        entry.update(prov.get(name) or {})
+
+    # A gate exists to put a human behind the work, not to rubber-stamp
+    # whatever happens to be on disk. A file whose producer abandoned, or whose
+    # last review rejected it, must not be presented as approvable — the
+    # reviewer would be approving a token over work nothing stands behind.
+    problems = gates.untrusted(prov, _fail_verdicts(state_raw, show))
+    if problems:
+        # A token minted on an earlier poll, before the work was rejected, is
+        # now a standing licence to approve rejected work. Withdraw it: the
+        # gate re-mints a fresh one once the problems are fixed.
+        gates.cancel_pending(state_raw, step_id)
+        state_raw["status"] = "needs_you"
+        state_raw["needs_you_reason"] = (
+            f"gate {step_id} cannot mint: " + "; ".join(problems)
+        )
+        _save_state(state_yaml_path, state_raw)
+        return {
+            "status": "needs_you",
+            "kind": KIND_GATE,
+            "step_id": step_id,
+            "payload": {
+                "preview": {
+                    "step_id": step_id,
+                    "show": entries,
+                    "token_name": approve_as,
+                },
+            },
+            "detail": f"gate {step_id} cannot mint: " + "; ".join(problems),
+        }
+
     record = gates.issue_token(state_raw, step_id, approve_as)
     state_raw["status"] = "blocked"
     _save_state(state_yaml_path, state_raw)
@@ -290,12 +324,41 @@ def _gate_payload(
         "payload": {
             "preview": {
                 "step_id": step_id,
-                "show": gates.preview(show, _show_paths(state_raw, show)),
+                "show": entries,
                 "token_name": approve_as,
             },
             "token": record["token"],
         },
     }
+
+
+def _fail_verdicts(state_raw: dict[str, Any], show: list[str]) -> frozenset[str]:
+    """Every enum value any contract producing a `show:` artifact calls a failure.
+
+    Read from the same `fail_on:` the routing uses, so a gate and the router
+    never disagree about what "rejected" means.
+    """
+    from orchestrator_next.parser import phase_nodes
+
+    values: set[str] = set()
+    state = load_state_from_raw(state_raw)
+    for phase in state.workflow_plan:
+        for node in phase_nodes(state, phase):
+            step_id = str(node.get("id", ""))
+            if not step_id:
+                continue
+            try:
+                contract = load_contract_for_step(step_id)
+            except Exception:  # noqa: BLE001 — a gate check is best-effort
+                continue
+            declared = getattr(contract, "outputs", None) or {}
+            if not any(n in show for n in declared):
+                continue
+            for spec in declared.values():
+                fail_on = spec.get("fail_on")
+                if isinstance(fail_on, list):
+                    values.update(str(v) for v in fail_on)
+    return frozenset(values)
 
 
 def _show_paths(state_raw: dict[str, Any], show: list[str]) -> dict[str, str]:
