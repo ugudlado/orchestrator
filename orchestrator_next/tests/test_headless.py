@@ -7,6 +7,7 @@ exact shape `run_judgment` has to survive.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -283,3 +284,312 @@ def test_drive_reports_a_failed_step_as_abandoned(pack, repo):
     entries, _ = protocol.events(run)
     assert any(e["step_id"] == "think" and e["status"] == "abandoned"
                for e in entries)
+
+
+# ---------------------------------------------------------------------------
+# backend selection
+# ---------------------------------------------------------------------------
+def test_backend_defaults_to_claude_cli_without_api_credentials(monkeypatch):
+    """The workstation case: Claude Code is logged in, no API key exists."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("ORCHESTRATOR_HEADLESS_BACKEND", raising=False)
+    assert headless.resolve_backend() == headless.BACKEND_CLAUDE_CLI
+
+
+def test_backend_defaults_to_anthropic_when_a_key_is_present(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.delenv("ORCHESTRATOR_HEADLESS_BACKEND", raising=False)
+    assert headless.resolve_backend() == headless.BACKEND_ANTHROPIC
+
+
+def test_backend_flag_beats_env_and_credentials(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("ORCHESTRATOR_HEADLESS_BACKEND", "anthropic")
+    assert headless.resolve_backend("claude-cli") == headless.BACKEND_CLAUDE_CLI
+
+
+def test_backend_env_beats_credentials(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("ORCHESTRATOR_HEADLESS_BACKEND", "claude-cli")
+    assert headless.resolve_backend() == headless.BACKEND_CLAUDE_CLI
+
+
+def test_unknown_backend_is_rejected(monkeypatch):
+    monkeypatch.delenv("ORCHESTRATOR_HEADLESS_BACKEND", raising=False)
+    with pytest.raises(headless.HeadlessError) as exc:
+        headless.resolve_backend("gpt")
+    assert "unknown headless backend" in str(exc.value)
+
+
+def test_missing_claude_cli_fails_before_any_step(monkeypatch):
+    """A missing CLI must surface up front, not mid-run."""
+    monkeypatch.setattr(headless.shutil, "which", lambda _name: None)
+    with pytest.raises(headless.HeadlessError) as exc:
+        headless.check_claude_cli()
+    assert "needs the `claude` CLI on PATH" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# claude-cli argv
+# ---------------------------------------------------------------------------
+def _cli_payload(**overrides):
+    payload = {
+        "step_id": "think", "model": "standard", "model_id": "claude-sonnet-5",
+        "max_turns": 6, "tools": ["fs.read", "fs.write", "git.read"],
+        "system": "# think\n\nThink.", "in": {}, "out": {"notes": "/w/notes.md"},
+        "out_schema": {"complexity": {"type": "enum", "values": ["S", "M", "L"]}},
+        "cwd": "/w",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _flag(argv, name):
+    return argv[argv.index(name) + 1]
+
+
+def test_cli_argv_carries_the_print_contract():
+    argv = headless.build_cli_argv(_cli_payload(), executable="claude")
+    assert argv[:2] == ["claude", "-p"]
+    assert _flag(argv, "--output-format") == "json"
+    assert _flag(argv, "--model") == "claude-sonnet-5"
+    assert _flag(argv, "--permission-mode") == "acceptEdits"
+    assert "--no-session-persistence" in argv
+    assert _flag(argv, "--system-prompt") == "# think\n\nThink."
+
+
+def test_cli_argv_adds_turn_headroom_for_the_structured_reply():
+    """`--json-schema` spends a turn emitting the result; max_turns is for work."""
+    argv = headless.build_cli_argv(_cli_payload(max_turns=6))
+    assert int(_flag(argv, "--max-turns")) == 6 + headless.CLI_TURN_HEADROOM
+
+
+def test_cli_argv_maps_contract_tools_to_claude_tool_names():
+    argv = headless.build_cli_argv(_cli_payload())
+    allowed = _flag(argv, "--allowedTools").split(",")
+    assert allowed == ["Read", "Write", "Edit", "Bash"]
+
+
+def test_cli_argv_omits_allowed_tools_when_the_step_declares_none():
+    argv = headless.build_cli_argv(_cli_payload(tools=[]))
+    assert "--allowedTools" not in argv
+
+
+def test_cli_tool_map_matches_pack_export():
+    """One capability must mean one tool surface, whoever runs the step."""
+    from orchestrator_next import pack_export
+
+    assert headless.CLI_TOOL_MAP == pack_export.TOOL_MAP
+
+
+def test_cli_argv_passes_the_step_budget_when_set(monkeypatch):
+    monkeypatch.setenv("ORCHESTRATOR_STEP_BUDGET_USD", "0.50")
+    argv = headless.build_cli_argv(_cli_payload())
+    assert _flag(argv, "--max-budget-usd") == "0.50"
+
+
+def test_cli_argv_omits_budget_when_unset(monkeypatch):
+    monkeypatch.delenv("ORCHESTRATOR_STEP_BUDGET_USD", raising=False)
+    assert "--max-budget-usd" not in headless.build_cli_argv(_cli_payload())
+
+
+def test_cli_result_schema_describes_the_declared_outputs():
+    schema = json.loads(_flag(headless.build_cli_argv(_cli_payload()),
+                              "--json-schema"))
+    assert schema["properties"]["notes"] == {"type": "string"}
+    assert schema["properties"]["complexity"] == {
+        "type": "string", "enum": ["S", "M", "L"]}
+    # A step must always be able to report failure through the same block.
+    assert schema["properties"]["status"]["enum"] == [
+        "completed", "failed", "abandoned"]
+    assert schema["required"] == ["reason"]
+    assert schema["additionalProperties"] is False
+
+
+# ---------------------------------------------------------------------------
+# claude-cli result parsing
+# ---------------------------------------------------------------------------
+def _cli_result(**overrides):
+    data = {
+        "type": "result", "subtype": "success", "is_error": False,
+        "num_turns": 3, "total_cost_usd": 0.0074,
+        "result": '{"notes":"/w/notes.md","complexity":"M","reason":"ok"}',
+        "structured_output": {"notes": "/w/notes.md", "complexity": "M",
+                              "reason": "ok"},
+        "usage": {"input_tokens": 12, "output_tokens": 34,
+                  "cache_read_input_tokens": 56,
+                  "cache_creation_input_tokens": 78},
+        "modelUsage": {"claude-sonnet-5-20250929": {"inputTokens": 12}},
+    }
+    data.update(overrides)
+    return data
+
+
+def _fake_run(monkeypatch, data, *, returncode=0, stderr="", stdout=None):
+    calls = {}
+
+    def _run(argv, **kwargs):
+        calls["argv"] = argv
+        calls["kwargs"] = kwargs
+        return subprocess.CompletedProcess(
+            argv, returncode,
+            stdout=json.dumps(data) if stdout is None else stdout,
+            stderr=stderr)
+
+    monkeypatch.setattr(headless.subprocess, "run", _run)
+    return calls
+
+
+def test_cli_judgment_parses_structured_output_and_usage(monkeypatch):
+    calls = _fake_run(monkeypatch, _cli_result())
+    outcome = headless.run_judgment_cli(_cli_payload(), executable="claude")
+
+    assert outcome["out"] == {"notes": "/w/notes.md", "complexity": "M",
+                              "reason": "ok"}
+    assert outcome["usage"] == {
+        # The billed id from modelUsage wins over the alias we asked for —
+        # that is the id pricing needs.
+        "model": "claude-sonnet-5-20250929",
+        "input_tokens": 12, "output_tokens": 34,
+        "cache_read_input_tokens": 56, "cache_creation_input_tokens": 78,
+        "cost_usd_reported": 0.0074,
+    }
+    assert calls["kwargs"]["cwd"] == "/w"
+
+
+def test_cli_judgment_falls_back_to_a_fenced_block(monkeypatch):
+    """No structured_output (older CLI, or schema declined) still parses."""
+    data = _cli_result(result='done\n```json\n{"complexity":"S"}\n```')
+    data.pop("structured_output")
+    _fake_run(monkeypatch, data)
+    outcome = headless.run_judgment_cli(_cli_payload(), executable="claude")
+    assert outcome["out"] == {"complexity": "S"}
+
+
+def test_cli_judgment_falls_back_to_the_requested_model_id(monkeypatch):
+    data = _cli_result(modelUsage={})
+    _fake_run(monkeypatch, data)
+    outcome = headless.run_judgment_cli(_cli_payload(), executable="claude")
+    assert outcome["usage"]["model"] == "claude-sonnet-5"
+
+
+def test_cli_judgment_raises_on_is_error(monkeypatch):
+    _fake_run(monkeypatch, _cli_result(
+        is_error=True, subtype="error_max_turns",
+        errors=["Reached maximum number of turns (4)"]))
+    with pytest.raises(headless.HeadlessError) as exc:
+        headless.run_judgment_cli(_cli_payload(), executable="claude")
+    assert "Reached maximum number of turns" in str(exc.value)
+
+
+def test_cli_judgment_raises_on_nonzero_exit(monkeypatch):
+    _fake_run(monkeypatch, _cli_result(), returncode=1, stderr="boom")
+    with pytest.raises(headless.HeadlessError):
+        headless.run_judgment_cli(_cli_payload(), executable="claude")
+
+
+def test_cli_judgment_reports_unparseable_output_with_the_stderr_tail(monkeypatch):
+    _fake_run(monkeypatch, {}, returncode=1, stdout="not json",
+              stderr="something broke")
+    with pytest.raises(headless.HeadlessError) as exc:
+        headless.run_judgment_cli(_cli_payload(), executable="claude")
+    assert "something broke" in str(exc.value)
+
+
+def test_cli_judgment_explains_a_logged_out_cli(monkeypatch):
+    """The fix is one command; say it instead of dumping a stack."""
+    _fake_run(monkeypatch, {}, returncode=1, stdout="",
+              stderr="Error: not logged in")
+    with pytest.raises(headless.HeadlessError) as exc:
+        headless.run_judgment_cli(_cli_payload(), executable="claude")
+    assert "run `claude` once" in str(exc.value)
+
+
+def test_cli_judgment_rejects_a_payload_with_no_model_id(monkeypatch):
+    _fake_run(monkeypatch, _cli_result())
+    with pytest.raises(headless.HeadlessError) as exc:
+        headless.run_judgment_cli(_cli_payload(model_id=""),
+                                  executable="claude")
+    assert "resolved to no model id" in str(exc.value)
+
+
+def test_cli_judgment_timeout_scales_with_turns(monkeypatch):
+    calls = _fake_run(monkeypatch, _cli_result())
+    headless.run_judgment_cli(_cli_payload(max_turns=60), executable="claude")
+    assert calls["kwargs"]["timeout"] == (60 + headless.CLI_TURN_HEADROOM) * 60
+
+    calls = _fake_run(monkeypatch, _cli_result())
+    headless.run_judgment_cli(_cli_payload(max_turns=1), executable="claude")
+    assert calls["kwargs"]["timeout"] == headless.CLI_MIN_TIMEOUT_S
+
+
+# ---------------------------------------------------------------------------
+# the loop, on the claude-cli backend
+# ---------------------------------------------------------------------------
+def test_drive_runs_the_recipe_on_the_claude_cli_backend(pack, repo, monkeypatch):
+    """Same protocol walk, no SDK and no API key anywhere in the process."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("ORCHESTRATOR_HEADLESS_BACKEND", raising=False)
+    monkeypatch.setattr(headless.shutil, "which", lambda _name: "/usr/bin/claude")
+
+    started, _ = protocol.start("mini", "h-run")
+    run = started["state"]
+    notes = repo / ".orchestrator" / "runs" / "h-run" / "artifacts" / "notes.md"
+
+    def _run(argv, **kwargs):
+        Path(kwargs["cwd"])  # the step really is given a cwd
+        notes.parent.mkdir(parents=True, exist_ok=True)
+        notes.write_text("n\n", encoding="utf-8")
+        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(
+            _cli_result(structured_output={"notes": "notes.md",
+                                           "complexity": "L",
+                                           "reason": "thought"})), stderr="")
+
+    monkeypatch.setattr(headless.subprocess, "run", _run)
+    assert headless.drive(run) == 0
+
+    result, _ = protocol.status(run)
+    think = next(n for n in result["nodes"] if n["id"] == "think")
+    assert think["status"] == "completed"
+    assert result["usage"]["input_tokens"] > 0
+
+
+def test_drive_records_a_failed_cli_step_as_abandoned(pack, repo, monkeypatch):
+    monkeypatch.setattr(headless.shutil, "which", lambda _name: "/usr/bin/claude")
+    started, _ = protocol.start("mini", "h-run")
+    run = started["state"]
+
+    monkeypatch.setattr(headless.subprocess, "run", lambda argv, **kw:
+                        subprocess.CompletedProcess(argv, 0, stdout=json.dumps(
+                            _cli_result(structured_output={
+                                "status": "failed",
+                                "reason": "cannot proceed"})), stderr=""))
+    assert headless.drive(run, backend="claude-cli") == 0
+
+    entries, _ = protocol.events(run)
+    assert any(e["step_id"] == "think" and e["status"] == "abandoned"
+               for e in entries)
+
+
+# ---------------------------------------------------------------------------
+# CLI flag plumbing
+# ---------------------------------------------------------------------------
+def test_backend_flag_is_parsed_out_of_argv():
+    args = ["mini", "h-run", "--backend", "claude-cli", "--auto-approve"]
+    assert headless._take_backend(args) == "claude-cli"
+    assert args == ["mini", "h-run", "--auto-approve"]
+
+
+def test_no_backend_flag_leaves_argv_alone():
+    args = ["mini", "h-run"]
+    assert headless._take_backend(args) is None
+    assert args == ["mini", "h-run"]
+
+
+def test_run_headless_rejects_an_unknown_backend_before_seeding(pack, monkeypatch):
+    """An unknown name must not leave a half-started run behind."""
+    monkeypatch.setattr(headless, "start", lambda *a, **k:
+                        pytest.fail("start() must not run"))
+    assert headless.run_headless_cmd(["mini", "h-run", "--backend", "gpt"]) == 3
