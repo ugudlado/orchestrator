@@ -149,26 +149,10 @@ export const MODEL_FAMILY_TO_SPAWN_ALIAS: ReadonlyArray<{
   { family: /^claude-haiku-/, alias: 'haiku' },
 ]
 
-/**
- * The last fenced ```json block of an agent's final message, parsed.
- *
- * Returns undefined when there is no block or it is not a JSON object: the
- * caller then records the step as `abandoned` rather than guessing an `out`.
- */
-export function jsonBlockOf(answer: string): Record<string, unknown> | undefined {
-  const fence = /```json\s*\n([\s\S]*?)```/g
-  let last: string | undefined
-
-  for (const match of answer.matchAll(fence)) {
-    last = match[1]
-  }
-
-  if (last === undefined) {
-    return undefined
-  }
-
+/** `JSON.parse`, kept only if the result is a plain object (not array/null). */
+function asObject(text: string): Record<string, unknown> | undefined {
   try {
-    const parsed: unknown = JSON.parse(last)
+    const parsed: unknown = JSON.parse(text)
 
     return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
@@ -176,6 +160,52 @@ export function jsonBlockOf(answer: string): Record<string, unknown> | undefined
   } catch {
     return undefined
   }
+}
+
+/**
+ * The last fenced ```json (or bare ```) block of an agent's final message,
+ * parsed, or — when no fence parses — the last top-level `{ … }` in the
+ * text that does.
+ *
+ * Fences need not start at column 0 (a subagent hand-back indents every
+ * quoted line; `JSON.parse` ignores the resulting surrounding whitespace).
+ * Tolerant of a missing `json` language tag or a missing closing fence.
+ * Returns undefined when nothing parses to a JSON object: the caller then
+ * records the step as `abandoned` rather than guessing an `out`.
+ */
+export function jsonBlockOf(answer: string): Record<string, unknown> | undefined {
+  const fence = /```(?:json)?[ \t]*\r?\n([\s\S]*?)```/g
+  const bodies = [...answer.matchAll(fence)].map(m => m[1] ?? '')
+
+  for (let i = bodies.length - 1; i >= 0; i--) {
+    const parsed = asObject(bodies[i] ?? '')
+    if (parsed !== undefined) {
+      return parsed
+    }
+  }
+
+  // Final fallback: no fence parsed (unterminated, or content ran on the
+  // opening fence's own line) — scan from the end for the last top-level
+  // `{ … }` and try it. Bounded by the string length, no backtracking.
+  let depth = 0
+  let end = -1
+  for (let i = answer.length - 1; i >= 0; i--) {
+    if (answer[i] === '}') {
+      if (depth === 0) end = i
+      depth++
+    } else if (answer[i] === '{') {
+      depth--
+      if (depth === 0 && end !== -1) {
+        const parsed = asObject(answer.slice(i, end + 1))
+        if (parsed !== undefined) {
+          return parsed
+        }
+        end = -1
+      }
+    }
+  }
+
+  return undefined
 }
 
 /**

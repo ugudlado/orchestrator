@@ -1174,8 +1174,13 @@ async function runRetry(
   run: string,
   abandoned: AbandonedPayload,
 ): Promise<{ next: StepResult; stderr: string } | null | 'cancelled'> {
+  // `abandoned.reason` already reads "<step_id> abandoned: <detail>" (or
+  // "rejected: <detail>") — protocol.py's `step` forwards record.py's
+  // `needs_you_reason` verbatim (dispatch.py's EXIT_NEEDS_YOU branch), so
+  // prefixing it again here doubled it to "explore abandoned: explore
+  // abandoned: …".
   const stepId = abandoned.abandoned_step ?? ''
-  const question = `${stepId} abandoned: ${abandoned.reason.slice(0, 200)}. Retry it?`
+  const question = `${abandoned.reason.slice(0, 200)}. Retry it?`
 
   const answered = { byPress: false }
 
