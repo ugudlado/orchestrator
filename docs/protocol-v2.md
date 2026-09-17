@@ -109,8 +109,8 @@ prompt), so a free-form answer reaches whoever asked. `resume` returns
 `{status, matched, next}`, where `next` is the same shape `step` returns.
 
 This is not the gate mechanism: a gate is a human authorizing a _write_ and is
-answered with `approve <run> <token>`, while await_input is a step asking a
-_question_ it needs answered to continue.
+answered with `approve <run> <token>`, while await*input is a step asking a
+\_question* it needs answered to continue.
 
 ### `status` enum
 
@@ -177,6 +177,28 @@ recorded. v2 keeps this rule verbatim; `done --usage` is just the new verb
 surface for it. `ORCHESTRATOR_SKIP_USAGE_CHECK` remains an escape hatch for
 tests/fixtures, not for real runs.
 
+### `--status abandoned`
+
+A judgment step that cannot do its job records `--status abandoned` with a
+`reason`. It skips `out` validation, because there is nothing to validate: an
+abandoned step wrote none of its declared artifacts.
+
+Abandoning is therefore **not** a way to complete a node. The node ends with
+its own terminal status, `abandoned`, which is neither ready (so it is never
+re-dispatched) nor completed (so its dependents stay blocked and never run
+against artifacts that do not exist). Routing then applies:
+
+- the node's `on_failure` edge, if it declares one, bounded by `max_retries`
+  exactly as a rejected verdict is;
+- otherwise the run parks at `status: needs_you` carrying
+  `needs_you_reason: "<step> abandoned: <reason>"`, and `step` returns
+  `needs_you` with no `ask`. The engine has no question — it has a dead end
+  only a human can resolve.
+
+A phase whose remaining nodes all sit behind an abandoned one reports
+`needs_you`, never `done`. Reporting success there would hand the harness a
+run that produced nothing.
+
 ---
 
 ## 6. Contract shape
@@ -196,6 +218,29 @@ out:
   tasks:     {artifact: tasks.yaml, validate: validate-tasks-yaml.sh}
   complexity:{type: enum, values: [XS,S,M,L,XL]}
 ```
+
+### `fail_on:` — a step that judges its own subject
+
+An enum out may name the values that mean the step judged its subject
+unacceptable:
+
+```yaml
+out:
+  design: { artifact: design.md }
+  verdict: { type: enum, values: [pass, needs_work], fail_on: [needs_work] }
+```
+
+Reporting one of those values routes through the node's `on_failure` edge
+instead of advancing, bounded by `max_retries` — the step itself ran fine and
+is recorded `completed`, but the _workflow_ must not carry forward work the
+reviewer just rejected. With no `on_failure` edge the node ends terminal and
+the run parks at `needs_you`, so a resume cannot advance past a rejection
+either.
+
+`fail_on:` is opt-in and validated at load: it requires `type: enum`, must be
+a list, and every value must appear in that out's `values:`. A plain enum out
+behaves exactly as before. Signoff gates read the same declaration (§7), so
+the router and the gate can never disagree about what "rejected" means.
 
 No `model:` key in the contract. The alias lives in `models.yaml` under
 `step_models:`. This is already enforced today: `parser.py:237-241`
@@ -260,6 +305,32 @@ already issued, never a second one. A step whose `requires:` token is not yet
 approved reports `status: needs_you`, not `blocked`: the engine has nothing
 left to decide. `status --json` carries `gate_token` (the most recently
 approved token) and the full `gates` list.
+
+### Gate trust
+
+A gate exists to put a human behind the work, not to rubber-stamp whatever
+happens to be on disk. Each `show:` artifact in the preview therefore carries
+its provenance, taken from the per-node artifact records the engine already
+keeps:
+
+| Field             | Meaning                                             |
+| ----------------- | --------------------------------------------------- |
+| `produced_by`     | the node that declares the artifact as an output    |
+| `producer_status` | that node's status (`completed`, `abandoned`, …)    |
+| `attempts`        | how many times it ran                               |
+| `written_by`      | the last node that actually wrote the file          |
+| `last_verdict`    | the most recent verdict recorded while producing it |
+
+`written_by` is distinct from `produced_by` on purpose. A reviewer whose
+contract declares `out: <the thing it reviews>` — the usual shape for a step
+that rewrites a design with its findings — is the last writer, so the preview
+says so rather than presenting its rejection notes as the design.
+
+The gate **refuses to mint**, returning `needs_you` with the reason, when any
+`show:` artifact has no producer, its producer is not `completed`, or its
+`last_verdict` is a value some contract's `fail_on:` calls a failure. A token
+minted before a rejection landed is cancelled rather than left approvable; the
+gate mints a fresh one once the work is trustworthy again.
 
 ---
 

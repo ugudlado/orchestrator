@@ -70,6 +70,24 @@ out:
   `artifact:` (a file, resolved to an absolute path by the engine — the pack
   never writes paths) or `type:` (a value carried in the done payload).
   `optional: true` exempts an entry from enforcement.
+- `fail_on:` on an enum out names the values that mean the step judged its
+  subject unacceptable — a review verdict of `needs_work`:
+
+  ```yaml
+  out:
+    design: { artifact: design.md }
+    verdict: { type: enum, values: [pass, needs_work], fail_on: [needs_work] }
+  ```
+
+  Reporting one routes through the node's `on_failure` edge rather than
+  advancing, bounded by `max_retries`. The step itself is recorded
+  `completed` — it did its job — but the workflow must not carry forward work
+  the step rejected. Without an `on_failure` edge the node ends terminal and
+  the run parks at `needs_you`. `fail_on:` requires `type: enum` and every
+  value must appear in that out's `values:`. It is also what signoff gates
+  consult before minting, so declare it on any contract whose verdict a gate
+  should trust.
+
 - `tools:` is the capability allowlist handed to the harness.
 - `side_effects:` names what the step changes outside its artifacts.
   `validate-workflow` refuses a recipe where a `write:*` step has no
@@ -125,12 +143,28 @@ Any other key is ignored by the engine.
 - A malformed final block, a missing artifact, or a value outside a declared
   enum all become a rejected `done` (exit 3) or a retryable `failed` step —
   never a hang, never a silent pass.
+- A step that cannot do its job at all records `--status abandoned` with a
+  `reason`, skipping `out` validation. This does **not** complete the node:
+  it ends `abandoned`, which is terminal (never re-dispatched) but not
+  completed, so dependents stay blocked rather than running against artifacts
+  that were never written. The node's `on_failure` edge routes if it has one;
+  otherwise the run parks at `needs_you`.
 
 **Gate steps**
 
 - Reported by `orchestrator step` as `status: blocked`, `kind: gate`, with a
   preview of the `show:` artifacts and a freshly minted token. Polling `step`
   re-returns that same token rather than issuing a second one.
+- Each previewed artifact carries its provenance: `produced_by` (the node
+  declaring it as an output), `producer_status`, `attempts`, `written_by`
+  (the last node that actually wrote the file) and `last_verdict`. A reviewer
+  whose contract declares `out: <the thing it reviews>` shows up as
+  `written_by`, so a rejection written into the artifact is never presented
+  as the artifact itself.
+- The gate **refuses to mint** — `status: needs_you` with the reason — when a
+  `show:` artifact has no producer, its producer is not `completed` (it
+  `abandoned`, say), or its `last_verdict` is one of that contract's
+  `fail_on:` values. Fix the work and the gate mints on the next `step`.
 - `orchestrator approve <run> <token> [--edits '{...}']` resumes the run and
   binds the token to the gate's `approve_as` name; `orchestrator cancel <run>`
   aborts instead. A step declaring `requires: <that name>` stays undispatched
