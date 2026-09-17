@@ -125,6 +125,7 @@ pytest orchestrator_next/tests/ -q
 | `orchestrator step <run> --json`                         | Next step for the harness to execute        |
 | `orchestrator done <run> <step> --out J --usage J`       | Record a judgment step's structured result  |
 | `orchestrator approve <run> <token>`                     | Approve a gate and resume                   |
+| `orchestrator resume <run> "<text>"`                     | Answer a step parked on await_input         |
 | `orchestrator status <run> --json`                       | Nodes, artifacts, gates, running cost       |
 | `orchestrator run --headless <recipe> <slug>`            | Engine drives the model itself              |
 | `orchestrator graph <ref>`                               | Mermaid DAG                                 |

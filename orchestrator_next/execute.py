@@ -480,10 +480,8 @@ def resolve_models_yaml(explicit: str = "", *, repo_root: str = "") -> str:
 # A step that records `status: await_input` parks the run and leaves an
 # `awaiting: {step_id, ask, options}` block on the state (record.py). These two
 # functions turn the user's answer back into a state transition without
-# re-dispatching the step. No protocol-v2 verb calls them yet — `approve` is
-# for gate tokens, which is a different mechanism — so they are currently
-# reachable only by an embedder. Kept rather than deleted because record.py
-# still produces the block they consume.
+# re-dispatching the step. `orchestrator resume` is the verb that calls them;
+# `approve` is for gate tokens, which is a different mechanism entirely.
 # ---------------------------------------------------------------------------
 def match_awaiting_option(text: str, options: list[dict]) -> dict | None:
     """Exact label match, label's first word, or 1-based option number."""

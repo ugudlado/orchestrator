@@ -6,18 +6,17 @@ without re-dispatching the step at all. Unmatched text falls through to the
 step, which re-runs with the raw text and interprets it itself.
 
 The loop below is what a harness does: `orchestrator step` until the run parks
-on await_input, hand the user's answer to the matcher, then `step` again.
+on await_input, then `orchestrator resume <run> "<text>"` with the answer.
 """
 from __future__ import annotations
 
 import textwrap
 from pathlib import Path
 
+import pytest
 import yaml
 
-from orchestrator_next.dispatch import dispatch
-from orchestrator_next.execute import route_awaiting_input, run_script_step
-from orchestrator_next.parser import load_state
+from orchestrator_next.protocol import ProtocolError, resume
 from orchestrator_next.protocol import step as protocol_step
 from orchestrator_next.seed import seed_state_file
 
@@ -150,25 +149,9 @@ def _awaiting(state_path: Path) -> dict | None:
 
 
 def _resume(state_path: Path, repo: Path, text: str) -> dict:
-    """Hand the user's answer back to the run, the way a harness would.
-
-    A matched option is applied by the engine and the run just advances. An
-    unmatched one re-dispatches the parked step with the raw text so the step
-    itself can interpret it.
-    """
-    if not route_awaiting_input(str(state_path), text):
-        state = load_state(str(state_path))
-        action, code = dispatch(state, str(state_path))
-        assert code == 0, f"unmatched resume did not re-dispatch (exit {code})"
-        _ok, _path, status = run_script_step(
-            action, state_yaml_path=str(state_path), state=state,
-            user_direction=text,
-        )
-        if status == "await_input":
-            # The step asked again. A harness stops here and goes back to the
-            # human rather than re-running it with no answer.
-            return {"status": "needs_you", "step_id": action["step_id"]}
-    return _drive(state_path)
+    """`orchestrator resume <run> "<text>"` — the verb a harness calls."""
+    result, _ = resume(str(state_path), text)
+    return result["next"]
 
 
 def test_option_label_match_advances_without_redispatch(tmp_path, monkeypatch):
@@ -236,3 +219,79 @@ def test_unmatched_text_falls_through_to_step(tmp_path, monkeypatch):
     # engine, interpreted the freeform text).
     raw = yaml.safe_load(state.read_text())
     assert "what does this even mean" in raw["awaiting"]["ask"]
+
+
+# ---------------------------------------------------------------------------
+# the `resume` verb itself
+# ---------------------------------------------------------------------------
+def test_step_reports_needs_you_with_the_ask_and_options(tmp_path, monkeypatch):
+    """A parked run tells the harness what to ask and what the answers are."""
+    pack = _mini_pack(tmp_path)
+    state, _repo = _seed(tmp_path, pack, monkeypatch, "verb-1")
+
+    result = _drive(state)
+    assert result["status"] == "needs_you"
+    assert result["step_id"] == "review"
+    assert "Ship it" in result["payload"]["ask"]
+    assert [o["label"] for o in result["payload"]["options"]] == ["approve", "rework"]
+
+
+def test_step_on_a_parked_run_does_not_redispatch(tmp_path, monkeypatch):
+    """Polling a parked run re-reports the question; it never re-runs the step."""
+    pack = _mini_pack(tmp_path)
+    state, _repo = _seed(tmp_path, pack, monkeypatch, "verb-2")
+
+    _drive(state)
+    before = len(yaml.safe_load(state.read_text())["step_history"])
+    again = _drive(state)
+    after = len(yaml.safe_load(state.read_text())["step_history"])
+
+    assert again["status"] == "needs_you"
+    assert after == before, "polling a parked run re-ran the step"
+
+
+def test_resume_matches_by_label(tmp_path, monkeypatch):
+    pack = _mini_pack(tmp_path)
+    state, _repo = _seed(tmp_path, pack, monkeypatch, "verb-3")
+    _drive(state)
+
+    result, code = resume(str(state), "approve")
+    assert code == 0
+    assert result["matched"] is True
+    assert result["next"]["status"] == "done"
+
+
+def test_resume_matches_by_index(tmp_path, monkeypatch):
+    """A 1-based number picks the option at that position."""
+    pack = _mini_pack(tmp_path)
+    state, _repo = _seed(tmp_path, pack, monkeypatch, "verb-4")
+    _drive(state)
+
+    result, _ = resume(str(state), "2")  # 2 == rework, which resets the DAG
+    assert result["matched"] is True
+
+    raw = yaml.safe_load(state.read_text())
+    statuses = [(e.get("step_id"), e.get("status")) for e in raw["step_history"]]
+    assert ("rework", "completed") in statuses
+
+
+def test_resume_with_a_wrong_answer_falls_through_to_the_step(tmp_path, monkeypatch):
+    """Text matching no option is handed to the step, which asks again."""
+    pack = _mini_pack(tmp_path)
+    state, _repo = _seed(tmp_path, pack, monkeypatch, "verb-5")
+    _drive(state)
+
+    result, code = resume(str(state), "maybe later?")
+    assert code == 0
+    assert result["matched"] is False
+    # The step re-ran with the raw text and asked a clarifying question.
+    assert result["next"]["status"] == "needs_you"
+    assert "maybe later?" in yaml.safe_load(state.read_text())["awaiting"]["ask"]
+
+
+def test_resume_on_a_run_that_is_not_awaiting_is_an_error(tmp_path, monkeypatch):
+    pack = _mini_pack(tmp_path)
+    state, _repo = _seed(tmp_path, pack, monkeypatch, "verb-6")
+
+    with pytest.raises(ProtocolError, match="not awaiting input"):
+        resume(str(state), "approve")

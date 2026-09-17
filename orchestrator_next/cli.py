@@ -24,6 +24,7 @@ def _usage() -> None:
         "  orchestrator step <run> --json\n"
         "  orchestrator done <run> <step_id> --out JSON --usage JSON [--status S]\n"
         "  orchestrator approve <run> <token> [--edits JSON]   (resume a gate)\n"
+        "  orchestrator resume <run> \"<text>\"                  (answer await_input)\n"
         "  orchestrator cancel <run>                           (abort a run)\n"
         "  orchestrator status <run> --json | orchestrator events <run> --json\n"
         "  orchestrator run --headless <recipe> <slug>   (engine drives the model)\n"
@@ -198,6 +199,7 @@ def main() -> None:
     _core_verbs = (
         # protocol v2 (docs/protocol-v2.md §3)
         "start", "step", "done", "status", "events", "approve", "cancel",
+        "resume",
         "run", "headless",
         # inspection / admin
         "graph", "doctor", "validate-workflow", "report", "state", "pack",
@@ -214,7 +216,8 @@ def main() -> None:
         sys.exit(_state_verb(args[1:]))
 
     # --- protocol v2 verbs (docs/protocol-v2.md §3) ------------------------
-    if args[0] in ("start", "step", "done", "status", "events", "approve", "cancel"):
+    if args[0] in ("start", "step", "done", "status", "events", "approve",
+                   "cancel", "resume"):
         from orchestrator_next.protocol import main as _protocol_main
         sys.exit(_protocol_main(args[0], args[1:]))
 

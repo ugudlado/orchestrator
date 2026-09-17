@@ -66,6 +66,7 @@ Replaces `next` / `done` + exit codes 0-3.
 | `step`                      | `orchestrator step <run> --json`                                  | `{status, kind, step_id, payload}`      |
 | `done`                      | `orchestrator done <run> <step_id> --out '{...}' --usage '{...}'` | ack                                     |
 | `approve`                   | `orchestrator approve <run> <token> [--edits '{...}']`            | resumes blocked run                     |
+| `resume`                    | `orchestrator resume <run> "<text>" --json`                       | answers an await_input step             |
 | `cancel`                    | `orchestrator cancel <run>`                                       | aborts run, cancels pending gates       |
 | `status`                    | `orchestrator status <run> --json`                                | nodes, attempts, artifacts, cost, gates |
 | `events`                    | `orchestrator events <run> --since <ts> --json`                   | event stream                            |
@@ -75,6 +76,41 @@ Replaces `next` / `done` + exit codes 0-3.
 `step` executes every consecutive exec step internally and returns only at a
 judgment or gate step — this minimizes subprocess spawns from the harness
 (e.g. the Claude Mod).
+
+### await_input
+
+A step may park the run on a question instead of finishing: it records
+`status: await_input` with an `ask` and, optionally, a list of labeled
+`options`. `step` then reports:
+
+```json
+{
+  "status": "needs_you",
+  "kind": "judgment",
+  "step_id": "review",
+  "payload": {
+    "ask": "Review passed. Ship it, or send back?",
+    "options": [
+      { "label": "approve" },
+      { "label": "rework", "reset_to": "rework" }
+    ]
+  }
+}
+```
+
+Polling a parked run re-reports the same question and never re-runs the step.
+`orchestrator resume <run> "<text>"` clears it. An answer matching an option —
+by label, by the label's first word, or by 1-based number — is applied by the
+engine: it advances the run, or resets the DAG to that option's `reset_to`,
+without re-dispatching the step that asked. Text matching nothing is handed to
+that step on its next dispatch (an exec step reads
+`ORCHESTRATOR_USER_DIRECTION`; a judgment step finds it appended to its
+prompt), so a free-form answer reaches whoever asked. `resume` returns
+`{status, matched, next}`, where `next` is the same shape `step` returns.
+
+This is not the gate mechanism: a gate is a human authorizing a _write_ and is
+answered with `approve <run> <token>`, while await_input is a step asking a
+_question_ it needs answered to continue.
 
 ### `status` enum
 

@@ -361,11 +361,16 @@ def _save_state(state_yaml_path: str, state_raw: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # verb: step
 # ---------------------------------------------------------------------------
-def step(run_ref: str) -> tuple[dict[str, Any], int]:
+def step(run_ref: str, *, user_direction: str = "") -> tuple[dict[str, Any], int]:
     """Advance the run: execute consecutive exec steps, stop at judgment/gate.
 
     Returns ``(result, exit_code)``. ``result['status']`` is one of
     ``ready|running|done|blocked|needs_you|error`` (protocol v2 §3).
+
+    ``user_direction`` is free-form text from `resume` that matched no
+    await_input option. It reaches the step that asked — an exec step through
+    ``ORCHESTRATOR_USER_DIRECTION``, a judgment step appended to its prompt —
+    and is consumed by the first step dispatched, not carried onward.
     """
     from orchestrator_next.dispatch import (
         EXIT_GATE_REQUIRED,
@@ -383,6 +388,10 @@ def step(run_ref: str) -> tuple[dict[str, Any], int]:
                     "detail": "run archived"}, 0
         state = load_state(state_yaml_path)
         _pin_config(state.raw)
+        if isinstance(state.raw.get("awaiting"), dict):
+            # Parked on a question from an earlier turn. `orchestrator resume`
+            # is what clears it; dispatching would re-run the parked step.
+            return _awaiting_result(state_yaml_path), 0
         try:
             action, code = dispatch(state, state_yaml_path)
         except (ContractDispatchError, ContractNotFoundError, ContractError) as exc:
@@ -446,6 +455,12 @@ def step(run_ref: str) -> tuple[dict[str, Any], int]:
             ), 0
 
         if isinstance(contract, AgentStepContract):
+            if user_direction:
+                base = action.get("instruction") or ""
+                action["instruction"] = (
+                    f"{base}\n\nUser direction: {user_direction}"
+                    if base else f"User direction: {user_direction}"
+                )
             result = _judgment_payload(
                 action, contract, state.raw, state_yaml_path, repo_root
             )
@@ -454,8 +469,10 @@ def step(run_ref: str) -> tuple[dict[str, Any], int]:
 
         # exec step: run it here and loop, so the harness never sees it.
         ok, state_yaml_path, exec_status = run_script_step(
-            action, state_yaml_path=state_yaml_path, state=state
+            action, state_yaml_path=state_yaml_path, state=state,
+            user_direction=user_direction,
         )
+        user_direction = ""  # consumed by the step that was asking
         _persist(state_yaml_path)
         if not ok:
             return {
@@ -468,17 +485,7 @@ def step(run_ref: str) -> tuple[dict[str, Any], int]:
             # The step parked on a question. Its node stays in_progress, so
             # dispatch would hand it straight back — looping here would re-run
             # the step until MAX_EXEC_BATCH instead of asking the human.
-            awaiting = (
-                yaml.safe_load(Path(state_yaml_path).read_text(encoding="utf-8")) or {}
-            ).get("awaiting") or {}
-            return {
-                "status": "needs_you",
-                "kind": KIND_EXEC,
-                "step_id": step_id,
-                "ask": awaiting.get("ask") or "",
-                "options": awaiting.get("options") or [],
-                "detail": awaiting.get("ask") or f"{step_id} is awaiting input",
-            }, 0
+            return _awaiting_result(state_yaml_path), 0
 
     return {
         "status": "needs_you",
@@ -486,6 +493,54 @@ def step(run_ref: str) -> tuple[dict[str, Any], int]:
         "detail": f"ran {MAX_EXEC_BATCH} exec steps without reaching a judgment "
                   "step — the recipe is probably not advancing",
     }, 0
+
+
+def _awaiting_result(state_yaml_path: str) -> dict[str, Any]:
+    """The `needs_you` result for a run parked on an await_input step."""
+    raw = yaml.safe_load(Path(state_yaml_path).read_text(encoding="utf-8")) or {}
+    awaiting = raw.get("awaiting") or {}
+    return {
+        "status": "needs_you",
+        "kind": KIND_JUDGMENT,
+        "step_id": awaiting.get("step_id"),
+        "payload": {
+            "ask": awaiting.get("ask") or "",
+            "options": awaiting.get("options") or [],
+        },
+        "detail": awaiting.get("ask") or "awaiting input",
+    }
+
+
+# ---------------------------------------------------------------------------
+# verb: resume
+# ---------------------------------------------------------------------------
+def resume(run_ref: str, text: str) -> tuple[dict[str, Any], int]:
+    """Answer a run parked on await_input, then hand back the next step.
+
+    A matched option is applied by the engine — advance, or reset the DAG to
+    the option's ``reset_to`` — without re-running the parked step. Text that
+    matches nothing is passed to the step itself on its next dispatch, which
+    is how a free-form answer reaches the agent that asked.
+    """
+    from orchestrator_next.execute import route_awaiting_input
+
+    state_yaml_path = resolve_run(run_ref)
+    state = load_state(state_yaml_path)
+    _pin_config(state.raw)
+    if not isinstance(state.raw.get("awaiting"), dict):
+        raise ProtocolError(f"run {run_ref} is not awaiting input")
+
+    matched = route_awaiting_input(state_yaml_path, text)
+    if not matched:
+        # No option matched. Clear the block so the parked step is dispatched
+        # again, and hand it the raw text to interpret itself.
+        raw = yaml.safe_load(Path(state_yaml_path).read_text(encoding="utf-8")) or {}
+        raw.pop("awaiting", None)
+        _save_state(state_yaml_path, raw)
+    _persist(state_yaml_path)
+
+    next_result, _ = step(state_yaml_path, user_direction="" if matched else text)
+    return {"status": "ok", "matched": matched, "next": next_result}, 0
 
 
 def _pin_config(state_raw: dict[str, Any]) -> None:
@@ -513,8 +568,8 @@ def start(
     """Seed a run and return its identity plus the first ``step`` result."""
     from orchestrator_next.paths import WorkflowRefError, resolve_workflow_ref
     from orchestrator_next.paths import new_run_id as paths_new_run_id
-    from orchestrator_next.seed import seed_state_file
     from orchestrator_next.run_store import _state_root, open_store, persist
+    from orchestrator_next.seed import seed_state_file
 
     if not slug or not slug.strip():
         raise ProtocolError("missing <slug>")
@@ -984,6 +1039,10 @@ def main(verb: str, argv: list[str]) -> int:
             if edits is not None and not isinstance(edits, dict):
                 raise ProtocolError("--edits must be a JSON object")
             result, code = approve(run_ref, token, edits=edits)
+        elif verb == "resume":
+            if len(args) < 2:
+                raise ProtocolError('usage: orchestrator resume <run> "<text>" --json')
+            result, code = resume(args[0], " ".join(args[1:]).strip())
         elif verb == "cancel":
             if not args:
                 raise ProtocolError("usage: orchestrator cancel <run>")
