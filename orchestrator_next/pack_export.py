@@ -26,12 +26,19 @@ import yaml
 MANIFEST_NAME = ".generated-manifest.json"
 
 # --- model alias -> agent frontmatter model (docs/claude-mod-api-notes.md,
-# plugin-dev:agent-development skill: model must be inherit/sonnet/opus/haiku
-# — a full model id like claude-fable-5-1 is NOT a valid frontmatter value).
+# plugin-dev:agent-development skill, checked 2026-09-17: agent frontmatter
+# `model:` accepts only inherit/sonnet/opus/haiku — "fable" is NOT a valid
+# frontmatter value, so fable stays mapped to its nearest frontmatter
+# equivalent, opus, below).
 # This mapping only decides what the generated agents/<step>.md's `model:`
 # frontmatter says; it has no effect on which model actually runs. At spawn
-# time the Claude Mod (register.ts) passes `model_id` — the real routed id
-# from models.yaml — as $.agent.spawn's `model`, which overrides frontmatter.
+# time the Claude Mod (register.ts's spawnModelOf) passes a model ALIAS —
+# "sonnet"/"opus"/"haiku"/"fable" — as $.agent.spawn's `model`, derived from
+# `model_id` (the real routed id from models.yaml) via
+# MODEL_FAMILY_TO_SPAWN_ALIAS in protocol.ts; spawn's `model` overrides
+# frontmatter, and unlike frontmatter it DOES accept "fable" (verified against
+# Claude Code 2.1.274 — see docs/claude-mod-api-notes.md). So a fable-routed
+# step spawns on fable even though its generated frontmatter still says opus.
 # Keep every models.yaml alias/tier mapped here to the nearest of the four
 # frontmatter values so the generated file is never silently wrong even
 # though it's inert.

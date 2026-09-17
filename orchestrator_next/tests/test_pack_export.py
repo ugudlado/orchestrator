@@ -508,6 +508,29 @@ def test_codex_frontmatter_is_also_escaped(fake_pack: Path, tmp_path: Path) -> N
     assert set(parsed) <= {"name", "description", "model"}
 
 
+def test_mod_protocol_ts_declares_all_model_families() -> None:
+    """Cheap drift guard for register.ts's spawnModelOf (docs/claude-mod-api-notes.md).
+
+    A Python unit test can't exercise the TypeScript mapping directly, so this
+    greps the emitted `protocol.ts` for the five family regexes register.ts's
+    `spawnModelOf` relies on (`MODEL_FAMILY_TO_SPAWN_ALIAS`). If a future edit
+    drops or renames one of these families, this test catches it without
+    needing a `tsc`/node toolchain in the Python test suite.
+    """
+    protocol_ts = (pack_export.MOD_DIR / "protocol.ts").read_text()
+
+    assert "MODEL_FAMILY_TO_SPAWN_ALIAS" in protocol_ts
+    for family, alias in (
+        (r"^claude-fable-", "fable"),
+        (r"^claude-mythos-", "fable"),
+        (r"^claude-opus-", "opus"),
+        (r"^claude-sonnet-", "sonnet"),
+        (r"^claude-haiku-", "haiku"),
+    ):
+        assert family in protocol_ts, f"missing family regex {family!r} in protocol.ts"
+        assert alias in protocol_ts
+
+
 def test_write_refuses_symlinked_directory_escape(tmp_path: Path) -> None:
     """An in-tree symlink to an outside directory is not a way out."""
     out_dir = tmp_path / "out"

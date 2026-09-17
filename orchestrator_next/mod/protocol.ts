@@ -115,6 +115,30 @@ export function usageOf(usage: {
 }
 
 /**
+ * Model family regex -> the `$.agent.spawn` `model` alias it maps to.
+ *
+ * Observed against Claude Code 2.1.274: `$.agent.spawn({model: "claude-sonnet-5"})`
+ * was refused with `InputValidationError: model — invalid value; allowed:
+ * ["sonnet","opus","haiku","fable"]` — this build's spawn only accepts those
+ * four aliases, never a full model id, even though `models.yaml` routes to a
+ * full id like `claude-sonnet-5` (protocol.py `_step_model_id`). `spawnModelOf`
+ * in register.ts maps a routed id down to its family alias via this table
+ * before calling spawn. Kept here (not inlined) so a Python test can grep the
+ * emitted `protocol.ts` for these five patterns as a drift guard (see
+ * test_pack_export.py).
+ */
+export const MODEL_FAMILY_TO_SPAWN_ALIAS: ReadonlyArray<{
+  family: RegExp
+  alias: 'fable' | 'opus' | 'sonnet' | 'haiku'
+}> = [
+  { family: /^claude-fable-/, alias: 'fable' },
+  { family: /^claude-mythos-/, alias: 'fable' },
+  { family: /^claude-opus-/, alias: 'opus' },
+  { family: /^claude-sonnet-/, alias: 'sonnet' },
+  { family: /^claude-haiku-/, alias: 'haiku' },
+]
+
+/**
  * The last fenced ```json block of an agent's final message, parsed.
  *
  * Returns undefined when there is no block or it is not a JSON object: the

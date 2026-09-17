@@ -24,6 +24,7 @@ import {
   gateOf,
   judgmentOf,
   jsonBlockOf,
+  MODEL_FAMILY_TO_SPAWN_ALIAS,
   parseJson,
   promptOf,
   stringArg,
@@ -72,6 +73,44 @@ const MODELS: Record<string, string> = {
   standard: 'sonnet',
   fast: 'haiku',
   code: 'sonnet',
+  fable: 'fable',
+  opus: 'opus',
+  sonnet: 'sonnet',
+}
+
+/**
+ * The `$.agent.spawn` `model` to pass for a step's payload.
+ *
+ * Verified against Claude Code 2.1.274: spawn's `model` only accepts the four
+ * aliases `"sonnet" | "opus" | "haiku" | "fable"` — passing a full routed id
+ * like `claude-sonnet-5` (what `payload.model_id` carries, per
+ * protocol.py `_step_model_id`) was refused outright:
+ * `InputValidationError: model — invalid value; allowed:
+ * ["sonnet","opus","haiku","fable"]`.
+ *
+ * `payload.model_id` is the actual routed id from models.yaml, so it takes
+ * priority: it is mapped down to its family's alias via
+ * `MODEL_FAMILY_TO_SPAWN_ALIAS`. When it is absent or its family is unknown,
+ * fall back to the pack's tier alias (`payload.model`, e.g. "strong") via
+ * `MODELS`. When neither resolves, `undefined` is returned so `$.agent.spawn`
+ * falls back to the spawned agent definition's own `model:` frontmatter.
+ *
+ * The *actual* model that answered (from `turn.complete`'s usage) is still
+ * what gets recorded via `done --usage`, so pricing stays exact regardless of
+ * what alias spawn was asked for.
+ */
+function spawnModelOf(payload: JudgmentPayload): string | undefined {
+  const modelId = payload.model_id ?? ''
+
+  if (modelId !== '') {
+    const hit = MODEL_FAMILY_TO_SPAWN_ALIAS.find(({ family }) => family.test(modelId))
+
+    if (hit !== undefined) {
+      return hit.alias
+    }
+  }
+
+  return payload.model === undefined ? undefined : MODELS[payload.model]
 }
 
 /**
@@ -887,9 +926,7 @@ async function runJudgment(
 
   const spawned = await $.agent.spawn({
     subagentType: agentTypeOf(stepId),
-    model:
-      payload.model_id ||
-      (payload.model === undefined ? undefined : MODELS[payload.model]),
+    model: spawnModelOf(payload),
     cwd: payload.cwd,
     description: stepId,
     prompt: promptOf(payload),
