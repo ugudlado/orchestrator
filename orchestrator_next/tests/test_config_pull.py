@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from orchestrator_next.config_pull import default_pack_name, pull_into_pack
+from orchestrator_next.config_pull import default_pack_name, generate_claude_plugin, pull_into_pack
 
 
 def _make_source(tmp_path: Path) -> Path:
@@ -77,3 +77,51 @@ def test_default_pack_name_from_url_and_path(tmp_path):
     d = tmp_path / "my-config"
     d.mkdir()
     assert default_pack_name(str(d)) == "my-config"
+
+
+def test_generate_claude_plugin_writes_to_default_location(tmp_path):
+    cfg = _make_source(tmp_path)
+    repo = tmp_path / "consumer"
+    repo.mkdir()
+    pull_into_pack(
+        cfg, repo, "mypack", export_skills=False, source_label=str(cfg), source_sha="abc",
+    )
+    hint = generate_claude_plugin(repo, "mypack")
+    plugin_dir = repo / ".orchestrator" / "plugins" / "mypack" / "claude"
+    assert (plugin_dir / ".claude-plugin" / "plugin.json").is_file()
+    assert hint is not None
+    assert "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1" in hint
+    assert str(plugin_dir.resolve()) in hint
+
+
+def test_generate_claude_plugin_failure_does_not_raise(tmp_path):
+    """A pack with no steps/ dir can't generate a plugin — must warn, not raise."""
+    repo = tmp_path / "consumer"
+    (repo / ".orchestrator" / "broken").mkdir(parents=True)
+    assert generate_claude_plugin(repo, "broken") is None
+
+
+def test_config_pull_cli_generates_plugin_by_default(tmp_path, monkeypatch, capsys):
+    from orchestrator_next.config_pull import main as pull_main
+
+    cfg = _make_source(tmp_path)
+    repo = tmp_path / "consumer"
+    repo.mkdir()
+    rc = pull_main([str(cfg), "mypack", "--repo", str(repo)])
+    assert rc == 0
+    plugin_dir = repo / ".orchestrator" / "plugins" / "mypack" / "claude"
+    assert (plugin_dir / ".claude-plugin" / "plugin.json").is_file()
+    out = capsys.readouterr().out
+    assert "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1" in out
+
+
+def test_config_pull_cli_no_plugin_skips_generation(tmp_path):
+    from orchestrator_next.config_pull import main as pull_main
+
+    cfg = _make_source(tmp_path)
+    repo = tmp_path / "consumer"
+    repo.mkdir()
+    rc = pull_main([str(cfg), "mypack", "--repo", str(repo), "--no-plugin"])
+    assert rc == 0
+    plugin_dir = repo / ".orchestrator" / "plugins" / "mypack" / "claude"
+    assert not plugin_dir.exists()

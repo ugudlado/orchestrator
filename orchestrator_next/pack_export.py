@@ -739,6 +739,46 @@ def _default_pack_root() -> Path:
     return config_root()
 
 
+# Manifest recording which pack/commit a generated plugin dir came from, so
+# `orchestrator doctor` can tell a fresh plugin from a stale one without
+# regenerating it. Colocated with the generator's own MANIFEST_NAME rather
+# than folded into it, since config-lock hashing intentionally never reads
+# generator output (a plugin dir is derived, not part of the pack).
+PLUGIN_SOURCE_MANIFEST = ".plugin-source.json"
+
+
+def default_plugin_root(repo_root: Path, pack_name: str) -> Path:
+    """Stable plugin output dir: sibling of the pack, keyed by its folder name.
+
+    ``<repo>/.orchestrator/plugins/<pack_name>/`` — never inside
+    ``.orchestrator/<pack_name>/`` itself, since `config pull` replaces that
+    whole tree on every pull (see ``pull_into_pack``) and would delete a
+    plugin dir nested there.
+    """
+    return Path(repo_root) / ".orchestrator" / "plugins" / pack_name
+
+
+def default_plugin_dir(repo_root: Path, pack_name: str, target: str) -> Path:
+    """``<repo>/.orchestrator/plugins/<pack_name>/<target>/``."""
+    return default_plugin_root(repo_root, pack_name) / target
+
+
+def write_plugin_source_manifest(plugin_dir: Path, pack_name: str, pack_sha256: str | None) -> None:
+    """Record which pack (by folder name + content hash) a plugin dir was
+    generated from, for `doctor`'s freshness check."""
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    (plugin_dir / PLUGIN_SOURCE_MANIFEST).write_text(
+        json.dumps({"pack": pack_name, "pack_sha256": pack_sha256}, indent=2) + "\n"
+    )
+
+
+def claude_plugin_hint(plugin_dir: Path) -> str:
+    """The one line printed after generation for the user to copy."""
+    return (
+        f"CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir {plugin_dir.resolve()}"
+    )
+
+
 def pack_export_cmd(argv: list[str]) -> int:
     target: str | None = None
     out: str | None = None
@@ -767,10 +807,7 @@ def pack_export_cmd(argv: list[str]) -> int:
         i += 1
 
     if target not in ("claude", "codex"):
-        print("usage: orchestrator pack --target claude|codex --out <dir> [--types <claude-code.d.ts>] [<pack-root>]", file=os.sys.stderr)
-        return 3
-    if not out:
-        print("usage: orchestrator pack --target claude|codex --out <dir> [--types <claude-code.d.ts>] [<pack-root>]", file=os.sys.stderr)
+        print("usage: orchestrator pack --target claude|codex [--out <dir>] [--types <claude-code.d.ts>] [<pack-root>]", file=os.sys.stderr)
         return 3
 
     try:
@@ -779,7 +816,15 @@ def pack_export_cmd(argv: list[str]) -> int:
         print(f"error: {exc}", file=os.sys.stderr)
         return 3
 
-    out_dir = Path(out)
+    pack_name = pack_root.resolve().name
+    if out:
+        out_dir = Path(out)
+    else:
+        from orchestrator_next.config_pull import resolve_repo_root
+
+        repo_root = resolve_repo_root(None)
+        out_dir = default_plugin_dir(repo_root, pack_name, target)
+
     try:
         if target == "claude":
             files, warnings = generate_claude(pack_root, out_dir, types)
@@ -789,7 +834,14 @@ def pack_export_cmd(argv: list[str]) -> int:
         print(f"error: {exc}", file=os.sys.stderr)
         return 3
 
+    if not out:
+        from orchestrator_next.config_pull import tree_sha256
+
+        write_plugin_source_manifest(out_dir, pack_name, tree_sha256(pack_root))
+
     for w in warnings:
         print(f"warning: {w}", file=os.sys.stderr)
     print(json.dumps({"out": str(out_dir), "target": target, "files": files}, indent=2))
+    if target == "claude":
+        print(claude_plugin_hint(out_dir))
     return 0

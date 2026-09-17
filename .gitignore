@@ -24,6 +24,12 @@ pytest-of-*/
 !.orchestrator/workflows/
 !.orchestrator/workflows/**
 
+# Generated Claude/Codex plugin dirs (orchestrator pack / config pull --plugin).
+# Not ignored by default: a team may want to commit the generated plugin so
+# every clone gets it without regenerating. See README "Run from Claude Code".
+!.orchestrator/plugins/
+!.orchestrator/plugins/**
+
 # Legacy per-change state location (kept so in-flight runs don't break)
 spec/changes/*/state.yaml
 spec/changes/*/plan.yaml

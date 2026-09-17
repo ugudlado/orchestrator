@@ -389,6 +389,35 @@ def fetch_source(source: str, ref: str | None) -> tuple[Path, str, str | None, P
     return root, label, sha, tmp
 
 
+def generate_claude_plugin(repo_root: Path, pack_name: str) -> str | None:
+    """Regenerate the Claude plugin for a just-pulled/updated pack.
+
+    Best-effort: a generation failure is logged and returns None — it must
+    never fail the pull/update that triggered it (callers already have their
+    pack safely on disk). Returns the hint line to print, or None on failure.
+    """
+    from orchestrator_next.pack_export import (
+        PackExportError,
+        claude_plugin_hint,
+        default_plugin_dir,
+        write_plugin_source_manifest,
+    )
+
+    pack_dir = repo_root / ".orchestrator" / pack_name
+    plugin_dir = default_plugin_dir(repo_root, pack_name, "claude")
+    try:
+        from orchestrator_next.pack_export import generate_claude
+
+        _files, warnings = generate_claude(pack_dir, plugin_dir)
+        for w in warnings:
+            _log(f"plugin warning: {w}")
+        write_plugin_source_manifest(plugin_dir, pack_name, tree_sha256(pack_dir))
+    except (PackExportError, OSError) as exc:
+        _log(f"plugin generation failed (pack still pulled): {exc}")
+        return None
+    return claude_plugin_hint(plugin_dir)
+
+
 def pull(
     *,
     repo_root: Path,
@@ -459,6 +488,7 @@ def update(
     pack_name: str,
     apply: bool,
     ref: str | None = None,
+    generate_plugin: bool = True,
 ) -> tuple[list[str], dict[str, Any] | None]:
     """Re-pull a pack's recorded source and diff its contracts.
 
@@ -492,6 +522,8 @@ def update(
             source_label=label,
             source_sha=sha,
         )
+        if generate_plugin:
+            generate_claude_plugin(repo_root, pack_name)
         return lines, new_lock
     finally:
         if cleanup is not None:
@@ -510,6 +542,14 @@ def update_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", default=None, help="consumer repo root")
     parser.add_argument("--ref", default=None, help="git branch/tag to update to")
     parser.add_argument("--yes", action="store_true", help="apply the update")
+    parser.add_argument(
+        "--plugin", dest="plugin", action="store_true", default=True,
+        help="regenerate the Claude plugin after applying (default: on)",
+    )
+    parser.add_argument(
+        "--no-plugin", dest="plugin", action="store_false",
+        help="skip Claude plugin regeneration",
+    )
     args = parser.parse_args(argv)
 
     repo_root = resolve_repo_root(args.repo)
@@ -530,7 +570,8 @@ def update_main(argv: list[str] | None = None) -> int:
 
     try:
         lines, new_lock = update(
-            repo_root=repo_root, pack_name=pack_name, apply=args.yes, ref=args.ref
+            repo_root=repo_root, pack_name=pack_name, apply=args.yes, ref=args.ref,
+            generate_plugin=args.plugin,
         )
     except (OSError, RuntimeError, FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -547,6 +588,14 @@ def update_main(argv: list[str] | None = None) -> int:
     else:
         print(f"\nupdated {repo_root / '.orchestrator' / pack_name} "
               f"(commit {new_lock.get('commit')})")
+        if args.plugin:
+            from orchestrator_next.pack_export import default_plugin_dir
+
+            plugin_dir = default_plugin_dir(repo_root, pack_name, "claude")
+            if (plugin_dir / ".claude-plugin" / "plugin.json").is_file():
+                from orchestrator_next.pack_export import claude_plugin_hint
+
+                print(claude_plugin_hint(plugin_dir))
     return 0
 
 
@@ -574,6 +623,14 @@ def main(argv: list[str] | None = None) -> int:
         "--skills",
         action="store_true",
         help="also symlink step SKILL.md packs into <repo>/skills/<name>/",
+    )
+    parser.add_argument(
+        "--plugin", dest="plugin", action="store_true", default=True,
+        help="generate the Claude plugin after pulling (default: on)",
+    )
+    parser.add_argument(
+        "--no-plugin", dest="plugin", action="store_false",
+        help="skip Claude plugin generation",
     )
     args = parser.parse_args(argv)
 
@@ -606,4 +663,9 @@ def main(argv: list[str] | None = None) -> int:
     elif args.skills:
         _log("skills: (none — no step SKILL.md found)")
     print(yaml.safe_dump(lock, sort_keys=False, default_flow_style=False), end="")
+
+    if args.plugin:
+        hint = generate_claude_plugin(repo_root, pack_name)
+        if hint:
+            print(hint)
     return 0

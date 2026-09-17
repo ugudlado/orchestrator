@@ -190,8 +190,8 @@ def main() -> None:
             sys.exit(_config_update_main(args[2:]))
         print(
             "usage: orchestrator config pull <git-or-path> [pack] "
-            "[--repo PATH] [--ref REF] [--skills]\n"
-            "       orchestrator config update [pack] [--repo PATH] [--ref REF] [--yes]",
+            "[--repo PATH] [--ref REF] [--skills] [--no-plugin]\n"
+            "       orchestrator config update [pack] [--repo PATH] [--ref REF] [--yes] [--no-plugin]",
             file=sys.stderr,
         )
         sys.exit(3)

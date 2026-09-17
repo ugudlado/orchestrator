@@ -47,18 +47,37 @@ config resolution order.
 
 ## Run from Claude Code
 
-Generate a plugin from the pulled pack, then point Claude Code at it:
+`orchestrator config pull` generates the Claude plugin automatically (pass
+`--no-plugin` to skip). It lands at the stable default location,
+`.orchestrator/plugins/<pack>/claude/`, and the pull prints the exact command
+to load it:
 
 ```bash
-orchestrator pack --target claude --out .tmp/plugin-claude
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir .tmp/plugin-claude
+orchestrator config pull https://github.com/ugudlado/workflows.git workflows
+# ... prints: CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir /abs/path/.orchestrator/plugins/workflows/claude
 ```
+
+To regenerate it later (after hand-editing a step, or with `--no-plugin`
+pulls), run `orchestrator pack` directly — no `--out` needed, it writes to the
+same default location and prints the same hint:
+
+```bash
+orchestrator pack --target claude
+CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir .orchestrator/plugins/workflows/claude
+```
+
+`--out <dir>` still overrides the location for a one-off export.
 
 In the session, ask for e.g. "use orchestrator run with recipe feature slug
 TICKET-1". If function hooks aren't enabled, the plugin still installs a
 fallback skill that drives the same workflow. See
 [`docs/claude-mod-api-notes.md`](docs/claude-mod-api-notes.md) for how the
 generated hooks map pack steps to Claude Code agents/tools.
+
+The generated plugin dir is not gitignored by default — a team may choose to
+commit it so every clone gets a ready-to-load plugin without regenerating.
+`orchestrator doctor` reports whether it exists and is still fresh against the
+pulled pack.
 
 ## Run from Codex
 

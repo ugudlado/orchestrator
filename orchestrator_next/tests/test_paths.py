@@ -28,6 +28,19 @@ def test_single_named_pack_wins(tmp_path, monkeypatch):
     assert list_config_packs(tmp_path) == [("mypack", pack)]
 
 
+def test_generated_plugins_dir_is_never_a_pack(tmp_path, monkeypatch):
+    """.orchestrator/plugins/<pack>/claude/ is generator output, not a pack —
+    even when <pack> happens to be named the same as a real pack (e.g.
+    "workflows"), which would otherwise coincidentally satisfy the "has a
+    workflows/ subdir" pack test on .orchestrator/plugins/workflows/."""
+    monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
+    monkeypatch.setenv("REPO_ROOT", str(tmp_path))
+    pack = tmp_path / ".orchestrator" / "workflows"
+    (pack / "workflows").mkdir(parents=True)
+    (tmp_path / ".orchestrator" / "plugins" / "workflows" / "claude").mkdir(parents=True)
+    assert list_config_packs(tmp_path) == [("workflows", pack)]
+
+
 def test_multiple_packs_without_env_errors(tmp_path, monkeypatch):
     import orchestrator_next.paths as paths
 

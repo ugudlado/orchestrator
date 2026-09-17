@@ -34,6 +34,13 @@ PACK_DOWNLOAD_HINT = (
 # by name under .orchestrator/<pack>/.
 DEFAULT_PACK = "default"
 
+# Reserved name under .orchestrator/ that is never a pack, even if one of its
+# generated subdirectories happens to be named after a real pack (a plugin
+# generated for a pack named "workflows" lands at .orchestrator/plugins/
+# workflows/, which would otherwise satisfy the "has a workflows/ dir" test
+# below by coincidence).
+_RESERVED_ORCH_DIR_NAMES = frozenset({"plugins"})
+
 
 def pack_root() -> Path:
     """Global downloaded base-role pack (~/.orchestrator/pack)."""
@@ -71,6 +78,8 @@ def list_config_packs(repo_root: Path | None = None) -> list[tuple[str, Path]]:
     packs: list[tuple[str, Path]] = []
     for child in sorted(orch.iterdir()):
         if not child.is_dir() or child.name.startswith("."):
+            continue
+        if child.name in _RESERVED_ORCH_DIR_NAMES:
             continue
         if (child / "workflows").is_dir():
             packs.append((child.name, child))

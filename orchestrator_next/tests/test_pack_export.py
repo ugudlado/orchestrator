@@ -290,10 +290,21 @@ def test_regenerate_is_idempotent_and_removes_stale_files(fake_pack: Path, tmp_p
     assert "agents/review.md" not in files
 
 
-def test_pack_export_cmd_requires_target_and_out(tmp_path: Path) -> None:
+def test_pack_export_cmd_requires_target(tmp_path: Path) -> None:
     assert pack_export.pack_export_cmd([]) == 3
-    assert pack_export.pack_export_cmd(["--target", "claude"]) == 3
     assert pack_export.pack_export_cmd(["--out", str(tmp_path)]) == 3
+
+
+def test_pack_export_cmd_defaults_out_to_plugins_dir(fake_pack: Path, tmp_path: Path, monkeypatch) -> None:
+    """No --out: writes under <repo>/.orchestrator/plugins/<pack-folder-name>/claude/."""
+    repo = tmp_path / "consumer-repo"
+    repo.mkdir()
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+    rc = pack_export.pack_export_cmd(["--target", "claude", str(fake_pack)])
+    assert rc == 0
+    expected = repo / ".orchestrator" / "plugins" / fake_pack.name / "claude"
+    assert (expected / ".claude-plugin" / "plugin.json").is_file()
+    assert (expected / pack_export.PLUGIN_SOURCE_MANIFEST).is_file()
 
 
 def test_pack_export_cmd_end_to_end(fake_pack: Path, tmp_path: Path) -> None:

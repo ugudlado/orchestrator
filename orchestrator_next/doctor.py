@@ -417,6 +417,47 @@ def check_pack_trust_and_lock(repo_root: Path) -> CheckResult:
     return CheckResult("pack trust", worst, "; ".join(notes))
 
 
+def check_claude_plugin(repo_root: Path) -> CheckResult:
+    """Report whether each pack's generated Claude plugin exists and is fresh.
+
+    Fresh means ``.plugin-source.json`` (written by `pack`/`config pull`)
+    records the pack's current content hash. Missing plugin dir is PASS
+    (plugin generation is optional, `--no-plugin` is a valid choice) — only a
+    stale one WARNs, since a stale plugin silently drives an old contract.
+    """
+    from orchestrator_next.config_pull import tree_sha256
+    from orchestrator_next.pack_export import PLUGIN_SOURCE_MANIFEST, default_plugin_dir
+    from orchestrator_next.paths import list_config_packs
+
+    packs = list_config_packs(repo_root)
+    if not packs:
+        return CheckResult("claude plugin", "PASS", "no packs to check")
+
+    notes: list[str] = []
+    worst = "PASS"
+    for name, pack_dir in packs:
+        plugin_dir = default_plugin_dir(repo_root, name, "claude")
+        manifest_path = plugin_dir / PLUGIN_SOURCE_MANIFEST
+        if not manifest_path.is_file():
+            notes.append(f"{name}: no generated plugin (run `orchestrator pack --target claude`)")
+            continue
+        try:
+            import json as _json
+
+            recorded = _json.loads(manifest_path.read_text()).get("pack_sha256")
+        except (OSError, ValueError):
+            notes.append(f"{name}: plugin manifest unreadable")
+            worst = "WARN"
+            continue
+        current = tree_sha256(pack_dir)
+        if recorded != current:
+            notes.append(f"{name}: plugin is stale — run `orchestrator pack --target claude`")
+            worst = "WARN"
+        else:
+            notes.append(f"{name}: plugin fresh at {plugin_dir}")
+    return CheckResult("claude plugin", worst, "; ".join(notes) or "no packs to check")
+
+
 # ---------------------------------------------------------------------------
 # run_all + formatting
 # ---------------------------------------------------------------------------
@@ -459,6 +500,7 @@ def run_all() -> int:
         check_prompt_optimizer(),
         check_symlinks(repo_root, orch_home),
         check_pack_trust_and_lock(repo_root),
+        check_claude_plugin(repo_root),
         check_run_store(),
     ]
     print(_format_table(results))
