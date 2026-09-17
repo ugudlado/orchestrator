@@ -11,7 +11,7 @@ when a value exists):
   STATE_YAML_PATH, ORCHESTRATOR_STATE_YAML_PATH
   REPO_ROOT, ORCHESTRATOR_REPO_ROOT, ORCHESTRATOR_HOME (same value as REPO_ROOT)
   CHANGE_ID, ORCHESTRATOR_CHANGE_ID
-  ORCHESTRATOR_STEP_DIR (set by run_loop; each script.sh resolves its own payload)
+  ORCHESTRATOR_STEP_DIR (set by execute; each script.sh resolves its own payload)
   ORCHESTRATOR_PROMPT_DIR (agent steps; resolved prompt directory for colocation)
   ORCHESTRATOR_PROMPT_DIRS (all steps; JSON step_id -> resolved prompt dir for
     every agent step in the workflow, so a step can write beside another step)

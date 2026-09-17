@@ -11,7 +11,7 @@ the enforcement.
 Protocol v2 is specified in [`protocol-v2.md`](protocol-v2.md); that doc is
 normative where the two disagree. What changed from v1: `kind`, `in`, `out`,
 `tools`, `side_effects`, and `max_turns` became load-bearing contract keys,
-and a judgment step reports structured JSON instead of a `COMPLETION:` block.
+and a judgment step reports structured JSON (the v1 `COMPLETION:` block is gone).
 
 ## 1. Layout
 
@@ -114,11 +114,11 @@ Any other key is ignored by the engine.
 **Judgment steps**
 
 - The prompt is assembled from the step's charter plus step context.
-- A step that declares `out:` ends with a single fenced `json` block naming
-  its declared values; the harness passes that to
+- Every judgment contract must declare an `out:` block; `validate-workflow`
+  rejects one that does not.
+- The step ends with a single fenced `json` block naming its declared values;
+  the harness passes that to
   `orchestrator done <run> <step_id> --out '{...}' --usage '{...}'`.
-- A step that declares no `out:` still uses the legacy `COMPLETION:` YAML
-  block. Both paths coexist while a pack migrates.
 - `--usage` must carry `input_tokens` and `output_tokens`, at least one
   nonzero, or the record is rejected. `ORCHESTRATOR_SKIP_USAGE_CHECK` is a
   test/fixture escape hatch, not a production one.

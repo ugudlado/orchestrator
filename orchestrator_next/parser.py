@@ -45,8 +45,6 @@ class AgentStepContract:
     # ORCHESTRATOR_PROMPT_DIR so learn can colocate scenarios beside the charter.
     prompt_dir: str | None = None
     state_mutating: bool = False
-    default_outputs: dict = field(default_factory=dict)
-    required_outputs_for_completed: list = field(default_factory=list)
     # --- protocol v2 (Phase 1.2) ---
     kind: str = KIND_JUDGMENT
     max_turns: int | None = None
@@ -271,13 +269,8 @@ def _resolve_agent_instruction(
 ) -> tuple[str, str]:
     """Load instruction and resolved prompt dir from ``prompt:``.
 
-    Returns ``(instruction, prompt_dir)``. ``skill:`` is rejected — use ``prompt:``.
+    Returns ``(instruction, prompt_dir)``.
     """
-    if data.get("skill"):
-        raise ContractError(
-            f"step contract {step_id} uses removed skill: field; "
-            f"use prompt: <path>.md (resolved via prompt search dirs)"
-        )
     prompt = data.get("prompt")
     if not prompt:
         # Colocated fallback: prompt file beside the step contract.
@@ -489,19 +482,6 @@ def _make_contract(
         **v2,
     )
     if run is None:
-        raw_defaults = data.get("default_outputs")
-        default_outputs = raw_defaults if isinstance(raw_defaults, dict) else {}
-        raw_req = data.get("required_outputs_for_completed")
-        req: list = []
-        if isinstance(raw_req, list):
-            for entry in raw_req:
-                if isinstance(entry, dict) and "key" in entry and "value" in entry:
-                    req.append({"key": str(entry["key"]), "value": entry["value"]})
-                else:
-                    import sys as _sys
-                    _sys.stderr.write(
-                        f"[parser] malformed required_outputs_for_completed entry skipped: {entry!r}\n"
-                    )
         raw_turns = data.get("max_turns")
         if raw_turns is not None and (not isinstance(raw_turns, int) or isinstance(raw_turns, bool) or raw_turns < 1):
             raise ContractError(
@@ -512,8 +492,6 @@ def _make_contract(
             **shared,
             instruction=instruction,
             prompt_dir=prompt_dir,
-            default_outputs=default_outputs,
-            required_outputs_for_completed=req,
             max_turns=raw_turns,
         )
     return ScriptStepContract(**shared, run=run)
@@ -544,9 +522,9 @@ def load_contract_for_step(step_id: str) -> StepContract:
 
             is_script = bool(data.get("run"))
             if is_script:
-                if data.get("skill") or data.get("prompt"):
+                if data.get("prompt"):
                     raise ContractError(
-                        f"step contract {step_id} with run: must not declare skill: or prompt:"
+                        f"step contract {step_id} with run: must not declare prompt:"
                     )
                 run_rel = data.get("run")
                 if os.path.isabs(run_rel):
@@ -612,7 +590,7 @@ def load_recipe(schema_name: str, repo_root: str | Path = "") -> Recipe:
     knows which run it is acting on: a step executing inside a worktree has no
     pack under its cwd, so the lookup either failed or silently found some
     *other* repo's recipe of the same name and dropped its ``artifacts_root``.
-    Resolution mirrors ``run_loop._schema_active_steps``.
+    Resolution mirrors ``seed._schema_active_steps``.
     """
     from orchestrator_next.paths import (
         WorkflowRefError,

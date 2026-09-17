@@ -185,6 +185,23 @@ def test_done_rejects_enum_outside_declared_values(pack, repo):
     assert "complexity" in str(exc.value)
 
 
+def test_done_rejects_a_declared_value_left_out_entirely(pack, repo):
+    """The v1 engine coerced a completed step to failed when a contract's
+    required output was missing. v2 rejects the `done` call instead: the
+    harness fixes the step's output and retries, rather than the engine
+    recording a half-finished step (protocol v2 §5)."""
+    started, _ = protocol.start("mini", "p-run")
+    (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
+    with pytest.raises(protocol.ProtocolError) as exc:
+        protocol.done(
+            started["state"], "think",
+            out={"notes": "notes.md"},  # complexity declared, never reported
+            usage={"input_tokens": 1, "output_tokens": 1},
+        )
+    assert "complexity" in str(exc.value)
+    assert "missing" in str(exc.value)
+
+
 def test_done_rejects_zero_usage(pack, repo):
     """protocol-v2 §5 keeps record.py's existing usage guard verbatim."""
     started, _ = protocol.start("mini", "p-run")

@@ -613,22 +613,6 @@ def run_judgment(
 # ---------------------------------------------------------------------------
 # the loop
 # ---------------------------------------------------------------------------
-def install_agent_runner(run_step: Any) -> None:
-    """Point ``run_loop.AGENT_RUNNER`` at ``run_step`` for the current process.
-
-    Only headless mode does this. The engine's default stays
-    ``NoAgentRunnerError`` so a harness-driven run can never silently start
-    calling a model (protocol-v2 principle 1).
-    """
-    from orchestrator_next import run_loop
-
-    def _runner(payload: dict[str, Any]) -> dict[str, Any]:
-        outcome = run_step(payload)
-        return {"assistant_text": outcome["text"], **outcome["usage"]}
-
-    run_loop.AGENT_RUNNER = _runner
-
-
 def _print_gate_preview(result: dict[str, Any]) -> None:
     """Show what a human would need to approve this gate, then the command."""
     payload = result.get("payload") or {}
@@ -682,7 +666,6 @@ def drive(
     write; it approves each gate with the token the engine just issued.
     """
     run_step = build_step_runner(backend, client=client)
-    install_agent_runner(run_step)
     while True:
         result, _ = step(run_ref)
         status_value = result.get("status")

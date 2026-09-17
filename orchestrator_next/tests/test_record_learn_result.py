@@ -1,4 +1,4 @@
-"""learn done payload: default_outputs supplement (shell loop)."""
+"""learn done payload: the learn_result block is recorded as reported."""
 from __future__ import annotations
 
 import os

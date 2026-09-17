@@ -558,13 +558,3 @@ def dispatch_batch(
         # Lost the race — someone claimed part of our set. Re-read and retry.
 
     return [], 2
-
-
-def emit_json(obj: dict[str, Any]) -> str:
-    """
-    Emit the action dict as deterministic, sorted-keys, indented JSON.
-
-    Always uses sort_keys=True and indent=2 for byte-identical output
-    regardless of TTY — deterministic, byte-identical for test comparison.
-    """
-    return json.dumps(obj, sort_keys=True, indent=2) + "\n"

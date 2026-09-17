@@ -317,7 +317,7 @@ def check_contract_aliases_resolve(config_root: Path) -> CheckResult:
     unresolved: list[str] = []
     for alias in sorted(a for a in aliases if a):
         route = resolve_route(alias, routes_yaml)
-        if not (route.get("tool") or route.get("model_id")):
+        if not route.get("model_id"):
             unresolved.append(f"{alias} (no route in any layer)")
 
     if unresolved:
@@ -328,27 +328,6 @@ def check_contract_aliases_resolve(config_root: Path) -> CheckResult:
     return CheckResult(
         "contract aliases resolve", "PASS", f"all {len(aliases)} step_models aliases resolve"
     )
-
-
-def check_no_silent_fallback(config_root: Path) -> CheckResult:
-    """D3 guard rail: WARN whenever any alias is currently resolving to a
-    non-first candidate in its fallback chain — a tier is silently running
-    on a degraded route and someone should notice."""
-    from orchestrator_next.model_routes import resolve_all_with_source
-
-    routes_yaml = str(config_root / "models.yaml")
-    resolved = resolve_all_with_source(routes_yaml)
-    on_fallback = sorted(
-        f"{alias}→candidate#{entry['active_index']} ({entry['tool']})"
-        for alias, entry in resolved.items()
-        if entry.get("is_fallback")
-    )
-    if on_fallback:
-        return CheckResult(
-            "no silent fallback", "WARN",
-            f"aliases on a fallback candidate: {', '.join(on_fallback)}",
-        )
-    return CheckResult("no silent fallback", "PASS", "no alias is on a fallback candidate")
 
 
 def check_model_route_sources(config_root: Path) -> CheckResult:
@@ -362,7 +341,7 @@ def check_model_route_sources(config_root: Path) -> CheckResult:
 
     parts = []
     for tier in sorted(resolved):
-        src = resolved[tier].get("tool_source") or resolved[tier].get("model_id_source") or "?"
+        src = resolved[tier].get("model_id_source") or "?"
         parts.append(f"{tier}←{src}")
     detail = f"{len(resolved)} tiers resolved: {', '.join(parts)}"
     return CheckResult("model route sources", "PASS", detail)
@@ -476,7 +455,6 @@ def run_all() -> int:
         check_workflow_steps_resolve(config_root),  # rule 1
         check_step_dispatch_kind(config_root),      # rule 2
         check_model_route_sources(config_root),
-        check_no_silent_fallback(config_root),      # D3 guard rail (WARN)
         check_contract_aliases_resolve(config_root),  # D4: contract/agent-config safety net (WARN)
         check_prompt_optimizer(),
         check_symlinks(repo_root, orch_home),

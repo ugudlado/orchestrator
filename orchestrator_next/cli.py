@@ -1,19 +1,10 @@
-# orchestrator — workflow engine CLI.
+# orchestrator — workflow engine CLI (protocol v2; see docs/protocol-v2.md).
 #
 # User-facing:
-#   orchestrator <workflow> <ticket-id> …
-#   orchestrator doctor
-#   orchestrator report | graph
-#
-# Internal (still callable; omitted from usage):
-#   run, next, done, config-path, validate-workflow, reset-step
-#
-# Exit codes for next/done dispatch protocol (ORC-45):
-#   0 + JSON with agent key  — agent step; driver spawns Agent tool
-#   0 + no JSON              — inline script ran and recorded; driver loops
-#   1                        — workflow complete; driver reads state.yaml
-#   2                        — step blocked; driver reads state.yaml
-#   3                        — ContractDispatchError or other error
+#   orchestrator start | step | done | approve | cancel | status | events
+#   orchestrator run --headless | headless
+#   orchestrator doctor | report | graph | validate-workflow
+#   orchestrator config pull | config-path | state | pack
 """Entry point for the `orchestrator` CLI.
 
 Reached three ways, all equivalent: the `orchestrator` console script of a
@@ -24,25 +15,11 @@ from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
 
 
 def _usage() -> None:
     print(
-        "Usage:\n"
-        "  orchestrator <workflow> <input|run_id> [\"resume text\"] [--repo PATH] …\n"
-        "      Run a workflow from .orchestrator/<pack>/workflows/<workflow>.yaml.\n"
-        "      Input is opaque (ticket id or free text); prints run_id= on start.\n"
-        "      Resume: `orchestrator feature <run_id> \"your feedback\"`.\n"
-        "      Ambiguous names: `orchestrator mypack/feature …`.\n"
-        "  orchestrator config pull <git-or-path> [pack] [--skills] [--ref REF]\n"
-        "      Install into .orchestrator/<pack>/ (pack defaults to source basename).\n"
-        "  orchestrator doctor [--models-config PATH]\n"
-        "      Check that workflow config and model routing look correct.\n"
-        "  orchestrator report --state <state.yaml> | --all [--repo PATH] [--json]\n"
-        "  orchestrator graph <workflow>\n"
-        "\n"
-        "  Protocol v2 (harness-driven; see docs/protocol-v2.md):\n"
+        "Usage (protocol v2 — see docs/protocol-v2.md):\n"
         "  orchestrator start <recipe> <slug> [--inputs JSON] [--ticket-id ID] --json\n"
         "  orchestrator step <run> --json\n"
         "  orchestrator done <run> <step_id> --out JSON --usage JSON [--status S]\n"
@@ -52,89 +29,19 @@ def _usage() -> None:
         "  orchestrator run --headless <recipe> <slug>   (engine drives the model)\n"
         "  orchestrator headless <run>                   (resume a headless run)\n"
         "\n"
+        "  orchestrator config pull <git-or-path> [pack] [--skills] [--ref REF]\n"
+        "      Install into .orchestrator/<pack>/ (pack defaults to source basename).\n"
+        "  orchestrator doctor [--models-config PATH]\n"
+        "  orchestrator report --state <state.yaml> | --all [--repo PATH] [--json]\n"
+        "  orchestrator graph <workflow> | orchestrator validate-workflow <workflow>\n"
+        "  orchestrator state <list|show|migrate|project> | orchestrator pack …\n"
+        "  orchestrator reset-step <step-id> <state.yaml>\n"
+        "\n"
         "  --models-config PATH  Override models.yaml for this invocation\n"
         "                        (also: models.config=PATH)",
         file=sys.stderr,
     )
     sys.exit(3)
-
-
-def _run_verb(argv: list[str]) -> None:
-    """`orchestrator run` — ticket-driven workflow driver (in-process loop)."""
-    from orchestrator_next.paths import ConfigRootError
-    from orchestrator_next.run_loop import run_cmd
-    try:
-        raise SystemExit(run_cmd(argv))
-    except ConfigRootError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        sys.exit(7)
-
-
-def _append_in_progress_state_entry_if_absent(
-    state_yaml_path: str,
-    *,
-    step_id: str,
-    phase: str,
-    attempt: int,
-    agent: str,
-    started_at: str,
-) -> None:
-    """Append an in_progress entry to state.yaml.step_history if not already present.
-
-    Checks for an existing entry matching (step_id, phase, status='in_progress').
-    If one already exists, returns without writing. Otherwise appends the new entry
-    and writes back via parser.safe_write_yaml (pre-write-bytes corruption guard).
-
-    This is a narrow state.yaml writer — separate from the main `record` writer.
-    """
-    from pathlib import Path as _Path
-
-    import yaml as _yaml  # noqa: PLC0415 — lazily import; record already imported at top of its module
-
-    from orchestrator_next.parser import safe_write_yaml as _safe_write_yaml
-
-    with open(state_yaml_path, "rb") as _f:
-        _pre_write_bytes = _f.read()
-
-    try:
-        _state_raw = _yaml.safe_load(_pre_write_bytes.decode("utf-8")) or {}
-    except _yaml.YAMLError:
-        # Pre-parse failure — do not write; let the next dispatch surface the corruption.
-        return
-
-    _history = list(_state_raw.get("step_history") or [])
-
-    # Check if an in_progress entry already exists for (step_id, phase).
-    # Also skip the pre-stamp when a terminal entry (completed/failed/escalate_to_architect)
-    # already exists for the same (step_id, phase, attempt) — the dispatcher saw the row
-    # but a stale state read or path-resolution mismatch caused it to dispatch the same
-    # step again. Pre-stamping in that case creates an orphan in_progress row at the
-    # tail that masks the prior completion on the next `next` call.
-    _TERMINAL_STATUSES = {"completed", "failed", "escalate_to_architect", "blocked"}
-    for _e in _history:
-        if not isinstance(_e, dict):
-            continue
-        if _e.get("step_id") != step_id or _e.get("phase") != phase:
-            continue
-        if _e.get("status") == "in_progress":
-            return  # already present — no write needed
-        if _e.get("status") in _TERMINAL_STATUSES and _e.get("attempt") == attempt:
-            return  # terminal entry exists for this attempt — do not orphan it
-
-    _history.append({
-        "step_id": step_id,
-        "phase": phase,
-        "status": "in_progress",
-        "agent": agent,
-        "attempt": attempt,
-        "started_at": started_at,
-    })
-    _state_raw["step_history"] = _history
-
-    try:
-        _safe_write_yaml(_Path(state_yaml_path), _state_raw, _pre_write_bytes)
-    except _yaml.YAMLError:
-        pass  # pre-write bytes already restored by safe_write_yaml
 
 
 def _graph_verb(args: list[str]) -> None:
@@ -155,44 +62,6 @@ def _graph_verb(args: list[str]) -> None:
         sys.exit(3)
     print(mermaid_src, end="")
     sys.exit(0)
-
-
-def _workflow_subcommands() -> set[str]:
-    """CLI tokens that map to a workflow: bare unique names + pack/workflow.
-
-    Unique bare names are included. When a name appears in multiple packs,
-    only the qualified ``pack/workflow`` forms are registered.
-    """
-    from orchestrator_next.paths import ConfigRootError, list_workflows
-
-    try:
-        index = list_workflows()
-    except ConfigRootError:
-        return set()
-    out: set[str] = set()
-    for workflow, hits in index.items():
-        if len(hits) == 1:
-            out.add(workflow)
-        for pack_name, _root in hits:
-            out.add(f"{pack_name}/{workflow}")
-    return out
-
-
-def _pin_config_from_state_file(state_yaml_path: str) -> None:
-    """Set ORCHESTRATOR_CONFIG from state.config_pack when unset (multi-pack)."""
-    if os.environ.get("ORCHESTRATOR_CONFIG"):
-        return
-    try:
-        import yaml as _yaml
-        raw = _yaml.safe_load(Path(state_yaml_path).read_text(encoding="utf-8")) or {}
-    except Exception:
-        return
-    pack = raw.get("config_pack") or ""
-    repo = raw.get("repo_root") or os.environ.get("REPO_ROOT") or ""
-    if pack and repo:
-        os.environ["ORCHESTRATOR_CONFIG"] = str(Path(repo) / ".orchestrator" / pack)
-    if repo and not os.environ.get("REPO_ROOT"):
-        os.environ["REPO_ROOT"] = str(repo)
 
 
 def _default_repo_root_env() -> None:
@@ -296,20 +165,6 @@ def _state_verb(argv: list[str]) -> int:
     return 3
 
 
-def _is_v2_done(rest: list[str]) -> bool:
-    """True when `done` was called in the protocol-v2 form.
-
-    v2:  done <run> <step_id> --out JSON --usage JSON
-    v1:  done <state.yaml>              (JSON payload on stdin — deprecated)
-
-    The flags are the discriminator: the v1 form never took any. A bare
-    `done <run> <step_id>` is also v2, since v1 took exactly one argument.
-    """
-    if any(a in ("--out", "--usage", "--status") for a in rest):
-        return True
-    return len([a for a in rest if not a.startswith("-")]) >= 2
-
-
 def main() -> None:
     from orchestrator_next.models_config_cli import consume_models_config_argv
 
@@ -340,47 +195,43 @@ def main() -> None:
         )
         sys.exit(3)
     _default_repo_root_env()
-    _wf_subcommands = _workflow_subcommands()
     _core_verbs = (
-        "next", "done", "graph", "doctor", "reset-step", "run", "validate-workflow",
-        "report", "state",
         # protocol v2 (docs/protocol-v2.md §3)
-        "start", "step", "status", "events", "headless", "approve", "cancel",
-        # Phase 4.3: pack -> plugin generator
-        "pack",
+        "start", "step", "done", "status", "events", "approve", "cancel",
+        "run", "headless",
+        # inspection / admin
+        "graph", "doctor", "validate-workflow", "report", "state", "pack",
+        "reset-step",
     )
-    if not args or (args[0] not in _core_verbs and args[0] not in _wf_subcommands):
+    if not args or args[0] not in _core_verbs:
         _usage()
     # Apply --models-config early so every verb that resolves routes sees it.
-    # `run` / workflow subcommands also consume it inside run_cmd; applying here
-    # is idempotent and covers next/doctor.
     verb, *rest = args
     rest = consume_models_config_argv(rest)
     args = [verb, *rest]
+
     if args[0] == "state":
         sys.exit(_state_verb(args[1:]))
 
     # --- protocol v2 verbs (docs/protocol-v2.md §3) ------------------------
-    # `done` is shared with the deprecated stdin-JSON form; `_is_v2_done`
-    # picks between them by argument shape.
-    if args[0] in ("start", "step", "status", "events", "approve", "cancel") or (
-        args[0] == "done" and _is_v2_done(args[1:])
-    ):
+    if args[0] in ("start", "step", "done", "status", "events", "approve", "cancel"):
         from orchestrator_next.protocol import main as _protocol_main
         sys.exit(_protocol_main(args[0], args[1:]))
 
     # Every verb except doctor/pack needs a second argument.
     if len(args) < 2 and args[0] not in ("doctor", "pack"):
         _usage()
-    # Workflow tokens (bare or pack/workflow) → run --schema <ref>.
-    if args[0] in _wf_subcommands:
-        _run_verb([args[1], "--schema", args[0], *args[2:]])
+
     if args[0] == "run":
-        if "--headless" in args:
-            rest2 = [a for a in args[1:] if a != "--headless"]
-            from orchestrator_next.headless import run_headless_cmd
-            sys.exit(run_headless_cmd(rest2))
-        _run_verb(args[1:])
+        # `run` exists only to drive the model in-process; the engine never
+        # self-drives a harness step (protocol-v2 principle 1).
+        if "--headless" not in args:
+            print("error: `orchestrator run` requires --headless; use "
+                  "`orchestrator start` for harness-driven runs "
+                  "(docs/protocol-v2.md §3)", file=sys.stderr)
+            sys.exit(3)
+        from orchestrator_next.headless import run_headless_cmd
+        sys.exit(run_headless_cmd([a for a in args[1:] if a != "--headless"]))
     if args[0] == "headless":
         from orchestrator_next.headless import resume_headless_cmd
         sys.exit(resume_headless_cmd(args[1:]))
@@ -400,111 +251,29 @@ def main() -> None:
         from orchestrator_next.report import main as _report_main
         sys.exit(_report_main(args[1:]))
 
-    if args[0] == "done":
-        # argv: done <state.yaml> …
-        if len(args) >= 2:
-            _pin_config_from_state_file(args[1])
-        from orchestrator_next.record import main as record_main
-        sys.exit(record_main(sys.argv[1:]))
-
-    # ORC-63: read-only DAG-visibility verb — no state.yaml write.
+    # Read-only DAG-visibility verb — no state.yaml write.
     if args[0] == "graph":
         _graph_verb(args[1:])
 
-    # reset-step verb — reset a step and all subsequent steps to pending.
+    # Reset a step and everything declared after it back to pending. Works on
+    # a v2 run: `orchestrator status <run>` prints the state path to pass here.
     if args[0] == "reset-step":
         if len(args) < 3:
             print("usage: orchestrator reset-step <step-id> <state.yaml>", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(3)
         from orchestrator_next.reset_step import reset_step as _reset_step
         try:
             _reset_step(args[1], args[2])
         except (ValueError, FileNotFoundError) as exc:
             print(f"error: {exc}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(3)
         sys.exit(0)
 
     if args[0] == "validate-workflow":
         from orchestrator_next.validate_workflow import main as _vw_main
         sys.exit(_vw_main(args[1:]))
 
-    state_yaml_path = args[1]
-
-    try:
-        from orchestrator_next.parser import load_state, ContractNotFoundError as ContractDispatchError
-        from orchestrator_next.dispatch import dispatch, emit_json
-    except ImportError as exc:
-        print(f"error: failed to import orchestrator_next — {exc}", file=sys.stderr)
-        sys.exit(3)
-
-    try:
-        state = load_state(state_yaml_path)
-    except FileNotFoundError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        sys.exit(3)
-    except Exception as exc:  # noqa: BLE001 — catch-all for malformed YAML; diagnosed below
-        print(f"error: failed to parse state.yaml — {exc}", file=sys.stderr)
-        sys.exit(3)
-
-    # Pin the pack that seeded this run (multi-pack layouts).
-    _pin_config_from_state_file(state_yaml_path)
-
-    try:
-        action, exit_code = dispatch(state, state_yaml_path)
-    except FileNotFoundError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        sys.exit(3)
-    except ContractDispatchError as exc:
-        print(str(exc), file=sys.stderr)
-        sys.exit(3)
-    except Exception as exc:  # noqa: BLE001
-        print(f"error: dispatch failed — {exc}", file=sys.stderr)
-        sys.exit(3)
-
-    if exit_code in (1, 2):
-        sys.exit(exit_code)
-
-    # --- Agent path (exit 0 + JSON with model key) ---
-    if action.get("model"):
-        from datetime import datetime, timezone
-        _started_at = action.get("started_at") or datetime.now(timezone.utc).isoformat()
-        try:
-            _append_in_progress_state_entry_if_absent(
-                state_yaml_path,
-                step_id=action["step_id"],
-                phase=action["phase"],
-                attempt=int(action["attempt"]),
-                agent=action["model"],
-                started_at=_started_at,
-            )
-        except Exception as _ape:  # noqa: BLE001
-            print(f"warning: state.yaml pending append failed — {_ape}", file=sys.stderr)
-
-        # Running cost total re-derived from step_history[].usage.cost_usd (no
-        # DuckDB). Additive field on the action JSON plus a human stderr line so
-        # the self-driven caller shows it mid-run.
-        try:
-            from orchestrator_next.pricing import sum_cost_usd, format_cost_so_far
-            action["estimated_cost_so_far"] = round(sum_cost_usd(state.raw), 6)
-            print(format_cost_so_far(state.raw), file=sys.stderr)
-        except Exception as _cse:  # noqa: BLE001
-            print(f"warning: cost-so-far computation failed — {_cse}", file=sys.stderr)
-
-        print(emit_json(action), end="")
-        sys.exit(0)
-
-    # --- Inline script path (exit 0 + no JSON) ---
-    # Single canonical executor: the same run_script_step the in-process loop
-    # uses. Standalone `orchestrator next` stays a working stepper; the divergent
-    # duplicate that used to live here is gone (one behavior for both callers).
-    if action.get("run"):
-        from orchestrator_next.run_loop import run_script_step as _run_script_step
-
-        _ok, _new_path, _status = _run_script_step(action, state_yaml_path=state_yaml_path)
-        sys.exit(0 if _ok else 3)
-
-
-    sys.exit(exit_code)
+    _usage()
 
 
 if __name__ == "__main__":

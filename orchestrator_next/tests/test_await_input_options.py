@@ -1,7 +1,12 @@
-"""Standardized await_input options: engine-side deterministic resume routing
-(Phase 5) — a step pauses with a labeled options list; the engine matches the
-resume text to a label/number and advances or resets without re-dispatching
-the step at all. Unmatched text falls through to the step for interpretation.
+"""Standardized await_input options: engine-side deterministic resume routing.
+
+A step pauses with a labeled options list; `execute.route_awaiting_input`
+matches the resume text to a label or number and advances or resets the DAG
+without re-dispatching the step at all. Unmatched text falls through to the
+step, which re-runs with the raw text and interprets it itself.
+
+The loop below is what a harness does: `orchestrator step` until the run parks
+on await_input, hand the user's answer to the matcher, then `step` again.
 """
 from __future__ import annotations
 
@@ -10,7 +15,11 @@ from pathlib import Path
 
 import yaml
 
-from orchestrator_next.run_loop import LOOP_PAUSED, run_loop, seed_state_file
+from orchestrator_next.dispatch import dispatch
+from orchestrator_next.execute import route_awaiting_input, run_script_step
+from orchestrator_next.parser import load_state
+from orchestrator_next.protocol import step as protocol_step
+from orchestrator_next.seed import seed_state_file
 
 
 def _mini_pack(tmp_path: Path) -> Path:
@@ -126,17 +135,50 @@ def _seed(tmp_path, pack, monkeypatch, slug):
     return state, repo
 
 
+def _drive(state_path: Path, limit: int = 12) -> dict:
+    """`orchestrator step` until the run is no longer dispatchable."""
+    result: dict = {}
+    for _ in range(limit):
+        result, _ = protocol_step(str(state_path))
+        if result.get("status") != "ready":
+            return result
+    raise AssertionError("step did not settle")
+
+
+def _awaiting(state_path: Path) -> dict | None:
+    return (yaml.safe_load(state_path.read_text()) or {}).get("awaiting")
+
+
+def _resume(state_path: Path, repo: Path, text: str) -> dict:
+    """Hand the user's answer back to the run, the way a harness would.
+
+    A matched option is applied by the engine and the run just advances. An
+    unmatched one re-dispatches the parked step with the raw text so the step
+    itself can interpret it.
+    """
+    if not route_awaiting_input(str(state_path), text):
+        state = load_state(str(state_path))
+        action, code = dispatch(state, str(state_path))
+        assert code == 0, f"unmatched resume did not re-dispatch (exit {code})"
+        _ok, _path, status = run_script_step(
+            action, state_yaml_path=str(state_path), state=state,
+            user_direction=text,
+        )
+        if status == "await_input":
+            # The step asked again. A harness stops here and goes back to the
+            # human rather than re-running it with no answer.
+            return {"status": "needs_you", "step_id": action["step_id"]}
+    return _drive(state_path)
+
+
 def test_option_label_match_advances_without_redispatch(tmp_path, monkeypatch):
     pack = _mini_pack(tmp_path)
     state, repo = _seed(tmp_path, pack, monkeypatch, "opt-1")
 
-    code = run_loop(str(state), repo_root=str(repo), models_yaml="")
-    assert code == LOOP_PAUSED
-    raw = yaml.safe_load(state.read_text())
-    assert raw["awaiting"]["step_id"] == "review"
+    _drive(state)
+    assert _awaiting(state)["step_id"] == "review"
 
-    code = run_loop(str(state), repo_root=str(repo), models_yaml="", user_direction="approve")
-    assert code == 1
+    assert _resume(state, repo, "approve")["status"] == "done"
 
     raw = yaml.safe_load(state.read_text())
     assert "awaiting" not in raw
@@ -157,9 +199,9 @@ def test_option_number_match_advances(tmp_path, monkeypatch):
     pack = _mini_pack(tmp_path)
     state, repo = _seed(tmp_path, pack, monkeypatch, "opt-2")
 
-    run_loop(str(state), repo_root=str(repo), models_yaml="")
-    code = run_loop(str(state), repo_root=str(repo), models_yaml="", user_direction="1")
-    assert code == 1
+    _drive(state)
+    assert _resume(state, repo, "1")["status"] == "done"
+
     raw = yaml.safe_load(state.read_text())
     review_entries = [e for e in raw["step_history"] if e.get("step_id") == "review"]
     assert review_entries[-1]["outputs"]["reason"] == "user selected: approve"
@@ -169,10 +211,9 @@ def test_option_with_reset_to_resets_dag(tmp_path, monkeypatch):
     pack = _mini_pack(tmp_path)
     state, repo = _seed(tmp_path, pack, monkeypatch, "opt-3")
 
-    run_loop(str(state), repo_root=str(repo), models_yaml="")
-    code = run_loop(str(state), repo_root=str(repo), models_yaml="", user_direction="rework")
-    # reset_to rework -> rework re-runs -> review pauses again (empty direction)
-    assert code == LOOP_PAUSED
+    _drive(state)
+    _resume(state, repo, "rework")
+    # reset_to rework -> rework re-runs -> review pauses again (no direction)
 
     raw = yaml.safe_load(state.read_text())
     statuses = [
@@ -188,14 +229,10 @@ def test_unmatched_text_falls_through_to_step(tmp_path, monkeypatch):
     pack = _mini_pack(tmp_path)
     state, repo = _seed(tmp_path, pack, monkeypatch, "opt-4")
 
-    run_loop(str(state), repo_root=str(repo), models_yaml="")
-    code = run_loop(
-        str(state), repo_root=str(repo), models_yaml="",
-        user_direction="what does this even mean",
-    )
-    # No option matched -> review re-runs with the raw text -> its fallback
+    _drive(state)
+    _resume(state, repo, "what does this even mean")
+    # No option matched -> review re-ran with the raw text -> its fallback
     # branch pauses again with a clarifying ask (proves the step, not the
     # engine, interpreted the freeform text).
-    assert code == LOOP_PAUSED
     raw = yaml.safe_load(state.read_text())
     assert "what does this even mean" in raw["awaiting"]["ask"]

@@ -66,7 +66,7 @@ that has drifted from its locked commit (someone hand-edited the pulled copy).
 
 Upgrades: `uv tool upgrade orchestrator` (or reinstall from git). Config ships with the wheel, so engine+config always match.
 
-**Editor/agent-client integration (Hermes, etc.):** the engine has one CLI surface (`orchestrator <workflow> …` / `--resume`) and no stdio/JSON-RPC server. Session-driven workflows (`orchestrator research "…"`, `--resume <id>`) already run in-process through `orchestrator_next/sessions.py` — a plain function API (`new_session`/`load_session`/`prompt_session`/`close_session`/`list_sessions`) with no wire framing. If an ACP-style stdio adapter is ever needed again, it's a thin one-file wrapper over that API (JSON-RPC parse loop on stdin/stdout, forwarding to the same functions) — not an engine change.
+**Editor/agent-client integration (Hermes, etc.):** the engine has one CLI surface — the protocol-v2 verbs (`start` / `step` / `done` / `approve` / `status`, see `docs/protocol-v2.md`) — and no stdio/JSON-RPC server. Each verb is a plain function in `orchestrator_next/protocol.py` that the CLI wraps, so a client can call the module directly. If an ACP-style stdio adapter is ever needed, it is a thin one-file wrapper over those functions (JSON-RPC parse loop on stdin/stdout) — not an engine change.
 
 ## Model routing
 

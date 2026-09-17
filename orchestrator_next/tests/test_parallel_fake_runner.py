@@ -3,8 +3,9 @@
 Re-covers the invariants that `test_parallel_acp_e2e.py` held before the ACP
 transport was deleted. Nothing is faked below the engine: the state is a real
 SQLite store, the dispatcher is the real `dispatch_batch`, the recorder is the
-real `record`. Only the thing that would call a model — `run_loop.AGENT_RUNNER`
-— is a stub, which is exactly the seam Phase 1.4 introduced.
+real `record`. Only the model is faked — and the engine never calls one, so
+the fake is simply a harness that answers `orchestrator step` with
+`orchestrator done`, which is the whole seam protocol v2 defines.
 
 The workflow shape is a diamond, which is the point: the middle two steps have
 no edge between them, so a correct parallel dispatcher must run them at the same
@@ -19,6 +20,7 @@ time, and a correct store must let both record without losing either.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 import time
@@ -30,6 +32,7 @@ import yaml
 
 from orchestrator_next import state_store as ss
 from orchestrator_next.dispatch import dispatch_batch
+from orchestrator_next.execute import build_agent_payload
 from orchestrator_next.parser import load_state
 from orchestrator_next.readiness import ready_nodes
 from orchestrator_next.record import record
@@ -160,83 +163,58 @@ def test_diamond_runs_left_and_right_in_parallel(run_handle):
     assert code == 1, "workflow should be complete"
 
 
-def test_agent_runner_is_the_only_spawn_seam(run_handle, monkeypatch):
-    """`run_agent_step` reaches the model through AGENT_RUNNER and nothing else.
+def test_the_engine_never_calls_a_model(run_handle, mock_pack):
+    """A judgment step comes back as a payload for the harness, not a spawn.
 
-    With a runner installed, an agent step completes; with the default runner,
-    it raises rather than silently spawning anything.
+    `dispatch_batch` hands out the step; nothing under it reaches out to a
+    vendor. The payload carries the resolved model id and the prompt, and the
+    run does not advance until a harness reports back through `record`.
     """
-    from orchestrator_next import run_loop
-
-    seen: list[str] = []
-
-    def fake(payload: dict) -> dict:
-        seen.append(payload["step_id"])
-        return {
-            "assistant_text": (
-                "COMPLETION:\n  status: completed\n  outputs:\n"
-                f'    reason: "{payload["step_id"]} done"\n'
-            ),
-            **run_loop.ZEROED_USAGE,
-        }
-
     actions, code = dispatch_batch(run_handle, max_parallel=1)
     assert code == 0
     action = actions[0]
+    assert action["step_id"] == "seed"
+    assert action["model"] == "standard"
 
-    monkeypatch.setattr(run_loop, "AGENT_RUNNER", fake)
-    payload = run_loop.run_agent_step(
-        action, repo_root="/repo", models_yaml="",
+    payload = build_agent_payload(
+        action, repo_root="/repo", models_yaml=os.environ["ORCHESTRATOR_MODELS_CONFIG"],
         state_raw={}, state_yaml_path=run_handle,
+        output_contract="report the result",
     )
-    assert seen == ["seed"]
-    assert payload["status"] == "completed"
+    assert payload["model_id"] == "mock-model"
+    assert "seed" in payload["prompt"]
 
-    monkeypatch.setattr(run_loop, "AGENT_RUNNER", run_loop._no_agent_runner)
-    with pytest.raises(run_loop.NoAgentRunnerError):
-        run_loop.run_agent_step(
-            action, repo_root="/repo", models_yaml="",
-            state_raw={}, state_yaml_path=run_handle,
-        )
+    # Nothing recorded yet: the engine is still waiting on the harness.
+    doc, _ = ss.open_store(run_handle)[0].load(ss.open_store(run_handle)[1])
+    assert doc["step_history"] == []
 
 
-def test_agent_steps_actually_overlap_in_the_runner(run_handle, monkeypatch):
-    """max_parallel=N runs N agent steps concurrently, through the real loop path.
+def test_agent_steps_actually_overlap_in_the_harness(run_handle):
+    """max_parallel=N hands out N judgment steps at once, and both record.
 
-    A threading barrier is the strict form of the assertion: if the two steps
-    were serialized, the first would block forever and the barrier would time
-    out rather than the test merely being slow.
+    A threading barrier is the strict form of the assertion: if the dispatcher
+    had serialized them, the first fake harness worker would block forever and
+    the barrier would time out rather than the test merely being slow.
     """
-    from orchestrator_next import run_loop
-
     _record(run_handle, _turn("seed"))
     actions, code = dispatch_batch(run_handle, max_parallel=4)
     assert code == 0 and sorted(a["step_id"] for a in actions) == ["left", "right"]
 
     barrier = threading.Barrier(2, timeout=5)
 
-    def fake(payload: dict) -> dict:
+    def _harness(act: dict) -> dict:
         barrier.wait()  # raises BrokenBarrierError if the steps are serialized
-        return {
-            "assistant_text": (
-                "COMPLETION:\n  status: completed\n  outputs:\n"
-                f'    reason: "{payload["step_id"]} done"\n'
-            ),
-            **run_loop.ZEROED_USAGE,
-        }
-
-    monkeypatch.setattr(run_loop, "AGENT_RUNNER", fake)
-
-    def _run(act: dict) -> dict:
-        return run_loop.run_agent_step(
-            act, repo_root="/repo", models_yaml="",
-            state_raw={}, state_yaml_path=run_handle,
-        )
+        return _turn(act["step_id"])
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        payloads = list(pool.map(_run, actions))
+        payloads = list(pool.map(_harness, actions))
 
-    assert [p["status"] for p in payloads] == ["completed", "completed"]
+    for payload in payloads:
+        _record(run_handle, payload)
+
+    doc, _ = ss.open_store(run_handle)[0].load(ss.open_store(run_handle)[1])
+    done = {e["step_id"] for e in doc["step_history"] if e.get("status") == "completed"}
+    assert {"left", "right"} <= done
 
 
 def test_concurrent_completions_do_not_lose_updates(run_handle):
@@ -378,12 +356,12 @@ def test_parallel_run_costs_are_all_in_the_index(run_handle, tmp_path):
 def test_script_steps_stay_serial(tmp_path, monkeypatch):
     """Script steps execute one at a time even when the DAG offers two.
 
-    `dispatch_batch` may hand back two ready script actions, but `drive_loop`
-    runs them in a plain loop while agent steps fan out to a thread pool. A
-    script mutates the worktree, so overlapping two of them is the failure mode
+    `dispatch_batch` may hand back two ready script actions, but `orchestrator
+    step` runs exec steps one at a time inside its own batch loop. A script
+    mutates the worktree, so overlapping two of them is the failure mode
     `worktree_lock.py` documents. The recorded concurrency here must stay 1.
     """
-    from orchestrator_next import run_loop
+    from orchestrator_next.protocol import step as protocol_step
 
     repo = tmp_path / "repo"
     (repo / "spec").mkdir(parents=True)
@@ -426,8 +404,8 @@ def test_script_steps_stay_serial(tmp_path, monkeypatch):
         "step_history": [],
     }))
 
-    code = run_loop.run_loop(str(sy), repo_root=str(repo), models_yaml="")
-    assert code == 1, f"loop did not complete: {code}"
+    result, _ = protocol_step(str(sy))
+    assert result["status"] == "done", f"step did not complete: {result}"
 
     peaks = [int(x) for x in (tmp_path / "peak").read_text().split()]
     assert peaks, "no script ran"

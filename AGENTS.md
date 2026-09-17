@@ -118,16 +118,17 @@ pytest orchestrator_next/tests/ -q
 
 ### Core verbs
 
-| Command                                                  | Description                                  |
-| -------------------------------------------------------- | -------------------------------------------- |
-| `orchestrator config pull <git\|path> [pack] [--skills]` | Install pack under `.orchestrator/<pack>/`   |
-| `orchestrator <workflow> <ticket>`                       | Run workflow (`feature` or `mypack/feature`) |
-| `orchestrator run <ticket> --schema <ref>`               | Same, explicit schema ref                    |
-| `orchestrator next <state.yaml>`                         | Dispatch next step                           |
-| `orchestrator done <state.yaml>`                         | Record step result (JSON on stdin)           |
-| `orchestrator graph <ref>`                               | Mermaid DAG                                  |
-| `orchestrator doctor`                                    | Health check                                 |
-| `orchestrator complete <ticket>`                         | Teardown workflow                            |
+| Command                                                  | Description                                 |
+| -------------------------------------------------------- | ------------------------------------------- |
+| `orchestrator config pull <git\|path> [pack] [--skills]` | Install pack under `.orchestrator/<pack>/`  |
+| `orchestrator start <recipe> <slug> --json`              | Seed a run; returns `run_id` and first step |
+| `orchestrator step <run> --json`                         | Next step for the harness to execute        |
+| `orchestrator done <run> <step> --out J --usage J`       | Record a judgment step's structured result  |
+| `orchestrator approve <run> <token>`                     | Approve a gate and resume                   |
+| `orchestrator status <run> --json`                       | Nodes, artifacts, gates, running cost       |
+| `orchestrator run --headless <recipe> <slug>`            | Engine drives the model itself              |
+| `orchestrator graph <ref>`                               | Mermaid DAG                                 |
+| `orchestrator doctor`                                    | Health check                                |
 
 ### Headless / cloud
 
@@ -136,15 +137,18 @@ pytest orchestrator_next/tests/ -q
 - Cloud Slack/Claude sessions: `orchestrator run --headless <recipe> <slug>`
   (resume with `orchestrator headless <run>`); see `docs/cloud-environment.md`.
 
-### Exit codes (`next` / drive protocol)
+### `step` status enum
 
-| Code                         | Meaning                                       |
-| ---------------------------- | --------------------------------------------- |
-| `0` + JSON with model        | Agent step — execute instruction, then `done` |
-| `0` + script JSON / no agent | Script already ran — loop                     |
-| `1`                          | Workflow complete                             |
-| `2`                          | Blocked (signoff)                             |
-| `3`                          | Error                                         |
+`step` always exits 0 and reports what happened in `status` (the v1 exit-code
+protocol is gone — see `docs/protocol-v2.md` §3):
+
+| Status      | Meaning                                              |
+| ----------- | ---------------------------------------------------- |
+| `ready`     | step is dispatchable now (`kind` says judgment/gate) |
+| `done`      | run complete                                         |
+| `blocked`   | waiting on a gate token                              |
+| `needs_you` | needs a decision the engine can't make               |
+| `error`     | run failed                                           |
 
 ### Rules for agents in this codebase
 
@@ -155,7 +159,8 @@ pytest orchestrator_next/tests/ -q
 
 ### Prompt / learn loop
 
-Agent steps use `prompt: SKILL.md` **inside the step dir**. Learn proposes
+Agent steps use `prompt: SKILL.md` **inside the step dir**, and every judgment
+contract must declare an `out:` block. Learn proposes
 rows → `persist-learnings` appends to that step’s `scenarios/train.jsonl`.
 Optional `--skills` only mirrors charters for IDE discovery.
 

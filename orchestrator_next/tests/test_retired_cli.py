@@ -55,9 +55,9 @@ class TestRetiredCLIVerbs(unittest.TestCase):
         """(a) `orchestrator cost` stderr contains 'Usage:' (unrecognised-verb message)."""
         result = _run_orchestrator(["cost", "--change-id", "foo"])
         self.assertIn(
-            "Usage:",
+            "Usage",
             result.stderr,
-            f"Expected 'Usage:' in stderr for retired 'cost' verb.\n"
+            f"Expected 'Usage' in stderr for retired 'cost' verb.\n"
             f"stderr: {result.stderr!r}",
         )
 
@@ -85,9 +85,9 @@ class TestRetiredCLIVerbs(unittest.TestCase):
         """(b) `orchestrator metrics` stderr contains 'Usage:' (unrecognised-verb message)."""
         result = _run_orchestrator(["metrics", "--change-id", "foo"])
         self.assertIn(
-            "Usage:",
+            "Usage",
             result.stderr,
-            f"Expected 'Usage:' in stderr for retired 'metrics' verb.\n"
+            f"Expected 'Usage' in stderr for retired 'metrics' verb.\n"
             f"stderr: {result.stderr!r}",
         )
 
@@ -151,3 +151,34 @@ class TestNoProductionReferencesToRetiredVerbs(unittest.TestCase):
             f"{matching_files}\n"
             f"Remove these references in T-11 (bin/orchestrator dispatch code).",
         )
+
+
+class TestRetiredProtocolV1Verbs(unittest.TestCase):
+    """The v1 dispatch protocol is gone: `next`, stdin-JSON `done`, and the
+    self-driving `run` are no longer verbs. Protocol v2 (`start`/`step`/`done`)
+    is the only way to drive a workflow (docs/protocol-v2.md §10).
+    """
+
+    def test_next_verb_is_unrecognised(self) -> None:
+        result = _run_orchestrator(["next", "state.yaml"])
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn("Usage", result.stderr)
+        self.assertNotIn("orchestrator next", result.stderr)
+
+    def test_seed_only_flag_is_gone(self) -> None:
+        result = _run_orchestrator(["run", "--seed-only", "feature", "x"])
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("--seed-only", result.stderr)
+
+    def test_run_without_headless_is_refused(self) -> None:
+        """`run` exists only to route to headless; self-drive is gone."""
+        result = _run_orchestrator(["run", "feature", "some-slug"])
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertIn("--headless", result.stderr)
+
+    def test_usage_lists_only_v2_verbs(self) -> None:
+        result = _run_orchestrator([])
+        for gone in ("orchestrator next", "--seed-only", "exit code 2"):
+            self.assertNotIn(gone, result.stderr)
+        for kept in ("orchestrator start", "orchestrator step", "orchestrator done"):
+            self.assertIn(kept, result.stderr)

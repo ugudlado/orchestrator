@@ -1,10 +1,10 @@
-"""Model → (tool, model_id) resolution.
+"""Model alias → model_id resolution.
 
 Reads the `models:` block from models.yaml (and optional override files /
 JSON env override), returning the execution config for a model tier.
 
-Optional `step_models:` maps step_id → tier alias and wins over a step
-contract's `model:` field (per-step fallthrough across layers).
+Optional `step_models:` maps step_id → tier alias (per-step fallthrough
+across layers).
 
 Precedence (highest wins): ORCHESTRATOR_MODEL_ROUTE_OVERRIDES (per-run
 field-level override, set by CLI model.<alias>.<field>= args) >
@@ -94,17 +94,6 @@ def _winning_alias_entry(alias: str, routes_yaml: str | None) -> tuple[Any, str]
     return None, ""
 
 
-def _binary_on_path(tool_name: str) -> bool:
-    """Is this candidate's backend available locally?
-
-    Fallback chains PATH-gate on the tool name itself. The `tools:` block that
-    used to map a tool to a binary + argv template went away with vendor
-    spawning; a chain candidate now names its backend directly.
-    """
-    import shutil
-    return bool(shutil.which(tool_name))
-
-
 def resolve_step_alias(
     step_id: str,
     contract_alias: str | None,
@@ -130,79 +119,53 @@ def resolve_route(alias: str, routes_yaml: str | None) -> dict[str, Any]:
     """Resolve `alias` to a single concrete route, as one unit (D3).
 
     Returns a dict:
-      tool, model_id            — the chosen candidate's fields ("" if unresolved)
-      source                 — layer label that supplied the winning alias entry
-      active_index            — 0-based index of the chosen candidate within
-                                its chain (0 for a scalar route or the first
-                                chain candidate)
-      num_candidates          — length of the alias's candidate chain (1 for scalar)
-      is_fallback              — True iff active_index > 0 (only chains can trip this)
+      model_id        — the chosen candidate's model id ("" if unresolved)
+      source          — layer label that supplied the winning alias entry
+      active_index    — 0-based index of the chosen candidate within its
+                        preference list (always 0: the first entry wins)
+      num_candidates  — length of the alias's preference list (1 for a scalar)
+      is_fallback     — always False; kept for callers that render chains
 
-    Selection semantics:
-      - scalar route (dict)  → NOT PATH-gated; always returned as-is. A scalar
-        pointed at a missing binary still dispatches (and fails at invoke) —
-        it must never silently become "no route" (exit 4). This preserves
-        today's behavior for every alias that hasn't opted into a chain.
-      - list route (chain)   → PATH-gated; the first candidate whose
-        `tool` is on PATH wins. If every candidate's tool is absent, tool/model_id come back "" so the
-        run_loop caller raises the existing no-route error (exit 4).
+    An alias may be written as a scalar route (one dict) or as an ordered
+    preference list. The engine no longer spawns vendor binaries, so there is
+    nothing local to probe: the first entry wins, and the rest document the
+    author's fallback order for a harness that wants to read it.
 
-    ORCHESTRATOR_MODEL_ROUTE_OVERRIDES (JSON env) and CLI model.<alias>.<field>=
-    overrides are NOT part of the wholesale-wins rule — they are a separate,
+    ORCHESTRATOR_MODEL_ROUTE_OVERRIDES (JSON env) is a separate,
     higher-precedence field-level override applied on top of the selected
-    candidate (so a partial override like {"model_id": "..."} still works,
-    inheriting tool from whichever candidate PATH-selected).
+    candidate.
     """
     raw, source = _winning_alias_entry(alias, routes_yaml)
 
     if isinstance(raw, list):
         candidates = [c for c in raw if isinstance(c, dict)]
-        chosen, chosen_idx = None, -1
-        for idx, cand in enumerate(candidates):
-            tool = cand.get("tool")
-            if tool and _binary_on_path(str(tool)):
-                chosen, chosen_idx = cand, idx
-                break
-        entry = chosen or {}
-        active_index = max(chosen_idx, 0)
+        entry = candidates[0] if candidates else {}
         num_candidates = len(candidates)
     else:
         entry = raw if isinstance(raw, dict) else {}
-        active_index = 0
         num_candidates = 1
 
     overrides = json.loads(os.environ.get("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES") or "{}")
     ov = overrides.get(alias) or {}
 
-    tool_val = str(ov.get("tool") or entry.get("tool") or "")
     model_id_val = str(ov.get("model_id") or entry.get("model_id") or "")
 
     return {
-        "tool": tool_val,
         "model_id": model_id_val,
         "source": "$ORCHESTRATOR_MODEL_ROUTE_OVERRIDES" if ov else source,
-        "active_index": active_index,
+        "active_index": 0,
         "num_candidates": num_candidates,
-        "is_fallback": num_candidates > 1 and active_index > 0,
+        "is_fallback": False,
     }
 
 
 def resolve_field(model: str, routes_yaml: str | None, field: str) -> str:
-    """Return one route field for `model` ("" if unset). Thin wrapper over
-    resolve_route so tool/model_id are always resolved from the SAME
-    chosen candidate (never mixed across candidates)."""
+    """Return one route field for `model` ("" if unset)."""
     return str(resolve_route(model, routes_yaml).get(field) or "")
 
 
 def resolve_all_with_source(routes_yaml: str) -> dict[str, dict[str, Any]]:
-    """Return every alias with resolved fields, source, and chain metadata.
-
-    Keeps the flat tool/model_id/*_source keys (both sourced
-    from the one winning layer+candidate per alias, per the wholesale-wins
-    rule) so existing consumers (doctor, models verb) keep working unchanged.
-    Adds candidates/active_index/num_candidates/is_fallback for chain-aware
-    rendering (D2/D3 verb + doctor WARN).
-    """
+    """Return every alias with its resolved model id, source, and candidates."""
     overrides = json.loads(os.environ.get("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES") or "{}")
 
     aliases: set[str] = set()
@@ -217,8 +180,6 @@ def resolve_all_with_source(routes_yaml: str) -> dict[str, dict[str, Any]]:
         candidates = raw if isinstance(raw, list) else ([raw] if isinstance(raw, dict) else [])
 
         result[alias] = {
-            "tool": route["tool"],
-            "tool_source": route["source"],
             "model_id": route["model_id"],
             "model_id_source": route["source"],
             "candidates": candidates,

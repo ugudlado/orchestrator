@@ -3,13 +3,12 @@
 Covers the pure `sum_cost_usd` / `format_cost_so_far` helpers, the
 step-completion surfacing through the `orchestrator done` (record) CLI path,
 and the `orchestrator next` action-dict path that injects
-`estimated_cost_so_far`. No DuckDB — the total is re-derived from
+the running total on `status`. No DuckDB — the total is re-derived from
 step_history[].usage.cost_usd.
 """
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import textwrap
@@ -79,16 +78,16 @@ def test_format_cost_so_far_two_decimals():
 
 
 # ---------------------------------------------------------------------------
-# Token-key contract between run_loop's zero floor and what the readers consume
+# Token-key contract between execute's zero floor and what the readers consume
 # ---------------------------------------------------------------------------
 
 def test_empty_usage_token_keys_are_the_ones_readers_consume():
-    """run_loop._EMPTY_USAGE floors every recorded usage dict. Its token keys must be
+    """execute._EMPTY_USAGE floors every recorded usage dict. Its token keys must be
     the names the adapters write and pricing/workflow-report read. They drifted once
     (cache_read_tokens vs cache_read_input_tokens): the floor's zeros sat in state
     beside the adapter's real counts, read by nobody. Cost was computed from the long
     form so nothing broke loudly — which is exactly why this needs a test."""
-    from orchestrator_next.run_loop import _EMPTY_USAGE
+    from orchestrator_next.execute import _EMPTY_USAGE
 
     assert set(_EMPTY_USAGE) == {
         "input_tokens",
@@ -239,194 +238,91 @@ def test_done_cli_emits_cost_so_far(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# `orchestrator next` action-dict path — estimated_cost_so_far injection
+# `orchestrator status` — running cost for the harness
 # ---------------------------------------------------------------------------
 #
-# The `next` agent path (bin/orchestrator) attaches an additive
-# `estimated_cost_so_far` field to the emitted action JSON, summed from
-# step_history[].usage.cost_usd. These tests drive the real CLI as a
-# subprocess (the same seam test_pre_stamp_idempotency uses) and parse the
-# action JSON off stdout, so they exercise the production injection rather
-# than re-implementing the sum.
+# v1 attached an additive `estimated_cost_so_far` to the `next` action JSON.
+# v2 has no action JSON: a harness reads the running total off `status`, which
+# sums step_history[].usage.cost_usd through the same pricing helper.
 
 
-def _write_stub_agent_contracts(tmp_path: Path) -> Path:
-    """Stub step contracts so dispatch resolves an agent step (model set),
-    which is the arm that injects estimated_cost_so_far."""
+def _stub_pack(tmp_path: Path):
+    """Step contracts so dispatch resolves a judgment step, plus its routes."""
     contracts = tmp_path / "stub-steps"
     contracts.mkdir(exist_ok=True)
     for sid in ("explore", "design"):
         step_dir = contracts / sid
         step_dir.mkdir(exist_ok=True)
         (step_dir / "contract.yaml").write_text(yaml.safe_dump({
-            "id": sid, "version": 1, "prompt": "prompt.md",
+            "id": sid, "version": 1, "kind": "judgment", "prompt": "prompt.md",
+            "out": {"note": {"type": "string"}},
         }))
         (step_dir / "prompt.md").write_text(f"do {sid}")
     cfg = tmp_path / "orc-config"
     cfg.mkdir(exist_ok=True)
     (cfg / "models.yaml").write_text(yaml.safe_dump({
         "models": {
-            "standard": {"tool": "claude", "model_id": "claude-sonnet-5"},
-            "strong": {"tool": "claude", "model_id": "claude-opus-5"},
+            "standard": {"model_id": "claude-sonnet-5"},
+            "strong": {"model_id": "claude-opus-5"},
         },
         "step_models": {"explore": "standard", "design": "strong"},
     }))
     return contracts, cfg
 
 
-def _run_next(tmp_path: Path, state_path: Path, contracts: Path, cfg: Path) -> dict:
-    """Run `orchestrator next` and return the parsed action JSON from stdout."""
-    env = {
-        **os.environ,
-        "WORKFLOW_STATE_DIR": str(tmp_path),
-        "ORCHESTRATOR_HOME": str(_REPO_ROOT),
-        "ORCHESTRATOR_REPO_ROOT": str(tmp_path),
-        "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE": str(contracts),
-        "ORCHESTRATOR_CONFIG": str(cfg),
-    }
-    proc = subprocess.run(
-        [sys.executable, "-m", "orchestrator_next", "next", str(state_path)],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-    assert proc.returncode == 0, f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
-    return json.loads(proc.stdout)
-
-
-def test_next_action_injects_estimated_cost_so_far(tmp_path):
-    """AC-1: `orchestrator next` against a fixture whose step_history usage
-    cost_usd values are 0.01 + 0.02 emits action JSON with
-    estimated_cost_so_far == 0.03."""
-    state = {
-        "schema": "feature",
-        "change_id": "cost-next",
-        "slug": "cost-next",
-        "status": "active",
-        "repo_root": str(tmp_path),
-        "phase": "specify",
-        "workflow_plan": {
-            "specify": {
-                "nodes": [
-                    {"id": "explore", "status": "completed", "agent": "discoverer",
-                     "goal": "explore", "inputs": [], "outputs": [], "rules": []},
-                    {"id": "design", "status": "pending",
-                     "agent": "architect", "goal": "design", "inputs": [],
-                     "outputs": [], "rules": []},
-                ],
-                "filtered": [],
-            },
-        },
-        "step_history": [
-            {"step_id": "explore", "phase": "specify", "status": "completed",
-             "agent": "discoverer", "attempt": 1,
-             "started_at": "2026-06-01T00:00:00Z", "ended_at": "2026-06-01T00:01:00Z",
-             "usage": {"input_tokens": 100, "output_tokens": 10, "cost_usd": 0.01}},
-            {"step_id": "explore", "phase": "specify", "status": "completed",
-             "agent": "discoverer", "attempt": 2,
-             "started_at": "2026-06-01T00:02:00Z", "ended_at": "2026-06-01T00:03:00Z",
-             "usage": {"input_tokens": 200, "output_tokens": 20, "cost_usd": 0.02}},
-        ],
-    }
+def _cost_state(tmp_path: Path, change_id: str, costs: list[float]) -> Path:
+    nodes = [
+        {"id": "explore", "status": "completed" if costs else "pending"},
+        {"id": "design", "status": "pending"},
+    ]
+    history = [
+        {"step_id": "explore", "phase": "specify", "status": "completed",
+         "agent": "discoverer", "attempt": i + 1,
+         "started_at": f"2026-06-01T00:0{2 * i}:00Z",
+         "ended_at": f"2026-06-01T00:0{2 * i + 1}:00Z",
+         "usage": {"input_tokens": 100, "output_tokens": 10, "cost_usd": c}}
+        for i, c in enumerate(costs)
+    ]
     state_path = tmp_path / "state.yaml"
-    state_path.write_text(yaml.safe_dump(state))
-    contracts, cfg = _write_stub_agent_contracts(tmp_path)
-
-    action = _run_next(tmp_path, state_path, contracts, cfg)
-
-    # Dispatched the pending agent step, and injected the summed running total.
-    assert action["step_id"] == "design"
-    assert action["estimated_cost_so_far"] == pytest.approx(0.03)
-
-
-def test_next_action_estimated_cost_zero_on_fresh_state(tmp_path):
-    """AC-2: with no completed steps, `orchestrator next` emits
-    estimated_cost_so_far == 0.0 without raising."""
-    state = {
-        "schema": "feature",
-        "change_id": "cost-next-fresh",
-        "slug": "cost-next-fresh",
-        "status": "active",
-        "repo_root": str(tmp_path),
-        "phase": "specify",
-        "workflow_plan": {
-            "specify": {
-                "nodes": [
-                    {"id": "explore", "status": "pending", "agent": "discoverer",
-                     "goal": "explore", "inputs": [], "outputs": [], "rules": []},
-                ],
-                "filtered": [],
-            },
-        },
-        "step_history": [],
-    }
-    state_path = tmp_path / "state.yaml"
-    state_path.write_text(yaml.safe_dump(state))
-    contracts, cfg = _write_stub_agent_contracts(tmp_path)
-
-    action = _run_next(tmp_path, state_path, contracts, cfg)
-
-    assert action["step_id"] == "explore"
-    assert action["estimated_cost_so_far"] == pytest.approx(0.0)
+    state_path.write_text(yaml.safe_dump({
+        "schema": "feature", "change_id": change_id, "slug": change_id,
+        "status": "active", "repo_root": str(tmp_path), "phase": "specify",
+        "workflow_plan": {"specify": {"nodes": nodes, "filtered": []}},
+        "step_history": history,
+    }))
+    return state_path
 
 
-def test_next_cli_emits_estimated_cost_so_far(tmp_path):
-    """Integration: driving the real `orchestrator next` CLI against a fixture
-    whose step_history usage cost_usd values are 0.25 + 0.02 emits both the
-    additive action-JSON field (estimated_cost_so_far == 0.27) and the human
-    `[cost so far: $0.27]` stderr line on the agent-dispatch path."""
-    state = {
-        "schema": "feature",
-        "change_id": "cost-next-cli",
-        "slug": "cost-next-cli",
-        "status": "active",
-        "repo_root": str(tmp_path),
-        "phase": "specify",
-        "workflow_plan": {
-            "specify": {
-                "nodes": [
-                    {"id": "explore", "status": "completed", "agent": "discoverer",
-                     "goal": "explore", "inputs": [], "outputs": [], "rules": []},
-                    {"id": "design", "status": "pending",
-                     "agent": "architect", "goal": "design", "inputs": [],
-                     "outputs": [], "rules": []},
-                ],
-                "filtered": [],
-            },
-        },
-        "step_history": [
-            {"step_id": "explore", "phase": "specify", "status": "completed",
-             "agent": "discoverer", "attempt": 1,
-             "started_at": "2026-06-01T00:00:00Z", "ended_at": "2026-06-01T00:01:00Z",
-             "usage": {"input_tokens": 1000, "output_tokens": 100, "cost_usd": 0.25}},
-            {"step_id": "explore", "phase": "specify", "status": "completed",
-             "agent": "discoverer", "attempt": 2,
-             "started_at": "2026-06-01T00:02:00Z", "ended_at": "2026-06-01T00:03:00Z",
-             "usage": {"input_tokens": 200, "output_tokens": 20, "cost_usd": 0.02}},
-        ],
-    }
-    state_path = tmp_path / "state.yaml"
-    state_path.write_text(yaml.safe_dump(state))
-    contracts, cfg = _write_stub_agent_contracts(tmp_path)
+def _status(tmp_path, state_path, monkeypatch) -> dict:
+    from orchestrator_next.protocol import status
 
-    env = {
-        **os.environ,
-        "WORKFLOW_STATE_DIR": str(tmp_path),
-        "ORCHESTRATOR_HOME": str(_REPO_ROOT),
-        "ORCHESTRATOR_REPO_ROOT": str(tmp_path),
-        "ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE": str(contracts),
-        "ORCHESTRATOR_CONFIG": str(cfg),
-    }
-    proc = subprocess.run(
-        [sys.executable, "-m", "orchestrator_next", "next", str(state_path)],
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-    assert proc.returncode == 0, f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
+    contracts, cfg = _stub_pack(tmp_path)
+    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(contracts))
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(cfg))
+    monkeypatch.setenv("REPO_ROOT", str(tmp_path))
+    result, _ = status(str(state_path))
+    return result
 
-    action = json.loads(proc.stdout)
-    assert action["step_id"] == "design"
-    assert action["estimated_cost_so_far"] == pytest.approx(0.27)
-    # Human-readable running total surfaced on stderr for the self-driven caller.
-    assert "[cost so far: $0.27]" in proc.stderr
+
+def test_status_reports_the_running_cost(tmp_path, monkeypatch):
+    """Two recorded attempts at 0.01 and 0.02 sum to 0.03 on `status`."""
+    state_path = _cost_state(tmp_path, "cost-status", [0.01, 0.02])
+    assert _status(tmp_path, state_path, monkeypatch)["cost_usd"] == pytest.approx(0.03)
+
+
+def test_status_cost_is_zero_on_a_fresh_run(tmp_path, monkeypatch):
+    """No completed steps: cost is 0.0, not an error."""
+    state_path = _cost_state(tmp_path, "cost-fresh", [])
+    assert _status(tmp_path, state_path, monkeypatch)["cost_usd"] == pytest.approx(0.0)
+
+
+def test_status_totals_tokens_alongside_cost(tmp_path, monkeypatch):
+    """The same sum a human reads as `[cost so far: $0.27]`, plus its tokens."""
+    state_path = _cost_state(tmp_path, "cost-tokens", [0.25, 0.02])
+    result = _status(tmp_path, state_path, monkeypatch)
+    assert result["cost_usd"] == pytest.approx(0.27)
+    assert result["usage"]["input_tokens"] == 200
+    assert result["usage"]["output_tokens"] == 20
+    assert format_cost_so_far(
+        yaml.safe_load(state_path.read_text())
+    ) == "[cost so far: $0.27]"

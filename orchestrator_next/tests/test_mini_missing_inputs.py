@@ -14,7 +14,18 @@ from pathlib import Path
 
 import yaml
 
-from orchestrator_next.run_loop import run_loop, seed_state_file
+from orchestrator_next.protocol import step as protocol_step
+from orchestrator_next.seed import seed_state_file
+
+
+def _drive(state_path, limit: int = 20) -> dict:
+    """`orchestrator step` until the run settles (every step here is exec)."""
+    result: dict = {}
+    for _ in range(limit):
+        result, _ = protocol_step(str(state_path))
+        if result.get("status") != "ready":
+            return result
+    raise AssertionError("step did not settle")
 
 
 def _mini_pack(tmp_path: Path) -> Path:
@@ -122,8 +133,7 @@ def test_consumer_missing_input_routes_to_producer(tmp_path, monkeypatch):
 
     # First drive: producer runs and writes the artifact, consumer sees it
     # and passes, finish runs. Full run completes.
-    code = run_loop(str(state), repo_root=str(repo), models_yaml="")
-    assert code == 1
+    assert _drive(state)["status"] == "done"
     raw = yaml.safe_load(state.read_text())
     statuses = [
         (e.get("step_id"), e.get("status"))
@@ -140,8 +150,8 @@ def test_consumer_missing_input_routes_to_producer(tmp_path, monkeypatch):
     from orchestrator_next.reset_step import reset_step
     reset_step("consumer", str(state))
 
-    code = run_loop(str(state), repo_root=str(repo), models_yaml="")
-    assert code == 1  # consumer fails missing-inputs -> reset_to producer -> re-runs -> completes
+    # consumer fails missing-inputs -> reset_to producer -> re-runs -> completes
+    assert _drive(state)["status"] == "done"
 
     raw = yaml.safe_load(state.read_text())
     statuses = [

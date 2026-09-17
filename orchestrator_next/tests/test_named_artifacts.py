@@ -328,7 +328,7 @@ def test_nodes_carry_only_the_declared_keys(pack, tmp_path):
 
 
 def test_seeded_state_carries_run_id_recipe_and_pack_sha(pack, tmp_path):
-    from orchestrator_next.run_loop import seed_state_file
+    from orchestrator_next.seed import seed_state_file
 
     state_path = tmp_path / "seeded.yaml"
     seed_state_file(
@@ -342,7 +342,7 @@ def test_seeded_state_carries_run_id_recipe_and_pack_sha(pack, tmp_path):
 
 
 def test_seeded_state_uses_a_caller_supplied_run_id(pack, tmp_path):
-    from orchestrator_next.run_loop import seed_state_file
+    from orchestrator_next.seed import seed_state_file
 
     state_path = tmp_path / "seeded.yaml"
     seed_state_file(state_path, slug="r9", schema="wf",
@@ -367,7 +367,7 @@ def test_pack_sha_prefers_the_git_head(pack, tmp_path):
 
 def test_finalize_discards_scratch_but_keeps_artifacts(pack, tmp_path):
     from orchestrator_next.paths import scratch_dir
-    from orchestrator_next.run_loop import discard_scratch
+    from orchestrator_next.execute import discard_scratch
 
     state = _state(tmp_path)
     scratch = scratch_dir(state)
@@ -383,7 +383,7 @@ def test_finalize_discards_scratch_but_keeps_artifacts(pack, tmp_path):
 
 
 def test_discard_scratch_is_a_no_op_when_absent(pack, tmp_path):
-    from orchestrator_next.run_loop import discard_scratch
+    from orchestrator_next.execute import discard_scratch
 
     assert discard_scratch(_state(tmp_path)) is False
 
@@ -391,7 +391,7 @@ def test_discard_scratch_is_a_no_op_when_absent(pack, tmp_path):
 def test_finalize_state_discards_scratch(pack, tmp_path):
     """The engine-side teardown, not just the helper: finalize drops scratch."""
     from orchestrator_next.paths import scratch_dir
-    from orchestrator_next.run_loop import _finalize_state
+    from orchestrator_next.execute import _finalize_state
 
     state = _state(tmp_path)
     scratch = scratch_dir(state)
@@ -499,7 +499,7 @@ def test_artifact_base_falls_back_to_the_runs_repo_root(tmp_path, monkeypatch):
 
 
 def test_seed_persists_the_recipes_artifacts_root(tmp_path, monkeypatch):
-    from orchestrator_next import run_loop
+    from orchestrator_next import seed as _seed_mod
 
     repo = _vendored_pack(tmp_path, monkeypatch)
-    assert run_loop._recipe_artifacts_root_for("wf", str(repo)) == "spec/changes/{slug}"
+    assert _seed_mod._recipe_artifacts_root_for("wf", str(repo)) == "spec/changes/{slug}"

@@ -93,47 +93,6 @@ def _usage_has_tokens(usage: dict[str, Any]) -> bool:
     )
 
 
-def _enforce_required_outputs(contract: Any, status: str, outputs: dict[str, Any]) -> str:
-    """Coerce status to 'failed' when required output values are not satisfied.
-
-    Returns status unchanged if: status not in _SUCCESS_STATUSES, contract is None,
-    contract has no required_outputs_for_completed, or all required values match.
-    On any mismatch, writes a stderr note and returns 'failed'.
-
-    This is the LEGACY COMPLETION-era check. A contract that declares an
-    ``out:`` block has migrated to protocol v2's structured output, which
-    ``protocol.validate_out`` enforces before the payload ever reaches record;
-    running both would double-validate the same step against two vocabularies.
-    TODO(Phase 1.3 exit): delete this function and parse_completion.py once
-    every step in the pack declares ``out:``.
-    """
-    if status not in _SUCCESS_STATUSES:
-        return status
-    if not isinstance(contract, AgentStepContract):
-        return status
-    if contract.outputs:
-        return status
-    required = contract.required_outputs_for_completed
-    if not required:
-        return status
-    for entry in required:
-        key = entry["key"]
-        expected = entry["value"]
-        # Dotted path: one level deep only (e.g. "outer.inner")
-        if "." in key:
-            parts = key.split(".", 1)
-            resolved = (outputs.get(parts[0]) or {}).get(parts[1]) if isinstance(outputs.get(parts[0]), dict) else None
-        else:
-            resolved = outputs.get(key)
-        if resolved != expected:
-            sys.stderr.write(
-                f"[record] {contract.id}: coercing status {status!r} → 'failed' "
-                f"({key}: {resolved!r} != {expected!r})\n"
-            )
-            return "failed"
-    return status
-
-
 # ---------------------------------------------------------------------------
 # review needs_work rework loop
 # ---------------------------------------------------------------------------
@@ -153,7 +112,7 @@ _STATUS_TO_STATE_STATUS: dict[str, str | None] = {
     "blocked": "blocked",
     "escalate_to_architect": "blocked",
     # Completeness gate: step needs more user input. Node stays ready (not
-    # completed); drive_loop pauses when pause_on_await_input is set. No
+    # completed); the run parks until the user answers. No
     # retry-cap — this is not a failure loop.
     "await_input": None,
 }
@@ -316,7 +275,7 @@ def _resolve_routing(
 
 def _utcnow_iso() -> str:
     # Microsecond precision (not whole-second truncation): started_at is
-    # stamped by run_loop with datetime.isoformat() (microseconds included).
+    # stamped with datetime.isoformat() (microseconds included).
     # Truncating ended_at to whole seconds while started_at keeps
     # microseconds let ended_at round DOWN below started_at for fast
     # (sub-second) steps, producing negative duration_ms. isoformat() with
@@ -374,28 +333,6 @@ def _load_contract(step_id: str) -> Any:
         return None
 
 
-def _apply_default_outputs(
-    outputs: dict[str, Any],
-    contract: Any,
-    status: str,
-) -> dict[str, Any]:
-    """Fill in any missing outputs from contract.default_outputs on completed steps."""
-    if status != "completed":
-        return outputs
-    defaults = getattr(contract, "default_outputs", None) or {}
-    if not defaults:
-        return outputs
-    out = dict(outputs)
-    for key, value in defaults.items():
-        if key not in out or out[key] is None or (hasattr(out[key], "__len__") and len(out[key]) == 0):
-            out[key] = value
-            sys.stderr.write(
-                f"[record] supplemented outputs.{key} from contract default "
-                f"(step omitted it)\n"
-            )
-    return out
-
-
 def _validate_agent_usage(
     payload: dict[str, Any], step_id: str, status: str, contract: Any,
 ) -> str | None:
@@ -438,8 +375,6 @@ def _validate_payload(
     step_id, phase, status = _validate_shape(payload)
     outputs = _coerce_payload_outputs(payload.get("outputs"))
     contract = _load_contract(step_id)
-    outputs = _apply_default_outputs(outputs, contract, status)
-    status = _enforce_required_outputs(contract, status, outputs)
     agent = _validate_agent_usage(payload, step_id, status, contract)
     _require_reason(outputs, step_id, status)
     if status == "await_input":
@@ -515,7 +450,7 @@ def _require_reason(outputs: dict[str, Any], step_id: str, status: str) -> None:
             "step_id": step_id,
             "status": status,
             "hint": (
-                "every COMPLETION must set outputs.reason "
+                "every done payload must set outputs.reason "
                 "(advance: what happened; go-back: why)"
             ),
         },
@@ -801,7 +736,7 @@ def apply_task_updates(
     perfectly disjoint source files. The file is a shared singleton; disjoint
     `files:` scopes do not help.
 
-    So the agent stops writing it. It reports what it finished in its COMPLETION
+    So the agent stops writing it. It reports what it finished in its done
     payload and the engine applies it here, under the worktree lock, with a
     fresh read every time. Exactly the `state_patch` pattern the script steps
     already use — the agent proposes, the engine commits.

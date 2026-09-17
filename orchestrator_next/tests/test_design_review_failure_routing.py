@@ -30,9 +30,6 @@ _DESIGN_REVIEW_CONTRACT = (
     "inputs: []\n"
     "outputs:\n"
     "  - design_review_result\n"
-    "required_outputs_for_completed:\n"
-    "  - key: design_review_result\n"
-    "    value: pass\n"
 )
 
 
@@ -132,18 +129,6 @@ class TestDesignReviewFailureRouting:
         state = load_state(state_path)
         assert readiness.next_ready_node(state) == "design"
 
-    def test_completed_needs_work_coerced_to_failed_and_requeues_architect(self, tmp_path, monkeypatch):
-        """Agent mistake: status completed + needs_work must not advance to implement."""
-        state_path = _setup(tmp_path, monkeypatch, _state_at_design_review(tmp_path))
-        result, code = record.record(state_path, _design_review_payload(status="completed", result="needs_work"))
-        assert code == 0, result
-        raw = yaml.safe_load(open(state_path).read())
-        assert raw["step_history"][-1]["status"] == "failed"
-        assert _node_status(state_path, "design") == "reset"
-        state = load_state(state_path)
-        assert readiness.next_ready_node(state) == "design"
-        assert readiness.next_ready_node(state) != "ticket-start"
-
     def test_completed_pass_advances_to_ticket_start(self, tmp_path, monkeypatch):
         state_path = _setup(tmp_path, monkeypatch, _state_at_design_review(tmp_path))
         result, code = record.record(state_path, _design_review_payload(status="completed", result="pass"))
@@ -189,19 +174,3 @@ class TestDesignReviewFailureRouting:
         state = load_state(state_path)
         assert readiness.next_ready_node(state) == "design-review"
         assert readiness.next_ready_node(state) != "ticket-start"
-
-    def test_completed_with_missing_required_output_coerced_to_failed(self, tmp_path, monkeypatch):
-        """A completed payload missing the required design_review_result must
-        not silently advance — coerce to failed so on_failure requeues design.
-        (Before ORC-117 this rejected with exit 3 / invalid_design_review_result;
-        the engine is now step-agnostic and coerces via required_outputs_for_completed.)"""
-        state_path = _setup(tmp_path, monkeypatch, _state_at_design_review(tmp_path))
-        payload = _design_review_payload(status="completed", result="pass")
-        del payload["outputs"]["design_review_result"]
-        result, code = record.record(state_path, payload)
-        assert code == 0, result
-        raw = yaml.safe_load(open(state_path).read())
-        assert raw["step_history"][-1]["status"] == "failed"
-        assert _node_status(state_path, "design") == "reset"
-        state = load_state(state_path)
-        assert readiness.next_ready_node(state) == "design"

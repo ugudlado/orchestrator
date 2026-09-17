@@ -31,7 +31,7 @@ class RunStore(Protocol):
     def archive(self, run_id: str) -> None: ...
 
 
-# ponytail: fixed lock TTL, refreshed once per drive_loop iteration (a step
+# ponytail: fixed lock TTL, refreshed once per driving iteration (a step
 # taking longer than this between iterations loses the lock) — raise this or
 # refresh more often if a single step ever runs past ~15 minutes.
 LOCK_TTL = 900

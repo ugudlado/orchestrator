@@ -1,4 +1,7 @@
-"""Opaque CLI input: engine mints UUID; workflow load-ticket-context classifies."""
+"""Opaque run input: the slug is identity, user_input is opaque text for the
+workflow, and ticket_id is set only when the caller says so. Driven through the
+protocol-v2 verbs (`start` then `step`), which is the only way to run a workflow.
+"""
 from __future__ import annotations
 
 import os
@@ -8,7 +11,8 @@ from pathlib import Path
 
 import yaml
 
-from orchestrator_next.run_loop import run_cmd, seed_state_file
+from orchestrator_next.protocol import start, step
+from orchestrator_next.seed import seed_state_file
 from orchestrator_next.tests.store_fixture import install_test_store
 
 
@@ -111,87 +115,80 @@ def test_seed_user_input_not_as_ticket_id(tmp_path, monkeypatch):
     assert "ticket_id" not in raw or raw.get("ticket_id") in ("", None)
 
 
-def test_run_cmd_mints_uuid_and_stores_brief(tmp_path, monkeypatch, capsys):
-    store = install_test_store(monkeypatch)
-    repo = _git_repo(tmp_path)
-    pack = _mini_pack(tmp_path)
-    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))
-    monkeypatch.delenv("BACKLOG_URL", raising=False)
-    monkeypatch.setenv("REPO_ROOT", str(repo))
-    # ticketing unset → brief path for free text
-    code = run_cmd(["add empty-title validation", "--schema", "lite", "--repo", str(repo)])
-    assert code == 1
-    out = capsys.readouterr().out
-    assert "run_id=" in out
-    run_id = [ln.split("=", 1)[1].strip() for ln in out.splitlines() if ln.startswith("run_id=")][0]
-    assert len(run_id) == 36
-    # Completed runs are archived, not deleted.
-    raw = yaml.safe_load(store.load(run_id, archived=True))
-    assert raw["user_input"] == "add empty-title validation"
-    assert raw["change_id"] == run_id
-    brief = repo / "spec" / "changes" / run_id / "ticket-context.md"
-    assert brief.is_file()
-    assert "empty-title" in brief.read_text()
-    assert "Feature brief" in brief.read_text()
+def _drive(state_path: str, limit: int = 10) -> dict:
+    """Walk `step` to a terminal result (every step in the mini pack is exec)."""
+    result = {}
+    for _ in range(limit):
+        result, _ = step(state_path)
+        if result.get("status") != "ready":
+            return result
+    return result
 
 
-def test_run_cmd_explicit_ticket_id_seeds_ticket_identity(tmp_path, monkeypatch, capsys):
-    store = install_test_store(monkeypatch)
-    repo = _git_repo(tmp_path)
-    pack = _mini_pack(tmp_path)
-    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))
-    monkeypatch.setenv("REPO_ROOT", str(repo))
-
-    code = run_cmd([
-        "ORC-42", "--ticket-id", "ORC-42", "--schema", "lite",
-        "--repo", str(repo), "--seed-only",
-    ])
-
-    assert code == 0
-    out = capsys.readouterr().out
-    run_id = [ln.split("=", 1)[1].strip() for ln in out.splitlines() if ln.startswith("run_id=")][0]
-    raw = yaml.safe_load(store.load(run_id))
-    assert raw["ticket_id"] == "ORC-42"
-    assert raw["user_input"] == "ORC-42"
-    assert raw["change_id"] == "orc-42"
-
-
-def test_run_cmd_ticket_shaped_writes_stub_without_backlog(tmp_path, monkeypatch, capsys):
-    store = install_test_store(monkeypatch)
-    repo = _git_repo(tmp_path)
-    pack = _mini_pack(tmp_path)
-    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))
-    monkeypatch.delenv("BACKLOG_URL", raising=False)
-    monkeypatch.setenv("REPO_ROOT", str(repo))
-    code = run_cmd(["ORC-42", "--schema", "lite", "--repo", str(repo)])
-    assert code == 1
-    out = capsys.readouterr().out
-    run_id = [ln.split("=", 1)[1].strip() for ln in out.splitlines() if ln.startswith("run_id=")][0]
-    # Identity is UUID, not orc-42
-    assert run_id.lower() != "orc-42"
-    ctx = repo / "spec" / "changes" / run_id / "ticket-context.md"
-    assert ctx.is_file()
-    text = ctx.read_text()
-    assert "ORC-42" in text
-    raw = yaml.safe_load(store.load(run_id, archived=True))
-    assert raw.get("ticket_id") == "ORC-42"  # state_patch from step
-
-
-def test_run_cmd_resume_by_run_id(tmp_path, monkeypatch, capsys):
+def test_start_stores_free_text_as_opaque_user_input(tmp_path, monkeypatch):
     install_test_store(monkeypatch)
     repo = _git_repo(tmp_path)
     pack = _mini_pack(tmp_path)
     monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))
     monkeypatch.delenv("BACKLOG_URL", raising=False)
     monkeypatch.setenv("REPO_ROOT", str(repo))
-    run_cmd(["hello world", "--schema", "lite", "--repo", str(repo)])
-    out1 = capsys.readouterr().out
-    run_id = [ln.split("=", 1)[1].strip() for ln in out1.splitlines() if ln.startswith("run_id=")][0]
-    # The run already completed and was archived (not deleted) — a second
-    # call with the same id reports completed-archived rather than minting
-    # a fresh run under the same id.
-    code = run_cmd([run_id, "ignored-direction", "--schema", "lite", "--repo", str(repo)])
-    assert code == 1
-    out2 = capsys.readouterr().out
-    assert f"run_id={run_id}" in out2
-    assert "archived" in out2
+
+    started, _ = start("lite", "add-empty-title-validation")
+    assert _drive(started["state"])["status"] == "done"
+
+    raw = yaml.safe_load(Path(started["state"]).read_text())
+    assert raw["user_input"] == "add-empty-title-validation"
+    assert raw["change_id"] == "add-empty-title-validation"
+    assert "ticket_id" not in raw or raw.get("ticket_id") in ("", None)
+
+    brief = repo / "spec" / "changes" / "add-empty-title-validation" / "ticket-context.md"
+    assert brief.is_file()
+    assert "empty-title" in brief.read_text()
+
+
+def test_start_explicit_ticket_id_seeds_ticket_identity(tmp_path, monkeypatch):
+    install_test_store(monkeypatch)
+    repo = _git_repo(tmp_path)
+    pack = _mini_pack(tmp_path)
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+
+    started, _ = start("lite", "ORC-42", ticket_id="ORC-42")
+    raw = yaml.safe_load(Path(started["state"]).read_text())
+    assert raw["ticket_id"] == "ORC-42"
+    assert raw["user_input"] == "ORC-42"
+    assert raw["change_id"] == "orc-42"
+    assert raw["slug"] == "orc-42"
+
+
+def test_ticket_shaped_input_writes_stub_without_backlog(tmp_path, monkeypatch):
+    install_test_store(monkeypatch)
+    repo = _git_repo(tmp_path)
+    pack = _mini_pack(tmp_path)
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))
+    monkeypatch.delenv("BACKLOG_URL", raising=False)
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+
+    started, _ = start("lite", "ORC-42")
+    assert _drive(started["state"])["status"] == "done"
+
+    ctx = repo / "spec" / "changes" / "orc-42" / "ticket-context.md"
+    assert ctx.is_file()
+    assert "ORC-42" in ctx.read_text()
+    raw = yaml.safe_load(Path(started["state"]).read_text())
+    assert raw.get("ticket_id") == "ORC-42"  # state_patch from the step
+
+
+def test_start_on_a_live_slug_resumes_rather_than_reseeding(tmp_path, monkeypatch):
+    install_test_store(monkeypatch)
+    repo = _git_repo(tmp_path)
+    pack = _mini_pack(tmp_path)
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack))
+    monkeypatch.delenv("BACKLOG_URL", raising=False)
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+
+    first, _ = start("lite", "hello-world")
+    again, _ = start("lite", "hello-world")
+    assert again.get("resumed") is True
+    assert again["run_id"] == first["run_id"]
+    assert again["state"] == first["state"]

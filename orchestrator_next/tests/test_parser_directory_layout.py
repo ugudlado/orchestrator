@@ -246,13 +246,17 @@ class TestAgentKindContractLoad:
         assert contract.instruction == "First body.\n"
         assert contract.prompt_dir == str((first / "explore").resolve())
 
-    def test_skill_field_rejected(self, steps_dir):
-        _write_dir_contract(steps_dir, "legacy-skill", {
-            "id": "legacy-skill", "version": 1, "skill": "explore",
+    def test_contract_without_prompt_or_run_is_rejected(self, steps_dir):
+        """A contract must name a payload. `skill:` was protocol v1's spelling
+        and is no longer recognised, so a contract carrying only that is simply
+        a contract with nothing to run."""
+        _write_dir_contract(steps_dir, "no-payload", {
+            "id": "no-payload", "version": 1, "skill": "explore",
         }, prompt_text=None)
-        from orchestrator_next.parser import load_contract_for_step, ContractError
-        with pytest.raises(ContractError, match="removed skill:"):
-            load_contract_for_step("legacy-skill")
+        from orchestrator_next.parser import ContractError, load_contract_for_step
+        with pytest.raises(ContractError) as exc:
+            load_contract_for_step("no-payload")
+        assert "must declare prompt:" in str(exc.value)
 
     def test_learnings_colocated_beside_prompt_dir(
         self, steps_dir, tmp_path, monkeypatch

@@ -3,8 +3,9 @@
 Config-driven, LLM-agnostic workflow engine for deterministic multi-step
 development workflows (design → implement → review → QA → learn).
 
-> `orchestrator run` (self-drive) and the `next`/`done` exit-code protocol
-> are deprecated in favor of `start`/`step`/`done` plus `--headless`. See
+> The CLI speaks protocol v2: `start` / `step` / `done`, plus `--headless`
+> when the engine should drive the model itself. The v1 `next` / `done`
+> exit-code protocol and the self-driving `orchestrator run` are removed. See
 > [`docs/protocol-v2.md`](docs/protocol-v2.md).
 
 ## Install
@@ -76,8 +77,28 @@ orchestrator run --headless <recipe> <slug>
 orchestrator headless <run-id>   # resume
 ```
 
-The engine walks `step`/`done` in-process and calls the model API directly —
-no driver script needed. See
+The engine walks `step`/`done` in-process and runs each judgment step itself —
+no driver script needed.
+
+Two backends run those steps:
+
+| Backend      | How it runs                               | Credential                                   |
+| ------------ | ----------------------------------------- | -------------------------------------------- |
+| `claude-cli` | `claude -p` (Claude Code non-interactive) | the machine's Claude Code login              |
+| `anthropic`  | Anthropic Messages API via the SDK        | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` |
+
+The default is `claude-cli` unless an API credential is already in the
+environment, so a workstation with Claude Code signed in needs no API key.
+Pin one with `--backend claude-cli|anthropic` or
+`ORCHESTRATOR_HEADLESS_BACKEND`:
+
+```bash
+orchestrator run --headless design my-slug --backend claude-cli
+```
+
+`claude-cli` maps the step contract's `tools:` to Claude Code's own tools and
+asks for the declared outputs via `--json-schema`. Set
+`ORCHESTRATOR_STEP_BUDGET_USD` to cap the spend of each step. See
 [`docs/cloud-environment.md`](docs/cloud-environment.md) for Slack `@Claude`
 / cloud-sandbox setup (secrets, network access, MCP).
 

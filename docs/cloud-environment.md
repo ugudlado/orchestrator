@@ -74,9 +74,24 @@ BACKLOG_URL=https://<your-public-backlog-host>
 BACKLOG_TOKEN=<your-backlog-token>
 ```
 
-Headless mode additionally needs the model SDK and a credential:
-install with `pip install -e '.[headless]'` and let the Anthropic SDK resolve
-`ANTHROPIC_API_KEY` (or an `ant auth login` profile) from the environment.
+Headless mode needs a way to run the judgment steps. Pick one backend:
+
+- **`anthropic`** (the default when an API credential is present) — install
+  with `pip install -e '.[headless]'` and let the Anthropic SDK resolve
+  `ANTHROPIC_API_KEY` (or an `ant auth login` profile) from the environment.
+- **`claude-cli`** (the default when no API credential is present) — runs each
+  step through `claude -p`, Claude Code's non-interactive mode, on the
+  machine's logged-in account. No API key and no SDK install. The `claude` CLI
+  must be on `PATH` and already signed in; run `claude` once interactively to
+  log in. Headless checks both before the first step rather than failing
+  mid-run.
+
+`--backend claude-cli|anthropic` (or `ORCHESTRATOR_HEADLESS_BACKEND`) pins the
+choice. `ORCHESTRATOR_STEP_BUDGET_USD` caps what any one step may spend, and
+`ORCHESTRATOR_CLAUDE_BIN` overrides which `claude` executable is used.
+
+In a cloud sandbox prefer `anthropic`: the `claude-cli` backend depends on an
+interactive login that a fresh sandbox does not carry.
 
 - `ORCHESTRATOR_SKIP_USAGE_CHECK=1` — the session has no subprocess token count; this
   lets `orchestrator done` accept agent steps without real usage (cost records as $0 for

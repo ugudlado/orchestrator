@@ -226,7 +226,7 @@ class TestOptionalPayloadFields:
 
     def test_review_score_passthrough_to_step_history(self, tmp_path):
         # ORC-117: review_score is now persisted via entry["outputs"], not top-level.
-        # Callers must place it in outputs; run_loop hoists root-level keys generically.
+        # Callers must place it in outputs; the harness reports them under outputs.
         state_path = _minimal_state(tmp_path)
         payload = {
             "step_id": "explore",
@@ -340,9 +340,9 @@ class TestPhaseReviewVerdictValidation:
         }
 
     def test_invalid_verdict_records_without_error(self, tmp_path):
-        # ORC-117: engine no longer raises on invalid verdicts; validation is
-        # contract-driven via required_outputs_for_completed (added in T-5).
-        # A contract without required_outputs_for_completed records as-is.
+        # The engine does not raise on an invalid verdict. A contract's out:
+        # block is enforced by protocol.validate_out before the payload ever
+        # reaches record, so record itself writes what it is given.
         state_path = _phase_review_state(tmp_path)
         result, exit_code = record(state_path, self._payload("passed"))
         assert exit_code == 0, result
@@ -373,9 +373,9 @@ class TestPhaseReviewVerdictValidation:
         assert "review_score" not in state["step_history"][-1]
 
     def test_records_with_unexpected_verdict(self, tmp_path):
-        # ORC-117: unexpected verdict is recorded without error; contract-driven
-        # enforcement (T-5) will coerce status when required_outputs_for_completed
-        # is present in the contract.
+        # An unexpected verdict is recorded without error. Contract-driven
+        # enforcement lives in protocol.validate_out, which rejects the `done`
+        # call before record sees it.
         state_path = _phase_review_state(tmp_path)
         result, exit_code = record(state_path, self._payload("PASS"))
         assert exit_code == 0, result

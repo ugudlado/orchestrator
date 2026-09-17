@@ -1,8 +1,8 @@
-"""Regression tests for ORC-124: finalize state.yaml on workflow-complete exit.
+"""Finalizing state.yaml when a run completes (originally ORC-124).
 
-AC-1: status == "completed" after exit-1 run.
-AC-2: next_step is None after exit-1 run.
-AC-3: status == "blocked" (unchanged) after exit-2 run.
+`orchestrator step` is the only verb that sees a run finish, so it owns the
+transition: status == "completed", next_step cleared, scratch discarded. A
+blocked run must be left alone.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import yaml
 _HERE = Path(__file__).resolve()
 sys.path.insert(0, str(_HERE.parents[1]))
 
-from orchestrator_next import run_loop  # noqa: E402
+from orchestrator_next.protocol import step  # noqa: E402
 
 
 def _completed_state(tmp_path: Path) -> Path:
@@ -72,8 +72,8 @@ def test_finalize_sets_status_completed_and_clears_next_step(tmp_path, monkeypat
     monkeypatch.delenv("ORCHESTRATOR_HEADLESS", raising=False)
     monkeypatch.delenv("CLAUDE_CODE_REMOTE", raising=False)
     sy = _completed_state(tmp_path)
-    code = run_loop.run_loop(str(sy), repo_root=str(tmp_path / "repo"), models_yaml="")
-    assert code == 1
+    result, _ = step(str(sy))
+    assert result["status"] == "done"
     raw = yaml.safe_load(sy.read_text())
     assert raw["status"] == "completed"
     assert raw["next_step"] is None
@@ -84,7 +84,7 @@ def test_finalize_preserves_step_history(tmp_path, monkeypatch):
     monkeypatch.delenv("ORCHESTRATOR_HEADLESS", raising=False)
     monkeypatch.delenv("CLAUDE_CODE_REMOTE", raising=False)
     sy = _completed_state(tmp_path)
-    run_loop.run_loop(str(sy), repo_root=str(tmp_path / "repo"), models_yaml="")
+    step(str(sy))
     raw = yaml.safe_load(sy.read_text())
     assert len(raw.get("step_history", [])) == 1
     assert raw["change_id"] == "fin"
@@ -97,7 +97,7 @@ def test_blocked_exit_does_not_finalize(tmp_path, monkeypatch):
     monkeypatch.delenv("CLAUDE_CODE_REMOTE", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_NOTIFY_CMD", raising=False)
     sy = _blocked_state(tmp_path)
-    code = run_loop.run_loop(str(sy), repo_root=str(tmp_path / "repo2"), models_yaml="")
-    assert code == 2
+    result, _ = step(str(sy))
+    assert result["status"] == "blocked"
     raw = yaml.safe_load(sy.read_text())
     assert raw["status"] != "completed"

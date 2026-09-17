@@ -211,7 +211,7 @@ def _judgment_payload(
 ) -> dict[str, Any]:
     """Build the protocol-v2 judgment payload (docs/protocol-v2.md §4)."""
     from orchestrator_next import model_routes
-    from orchestrator_next.run_loop import (
+    from orchestrator_next.execute import (
         _structured_output_contract,
         build_agent_payload,
         resolve_models_yaml,
@@ -226,12 +226,8 @@ def _judgment_payload(
     if out_paths:
         base.mkdir(parents=True, exist_ok=True)
 
-    # A migrated step (declares out:) gets the structured-output tail; an
-    # unmigrated one keeps the legacy COMPLETION block (protocol v2 §10).
-    output_contract = (
-        _structured_output_contract(action["step_id"], out_paths, out_schema)
-        if contract.outputs
-        else None
+    output_contract = _structured_output_contract(
+        action["step_id"], out_paths, out_schema
     )
     base_payload = build_agent_payload(
         action,
@@ -376,7 +372,7 @@ def step(run_ref: str) -> tuple[dict[str, Any], int]:
         ContractDispatchError,
         dispatch,
     )
-    from orchestrator_next.run_loop import run_script_step
+    from orchestrator_next.execute import _finalize_state, run_script_step
 
     state_yaml_path = resolve_run(run_ref)
     repo_root = os.environ.get("REPO_ROOT", "") or os.getcwd()
@@ -395,6 +391,12 @@ def step(run_ref: str) -> tuple[dict[str, Any], int]:
             return {"status": "error", "step_id": None, "detail": str(exc)}, 0
 
         if code == 1:
+            # A finished run flips to `completed`, clears next_step, and drops
+            # its scratch dir. Under the old self-drive loop this happened in
+            # the loop's exit arm; `step` is the only thing that sees the run
+            # finish now.
+            _finalize_state(state_yaml_path)
+            _persist(state_yaml_path)
             return {"status": "done", "step_id": None}, 0
         if code == 2:
             return {
@@ -451,7 +453,7 @@ def step(run_ref: str) -> tuple[dict[str, Any], int]:
             return result, 0
 
         # exec step: run it here and loop, so the harness never sees it.
-        ok, state_yaml_path, _status = run_script_step(
+        ok, state_yaml_path, exec_status = run_script_step(
             action, state_yaml_path=state_yaml_path, state=state
         )
         _persist(state_yaml_path)
@@ -461,6 +463,21 @@ def step(run_ref: str) -> tuple[dict[str, Any], int]:
                 "kind": KIND_EXEC,
                 "step_id": step_id,
                 "detail": f"exec step {step_id} failed and has no retry routing",
+            }, 0
+        if exec_status == "await_input":
+            # The step parked on a question. Its node stays in_progress, so
+            # dispatch would hand it straight back — looping here would re-run
+            # the step until MAX_EXEC_BATCH instead of asking the human.
+            awaiting = (
+                yaml.safe_load(Path(state_yaml_path).read_text(encoding="utf-8")) or {}
+            ).get("awaiting") or {}
+            return {
+                "status": "needs_you",
+                "kind": KIND_EXEC,
+                "step_id": step_id,
+                "ask": awaiting.get("ask") or "",
+                "options": awaiting.get("options") or [],
+                "detail": awaiting.get("ask") or f"{step_id} is awaiting input",
             }, 0
 
     return {
@@ -496,7 +513,7 @@ def start(
     """Seed a run and return its identity plus the first ``step`` result."""
     from orchestrator_next.paths import WorkflowRefError, resolve_workflow_ref
     from orchestrator_next.paths import new_run_id as paths_new_run_id
-    from orchestrator_next.run_loop import seed_state_file
+    from orchestrator_next.seed import seed_state_file
     from orchestrator_next.run_store import _state_root, open_store, persist
 
     if not slug or not slug.strip():
@@ -622,7 +639,7 @@ def done(
     ``out:`` block — the harness is expected to fix the step's output and
     retry, rather than have the engine record a half-finished step.
     """
-    from orchestrator_next.run_loop import _record_with_retry
+    from orchestrator_next.execute import _record_with_retry
 
     if status not in {"completed", "abandoned"}:
         raise ProtocolError(

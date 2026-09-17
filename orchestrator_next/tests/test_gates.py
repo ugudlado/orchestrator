@@ -360,21 +360,6 @@ def test_validate_rejects_a_gate_with_no_approve_as(pack, monkeypatch, capsys):
     assert "approve_as" in err
 
 
-def test_validate_warns_that_signoff_policy_is_deprecated(pack, monkeypatch,
-                                                          capsys):
-    recipe = pack / "workflows" / "feature.yaml"
-    doc = yaml.safe_load(recipe.read_text())
-    doc["signoff_policy"] = {"phases": ["design"]}
-    recipe.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
-
-    code, err = _validate(pack, monkeypatch, capsys)
-    assert code == 0, err
-    assert "signoff_policy" in err and "deprecated" in err
-
-
-# ---------------------------------------------------------------------------
-# 6. the v2 verbs never exit 2 at a gate
-# ---------------------------------------------------------------------------
 def test_v2_verbs_report_blocked_in_json_and_exit_zero(run, capsys):
     """Protocol v2 replaces exit-2-means-blocked with a JSON status field."""
     _finish_design(run)
@@ -452,7 +437,6 @@ def test_headless_auto_approve_walks_through_the_gate(run, monkeypatch, capsys):
                 "usage": {"input_tokens": 5, "output_tokens": 5}}
 
     monkeypatch.setattr(headless, "run_judgment", _fake_judgment)
-    monkeypatch.setattr(headless, "install_agent_runner", lambda client: None)
 
     rc = headless.drive(run, client=object(), auto_approve=True)
     assert rc == 0
@@ -543,13 +527,34 @@ def test_validate_json_lists_each_error(pack, monkeypatch, capsys):
 
 
 def test_validate_json_separates_warnings_from_errors(pack, monkeypatch, capsys):
+    """A wiring WARN is reported as a warning, not an error: the recipe is
+    still valid, so `ok` stays true and exit stays 0.
+
+    An exec step declares no in:/out: at all, so the engine cannot see what it
+    produces. A later step consuming its artifact gets "no declared producer"
+    — a warning, because the producer may well write it.
+    """
+    setup = pack / "steps" / "setup"
+    setup.mkdir(parents=True)
+    (setup / "contract.yaml").write_text(yaml.safe_dump({
+        "id": "setup", "version": 1, "run": "script.sh",
+    }, sort_keys=False), encoding="utf-8")
+    script = setup / "script.sh"
+    script.write_text("#!/usr/bin/env bash\necho '{}'\n", encoding="utf-8")
+    script.chmod(0o755)
+
     recipe = pack / "workflows" / "feature.yaml"
     doc_in = yaml.safe_load(recipe.read_text())
-    doc_in["signoff_policy"] = {"phases": ["design"]}
+    doc_in["steps"].insert(0, "setup")
     recipe.write_text(yaml.safe_dump(doc_in, sort_keys=False), encoding="utf-8")
+
+    contract = pack / "steps" / "design" / "contract.yaml"
+    doc_c = yaml.safe_load(contract.read_text())
+    doc_c.setdefault("in", {})["seed"] = {"artifact": "seed.md"}
+    contract.write_text(yaml.safe_dump(doc_c, sort_keys=False), encoding="utf-8")
 
     code, doc = _validate_json(pack, monkeypatch, capsys)
     assert code == 0
     assert doc["ok"] is True
     assert doc["errors"] == []
-    assert any("signoff_policy" in w for w in doc["warnings"])
+    assert any("no declared producer" in w for w in doc["warnings"])

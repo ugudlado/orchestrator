@@ -50,7 +50,8 @@ Claude Code process
               └─ SQLite / Postgres (run doc as JSON column + step_history index)
 
 Codex plugin: same CLI via skill + agents/ mirror (no hooks; enforcement is CLI-side)
-Headless (cron/CI): CLI calls model API directly with the same payload
+Headless (cron/CI): CLI runs the step itself with the same payload,
+                    via the Anthropic API or via `claude -p` (see §headless)
 ```
 
 ---
@@ -212,8 +213,9 @@ steps:
    archive — which cannot sit behind a gate because they build the directory
    the gate's artifacts live in. `write:git` on the same step still needs an
    approval upstream; the exemption covers the value, not the step. Protocol v1's
-   `signoff_policy` has no reader left in the engine: `validate` warns that it
-   is deprecated and ignored rather than synthesizing an implicit gate.
+   `signoff_policy` has no reader left in the engine and is ignored entirely:
+   declare a `{gate: ...}` entry instead. Synthesizing a gate the author never
+   wrote would park runs at a step nobody expects.
 
 Token state lives on the run under `gates:`, one record per gate
 (`{token, token_name, gate_id, issued_at, status, approved_at?, edits?}`).
@@ -257,21 +259,89 @@ TBD (Phase 3): `tenant_id` scoping knob, PII redaction config, trust config
 scheme (`pack.yaml`, `steps/<id>/contract.yaml` + `prompt.md`/`script.sh`,
 `protocol: N` gate on `config pull`) is unchanged. What changes:
 
-| v1                                                                                           | v2                                                                                                                                                     |
-| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `contract.yaml` minimal shape: `id`, `version`, exactly one of `model:`/`run:`               | `contract.yaml` adds load-bearing `kind`, `in`, `out`, `tools`, `side_effects`, `max_turns`; `model:` is rejected (already true — `parser.py:237-241`) |
-| `kind:` field, if present, decorative and ignored                                            | `kind` is required and validated: `exec \| judgment \| gate`                                                                                           |
-| Agent step ends output with `COMPLETION:` YAML block; malformed/missing → retryable `failed` | `done --out '{...}' --usage '{...}'` structured JSON, validated against `out` schema; `parse_completion.py` deleted (Phase 1.3)                        |
-| `orchestrator next <state.yaml>` dispatches next step                                        | `orchestrator step <run> --json` returns full payload; batches consecutive exec steps                                                                  |
-| `orchestrator done <state.yaml>` records JSON on stdin                                       | `orchestrator done <run> <step_id> --out --usage` (explicit flags, not stdin)                                                                          |
-| Exit code `0` + JSON with model → execute instruction, then `done`                           | `status: ready, kind: judgment` in the `step` response                                                                                                 |
-| Exit code `0` + script JSON / no agent → script already ran, loop                            | `status: ready, kind: exec` (or already advanced — `step` batches these internally)                                                                    |
-| Exit code `1` → workflow complete                                                            | `status: done`                                                                                                                                         |
-| Exit code `2` → blocked (signoff)                                                            | `status: blocked` + gate token (see §7)                                                                                                                |
-| Exit code `3` → error                                                                        | `status: error`                                                                                                                                        |
-| `model: <alias>` in `contract.yaml`                                                          | removed from contract; alias moves to `models.yaml` `step_models:` (principle 7, already implemented via `model_routes.resolve_step_alias`)            |
-| No `tools:`/`side_effects:` vocabulary                                                       | `tools:` (capability list) and `side_effects:` (e.g. `write:git`) become contract fields, consumed by validation and the Mod's write-gating wrapper    |
+| v1                                                                                           | v2                                                                                                                                                  |
+| -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `contract.yaml` minimal shape: `id`, `version`, exactly one of `model:`/`run:`               | `contract.yaml` adds load-bearing `kind`, `in`, `out`, `tools`, `side_effects`, `max_turns`; `model:` and v1's `skill:` are rejected                |
+| `kind:` field, if present, decorative and ignored                                            | `kind` is required and validated: `exec \| judgment \| gate`                                                                                        |
+| Agent step ends output with `COMPLETION:` YAML block; malformed/missing → retryable `failed` | `done --out '{...}' --usage '{...}'` structured JSON, validated against `out` schema; `parse_completion.py` deleted (Phase 1.3)                     |
+| `orchestrator next <state.yaml>` dispatches next step                                        | `orchestrator step <run> --json` returns full payload; batches consecutive exec steps                                                               |
+| `orchestrator done <state.yaml>` records JSON on stdin                                       | `orchestrator done <run> <step_id> --out --usage` (explicit flags, not stdin)                                                                       |
+| Exit code `0` + JSON with model → execute instruction, then `done`                           | `status: ready, kind: judgment` in the `step` response                                                                                              |
+| Exit code `0` + script JSON / no agent → script already ran, loop                            | `status: ready, kind: exec` (or already advanced — `step` batches these internally)                                                                 |
+| Exit code `1` → workflow complete                                                            | `status: done`                                                                                                                                      |
+| Exit code `2` → blocked (signoff)                                                            | `status: blocked` + gate token (see §7)                                                                                                             |
+| Exit code `3` → error                                                                        | `status: error`                                                                                                                                     |
+| `model: <alias>` in `contract.yaml`                                                          | removed from contract; alias moves to `models.yaml` `step_models:` (principle 7, already implemented via `model_routes.resolve_step_alias`)         |
+| No `tools:`/`side_effects:` vocabulary                                                       | `tools:` (capability list) and `side_effects:` (e.g. `write:git`) become contract fields, consumed by validation and the Mod's write-gating wrapper |
 
-Both `next`/`done` and `start`/`step`/`done` coexist during Phase 1 (old
-verbs intact per the plan's Phase 1.1); old verbs are removed at the end of
-Phase 1 once all 23 steps run end-to-end via the new verbs in headless mode.
+**Migration complete.** The v1 verbs are removed: `next`, the stdin-JSON form
+of `done`, the self-driving `orchestrator run`, and `--seed-only` are no
+longer CLI surface, and the 0/1/2/3 exit-code protocol is gone with them
+(`step` always exits 0 and reports `status`). `orchestrator run` survives only
+as the spelling of `run --headless`; without that flag it refuses and points
+at `start`. `parse_completion.py` and the `COMPLETION:` block are deleted, so
+a judgment contract must declare `out:` — `validate-workflow` now errors on
+one that does not, where it used to warn. `signoff_policy:` is no longer read
+or warned about; declare a `{gate: ...}` entry instead.
+
+---
+
+## 11. Headless backends
+
+`orchestrator run --headless` and `orchestrator headless <run>` walk the same
+`step` / `done` verbs a harness walks; the only difference is that the engine
+runs each `kind: judgment` step itself. Two backends do that.
+
+| Backend      | Runs the step via                   | Credential                       | Tools                                             |
+| ------------ | ----------------------------------- | -------------------------------- | ------------------------------------------------- |
+| `anthropic`  | Anthropic Messages API (vendor SDK) | `ANTHROPIC_API_KEY` / auth token | the four built-ins in `headless.TOOL_DEFS`        |
+| `claude-cli` | `claude -p` (Claude Code)           | the machine's Claude Code login  | Claude Code's own, allow-listed from the contract |
+
+Selection order, first hit wins: `--backend`, then
+`ORCHESTRATOR_HEADLESS_BACKEND`, then `anthropic` if an API credential is in
+the environment, else `claude-cli`. Defaulting to `claude-cli` is what lets a
+workstation with Claude Code signed in run headless with no API key at all;
+an unknown backend name is rejected before a run is seeded.
+
+This does not weaken principle 1. A harness-driven run still never calls a
+model: only `headless.drive` ever builds a step runner, and it does so in its
+own process. Nothing in the engine's dispatch path can reach a model.
+
+### The `claude-cli` argv
+
+Built per judgment payload by `headless.build_cli_argv`:
+
+```
+claude -p
+  --output-format json
+  --model <payload.model_id>
+  --max-turns <payload.max_turns + 3>
+  --permission-mode acceptEdits
+  --no-session-persistence
+  --system-prompt <payload.system>
+  --json-schema <schema from payload.out + payload.out_schema>
+  [--allowedTools <mapped from payload.tools>]
+  [--max-budget-usd $ORCHESTRATOR_STEP_BUDGET_USD]
+```
+
+The step's instruction goes in on stdin and `cwd` is `payload.cwd`.
+
+- **Turn headroom.** `--json-schema` spends a turn of its own emitting the
+  structured result, and Claude Code counts a wrap-up turn too. The contract's
+  `max_turns` is the budget for _work_, so three turns are added before it
+  becomes the CLI's cap. Without this a `max_turns: 1` step always returns
+  `error_max_turns`.
+- **Tools.** `payload.tools` capabilities map through `headless.CLI_TOOL_MAP`,
+  which is asserted equal to `pack_export.TOOL_MAP` by a test — one capability
+  must mean one tool surface whoever runs the step. Unknown capabilities are
+  dropped, never invented. A step declaring no tools gets no `--allowedTools`.
+- **Result.** The parsed object is `structured_output`; the trailing fenced
+  ```json block of `result` is the fallback for a CLI that did not emit one.
+- **Usage.** `usage` supplies the token counts. The model recorded is the
+  first `modelUsage` key, which is the dated id the run actually billed
+  (`claude-haiku-4-5-20251001`), falling back to the requested `model_id`.
+  `total_cost_usd` is carried through as `cost_usd_reported`.
+- **Failure.** A non-zero exit or `is_error: true` raises `HeadlessError` with
+  the CLI's own `errors`/`subtype` or the stderr tail. A missing `claude`
+  binary and a logged-out CLI each get their own message, and the binary is
+  checked before the first step so neither surfaces mid-run.

@@ -30,8 +30,9 @@ PACK_DOWNLOAD_HINT = (
     f"orchestrator config pull {WORKFLOW_CONFIG_GIT_URL} [pack-name]"
 )
 
-# Synthetic pack name used when a single legacy flat/legacy-config root is present.
-LEGACY_FLAT_PACK = "default"
+# Synthetic pack name for a root reached via ORCHESTRATOR_CONFIG rather than
+# by name under .orchestrator/<pack>/.
+DEFAULT_PACK = "default"
 
 
 def pack_root() -> Path:
@@ -59,9 +60,6 @@ def list_config_packs(repo_root: Path | None = None) -> list[tuple[str, Path]]:
 
     A pack is a directory that contains ``workflows/``. Ticket state dirs
     (``.orchestrator/<slug>/``) are skipped because they have no workflows/.
-
-    Also accepts legacy layouts as a single pack named ``default``:
-    ``.orchestrator/workflows/`` (flat) or ``.orchestrator/config/workflows/``.
     """
     root = repo_root if repo_root is not None else repo_root_from_env()
     if root is None:
@@ -76,18 +74,7 @@ def list_config_packs(repo_root: Path | None = None) -> list[tuple[str, Path]]:
             continue
         if (child / "workflows").is_dir():
             packs.append((child.name, child))
-
-    if packs:
-        return packs
-
-    # Legacy single-root layouts (pre multi-pack).
-    for candidate, name in (
-        (orch, LEGACY_FLAT_PACK),
-        (orch / "config", LEGACY_FLAT_PACK),
-    ):
-        if (candidate / "workflows").is_dir():
-            return [(name, candidate)]
-    return []
+    return packs
 
 
 def _vendored_config_root(repo_root: Path) -> Path | None:
@@ -154,7 +141,7 @@ def list_workflows(
             root = config_root()
         except ConfigRootError:
             return {}
-        return _workflows_in_root(LEGACY_FLAT_PACK, root)
+        return _workflows_in_root(DEFAULT_PACK, root)
 
     out: dict[str, list[tuple[str, Path]]] = {}
     for pack_name, root in packs:

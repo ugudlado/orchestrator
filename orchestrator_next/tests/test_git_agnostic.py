@@ -1,8 +1,8 @@
 """The engine has no hard git/worktree requirement — a workflow dispatches to
 completion from a state.yaml that never mentions worktree_path; every read
-falls back to repo_root (run_loop.py work_dir, parser.py workflow_dir).
+falls back to repo_root (execute.py work_dir, parser.py workflow_dir).
 
-Parallel guard to test_run_loop_ticket_agnostic.py (ORC-125): that one keeps
+Parallel guard to test_engine_ticket_agnostic.py (ORC-125): that one keeps
 ticketing out of the engine, this one keeps git/worktree coupling from
 deepening (ai-engineer-framework-2026-07.md, Constraints).
 """

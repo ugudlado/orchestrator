@@ -66,8 +66,8 @@ def _check_contracts(step_ids: list[str]) -> None:
 
     Contract loading is where protocol-v2 shape errors surface: an unknown
     ``kind:``, a malformed ``in:``/``out:`` block, or a bad ``tools:`` list all
-    raise ContractError in the parser and fail here. A judgment step with no
-    ``out:`` is only a warning while the pack migrates (plan Phase 1.2).
+    raise ContractError in the parser and fail here, as does a judgment step
+    that declares no ``out:`` block.
     """
     missing = []
     invalid = []
@@ -80,11 +80,10 @@ def _check_contracts(step_ids: list[str]) -> None:
             invalid.append((step_id, str(exc)))
         else:
             if isinstance(contract, AgentStepContract) and not contract.outputs:
-                print(
-                    f"WARN: {step_id}: judgment step declares no out: — "
-                    "still using the legacy COMPLETION block (protocol v2 §10)",
-                    file=sys.stderr,
-                )
+                invalid.append((
+                    step_id,
+                    "judgment step declares no out: block (protocol v2 §6)",
+                ))
     if missing:
         print("ERROR: missing contracts:", file=sys.stderr)
         for s in missing:
@@ -165,10 +164,10 @@ def _check_wiring(schema_name: str, step_ids: list[str]) -> None:
         inputs = getattr(contract, "inputs", None) or {}
         outputs = getattr(contract, "outputs", None) or {}
         if not inputs and not outputs:
-            # An unmigrated step declares no I/O at all, so the engine cannot
-            # see what it produces. Treat it as an unknown producer rather than
-            # reporting every downstream in: as unwired (plan Phase 1.2 is
-            # still mid-migration in the pack).
+            # A step that declares no I/O at all (an exec step that only
+            # touches the checkout, say) gives the engine nothing to wire.
+            # Treat it as an unknown producer rather than reporting every
+            # downstream in: as unwired.
             unmigrated.append(step_id)
             continue
 
@@ -240,22 +239,10 @@ def _check_gates(schema_name: str, schema: dict[str, Any]) -> None:
     Form 2 is the precise one — it names *which* approval authorizes the write —
     so a `requires:` that names no upstream gate is itself an error.
 
-    `signoff_policy` (protocol v1's phase-boundary approval knob) has no live
-    reader left in the engine; a recipe still carrying one gets a deprecation
-    warning pointing at gates, not an implicit gate. Synthesizing a gate the
-    author never wrote would park runs at a step nobody expects.
     """
     from orchestrator_next.workflow_steps import is_gate_entry, normalize_step_entry
 
     entries = schema.get("steps") or []
-    if schema.get("signoff_policy"):
-        print(
-            "WARN: signoff_policy: is deprecated and ignored — declare an "
-            "explicit {gate: <id>, show: [...], approve_as: <token>} entry "
-            "instead (docs/protocol-v2.md §7)",
-            file=sys.stderr,
-        )
-
     seen_gate = False
     gate_tokens: set[str] = set()
     errors: list[str] = []

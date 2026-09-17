@@ -6,7 +6,6 @@ import pytest
 from orchestrator_next.paths import (
     WorkflowRefError,
     config_root,
-    config_root_with_source,
     list_config_packs,
     resolve_workflow_ref,
     workflow_mode,
@@ -40,14 +39,17 @@ def test_multiple_packs_without_env_errors(tmp_path, monkeypatch):
         config_root()
 
 
-def test_legacy_flat_as_default_pack(tmp_path, monkeypatch):
+def test_flat_layout_is_not_a_pack(tmp_path, monkeypatch):
+    """`.orchestrator/workflows/` with no pack level is not discoverable.
+
+    A pack is `.orchestrator/<pack>/workflows/`. The pre-multi-pack flat layout
+    used to be accepted as a synthetic pack named `default`; that fallback is
+    gone, so a repo laid out that way must set ORCHESTRATOR_CONFIG.
+    """
     monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
     monkeypatch.setenv("REPO_ROOT", str(tmp_path))
     (tmp_path / ".orchestrator" / "workflows").mkdir(parents=True)
-    root, source = config_root_with_source()
-    assert root == tmp_path / ".orchestrator"
-    assert source == "vendored"
-    assert list_config_packs(tmp_path)[0][0] == "default"
+    assert list_config_packs(tmp_path) == []
 
 
 def test_workflow_mode_reads_session_flag(tmp_path, monkeypatch):

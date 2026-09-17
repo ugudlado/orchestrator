@@ -6,7 +6,7 @@ Why
 has falls out of that. Two things it cannot do:
 
   * **Concurrency.** `safe_write_yaml` truncates and rewrites the whole file with
-    no lock. That is safe today only because `run_loop` is strictly sequential.
+    no lock. Concurrent writers are serialized by the store's compare-and-swap.
     The moment `next_ready_node()` becomes `ready_nodes()` and two steps run at
     once, two writers race and one update is silently lost.
   * **Cross-run queries.** `report --all` globs archived files and re-parses
