@@ -42,13 +42,25 @@ export type GatePayload = {
   hint?: string
 }
 
+/**
+ * The `payload` of a `status: needs_you, kind: judgment` await_input step
+ * (protocol.py's `step`/`resume` contract): a question for the person, with
+ * optional multiple-choice labels. `orchestrator resume <run> "<text>"`
+ * matches `text` against `options` (by label or 1-based index) or takes it
+ * as free text when there are none.
+ */
+export type AskPayload = {
+  ask: string
+  options?: string[]
+}
+
 /** One `orchestrator step --json` result. */
 export type StepResult = {
   status: StepStatus
   kind?: 'exec' | 'judgment' | 'gate' | null
   step_id?: string | null
   detail?: string
-  payload?: JudgmentPayload | GatePayload
+  payload?: JudgmentPayload | GatePayload | AskPayload
 }
 
 /** `orchestrator start --json`: the run's identity plus its first step. */
@@ -198,6 +210,22 @@ export function judgmentOf(result: StepResult): JudgmentPayload | undefined {
 /** `payload` narrowed to a gate step's, or undefined for anything else. */
 export function gateOf(result: StepResult): GatePayload | undefined {
   return result.kind === 'gate' ? (result.payload as GatePayload | undefined) : undefined
+}
+
+/**
+ * `payload` narrowed to an await_input question, or undefined for anything
+ * else. Only meaningful on `status: needs_you`; a `payload.ask` is what
+ * distinguishes this from the plain needs_you the loop already reports and
+ * stops on.
+ */
+export function askOf(result: StepResult): AskPayload | undefined {
+  if (result.status !== 'needs_you') {
+    return undefined
+  }
+
+  const payload = result.payload as AskPayload | undefined
+
+  return typeof payload?.ask === 'string' ? payload : undefined
 }
 
 /** Parses a CLI verb's stdout, or throws with the stderr the process wrote. */

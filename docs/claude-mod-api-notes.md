@@ -42,7 +42,9 @@ returning without `next` short-circuits. `on(...).catch(h)` once.
 `$.process.run(['orchestrator','step',run,'--json'])` → judgment: `$.agent.spawn`
 → await `turn.complete[agentId]` → parse JSON block from `answer` →
 `$.process.run(['orchestrator','done',run,step,'--out',…,'--usage',…])`;
-gate: `$.ui.ask` → `orchestrator approve`; `needs_you`: report, stop.
+gate: `$.ui.ask` → `orchestrator approve`; `needs_you` with `payload.ask`
+(await_input): `$.ui.ask` → `orchestrator resume <run> "<answer>"`, loop;
+`needs_you` with no `ask`: report, stop.
 
 ## The 10s hook budget, and driving a long run anyway
 

@@ -136,7 +136,8 @@ def test_generate_claude_tree_and_frontmatter(fake_pack: Path, tmp_path: Path) -
     # unknown tool capability produced a warning, not a crash.
     assert any("made.up" in w for w in warnings)
 
-    assert (out_dir / "skills" / "orchestrate" / "SKILL.md").is_file()
+    orchestrate_skill = (out_dir / "skills" / "orchestrate" / "SKILL.md").read_text()
+    assert "orchestrator resume" in orchestrate_skill
     assert (out_dir / "README.md").is_file()
 
 

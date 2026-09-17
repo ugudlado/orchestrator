@@ -321,8 +321,14 @@ Drives a run end to end using the `orchestrator` CLI and the Agent tool.
    - `kind: gate` — use AskUserQuestion to show `payload.show` artifacts and
      ask for approval. On yes: `orchestrator approve <run_id> <token>`. On no:
      `orchestrator cancel <run_id>` or wait for edits per the user's answer.
-   - `status: needs_you` — stop and report to the user; the engine can't
-     proceed without a human decision.
+   - `status: needs_you` with a `payload.ask` — an await_input step. Use
+     AskUserQuestion with `payload.ask` and up to 4 of `payload.options` as
+     choices (mention any beyond 4 in the question text; free text is fine
+     too). Then run:
+     `orchestrator resume <run_id> "<answer>" --json`
+     and loop back to step 2 with its result.
+   - `status: needs_you` with no `payload.ask` — stop and report to the user;
+     the engine can't proceed without a human decision.
    - `status: done` — the run is complete; report the final artifacts.
    - `status: error` — stop and report the error.
 4. Loop back to step 2 until `status` is `done`, `needs_you`, or `error`.

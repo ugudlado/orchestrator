@@ -2,6 +2,7 @@ import type { EngineInterface, On } from 'claude-code'
 
 import {
   argsOf,
+  askOf,
   gateOf,
   judgmentOf,
   jsonBlockOf,
@@ -9,6 +10,7 @@ import {
   promptOf,
   stringArg,
   usageOf,
+  type AskPayload,
   type GatePayload,
   type JudgmentPayload,
   type StartResult,
@@ -427,6 +429,29 @@ async function drive(
       return `orchestrator: ${start.slug} complete.\n${ran.stdout || ran.stderr}`
     }
 
+    const ask = askOf(result)
+
+    if (ask) {
+      const answered = await runAsk($, cli, run, stepId, ask)
+
+      if (answered === null) {
+        record.phase = 'needs_you'
+
+        return (
+          `orchestrator: ${start.slug} is waiting at ${stepId ?? '-'} ` +
+          `(${ask.ask}); there is nobody to ask in this session, so the run ` +
+          'is left standing. Answer it from a shell:\n' +
+          `  orchestrator resume ${start.slug} "<answer>" --json\n` +
+          'then run this recipe on the same slug again to resume.'
+        )
+      }
+
+      lastStderr = answered.stderr
+      result = answered.next
+
+      continue
+    }
+
     if (result.status === 'needs_you' || result.status === 'error') {
       record.phase = result.status
 
@@ -642,6 +667,51 @@ async function runGate(
   state.gateToken = null
 
   return advanced
+}
+
+/**
+ * Ask the person the step's question, then advance the run with the answer.
+ *
+ * `$.ui.ask` takes 2-4 option labels (claude-code.d.ts:1908-1909); a step
+ * offering more sends only the first four, with the rest folded into the
+ * question text so a person can still type one as free "Other" text — the
+ * CLI's `resume` matches by label or 1-based index either way. Returns null
+ * when there is nobody to ask (a rejected `-p` call), leaving the run
+ * standing exactly like an unattended gate.
+ */
+async function runAsk(
+  $: EngineInterface,
+  cli: Cli,
+  run: string,
+  stepId: string | null,
+  ask: AskPayload,
+): Promise<{ next: StepResult; stderr: string } | null> {
+  const options = ask.options ?? []
+  const shown = options.slice(0, 4)
+  const overflow = options.slice(4)
+
+  const question =
+    overflow.length === 0
+      ? ask.ask
+      : `${ask.ask} (also available: ${overflow.join(', ')})`
+
+  let answer: string
+
+  try {
+    answer =
+      shown.length >= 2
+        ? await $.ui.ask(question, { options: shown, header: 'orchestrator' })
+        : await $.ui.ask(question, { header: 'orchestrator' })
+  } catch {
+    return null
+  }
+
+  const ran = await cli(
+    ['orchestrator', 'resume', run, answer, '--json'],
+    STEP_TIMEOUT_MS,
+  )
+
+  return nextOf(cli, run, ran)
 }
 
 /**
