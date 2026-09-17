@@ -357,32 +357,38 @@ Status as of this checkout (`ls orchestrator_next/*.py`, `ls DRIVE.md install.sh
 
 ---
 
-## Status (2026-09-17)
+## Status (2026-09-17, round 2)
 
-| Metric                                               | Baseline (Phase 0) | Now                                                                                             |
-| ---------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------- |
-| Engine lines (`orchestrator_next/*.py`, excl. tests) | 9,597              | 12,058                                                                                          |
-| Test count                                           | 538                | 649 passed, 1 skipped                                                                           |
-| Commit range                                         | `v0-two-driver`    | `v0-two-driver..HEAD` (16 commits, this repo) + `main..protocol-v2` (7 commits, workflows repo) |
+| Metric                                               | Baseline (Phase 0) | Round 1 | Now                                                     |
+| ---------------------------------------------------- | ------------------ | ------- | ------------------------------------------------------- |
+| Engine lines (`orchestrator_next/*.py`, excl. tests) | 9,597              | 12,058  | 11,405                                                  |
+| Test count                                           | 538                | 649     | 677 passed, 1 skipped                                   |
+| Commit range                                         | `v0-two-driver`    |         | `v0-two-driver..HEAD` + `main..protocol-v2` (workflows) |
 
-Line count moved **up, not down** relative to the plan's ~3,500-line target.
-The net effect of Phase 1.4's deletions (9,384 → 7,609) was reversed and then
-some by Phase 1's new protocol/headless code (+1,383 in c7b120d alone) plus
-gates, trust, redaction, pack export, and the Mod TypeScript surface added in
-Phases 2-4. The simplification's _shape_ (one driver, structured I/O,
-engine-owned artifacts, DB-backed state, harness-driven execution) is
-delivered; the line-count goal was not, because Phases 3-4 added real surface
-area (gates, trust/lock, Mod, pack export) that wasn't present in the
-9,597-line baseline it's being compared against.
+Round 2 deleted v1 outright: `next`, stdin `done`, self-drive `run`,
+`--seed-only`, `run_loop.py` (1,424), `parse_completion.py`, the COMPLETION
+contract, `signoff_policy`, `LEGACY_FLAT_PACK`, PATH-gated model chains,
+top-level `tests/`. Survivors live in `execute.py` + `seed.py`. Headless now
+runs on the Claude Code subscription login (`--backend claude-cli`, default
+when no API key: one `claude -p --json-schema` call per judgment step).
+`orchestrator resume <run> "<text>"` answers await_input steps; the Mod asks
+via `$.ui.ask`. Models: `strong→claude-fable-5-1`, `standard→claude-sonnet-5`,
+`fast→claude-haiku-4-5`, `code→claude-opus-5`, named tiers fable/opus/sonnet;
+cache-write rate optional in pricing (missing → `cost_partial`).
 
-Six open items carried forward:
+Line count is still above the 9,597 baseline: the shape landed (one driver,
+structured I/O, engine-owned artifacts, DB state, harness execution, gates,
+trust, Mod, pack export); the ~3,500 target did not, because Phases 3-4 added
+surface the baseline never had.
 
-1. **Phase 1.3/1.4** — `parse_completion.py` still present and unreferenced; safe to delete now. Old `next`/`done`/`run` self-drive verbs also still live in `cli.py` (deprecated, not deleted).
-2. **Phase 1.5** — headless mode never run against the live Anthropic API in this session (no credential available); verified only via mocked tests.
-3. **Phase 3.3** — relational schema/views intentionally dropped (by design, not a shortfall); tenant_id, redaction, and learn_results are done.
-4. **Phase 4.1** — first live Mod run hit the Claude Code Mod's 10-second `tool.call` hook budget; an async redesign is in progress but not yet committed on this branch. `MultiEdit` is not covered by the write-gate because it isn't in the engine's tool union.
-5. **Phase 4.2** — Codex `marketplace.json` format is unverified against the real Codex plugin loader.
-6. **Phase 5** — repo split was already true going in. Pack CI (validate/publish/canary) landed on `workflows/protocol-v2`, not merged. Both `simplify-v2` (this repo) and `protocol-v2` (workflows repo) remain unmerged feature branches. Pack's pytest suite carries 18 pre-existing failures against a stale flat-file layout, called out as non-blocking in the CI commit itself.
+Open items:
+
+1. **Phase 1.5** — headless verified live only per-step (`claude -p` smoke on haiku); a full recipe run on the subscription login is in progress at time of writing (see git log after this commit).
+2. **Phase 4.1** — Mod verified live for 8 minutes of driving after the async redesign; the gate and await_input prompts are untested in a real interactive session. `MultiEdit` isn't in the engine's tool union, so it isn't gated.
+3. **Phase 4.2** — Codex `marketplace.json` format unverified.
+4. **Pricing** — `claude-opus-4-1` (what Claude Code resolved alias `opus` to before the Mod switched to explicit ids) and Fable/Mythos cache-write rates are unpriced by design → `cost_partial`.
+5. **Phase 5** — `simplify-v2` and `workflows/protocol-v2` unmerged. Pack pytest carries 18 pre-existing failures (stale flat-file asserts). The workflows README commit swept in pre-existing teammate edits to that file.
+6. **Engine repo `config/`** is an untracked symlink to the local pack copy; keep it refreshed via `config pull` or validate reads stale v1 contracts.
 
 ## Risks
 
