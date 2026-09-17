@@ -176,3 +176,27 @@ class TestGateRefusesUntrustedWork:
             "the most recent verdict is what counts — a re-review that passed "
             "must let the gate mint"
         )
+
+
+class TestProvenanceSurvivesARealRecord:
+    """Regression: the history entry record() writes must carry `artifacts`.
+
+    `gates.provenance()` derives `written_by` and `last_verdict` from
+    `step_history[].artifacts`. record() used to hash a step's artifacts onto
+    its *plan node* only, so in a real run those two fields were always empty
+    and `untrusted()` could never see a failing verdict — the gate minted over
+    rejected work. The fixtures above hand-wrote the key, so they passed while
+    live runs did not. This one goes through record().
+    """
+
+    def test_recorded_verdict_reaches_the_gate_and_blocks_it(self, gate_run):
+        _drive_to_gate(gate_run, verdict="needs_work")
+        raw = yaml.safe_load(open(gate_run, encoding="utf-8"))
+        entry = [h for h in raw["step_history"] if h["step_id"] == "design"][-1]
+        assert entry.get("artifacts"), (
+            "record() must mirror artifacts onto the history entry"
+        )
+        result, _ = protocol.step(gate_run)
+        assert result["kind"] != KIND_GATE, (
+            "gate minted over a design the reviewer rejected"
+        )

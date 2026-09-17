@@ -560,7 +560,8 @@ def _build_history_entry(
             usage["model"] = resolved_model
             usage["cost_partial"] = True
             sys.stderr.write(
-                f"[record] cost_usd: no pricing row for {resolved_model!r}; "
+                f"[record] cost_usd: no usable price for {resolved_model!r} "
+                f"(missing row, or a row without the rate this step billed); "
                 f"recording usage with cost_partial\n"
             )
 
@@ -881,6 +882,7 @@ def _record_artifacts(
     step_id: str,
     contract: Any,
     outputs: dict[str, Any],
+    entry: dict[str, Any] | None = None,
 ) -> None:
     """Hash a completed step's declared artifacts onto its plan node (Phase 2.3).
 
@@ -916,6 +918,12 @@ def _record_artifacts(
             raise _RecordError(
                 {"error": "validate_failed", "step_id": step_id, "detail": str(exc)}, 3
             ) from exc
+
+    if recorded and entry is not None:
+        # gates.provenance() derives written_by/last_verdict from the history
+        # entry, so the same list has to land there too — the plan node only
+        # ever holds the *declaring* step, which is not who wrote it last.
+        entry["artifacts"] = recorded
 
     node = _find_workflow_node(state_raw, phase, step_id)
     if node is None:
@@ -962,7 +970,7 @@ def record(
 
     if status in ("completed", "recovered"):
         try:
-            _record_artifacts(state_raw, phase, step_id, contract, outputs)
+            _record_artifacts(state_raw, phase, step_id, contract, outputs, entry)
         except _RecordError as e:
             return (e.reason, e.code)
 
