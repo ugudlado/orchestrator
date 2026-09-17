@@ -3,7 +3,7 @@ name = "orchestrator"
 version = "0.1.0"
 description = "LLM-agnostic config-driven workflow engine"
 authors = [{ name = "Mahesh", email = "mahesh288@gmail.com" }]
-requires-python = ">=3.11"
+requires-python = ">=3.14"  # uuid.uuid7 (paths.new_run_id)
 dependencies = [
     "pyyaml>=6.0",
 ]
