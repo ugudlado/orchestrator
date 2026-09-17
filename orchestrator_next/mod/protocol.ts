@@ -54,13 +54,24 @@ export type AskPayload = {
   options?: string[]
 }
 
+/**
+ * The `payload` of a `status: needs_you, kind: judgment` dead end where a
+ * node was recorded `abandoned` and nothing downstream can run (protocol.py
+ * `step`'s `EXIT_NEEDS_YOU` branch). Unlike `AskPayload` there is no question
+ * to answer — only a retry (`reset-step`), an edit, or an abort.
+ */
+export type AbandonedPayload = {
+  reason: string
+  abandoned_step: string | null
+}
+
 /** One `orchestrator step --json` result. */
 export type StepResult = {
   status: StepStatus
   kind?: 'exec' | 'judgment' | 'gate' | null
   step_id?: string | null
   detail?: string
-  payload?: JudgmentPayload | GatePayload | AskPayload
+  payload?: JudgmentPayload | GatePayload | AskPayload | AbandonedPayload
 }
 
 /** `orchestrator start --json`: the run's identity plus its first step. */
@@ -250,6 +261,21 @@ export function askOf(result: StepResult): AskPayload | undefined {
   const payload = result.payload as AskPayload | undefined
 
   return typeof payload?.ask === 'string' ? payload : undefined
+}
+
+/**
+ * `payload` narrowed to an abandoned-step dead end, or undefined for
+ * anything else. Distinguished from `askOf` by `abandoned_step` rather than
+ * `ask`: this is a retry decision, not a question.
+ */
+export function abandonedOf(result: StepResult): AbandonedPayload | undefined {
+  if (result.status !== 'needs_you') {
+    return undefined
+  }
+
+  const payload = result.payload as AbandonedPayload | undefined
+
+  return typeof payload?.abandoned_step === 'string' ? payload : undefined
 }
 
 /** Parses a CLI verb's stdout, or throws with the stderr the process wrote. */

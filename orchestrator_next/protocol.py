@@ -481,12 +481,21 @@ def step(run_ref: str, *, user_direction: str = "") -> tuple[dict[str, Any], int
         if code == EXIT_NEEDS_YOU:
             # A node abandoned and nothing downstream can ever run. No `ask`:
             # the engine has no question, it has a dead end the human must
-            # resolve (re-run the step, edit the recipe, or abort).
+            # resolve (retry the step with `reset-step`, edit the recipe, or
+            # abort). `payload.abandoned_step` + `payload.reason` let a
+            # harness (the Claude Mod, the fallback skill) offer a retry
+            # without re-parsing `detail`.
+            abandoned_step = (action or {}).get("step_id")
+            reason = (action or {}).get("detail") or "step abandoned"
             return {
                 "status": "needs_you",
                 "kind": KIND_JUDGMENT,
-                "step_id": (action or {}).get("step_id"),
-                "detail": (action or {}).get("detail") or "step abandoned",
+                "step_id": abandoned_step,
+                "detail": reason,
+                "payload": {
+                    "reason": reason,
+                    "abandoned_step": abandoned_step,
+                },
             }, 0
         if code == EXIT_GATE_REQUIRED:
             # A human has to approve the gate before this step may run; the
@@ -929,6 +938,37 @@ def _append_gate_history(state_raw: dict[str, Any], record: dict[str, Any]) -> N
     history.append(entry)
 
 
+def reset_step(run_ref: str, step_id: str) -> tuple[dict[str, Any], int]:
+    """Reset ``step_id`` (and everything declared after it) back to pending.
+
+    Used to retry a run parked at ``needs_you`` because a judgment step was
+    recorded ``abandoned`` (e.g. the harness's spawn was refused) — there is
+    no automatic routing for that dead end, so a human decides to retry.
+    Clears the run's ``needs_you`` status back to ``active`` and returns the
+    next ``step`` result, exactly like `approve`/`resume`/`done` do.
+    """
+    from orchestrator_next.reset_step import reset_step as _reset_step_file
+
+    state_yaml_path = resolve_run(run_ref)
+    state = load_state(state_yaml_path)
+    _pin_config(state.raw)
+
+    try:
+        reset_ids = _reset_step_file(step_id, state_yaml_path)
+    except (ValueError, FileNotFoundError) as exc:
+        raise ProtocolError(str(exc)) from exc
+
+    _persist(state_yaml_path)
+
+    next_result, _ = step(state_yaml_path)
+    return {
+        "status": "ok",
+        "step_id": step_id,
+        "reset": reset_ids,
+        "next": next_result,
+    }, 0
+
+
 def cancel(run_ref: str) -> tuple[dict[str, Any], int]:
     """Abort a run: every pending gate is cancelled and the run is closed."""
     from orchestrator_next import gates
@@ -1121,6 +1161,12 @@ def main(verb: str, argv: list[str]) -> int:
             if not args:
                 raise ProtocolError("usage: orchestrator cancel <run>")
             result, code = cancel(args[0])
+        elif verb == "reset-step":
+            if len(args) < 2:
+                raise ProtocolError(
+                    "usage: orchestrator reset-step <run> <step_id> --json"
+                )
+            result, code = reset_step(args[0], args[1])
         elif verb == "status":
             if not args:
                 raise ProtocolError("usage: orchestrator status <run> --json")

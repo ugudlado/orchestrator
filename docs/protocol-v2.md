@@ -60,18 +60,19 @@ Headless (cron/CI): CLI runs the step itself with the same payload,
 
 Replaces `next` / `done` + exit codes 0-3.
 
-| Verb                        | Signature                                                         | Returns                                 |
-| --------------------------- | ----------------------------------------------------------------- | --------------------------------------- |
-| `start`                     | `orchestrator start <recipe> <slug> --inputs '{...}' --json`      | `{run_id, slug, next}`                  |
-| `step`                      | `orchestrator step <run> --json`                                  | `{status, kind, step_id, payload}`      |
-| `done`                      | `orchestrator done <run> <step_id> --out '{...}' --usage '{...}'` | ack                                     |
-| `approve`                   | `orchestrator approve <run> <token> [--edits '{...}']`            | resumes blocked run                     |
-| `resume`                    | `orchestrator resume <run> "<text>" --json`                       | answers an await_input step             |
-| `cancel`                    | `orchestrator cancel <run>`                                       | aborts run, cancels pending gates       |
-| `status`                    | `orchestrator status <run> --json`                                | nodes, attempts, artifacts, cost, gates |
-| `events`                    | `orchestrator events <run> --since <ts> --json`                   | event stream                            |
-| `validate`                  | `orchestrator validate <recipe> [--json]`                         | wiring, in/out, gates-before-writes     |
-| `doctor` / `graph` / `pack` | unchanged in spirit                                               | `pack --target claude\|codex` (Phase 4) |
+| Verb                        | Signature                                                         | Returns                                                     |
+| --------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------- |
+| `start`                     | `orchestrator start <recipe> <slug> --inputs '{...}' --json`      | `{run_id, slug, next}`                                      |
+| `step`                      | `orchestrator step <run> --json`                                  | `{status, kind, step_id, payload}`                          |
+| `done`                      | `orchestrator done <run> <step_id> --out '{...}' --usage '{...}'` | ack                                                         |
+| `approve`                   | `orchestrator approve <run> <token> [--edits '{...}']`            | resumes blocked run                                         |
+| `resume`                    | `orchestrator resume <run> "<text>" --json`                       | answers an await_input step                                 |
+| `cancel`                    | `orchestrator cancel <run>`                                       | aborts run, cancels pending gates                           |
+| `reset-step`                | `orchestrator reset-step <run> <step_id> --json`                  | retries an abandoned step; `{status, step_id, reset, next}` |
+| `status`                    | `orchestrator status <run> --json`                                | nodes, attempts, artifacts, cost, gates                     |
+| `events`                    | `orchestrator events <run> --since <ts> --json`                   | event stream                                                |
+| `validate`                  | `orchestrator validate <recipe> [--json]`                         | wiring, in/out, gates-before-writes                         |
+| `doctor` / `graph` / `pack` | unchanged in spirit                                               | `pack --target claude\|codex` (Phase 4)                     |
 
 `step` executes every consecutive exec step internally and returns only at a
 judgment or gate step — this minimizes subprocess spawns from the harness
@@ -192,8 +193,36 @@ against artifacts that do not exist). Routing then applies:
   exactly as a rejected verdict is;
 - otherwise the run parks at `status: needs_you` carrying
   `needs_you_reason: "<step> abandoned: <reason>"`, and `step` returns
-  `needs_you` with no `ask`. The engine has no question — it has a dead end
-  only a human can resolve.
+  `needs_you` with no `ask` but a `payload`:
+
+  ```json
+  {
+    "status": "needs_you",
+    "kind": "judgment",
+    "step_id": "design",
+    "detail": "design abandoned: no designable scope",
+    "payload": {
+      "reason": "design abandoned: no designable scope",
+      "abandoned_step": "design"
+    }
+  }
+  ```
+
+  The engine has no question — it has a dead end only a human can resolve:
+  retry the step, edit the recipe, or abort. `reset-step` is the retry path —
+  `orchestrator reset-step <run> <step_id> --json` resets the node (and every
+  node declared after it) back to `pending`, strips their `step_history`, and
+  flips the run's status from `needs_you` back to `active`, then returns the
+  same `{status, kind, step_id, payload}` shape as `step` under `next`:
+
+  ```json
+  {
+    "status": "ok",
+    "step_id": "design",
+    "reset": ["design", "design-review"],
+    "next": { "...": "..." }
+  }
+  ```
 
 A phase whose remaining nodes all sit behind an abandoned one reports
 `needs_you`, never `done`. Reporting success there would hand the harness a

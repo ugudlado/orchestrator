@@ -334,8 +334,16 @@ Drives a run end to end using the `orchestrator` CLI and the Agent tool.
      too). Then run:
      `orchestrator resume <run_id> "<answer>" --json`
      and loop back to step 2 with its result.
-   - `status: needs_you` with no `payload.ask` — stop and report to the user;
-     the engine can't proceed without a human decision.
+   - `status: needs_you` with `payload.abandoned_step` — a step was recorded
+     `abandoned` and nothing downstream can run. Use AskUserQuestion with
+     `payload.reason` and options `retry` / `cancel` / `leave`. On retry:
+     `orchestrator reset-step <run_id> <payload.abandoned_step> --json` and
+     loop back to step 2 with its `next`. On cancel:
+     `orchestrator cancel <run_id>`. On leave: stop and report the run is
+     parked, with both commands above as next steps.
+   - `status: needs_you` with no `payload.ask` and no `payload.abandoned_step`
+     — stop and report to the user; the engine can't proceed without a human
+     decision.
    - `status: done` — the run is complete; report the final artifacts.
    - `status: error` — stop and report the error.
 4. Loop back to step 2 until `status` is `done`, `needs_you`, or `error`.

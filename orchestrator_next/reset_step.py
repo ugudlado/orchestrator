@@ -1,5 +1,6 @@
 """
-orchestrator reset-step <step-id> <state.yaml>
+File-level reset primitive behind `orchestrator reset-step <run> <step-id>
+--json` (orchestrator_next/protocol.py `reset_step`).
 
 Resets a workflow step and all steps that depend on it (directly or transitively,
 by declaration order) back to pending. Strips their step_history entries so the
@@ -8,7 +9,12 @@ DAG walker treats them as not-yet-run.
 Used by review steps to send work back to an earlier step when the reviewer
 finds the artifacts insufficient.
 
-Public API: reset_step(step_id, state_yaml_path) -> None
+Public API: reset_step(step_id, state_yaml_path) -> list[str]
+
+Also reachable as the protocol-v2 verb `orchestrator reset-step <run> <step_id>
+--json` (orchestrator_next/protocol.py `reset_step`), which resolves ``<run>``
+through `resolve_run` (slug/run_id/state path) and returns the next `step`
+result.
 """
 from __future__ import annotations
 
@@ -81,8 +87,11 @@ def apply_dag_reset(
     return reset_ids_list
 
 
-def reset_step(step_id: str, state_yaml_path: str) -> None:
-    """Reset step_id and all subsequent nodes to pending; strip their step_history entries."""
+def reset_step(step_id: str, state_yaml_path: str) -> list[str]:
+    """Reset step_id and all subsequent nodes to pending; strip their step_history entries.
+
+    Returns the list of reset step ids (declaration order from target forward).
+    """
     path = Path(state_yaml_path)
 
     try:
@@ -91,8 +100,9 @@ def reset_step(step_id: str, state_yaml_path: str) -> None:
         raise ValueError(f"Failed to parse state.yaml: {exc}") from exc
 
     phase = str(state_raw.get("phase") or "implement")
-    apply_dag_reset(state_raw, phase, step_id)
+    reset_ids = apply_dag_reset(state_raw, phase, step_id)
     state_raw["status"] = "active"
+    state_raw.pop("needs_you_reason", None)
 
     tmp_path = path.with_suffix(".tmp")
     tmp_path.write_text(
@@ -100,3 +110,4 @@ def reset_step(step_id: str, state_yaml_path: str) -> None:
         encoding="utf-8",
     )
     os.replace(tmp_path, path)
+    return reset_ids

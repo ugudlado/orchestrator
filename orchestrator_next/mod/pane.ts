@@ -78,6 +78,12 @@ export type ParkedGate = {
   token: string
 }
 
+/** An abandoned step the run is parked at, waiting on a retry decision. */
+export type ParkedRetry = {
+  stepId: string
+  reason: string
+}
+
 /** Everything one drawing of the pane reads. */
 export type PaneModel = {
   /** The last `status --json` read, or null before the first one settled. */
@@ -90,6 +96,8 @@ export type PaneModel = {
   elapsedMs: number
   /** The gate awaiting an answer, when the run is parked at one. */
   gate: ParkedGate | null
+  /** The abandoned step awaiting a retry decision, when the run is parked at one. */
+  retry: ParkedRetry | null
   /** What to say when there is no run to draw. */
   note: string
 }
@@ -101,6 +109,7 @@ export const INITIAL_MODEL: PaneModel = Object.freeze({
   phase: 'running' as DriverPhase,
   elapsedMs: 0,
   gate: null,
+  retry: null,
   note: 'No run in this session. Ask for one, or run `/orchestrator status`.',
 })
 
@@ -178,11 +187,13 @@ export const isOnPaneSurface = <E extends Record<'surface', RenderSurface>>(
 export type PaneActions = {
   approve: () => void
   cancel: () => void
+  retry: () => void
 }
 
 /** The Button keys the pane draws, which `ui.press` names in `e.element`. */
 export const APPROVE_KEY = 'orchestrator-approve'
 export const CANCEL_KEY = 'orchestrator-cancel'
+export const RETRY_KEY = 'orchestrator-retry'
 
 /**
  * The pane's element tree.
@@ -244,12 +255,28 @@ export function paneView(
           }),
         ]
 
+  const retry =
+    model.retry === null
+      ? []
+      : [
+          Box({
+            key: 'retry',
+            flexDirection: 'row',
+            gap: 1,
+            children: [
+              Text({ children: `${model.retry.stepId} abandoned: ${model.retry.reason}` }),
+              Button({ key: RETRY_KEY, label: 'Retry', onPress: actions.retry }),
+            ],
+          }),
+        ]
+
   return Box({
     flexDirection: 'column',
     children: [
       Text({ bold: true, children: head }),
       nodes,
       ...gate,
+      ...retry,
       Text({ dimColor: true, children: footerTextOf(model) }),
     ],
   })

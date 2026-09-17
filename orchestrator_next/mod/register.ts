@@ -10,6 +10,7 @@ import {
   PANE_ID,
   PANE_TITLE,
   REFRESH_EVERY_MS,
+  RETRY_KEY,
   isOnPaneSurface,
   nodeLineOf,
   paneView,
@@ -19,6 +20,7 @@ import {
   type StatusJson,
 } from './pane'
 import {
+  abandonedOf,
   argsOf,
   askOf,
   gateOf,
@@ -29,6 +31,7 @@ import {
   promptOf,
   stringArg,
   usageOf,
+  type AbandonedPayload,
   type AskPayload,
   type GatePayload,
   type JudgmentPayload,
@@ -255,6 +258,9 @@ const pane = {
 
   /** Resolves the gate a Button press answers, when one is parked. */
   answerGate: null as null | ((answer: 'approve' | 'cancel') => void),
+
+  /** Resolves the abandoned-step Retry press, when one is parked. */
+  answerRetry: null as null | ((answer: 'retry' | 'cancel' | 'leave') => void),
 }
 
 /**
@@ -506,6 +512,7 @@ export function register(on: On) {
     return paneView({ Box, Text, Button }, pane.model, {
       approve: () => pane.answerGate?.('approve'),
       cancel: () => pane.answerGate?.('cancel'),
+      retry: () => pane.answerRetry?.('retry'),
     })
   })
 
@@ -516,6 +523,14 @@ export function register(on: On) {
     const result = await next(e)
 
     await refreshPane($, cliOf($), { gate: null })
+
+    return result
+  })
+
+  on('ui.press', { element: [RETRY_KEY] }, async ($, e, next) => {
+    const result = await next(e)
+
+    await refreshPane($, cliOf($), { retry: null })
 
     return result
   })
@@ -750,8 +765,9 @@ export function register(on: On) {
           state.waiting.clear()
         }
 
-        pane.model = { ...pane.model, phase: record.phase, gate: null }
+        pane.model = { ...pane.model, phase: record.phase, gate: null, retry: null }
         pane.answerGate = null
+        pane.answerRetry = null
 
         // The heartbeat belongs to a live driver; a finished one leaves the
         // pane up with its last reading rather than a timer polling forever.
@@ -838,6 +854,38 @@ async function drive(
           `  orchestrator resume ${start.slug} "<answer>" --json\n` +
           'then run this recipe on the same slug again to resume.'
         )
+      }
+
+      lastStderr = answered.stderr
+      result = answered.next
+
+      continue
+    }
+
+    const abandoned = abandonedOf(result)
+
+    if (abandoned) {
+      notify($, start.slug, 'needs_you', `${abandoned.abandoned_step ?? '-'} abandoned`)
+
+      const answered = await runRetry($, cli, run, abandoned)
+
+      if (answered === null) {
+        record.phase = 'needs_you'
+        notify($, start.slug, 'needs_you', `left standing at ${stepId ?? '-'}`)
+
+        return (
+          `orchestrator: ${start.slug} is parked at ${stepId ?? '-'} ` +
+          `(${abandoned.reason}); there is nobody to ask in this session, so ` +
+          'the run is left standing. Decide from a shell:\n' +
+          `  orchestrator reset-step ${start.slug} ${abandoned.abandoned_step ?? stepId ?? ''} --json   # retry\n` +
+          `  orchestrator cancel ${start.slug}                                    # give up`
+        )
+      }
+
+      if (answered === 'cancelled') {
+        record.phase = 'cancelled'
+
+        return `orchestrator: ${start.slug} cancelled at ${stepId ?? '-'} (${abandoned.reason}).`
       }
 
       lastStderr = answered.stderr
@@ -1107,6 +1155,88 @@ async function runGate(
   state.gateToken = null
 
   return advanced
+}
+
+/**
+ * Ask whether to retry a step the run parked at `needs_you` because it was
+ * recorded `abandoned` (e.g. `$.agent.spawn` was refused) — there is no
+ * routing for this dead end, only a human decision.
+ *
+ * `retry` resets the node (and everything declared after it) back to
+ * pending via `orchestrator reset-step` and returns the run's next step;
+ * `cancel` aborts the run; `leave`, a dialog rejection, or the pane closing
+ * with nobody answering all leave the run standing for a shell command,
+ * exactly like an unattended gate (`runGate`).
+ */
+async function runRetry(
+  $: EngineInterface,
+  cli: Cli,
+  run: string,
+  abandoned: AbandonedPayload,
+): Promise<{ next: StepResult; stderr: string } | null | 'cancelled'> {
+  const stepId = abandoned.abandoned_step ?? ''
+  const question = `${stepId} abandoned: ${abandoned.reason.slice(0, 200)}. Retry it?`
+
+  const answered = { byPress: false }
+
+  const pressed = new Promise<'retry' | 'cancel' | 'leave'>(resolve => {
+    pane.answerRetry = choice => {
+      answered.byPress = true
+      resolve(choice)
+    }
+  })
+
+  pane.model = {
+    ...pane.model,
+    retry: { stepId, reason: abandoned.reason },
+  }
+
+  $.ui.invalidate('ui.render')
+
+  const asked = $.ui
+    .ask(question, { options: ['retry', 'cancel', 'leave'], header: 'needs_you' })
+    .catch((error: unknown) => {
+      if (answered.byPress) {
+        return 'cancel'
+      }
+
+      throw error
+    })
+
+  let answer: string
+
+  try {
+    answer = await Promise.race([asked, pressed])
+  } catch {
+    pane.answerRetry = null
+    pane.model = { ...pane.model, retry: null }
+
+    return null
+  } finally {
+    pane.answerRetry = null
+  }
+
+  pane.model = { ...pane.model, retry: null }
+  $.ui.invalidate('ui.render')
+
+  if (answer === 'leave') {
+    return null
+  }
+
+  if (answer === 'cancel') {
+    await cli(['orchestrator', 'cancel', run, '--json'])
+
+    return 'cancelled'
+  }
+
+  if (stepId === '') {
+    // Nothing to reset — report the run standing rather than guess a step.
+    return null
+  }
+
+  const ran = await cli(['orchestrator', 'reset-step', run, stepId, '--json'])
+
+  return nextOf(cli, run, ran)
 }
 
 /**

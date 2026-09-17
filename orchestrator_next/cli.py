@@ -36,7 +36,8 @@ def _usage() -> None:
         "  orchestrator report --state <state.yaml> | --all [--repo PATH] [--json]\n"
         "  orchestrator graph <workflow> | orchestrator validate-workflow <workflow>\n"
         "  orchestrator state <list|show|migrate|project> | orchestrator pack …\n"
-        "  orchestrator reset-step <step-id> <state.yaml>\n"
+        "  orchestrator reset-step <run> <step-id> --json\n"
+        "      Retry a run parked at needs_you on an abandoned step.\n"
         "\n"
         "  --models-config PATH  Override models.yaml for this invocation\n"
         "                        (also: models.config=PATH)",
@@ -199,11 +200,10 @@ def main() -> None:
     _core_verbs = (
         # protocol v2 (docs/protocol-v2.md §3)
         "start", "step", "done", "status", "events", "approve", "cancel",
-        "resume",
+        "resume", "reset-step",
         "run", "headless",
         # inspection / admin
         "graph", "doctor", "validate-workflow", "report", "state", "pack",
-        "reset-step",
     )
     if not args or args[0] not in _core_verbs:
         _usage()
@@ -217,7 +217,7 @@ def main() -> None:
 
     # --- protocol v2 verbs (docs/protocol-v2.md §3) ------------------------
     if args[0] in ("start", "step", "done", "status", "events", "approve",
-                   "cancel", "resume"):
+                   "cancel", "resume", "reset-step"):
         from orchestrator_next.protocol import main as _protocol_main
         sys.exit(_protocol_main(args[0], args[1:]))
 
@@ -257,20 +257,6 @@ def main() -> None:
     # Read-only DAG-visibility verb — no state.yaml write.
     if args[0] == "graph":
         _graph_verb(args[1:])
-
-    # Reset a step and everything declared after it back to pending. Works on
-    # a v2 run: `orchestrator status <run>` prints the state path to pass here.
-    if args[0] == "reset-step":
-        if len(args) < 3:
-            print("usage: orchestrator reset-step <step-id> <state.yaml>", file=sys.stderr)
-            sys.exit(3)
-        from orchestrator_next.reset_step import reset_step as _reset_step
-        try:
-            _reset_step(args[1], args[2])
-        except (ValueError, FileNotFoundError) as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            sys.exit(3)
-        sys.exit(0)
 
     if args[0] == "validate-workflow":
         from orchestrator_next.validate_workflow import main as _vw_main
