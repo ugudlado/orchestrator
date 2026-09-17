@@ -277,13 +277,22 @@ def test_drive_reports_a_failed_step_as_abandoned(pack, repo):
             '```json\n{"status": "failed", "reason": "cannot proceed"}\n```')]),
     ])
     # `abandoned` skips out-validation (there is no output to validate) and
-    # does not re-open the node, so the run finishes rather than looping.
-    assert headless.drive(run, client=client) == 0
+    # does not re-open the node, so the run does not loop. It does NOT count
+    # as a completed run either: the step wrote none of its outputs, so drive
+    # parks at needs_you (exit 2) for a human instead of reporting success.
+    assert headless.drive(run, client=client) == 2
     assert len(client.messages.requests) == 1
 
     entries, _ = protocol.events(run)
     assert any(e["step_id"] == "think" and e["status"] == "abandoned"
                for e in entries)
+
+    result, _ = protocol.status(run)
+    think = next(n for n in result["nodes"] if n["id"] == "think")
+    assert think["status"] == "abandoned", (
+        "an abandoned step must not read as completed — dependents would run "
+        "against artifacts it never wrote"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -566,7 +575,8 @@ def test_drive_records_a_failed_cli_step_as_abandoned(pack, repo, monkeypatch):
                             _cli_result(structured_output={
                                 "status": "failed",
                                 "reason": "cannot proceed"})), stderr=""))
-    assert headless.drive(run, backend="claude-cli") == 0
+    # needs_you (2), not success: the step abandoned without writing outputs.
+    assert headless.drive(run, backend="claude-cli") == 2
 
     entries, _ = protocol.events(run)
     assert any(e["step_id"] == "think" and e["status"] == "abandoned"

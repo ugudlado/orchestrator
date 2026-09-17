@@ -6,9 +6,14 @@ only excludes `completed` nodes, so the node re-qualifies and `orchestrator next
 re-dispatches it infinitely.
 
 Expected behaviour after fix (T-2):
-  - abandoned record → node status in workflow_plan becomes `completed`
-  - abandoned record → state.status becomes `blocked`
   - after abandoned record, is_node_ready returns False for that node
+
+Corrected: the original fix terminated the node by marking it `completed`,
+which stopped the loop but made the node satisfy its dependents' depends_on.
+A step that abandoned wrote none of its out: artifacts, so the next step ran
+against files that did not exist. The node now gets the terminal status
+`abandoned`: never ready (no loop) and never completed (dependents stay
+blocked). state.status becomes `needs_you`, since no routing can recover it.
 """
 from __future__ import annotations
 
@@ -85,8 +90,8 @@ class TestAbandonedNodeFlip:
         empty.mkdir()
         monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(empty))
 
-    def test_abandoned_flips_node_to_completed(self, tmp_path):
-        """abandoned record → node status in workflow_plan must become `completed`."""
+    def test_abandoned_flips_node_to_terminal_abandoned(self, tmp_path):
+        """abandoned record → node status must become the terminal `abandoned`."""
         state_path = _state_with_in_progress_node(tmp_path)
         payload = {
             "step_id": "execute-next-task",
@@ -102,13 +107,14 @@ class TestAbandonedNodeFlip:
             state_raw = yaml.safe_load(f)
         nodes = state_raw["workflow_plan"]["implement"]["nodes"]
         node = next(n for n in nodes if n["id"] == "execute-next-task")
-        assert node["status"] == "completed", (
-            f"Expected node status 'completed' after abandoned record, got '{node['status']}'. "
-            "Bug: abandoned does not flip the node to completed, causing infinite re-dispatch."
+        assert node["status"] == "abandoned", (
+            f"Expected node status 'abandoned' after abandoned record, got '{node['status']}'. "
+            "It must be terminal (no infinite re-dispatch) but NOT completed "
+            "(dependents must not run against artifacts the step never wrote)."
         )
 
-    def test_abandoned_sets_state_status_blocked(self, tmp_path):
-        """abandoned record → state.status must become `blocked`."""
+    def test_abandoned_sets_state_status_needs_you(self, tmp_path):
+        """abandoned record with no on_failure → state.status must become `needs_you`."""
         state_path = _state_with_in_progress_node(tmp_path)
         payload = {
             "step_id": "execute-next-task",
@@ -121,8 +127,8 @@ class TestAbandonedNodeFlip:
 
         with open(state_path) as f:
             state_raw = yaml.safe_load(f)
-        assert state_raw.get("status") == "blocked", (
-            f"Expected state.status 'blocked', got '{state_raw.get('status')}'"
+        assert state_raw.get("status") == "needs_you", (
+            f"Expected state.status 'needs_you', got '{state_raw.get('status')}'"
         )
 
     def test_abandoned_node_is_not_ready_for_redispatch(self, tmp_path):

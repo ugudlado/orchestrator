@@ -374,6 +374,7 @@ def step(run_ref: str, *, user_direction: str = "") -> tuple[dict[str, Any], int
     """
     from orchestrator_next.dispatch import (
         EXIT_GATE_REQUIRED,
+        EXIT_NEEDS_YOU,
         ContractDispatchError,
         dispatch,
     )
@@ -413,6 +414,16 @@ def step(run_ref: str, *, user_direction: str = "") -> tuple[dict[str, Any], int
                 "kind": None,
                 "step_id": (action or {}).get("step_id"),
                 "detail": (action or {}).get("reason") or "blocked (signoff or halt)",
+            }, 0
+        if code == EXIT_NEEDS_YOU:
+            # A node abandoned and nothing downstream can ever run. No `ask`:
+            # the engine has no question, it has a dead end the human must
+            # resolve (re-run the step, edit the recipe, or abort).
+            return {
+                "status": "needs_you",
+                "kind": KIND_JUDGMENT,
+                "step_id": (action or {}).get("step_id"),
+                "detail": (action or {}).get("detail") or "step abandoned",
             }, 0
         if code == EXIT_GATE_REQUIRED:
             # A human has to approve the gate before this step may run; the

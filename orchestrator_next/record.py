@@ -591,11 +591,34 @@ def _apply_routing(
             # No on_failure edge or explicit halt. A *failed* deterministic script
             # (load-ticket-context, create-worktree, ...) must NOT read as completed:
             # a resume would then treat its dependents as ready and run them without
-            # the missing artifact. But `abandoned` must terminate as completed to
-            # stop infinite re-dispatch (ORC-75) — only `failed` flips the node.
-            node_status = "failed" if status == "failed" else "completed"
+            # the missing artifact.
+            #
+            # `abandoned` is the same hazard: a judgment step that gave up wrote
+            # none of its out: artifacts, so marking the node `completed` made
+            # its dependents ready and dispatched a reviewer step against files
+            # that do not exist — and the reviewer then wrote the artifact it
+            # was supposed to be reviewing, which a signoff gate previewed as
+            # genuine. It still must not re-dispatch forever (ORC-75), so it
+            # gets its own
+            # terminal node status: readiness treats `abandoned` as neither
+            # ready nor completed, which stops both the loop and the dependents.
+            node_status = {"failed": "failed", "abandoned": "abandoned"}.get(
+                status, "completed"
+            )
             readiness.mark_node_status(state_raw, phase, step_id, node_status)
-            state_raw["status"] = "blocked"
+            if status == "abandoned":
+                # A human has to decide what happens next: there is no routing
+                # to retry and no artifact to carry forward.
+                state_raw["status"] = "needs_you"
+                reason = ""
+                if isinstance(outputs, dict):
+                    reason = str(outputs.get("reason") or "").strip()
+                state_raw["needs_you_reason"] = (
+                    f"{step_id} abandoned: {reason}" if reason
+                    else f"{step_id} abandoned"
+                )
+            else:
+                state_raw["status"] = "blocked"
         elif routing.startswith(_DAG_RESET_PREFIX):
             from orchestrator_next.reset_step import apply_dag_reset
 

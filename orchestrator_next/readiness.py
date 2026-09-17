@@ -13,14 +13,20 @@ A plan node is an entry in `workflow_plan[phase].nodes`:
 Absent means no dependencies (the node is unconditionally ready once
 its predecessors complete, or immediately for the first node).
 
-A node is *ready* when it is not `completed` and every entry in its
-`depends_on` is `completed`.
+A node is *ready* when it is neither `completed` nor terminal-but-not-done
+(`abandoned` / `failed`), and every entry in its `depends_on` is `completed`.
 """
 from __future__ import annotations
 
 from typing import Any
 
 from orchestrator_next.parser import State, phase_nodes
+
+
+#: Node statuses that end the node without completing it. A node in one of
+#: these is never ready (no re-dispatch) and never satisfies a dependency
+#: (dependents stay blocked). `record._apply_routing` is what writes them.
+_TERMINAL_NOT_DONE = frozenset({"abandoned", "failed"})
 
 
 def _node_id(node: dict[str, Any]) -> str:
@@ -69,6 +75,12 @@ def _effective_node_status(state: State, node: dict[str, Any]) -> str:
         return "completed"
     if status == "reset":
         return "pending"
+    if status in _TERMINAL_NOT_DONE:
+        # The step ran and gave up (`abandoned`) or failed outright. It is not
+        # completed, so dependents stay blocked; it is not pending either, so
+        # it is never re-dispatched. Only a human (or an explicit reset) moves
+        # the run past it.
+        return status
     if _step_completed_in_history(state, _node_id(node)):
         return "completed"
     return str(status or "pending")
@@ -85,7 +97,8 @@ def _is_node_ready(
     node = by_id.get(node_id)
     if node is None:
         return False
-    if _effective_node_status(state, node) == "completed":
+    own = _effective_node_status(state, node)
+    if own == "completed" or own in _TERMINAL_NOT_DONE:
         return False
     for dep_id in effective_depends_on(nodes, node_id):
         dep = by_id.get(dep_id)
@@ -122,6 +135,20 @@ def ready_nodes(state: State, *, exclude_claimed: bool = False) -> list[str]:
         out = [nid for nid in out
                if str((by_id.get(nid) or {}).get("status") or "") != "in_progress"]
     return out
+
+
+def abandoned_nodes(state: State) -> list[str]:
+    """Every node in the current phase that ended `abandoned`, in plan order.
+
+    A non-empty result alongside an empty ready set means the phase is stuck,
+    not finished: the abandoned node never wrote its outputs, so its
+    dependents can never become ready.
+    """
+    return [
+        _node_id(n)
+        for n in phase_nodes(state, state.phase)
+        if n.get("status") == "abandoned"
+    ]
 
 
 def next_ready_node(state: State) -> str | None:

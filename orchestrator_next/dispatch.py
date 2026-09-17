@@ -64,6 +64,12 @@ def _step_in_plan(state, phase: str, step_id: str) -> bool:
 # gets its own code rather than being folded into exit 2 (halt).
 EXIT_GATE_REQUIRED = 4
 
+# The phase has no ready node, but it did not finish either: a node ended
+# `abandoned` and its dependents can never become ready. Exit 1 here would
+# tell the harness the run completed successfully, so a dead end gets its own
+# code and the human gets the abandoning step's reason.
+EXIT_NEEDS_YOU = 5
+
 
 class ContractDispatchError(RuntimeError):
     """Missing step contract or agent file on disk; run /doctor to diagnose."""
@@ -470,6 +476,17 @@ def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
             break
 
     if not ready:
+        abandoned = readiness.abandoned_nodes(state)
+        if abandoned:
+            # Not a finished run: some node gave up and everything downstream
+            # of it is permanently unreachable. Hand the human the reason it
+            # recorded rather than reporting success.
+            reason = str(state.raw.get("needs_you_reason") or "").strip()
+            return {
+                "step_id": abandoned[0],
+                "reason": "abandoned_dead_end",
+                "detail": reason or f"{abandoned[0]} abandoned",
+            }, EXIT_NEEDS_YOU
         return {}, 1
 
     return _dispatch_fresh(state, state_yaml_path, ready[0])
