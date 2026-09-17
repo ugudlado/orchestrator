@@ -121,3 +121,43 @@ class TestFailingVerdictRoutes:
         raw = yaml.safe_load(open(path).read())
         by_id = {n["id"]: n for n in raw["workflow_plan"]["main"]["nodes"]}
         assert by_id["review"]["status"] == "completed"
+
+
+class TestReworkIsNotSkippedAsUnchanged:
+    """A node reset for rework must re-run, not be skipped as idempotent.
+
+    `_skip_unchanged` exists so a *resume* does not redo work whose inputs and
+    outputs still hash the same. A node the router reset after a needs_work
+    verdict looks exactly like that — same files, recorded artifacts — so the
+    skip marked it completed and the run walked straight on to the signoff
+    gate, skipping the re-review the rework loop exists to perform.
+    """
+
+    def test_a_reset_node_is_not_skipped_as_unchanged(self, tmp_path, contracts,
+                                                      monkeypatch):
+        from orchestrator_next import dispatch as dispatch_mod
+
+        path = _write_state(tmp_path, [
+            {"id": "make", "status": "completed", "depends_on": []},
+            {"id": "review", "status": "reset", "depends_on": ["make"],
+             "on_failure": "make", "max_retries": 2,
+             "artifacts": [{"name": "design", "path": "design.md",
+                            "sha256": "abc"}]},
+            {"id": "ship", "status": "pending", "depends_on": ["review"]},
+        ])
+        # The point of the test is the reset, not the hashing: force the
+        # idempotency check to say "identical" so only the reset can save us.
+        monkeypatch.setattr(
+            "orchestrator_next.artifacts.node_is_unchanged",
+            lambda *a, **k: True,
+        )
+        state = load_state(path)
+        remaining, _ = dispatch_mod._skip_unchanged(
+            state, ["review"], path,
+        )
+        assert remaining == ["review"], (
+            "a node reset for rework must still be dispatched"
+        )
+        raw = yaml.safe_load(open(path).read())
+        by_id = {n["id"]: n for n in raw["workflow_plan"]["main"]["nodes"]}
+        assert by_id["review"]["status"] != "completed"

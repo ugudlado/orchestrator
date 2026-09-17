@@ -170,6 +170,14 @@ def _skip_unchanged(
         if not node or not node.get("artifacts"):
             remaining.append(step_id)
             continue
+        if node.get("status") == "reset":
+            # `reset` is the router saying "run this again" after a failure or
+            # a rejected verdict. The files are byte-identical to what the step
+            # last produced — that is precisely why it is being re-run — so the
+            # idempotency check would call it unchanged, mark it completed, and
+            # skip the re-review the rework loop exists to perform.
+            remaining.append(step_id)
+            continue
         try:
             contract = load_contract_for_step(step_id)
         except Exception:
