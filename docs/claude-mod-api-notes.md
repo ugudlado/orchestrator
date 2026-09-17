@@ -71,3 +71,36 @@ A `-p` prompt that returns immediately takes the driver down with it, and
 `$.ui.ask` rejects with nobody to ask, so a gate leaves the run standing for
 `orchestrator approve` from a shell. To exercise a `-p` run end to end, tell
 the agent to poll the status tool on a sleep so the session stays up.
+
+## The progress pane (`hooks/pane.ts`)
+
+Drawn by a `ui.render` hook on `{ component: 'Pane' }` matching
+`e.requestId === 'orchestrator'`. Verified against the d.ts:
+
+| API                                   | d.ts                      | Note                                                                                                                                                 |
+| ------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$.ui.open({id,title,closeOnEscape})` | 1955, `PaneOpenArgs` 4901 | One pane per id; an **unasked** open is parked undrawn below 144 columns, an asked one below 110 (4897-4899).                                        |
+| `$.ui.close({id})`                    | 1969                      | Raises `ui.close` with `e.origin` naming whose close it is.                                                                                          |
+| `$.ui.invalidate('ui.render')`        | 1853                      | Re-runs the cached render; the only way to redraw after a refresh.                                                                                   |
+| `$.ui.resolve(e)`                     | 1886                      | A read, not a dispatch. `Box`/`Text`/`Button` are **not** globals.                                                                                   |
+| `ElementConstructor`                  | 2707                      | `(props: P & ElementChildren) => RenderElement` — children are a **prop**, not variadic arguments.                                                   |
+| `BoxProps.key` / `ButtonProps.key`    | 518 / 641                 | `TextProps` (7832) has **no** `key`: a keyed `Text` is a tsc error.                                                                                  |
+| `ui.press`                            | `UiPressArgument` 8988    | `e.element` is the Button's `key`; core runs `onPress` **beneath** the hook chain (9021).                                                            |
+| `$.command.register`                  | `CommandSpec` 1359        | Takes `name`/`description`/`argumentHint`. It can reject when the name is taken, so the call is caught: a lost command must not take the tools down. |
+| `$.clock.every`                       | 2553, `TimerCall` 7886    | Returns a `Timer` with `.cancel()` — not a bare function (the `every` at 1097 is a `Client` instance's, a different noun).                           |
+| `$.ui.toast` / `$.ui.status`          | 1927 / 1938               | Transient line vs this plugin's pinned one. A pane opened with `holdToasts` **swallows** toasts until it closes, so this pane is opened without it.  |
+
+**Per-node cost is not in `status --json`.** `protocol.py`'s `status`
+projects only `id/phase/kind/status/attempts` onto each node; the model and
+`cost_usd` live in `step_history[].usage`, which only `orchestrator events
+<run> --json` returns raw. The pane therefore makes both calls and folds the
+event rows by `step_id` (last attempt wins the model, costs sum).
+`record.py` stamps `cost_partial` when a model has no pricing row, which is
+what the footer's `(partial)` reports.
+
+**The gate buttons and the approval dialog answer the same gate.** `runGate`
+races `$.ui.ask` against a promise the pane's `onPress` resolves, so a press
+and a dialog answer run one code path. The dialog that loses the race can
+still reject later (the surface tearing it down), so its rejection is
+swallowed once a press has won — otherwise it reads as an unattended run and
+would leave the gate standing after the person already approved it.

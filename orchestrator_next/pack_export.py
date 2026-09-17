@@ -344,7 +344,7 @@ MOD_DIR = Path(__file__).resolve().parent / "mod"
 
 # TypeScript sources copied verbatim from orchestrator_next/mod/ into
 # `hooks/` of the generated plugin.
-MOD_SOURCES = ("register.ts", "protocol.ts")
+MOD_SOURCES = ("register.ts", "protocol.ts", "pane.ts")
 
 # The type declarations `import type … from 'claude-code'` resolves against,
 # and the tsconfig that points at them. Both are emitted so `tsc -p <plugin>`
@@ -455,6 +455,22 @@ While a run is active, Edit/Write/NotebookEdit and `git commit` /
 `git push` are refused **inside the subagents this plugin spawned** until a
 gate is approved. Your own session is never gated, and a subagent started any
 other way is not either — the hook only knows the agent ids it spawned.
+
+## Progress pane
+
+While the mod drives a run it opens a side pane (`hooks/pane.ts` draws it)
+listing the run's nodes: a status glyph, the step id, its kind, its attempts,
+the model it ran on and what it cost. The header carries the slug, the short
+run id, the run status and the elapsed clock; the footer the total cost
+(marked `(partial)` when a step billed on a model with no pricing row), the
+run's phase and the driver's.
+
+It opens itself only when the terminal is wide enough (144 columns, the width
+below which the surface would park an unasked pane undrawn). Escape closes it,
+and `/orchestrator` toggles it back; `/orchestrator status` prints the same
+node list as text instead. When the run parks at a gate, the pane grows
+**Approve** / **Cancel** buttons that answer the very gate the approval dialog
+is asking about — whichever you use first wins.
 
 ## Typechecking the hooks
 

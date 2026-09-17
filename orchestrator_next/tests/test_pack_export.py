@@ -172,6 +172,32 @@ def test_generate_claude_emits_mod(fake_pack: Path, tmp_path: Path) -> None:
     assert "use orchestrator run with recipe feature slug orc-1" in readme
 
 
+def test_generate_claude_emits_progress_pane(fake_pack: Path, tmp_path: Path) -> None:
+    """The pane module ships with the mod, and the README documents it."""
+    out_dir = tmp_path / "out-pane"
+    files, _warnings = pack_export.generate_claude(fake_pack, out_dir)
+
+    # The manifest lists it, so a regenerate can clean it up again.
+    assert "pane.ts" in pack_export.MOD_SOURCES
+    assert "hooks/pane.ts" in files
+
+    manifest = json.loads((out_dir / pack_export.MANIFEST_NAME).read_text())
+    assert "hooks/pane.ts" in manifest["files"]
+
+    pane_ts = (out_dir / "hooks" / "pane.ts").read_text()
+    assert pane_ts == (pack_export.MOD_DIR / "pane.ts").read_text()
+    assert "export function paneView" in pane_ts
+
+    # `register.ts` is what loads it: hooks.json still names only that module.
+    hooks_json = json.loads((out_dir / "hooks" / "hooks.json").read_text())
+    assert hooks_json["modules"] == ["./register.ts"]
+    assert "from './pane'" in (out_dir / "hooks" / "register.ts").read_text()
+
+    readme = (out_dir / "README.md").read_text()
+    assert "## Progress pane" in readme
+    assert "/orchestrator" in readme
+
+
 @pytest.fixture
 def no_ambient_types(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

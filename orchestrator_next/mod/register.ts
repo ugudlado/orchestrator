@@ -1,6 +1,24 @@
 import type { EngineInterface, On } from 'claude-code'
 
 import {
+  APPROVE_KEY,
+  AUTO_OPEN_MIN_COLUMNS,
+  CANCEL_KEY,
+  COMMAND_NAME,
+  INITIAL_MODEL,
+  OPEN_MIN_COLUMNS,
+  PANE_ID,
+  PANE_TITLE,
+  REFRESH_EVERY_MS,
+  isOnPaneSurface,
+  nodeLineOf,
+  paneView,
+  type DriverPhase,
+  type NodeUsage,
+  type PaneModel,
+  type StatusJson,
+} from './pane'
+import {
   argsOf,
   askOf,
   gateOf,
@@ -169,6 +187,193 @@ const state = {
   plugin: '',
 }
 
+/**
+ * The progress pane's own state, beside `state` for the same reason: the
+ * engine follows `$` only into the hoisted top-level functions, so the
+ * refresh and the driver loop reach the pane through module scope.
+ */
+const pane = {
+  /** What the next drawing reads; `pane.ts` owns its shape. */
+  model: INITIAL_MODEL as PaneModel,
+
+  /** True between our `$.ui.open` and the close that went through. */
+  isOpen: false,
+
+  /** The terminal's width as last drawn; null before any drawing. */
+  columns: null as number | null,
+
+  /** Set once per run so a re-entered driver does not re-open a closed pane. */
+  hasAutoOpened: false,
+
+  /** When the live run started, for the elapsed clock. */
+  startedAt: 0,
+
+  /** The run `refresh` reads; null when no driver is live. */
+  run: null as string | null,
+
+  /** The 15s poll, cancelled when the last driver stops. */
+  ticker: null as null | { cancel: () => void },
+
+  /** Resolves the gate a Button press answers, when one is parked. */
+  answerGate: null as null | ((answer: 'approve' | 'cancel') => void),
+}
+
+/**
+ * Every popup this module raises, so each phase reads one way.
+ *
+ * `$.ui.toast` is the transient line under the prompt (claude-code.d.ts:1927)
+ * and `$.ui.status` this plugin's pinned one (claude-code.d.ts:1938). A pane
+ * opened with `holdToasts` would swallow these, so the pane is opened without
+ * it.
+ *
+ * @param $ the engine
+ * @param slug the run being reported
+ * @param phase what just happened
+ * @param detail a few extra words, when the phase has any
+ */
+function notify(
+  $: EngineInterface,
+  slug: string,
+  phase: DriverPhase | 'start' | 'gate' | 'ask',
+  detail = '',
+): void {
+  const tail = detail === '' ? '' : `: ${detail}`
+  const text = `orchestrator: ${slug} ${phase}${tail}`
+
+  $.ui.status(text)
+  $.ui.toast(text)
+}
+
+/**
+ * Re-read the CLI and redraw the pane.
+ *
+ * Two calls, because `status --json` carries no per-node model or cost:
+ * those live in `step_history[].usage`, which `events --json` returns raw
+ * (protocol.py `events`). A failure of either leaves the last good model up
+ * rather than blanking the pane mid-run.
+ *
+ * @param $ the engine
+ * @param cli the CLI runner
+ * @param patch anything the caller knows that the CLI does not (the gate)
+ */
+async function refreshPane(
+  $: EngineInterface,
+  cli: Cli,
+  patch: Partial<PaneModel> = {},
+): Promise<void> {
+  const run = pane.run
+
+  if (run !== null) {
+    const [status, events] = await Promise.all([
+      cli(['orchestrator', 'status', run, '--json']).catch(() => null),
+      cli(['orchestrator', 'events', run, '--json']).catch(() => null),
+    ])
+
+    const parsed = status === null ? null : safeJson<StatusJson>(status.stdout)
+
+    if (parsed !== null) {
+      pane.model = { ...pane.model, status: parsed }
+    }
+
+    const rows = events === null ? null : safeJson<unknown[]>(events.stdout)
+
+    if (rows !== null) {
+      pane.model = { ...pane.model, usage: usageByStepOf(rows) }
+    }
+  }
+
+  pane.model = {
+    ...pane.model,
+    elapsedMs: pane.startedAt === 0 ? 0 : Date.now() - pane.startedAt,
+    ...patch,
+  }
+
+  // `invalidate` re-runs the cached `ui.render` (claude-code.d.ts:1853).
+  $.ui.invalidate('ui.render')
+}
+
+/** `JSON.parse` that answers null rather than throwing on CLI noise. */
+function safeJson<T>(text: string): T | null {
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Per-node model and cost, folded out of `events --json` rows.
+ *
+ * The last attempt of a step wins its model; the costs of every attempt sum,
+ * so a step retried twice shows what it really billed. `cost_partial` is what
+ * `record.py` stamps when a model has no pricing row.
+ */
+function usageByStepOf(rows: readonly unknown[]): Map<string, NodeUsage> {
+  const out = new Map<string, NodeUsage>()
+
+  for (const row of rows) {
+    if (typeof row !== 'object' || row === null) {
+      continue
+    }
+
+    const entry = row as { step_id?: unknown; usage?: unknown }
+    const stepId = typeof entry.step_id === 'string' ? entry.step_id : ''
+    const usage = (entry.usage ?? {}) as Record<string, unknown>
+
+    if (stepId === '') {
+      continue
+    }
+
+    const prior = out.get(stepId)
+    const cost = typeof usage.cost_usd === 'number' ? usage.cost_usd : 0
+
+    out.set(stepId, {
+      model: typeof usage.model === 'string' ? usage.model : prior?.model ?? '',
+      costUsd: (prior?.costUsd ?? 0) + cost,
+      isPartial: prior?.isPartial === true || usage.cost_partial === true,
+    })
+  }
+
+  return out
+}
+
+/**
+ * Open the pane for a run that just started, when the terminal has the room.
+ *
+ * `$.ui.open` parks an unasked pane undrawn below 144 columns
+ * (claude-code.d.ts:4897), so a narrow terminal is left alone rather than
+ * handed an invisible pane; the person can still ask for it with
+ * `/orchestrator` once they widen.
+ */
+/**
+ * The CLI runner over an engine: the only kind of process this module starts.
+ *
+ * `$.process.run` answers `{ exitCode, stdout, stderr }`; the argv rides back
+ * with it so `parseJson` can name the call that produced unusable output.
+ */
+const cliOf =
+  ($: EngineInterface): Cli =>
+  async (argv, timeoutMs = 60_000) => {
+    const ran = await $.process.run(argv, { timeoutMs })
+
+    return { argv, ...ran }
+  }
+
+async function openPaneForRun($: EngineInterface, asked: boolean): Promise<void> {
+  const floor = asked ? OPEN_MIN_COLUMNS : AUTO_OPEN_MIN_COLUMNS
+
+  if (pane.columns !== null && pane.columns < floor) {
+    return
+  }
+
+  await $.ui
+    .open({ id: PANE_ID, title: PANE_TITLE, closeOnEscape: true })
+    .then(() => {
+      pane.isOpen = true
+    })
+    .catch(() => undefined)
+}
+
 export function register(on: On) {
   // --- tool registration ---------------------------------------------------
 
@@ -218,9 +423,124 @@ export function register(on: On) {
     state.served.status = statusTool.tool
     state.plugin = pluginOf(runTool.tool)
 
+    // `$.command.register` takes the slash command this plugin serves
+    // (CommandSpec, claude-code.d.ts:1359). It can reject when another
+    // plugin already holds the name, which must not take the tools down.
+    await $.command
+      .register({
+        name: COMMAND_NAME,
+        description: 'Show or hide the orchestrator progress pane.',
+        argumentHint: 'status',
+      })
+      .catch((error: unknown) => {
+        $.ui.log(`orchestrator: /${COMMAND_NAME} not registered: ${String(error)}`)
+      })
+
     $.ui.status('orchestrator: idle')
 
     return next(e)
+  })
+
+  // --- the progress pane ---------------------------------------------------
+
+  // The width the pane's own floors are judged against: `PromptHint` draws on
+  // every turn and carries the viewport (RenderInputOf, claude-code.d.ts:6237).
+  on('ui.render', { component: 'PromptHint' }, ($, e, next) => {
+    if (isOnPaneSurface(e)) {
+      pane.columns = e.viewport?.columns ?? pane.columns
+    }
+
+    return next(e)
+  })
+
+  on('ui.render', { component: 'Pane' }, async ($, e, next) => {
+    if (e.requestId !== PANE_ID || !isOnPaneSurface(e)) {
+      return next(e)
+    }
+
+    // A read, not a dispatch: the table is the surface's, never a global
+    // (claude-code.d.ts:1886).
+    const { Box, Text, Button } = await $.ui.resolve(e)
+
+    pane.columns = e.viewport?.columns ?? pane.columns
+
+    return paneView({ Box, Text, Button }, pane.model, {
+      approve: () => pane.answerGate?.('approve'),
+      cancel: () => pane.answerGate?.('cancel'),
+    })
+  })
+
+  // A press on one of the gate buttons: core runs the element's `onPress`
+  // beneath this hook (claude-code.d.ts:9021), so nothing is answered here —
+  // the hook only keeps the pane honest once the press has been taken.
+  on('ui.press', { element: [APPROVE_KEY, CANCEL_KEY] }, async ($, e, next) => {
+    const result = await next(e)
+
+    await refreshPane($, cliOf($), { gate: null })
+
+    return result
+  })
+
+  on('ui.close', { id: PANE_ID }, async ($, e, next) => {
+    const result = await next(e)
+
+    if (result.deny === undefined) {
+      pane.isOpen = false
+    }
+
+    return result
+  })
+
+  on('command.run', { command: COMMAND_NAME }, async ($, e, next) => {
+    pane.columns = e.presentation.columns
+
+    const argument = e.args.trim()
+
+    if (argument === 'status') {
+      const run = pane.run ?? state.active?.slug ?? state.active?.run ?? ''
+
+      if (run === '') {
+        return { text: 'orchestrator: no run in this session.' }
+      }
+
+      await refreshPane($, cliOf($))
+
+      const model = pane.model
+      const lines = (model.status?.nodes ?? []).map(node =>
+        nodeLineOf(node, model.usage.get(node.id)),
+      )
+
+      return {
+        text: [
+          `${model.status?.slug ?? run} · ${model.status?.run_status ?? '-'}`,
+          ...lines,
+        ].join('\n'),
+      }
+    }
+
+    if (pane.isOpen) {
+      await $.ui.close({ id: PANE_ID }).catch(() => undefined)
+      pane.isOpen = false
+
+      return { text: 'orchestrator: pane hidden.' }
+    }
+
+    if (pane.columns !== null && pane.columns < OPEN_MIN_COLUMNS) {
+      return {
+        text:
+          `orchestrator: the pane needs ${OPEN_MIN_COLUMNS} columns; this ` +
+          `terminal has ${pane.columns}.`,
+      }
+    }
+
+    await openPaneForRun($, true)
+    await refreshPane($, cliOf($))
+
+    // The command is this plugin's own, so there is no core run beneath it to
+    // pass to (`next` would find none): the answer is the hook's.
+    return pane.isOpen
+      ? { text: 'orchestrator: pane shown.' }
+      : { text: 'orchestrator: the surface declined to open the pane.' }
   })
 
   // --- write gating --------------------------------------------------------
@@ -269,12 +589,7 @@ export function register(on: On) {
       return next(e)
     }
 
-    const cli = async (argv: readonly string[], timeoutMs = 60_000) => {
-      const ran = await $.process.run(argv, { timeoutMs })
-
-      return { argv, ...ran }
-    }
-
+    const cli = cliOf($)
     const args = argsOf(e)
 
     if (e.tool === state.served.status) {
@@ -334,6 +649,28 @@ export function register(on: On) {
     state.active = { run: start.run_id, slug: start.slug }
     state.gateToken = null
 
+    pane.run = start.run_id
+    pane.startedAt = Date.now()
+    pane.model = { ...INITIAL_MODEL, phase: 'running' }
+    notify($, start.slug, 'start', `run ${start.run_id}`)
+
+    if (!pane.hasAutoOpened) {
+      pane.hasAutoOpened = true
+      await openPaneForRun($, false)
+    }
+
+    await refreshPane($, cli)
+
+    // `$.clock.every` keeps calling until its Timer is cancelled
+    // (TimerCall, claude-code.d.ts:2553/7886): the pane's own heartbeat, so the elapsed clock
+    // and any step the loop has not reported yet still land.
+    pane.ticker?.cancel()
+    pane.ticker = $.clock.every(REFRESH_EVERY_MS, () => {
+      if (pane.isOpen) {
+        void refreshPane($, cli).catch(() => undefined)
+      }
+    })
+
     const record: DriverRecord = {
       run: start.run_id,
       slug: start.slug,
@@ -373,8 +710,19 @@ export function register(on: On) {
           state.ours.clear()
           state.waiting.clear()
         }
-        $.ui.status(`orchestrator: ${start.slug} ${record.phase}`)
-        $.ui.toast(`orchestrator: ${start.slug} ${record.phase}`)
+
+        pane.model = { ...pane.model, phase: record.phase, gate: null }
+        pane.answerGate = null
+
+        // The heartbeat belongs to a live driver; a finished one leaves the
+        // pane up with its last reading rather than a timer polling forever.
+        if (state.active === null) {
+          pane.ticker?.cancel()
+          pane.ticker = null
+        }
+
+        void refreshPane($, cli).catch(() => undefined)
+        notify($, start.slug, record.phase)
       })
 
     drivers.set(start.slug, { record, done })
@@ -414,6 +762,10 @@ async function drive(
 
     $.ui.status(`orchestrator: ${start.slug} ${stepId ?? '-'} ${result.status}`)
 
+    // Every step the loop takes redraws the pane, so its node list tracks the
+    // run rather than waiting on the 15s heartbeat.
+    await refreshPane($, cli).catch(() => undefined)
+
     await $.store
       .set(`run:${start.slug}`, {
         run,
@@ -432,10 +784,13 @@ async function drive(
     const ask = askOf(result)
 
     if (ask) {
+      notify($, start.slug, 'ask', ask.ask)
+
       const answered = await runAsk($, cli, run, stepId, ask)
 
       if (answered === null) {
         record.phase = 'needs_you'
+        notify($, start.slug, 'needs_you', `unanswered at ${stepId ?? '-'}`)
 
         return (
           `orchestrator: ${start.slug} is waiting at ${stepId ?? '-'} ` +
@@ -454,6 +809,7 @@ async function drive(
 
     if (result.status === 'needs_you' || result.status === 'error') {
       record.phase = result.status
+      notify($, start.slug, result.status, stepId ?? '-')
 
       return (
         `orchestrator: ${start.slug} stopped (${result.status}).\n` +
@@ -476,6 +832,8 @@ async function drive(
     const gate = gateOf(result)
 
     if (gate) {
+      notify($, start.slug, 'gate', gate.step_id)
+
       const answered = await runGate($, cli, run, gate)
 
       lastStderr = answered.stderr
@@ -633,16 +991,61 @@ async function runGate(
   // same answer: a dismissal is a cancel, but an unattended run must leave
   // the gate standing for `orchestrator approve` from a shell rather than
   // destroy the run. Neither case is consent, so only the literal label is.
+  //
+  // The pane's Approve/Cancel Buttons answer the SAME gate: `pane.answerGate`
+  // settles this promise, so a press and the dialog run one code path and
+  // whichever comes first wins. `ui.press` runs the Button's `onPress`
+  // beneath the hook chain (claude-code.d.ts:9021).
+  // True once a Button press has answered: the dialog's own rejection after
+  // that is the surface tearing the dialog down, not an unattended run.
+  const answered = { byPress: false }
+
+  const pressed = new Promise<string>(resolve => {
+    pane.answerGate = choice => {
+      answered.byPress = true
+      resolve(choice)
+    }
+  })
+
+  pane.model = {
+    ...pane.model,
+    gate: {
+      stepId: gate.step_id,
+      token: gate.gate_token ?? gate.approve_as ?? gate.step_id,
+    },
+  }
+
+  $.ui.invalidate('ui.render')
+
+  // The loser of the race is never awaited, so a dialog that rejects after a
+  // press already won must not surface as an unhandled rejection.
+  const asked = $.ui
+    .ask(question, { options: ['approve', 'cancel'], header: 'gate' })
+    .catch((error: unknown) => {
+      if (answered.byPress) {
+        return 'cancel'
+      }
+
+      throw error
+    })
+
   let answer: string
 
   try {
-    answer = await $.ui.ask(question, {
-      options: ['approve', 'cancel'],
-      header: 'gate',
-    })
+    answer = await Promise.race([asked, pressed])
   } catch {
+    // A rejected dialog does not settle `pressed`: the gate stays pressable
+    // until the run is left standing, which is what an unattended run wants.
+    pane.answerGate = null
+    pane.model = { ...pane.model, gate: null }
+
     return { next: null, stderr: '', unattended: true }
+  } finally {
+    pane.answerGate = null
   }
+
+  pane.model = { ...pane.model, gate: null }
+  $.ui.invalidate('ui.render')
 
   if (answer !== 'approve') {
     const ran = await cli(['orchestrator', 'cancel', run, '--json'])
