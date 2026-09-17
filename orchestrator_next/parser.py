@@ -403,6 +403,26 @@ def _parse_io_map(step_id: str, key: str, value: Any) -> dict[str, dict]:
             raise ContractError(
                 f"step contract {step_id}: {key}.{name} type: enum requires values: [...]"
             )
+        if "fail_on" in spec:
+            # `fail_on:` names the enum values that mean the step's own
+            # judgment was negative (a review verdict of needs_work). Routing
+            # treats them as a failure and takes the node's on_failure edge, so
+            # they must be values the step can actually report.
+            if spec.get("type") != "enum":
+                raise ContractError(
+                    f"step contract {step_id}: {key}.{name} fail_on: "
+                    "requires type: enum"
+                )
+            if not isinstance(spec["fail_on"], list):
+                raise ContractError(
+                    f"step contract {step_id}: {key}.{name} fail_on: must be a list"
+                )
+            unknown = [v for v in spec["fail_on"] if v not in (spec.get("values") or [])]
+            if unknown:
+                raise ContractError(
+                    f"step contract {step_id}: {key}.{name} fail_on: {unknown} "
+                    f"not in values: {spec.get('values')}"
+                )
         parsed[str(name)] = dict(spec)
     return parsed
 

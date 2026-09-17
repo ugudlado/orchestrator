@@ -207,12 +207,40 @@ def _bump_failure_retries(step_id: str, node: dict[str, Any] | None, state_raw: 
     return None
 
 
+def failing_verdict(contract: Any, outputs: dict[str, Any] | None) -> str:
+    """The contract-declared negative verdict this payload reported, or "".
+
+    A judgment contract may mark enum outs with ``fail_on:``::
+
+        out:
+          verdict: {type: enum, values: [pass, needs_work], fail_on: [needs_work]}
+
+    A step that reports one of those values has judged its own subject
+    unacceptable. The step itself ran fine — it is `status: completed` — but
+    the *workflow* must not advance, or the next step consumes work the
+    reviewer just rejected. Routing therefore treats it as a failure and takes
+    the node's ``on_failure`` edge, bounded by ``max_retries``.
+    """
+    if not isinstance(outputs, dict):
+        return ""
+    for name, spec in (getattr(contract, "outputs", None) or {}).items():
+        fail_on = spec.get("fail_on")
+        if not isinstance(fail_on, list):
+            continue
+        value = outputs.get(name)
+        if value in fail_on:
+            return f"{name}={value}"
+    return ""
+
+
 def _resolve_routing(
     step_id: str,
     status: str,
     state_raw: dict[str, Any],
     phase: str,
     outputs: dict[str, Any] | None = None,
+    *,
+    verdict_failed: bool = False,
 ) -> str:
     """Determine where the workflow goes after a step completes.
 
@@ -230,7 +258,7 @@ def _resolve_routing(
          exhausted, escalate to halt_cap_exceeded.
       4. Default: "advance" on success, "halt" on failure.
     """
-    success = status in _SUCCESS_STATUSES
+    success = status in _SUCCESS_STATUSES and not verdict_failed
     node = _find_workflow_node(state_raw, phase, step_id)
 
     if not success and isinstance(outputs, dict):
@@ -574,6 +602,8 @@ def _apply_routing(
     status: str,
     state_raw: dict[str, Any],
     outputs: dict[str, Any] | None = None,
+    *,
+    verdict_failed: bool = False,
 ) -> None:
     """Set state_raw["status"] and flip workflow_plan node statuses per routing logic."""
     new_state_status = _STATUS_TO_STATE_STATUS.get(status)
@@ -581,7 +611,10 @@ def _apply_routing(
         state_raw["status"] = new_state_status
 
     if status in ("completed", "recovered", "abandoned", "failed"):
-        routing = _resolve_routing(step_id, status, state_raw, phase, outputs=outputs)
+        routing = _resolve_routing(
+            step_id, status, state_raw, phase, outputs=outputs,
+            verdict_failed=verdict_failed,
+        )
         if routing == _HALT_CAP_EXCEEDED:
             # Retry cap exhausted — rewrite entry to blocked so dispatch exits 2.
             readiness.mark_node_status(state_raw, phase, step_id, "completed")
@@ -602,20 +635,25 @@ def _apply_routing(
             # gets its own
             # terminal node status: readiness treats `abandoned` as neither
             # ready nor completed, which stops both the loop and the dependents.
+            #
+            # A `fail_on:` verdict with no on_failure edge is the same again:
+            # the reviewer rejected its subject, so the node must not read as
+            # completed even though the step itself ran to completion.
             node_status = {"failed": "failed", "abandoned": "abandoned"}.get(
-                status, "completed"
+                status, "abandoned" if verdict_failed else "completed"
             )
             readiness.mark_node_status(state_raw, phase, step_id, node_status)
-            if status == "abandoned":
+            if node_status == "abandoned":
                 # A human has to decide what happens next: there is no routing
-                # to retry and no artifact to carry forward.
+                # to retry and no usable artifact to carry forward.
                 state_raw["status"] = "needs_you"
                 reason = ""
                 if isinstance(outputs, dict):
                     reason = str(outputs.get("reason") or "").strip()
+                what = "abandoned" if status == "abandoned" else "rejected"
                 state_raw["needs_you_reason"] = (
-                    f"{step_id} abandoned: {reason}" if reason
-                    else f"{step_id} abandoned"
+                    f"{step_id} {what}: {reason}" if reason
+                    else f"{step_id} {what}"
                 )
             else:
                 state_raw["status"] = "blocked"
@@ -629,7 +667,9 @@ def _apply_routing(
             # Ensure the gate itself is pending so it re-runs after the fixer path.
             readiness.mark_node_status(state_raw, phase, step_id, "reset")
             state_raw["status"] = "active"
-        elif routing == "advance" or status in _SUCCESS_STATUSES:
+        elif routing == "advance" or (
+            status in _SUCCESS_STATUSES and not verdict_failed
+        ):
             # "advance", or routing is an explicit on_success target step_id
             # (e.g. review -> ticket-qa) — the step genuinely passed,
             # so mark it completed; next_ready_node() picks up the target via
@@ -926,7 +966,17 @@ def record(
         except _RecordError as e:
             return (e.reason, e.code)
 
-    _apply_routing(entry, step_id, phase, status, state_raw, outputs=outputs)
+    rejected = failing_verdict(contract, outputs)
+    if rejected:
+        sys.stderr.write(
+            f"[record] {step_id}: reported {rejected} (contract fail_on) — "
+            "routing as a failure\n"
+        )
+        entry["verdict_failed"] = rejected
+    _apply_routing(
+        entry, step_id, phase, status, state_raw, outputs=outputs,
+        verdict_failed=bool(rejected),
+    )
     if status == "await_input":
         # Do not advance: same step stays next until it returns completed.
         # Node is intentionally not marked completed in _apply_routing.
