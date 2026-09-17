@@ -303,7 +303,17 @@ def _cli_usage(data: dict[str, Any], model_id: str) -> dict[str, Any]:
     # modelUsage keys are the *actual* ids the run billed (a dated snapshot,
     # e.g. claude-haiku-4-5-20251001), which is what pricing wants; the alias
     # we asked for is the fallback.
-    reported = next(iter(model_usage), "") if isinstance(model_usage, dict) else ""
+    #
+    # It can hold several: Claude Code bills its own background sub-tasks to
+    # haiku alongside the model doing the work, in no meaningful order. Taking
+    # the first key charged a Fable step at haiku rates, so prefer the id we
+    # routed (matching the dated snapshot of the alias) and only fall back to
+    # an arbitrary key when the route is not represented at all.
+    reported = ""
+    if isinstance(model_usage, dict) and model_usage:
+        routed = [k for k in model_usage
+                  if str(k) == model_id or str(k).startswith(f"{model_id}-")]
+        reported = routed[0] if routed else next(iter(model_usage))
     usage = {
         "model": str(reported or model_id),
         "input_tokens": int(raw.get("input_tokens") or 0),
@@ -777,6 +787,15 @@ def run_headless_cmd(argv: list[str]) -> int:
         return 3
     print(json.dumps({k: v for k, v in started.items() if k != "next"},
                      sort_keys=True))
+    # `start` resumes a live slug instead of re-seeding, keeping the run's
+    # original `user_input`. Driving on would judge the *previous* ticket text
+    # under the new one's name, so refuse rather than spend a run on it.
+    if started.get("resumed") and inputs:
+        _log(f"{positionals[1]} is already a live run (resumed) — its inputs "
+             "are fixed at seed time, so --inputs would be ignored. Resume it "
+             f"with `orchestrator headless {positionals[1]}`, or start a new "
+             "slug to use these inputs.")
+        return 3
     try:
         return drive(started["state"], auto_approve=auto_approve,
                      backend=backend)

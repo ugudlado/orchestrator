@@ -593,3 +593,62 @@ def test_run_headless_rejects_an_unknown_backend_before_seeding(pack, monkeypatc
     monkeypatch.setattr(headless, "start", lambda *a, **k:
                         pytest.fail("start() must not run"))
     assert headless.run_headless_cmd(["mini", "h-run", "--backend", "gpt"]) == 3
+
+
+def test_resuming_a_live_slug_with_inputs_is_refused(monkeypatch, capsys):
+    """`run --headless` on an existing slug must not silently drop --inputs.
+
+    `start()` resumes a live slug rather than re-seeding, which is deliberate —
+    but it keeps the run's original `user_input`. A caller that passed a fresh
+    `--inputs` would otherwise watch the whole run judge the *previous* ticket
+    text with no warning, which is exactly how a real headless run spent real
+    money designing the wrong thing.
+    """
+    monkeypatch.setattr(headless, "resolve_backend", lambda requested=None: "claude-cli")
+    monkeypatch.setattr(headless, "start", lambda *a, **k: (
+        {"run_id": "r1", "slug": "hl-2", "state": "/tmp/s.yaml", "resumed": True,
+         "next": {}}, 0))
+    monkeypatch.setattr(headless, "drive", lambda *a, **k:
+                        pytest.fail("drive() must not run on a dropped-input resume"))
+
+    code = headless.run_headless_cmd(
+        ["mini", "hl-2", "--inputs", '{"ticket": "a new ticket"}'])
+
+    assert code == 3
+    assert "resum" in capsys.readouterr().err.lower()
+
+
+def test_resuming_a_live_slug_without_inputs_still_drives(monkeypatch):
+    """No `--inputs` means nothing can be dropped: the resume proceeds."""
+    monkeypatch.setattr(headless, "resolve_backend", lambda requested=None: "claude-cli")
+    monkeypatch.setattr(headless, "start", lambda *a, **k: (
+        {"run_id": "r1", "slug": "hl-2", "state": "/tmp/s.yaml", "resumed": True,
+         "next": {}}, 0))
+    monkeypatch.setattr(headless, "drive", lambda *a, **k: 0)
+
+    assert headless.run_headless_cmd(["mini", "hl-2"]) == 0
+
+
+def test_cli_judgment_picks_the_routed_model_out_of_several(monkeypatch):
+    """Claude Code bills background sub-tasks to haiku alongside the main model.
+
+    `modelUsage` is then a multi-key dict in no meaningful order, so taking its
+    first key attributed a Fable step's whole cost to haiku. A live hl-2 run
+    priced all four judgment steps at haiku rates this way. Prefer the model we
+    actually routed; only fall back to an arbitrary key when it is absent.
+    """
+    data = _cli_result(modelUsage={
+        "claude-haiku-4-5-20251001": {"inputTokens": 3},
+        "claude-sonnet-5-20250929": {"inputTokens": 12},
+    })
+    _fake_run(monkeypatch, data)
+    outcome = headless.run_judgment_cli(_cli_payload(), executable="claude")
+    assert outcome["usage"]["model"] == "claude-sonnet-5-20250929"
+
+
+def test_cli_judgment_keeps_a_billed_id_the_route_does_not_name(monkeypatch):
+    """An unrelated single key is still the billed id — keep reporting it."""
+    data = _cli_result(modelUsage={"claude-opus-5-20260101": {"inputTokens": 9}})
+    _fake_run(monkeypatch, data)
+    outcome = headless.run_judgment_cli(_cli_payload(), executable="claude")
+    assert outcome["usage"]["model"] == "claude-opus-5-20260101"
