@@ -837,7 +837,16 @@ def pack_export_cmd(argv: list[str]) -> int:
     if not out:
         from orchestrator_next.config_pull import tree_sha256
 
-        write_plugin_source_manifest(out_dir, pack_name, tree_sha256(pack_root))
+        # Hash the vendored copy at <repo_root>/.orchestrator/<pack_name>/ —
+        # the exact path `doctor.check_claude_plugin` recomputes against —
+        # not `pack_root`. They usually coincide, but `pack_root` can be
+        # redirected by ORCHESTRATOR_CONFIG (e.g. a dev checkout's own
+        # `config` symlink) to a same-named pack living elsewhere; hashing
+        # that would stamp the manifest with content doctor will never see
+        # again, making a fresh plugin look permanently stale.
+        vendored_pack_dir = repo_root / ".orchestrator" / pack_name
+        hash_source = vendored_pack_dir if vendored_pack_dir.is_dir() else pack_root
+        write_plugin_source_manifest(out_dir, pack_name, tree_sha256(hash_source))
 
     for w in warnings:
         print(f"warning: {w}", file=os.sys.stderr)

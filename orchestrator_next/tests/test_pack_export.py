@@ -314,6 +314,41 @@ def test_pack_export_cmd_end_to_end(fake_pack: Path, tmp_path: Path) -> None:
     assert (out_dir / ".claude-plugin" / "plugin.json").is_file()
 
 
+def test_pack_export_cmd_manifest_hashes_vendored_copy_not_pack_root(
+    fake_pack: Path, tmp_path: Path, monkeypatch
+) -> None:
+    """Manifest hash must match what `doctor` recomputes from the *vendored*
+    pack under <repo>/.orchestrator/<name>/, not from an unrelated `pack_root`
+    (e.g. a `ORCHESTRATOR_CONFIG`-redirected dev checkout that happens to
+    share the pack's folder name) — regression for the doctor false-positive
+    stale warning right after a fresh `pack --target claude`.
+    """
+    from orchestrator_next.doctor import check_claude_plugin
+
+    repo = tmp_path / "consumer-repo"
+    vendored = repo / ".orchestrator" / fake_pack.name
+    vendored.mkdir(parents=True)
+    (vendored / "workflows").mkdir()
+    (vendored / "workflows" / "feature.yaml").write_text("steps:\n  - design\n")
+    (vendored / "steps").mkdir()
+    _write_yaml(
+        vendored / "steps" / "design" / "contract.yaml",
+        {"id": "design", "version": 1, "kind": "judgment", "prompt": "SKILL.md"},
+    )
+    _write(vendored / "steps" / "design" / "SKILL.md", "---\nname: design\n---\n\n# Design\n")
+
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+    # `fake_pack` stands in for a same-named pack living somewhere else
+    # entirely (what ORCHESTRATOR_CONFIG can point pack_root at) — its content
+    # differs from the vendored copy above.
+    rc = pack_export.pack_export_cmd(["--target", "claude", str(fake_pack)])
+    assert rc == 0
+
+    result = check_claude_plugin(repo)
+    assert result.status == "PASS", result.detail
+    assert "fresh" in result.detail
+
+
 @pytest.mark.skipif(
     not (REAL_PACK / "steps" / "design" / "contract.yaml").is_file(),
     reason="local workflows pack not vendored in this checkout",
