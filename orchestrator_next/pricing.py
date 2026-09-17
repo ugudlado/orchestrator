@@ -56,12 +56,17 @@ def _load_pricing_table() -> dict[str, list]:
             eff = _dt.datetime.fromisoformat(str(eff_raw))
         except (ValueError, TypeError):
             eff = _dt.datetime(2000, 1, 1)
+        cache_creation_raw = row.get("cache_creation_usd")
         by_model.setdefault(mid, []).append((
             eff,
             float(row.get("input_usd") or 0),
             float(row.get("output_usd") or 0),
             float(row.get("cache_read_usd") or 0),
-            float(row.get("cache_creation_usd") or 0),
+            # cache_creation_usd is OPTIONAL: None means "rate not stated",
+            # distinct from an explicit 0.0 (free cache writes). Pricing a
+            # model whose cache-write rate isn't confirmed yet (e.g. the
+            # Fable/Mythos family) must not silently treat unstated as free.
+            None if cache_creation_raw is None else float(cache_creation_raw),
         ))
 
     # Sort each model's rows descending by effective_from
@@ -77,9 +82,11 @@ _DATED_MODEL_SUFFIX_RE = re.compile(r"-\d{8}$")
 def _lookup_price(model_id: str, effective_at: "_dt.datetime") -> dict | None:
     """Look up pricing rates for model_id from config/pricing.yaml.
 
-    Returns a dict with keys: input, output, cache_read, cache_creation (float, $/MTok).
-    Returns None if model_id has no row — an unpriced model records no cost rather
-    than borrowing another model's rates, which would invent a confident wrong number.
+    Returns a dict with keys: input, output, cache_read (float, $/MTok) and
+    cache_creation (float, $/MTok, or None if the row states no cache-write
+    rate — see _load_pricing_table). Returns None if model_id has no row at
+    all — an unpriced model records no cost rather than borrowing another
+    model's rates, which would invent a confident wrong number.
     """
     by_model = _load_pricing_table()
 
@@ -106,7 +113,7 @@ def _lookup_price(model_id: str, effective_at: "_dt.datetime") -> dict | None:
         "input": float(inp),
         "output": float(out),
         "cache_read": float(cr),
-        "cache_creation": float(cc),
+        "cache_creation": None if cc is None else float(cc),
     }
 
 
@@ -128,6 +135,15 @@ def _compute_cost_usd(
 
     Returns (model_id, cost_usd) or (model_id, None) if pricing unavailable,
     or (None, None) if usage carries no model.
+
+    When a model's row states no cache_creation_usd rate (see
+    _load_pricing_table): input/output/cache_read are still priced normally
+    ("price the four counts we can"). If cache_creation_input_tokens > 0 in
+    this usage, the true cost is unknown (some of the billed tokens have no
+    rate), so this returns (model_id, None) rather than a partial total that
+    looks complete — record.py's existing "no cost but billed tokens" path
+    then marks the entry cost_partial. If cache_creation tokens are 0 (or
+    absent), the missing rate never mattered and the priced total is exact.
     """
     model_id: str | None = usage.get("model") if isinstance(usage, dict) else None
 
@@ -154,11 +170,20 @@ def _compute_cost_usd(
     output_tokens = usage.get("output_tokens") or 0
     cache_read_tokens = usage.get("cache_read_input_tokens") or 0
     cache_creation_tokens = usage.get("cache_creation_input_tokens") or 0
+
+    if price["cache_creation"] is None and cache_creation_tokens > 0:
+        sys.stderr.write(
+            f"[record] pricing: {model_id!r} has no cache_creation_usd rate and "
+            f"billed {cache_creation_tokens} cache-write tokens; recording no cost\n"
+        )
+        return model_id, None
+
+    cache_creation_rate = price["cache_creation"] or 0.0
     cost = (
         input_tokens * price["input"] / 1_000_000
         + output_tokens * price["output"] / 1_000_000
         + cache_read_tokens * price["cache_read"] / 1_000_000
-        + cache_creation_tokens * price["cache_creation"] / 1_000_000
+        + cache_creation_tokens * cache_creation_rate / 1_000_000
     )
     return model_id, cost
 

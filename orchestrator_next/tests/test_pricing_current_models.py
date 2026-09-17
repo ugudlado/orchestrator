@@ -107,3 +107,33 @@ def test_claude_opus_4_1_has_no_price_entry_by_design():
     now = datetime.datetime(2026, 9, 17)
     assert _lookup_price("claude-opus-4-1", now) is None
     assert _lookup_price("claude-opus-4-1-20250805", now) is None
+
+
+@pytest.mark.parametrize("model_id", [
+    "claude-fable-5-1",
+    "claude-mythos-5-1",
+    "claude-fable-5",
+    "claude-mythos-5",
+])
+def test_fable_mythos_family_prices_without_cache_write_rate(model_id):
+    """claude-api skill states input/output/cache-read for this family but
+    never a cache-write rate — cache_creation_usd is optional in the schema
+    (missing, not 0.0) so a step that never bills cache-write tokens still
+    prices exactly from the other three counts."""
+    now = datetime.datetime(2026, 9, 17)
+    price = _lookup_price(model_id, now)
+    assert price is not None
+    assert price["input"] == 10.0
+    assert price["output"] == 50.0
+    assert price["cache_creation"] is None
+
+
+def test_sonnet_5_matches_claude_api_skill_current_models_table():
+    """Regression: this row used to carry a stale $3/$15 'list price' that
+    the claude-api skill's Current Models table does not state — it gives
+    $2.00/$10.00 for claude-sonnet-5 with no expiry."""
+    now = datetime.datetime(2026, 9, 17)
+    price = _lookup_price("claude-sonnet-5", now)
+    assert price is not None
+    assert price["input"] == 2.0
+    assert price["output"] == 10.0

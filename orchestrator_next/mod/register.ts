@@ -39,9 +39,13 @@ type Cli = (argv: readonly string[], timeoutMs?: number) => Promise<Ran>
  */
 
 /**
- * A pack's `models.yaml` tier alias to the `model` `$.agent.spawn` takes
- * (AgentSpawnInput.model, claude-code.d.ts:234: an alias or a full id).
- * Mirrors ALIAS_TO_CLAUDE_MODEL in pack_export.py.
+ * Fallback only: a pack's `models.yaml` tier alias to a Claude Code model
+ * alias (AgentSpawnInput.model, claude-code.d.ts:234: an alias or a full
+ * id), used when a step's payload carries no `model_id`. The normal path
+ * spawns on `payload.model_id` — the actual routed id (e.g. `claude-opus-5`)
+ * from models.yaml, resolved by the CLI (protocol.py `_step_model_id`) — so
+ * the subagent runs exactly the configured model and its usage.model lines
+ * up with pricing.yaml. Mirrors ALIAS_TO_CLAUDE_MODEL in pack_export.py.
  */
 const MODELS: Record<string, string> = {
   strong: 'opus',
@@ -500,7 +504,9 @@ async function runJudgment(
 
   const spawned = await $.agent.spawn({
     subagentType: agentTypeOf(stepId),
-    model: payload.model === undefined ? undefined : MODELS[payload.model],
+    model:
+      payload.model_id ||
+      (payload.model === undefined ? undefined : MODELS[payload.model]),
     cwd: payload.cwd,
     description: stepId,
     prompt: promptOf(payload),

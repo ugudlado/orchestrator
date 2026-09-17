@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import datetime as _dt
 
+import pytest
+
 from orchestrator_next.pricing import _compute_cost_usd, _lookup_price
 
 _NOW = _dt.datetime(2026, 7, 13)
@@ -38,6 +40,38 @@ def test_unpriced_model_yields_no_cost_not_a_guess():
     model_id, cost = _compute_cost_usd("developer", usage, now=_NOW)
     assert model_id == "no-such-model-xyz"
     assert cost is None  # not a __default__-rate fabrication
+
+
+def test_cache_write_without_a_rate_records_no_cost_not_a_partial_guess():
+    """A model priced for input/output/cache-read but with no stated
+    cache-write rate (e.g. claude-fable-5-1) must not silently treat a missing
+    rate as free. If the usage actually billed cache-write tokens, the true
+    cost is unknown -> no cost recorded (record.py then marks cost_partial)."""
+    usage = {
+        "model": "claude-fable-5-1",
+        "input_tokens": 1_000_000,
+        "output_tokens": 0,
+        "cache_creation_input_tokens": 1_000_000,
+    }
+    model_id, cost = _compute_cost_usd("developer", usage, now=_NOW)
+    assert model_id == "claude-fable-5-1"
+    assert cost is None
+
+
+def test_cache_write_absent_still_prices_the_other_three_counts():
+    """Same unrated-cache-write model, but this usage never billed a
+    cache-write token — the missing rate never mattered, so the other three
+    counts still price exactly."""
+    usage = {
+        "model": "claude-fable-5-1",
+        "input_tokens": 1_000_000,
+        "output_tokens": 1_000_000,
+        "cache_read_input_tokens": 1_000_000,
+        "cache_creation_input_tokens": 0,
+    }
+    model_id, cost = _compute_cost_usd("developer", usage, now=_NOW)
+    assert model_id == "claude-fable-5-1"
+    assert cost == pytest.approx(10.0 + 50.0 + 0.25)
 
 
 def test_every_routed_tier_has_a_price():

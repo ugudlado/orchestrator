@@ -26,12 +26,23 @@ import yaml
 MANIFEST_NAME = ".generated-manifest.json"
 
 # --- model alias -> agent frontmatter model (docs/claude-mod-api-notes.md,
-# plugin-dev:agent-development skill: model must be inherit/sonnet/opus/haiku) --
+# plugin-dev:agent-development skill: model must be inherit/sonnet/opus/haiku
+# — a full model id like claude-fable-5-1 is NOT a valid frontmatter value).
+# This mapping only decides what the generated agents/<step>.md's `model:`
+# frontmatter says; it has no effect on which model actually runs. At spawn
+# time the Claude Mod (register.ts) passes `model_id` — the real routed id
+# from models.yaml — as $.agent.spawn's `model`, which overrides frontmatter.
+# Keep every models.yaml alias/tier mapped here to the nearest of the four
+# frontmatter values so the generated file is never silently wrong even
+# though it's inert.
 ALIAS_TO_CLAUDE_MODEL = {
     "strong": "opus",
     "standard": "sonnet",
     "fast": "haiku",
     "code": "sonnet",
+    "fable": "opus",
+    "opus": "opus",
+    "sonnet": "sonnet",
 }
 
 # Contract `tools:` capability names -> Claude Code tool names. Unknown
