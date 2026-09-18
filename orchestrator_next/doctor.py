@@ -368,15 +368,17 @@ def check_settings() -> CheckResult:
         cfg = settings.load()
     except settings.SettingsError as exc:
         return CheckResult("settings", "FAIL", str(exc))
-    files = ", ".join(str(p) for p in cfg.files) or "none (defaults + env)"
+    files = ", ".join(str(p) for p in cfg.files)
     notes = []
     if cfg.unknown:
         notes.append("unknown keys: " + ", ".join(cfg.unknown))
     if cfg.deprecated:
         notes.append("deprecated " + ", ".join(cfg.deprecated)
                      + " — move [trust] into " + str(settings.global_file()))
+    if not cfg.files:
+        notes.append("no orchestrator.toml — run orchestrator init")
     if notes:
-        return CheckResult("settings", "WARN", f"{files}; " + "; ".join(notes))
+        return CheckResult("settings", "WARN", f"{files or 'none'}; " + "; ".join(notes))
     return CheckResult("settings", "PASS", files)
 
 

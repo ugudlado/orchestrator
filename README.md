@@ -18,6 +18,27 @@ orchestrator doctor
 
 Upgrade: `uv tool upgrade orchestrator`.
 
+## First run
+
+```bash
+orchestrator init
+```
+
+Asks a short set of questions on a TTY (state store, concurrency, headless
+backend and budget, backlog sync, trust list) — Enter keeps the shown
+default — and writes only the keys you changed to `~/.orchestrator/orchestrator.toml`
+(`--repo` writes `.orchestrator/orchestrator.toml` in the current repo
+instead). It then offers to pull a workflow pack if the repo has none yet,
+using the trust list it just wrote. Off a TTY, or with `--yes`, it writes the
+all-default template and skips the questions — safe for scripts and CI.
+`orchestrator config init` is kept as an alias for `init --yes`.
+
+Skipped `orchestrator init`? Every other verb prints a one-line reminder to
+stderr the first time it runs with no settings file anywhere in the layer
+chain; it never blocks. `orchestrator doctor` reports the same thing as a
+WARN. See [Settings](#settings) for what each key does and the full
+precedence chain.
+
 ## Trust a pack source
 
 A pulled pack carries shell scripts and agent charters that run against your

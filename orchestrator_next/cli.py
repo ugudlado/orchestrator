@@ -183,6 +183,10 @@ def main() -> None:
             print(exc, file=sys.stderr)
             sys.exit(2)
         sys.exit(0)
+    if args and args[0] == "init":
+        _default_repo_root_env()
+        from orchestrator_next.init_wizard import init_main
+        sys.exit(init_main(args[1:]))
     if args and args[0] == "config":
         sub = args[1] if len(args) > 1 else ""
         if sub == "pull":
@@ -191,7 +195,12 @@ def main() -> None:
         if sub == "update":
             from orchestrator_next.config_pull import update_main as _config_update_main
             sys.exit(_config_update_main(args[2:]))
-        if sub in ("show", "set", "init"):
+        if sub == "init":
+            # Alias: `config init` keeps working for scripts, as `init --yes`.
+            _default_repo_root_env()
+            from orchestrator_next.init_wizard import init_main
+            sys.exit(init_main([a for a in args[2:] if a != "--force"] + ["--yes"]))
+        if sub in ("show", "set"):
             # Settings read the repo file, which needs REPO_ROOT resolved.
             _default_repo_root_env()
             from orchestrator_next.settings_cli import settings_verb
@@ -217,6 +226,9 @@ def main() -> None:
     )
     if not args or args[0] not in _core_verbs:
         _usage()
+    if args[0] != "doctor":
+        from orchestrator_next.init_wizard import maybe_print_first_run_hint
+        maybe_print_first_run_hint()
     # Apply --models-config early so every verb that resolves routes sees it.
     verb, *rest = args
     rest = consume_models_config_argv(rest)

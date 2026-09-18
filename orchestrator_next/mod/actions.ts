@@ -65,9 +65,70 @@ export type ActionName =
   | 'retry'
   | 'resume'
   | 'status'
+  | 'init'
 
 const ok = (text: string): ActionResult => ({ ok: true, text })
 const failed = (text: string): ActionResult => ({ ok: false, text })
+
+/** `$.ui.ask(question, opts?)`: options where the mod has an enumerable
+ * choice, free text otherwise. `register.ts` passes the real `$.ui.ask`. */
+export type Ask = (question: string, options?: readonly string[]) => Promise<string>
+
+/** One `orchestrator init` question, mirroring `init_wizard.py`'s order. */
+const INIT_QUESTIONS: readonly { dotted: string; question: string; options?: string[] }[] = [
+  { dotted: 'run.max_parallel', question: 'Steps to run concurrently?' },
+  {
+    dotted: 'headless.backend',
+    question: 'Headless model backend? (blank = none)',
+    options: ['claude-cli', 'anthropic', 'blank'],
+  },
+  { dotted: 'headless.step_budget_usd', question: 'Per-step spend ceiling in USD? (0 = none)' },
+  { dotted: 'backlog.url', question: 'Backlog API base URL? (blank = skip ticket sync)' },
+  { dotted: 'trust.allow', question: 'Pack sources this machine may pull from (comma list)?' },
+  {
+    dotted: 'trust.require_signed',
+    question: 'Require a verifiable git signature on pulled packs?',
+    options: ['true', 'false'],
+  },
+]
+
+/**
+ * `/orchestrator init`: ask the CLI wizard's questions via `$.ui.ask`, then
+ * write only the answers that were not left blank. `orchestrator init --yes`
+ * runs first so a file exists (the all-default template if nothing was
+ * there); each non-blank answer is then applied with `config set --global`.
+ */
+export async function initWizard(cli: Cli, ask: Ask): Promise<ActionResult> {
+  const seeded = await cli(['orchestrator', 'init', '--yes'])
+
+  if (seeded.exitCode !== 0) {
+    return failed(`orchestrator: init failed: ${seeded.stderr || seeded.stdout}`)
+  }
+
+  const set: string[] = []
+
+  for (const q of INIT_QUESTIONS) {
+    const answer = (await ask(q.question, q.options).catch(() => '')).trim()
+
+    if (answer === '' || answer === 'blank') {
+      continue
+    }
+
+    const result = await cli(['orchestrator', 'config', 'set', q.dotted, answer, '--global'])
+
+    if (result.exitCode !== 0) {
+      return failed(`orchestrator: could not set ${q.dotted}: ${result.stderr || result.stdout}`)
+    }
+
+    set.push(q.dotted)
+  }
+
+  return ok(
+    set.length === 0
+      ? 'orchestrator: init wrote the default settings file.'
+      : `orchestrator: init set ${set.join(', ')}.`,
+  )
+}
 
 /**
  * `JSON.parse` that answers null rather than throwing on CLI noise.

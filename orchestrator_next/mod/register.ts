@@ -46,6 +46,7 @@ import {
   approve as approveAction,
   cancel as cancelAction,
   currentRun,
+  initWizard,
   listRecipes,
   listRuns,
   resume as resumeAction,
@@ -53,6 +54,7 @@ import {
   startRun,
   type ActionHost,
   type ActionResult,
+  type Ask,
   type Cli,
   type Ran,
 } from './actions'
@@ -788,6 +790,27 @@ async function openPaneForRun($: EngineInterface, asked: boolean): Promise<void>
     .catch(() => undefined)
 }
 
+/**
+ * Toast once (ever, tracked in `$.store`) that no `orchestrator.toml` exists
+ * yet. `config show --json` reports `files: []` when neither the machine nor
+ * the repo settings file is there — the same check the CLI's own hint uses.
+ */
+async function checkFirstRunHint($: EngineInterface): Promise<void> {
+  if (await $.store.get('initHintShown').catch(() => undefined)) {
+    return
+  }
+
+  const ran = await cliOf($)(['orchestrator', 'config', 'show', '--json']).catch(() => null)
+  const parsed = ran === null ? null : safeJson<{ files?: unknown[] }>(ran.stdout)
+
+  if (parsed !== null && Array.isArray(parsed.files) && parsed.files.length > 0) {
+    return
+  }
+
+  await $.store.set('initHintShown', true).catch(() => undefined)
+  $.ui.toast('orchestrator: run /orchestrator init to configure')
+}
+
 export function register(on: On) {
   // --- tool registration ---------------------------------------------------
 
@@ -846,13 +869,19 @@ export function register(on: On) {
       .register({
         name: COMMAND_NAME,
         description: 'Show or hide the orchestrator progress pane.',
-        argumentHint: 'status',
+        argumentHint: 'status|init',
       })
       .catch((error: unknown) => {
         $.ui.log(`orchestrator: /${COMMAND_NAME} not registered: ${String(error)}`)
       })
 
     $.ui.status('orchestrator: idle')
+
+    // Nudge toward `/orchestrator init` once, ever, per store — not once per
+    // session, since a toast on every session with no settings file yet
+    // would be noise. `initHintShown` is only set once the CLI itself
+    // confirms there is still no file to show it for.
+    void checkFirstRunHint($)
 
     return next(e)
   })
@@ -2212,6 +2241,13 @@ async function runCommand($: EngineInterface, argument: string): Promise<string>
     return await runsText($)
   }
 
+  if (verb === 'init') {
+    const ask: Ask = (question, options) =>
+      $.ui.ask(question, { header: 'orchestrator', ...(options ? { options } : {}) })
+
+    return (await initWizard(host.cli, ask)).text
+  }
+
   if (verb === 'home') {
     goHome($)
 
@@ -2225,7 +2261,7 @@ async function runCommand($: EngineInterface, argument: string): Promise<string>
   if (verb !== '') {
     return (
       `orchestrator: no verb "${verb}". Try: run, approve, cancel, retry, ` +
-      'resume <text>, status, runs, home, pane.'
+      'resume <text>, status, runs, home, pane, init.'
     )
   }
 

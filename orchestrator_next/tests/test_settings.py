@@ -338,11 +338,19 @@ def test_headless_backend_comes_from_the_file():
     assert headless.resolve_backend() == "anthropic"
 
 
+def test_doctor_settings_check_warns_when_no_settings_file_exists():
+    from orchestrator_next.doctor import check_settings
+
+    result = check_settings()
+    assert result.status == "WARN" and "run orchestrator init" in result.detail
+
+
 def test_doctor_settings_check_reports_files_and_unknown_keys():
     from orchestrator_next.doctor import check_settings
 
+    _write(settings.global_file(), "[run]\nmax_parallel = 2\n")
     assert check_settings().status == "PASS"
-    _write(settings.global_file(), "[run]\nwidgets = 1\n")
+    _write(settings.global_file(), "[run]\nmax_parallel = 2\nwidgets = 1\n")
     result = check_settings()
     assert result.status == "WARN" and "run.widgets" in result.detail
 

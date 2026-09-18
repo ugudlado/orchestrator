@@ -97,10 +97,15 @@ defaults < ~/.orchestrator/orchestrator.toml < <repo>/.orchestrator/orchestrator
 ```
 
 ```bash
-orchestrator config init                       # commented template
+orchestrator init                              # interactive wizard, writes only changed keys
+orchestrator config init                       # alias for `init --yes` — commented template
 orchestrator config set run.max_parallel 2     # --global for the machine file
 orchestrator config show [--json]              # every key + where it came from
 ```
+
+`orchestrator init` also offers to `config pull` a pack when the repo has none. Every other
+verb prints a one-line stderr hint (never blocking) when no `orchestrator.toml` exists yet;
+`doctor` reports the same as a WARN. The mod exposes the same wizard as `/orchestrator init`.
 
 Sections: `[state]` (`url`, `backend`, `tenant`), `[run]` (`max_parallel`,
 `stale_after_hours`, `disable_worktree_lock`), `[headless]` (`backend`,
