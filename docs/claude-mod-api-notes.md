@@ -134,3 +134,69 @@ and a dialog answer run one code path. The dialog that loses the race can
 still reject later (the surface tearing it down), so its rejection is
 swallowed once a press has won — otherwise it reads as an unattended run and
 would leave the gate standing after the person already approved it.
+
+## Making the mod the control surface (`hooks/actions.ts`)
+
+The mod used to need the chat for everything a person decides: a run started
+by asking the model to call the `run` tool, and anything that parked was
+unstuck with shell commands. Three surfaces now drive a run — the MCP tools,
+the `/orchestrator` command, and the pane's Buttons — and all three call the
+same six functions in `actions.ts` (`startRun`, `approve`, `cancel`, `retry`,
+`resume`, plus the `listRecipes`/`listRuns`/`currentRun` reads).
+
+`actions.ts` never touches `$`. `register.ts` passes an `ActionHost` holding
+the CLI runner, the active run, and the driver loop's two parked resolvers.
+That split matters for correctness, not just tidiness:
+
+**An action answers the parked loop first, the CLI second.** When a driver is
+awaiting its gate promise, `approve` settles THAT promise rather than calling
+`orchestrator approve` itself — a second approve behind the loop's back would
+consume the token the loop is about to use and leave it awaiting a gate that
+no longer exists. `answerGate`/`answerRetry` return false when nothing is
+parked, and only then does the action go to the CLI (which is how a run left
+standing by an earlier session is still approvable).
+
+**A listing verb must be shape-checked, not just parsed.** `safeJson(...) ?? []`
+is not enough: an older `orchestrator` on `$PATH` answers `status --json`
+with `{"status": "error", …}`, which parses fine into a non-array object and
+then throws `(...).filter is not a function` out of the `command.run` hook —
+where it surfaces as "registered /orchestrator but no command.run hook
+answered it", naming nothing useful. `rowsOf` checks `Array.isArray`, so a
+stale CLI degrades to an empty menu. Verified against 2.1.273: with the old
+wheel on PATH the command answers "no runs. Start one with `/orchestrator
+run`" instead of failing.
+
+### `$.command.register`'s `argumentHint` is the whole grammar
+
+One command carries every verb (`run`, `approve`, `cancel`, `retry`,
+`resume <text>`, `status`, `pane`); `command.run` gets them in `e.args` as
+typed and `runCommand` splits them. Bare `/orchestrator` is contextual: it
+toggles the pane when there is a run to look at, and opens the start wizard
+when there is not.
+
+### A dismissed popup must not take the decision with it
+
+`$.ui.ask` rejects both on dismissal and in `-p`. The loop used to treat that
+as the end of the road. Now the parked gate/question STAYS in the pane model
+when the dialog rejects, so the action row keeps offering the same choices, a
+toast says where to press, and `pane.answerGate` is dropped only because this
+loop stopped awaiting it — a later press then routes through `approve`, which
+approves the standing gate via the CLI. An unattended run is unchanged:
+nothing ever presses, and the run is left standing exactly as before.
+
+### Two new CLI verbs back the pickers
+
+`orchestrator recipes --json` lists every recipe in the resolved pack(s) with
+`{name, pack, steps, gates, inputs}` — `inputs` is what the wizard asks for
+beyond a slug, and `recipeRefOf` qualifies a name as `<pack>/<name>` only when
+it collides. `orchestrator status --json` with **no run** lists live runs
+(`{slug, run_id, run_status, recipe, current_step}`). `state list` was not
+reusable for this: it takes a store URL and prints a fixed-width table for a
+human at a shell.
+
+### Button keys carry data the press event does not
+
+`ui.press` reports only `e.element`, the Button's `key` (d.ts:8988), so an
+option Button encodes its index in its key (`orchestrator-option-<n>`) and
+`pressOf` reads the LABEL back out of the pane model. The `ui.press` matcher
+lists every key the row can draw, including all four option keys.

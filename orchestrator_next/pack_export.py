@@ -359,7 +359,7 @@ MOD_DIR = Path(__file__).resolve().parent / "mod"
 
 # TypeScript sources copied verbatim from orchestrator_next/mod/ into
 # `hooks/` of the generated plugin.
-MOD_SOURCES = ("register.ts", "protocol.ts", "pane.ts")
+MOD_SOURCES = ("register.ts", "protocol.ts", "pane.ts", "actions.ts")
 
 # The type declarations `import type … from 'claude-code'` resolves against,
 # and the tsconfig that points at them. Both are emitted so `tsc -p <plugin>`
@@ -471,7 +471,32 @@ While a run is active, Edit/Write/NotebookEdit and `git commit` /
 gate is approved. Your own session is never gated, and a subagent started any
 other way is not either — the hook only knows the agent ids it spawned.
 
-## Progress pane
+## Using the pane and /orchestrator
+
+You never have to type a run request into the chat. The pane and the
+`/orchestrator` command drive a run on their own, and both call exactly the
+same functions (`hooks/actions.ts`) the `run` tool does, so a verb means one
+thing however you reach for it.
+
+### The command
+
+| Command                                       | Does                                       |
+| --------------------------------------------- | ------------------------------------------ |
+| `/orchestrator`                               | toggles the pane; opens the wizard when nothing is running |
+| `/orchestrator run [recipe] [slug] [ticket…]` | starts a run, asking for whatever you left out |
+| `/orchestrator approve`                       | approves the gate the run is parked at     |
+| `/orchestrator cancel`                        | cancels the run                            |
+| `/orchestrator retry`                         | resets the abandoned step and carries on   |
+| `/orchestrator resume <text>`                 | answers the question the run is parked on  |
+| `/orchestrator status`                        | prints the node list (or every live run) as text |
+| `/orchestrator pane`                          | opens the pane                             |
+
+`/orchestrator run` with nothing after it is a wizard: it offers the recipes
+`orchestrator recipes --json` reports (four at a time, with **Other** for the
+rest), then asks for a slug and an optional ticket. Dismiss any popup and
+nothing is started.
+
+### The pane
 
 While the mod drives a run it opens a side pane (`hooks/pane.ts` draws it)
 listing the run's nodes: a status glyph, the step id, its kind, its attempts,
@@ -480,12 +505,25 @@ run id, the run status and the elapsed clock; the footer the total cost
 (marked `(partial)` when a step billed on a model with no pricing row), the
 run's phase and the driver's.
 
-It opens itself only when the terminal is wide enough (144 columns, the width
-below which the surface would park an unasked pane undrawn). Escape closes it,
-and `/orchestrator` toggles it back; `/orchestrator status` prints the same
-node list as text instead. When the run parks at a gate, the pane grows
-**Approve** / **Cancel** buttons that answer the very gate the approval dialog
-is asking about — whichever you use first wins.
+Along the bottom is an action row for whatever the run is doing right now:
+
+| The run is…                  | The pane offers                          |
+| ---------------------------- | ---------------------------------------- |
+| idle / finished              | **Start run** (or **Start another**), **Close** |
+| driving                      | **Cancel**                               |
+| parked at a gate             | **Approve**, **Cancel**                  |
+| parked on an abandoned step  | **Retry**, **Cancel**                    |
+| awaiting an answer           | one button per option (up to four), **Answer…**, **Cancel** |
+
+When the run is waiting on a question, the pane shows the question itself
+above the buttons. Dismissing the popup does **not** take the decision with
+it: the same buttons stay live in the pane, a toast says so, and
+`/orchestrator approve` (or `resume`, or `retry`) answers the same thing from
+the prompt. Whichever you use first wins.
+
+The pane opens itself only when the terminal is wide enough (144 columns, the
+width below which the surface would park an unasked pane undrawn). Escape
+closes it and `/orchestrator` toggles it back.
 
 ## Typechecking the hooks
 

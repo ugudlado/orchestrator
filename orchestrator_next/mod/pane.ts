@@ -98,6 +98,8 @@ export type PaneModel = {
   gate: ParkedGate | null
   /** The abandoned step awaiting a retry decision, when the run is parked at one. */
   retry: ParkedRetry | null
+  /** The question the run is parked on, when it is awaiting an answer. */
+  ask: ParkedAsk | null
   /** What to say when there is no run to draw. */
   note: string
 }
@@ -110,7 +112,8 @@ export const INITIAL_MODEL: PaneModel = Object.freeze({
   elapsedMs: 0,
   gate: null,
   retry: null,
-  note: 'No run in this session. Ask for one, or run `/orchestrator status`.',
+  ask: null,
+  note: 'No run yet. Press Start run, or type `/orchestrator run`.',
 })
 
 /** What the pane draws for each node status. */
@@ -188,12 +191,141 @@ export type PaneActions = {
   approve: () => void
   cancel: () => void
   retry: () => void
+  /** Start a run (the wizard), from the idle and finished rows. */
+  start: () => void
+  /** Answer the parked question with this exact option label. */
+  answer: (option: string) => void
+  /** Answer the parked question with free text, via a popup. */
+  answerOther: () => void
+  /** Hide the pane. */
+  close: () => void
 }
 
 /** The Button keys the pane draws, which `ui.press` names in `e.element`. */
 export const APPROVE_KEY = 'orchestrator-approve'
 export const CANCEL_KEY = 'orchestrator-cancel'
 export const RETRY_KEY = 'orchestrator-retry'
+export const START_KEY = 'orchestrator-start'
+export const ANSWER_KEY = 'orchestrator-answer'
+export const CLOSE_KEY = 'orchestrator-close'
+
+/**
+ * The key of the Button for the nth option of a parked question.
+ *
+ * `ui.press` addresses a Button by its `key` (claude-code.d.ts:643), so the
+ * index rides in the key and `register.ts` reads the label back out of the
+ * model rather than off the event.
+ */
+export const optionKeyOf = (index: number): string => `orchestrator-option-${index}`
+
+/** The option index a press names, or null when the key is not an option's. */
+export function optionIndexOf(key: string): number | null {
+  const match = /^orchestrator-option-(\d+)$/.exec(key)
+  const index = match?.[1]
+
+  return index === undefined ? null : Number(index)
+}
+
+/**
+ * The most options the pane draws as Buttons.
+ *
+ * Mirrors `$.ui.ask`'s own 2-4 option ceiling (claude-code.d.ts:1908-1909),
+ * so the pane and the popup offer the same choices; the rest are reachable
+ * through **Answer…**, whose free text `orchestrator resume` matches by
+ * label or 1-based index either way.
+ */
+export const MAX_OPTION_BUTTONS = 4
+
+/** A question the run is parked on, waiting for an answer. */
+export type ParkedAsk = {
+  question: string
+  options: readonly string[]
+}
+
+/** One Button in the contextual action row: its key and its label. */
+export type PaneAction = {
+  key: string
+  label: string
+}
+
+/**
+ * The action row for what the run is doing right now.
+ *
+ * This is the pane's whole point as a control surface: whatever the run is
+ * parked on, the thing to do about it is a Button at the bottom, so nothing
+ * has to be typed in chat. The row is derived rather than stored, so it can
+ * never disagree with the model the same drawing renders above it.
+ *
+ * Ordered most-parked-first, because a run can be both (a gate is only ever
+ * reached with no question outstanding, but the model is patched
+ * independently and the more specific prompt should win):
+ *
+ * | State                      | Buttons                                   |
+ * | -------------------------- | ----------------------------------------- |
+ * | awaiting an answer         | one per option (≤4) + Answer…  + Cancel   |
+ * | parked at a gate           | Approve, Cancel                           |
+ * | parked on an abandoned step| Retry, Cancel                             |
+ * | driving                    | Cancel                                    |
+ * | finished / no run          | Start run, Close                          |
+ */
+export function actionRowOf(model: PaneModel): readonly PaneAction[] {
+  if (model.ask !== null) {
+    return [
+      ...model.ask.options
+        .slice(0, MAX_OPTION_BUTTONS)
+        .map((label, index) => ({ key: optionKeyOf(index), label })),
+      { key: ANSWER_KEY, label: 'Answer…' },
+      { key: CANCEL_KEY, label: 'Cancel' },
+    ]
+  }
+
+  if (model.gate !== null) {
+    return [
+      { key: APPROVE_KEY, label: 'Approve' },
+      { key: CANCEL_KEY, label: 'Cancel' },
+    ]
+  }
+
+  if (model.retry !== null) {
+    return [
+      { key: RETRY_KEY, label: 'Retry' },
+      { key: CANCEL_KEY, label: 'Cancel' },
+    ]
+  }
+
+  // A finished run (however it finished) offers another one; only a run
+  // still being driven offers to stop.
+  if (model.status !== null && model.phase === 'running') {
+    return [{ key: CANCEL_KEY, label: 'Cancel' }]
+  }
+
+  return [
+    { key: START_KEY, label: model.status === null ? 'Start run' : 'Start another' },
+    { key: CLOSE_KEY, label: 'Close' },
+  ]
+}
+
+/**
+ * The line above the action row saying what is being asked, if anything.
+ *
+ * A parked question is the one state where the pane must carry text the run
+ * produced: the options alone do not say what they answer.
+ */
+export function promptTextOf(model: PaneModel): string {
+  if (model.ask !== null) {
+    return model.ask.question
+  }
+
+  if (model.gate !== null) {
+    return `gate ${model.gate.stepId}: approve to let the run write.`
+  }
+
+  if (model.retry !== null) {
+    return `${model.retry.stepId} abandoned: ${model.retry.reason}`
+  }
+
+  return ''
+}
 
 /**
  * The pane's element tree.
@@ -220,10 +352,29 @@ export function paneView(
   const { Box, Text, Button } = ui
   const { status } = model
 
+  // The row is drawn the same way whether or not a run has been read: an
+  // idle pane's Start button is what makes the pane a control surface rather
+  // than a readout, so it is built before the early return.
+  const row = Box({
+    key: 'actions',
+    flexDirection: 'row',
+    gap: 1,
+    children: actionRowOf(model).map(action =>
+      Button({
+        key: action.key,
+        label: action.label,
+        onPress: () => pressOf(model, actions, action.key),
+      }),
+    ),
+  })
+
+  const prompt = promptTextOf(model)
+  const promptLines = prompt === '' ? [] : [Text({ children: prompt })]
+
   if (status === null) {
     return Box({
       flexDirection: 'column',
-      children: Text({ dimColor: true, children: model.note }),
+      children: [Text({ dimColor: true, children: model.note }), row],
     })
   }
 
@@ -239,45 +390,54 @@ export function paneView(
     ),
   })
 
-  const gate =
-    model.gate === null
-      ? []
-      : [
-          Box({
-            key: 'gate',
-            flexDirection: 'row',
-            gap: 1,
-            children: [
-              Text({ children: `gate ${model.gate.stepId}:` }),
-              Button({ key: APPROVE_KEY, label: 'Approve', onPress: actions.approve }),
-              Button({ key: CANCEL_KEY, label: 'Cancel', onPress: actions.cancel }),
-            ],
-          }),
-        ]
-
-  const retry =
-    model.retry === null
-      ? []
-      : [
-          Box({
-            key: 'retry',
-            flexDirection: 'row',
-            gap: 1,
-            children: [
-              Text({ children: `${model.retry.stepId} abandoned: ${model.retry.reason}` }),
-              Button({ key: RETRY_KEY, label: 'Retry', onPress: actions.retry }),
-            ],
-          }),
-        ]
-
   return Box({
     flexDirection: 'column',
     children: [
       Text({ bold: true, children: head }),
       nodes,
-      ...gate,
-      ...retry,
+      ...promptLines,
+      row,
       Text({ dimColor: true, children: footerTextOf(model) }),
     ],
   })
+}
+
+/**
+ * Route a pressed Button's key to the action it stands for.
+ *
+ * Kept beside `actionRowOf` so a key added to the row cannot be added
+ * without a press to answer it. An option Button carries its index in its
+ * key, and the LABEL is read back out of the model here rather than off the
+ * event, because `ui.press` reports only the key (claude-code.d.ts:8988).
+ */
+export function pressOf(
+  model: PaneModel,
+  actions: PaneActions,
+  key: string,
+): void {
+  const optionIndex = optionIndexOf(key)
+
+  if (optionIndex !== null) {
+    const label = model.ask?.options[optionIndex]
+
+    if (label !== undefined) {
+      actions.answer(label)
+    }
+
+    return
+  }
+
+  if (key === APPROVE_KEY) {
+    actions.approve()
+  } else if (key === CANCEL_KEY) {
+    actions.cancel()
+  } else if (key === RETRY_KEY) {
+    actions.retry()
+  } else if (key === START_KEY) {
+    actions.start()
+  } else if (key === ANSWER_KEY) {
+    actions.answerOther()
+  } else if (key === CLOSE_KEY) {
+    actions.close()
+  }
 }

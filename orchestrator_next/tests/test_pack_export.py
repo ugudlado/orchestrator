@@ -194,7 +194,9 @@ def test_generate_claude_emits_progress_pane(fake_pack: Path, tmp_path: Path) ->
     assert "from './pane'" in (out_dir / "hooks" / "register.ts").read_text()
 
     readme = (out_dir / "README.md").read_text()
-    assert "## Progress pane" in readme
+    # The pane is documented under the controls section it now shares with
+    # the `/orchestrator` command, since the two drive a run together.
+    assert "### The pane" in readme
     assert "/orchestrator" in readme
 
 
@@ -542,3 +544,44 @@ def test_write_refuses_symlinked_directory_escape(tmp_path: Path) -> None:
     with pytest.raises(pack_export.PackExportError):
         pack_export._write_generated(out_dir, {"escape/evil.md": "pwned"})
     assert not (outside / "evil.md").exists()
+
+
+def test_generate_claude_emits_actions_module(fake_pack: Path, tmp_path: Path) -> None:
+    """The shared action layer ships with the mod.
+
+    `actions.ts` is the one place `start`/`approve`/`cancel`/`retry`/`resume`
+    live, so the `run` tool, the `/orchestrator` command and the pane's
+    Buttons all mean the same thing by each verb. A plugin missing it would
+    load a `register.ts` that cannot resolve its own imports.
+    """
+    out_dir = tmp_path / "out-actions"
+    files, _warnings = pack_export.generate_claude(fake_pack, out_dir)
+
+    assert "actions.ts" in pack_export.MOD_SOURCES
+    assert "hooks/actions.ts" in files
+
+    manifest = json.loads((out_dir / pack_export.MANIFEST_NAME).read_text())
+    assert "hooks/actions.ts" in manifest["files"]
+
+    actions_ts = (out_dir / "hooks" / "actions.ts").read_text()
+    assert actions_ts == (pack_export.MOD_DIR / "actions.ts").read_text()
+    for verb in ("startRun", "approve", "cancel", "retry", "resume"):
+        assert f"export async function {verb}" in actions_ts
+
+    # register.ts is what wires them to the three surfaces.
+    register_ts = (out_dir / "hooks" / "register.ts").read_text()
+    assert "from './actions'" in register_ts
+    assert "$.command.register" in register_ts or "command.register" in register_ts
+
+
+def test_generate_claude_readme_documents_the_controls(
+    fake_pack: Path, tmp_path: Path
+) -> None:
+    """The README tells a reader how to drive a run without typing in chat."""
+    out_dir = tmp_path / "out-readme"
+    pack_export.generate_claude(fake_pack, out_dir)
+
+    readme = (out_dir / "README.md").read_text()
+    assert "## Using the pane and /orchestrator" in readme
+    for verb in ("/orchestrator run", "/orchestrator approve", "/orchestrator status"):
+        assert verb in readme

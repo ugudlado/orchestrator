@@ -101,6 +101,47 @@ export type StepResult = {
   payload?: JudgmentPayload | GatePayload | AskPayload | AbandonedPayload
 }
 
+/**
+ * One row of `orchestrator recipes --json` (protocol.py `recipes`).
+ *
+ * `name` is startable as-is when it is unique across packs; when it is not,
+ * `<pack>/<name>` is what `resolve_workflow_ref` accepts. `inputs` is the
+ * recipe's own `inputs:` block, which tells the wizard what to ask beyond a
+ * slug. A recipe whose YAML would not load carries `error` and zero steps
+ * rather than being dropped from the listing.
+ */
+export type RecipeRow = {
+  name: string
+  pack: string
+  steps: number
+  gates: readonly string[]
+  inputs: Record<string, unknown>
+  error?: string
+}
+
+/** One row of `orchestrator status --json` with no run (protocol.py `runs`). */
+export type RunRow = {
+  run_id: string
+  slug: string
+  run_status: string
+  recipe: string
+  current_step: string | null
+}
+
+/**
+ * The CLI ref for a recipe row: the bare name, or `<pack>/<name>` when the
+ * same name lives in more than one pack (which is exactly when a bare ref
+ * raises `workflow … is not unique`).
+ */
+export function recipeRefOf(
+  row: RecipeRow,
+  rows: readonly RecipeRow[],
+): string {
+  const collides = rows.filter(other => other.name === row.name).length > 1
+
+  return collides ? `${row.pack}/${row.name}` : row.name
+}
+
 /** `orchestrator start --json`: the run's identity plus its first step. */
 export type StartResult = {
   run_id: string

@@ -1067,6 +1067,106 @@ def _kind_of(step_id: str) -> str:
     return getattr(contract, "kind", KIND_JUDGMENT)
 
 
+def recipes() -> tuple[list[dict[str, Any]], int]:
+    """Every recipe the resolved pack(s) offer, for a picker to choose from.
+
+    One row per workflow YAML found by ``paths.list_workflows`` — the same
+    index ``resolve_workflow_ref`` resolves a CLI ref against, so a ``name``
+    here is always startable, and ``pack`` disambiguates the ones that are not
+    unique (``<pack>/<name>``). ``steps`` counts the recipe's entries and
+    ``gates`` names its ``{gate: ...}`` ones; ``inputs`` is the recipe's own
+    ``inputs:`` block, which tells a wizard what to ask for beyond the slug.
+
+    Never raises for one unreadable YAML: a malformed recipe is reported with
+    an ``error`` field rather than taking the whole listing down, since the
+    caller is usually drawing a menu.
+    """
+    from orchestrator_next.paths import list_workflows
+
+    index = list_workflows()
+    out: list[dict[str, Any]] = []
+    for name in sorted(index):
+        for pack_name, root in sorted(index[name]):
+            row: dict[str, Any] = {"name": name, "pack": pack_name}
+            path = root / "workflows" / f"{name}.yaml"
+            try:
+                doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError) as exc:
+                out.append({**row, "steps": 0, "gates": [], "inputs": {},
+                            "error": str(exc)})
+                continue
+            if not isinstance(doc, dict):
+                out.append({**row, "steps": 0, "gates": [], "inputs": {},
+                            "error": "recipe is not a mapping"})
+                continue
+            entries = doc.get("steps") or []
+            entries = entries if isinstance(entries, list) else []
+            gate_ids = [
+                str(entry["gate"])
+                for entry in entries
+                if isinstance(entry, dict) and entry.get("gate")
+            ]
+            inputs = doc.get("inputs") or {}
+            out.append({
+                **row,
+                "steps": len(entries),
+                "gates": gate_ids,
+                "inputs": inputs if isinstance(inputs, dict) else {},
+            })
+    return out, 0
+
+
+def runs() -> tuple[list[dict[str, Any]], int]:
+    """Every live run in the store, newest state first — what `status` with no
+    run reports.
+
+    ``state list`` exists but answers a *store admin* question (it takes a
+    store URL, prints a fixed-width table, and reports schema/step counts), so
+    it is not what a picker can read. This is the run-identity projection the
+    mod needs: the fields it would otherwise call ``status`` once per run to
+    learn. A run whose state will not parse is skipped rather than raising,
+    for the same reason ``recipes`` tolerates a bad YAML.
+    """
+    from orchestrator_next.run_store import open_store
+
+    store = open_store()
+    out: list[dict[str, Any]] = []
+    for run_id in store.list_ids():
+        text = store.load(run_id)
+        if not text:
+            continue
+        try:
+            raw = yaml.safe_load(text) or {}
+        except yaml.YAMLError:
+            continue
+        if not isinstance(raw, dict):
+            continue
+        out.append({
+            "run_id": str(raw.get("run_id") or run_id),
+            "slug": str(raw.get("slug") or raw.get("change_id") or ""),
+            "run_status": str(raw.get("status") or "active"),
+            "recipe": str(raw.get("schema") or raw.get("workflow") or ""),
+            "current_step": _current_step_of(raw),
+        })
+    out.sort(key=lambda row: (row["run_status"] != "active", row["slug"]))
+    return out, 0
+
+
+def _current_step_of(raw: dict[str, Any]) -> str | None:
+    """The step a run stands at: the last one its history touched.
+
+    Read off ``step_history`` rather than the plan, because a node's
+    ``status`` says what happened to it, not which one the driver is on.
+    """
+    history = raw.get("step_history")
+    if not isinstance(history, list):
+        return None
+    for entry in reversed(history):
+        if isinstance(entry, dict) and entry.get("step_id"):
+            return str(entry["step_id"])
+    return None
+
+
 def events(run_ref: str, *, since: str = "") -> tuple[list[dict[str, Any]], int]:
     """Return step_history entries, optionally those at or after ``since``."""
     state_yaml_path = resolve_run(run_ref)
@@ -1167,9 +1267,19 @@ def main(verb: str, argv: list[str]) -> int:
                     "usage: orchestrator reset-step <run> <step_id> --json"
                 )
             result, code = reset_step(args[0], args[1])
+        elif verb == "recipes":
+            rows, code = recipes()
+            print(json.dumps(rows, sort_keys=True, indent=2, default=str))
+            return code
         elif verb == "status":
+            # No run named: report every live run instead of failing. This is
+            # what a picker asks first ("is anything running?"), and asking it
+            # used to mean `state list`, whose fixed-width table is for a
+            # human at a shell, not a caller.
             if not args:
-                raise ProtocolError("usage: orchestrator status <run> --json")
+                rows, code = runs()
+                print(json.dumps(rows, sort_keys=True, indent=2, default=str))
+                return code
             result, code = status(args[0])
         elif verb == "events":
             if not args:

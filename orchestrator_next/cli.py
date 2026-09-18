@@ -200,7 +200,7 @@ def main() -> None:
     _core_verbs = (
         # protocol v2 (docs/protocol-v2.md §3)
         "start", "step", "done", "status", "events", "approve", "cancel",
-        "resume", "reset-step",
+        "resume", "reset-step", "recipes",
         "run", "headless",
         # inspection / admin
         "graph", "doctor", "validate-workflow", "report", "state", "pack",
@@ -217,7 +217,7 @@ def main() -> None:
 
     # --- protocol v2 verbs (docs/protocol-v2.md §3) ------------------------
     if args[0] in ("start", "step", "done", "status", "events", "approve",
-                   "cancel", "resume", "reset-step"):
+                   "cancel", "resume", "reset-step", "recipes"):
         from orchestrator_next.protocol import main as _protocol_main
         sys.exit(_protocol_main(args[0], args[1:]))
 

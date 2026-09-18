@@ -1,24 +1,43 @@
 import type { EngineInterface, On } from 'claude-code'
 
 import {
+  ANSWER_KEY,
   APPROVE_KEY,
   AUTO_OPEN_MIN_COLUMNS,
   CANCEL_KEY,
+  CLOSE_KEY,
   COMMAND_NAME,
   INITIAL_MODEL,
+  MAX_OPTION_BUTTONS,
   OPEN_MIN_COLUMNS,
   PANE_ID,
   PANE_TITLE,
   REFRESH_EVERY_MS,
   RETRY_KEY,
+  START_KEY,
   isOnPaneSurface,
   nodeLineOf,
+  optionKeyOf,
   paneView,
   type DriverPhase,
   type NodeUsage,
   type PaneModel,
   type StatusJson,
 } from './pane'
+import {
+  approve as approveAction,
+  cancel as cancelAction,
+  currentRun,
+  listRecipes,
+  listRuns,
+  resume as resumeAction,
+  retry as retryAction,
+  startRun,
+  type ActionHost,
+  type ActionResult,
+  type Cli,
+  type Ran,
+} from './actions'
 import {
   abandonedOf,
   argsOf,
@@ -29,6 +48,7 @@ import {
   MODEL_FAMILY_TO_SPAWN_ALIAS,
   parseJson,
   promptOf,
+  recipeRefOf,
   stringArg,
   usageOf,
   type AbandonedPayload,
@@ -39,17 +59,6 @@ import {
   type StepResult,
   type UsageCounts,
 } from './protocol'
-
-/** One `$.process.run` of the `orchestrator` CLI, with the argv it used. */
-type Ran = {
-  argv: readonly string[]
-  exitCode: number
-  stdout: string
-  stderr: string
-}
-
-/** Runs the CLI: the only kind of process this module ever starts. */
-type Cli = (argv: readonly string[], timeoutMs?: number) => Promise<Ran>
 
 /**
  * The orchestrator Claude Mod: two tools (`run`, `status`) that drive a pack
@@ -261,6 +270,9 @@ const pane = {
 
   /** Resolves the abandoned-step Retry press, when one is parked. */
   answerRetry: null as null | ((answer: 'retry' | 'cancel' | 'leave') => void),
+
+  /** Resolves the parked question a pane option Button answers. */
+  answerAsk: null as null | ((answer: string) => void),
 }
 
 /**
@@ -404,6 +416,70 @@ const cliOf =
     return { argv, ...ran }
   }
 
+/**
+ * The `ActionHost` the shared actions run against.
+ *
+ * `answerGate` / `answerRetry` hand a decision to the driver loop when one is
+ * parked awaiting it, and report false when none is — which is what makes a
+ * Button press, a `/orchestrator approve`, and the approval dialog three ways
+ * of answering ONE gate rather than three racing approvals.
+ */
+function hostOf($: EngineInterface): ActionHost {
+  const cli = cliOf($)
+
+  return {
+    cli,
+    activeRun: () => state.active?.slug ?? state.active?.run ?? null,
+    answerGate: choice => {
+      const parked = pane.answerGate
+
+      if (parked === null) {
+        return false
+      }
+
+      parked(choice)
+
+      return true
+    },
+    answerRetry: choice => {
+      const parked = pane.answerRetry
+
+      if (parked === null) {
+        return false
+      }
+
+      parked(choice)
+
+      return true
+    },
+    start: (recipe, slug, inputs) => beginRun($, cli, recipe, slug, inputs),
+    refresh: () => refreshPane($, cli).catch(() => undefined),
+  }
+}
+
+/**
+ * Answer a parked question, however it was answered.
+ *
+ * A pane option Button and the `Answer…` popup both settle the promise
+ * `runAsk` is awaiting; with no loop parked the text goes to
+ * `orchestrator resume` instead, which is the same verb the loop would have
+ * called.
+ */
+async function answerAsk(
+  $: EngineInterface,
+  text: string,
+): Promise<ActionResult> {
+  const parked = pane.answerAsk
+
+  if (parked !== null) {
+    parked(text)
+
+    return { ok: true, text: `orchestrator: answered "${text}".` }
+  }
+
+  return resumeAction(hostOf($), text)
+}
+
 async function openPaneForRun($: EngineInterface, asked: boolean): Promise<void> {
   const floor = asked ? OPEN_MIN_COLUMNS : AUTO_OPEN_MIN_COLUMNS
 
@@ -509,31 +585,49 @@ export function register(on: On) {
 
     pane.columns = e.viewport?.columns ?? pane.columns
 
+    // Every Button routes through the SAME actions the tool and the command
+    // call, so "approve" means one thing however it was asked for. Each is
+    // fire-and-forget: `onPress` returns void (claude-code.d.ts:702), and the
+    // `ui.press` hook above redraws once the press has been taken.
     return paneView({ Box, Text, Button }, pane.model, {
-      approve: () => pane.answerGate?.('approve'),
-      cancel: () => pane.answerGate?.('cancel'),
-      retry: () => pane.answerRetry?.('retry'),
+      approve: () => void report($, 'approve', approveAction(hostOf($))),
+      cancel: () => void report($, 'cancel', cancelAction(hostOf($))),
+      retry: () => void report($, 'retry', retryAction(hostOf($))),
+      start: () => void report($, 'start', startWizard($, '')),
+      answer: option => void report($, 'resume', answerAsk($, option)),
+      answerOther: () => void report($, 'resume', askFreeText($)),
+      close: () => {
+        void $.ui.close({ id: PANE_ID }).catch(() => undefined)
+        pane.isOpen = false
+      },
     })
   })
 
-  // A press on one of the gate buttons: core runs the element's `onPress`
-  // beneath this hook (claude-code.d.ts:9021), so nothing is answered here —
-  // the hook only keeps the pane honest once the press has been taken.
-  on('ui.press', { element: [APPROVE_KEY, CANCEL_KEY] }, async ($, e, next) => {
-    const result = await next(e)
+  // Every Button the pane draws. Core runs the element's `onPress` beneath
+  // this hook (claude-code.d.ts:9021), which is where the action itself is
+  // dispatched; this hook only redraws once the press has been taken, so the
+  // row the person just used is replaced by the one for where the run now is.
+  on(
+    'ui.press',
+    {
+      element: [
+        APPROVE_KEY,
+        CANCEL_KEY,
+        RETRY_KEY,
+        START_KEY,
+        ANSWER_KEY,
+        CLOSE_KEY,
+        ...Array.from({ length: MAX_OPTION_BUTTONS }, (_v, i) => optionKeyOf(i)),
+      ],
+    },
+    async ($, e, next) => {
+      const result = await next(e)
 
-    await refreshPane($, cliOf($), { gate: null })
+      await refreshPane($, cliOf($))
 
-    return result
-  })
-
-  on('ui.press', { element: [RETRY_KEY] }, async ($, e, next) => {
-    const result = await next(e)
-
-    await refreshPane($, cliOf($), { retry: null })
-
-    return result
-  })
+      return result
+    },
+  )
 
   on('ui.close', { id: PANE_ID }, async ($, e, next) => {
     const result = await next(e)
@@ -548,53 +642,7 @@ export function register(on: On) {
   on('command.run', { command: COMMAND_NAME }, async ($, e, next) => {
     pane.columns = e.presentation.columns
 
-    const argument = e.args.trim()
-
-    if (argument === 'status') {
-      const run = pane.run ?? state.active?.slug ?? state.active?.run ?? ''
-
-      if (run === '') {
-        return { text: 'orchestrator: no run in this session.' }
-      }
-
-      await refreshPane($, cliOf($))
-
-      const model = pane.model
-      const lines = (model.status?.nodes ?? []).map(node =>
-        nodeLineOf(node, model.usage.get(node.id)),
-      )
-
-      return {
-        text: [
-          `${model.status?.slug ?? run} · ${model.status?.run_status ?? '-'}`,
-          ...lines,
-        ].join('\n'),
-      }
-    }
-
-    if (pane.isOpen) {
-      await $.ui.close({ id: PANE_ID }).catch(() => undefined)
-      pane.isOpen = false
-
-      return { text: 'orchestrator: pane hidden.' }
-    }
-
-    if (pane.columns !== null && pane.columns < OPEN_MIN_COLUMNS) {
-      return {
-        text:
-          `orchestrator: the pane needs ${OPEN_MIN_COLUMNS} columns; this ` +
-          `terminal has ${pane.columns}.`,
-      }
-    }
-
-    await openPaneForRun($, true)
-    await refreshPane($, cliOf($))
-
-    // The command is this plugin's own, so there is no core run beneath it to
-    // pass to (`next` would find none): the answer is the hook's.
-    return pane.isOpen
-      ? { text: 'orchestrator: pane shown.' }
-      : { text: 'orchestrator: the surface declined to open the pane.' }
+    return { text: await runCommand($, e.args.trim()) }
   })
 
   // --- write gating --------------------------------------------------------
@@ -674,122 +722,144 @@ export function register(on: On) {
       return { result: 'orchestrator: `recipe` and `slug` are both required.' }
     }
 
-    const startArgv = ['orchestrator', 'start', recipe, slug, '--json']
-
-    if (args.inputs !== undefined && args.inputs !== null) {
-      startArgv.push('--inputs', JSON.stringify(args.inputs))
-    }
-
-    const started = await cli(startArgv, STEP_TIMEOUT_MS)
-
-    let start: StartResult
-
-    try {
-      start = parseJson<StartResult>(started.argv, started)
-    } catch (error) {
-      return { result: `orchestrator start failed: ${String(error)}` }
-    }
-
-    const running = drivers.get(start.slug)
-
-    if (running !== undefined && running.record.phase === 'running') {
-      return {
-        result:
-          `orchestrator: ${start.slug} is already running (run ${start.run_id}), ` +
-          `at ${running.record.step ?? '-'}. Call the status tool for progress.`,
-      }
-    }
-
-    state.active = { run: start.run_id, slug: start.slug }
-    state.gateToken = null
-
-    pane.run = start.run_id
-    pane.startedAt = Date.now()
-    pane.model = { ...INITIAL_MODEL, phase: 'running' }
-    notify($, start.slug, 'start', `run ${start.run_id}`)
-
-    if (!pane.hasAutoOpened) {
-      pane.hasAutoOpened = true
-      await openPaneForRun($, false)
-    }
-
-    await refreshPane($, cli)
-
-    // `$.clock.every` keeps calling until its Timer is cancelled
-    // (TimerCall, claude-code.d.ts:2553/7886): the pane's own heartbeat, so the elapsed clock
-    // and any step the loop has not reported yet still land.
-    pane.ticker?.cancel()
-    pane.ticker = $.clock.every(REFRESH_EVERY_MS, () => {
-      if (pane.isOpen) {
-        void refreshPane($, cli).catch(() => undefined)
-      }
-    })
-
-    const record: DriverRecord = {
-      run: start.run_id,
-      slug: start.slug,
-      phase: 'running',
-      step: start.next.step_id ?? null,
-      detail: '',
-      startedAt: Date.now(),
-    }
-
-    // Unawaited on purpose: see `drivers`. The engine keeps the module's
-    // environment alive after the hook settles, so the loop goes on running
-    // (the subagent it spawns, and the CLI calls after it, are what the debug
-    // log shows continuing past the tool's return).
-    const done = drive($, cli, start, start.next, record)
-      .then(detail => {
-        record.detail = detail
-        if (record.phase === 'running') {
-          record.phase = 'done'
-        }
-      })
-      .catch((error: unknown) => {
-        record.phase = 'error'
-        record.detail = `orchestrator: ${start.slug} driver failed: ${String(error)}`
-      })
-      .finally(() => {
-        // A finished run leaves its record in `drivers` for `status` to read;
-        // only the session-wide switches are cleared.
-        if (state.active?.slug === start.slug) {
-          state.active = null
-        }
-        state.gateToken = null
-        // The spawn bookkeeping is per-run: every agent this loop waited on has
-        // settled by now, so dropping it keeps a long session from growing a
-        // map of dead agent ids. Not cleared while another run is live, since
-        // the sets are shared and that run still needs its own entries.
-        if (state.active === null) {
-          state.ours.clear()
-          state.waiting.clear()
-        }
-
-        pane.model = { ...pane.model, phase: record.phase, gate: null, retry: null }
-        pane.answerGate = null
-        pane.answerRetry = null
-
-        // The heartbeat belongs to a live driver; a finished one leaves the
-        // pane up with its last reading rather than a timer polling forever.
-        if (state.active === null) {
-          pane.ticker?.cancel()
-          pane.ticker = null
-        }
-
-        void refreshPane($, cli).catch(() => undefined)
-        notify($, start.slug, record.phase)
-      })
-
-    drivers.set(start.slug, { record, done })
+    const inputs =
+      typeof args.inputs === 'object' && args.inputs !== null
+        ? (args.inputs as Record<string, unknown>)
+        : undefined
 
     return {
-      result:
-        `orchestrator: run ${start.slug} started (run_id ${start.run_id}).\n` +
-        'It is driving in the background: progress shows in the status line, ' +
-        'gates will prompt you, and a toast lands when it finishes. Call the ' +
-        'status tool for where it stands.',
+      result: await beginRun($, cli, recipe, slug, inputs).catch(
+        (error: unknown) => `orchestrator start failed: ${String(error)}`,
+      ),
     }
   })
+}
+
+/**
+ * Seed a run and kick its background driver off, returning what to report.
+ *
+ * The `run` tool, the `/orchestrator run` wizard and the pane's **Start run**
+ * button all land here, so a run started any of those three ways is the same
+ * run with the same driver, pane and heartbeat.
+ */
+async function beginRun(
+  $: EngineInterface,
+  cli: Cli,
+  recipe: string,
+  slug: string,
+  inputs?: Record<string, unknown>,
+): Promise<string> {
+  const startArgv = ['orchestrator', 'start', recipe, slug, '--json']
+
+  if (inputs !== undefined) {
+    startArgv.push('--inputs', JSON.stringify(inputs))
+  }
+
+  const started = await cli(startArgv, STEP_TIMEOUT_MS)
+  const start = parseJson<StartResult>(started.argv, started)
+  const running = drivers.get(start.slug)
+
+  if (running !== undefined && running.record.phase === 'running') {
+    return (
+      `orchestrator: ${start.slug} is already running (run ${start.run_id}), ` +
+      `at ${running.record.step ?? '-'}. Call the status tool for progress.`
+    )
+  }
+
+  state.active = { run: start.run_id, slug: start.slug }
+  state.gateToken = null
+
+  pane.run = start.run_id
+  pane.startedAt = Date.now()
+  pane.model = { ...INITIAL_MODEL, phase: 'running' }
+  notify($, start.slug, 'start', `run ${start.run_id}`)
+
+  if (!pane.hasAutoOpened) {
+    pane.hasAutoOpened = true
+    await openPaneForRun($, false)
+  }
+
+  await refreshPane($, cli)
+
+  // `$.clock.every` keeps calling until its Timer is cancelled
+  // (TimerCall, claude-code.d.ts:2553/7886): the pane's own heartbeat, so the
+  // elapsed clock and any step the loop has not reported yet still land.
+  pane.ticker?.cancel()
+  pane.ticker = $.clock.every(REFRESH_EVERY_MS, () => {
+    if (pane.isOpen) {
+      void refreshPane($, cli).catch(() => undefined)
+    }
+  })
+
+  const record: DriverRecord = {
+    run: start.run_id,
+    slug: start.slug,
+    phase: 'running',
+    step: start.next.step_id ?? null,
+    detail: '',
+    startedAt: Date.now(),
+  }
+
+  // Unawaited on purpose: see `drivers`. The engine keeps the module's
+  // environment alive after the hook settles, so the loop goes on running
+  // (the subagent it spawns, and the CLI calls after it, are what the debug
+  // log shows continuing past the tool's return).
+  const done = drive($, cli, start, start.next, record)
+    .then(detail => {
+      record.detail = detail
+      if (record.phase === 'running') {
+        record.phase = 'done'
+      }
+    })
+    .catch((error: unknown) => {
+      record.phase = 'error'
+      record.detail = `orchestrator: ${start.slug} driver failed: ${String(error)}`
+    })
+    .finally(() => {
+      // A finished run leaves its record in `drivers` for `status` to read;
+      // only the session-wide switches are cleared.
+      if (state.active?.slug === start.slug) {
+        state.active = null
+      }
+      state.gateToken = null
+      // The spawn bookkeeping is per-run: every agent this loop waited on has
+      // settled by now, so dropping it keeps a long session from growing a
+      // map of dead agent ids. Not cleared while another run is live, since
+      // the sets are shared and that run still needs its own entries.
+      if (state.active === null) {
+        state.ours.clear()
+        state.waiting.clear()
+      }
+
+      pane.model = {
+        ...pane.model,
+        phase: record.phase,
+        gate: null,
+        retry: null,
+        ask: null,
+      }
+      pane.answerGate = null
+      pane.answerRetry = null
+
+      // The heartbeat belongs to a live driver; a finished one leaves the
+      // pane up with its last reading rather than a timer polling forever.
+      if (state.active === null) {
+        pane.ticker?.cancel()
+        pane.ticker = null
+      }
+
+      void refreshPane($, cli).catch(() => undefined)
+      notify($, start.slug, record.phase)
+    })
+
+  drivers.set(start.slug, { record, done })
+
+  return (
+    `orchestrator: run ${start.slug} started (run_id ${start.run_id}).\n` +
+    'It is driving in the background: progress shows in the pane, gates will ' +
+    'prompt you, and a toast lands when it finishes. Press the pane buttons, ' +
+    'use `/orchestrator status`, or call the status tool for where it stands.'
+  )
 }
 
 /**
@@ -1152,8 +1222,16 @@ async function runGate(
   } catch {
     // A rejected dialog does not settle `pressed`: the gate stays pressable
     // until the run is left standing, which is what an unattended run wants.
+    // The pane keeps its Approve/Cancel row, so say where it is — a dismissed
+    // popup used to look like the only way the gate could be answered.
+    $.ui.toast(
+      'orchestrator: press Approve in the pane, or run `/orchestrator approve`.',
+    )
+    // The gate stays IN the model, so the pane keeps drawing the Approve /
+    // Cancel row the toast just pointed at. `pane.answerGate` is dropped
+    // because this loop has stopped awaiting it; the Buttons then route
+    // through `approveAction`, which approves the standing gate via the CLI.
     pane.answerGate = null
-    pane.model = { ...pane.model, gate: null }
 
     return { next: null, stderr: '', unattended: true }
   } finally {
@@ -1268,8 +1346,13 @@ async function runRetry(
   try {
     answer = await Promise.race([asked, pressed])
   } catch {
+    $.ui.toast(
+      'orchestrator: press Retry in the pane, or run `/orchestrator retry`.',
+    )
+    // As in `runGate`: the parked step stays in the model so the Retry row
+    // survives the dismissed dialog, and the Button falls through to
+    // `retryAction`'s own `reset-step`.
     pane.answerRetry = null
-    pane.model = { ...pane.model, retry: null }
 
     return null
   } finally {
@@ -1325,14 +1408,60 @@ async function runAsk(
       ? ask.ask
       : `${ask.ask} (also available: ${overflow.join(', ')})`
 
+  // The pane carries the question and its options while the popup is up, so
+  // dismissing the popup does not take the question with it: the same choices
+  // are still Buttons in the action row, and `pane.answerAsk` settles this
+  // very promise when one is pressed.
+  const answered = { byPress: false }
+
+  const pressed = new Promise<string>(resolve => {
+    pane.answerAsk = choice => {
+      answered.byPress = true
+      resolve(choice)
+    }
+  })
+
+  pane.model = { ...pane.model, ask: { question: ask.ask, options } }
+  $.ui.invalidate('ui.render')
+
+  const asked = (
+    shown.length >= 2
+      ? $.ui.ask(question, { options: shown, header: 'orchestrator' })
+      : $.ui.ask(question, { header: 'orchestrator' })
+  ).catch((error: unknown) => {
+    if (answered.byPress) {
+      return ''
+    }
+
+    throw error
+  })
+
   let answer: string
 
   try {
-    answer =
-      shown.length >= 2
-        ? await $.ui.ask(question, { options: shown, header: 'orchestrator' })
-        : await $.ui.ask(question, { header: 'orchestrator' })
+    answer = await Promise.race([asked, pressed])
   } catch {
+    // Dismissed, or nobody to ask. The question stays in the pane and the
+    // Buttons stay live, so this is not the end of the road — but the loop
+    // cannot go on until one of them is pressed, so it says where to press.
+    $.ui.toast(
+      'orchestrator: answer it in the pane, or run `/orchestrator resume <text>`.',
+    )
+
+    // A dismissed dialog is not the end of the road any more: the pane still
+    // offers the same options, and `/orchestrator resume` still answers. So
+    // the loop keeps waiting on the press rather than tearing the run down —
+    // which is also what an unattended (`-p`) session wants, since nothing
+    // will ever press and the run is left standing exactly as before.
+    answer = await pressed
+  } finally {
+    pane.answerAsk = null
+  }
+
+  pane.model = { ...pane.model, ask: null }
+  $.ui.invalidate('ui.render')
+
+  if (answer === '') {
     return null
   }
 
@@ -1396,4 +1525,261 @@ async function nextOf(
       stderr: stderr === '' ? stepped.stderr.trim() : stderr,
     }
   }
+}
+
+// --- the `/orchestrator` command -------------------------------------------
+
+/**
+ * `/orchestrator [verb …]`, the whole grammar in one place.
+ *
+ * The point of the command is that nothing has to be typed into the chat to
+ * drive a run: every verb here is the same function the pane's Buttons and
+ * the MCP tools call, so a run can be started, approved, answered and
+ * cancelled without ever asking the model to do it.
+ *
+ * | Command                          | Does                                    |
+ * | -------------------------------- | --------------------------------------- |
+ * | `/orchestrator`                  | toggles the pane; opens the wizard when there is no run |
+ * | `/orchestrator run [recipe] [slug] [ticket…]` | starts a run, asking for what was left out |
+ * | `/orchestrator approve`          | approves the gate the run is parked at  |
+ * | `/orchestrator cancel`           | cancels the run                         |
+ * | `/orchestrator retry`            | resets the abandoned step and carries on|
+ * | `/orchestrator resume <text>`    | answers the question the run is parked on|
+ * | `/orchestrator status`           | prints the node list as text            |
+ * | `/orchestrator pane`             | opens the pane (never toggles it shut)  |
+ */
+async function runCommand($: EngineInterface, argument: string): Promise<string> {
+  const [verb = '', ...rest] = argument.split(/\s+/).filter(word => word !== '')
+  const host = hostOf($)
+
+  if (verb === 'run') {
+    return (await startWizard($, rest.join(' '))).text
+  }
+
+  if (verb === 'approve') {
+    return (await approveAction(host, rest[0])).text
+  }
+
+  if (verb === 'cancel') {
+    return (await cancelAction(host, rest[0])).text
+  }
+
+  if (verb === 'retry') {
+    return (await retryAction(host, rest[0])).text
+  }
+
+  if (verb === 'resume') {
+    return (await answerAsk($, rest.join(' '))).text
+  }
+
+  if (verb === 'status') {
+    return await statusText($)
+  }
+
+  if (verb === 'pane') {
+    return await showPane($)
+  }
+
+  if (verb !== '') {
+    return (
+      `orchestrator: no verb "${verb}". Try: run, approve, cancel, retry, ` +
+      'resume <text>, status, pane.'
+    )
+  }
+
+  // Bare `/orchestrator`: with a run to look at, the pane is the thing to
+  // toggle; with none, there is nothing to show, so offer to start one.
+  const live = await currentRun(host)
+
+  if (live === null && pane.model.status === null) {
+    return (await startWizard($, '')).text
+  }
+
+  if (pane.isOpen) {
+    await $.ui.close({ id: PANE_ID }).catch(() => undefined)
+    pane.isOpen = false
+
+    return 'orchestrator: pane hidden.'
+  }
+
+  return await showPane($)
+}
+
+/** Open the pane the person asked for, or say why it stayed shut. */
+async function showPane($: EngineInterface): Promise<string> {
+  if (pane.columns !== null && pane.columns < OPEN_MIN_COLUMNS) {
+    return (
+      `orchestrator: the pane needs ${OPEN_MIN_COLUMNS} columns; this ` +
+      `terminal has ${pane.columns}.`
+    )
+  }
+
+  await openPaneForRun($, true)
+  await refreshPane($, cliOf($))
+
+  return pane.isOpen
+    ? 'orchestrator: pane shown.'
+    : 'orchestrator: the surface declined to open the pane.'
+}
+
+/** The node list as text — what `/orchestrator status` prints. */
+async function statusText($: EngineInterface): Promise<string> {
+  const host = hostOf($)
+  const run = pane.run ?? (await currentRun(host))
+
+  if (run === null) {
+    const rows = await listRuns(host)
+
+    return rows.length === 0
+      ? 'orchestrator: no runs. Start one with `/orchestrator run`.'
+      : [
+          'orchestrator: live runs (none is being driven in this session):',
+          ...rows.map(
+            row =>
+              `  ${row.slug} · ${row.recipe} · ${row.run_status} · ` +
+              `${row.current_step ?? '-'}`,
+          ),
+        ].join('\n')
+  }
+
+  await refreshPane($, host.cli)
+
+  const model = pane.model
+
+  return [
+    `${model.status?.slug ?? run} · ${model.status?.run_status ?? '-'}`,
+    ...(model.status?.nodes ?? []).map(node =>
+      nodeLineOf(node, model.usage.get(node.id)),
+    ),
+  ].join('\n')
+}
+
+/**
+ * Ask for whatever `/orchestrator run` was not given, then start the run.
+ *
+ * `argument` is the rest of the command line: `[recipe] [slug] [ticket…]`.
+ * Each missing piece is asked for with `$.ui.ask`, which takes 2-4 option
+ * labels (claude-code.d.ts:1908-1909) — so the recipe list is offered four
+ * at a time with an "Other" escape for the rest, and the slug and ticket are
+ * free text. A dismissed popup abandons the wizard without starting anything,
+ * since a run seeded on a guessed slug is worse than no run.
+ */
+async function startWizard(
+  $: EngineInterface,
+  argument: string,
+): Promise<ActionResult> {
+  const host = hostOf($)
+  const [given = '', slugGiven = '', ...ticketWords] = argument
+    .split(/\s+/)
+    .filter(word => word !== '')
+
+  let recipe = given
+
+  if (recipe === '') {
+    const rows = await listRecipes(host)
+    const shown = rows.slice(0, MAX_OPTION_BUTTONS - 1)
+    const labels = shown.map(row => recipeRefOf(row, rows))
+    const question =
+      rows.length === 0
+        ? 'Which recipe? (no pack found — type its name)'
+        : `Which recipe? (${rows.length} available)`
+
+    try {
+      recipe =
+        labels.length >= 2
+          ? await $.ui.ask(question, {
+              options: [...labels, 'Other'],
+              header: 'orchestrator',
+            })
+          : await $.ui.ask(question, { header: 'orchestrator' })
+    } catch {
+      return { ok: false, text: 'orchestrator: no recipe chosen; nothing started.' }
+    }
+
+    // "Other" is the escape hatch for the recipes that did not fit the four
+    // option slots: it is a label, not a recipe, so it asks again as free text.
+    if (recipe === 'Other') {
+      const names = rows.map(row => recipeRefOf(row, rows)).join(', ')
+
+      try {
+        recipe = await $.ui.ask(`Which recipe? (${names})`, {
+          header: 'orchestrator',
+        })
+      } catch {
+        return { ok: false, text: 'orchestrator: no recipe chosen; nothing started.' }
+      }
+    }
+  }
+
+  let slug = slugGiven
+
+  if (slug === '') {
+    try {
+      slug = await $.ui.ask('Slug for this run? (a ticket id works)', {
+        header: 'orchestrator',
+      })
+    } catch {
+      return { ok: false, text: 'orchestrator: no slug given; nothing started.' }
+    }
+  }
+
+  // The ticket is the one input every shipped recipe declares; it is optional
+  // here because a dismissed popup should start the run rather than abandon
+  // it, which is why this ask is not allowed to fail the wizard.
+  let ticket = ticketWords.join(' ')
+
+  if (ticket === '') {
+    ticket = await $.ui
+      .ask(`Ticket text for ${slug}? (empty to use the slug)`, {
+        header: 'orchestrator',
+      })
+      .catch(() => '')
+  }
+
+  const inputs = ticket.trim() === '' ? undefined : { ticket: ticket.trim() }
+
+  return await startRun(host, recipe, slug, inputs)
+}
+
+/**
+ * Ask for a free-text answer to the parked question, then deliver it.
+ *
+ * This is the pane's **Answer…** Button: the options beside it cover the
+ * first four, and anything else (including an option past the fourth) is
+ * typed here. `orchestrator resume` matches free text against the step's
+ * options by label or 1-based index, so a typed option is as good as a press.
+ */
+async function askFreeText($: EngineInterface): Promise<ActionResult> {
+  const question = pane.model.ask?.question ?? 'Answer for the parked step?'
+
+  try {
+    return await answerAsk($, await $.ui.ask(question, { header: 'orchestrator' }))
+  } catch {
+    return { ok: false, text: 'orchestrator: nothing answered.' }
+  }
+}
+
+/**
+ * Report an action a Button fired, whose result nobody is awaiting.
+ *
+ * A pressed Button has no return channel (`onPress` is void,
+ * claude-code.d.ts:702), so the outcome lands as a toast — including the
+ * failures, which would otherwise be silent.
+ */
+function report(
+  $: EngineInterface,
+  name: string,
+  running: Promise<ActionResult>,
+): Promise<void> {
+  return running
+    .then(result => {
+      $.ui.toast(result.text)
+
+      if (!result.ok) {
+        $.ui.log(`orchestrator: ${name} failed: ${result.text}`)
+      }
+    })
+    .catch((error: unknown) => {
+      $.ui.toast(`orchestrator: ${name} failed: ${String(error)}`)
+    })
 }
