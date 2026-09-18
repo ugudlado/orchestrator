@@ -139,7 +139,7 @@ field nobody was updating. `orchestrator status --json` now demotes a run
 like that: `run_status` is untouched, but the engine adds `stale: true` and
 `last_activity` (the newest of the state doc's own stamps, its step
 history's, and its gates') whenever that activity is older than
-`ORCHESTRATOR_STALE_AFTER_HOURS` (default 24). A stale row sorts with the
+`run.stale_after_hours` (default 24). A stale row sorts with the
 past section, by `last_activity` descending, rather than with the runs
 actually in progress.
 

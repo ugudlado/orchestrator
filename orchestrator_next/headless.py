@@ -334,7 +334,8 @@ def check_claude_cli() -> str:
     Called once before any step runs: a headless run that discovers a missing
     CLI three judgment steps in has already spent real time and money.
     """
-    found = shutil.which(os.environ.get("ORCHESTRATOR_CLAUDE_BIN") or "claude")
+    from orchestrator_next import settings
+    found = shutil.which(settings.get("headless.claude_bin") or "claude")
     if not found:
         raise HeadlessError(
             "the claude-cli backend needs the `claude` CLI on PATH — install "
@@ -363,9 +364,12 @@ def build_cli_argv(payload: dict[str, Any], *, executable: str = "claude") -> li
     allowed = cli_allowed_tools(list(payload.get("tools") or []))
     if allowed:
         argv += ["--allowedTools", ",".join(allowed)]
-    budget = os.environ.get("ORCHESTRATOR_STEP_BUDGET_USD")
+    from orchestrator_next import settings
+    budget = settings.get("headless.step_budget_usd")
     if budget:
-        argv += ["--max-budget-usd", str(budget)]
+        # Pass the literal the user wrote ("0.50"), not a re-rendered float.
+        raw = os.environ.get("ORCHESTRATOR_STEP_BUDGET_USD", "").strip()
+        argv += ["--max-budget-usd", raw or str(budget)]
     return argv
 
 
@@ -477,8 +481,8 @@ def resolve_backend(requested: str | None = None) -> str:
     a workstation with Claude Code logged in and no key is the normal case —
     headless should just work there rather than demand a key.
     """
-    choice = (requested or os.environ.get("ORCHESTRATOR_HEADLESS_BACKEND")
-              or "").strip()
+    from orchestrator_next import settings
+    choice = (requested or settings.get("headless.backend") or "").strip()
     if choice:
         if choice not in BACKENDS:
             raise HeadlessError(

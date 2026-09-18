@@ -86,9 +86,11 @@ Headless mode needs a way to run the judgment steps. Pick one backend:
   log in. Headless checks both before the first step rather than failing
   mid-run.
 
-`--backend claude-cli|anthropic` (or `ORCHESTRATOR_HEADLESS_BACKEND`) pins the
-choice. `ORCHESTRATOR_STEP_BUDGET_USD` caps what any one step may spend, and
-`ORCHESTRATOR_CLAUDE_BIN` overrides which `claude` executable is used.
+`--backend claude-cli|anthropic` (or `headless.backend`) pins the choice.
+`headless.step_budget_usd` caps what any one step may spend, and
+`headless.claude_bin` overrides which `claude` executable is used. All three
+are `orchestrator.toml` settings; the matching `ORCHESTRATOR_*` env vars still
+override them, which is what the sandbox secrets below rely on.
 
 In a cloud sandbox prefer `anthropic`: the `claude-cli` backend depends on an
 interactive login that a fresh sandbox does not carry.
@@ -102,7 +104,7 @@ interactive login that a fresh sandbox does not carry.
 - Run state lives in the local RunStore (SQLite, `~/.orchestrator/orchestrator.db` — see
   `orchestrator status <run> --json`). By default it is per-machine: a run
   survives session resets only as far as the sandbox home directory does. For resume
-  across machines, set `ORCHESTRATOR_STATE_URL` to a reachable central db
+  across machines, set `state.url` (env `ORCHESTRATOR_STATE_URL`) to a reachable central db
   (postgresql:// or a shared sqlite path) — workflow state and run blobs both follow it. `orchestrator doctor` checks the store opens — run that
   first, not `orchestrator run`, when diagnosing a broken cloud setup.
 

@@ -195,7 +195,8 @@ def open_store() -> RunStore:
     """
     from orchestrator_next import state_store
 
-    url = os.environ.get(state_store.ENV_STATE_URL, "").strip()
+    from orchestrator_next import settings
+    url = str(settings.get("state.url") or "").strip()
     if url:
         handle = state_store.parse_handle(url)
         if handle.scheme == "postgresql":

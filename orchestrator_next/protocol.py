@@ -1348,13 +1348,13 @@ ONGOING_RUN_STATUSES = frozenset({"active", "running", "blocked", "needs_you"})
 #: its state doc forever — nothing ever flips it, because nothing is driving
 #: it any more. Without a staleness check that run pins to the top of the
 #: list ahead of work actually in progress today, on the strength of a status
-#: field nobody is updating. ``ORCHESTRATOR_STALE_AFTER_HOURS`` overrides it,
+#: field nobody is updating. ``run.stale_after_hours`` overrides it,
 #: for a person who genuinely runs something for days at a time.
 def _stale_after_hours() -> float:
-    raw = os.environ.get("ORCHESTRATOR_STALE_AFTER_HOURS", "")
+    from orchestrator_next import settings
     try:
-        return float(raw) if raw else 24.0
-    except ValueError:
+        return float(settings.get("run.stale_after_hours"))
+    except (settings.SettingsError, ValueError):
         return 24.0
 
 

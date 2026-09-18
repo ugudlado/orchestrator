@@ -152,7 +152,8 @@ def default_db_path() -> Path:
 
 def default_backend() -> str:
     """`sqlite` unless overridden. `file` restores one-YAML-per-run."""
-    return (os.environ.get(ENV_STATE_BACKEND) or DEFAULT_BACKEND).strip().lower()
+    from orchestrator_next import settings
+    return (settings.get("state.backend") or DEFAULT_BACKEND).strip().lower()
 
 
 def default_state_url(repo_root: str = "") -> str:
@@ -162,7 +163,8 @@ def default_state_url(repo_root: str = "") -> str:
     machine-global SQLite db (see default_db_path). Run ids carry
     slug + timestamp + schema, so runs from every repo coexist in one table.
     """
-    explicit = os.environ.get(ENV_STATE_URL, "").strip()
+    from orchestrator_next import settings
+    explicit = str(settings.get("state.url") or "").strip()
     if explicit:
         return explicit
     if default_backend() == "file":
@@ -344,8 +346,9 @@ _ADDED_COLUMNS = (
 
 
 def current_tenant() -> str:
-    """Tenant new runs are written under (ORCHESTRATOR_TENANT, else 'default')."""
-    return (os.environ.get(ENV_TENANT) or "").strip() or DEFAULT_TENANT
+    """Tenant new runs are written under (`state.tenant`, else 'default')."""
+    from orchestrator_next import settings
+    return (settings.get("state.tenant") or "").strip() or DEFAULT_TENANT
 
 
 def _now() -> str:

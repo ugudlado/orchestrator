@@ -379,13 +379,19 @@ discarded on archive (Phase 2.4).
 
 ## 9. Config knobs
 
-| Variable                    | Purpose                                                                                                |
-| --------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `ORCHESTRATOR_STATE_URL`    | Postgres connection string for run state; unset → SQLite default (already on branch, `state_store.py`) |
-| `ORCHESTRATOR_MAX_PARALLEL` | caps concurrent step dispatch (`dispatch.dispatch_batch`)                                              |
+| Variable                                         | Purpose                                                                             |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `state.url` (`ORCHESTRATOR_STATE_URL`)           | Postgres connection string for run state; unset → SQLite default (`state_store.py`) |
+| `run.max_parallel` (`ORCHESTRATOR_MAX_PARALLEL`) | caps concurrent step dispatch (`dispatch.dispatch_batch`)                           |
+
+Settings live in `orchestrator.toml` (machine, then repo), and the
+`ORCHESTRATOR_*` variable named in parentheses still overrides the file.
+`orchestrator config show` prints every key with the layer it came from; see
+the settings table in `README.md` for the full schema.
 
 TBD (Phase 3): `tenant_id` scoping knob, PII redaction config, trust config
-(`~/.orchestrator/trust.toml`) — not yet specified beyond the plan's mention.
+(`[trust]` in `~/.orchestrator/orchestrator.toml`) — not yet specified beyond
+the plan's mention.
 
 ---
 
@@ -434,7 +440,7 @@ runs each `kind: judgment` step itself. Two backends do that.
 | `claude-cli` | `claude -p` (Claude Code)           | the machine's Claude Code login  | Claude Code's own, allow-listed from the contract |
 
 Selection order, first hit wins: `--backend`, then
-`ORCHESTRATOR_HEADLESS_BACKEND`, then `anthropic` if an API credential is in
+`headless.backend`, then `anthropic` if an API credential is in
 the environment, else `claude-cli`. Defaulting to `claude-cli` is what lets a
 workstation with Claude Code signed in run headless with no API key at all;
 an unknown backend name is rejected before a run is seeded.
@@ -457,7 +463,7 @@ claude -p
   --system-prompt <payload.system>
   --json-schema <schema from payload.out + payload.out_schema>
   [--allowedTools <mapped from payload.tools>]
-  [--max-budget-usd $ORCHESTRATOR_STEP_BUDGET_USD]
+  [--max-budget-usd <headless.step_budget_usd>]
 ```
 
 The step's instruction goes in on stdin and `cwd` is `payload.cwd`.

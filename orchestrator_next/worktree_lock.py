@@ -88,10 +88,11 @@ def git_lock(
 ) -> Iterator[None]:
     """Hold the worktree's git lock for the body of the with-block.
 
-    No-op when `ORCHESTRATOR_DISABLE_WORKTREE_LOCK` is set — an escape hatch for
+    No-op when `run.disable_worktree_lock` is set — an escape hatch for
     anyone running strictly serially who does not want the extra file.
     """
-    if os.environ.get(ENV_DISABLE):
+    from orchestrator_next import settings
+    if settings.get("run.disable_worktree_lock"):
         yield
         return
 

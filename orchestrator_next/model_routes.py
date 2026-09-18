@@ -16,8 +16,6 @@ user's home file; the bundled models.yaml is only the floor.
 """
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +47,19 @@ def user_models_path() -> Path:
     return Path.home() / ".orchestrator" / "models.yaml"
 
 
+def _route_overrides() -> dict:
+    """Per-alias overrides from `models.route_overrides` (env: JSON object)."""
+    from orchestrator_next import settings
+    return settings.load().get("models.route_overrides") or {}
+
+
+def _route_overrides_source() -> str:
+    """Which layer supplied the overrides, for the `source` field."""
+    from orchestrator_next import settings
+    src = settings.load().source("models.route_overrides")
+    return src if src.startswith("$") else "models.route_overrides"
+
+
 def _layer_chain(routes_yaml: str | None) -> list[tuple[str, str]]:
     """Lowest→highest precedence. Repo beats global: a vendored/explicit
     config root ranks above ~/.orchestrator/models.yaml; the global defaults
@@ -59,7 +70,8 @@ def _layer_chain(routes_yaml: str | None) -> list[tuple[str, str]]:
 
     cfg = ("config_root", routes_yaml or "")
     home = ("user_home", str(user_models_path()))
-    env = ("env_file", os.environ.get("ORCHESTRATOR_MODELS_CONFIG") or "")
+    from orchestrator_next import settings
+    env = ("env_file", str(settings.get("models.config") or ""))
     global_floors = {
         (bundled_config_root() / "models.yaml").resolve(),
         (pack_root() / "config" / "models.yaml").resolve(),
@@ -145,14 +157,14 @@ def resolve_route(alias: str, routes_yaml: str | None) -> dict[str, Any]:
         entry = raw if isinstance(raw, dict) else {}
         num_candidates = 1
 
-    overrides = json.loads(os.environ.get("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES") or "{}")
+    overrides = _route_overrides()
     ov = overrides.get(alias) or {}
 
     model_id_val = str(ov.get("model_id") or entry.get("model_id") or "")
 
     return {
         "model_id": model_id_val,
-        "source": "$ORCHESTRATOR_MODEL_ROUTE_OVERRIDES" if ov else source,
+        "source": _route_overrides_source() if ov else source,
         "active_index": 0,
         "num_candidates": num_candidates,
         "is_fallback": False,
@@ -166,7 +178,7 @@ def resolve_field(model: str, routes_yaml: str | None, field: str) -> str:
 
 def resolve_all_with_source(routes_yaml: str) -> dict[str, dict[str, Any]]:
     """Return every alias with its resolved model id, source, and candidates."""
-    overrides = json.loads(os.environ.get("ORCHESTRATOR_MODEL_ROUTE_OVERRIDES") or "{}")
+    overrides = _route_overrides()
 
     aliases: set[str] = set()
     for _label, path in _layer_chain(routes_yaml):

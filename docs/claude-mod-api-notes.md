@@ -338,7 +338,7 @@ load-bearing:
   its last attempt's end would sort it among the finished ones.
 - **A run with `run_status` still ongoing is demoted to `stale: true`** when
   nothing has touched it (its state doc, step history, or gates) within
-  `ORCHESTRATOR_STALE_AFTER_HOURS` (default 24). `run_status` itself is left
+  `run.stale_after_hours` (default 24). `run_status` itself is left
   alone — an earlier session's abandoned run keeps saying `active` forever,
   since nothing is left to ever flip it — but a stale row sorts with the past
   section by `last_activity` descending, and the pane's `isOngoingRun` treats
@@ -372,7 +372,7 @@ answers the driver loop's own parked promise, so offering it for a loop in
 another process would answer a gate that loop is already awaiting. A finished
 run gets `[Start again]`, which pre-fills the wizard with its recipe and slug.
 A `stale` run — `run_status` still reads ongoing, but nothing has touched it
-in `ORCHESTRATOR_STALE_AFTER_HOURS` (`protocol.py` `_is_stale`) — gets
+in `run.stale_after_hours` (`protocol.py` `_is_stale`) — gets
 `[Cancel]`/`[Home]`: unlike a finished run it CAN still be cancelled (cancel
 only marks the run), and that is the one useful thing left to do with it.
 

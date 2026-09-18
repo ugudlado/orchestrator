@@ -8,31 +8,28 @@ that run against the consumer repo. Pulling one from an arbitrary URL is
 equivalent to `curl | sh`, so a remote pull must name a source the machine
 owner has already listed.
 
-File format (stdlib ``tomllib``, Python >= 3.11)::
+The list lives in ``[trust]`` of ``~/.orchestrator/orchestrator.toml``::
 
+    [trust]
+    allow = ["https://github.com/ugudlado/*"]
     require_signed = false            # optional, default false
 
-    [[allow]]
-    source = "https://github.com/ugudlado/*"
-
-    [[keys]]
-    fingerprint = "ABCD1234..."       # informational; gpg holds the keyring
+The pre-settings ``~/.orchestrator/trust.toml`` (``[[allow]]`` array-of-tables)
+is still read as the lowest layer, with a one-time deprecation warning.
 
 Rules:
 
 * ``ORCHESTRATOR_TRUST_ALL=1`` bypasses every check (dev / test escape hatch).
 * A **local path** source is always allowed — trust.toml governs the network,
   not your own filesystem.
-* A **remote URL** needs ``~/.orchestrator/trust.toml`` to exist and to hold an
-  ``[[allow]]`` entry whose ``source`` glob (fnmatch) matches the URL.
-* ``require_signed = true`` additionally demands a verifiable git signature on
+* A **remote URL** needs a ``trust.allow`` glob (fnmatch) that matches it.
+* ``trust.require_signed`` additionally demands a verifiable git signature on
   the pulled ref (``git verify-tag`` / ``git verify-commit``); a missing ``gpg``
   is a refusal in that mode. Otherwise an unsigned pack only warns on stderr.
 """
 from __future__ import annotations
 
 import fnmatch
-import os
 import shutil
 import subprocess
 import sys
@@ -48,18 +45,46 @@ class TrustError(RuntimeError):
 
 
 def trust_file() -> Path:
-    """Where the trust list lives (``ORCHESTRATOR_HOME_DIR`` aware, for tests)."""
-    home = Path(os.environ.get("ORCHESTRATOR_HOME_DIR", "~/.orchestrator")).expanduser()
-    return home / "trust.toml"
+    """Where the trust list lives: ``orchestrator.toml`` once it exists, else
+    the legacy ``trust.toml`` (both ``ORCHESTRATOR_HOME_DIR`` aware)."""
+    from orchestrator_next import settings
+    legacy = settings.home_dir() / "trust.toml"
+    settings_path = settings.global_file()
+    if settings_path.is_file() or not legacy.is_file():
+        return settings_path
+    return legacy
 
 
 def trust_all_enabled() -> bool:
-    return (os.environ.get(ENV_TRUST_ALL) or "").strip().lower() in ("1", "true", "yes")
+    from orchestrator_next import settings
+    return bool(settings.get("trust.trust_all"))
 
 
 def load_trust(path: Path | None = None) -> dict[str, Any] | None:
-    """Parse trust.toml. ``None`` when the file does not exist."""
-    p = path or trust_file()
+    """The effective trust list, in this module's ``[[allow]]`` shape.
+
+    Normally this comes from ``orchestrator.toml``'s ``[trust]`` section, which
+    already folds in the legacy ``~/.orchestrator/trust.toml`` (with a
+    deprecation warning) as its lowest layer. ``None`` means no trust list was
+    configured anywhere — the refusal path.
+
+    An explicit ``path`` bypasses settings entirely and parses that one file,
+    which is what the tests and ``--trust-file`` style call sites want.
+    """
+    if path is not None:
+        return _parse_trust_file(path)
+    from orchestrator_next import settings
+    cfg = settings.load()
+    allow = cfg.get("trust.allow")
+    if not allow and cfg.source("trust.require_signed") == "default":
+        return None
+    return {
+        "allow": [{"source": s} for s in allow],
+        "require_signed": cfg.get("trust.require_signed"),
+    }
+
+
+def _parse_trust_file(p: Path) -> dict[str, Any] | None:
     if not p.is_file():
         return None
     try:
@@ -101,11 +126,10 @@ def _missing_trust_message(source: str, path: Path) -> str:
     return (
         f"refusing to pull {source!r}: no trust list at {path}.\n"
         f"A pack runs code in this repo — list the source first:\n\n"
-        f"  mkdir -p {path.parent}\n"
-        f"  cat >> {path} <<'EOF'\n"
-        f"  [[allow]]\n"
-        f'  source = "{source}"\n'
-        f"  EOF\n\n"
+        f"  orchestrator config set trust.allow '{source}' --global\n\n"
+        f"or edit {path} directly:\n\n"
+        f"  [trust]\n"
+        f'  allow = ["{source}"]\n\n'
         f"Globs work too (e.g. \"https://github.com/ugudlado/*\"). "
         f"Set {ENV_TRUST_ALL}=1 to bypass trust checks entirely."
     )
@@ -122,15 +146,16 @@ def check_source(source: str, *, trust_path: Path | None = None) -> str:
         return "local path (trust list applies to remote sources only)"
 
     path = trust_path or trust_file()
-    trust = load_trust(path)
+    # trust_path names one file to read; otherwise the layered settings decide.
+    trust = load_trust(trust_path)
     if trust is None:
         raise TrustError(_missing_trust_message(source, path))
     if not source_allowed(source, trust):
         patterns = ", ".join(allow_patterns(trust)) or "(none)"
         raise TrustError(
-            f"refusing to pull {source!r}: no [[allow]] entry in {path} matches it "
+            f"refusing to pull {source!r}: no trust.allow entry in {path} matches it "
             f"(allowed: {patterns}). Add:\n\n"
-            f"  [[allow]]\n  source = \"{source}\"\n"
+            f"  orchestrator config set trust.allow \"{source}\" --global\n"
         )
     return f"allowed by {path}"
 
@@ -149,7 +174,7 @@ def verify_signature(checkout: Path, ref: str | None, *, trust_path: Path | None
     if trust_all_enabled():
         return "signature check skipped (trust-all)"
     path = trust_path or trust_file()
-    trust = load_trust(path)
+    trust = load_trust(trust_path)
     strict = require_signed(trust)
 
     if shutil.which("gpg") is None:

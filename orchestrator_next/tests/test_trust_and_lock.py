@@ -2,7 +2,7 @@
 
 A pack is executable content pulled off the network, so these tests pin the
 two things that keep that safe: a remote source must be listed in
-`~/.orchestrator/trust.toml` before anything is cloned, and every pull records
+`[trust] allow` of `~/.orchestrator/orchestrator.toml` before anything is cloned, and every pull records
 what it installed (commit + per-step contract versions) so drift and contract
 widening are both visible afterwards.
 """
@@ -63,12 +63,25 @@ def _isolated_home(tmp_path, monkeypatch):
     monkeypatch.delenv("ORCHESTRATOR_TRUST_ALL", raising=False)
 
 
+def _write_trust(tmp_path, *, allow: list[str], require_signed: bool = False) -> Path:
+    """Write the machine settings file that `[trust]` now lives in."""
+    from orchestrator_next import settings
+
+    path = settings.global_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        settings.dump({"trust": {"allow": allow, "require_signed": require_signed}}),
+        encoding="utf-8",
+    )
+    return path
+
+
 # ---------------------------------------------------------------------------
 # Trust
 # ---------------------------------------------------------------------------
 def test_local_path_source_is_always_allowed(tmp_path):
     src = _make_pack_source(tmp_path / "src")
-    # No trust.toml exists at all — a local path must still be pullable.
+    # No trust list exists at all — a local path must still be pullable.
     assert not trust.trust_file().exists()
     assert "local path" in trust.check_source(str(src))
 
@@ -78,15 +91,13 @@ def test_remote_source_refused_without_trust_file(tmp_path):
         trust.check_source("https://github.com/someone/evil.git")
     msg = str(exc.value)
     assert "no trust list" in msg
-    # The refusal must hand the user the exact block they need.
-    assert "[[allow]]" in msg and "someone/evil.git" in msg
+    # The refusal must hand the user the exact thing they need to run/write.
+    assert "trust.allow" in msg and "someone/evil.git" in msg
 
 
 def test_remote_source_refused_when_no_allow_entry_matches(tmp_path):
-    path = trust.trust_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text('[[allow]]\nsource = "https://github.com/ugudlado/*"\n', encoding="utf-8")
-    with pytest.raises(trust.TrustError, match="no \\[\\[allow\\]\\] entry"):
+    _write_trust(tmp_path, allow=["https://github.com/ugudlado/*"])
+    with pytest.raises(trust.TrustError, match="no trust.allow entry"):
         trust.check_source("https://github.com/someone/evil.git")
     # ... and the glob does match its own org.
     assert "allowed by" in trust.check_source("https://github.com/ugudlado/workflows.git")
@@ -98,20 +109,14 @@ def test_trust_all_env_bypasses_everything(monkeypatch):
 
 
 def test_require_signed_without_gpg_refuses(tmp_path, monkeypatch):
-    path = trust.trust_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        'require_signed = true\n[[allow]]\nsource = "*"\n', encoding="utf-8"
-    )
+    _write_trust(tmp_path, allow=["*"], require_signed=True)
     monkeypatch.setattr(trust.shutil, "which", lambda _name: None)
     with pytest.raises(trust.TrustError, match="gpg is not on PATH"):
         trust.verify_signature(tmp_path, None)
 
 
 def test_unsigned_only_warns_when_not_required(tmp_path, monkeypatch, capsys):
-    path = trust.trust_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text('[[allow]]\nsource = "*"\n', encoding="utf-8")
+    _write_trust(tmp_path, allow=["*"])
     monkeypatch.setattr(trust.shutil, "which", lambda _name: None)
     assert "unsigned" in trust.verify_signature(tmp_path, None)
 
@@ -249,9 +254,7 @@ def test_doctor_pack_check_warns_on_untrusted_remote_source(tmp_path):
     (pack / "config-lock.yaml").write_text(
         yaml.safe_dump({"source": "https://github.com/someone/evil.git"}), encoding="utf-8"
     )
-    path = trust.trust_file()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text('[[allow]]\nsource = "https://github.com/ugudlado/*"\n', encoding="utf-8")
+    _write_trust(tmp_path, allow=["https://github.com/ugudlado/*"])
     result = check_pack_trust_and_lock(repo)
     assert result.status == "WARN"
-    assert "matches no [[allow]] entry" in result.detail
+    assert "matches no trust.allow entry" in result.detail

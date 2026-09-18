@@ -412,7 +412,8 @@ def resolve_types_path(explicit: str | Path | None = None) -> Path | None:
         if not path.is_file():
             raise PackExportError(f"--types {path} does not exist")
         return path
-    from_env = os.environ.get(TYPES_ENV_VAR, "").strip()
+    from orchestrator_next import settings
+    from_env = str(settings.get("plugin.types") or "").strip()
     if from_env:
         path = Path(from_env).expanduser()
         if path.is_file():

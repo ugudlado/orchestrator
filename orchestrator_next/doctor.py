@@ -361,6 +361,25 @@ def check_model_route_sources(config_root: Path) -> CheckResult:
     return CheckResult("model route sources", "PASS", detail)
 
 
+def check_settings() -> CheckResult:
+    """Which orchestrator.toml files are in play, and anything wrong in them."""
+    from orchestrator_next import settings
+    try:
+        cfg = settings.load()
+    except settings.SettingsError as exc:
+        return CheckResult("settings", "FAIL", str(exc))
+    files = ", ".join(str(p) for p in cfg.files) or "none (defaults + env)"
+    notes = []
+    if cfg.unknown:
+        notes.append("unknown keys: " + ", ".join(cfg.unknown))
+    if cfg.deprecated:
+        notes.append("deprecated " + ", ".join(cfg.deprecated)
+                     + " — move [trust] into " + str(settings.global_file()))
+    if notes:
+        return CheckResult("settings", "WARN", f"{files}; " + "; ".join(notes))
+    return CheckResult("settings", "PASS", files)
+
+
 def check_run_store() -> CheckResult:
     """RunStore health — the local SQLite db must open and answer a query."""
     try:
@@ -416,7 +435,7 @@ def check_pack_trust_and_lock(repo_root: Path) -> CheckResult:
             elif source and not trust_mod.is_local_source(source) and not (
                 trust_mod.source_allowed(source, trust_doc)
             ):
-                notes.append(f"{name}: source {source} matches no [[allow]] entry")
+                notes.append(f"{name}: source {source} matches no trust.allow entry")
                 worst = "WARN"
         locked = lock.get("pack_sha256")
         current = pack_tree_hash(pack_dir)
@@ -515,6 +534,7 @@ def run_all() -> int:
         check_symlinks(repo_root, orch_home),
         check_pack_trust_and_lock(repo_root),
         check_claude_plugin(repo_root),
+        check_settings(),
         check_run_store(),
         check_judge(),
     ]

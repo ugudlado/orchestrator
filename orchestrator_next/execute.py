@@ -392,13 +392,11 @@ _RECORD_CONFLICT_RETRIES = 6
 
 
 def max_parallel() -> int:
-    """Steps to run concurrently. `ORCHESTRATOR_MAX_PARALLEL=1` restores serial."""
-    raw = os.environ.get("ORCHESTRATOR_MAX_PARALLEL")
-    if not raw:
-        return DEFAULT_MAX_PARALLEL
+    """Steps to run concurrently. `run.max_parallel = 1` restores serial."""
+    from orchestrator_next import settings
     try:
-        return max(1, int(raw))
-    except ValueError:
+        return max(1, int(settings.get("run.max_parallel")))
+    except (settings.SettingsError, ValueError):
         return DEFAULT_MAX_PARALLEL
 
 
@@ -436,7 +434,8 @@ _models_yaml_cache_key: str = ""
 def resolve_models_yaml(explicit: str = "", *, repo_root: str = "") -> str:
     """Resolve models.yaml once per process (or when env/config root changes)."""
     global _models_yaml_resolved, _models_yaml_cache_key
-    env_override = os.environ.get("ORCHESTRATOR_MODELS_CONFIG", "")
+    from orchestrator_next import settings as _settings
+    env_override = str(_settings.get("models.config") or "")
     cfg = os.environ.get("ORCHESTRATOR_CONFIG", "")
     key = f"{explicit}|{env_override}|{cfg}|{repo_root}"
     if _models_yaml_resolved is not None and key == _models_yaml_cache_key:

@@ -4,7 +4,7 @@
 #   orchestrator start | step | done | approve | cancel | status | events
 #   orchestrator run --headless | headless
 #   orchestrator doctor | report | graph | validate-workflow
-#   orchestrator config pull | config-path | state | pack
+#   orchestrator config pull | config show/set/init | config-path | state | pack
 """Entry point for the `orchestrator` CLI.
 
 Reached three ways, all equivalent: the `orchestrator` console script of a
@@ -32,6 +32,8 @@ def _usage() -> None:
         "\n"
         "  orchestrator config pull <git-or-path> [pack] [--skills] [--ref REF]\n"
         "      Install into .orchestrator/<pack>/ (pack defaults to source basename).\n"
+        "  orchestrator config show [--json] | config set <section.key> <value> | config init\n"
+        "      Engine settings in orchestrator.toml (env ORCHESTRATOR_* still overrides).\n"
         "  orchestrator doctor [--models-config PATH]\n"
         "  orchestrator report --state <state.yaml> | --all [--repo PATH] [--json]\n"
         "  orchestrator graph <workflow> | orchestrator validate-workflow <workflow>\n"
@@ -189,10 +191,18 @@ def main() -> None:
         if sub == "update":
             from orchestrator_next.config_pull import update_main as _config_update_main
             sys.exit(_config_update_main(args[2:]))
+        if sub in ("show", "set", "init"):
+            # Settings read the repo file, which needs REPO_ROOT resolved.
+            _default_repo_root_env()
+            from orchestrator_next.settings_cli import settings_verb
+            sys.exit(settings_verb(sub, args[2:]))
         print(
             "usage: orchestrator config pull <git-or-path> [pack] "
             "[--repo PATH] [--ref REF] [--skills] [--no-plugin]\n"
-            "       orchestrator config update [pack] [--repo PATH] [--ref REF] [--yes] [--no-plugin]",
+            "       orchestrator config update [pack] [--repo PATH] [--ref REF] [--yes] [--no-plugin]\n"
+            "       orchestrator config show [--json]\n"
+            "       orchestrator config set <section.key> <value> [--global]\n"
+            "       orchestrator config init [--global]",
             file=sys.stderr,
         )
         sys.exit(3)

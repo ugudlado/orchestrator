@@ -21,16 +21,23 @@ Upgrade: `uv tool upgrade orchestrator`.
 ## Trust a pack source
 
 A pulled pack carries shell scripts and agent charters that run against your
-repo, so remote pulls must be allow-listed first in
-`~/.orchestrator/trust.toml`:
+repo, so remote pulls must be allow-listed first in the `[trust]` section of
+`~/.orchestrator/orchestrator.toml`:
 
 ```toml
-[[allow]]
-source = "https://github.com/ugudlado/*"
+[trust]
+allow = ["https://github.com/ugudlado/*"]
+require_signed = false
 ```
 
-Local paths are always allowed — trust only governs network pulls. See
-`orchestrator_next/trust.py` for the full format (signing keys, `require_signed`).
+Or in one command:
+
+```bash
+orchestrator config set trust.allow "https://github.com/ugudlado/*" --global
+```
+
+Local paths are always allowed — trust only governs network pulls. The older
+`~/.orchestrator/trust.toml` is still read, with a deprecation warning.
 
 ## Pull a workflow pack into a repo
 
@@ -108,8 +115,7 @@ Two backends run those steps:
 
 The default is `claude-cli` unless an API credential is already in the
 environment, so a workstation with Claude Code signed in needs no API key.
-Pin one with `--backend claude-cli|anthropic` or
-`ORCHESTRATOR_HEADLESS_BACKEND`:
+Pin one with `--backend claude-cli|anthropic` or `headless.backend`:
 
 ```bash
 orchestrator run --headless design my-slug --backend claude-cli
@@ -117,7 +123,7 @@ orchestrator run --headless design my-slug --backend claude-cli
 
 `claude-cli` maps the step contract's `tools:` to Claude Code's own tools and
 asks for the declared outputs via `--json-schema`. Set
-`ORCHESTRATOR_STEP_BUDGET_USD` to cap the spend of each step. See
+`headless.step_budget_usd` to cap the spend of each step. See
 [`docs/cloud-environment.md`](docs/cloud-environment.md) for Slack `@Claude`
 / cloud-sandbox setup (secrets, network access, MCP).
 
@@ -130,7 +136,81 @@ orchestrator report --state <path> --json
 ```
 
 Run state lives in the local RunStore (SQLite at `~/.orchestrator/orchestrator.db`
-by default); set `ORCHESTRATOR_STATE_URL` for a shared store.
+by default); set `state.url` for a shared store.
+
+## Settings
+
+Engine settings live in `orchestrator.toml`, not in a pile of environment
+variables. Later layers win, and `orchestrator config show` prints the source
+of every key:
+
+```text
+defaults < ~/.orchestrator/orchestrator.toml < <repo>/.orchestrator/orchestrator.toml
+        < ORCHESTRATOR_* env var < CLI flag
+```
+
+```bash
+orchestrator config init            # commented template in this repo
+orchestrator config set run.max_parallel 2
+orchestrator config show --json
+```
+
+```toml
+[state]
+url = "postgresql://user@host/orch"   # shared store; unset = local SQLite
+backend = "sqlite"                    # or "file" for one YAML per run
+tenant = "default"
+
+[run]
+max_parallel = 4                      # 1 = serial dispatch
+stale_after_hours = 24.0
+disable_worktree_lock = false
+
+[headless]
+backend = "claude-cli"                # or "anthropic"
+step_budget_usd = 0.50
+claude_bin = "claude"
+
+[backlog]
+url = "https://backlog.example"
+project = "ORC"
+token_env = "BACKLOG_TOKEN"           # the env var NAME — never the token
+
+[trust]
+allow = ["https://github.com/ugudlado/*"]
+require_signed = false
+trust_all = false
+
+[models]
+config = "/path/to/models.yaml"
+route_overrides = { designer = { model_id = "claude-opus-5" } }
+
+[plugin]
+types = "~/.claude/types/claude-code.d.ts"
+```
+
+Every key keeps its old environment variable as an override, so nothing breaks
+for an existing setup:
+
+| Env override                         | Setting                     |
+| ------------------------------------ | --------------------------- |
+| `ORCHESTRATOR_STATE_URL`             | `state.url`                 |
+| `ORCHESTRATOR_STATE_BACKEND`         | `state.backend`             |
+| `ORCHESTRATOR_TENANT`                | `state.tenant`              |
+| `ORCHESTRATOR_MAX_PARALLEL`          | `run.max_parallel`          |
+| `ORCHESTRATOR_STALE_AFTER_HOURS`     | `run.stale_after_hours`     |
+| `ORCHESTRATOR_DISABLE_WORKTREE_LOCK` | `run.disable_worktree_lock` |
+| `ORCHESTRATOR_HEADLESS_BACKEND`      | `headless.backend`          |
+| `ORCHESTRATOR_STEP_BUDGET_USD`       | `headless.step_budget_usd`  |
+| `ORCHESTRATOR_CLAUDE_BIN`            | `headless.claude_bin`       |
+| `BACKLOG_URL` / `BACKLOG_PROJECT`    | `backlog.url` / `.project`  |
+| `ORCHESTRATOR_TRUST_ALL`             | `trust.trust_all`           |
+| `ORCHESTRATOR_MODELS_CONFIG`         | `models.config`             |
+| `ORCHESTRATOR_MODEL_ROUTE_OVERRIDES` | `models.route_overrides`    |
+| `CLAUDE_CODE_TYPES`                  | `plugin.types`              |
+
+`ORCHESTRATOR_CONFIG` is deliberately **not** a setting: the config root comes
+from the pack layout, and that env var stays its one explicit override.
 
 ## From this checkout (engine contributors)
 

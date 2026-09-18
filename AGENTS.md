@@ -85,12 +85,37 @@ name the pulled, locked pack it came from.
 `orchestrator config-path` prints the active root.
 `orchestrator config update [pack] [--yes]` re-pulls the locked source and
 diffs each step's contract (`version`, `kind`, `tools`, `side_effects`) before
-anything is written. Remote pulls require an `[[allow]]` entry in
-`~/.orchestrator/trust.toml` (`ORCHESTRATOR_TRUST_ALL=1` bypasses).
+anything is written. Remote pulls require a `trust.allow` glob (see below).
 
-Optional: `BACKLOG_URL` / `BACKLOG_TOKEN` / `BACKLOG_PROJECT` for ticket sync
-(unset → ticket steps no-op). Cloud/headless: see
-`docs/cloud-environment.md` and `docs/protocol-v2.md`.
+### Settings (`orchestrator.toml`)
+
+Engine knobs live in one file, not scattered env vars. Later wins:
+
+```text
+defaults < ~/.orchestrator/orchestrator.toml < <repo>/.orchestrator/orchestrator.toml
+        < ORCHESTRATOR_* env var < CLI flag
+```
+
+```bash
+orchestrator config init                       # commented template
+orchestrator config set run.max_parallel 2     # --global for the machine file
+orchestrator config show [--json]              # every key + where it came from
+```
+
+Sections: `[state]` (`url`, `backend`, `tenant`), `[run]` (`max_parallel`,
+`stale_after_hours`, `disable_worktree_lock`), `[headless]` (`backend`,
+`step_budget_usd`, `claude_bin`), `[backlog]` (`url`, `project`, `token_env`),
+`[trust]` (`allow`, `require_signed`, `trust_all`), `[models]` (`config`,
+`route_overrides`), `[plugin]` (`types`).
+
+Every key keeps its old `ORCHESTRATOR_*` variable as an override, so existing
+setups keep working; `README.md` has the full env→key table. Secrets are never
+stored — `backlog.token_env` names the variable to read the token from.
+`ORCHESTRATOR_CONFIG` is **not** a setting: the config root comes from the pack
+layout, and that env var stays its explicit override.
+
+Ticket sync is optional (`backlog.url` unset → ticket steps no-op).
+Cloud/headless: see `docs/cloud-environment.md` and `docs/protocol-v2.md`.
 
 ---
 
