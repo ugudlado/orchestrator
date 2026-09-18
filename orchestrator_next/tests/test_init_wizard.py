@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from orchestrator_next import settings
-from orchestrator_next.init_wizard import maybe_print_first_run_hint, run_wizard
+from orchestrator_next.init_wizard import init_main, maybe_print_first_run_hint, run_wizard
 
 
 @pytest.fixture(autouse=True)
@@ -190,3 +190,73 @@ def test_doctor_settings_check_names_init_when_no_file():
     result = check_settings()
     assert result.status == "WARN"
     assert "run orchestrator init" in result.detail
+
+
+def test_help_prints_usage_and_writes_nothing(tmp_path, capsys):
+    rc = init_main(["--help"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "usage: orchestrator init" in out
+    assert not settings.global_file().is_file()
+    assert settings.repo_file(tmp_path / "repo") is None or not settings.repo_file(
+        tmp_path / "repo"
+    ).is_file()
+
+
+def test_short_help_flag_also_short_circuits(capsys):
+    rc = init_main(["-h"])
+    assert rc == 0
+    assert "usage: orchestrator init" in capsys.readouterr().out
+    assert not settings.global_file().is_file()
+
+
+def test_unknown_flag_exits_2_without_writing(capsys):
+    rc = init_main(["--bogus"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "usage: orchestrator init" in err
+    assert not settings.global_file().is_file()
+
+
+def test_default_target_is_the_global_file(tmp_path, monkeypatch):
+    """No --global/--repo flag: `orchestrator init --yes` must write the
+    machine-wide file, matching the "init for the first time, store in
+    global config" intent — not silently scope to the repo."""
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: False)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+    monkeypatch.chdir(repo)
+
+    rc = init_main(["--yes"])
+    assert rc == 0
+    assert settings.global_file().is_file()
+    repo_path = settings.repo_file(repo)
+    assert repo_path is None or not repo_path.is_file()
+
+
+def test_repo_flag_still_writes_the_repo_file(tmp_path, monkeypatch):
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: False)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+    monkeypatch.chdir(repo)
+
+    rc = init_main(["--repo", "--yes"])
+    assert rc == 0
+    assert settings.repo_file(repo).is_file()
+    assert not settings.global_file().is_file()
+
+
+def test_global_write_warns_about_shadowing_repo_file(tmp_path, capsys):
+    repo = tmp_path / "repo"
+    settings.set_value("run.max_parallel", "4", path=settings.repo_file(repo))
+    capsys.readouterr()
+
+    rc = run_wizard(is_global=True, assume_yes=True, repo_root=repo)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "already exists" in out
+    assert str(settings.repo_file(repo)) in out

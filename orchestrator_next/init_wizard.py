@@ -150,6 +150,14 @@ def run_wizard(
 
     print_fn(f"wrote {path}")
 
+    if is_global:
+        shadow = settings.repo_file(repo_root)
+        if shadow is not None and shadow != path and shadow.is_file():
+            print_fn(
+                f"note: {shadow} already exists and takes precedence over "
+                f"{path} for runs in this repo"
+            )
+
     _maybe_pull_pack(
         repo_root=repo_root, interactive=interactive, input_fn=input_fn, print_fn=print_fn,
     )
@@ -220,7 +228,19 @@ def maybe_print_first_run_hint() -> None:
     )
 
 
+_KNOWN_FLAGS = ("--global", "--repo", "--yes", "--help", "-h")
+
+
 def init_main(argv: list[str]) -> int:
+    if "--help" in argv or "-h" in argv:
+        sys.stdout.write(USAGE)
+        return 0
+
+    unknown = [a for a in argv if a not in _KNOWN_FLAGS]
+    if unknown:
+        sys.stderr.write(USAGE)
+        return 2
+
     is_global = "--global" in argv
     is_repo = "--repo" in argv
     assume_yes = "--yes" in argv
@@ -234,8 +254,12 @@ def init_main(argv: list[str]) -> int:
     _default_repo_root_env()
     repo_root = Path(os.environ.get("REPO_ROOT") or os.getcwd())
 
+    # Default target is the machine-wide file: the common first-run intent
+    # is "set this up for me", not "scope this to one repo". --repo opts in.
+    use_global = not is_repo
+
     return run_wizard(
-        is_global=is_global,
+        is_global=use_global,
         assume_yes=assume_yes,
-        repo_root=None if is_global else repo_root,
+        repo_root=None if use_global else repo_root,
     )

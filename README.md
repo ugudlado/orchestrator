@@ -26,12 +26,16 @@ orchestrator init
 
 Asks a short set of questions on a TTY (state store, concurrency, headless
 backend and budget, backlog sync, trust list) — Enter keeps the shown
-default — and writes only the keys you changed to `~/.orchestrator/orchestrator.toml`
+default — and writes only the keys you changed to
+`~/.orchestrator/orchestrator.toml` by default, the machine-wide file
 (`--repo` writes `.orchestrator/orchestrator.toml` in the current repo
 instead). It then offers to pull a workflow pack if the repo has none yet,
 using the trust list it just wrote. Off a TTY, or with `--yes`, it writes the
-all-default template and skips the questions — safe for scripts and CI.
+all-default template and skips the questions — safe for scripts and CI. It
+always prints which file it wrote, and if a repo-level file already exists
+that would shadow the global one for this repo, it says so.
 `orchestrator config init` is kept as an alias for `init --yes`.
+`orchestrator init --help` prints usage and writes nothing.
 
 Skipped `orchestrator init`? Every other verb prints a one-line reminder to
 stderr the first time it runs with no settings file anywhere in the layer
