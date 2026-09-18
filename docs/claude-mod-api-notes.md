@@ -326,15 +326,25 @@ fixed-width table for a human at a shell.
 That listing is what the home screen draws, so it carries everything a row
 shows and not just the run's identity: `{slug, run_id, run_status, recipe,
 current_step, started_at, ended_at, cost_usd, cost_partial, nodes_done,
-nodes_total, archived}`. Three things about it are load-bearing:
+nodes_total, archived, stale, last_activity}`. Four things about it are
+load-bearing:
 
 - **Both the live and the archived blobs are listed.** `run_store` archives a
   finished run by flipping a flag rather than deleting it, so a listing that
   read only the live ones would empty its own past section. A run that appears
   in both is listed once, as live.
-- **Ongoing runs sort first**, then the rest by `ended_at` descending. An
-  ongoing run reports `ended_at: null` on purpose — giving it its last
-  attempt's end would sort it among the finished ones.
+- **Ongoing runs sort first**, then the rest by `ended_at`/`last_activity`
+  descending. An ongoing run reports `ended_at: null` on purpose — giving it
+  its last attempt's end would sort it among the finished ones.
+- **A run with `run_status` still ongoing is demoted to `stale: true`** when
+  nothing has touched it (its state doc, step history, or gates) within
+  `ORCHESTRATOR_STALE_AFTER_HOURS` (default 24). `run_status` itself is left
+  alone — an earlier session's abandoned run keeps saying `active` forever,
+  since nothing is left to ever flip it — but a stale row sorts with the past
+  section by `last_activity` descending, and the pane's `isOngoingRun` treats
+  it as not ongoing. `orchestrator status --json --all` is the escape hatch:
+  it keeps every ongoing-status row in the ongoing section (`stale` still
+  reported, sort only).
 - **`--limit N` caps AFTER sorting** (default 20, `0` means every run), so the
   cap can never drop the ongoing row the list exists to show.
 
@@ -355,12 +365,16 @@ pushes every row below it out of alignment, not just itself.
 
 ### A run the pane does not drive is read-only
 
-`RunOwnership` is `live`, `elsewhere` or `past`. Only `live` — this session's
-own driver — gets Approve/Cancel/Retry. A run some other session (or a
-headless run) is driving gets `[Home]` and nothing else: the pane's approve
+`RunOwnership` is `live`, `elsewhere`, `past` or `stale`. Only `live` — this
+session's own driver — gets Approve/Cancel/Retry. A run some other session (or
+a headless run) is driving gets `[Home]` and nothing else: the pane's approve
 answers the driver loop's own parked promise, so offering it for a loop in
 another process would answer a gate that loop is already awaiting. A finished
 run gets `[Start again]`, which pre-fills the wizard with its recipe and slug.
+A `stale` run — `run_status` still reads ongoing, but nothing has touched it
+in `ORCHESTRATOR_STALE_AFTER_HOURS` (`protocol.py` `_is_stale`) — gets
+`[Cancel]`/`[Home]`: unlike a finished run it CAN still be cancelled (cancel
+only marks the run), and that is the one useful thing left to do with it.
 
 ### Button keys carry data the press event does not
 

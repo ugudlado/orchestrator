@@ -129,3 +129,29 @@ read-only view too, refreshed every 15s, under the note `driven elsewhere`.
 shows. Starting a run from this session switches to `run`; `[Home]` returns.
 Bare `/orchestrator` still toggles the pane, and `/orchestrator runs` prints
 the same rows as text for a terminal too narrow to open one.
+
+## Stale runs
+
+A run's `run_status` can say `active`/`blocked`/`needs_you` forever: nothing
+flips it back once the process driving it is gone, so an earlier session's
+abandoned run stayed pinned above today's work on the strength of a status
+field nobody was updating. `orchestrator status --json` now demotes a run
+like that: `run_status` is untouched, but the engine adds `stale: true` and
+`last_activity` (the newest of the state doc's own stamps, its step
+history's, and its gates') whenever that activity is older than
+`ORCHESTRATOR_STALE_AFTER_HOURS` (default 24). A stale row sorts with the
+past section, by `last_activity` descending, rather than with the runs
+actually in progress.
+
+The home row draws it with the glyph `⋯`, and its middle column reads `stale`
+in place of a current step, with the time column showing how long ago that
+was (`relativeTimeOf(last_activity)`) rather than an elapsed clock. Opening a
+stale run's view shows the note `no activity since <relative>` above the
+action row, and offers `[Cancel]` / `[Home]` — cancel is safe here (it only
+marks the run in its state doc), unlike `[Start again]`, which a genuinely
+finished run gets instead.
+
+`orchestrator status --json --all` is the escape hatch: every ongoing-status
+run stays in the ongoing section (still carrying `stale: true` where it
+applies), for a person who wants to see everything the engine still calls
+"active" regardless of how long ago that was.

@@ -123,6 +123,14 @@ export type RunRow = {
   nodes_done?: number
   nodes_total?: number
   archived?: boolean
+  /**
+   * True when `run_status` still says ongoing but nothing has touched the
+   * run inside `ORCHESTRATOR_STALE_AFTER_HOURS` (protocol.py `_is_stale`) —
+   * a run an earlier session abandoned rather than one actually in progress.
+   */
+  stale?: boolean
+  /** The most recent activity timestamp the engine could find, or null. */
+  last_activity?: string | null
 }
 
 /** Which screen the pane is showing. */
@@ -134,8 +142,15 @@ export type PaneScreen = 'home' | 'run'
  * A run driven elsewhere (another session, or a headless run) draws the same
  * table, but its action row offers nothing that would race that driver: the
  * pane may not cancel a loop it is not the one awaiting.
+ *
+ * `stale` is its own case rather than folding into `past`: an abandoned run
+ * really is still `run_status: active` in its state doc (nothing ever
+ * flipped it), so unlike a genuinely finished run it CAN still be
+ * cancelled — cancel only marks the run, so doing that here is safe and is
+ * the one useful action left. `[Start again]` would not be, since there is
+ * no telling whether something elsewhere still holds the run open.
  */
-export type RunOwnership = 'live' | 'elsewhere' | 'past'
+export type RunOwnership = 'live' | 'elsewhere' | 'past' | 'stale'
 
 /** Everything one drawing of the pane reads. */
 export type PaneModel = {
@@ -667,9 +682,11 @@ export function footerTextOf(model: PaneModel): string {
   const driver =
     model.ownership === 'elsewhere'
       ? 'driven elsewhere'
-      : model.ownership === 'past'
-        ? 'finished'
-        : model.phase
+      : model.ownership === 'stale'
+        ? 'stale'
+        : model.ownership === 'past'
+          ? 'finished'
+          : model.phase
 
   return (
     `$${total.toFixed(4)}${isPartial ? ' (partial)' : ''} · ` +
@@ -1171,6 +1188,7 @@ export type PaneAction = {
  * | State                      | Buttons                                   |
  * | -------------------------- | ----------------------------------------- |
  * | the home screen            | Start run, Close                          |
+ * | a stale run                | Cancel, Home                              |
  * | a past run                 | Start again, Home                         |
  * | a run driven elsewhere     | Home                                      |
  * | awaiting an answer         | one per option (≤4) + Answer…  + Cancel   |
@@ -1188,6 +1206,13 @@ export function actionRowOf(model: PaneModel): readonly PaneAction[] {
     return [
       { key: START_KEY, label: 'Start run' },
       { key: CLOSE_KEY, label: 'Close' },
+    ]
+  }
+
+  if (model.ownership === 'stale') {
+    return [
+      { key: CANCEL_KEY, label: 'Cancel' },
+      { key: HOME_KEY, label: 'Home' },
     ]
   }
 
@@ -1270,9 +1295,15 @@ export function retryTextOf(retry: ParkedRetry): string {
  * The line above the action row saying what is being asked, if anything.
  *
  * A parked question is the one state where the pane must carry text the run
- * produced: the options alone do not say what they answer.
+ * produced: the options alone do not say what they answer. A stale run's
+ * note ("no activity since …") plays the same role: it is the one line that
+ * says why Cancel is being offered on a run whose `run_status` still reads
+ * as ongoing.
+ *
+ * @param nowMs the instant `relativeTimeOf` measures a stale note against;
+ *   defaults to `Date.now()` so existing callers need not pass it
  */
-export function promptTextOf(model: PaneModel): string {
+export function promptTextOf(model: PaneModel, nowMs: number = Date.now()): string {
   if (model.ask !== null) {
     return model.ask.question
   }
@@ -1283,6 +1314,15 @@ export function promptTextOf(model: PaneModel): string {
 
   if (model.retry !== null) {
     return retryTextOf(model.retry)
+  }
+
+  if (model.ownership === 'stale') {
+    const row = model.runs.find(
+      candidate =>
+        candidate.slug === model.selectedRun || candidate.run_id === model.selectedRun,
+    )
+
+    return `no activity since ${relativeTimeOf(row?.last_activity, nowMs)}`
   }
 
   return ''
@@ -1372,9 +1412,17 @@ const ONGOING_RUN_STATUSES = new Set([
   'active', 'running', 'blocked', 'needs_you',
 ])
 
-/** Whether a run is still going — the rows the home screen pins to the top. */
+/**
+ * Whether a run is still going — the rows the home screen pins to the top.
+ *
+ * A `stale` row (protocol.py already demoted it in the engine's own sort —
+ * see `_run_sort_key`) is never ongoing here either, however its
+ * `run_status` still reads: an abandoned run pinned atop the list on the
+ * strength of a status field nobody is updating is the bug this exists to
+ * fix, and the pane must not re-introduce it by trusting `run_status` alone.
+ */
 export const isOngoingRun = (row: RunRow): boolean =>
-  ONGOING_RUN_STATUSES.has(row.run_status)
+  ONGOING_RUN_STATUSES.has(row.run_status) && row.stale !== true
 
 /** What the home screen draws for each run status. */
 const RUN_GLYPHS: Record<string, string> = {
@@ -1393,6 +1441,9 @@ const RUN_GLYPHS: Record<string, string> = {
 
 /** The glyph for a run's status; an unknown status stays a plain bullet. */
 export const runGlyphOf = (status: string): string => RUN_GLYPHS[status] ?? '◦'
+
+/** The glyph for a run the engine has demoted to stale, whatever its status. */
+export const STALE_GLYPH = '⋯'
 
 /** A second, in milliseconds — the unit every relative span is built from. */
 const SECOND_MS = 1000
@@ -1531,15 +1582,24 @@ export function runLineOf(
 ): string {
   const width = columns ?? DEFAULT_BODY_COLUMNS
   const ongoing = isOngoingRun(row)
-  const glyph = runGlyphOf(row.run_status)
+  const stale = row.stale === true
+  const glyph = stale ? STALE_GLYPH : runGlyphOf(row.run_status)
   const cost = costTextOf(row.cost_usd ?? 0, row.cost_partial === true)
 
-  const middle = ongoing
-    ? (row.current_step ?? '-')
-    : relativeTimeOf(row.ended_at, nowMs)
-  const time = ongoing
-    ? runElapsedOf(row.started_at, nowMs)
-    : runDurationOf(row.started_at, row.ended_at)
+  // A stale row draws in the past section (`isOngoingRun` already says so),
+  // but its middle text says WHY it stopped counting as ongoing rather than
+  // reusing the "when it ended" wording a genuinely finished run gets — it
+  // has no `ended_at` to show.
+  const middle = stale
+    ? 'stale'
+    : ongoing
+      ? (row.current_step ?? '-')
+      : relativeTimeOf(row.ended_at, nowMs)
+  const time = stale
+    ? relativeTimeOf(row.last_activity, nowMs)
+    : ongoing
+      ? runElapsedOf(row.started_at, nowMs)
+      : runDurationOf(row.started_at, row.ended_at)
 
   // Every column is capped as well as padded, so one outlier row cannot widen
   // the line: an idle run's clock really does reach `689:36:21`, and a slug
@@ -1631,7 +1691,7 @@ export function breadcrumbOf(model: PaneModel): string {
     }
   }
 
-  if (model.ownership !== 'past') {
+  if (model.ownership !== 'past' && model.ownership !== 'stale') {
     parts.push(elapsedTextOf(model.elapsedMs))
   }
 
@@ -1762,7 +1822,7 @@ export function paneView(
     ),
   })
 
-  const prompt = promptTextOf(model)
+  const prompt = promptTextOf(model, nowMs)
   const promptLines = prompt === '' ? [] : [Text({ children: prompt })]
 
   // The home screen: recipes to start, runs to look at. Drawn before the

@@ -1342,10 +1342,32 @@ DEFAULT_RUN_LIMIT = 20
 #: because an ongoing run is the one a person opened the list to look at.
 ONGOING_RUN_STATUSES = frozenset({"active", "running", "blocked", "needs_you"})
 
+#: How long a run with no recorded activity still counts as ongoing, in hours.
+#:
+#: A run an earlier session abandoned months ago keeps ``status: active`` in
+#: its state doc forever — nothing ever flips it, because nothing is driving
+#: it any more. Without a staleness check that run pins to the top of the
+#: list ahead of work actually in progress today, on the strength of a status
+#: field nobody is updating. ``ORCHESTRATOR_STALE_AFTER_HOURS`` overrides it,
+#: for a person who genuinely runs something for days at a time.
+def _stale_after_hours() -> float:
+    raw = os.environ.get("ORCHESTRATOR_STALE_AFTER_HOURS", "")
+    try:
+        return float(raw) if raw else 24.0
+    except ValueError:
+        return 24.0
 
-def runs(limit: int = DEFAULT_RUN_LIMIT) -> tuple[list[dict[str, Any]], int]:
+
+def runs(
+    limit: int = DEFAULT_RUN_LIMIT, *, all_ongoing: bool = False
+) -> tuple[list[dict[str, Any]], int]:
     """Every run the store knows, ongoing first then newest-finished — what
     ``status`` with no run reports.
+
+    ``all_ongoing`` (``--all`` on the CLI) is the escape hatch for staleness:
+    it leaves every ongoing-status run in the ongoing section, `stale` field
+    and all, instead of demoting the ones idle past
+    ``ORCHESTRATOR_STALE_AFTER_HOURS``. Nothing else about a row changes.
 
     ``state list`` exists but answers a *store admin* question (it takes a
     store URL, prints a fixed-width table, and reports schema/step counts), so
@@ -1392,7 +1414,7 @@ def runs(limit: int = DEFAULT_RUN_LIMIT) -> tuple[list[dict[str, Any]], int]:
             seen.add(run_id)
             out.append(_run_row(run_id, raw, archived=archived))
 
-    out.sort(key=_run_sort_key)
+    out.sort(key=lambda row: _run_sort_key(row, force_ongoing=all_ongoing))
     return (out if limit is None or limit <= 0 else out[:limit]), 0
 
 
@@ -1414,10 +1436,14 @@ def _run_row(run_id: str, raw: dict[str, Any], *, archived: bool) -> dict[str, A
     except Exception:  # noqa: BLE001 — pricing is informational, never fatal
         cost = 0.0
 
+    run_status = str(raw.get("status") or "active")
+    last_activity = _last_activity(raw, history)
+    stale = run_status in ONGOING_RUN_STATUSES and _is_stale(last_activity)
+
     return {
         "run_id": str(raw.get("run_id") or run_id),
         "slug": str(raw.get("slug") or raw.get("change_id") or ""),
-        "run_status": str(raw.get("status") or "active"),
+        "run_status": run_status,
         "recipe": str(raw.get("schema") or raw.get("workflow") or ""),
         "current_step": _current_step_of(raw),
         "started_at": _run_started_at(raw, history),
@@ -1432,7 +1458,68 @@ def _run_row(run_id: str, raw: dict[str, Any], *, archived: bool) -> dict[str, A
         "nodes_done": done,
         "nodes_total": total,
         "archived": archived,
+        "stale": stale,
+        "last_activity": last_activity,
     }
+
+
+def _last_activity(raw: dict[str, Any], history: list[Any]) -> str | None:
+    """The most recent timestamp anything happened on this run, or ``None``.
+
+    Drawn from every place a run leaves a stamp: the state doc's own
+    ``updated_at``, the last step attempt's ``ended_at``/``started_at``, and
+    the most recent gate's ``issued_at``. The maximum of what is available —
+    an ISO stamp sorts lexically, so a plain string max works — is what
+    "still going" has to mean once ``run_status`` alone cannot be trusted: a
+    run nothing has touched in months is not "active" just because its state
+    doc still says so.
+    """
+    candidates: list[str] = []
+
+    for key in ("updated_at", "started_at", "created_at"):
+        value = raw.get(key)
+        if isinstance(value, str) and value:
+            candidates.append(value)
+
+    for entry in history:
+        if not isinstance(entry, dict):
+            continue
+        for key in ("ended_at", "started_at"):
+            value = entry.get(key)
+            if isinstance(value, str) and value:
+                candidates.append(value)
+
+    gates = raw.get("gates")
+    if isinstance(gates, list):
+        for record in gates:
+            if not isinstance(record, dict):
+                continue
+            for key in ("approved_at", "issued_at"):
+                value = record.get(key)
+                if isinstance(value, str) and value:
+                    candidates.append(value)
+
+    return max(candidates) if candidates else None
+
+
+def _is_stale(last_activity: str | None) -> bool:
+    """Whether ``last_activity`` is older than ``ORCHESTRATOR_STALE_AFTER_HOURS``.
+
+    A run with no timestamp at all (a very old or hand-built state doc) is
+    treated as stale rather than raising or guessing recent — silence is
+    itself the strongest signal nothing is driving it.
+    """
+    if not last_activity:
+        return True
+    try:
+        at = _dt.datetime.fromisoformat(last_activity.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return True
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=_dt.timezone.utc)
+    now = _dt.datetime.now(_dt.timezone.utc)
+    age_hours = (now - at).total_seconds() / 3600.0
+    return age_hours > _stale_after_hours()
 
 
 def _node_counts(raw: dict[str, Any]) -> tuple[int, int]:
@@ -1492,18 +1579,27 @@ def _run_ended_at(raw: dict[str, Any], history: list[Any]) -> str | None:
     return None
 
 
-def _run_sort_key(row: dict[str, Any]) -> tuple[Any, ...]:
-    """Ongoing first, then by ``ended_at`` descending, then by slug.
+def _run_sort_key(
+    row: dict[str, Any], *, force_ongoing: bool = False
+) -> tuple[Any, ...]:
+    """Ongoing (and not stale) first, then by recency descending, then slug.
 
-    ``ended_at`` is an ISO stamp, which sorts lexically the right way, so the
-    descending half is spelled as a reversed string comparison rather than a
-    parse — an unparseable or missing stamp then sorts last instead of
-    raising.
+    A stale run — ``run_status`` still says ongoing, but nothing has touched
+    it inside ``ORCHESTRATOR_STALE_AFTER_HOURS`` — sorts with the past
+    section rather than the ongoing one (see ``_is_stale``): it is drawn by
+    ``last_activity`` there, the same way a finished run is drawn by
+    ``ended_at``. ``force_ongoing`` (``--all``) keeps a stale run in the
+    ongoing section instead, unchanged otherwise. ``ended_at``/
+    ``last_activity`` are ISO stamps, which sort lexically the right way, so
+    the descending half is a reversed string comparison rather than a parse —
+    an unparseable or missing stamp then sorts last instead of raising.
     """
-    ongoing = row["run_status"] in ONGOING_RUN_STATUSES
-    ended = row.get("ended_at") or ""
+    ongoing = row["run_status"] in ONGOING_RUN_STATUSES and (
+        force_ongoing or not row.get("stale")
+    )
+    recency = row.get("last_activity") if ongoing else row.get("ended_at")
 
-    return (not ongoing, _descending(ended), row.get("slug") or "")
+    return (not ongoing, _descending(recency or ""), row.get("slug") or "")
 
 
 class _descending:
@@ -1676,6 +1772,9 @@ def main(verb: str, argv: list[str]) -> int:
             # used to mean `state list`, whose fixed-width table is for a
             # human at a shell, not a caller.
             limit_flag = _pop_flag(args, "--limit")
+            all_ongoing = "--all" in args
+            if all_ongoing:
+                args.remove("--all")
             if not args:
                 try:
                     limit = (
@@ -1685,7 +1784,7 @@ def main(verb: str, argv: list[str]) -> int:
                     raise ProtocolError(
                         f"--limit takes a whole number, not {limit_flag!r}"
                     ) from None
-                rows, code = runs(limit)
+                rows, code = runs(limit, all_ongoing=all_ongoing)
                 print(json.dumps(rows, sort_keys=True, indent=2, default=str))
                 return code
             result, code = status(args[0])

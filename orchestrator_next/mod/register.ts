@@ -475,8 +475,10 @@ function goHome($: EngineInterface): void {
  *
  * Who drives the run decides what the view offers: this session's own run
  * keeps the live action row, any other ongoing run is read-only (cancelling
- * it from here would race the loop that IS driving it), and a finished one
- * offers to start its recipe again.
+ * it from here would race the loop that IS driving it), a stale one (the
+ * engine demoted it — nothing has touched it in `ORCHESTRATOR_STALE_AFTER_HOURS`,
+ * see `isOngoingRun`) offers to cancel it since nothing can be racing it, and
+ * a genuinely finished one offers to start its recipe again.
  */
 function openRunView($: EngineInterface, ref: string): void {
   const row = pane.model.runs.find(
@@ -484,11 +486,13 @@ function openRunView($: EngineInterface, ref: string): void {
   )
   const isOurs = pane.run !== null && (pane.run === ref || state.active?.slug === ref)
   const ownership: RunOwnership =
-    row !== undefined && !isOngoingRun(row)
-      ? 'past'
-      : isOurs
-        ? 'live'
-        : 'elsewhere'
+    row !== undefined && row.stale === true
+      ? 'stale'
+      : row !== undefined && !isOngoingRun(row)
+        ? 'past'
+        : isOurs
+          ? 'live'
+          : 'elsewhere'
 
   pane.model = {
     ...pane.model,
@@ -883,7 +887,17 @@ export function register(on: On) {
     // `ui.press` hook above redraws once the press has been taken.
     return paneView({ Box, Text, Button }, pane.model, {
       approve: () => void report($, 'approve', approveAction(hostOf($))),
-      cancel: () => void report($, 'cancel', cancelAction(hostOf($))),
+      // A stale run's Cancel must target the run being VIEWED, not whatever
+      // `currentRun` would guess (this session's driver, or the sole live
+      // run) — the whole point of the stale row is that nothing here is
+      // driving it, so `cancelAction`'s no-argument fallback is the wrong
+      // run to act on.
+      cancel: () =>
+        void report(
+          $,
+          'cancel',
+          cancelAction(hostOf($), pane.model.selectedRun ?? undefined),
+        ),
       retry: () => void report($, 'retry', retryAction(hostOf($))),
       start: () => void report($, 'start', startWizard($, '')),
       answer: option => void report($, 'resume', answerAsk($, option)),

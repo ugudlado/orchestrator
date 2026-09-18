@@ -16,15 +16,27 @@ import yaml
 
 from orchestrator_next import protocol
 
+# A stamp fresh enough that `_doc()`'s default run never trips the staleness
+# check on its own — tests about ordering/fields, not staleness, should not
+# have to think about `ORCHESTRATOR_STALE_AFTER_HOURS`.
+_FRESH = "2026-09-18T12:00:00Z"
+
 
 def _doc(**overrides: object) -> dict:
-    """A state document with just enough shape for one listing row."""
+    """A state document with just enough shape for one listing row.
+
+    Carries a fresh `started_at` by default so an ongoing-status fixture
+    reads as genuinely active rather than stale (see `_is_stale`); a test
+    about a finished run overrides `started_at`/`ended_at` itself and does
+    not need this stamp to mean anything.
+    """
     doc: dict = {
         "run_id": "r",
         "slug": "s",
         "status": "active",
         "schema": "feature",
         "step_history": [],
+        "started_at": _FRESH,
     }
     doc.update(overrides)
     return doc
@@ -106,12 +118,12 @@ def test_started_at_falls_back_to_the_first_attempt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A run seeded without its own stamp still reports when work began."""
-    _install(monkeypatch, _Store({
-        "r": _doc(step_history=[
-            {"step_id": "a", "started_at": "2026-09-18T09:00:00Z"},
-            {"step_id": "b", "started_at": "2026-09-18T09:05:00Z"},
-        ]),
-    }))
+    doc = _doc(step_history=[
+        {"step_id": "a", "started_at": "2026-09-18T09:00:00Z"},
+        {"step_id": "b", "started_at": "2026-09-18T09:05:00Z"},
+    ])
+    del doc["started_at"]  # the fallback under test is the history's own stamp
+    _install(monkeypatch, _Store({"r": doc}))
 
     [row], _ = protocol.runs()
 
@@ -199,6 +211,122 @@ def test_a_finished_run_without_a_stamp_sorts_last_rather_than_raising(
     rows, _ = protocol.runs()
 
     assert [row["slug"] for row in rows] == ["stamped", "bare"]
+
+
+# --- staleness ---------------------------------------------------------------
+def test_an_ongoing_run_idle_past_the_threshold_is_demoted_to_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An `active` run nobody has touched in months is not "ongoing"."""
+    _install(monkeypatch, _Store({
+        "old": _doc(run_id="old", slug="old", status="active",
+                    started_at="2026-01-01T00:00:00Z"),
+        "new": _doc(run_id="new", slug="new", status="active",
+                    started_at=_FRESH),
+    }))
+
+    rows, _ = protocol.runs()
+
+    by_slug = {row["slug"]: row for row in rows}
+    assert by_slug["old"]["stale"] is True
+    assert by_slug["old"]["run_status"] == "active"  # run_status is untouched
+    assert by_slug["new"]["stale"] is False
+    # The still-fresh run pins to the top; the stale one sorts with the past
+    # section, by its own last activity descending.
+    assert [row["slug"] for row in rows] == ["new", "old"]
+
+
+def test_stale_row_carries_last_activity(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install(monkeypatch, _Store({
+        "r": _doc(status="blocked", started_at="2026-01-01T00:00:00Z",
+                  gates=[{"gate_id": "g", "status": "pending",
+                          "issued_at": "2026-01-02T00:00:00Z"}]),
+    }))
+
+    [row], _ = protocol.runs()
+
+    assert row["stale"] is True
+    assert row["last_activity"] == "2026-01-02T00:00:00Z"
+
+
+def test_last_activity_prefers_the_most_recent_step_history_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install(monkeypatch, _Store({
+        "r": _doc(
+            status="active",
+            started_at="2026-01-01T00:00:00Z",
+            step_history=[
+                {"step_id": "a", "ended_at": "2026-01-05T00:00:00Z"},
+                {"step_id": "b", "started_at": _FRESH},
+            ],
+        ),
+    }))
+
+    [row], _ = protocol.runs()
+
+    assert row["stale"] is False
+    assert row["last_activity"] == _FRESH
+
+
+def test_a_run_with_no_timestamp_at_all_is_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Silence is the strongest signal nothing is driving a run."""
+    doc = _doc(status="active")
+    del doc["started_at"]
+    _install(monkeypatch, _Store({"r": doc}))
+
+    [row], _ = protocol.runs()
+
+    assert row["stale"] is True
+    assert row["last_activity"] is None
+
+
+def test_finished_and_non_ongoing_runs_are_never_marked_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Staleness is a property of an ongoing-status run, not a finished one."""
+    _install(monkeypatch, _Store({
+        "r": _doc(status="completed", ended_at="2026-01-01T00:00:00Z"),
+    }))
+
+    [row], _ = protocol.runs()
+
+    assert row["stale"] is False
+
+
+def test_stale_after_hours_env_var_overrides_the_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A person who genuinely runs something for days can widen the window."""
+    monkeypatch.setenv("ORCHESTRATOR_STALE_AFTER_HOURS", "240")
+    _install(monkeypatch, _Store({
+        "r": _doc(status="active", started_at="2026-09-10T00:00:00Z"),
+    }))
+
+    [row], _ = protocol.runs()
+
+    assert row["stale"] is False
+
+
+def test_cli_all_flag_keeps_stale_runs_in_the_ongoing_section(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _install(monkeypatch, _Store({
+        "old": _doc(run_id="old", slug="old", status="active",
+                    started_at="2026-01-01T00:00:00Z"),
+        "done": _doc(run_id="done", slug="done", status="completed",
+                     ended_at="2026-09-01T00:00:00Z"),
+    }))
+
+    code = protocol.main("status", ["--json", "--all"])
+
+    assert code == 0
+    rows = json.loads(capsys.readouterr().out)
+    # `old` is still stale=true, but sorts with the ongoing section (first).
+    assert rows[0]["slug"] == "old"
+    assert rows[0]["stale"] is True
 
 
 # --- the limit -------------------------------------------------------------

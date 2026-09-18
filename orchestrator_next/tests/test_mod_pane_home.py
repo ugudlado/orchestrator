@@ -280,6 +280,42 @@ def test_ongoing_statuses() -> None:
         assert _call("(m, a) => m.isOngoingRun(a[0])", {"run_status": status}) is False
 
 
+@requires_node
+def test_a_stale_row_is_never_ongoing_however_its_status_reads() -> None:
+    """The engine's own `stale` flag overrides `run_status` here too.
+
+    A run an earlier session abandoned still says `run_status: active`
+    forever — nothing left to flip it — so the pane must not trust that
+    field alone, or the bug this feature exists to fix comes right back.
+    """
+    for status in ("active", "running", "blocked", "needs_you"):
+        assert (
+            _call(
+                "(m, a) => m.isOngoingRun(a[0])",
+                {"run_status": status, "stale": True},
+            )
+            is False
+        )
+
+
+@requires_node
+def test_a_stale_row_draws_the_stale_glyph_and_middle_text() -> None:
+    row = {
+        **ONGOING,
+        "started_at": _at(400 * DAY),
+        "stale": True,
+        "last_activity": _at(3 * DAY),
+    }
+    line = str(_call("(m, a) => m.runLineOf(a[0], a[1], a[2])", row, 50, NOW))
+
+    assert line.startswith("⋯ pane-2")
+    assert "stale" in line
+    assert "3d ago" in line
+    # A stale row is not an ongoing one: it must not show a running clock or
+    # the step it was last doing.
+    assert "design-review" not in line
+
+
 # --- the whole home screen -------------------------------------------------
 @requires_node
 def test_home_rows_are_two_labelled_sections_with_the_ongoing_runs_first() -> None:
@@ -357,6 +393,9 @@ def _model(**overrides: object) -> dict:
     [
         ({"screen": "home"}, ["Start run", "Close"]),
         ({"ownership": "past"}, ["Start again", "Home"]),
+        # A stale run CAN still be cancelled (cancel only marks the run) —
+        # that is the one useful action left, unlike a genuinely finished run.
+        ({"ownership": "stale"}, ["Cancel", "Home"]),
         # A run another session drives offers nothing that would race it.
         ({"ownership": "elsewhere"}, ["Home"]),
         ({}, ["Cancel", "Home"]),
@@ -379,6 +418,35 @@ def test_a_run_driven_elsewhere_says_so_in_the_footer() -> None:
     assert "finished" in str(
         _call("(m, a) => m.footerTextOf(a[0])", _model(ownership="past"))
     )
+    assert "stale" in str(
+        _call("(m, a) => m.footerTextOf(a[0])", _model(ownership="stale"))
+    )
+
+
+@requires_node
+def test_a_stale_run_shows_a_no_activity_note_above_the_action_row() -> None:
+    model = _model(
+        ownership="stale",
+        selectedRun="orc-118",
+        runs=[{**ONGOING, "slug": "orc-118", "run_id": "r9", "stale": True,
+               "last_activity": _at(3 * DAY)}],
+    )
+    note = str(_call("(m, a) => m.promptTextOf(a[0], a[1])", model, NOW))
+
+    assert note == "no activity since 3d ago"
+
+
+@requires_node
+def test_a_stale_runs_breadcrumb_has_no_running_clock() -> None:
+    model = _model(
+        ownership="stale",
+        runs=[{"run_id": "r", "slug": "s", "recipe": "design",
+               "run_status": "active", "stale": True}],
+        elapsedMs=255_000,
+    )
+    crumb = str(_call("(m, a) => m.breadcrumbOf(a[0])", model))
+
+    assert "4:15" not in crumb
 
 
 @requires_node
