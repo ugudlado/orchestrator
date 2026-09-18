@@ -19,11 +19,15 @@ dependencies = [
 headless = [
     "anthropic>=0.40",
 ]
+judge = [
+    "typesafe-sdk",
+]
 dev = [
     "pytest>=8.0",
     "ruff>=0.4",
     "vulture>=2.16",
     "anthropic>=0.40",
+    "typesafe-sdk",
 ]
 
 [project.scripts]

@@ -16,8 +16,9 @@ from typing import Any
 
 import yaml
 
-from orchestrator_next.parser import AgentStepContract, ContractError, State, compute_attempt, load_contract_for_step, safe_write_yaml as _safe_write_yaml_base
+from orchestrator_next import judge as _judge
 from orchestrator_next import readiness
+from orchestrator_next.parser import AgentStepContract, ContractError, State, compute_attempt, load_contract_for_step, safe_write_yaml as _safe_write_yaml_base
 from orchestrator_next.redact import redact_entry
 from orchestrator_next.paths import ConfigRootError
 from orchestrator_next.pricing import _billable_token_units, _compute_cost_usd
@@ -596,6 +597,61 @@ def _build_history_entry(
     return entry
 
 
+_ABANDON_TRIAGE_CRITERIA = {
+    "transient": "a tool crash, timeout, rate limit, network error, or other "
+                 "flaky-environment failure — retrying unchanged would likely succeed",
+    "missing_input": "a required artifact, file, or piece of context was absent",
+    "prompt_defect": "the step's instructions were contradictory or impossible to satisfy",
+    "scope_too_big": "the step gave up because the task was too large for one pass",
+}
+
+
+def _triage_abandoned(
+    entry: dict[str, Any],
+    step_id: str,
+    phase: str,
+    node: dict[str, Any] | None,
+    state_raw: dict[str, Any],
+    reason: str,
+) -> bool:
+    """Ask the judge to classify why a step abandoned. Returns True when it
+    decided the node should be reset for a retry (caller re-dispatches);
+    False means the existing needs_you path applies (judge unavailable, low
+    confidence, non-transient kind, or retries exhausted)."""
+    r = _judge.ask(
+        state={"reason": reason or "(no reason given)"},
+        questions={"kind": _judge.choice(
+            instructions="Why did this workflow step abandon rather than complete?",
+            criteria=_ABANDON_TRIAGE_CRITERIA,
+        )},
+    )
+    if r is None:
+        entry["judge"] = None
+        return False
+
+    result = r.choices["kind"]
+    kind = result.choice
+    confidence = result.confidence
+    entry["judge"] = {"kind": kind, "confidence": confidence}
+
+    if kind != "transient" or confidence < 0.7:
+        return False
+
+    max_r = int((node or {}).get("max_retries") or _DEFAULT_MAX_RETRY_ROUNDS)
+    history = state_raw.get("step_history") or []
+    abandoned_count = sum(
+        1 for h in history
+        if isinstance(h, dict) and h.get("phase") == phase and h.get("step_id") == step_id
+        and h.get("status") == "abandoned"
+    )
+    if abandoned_count >= max_r:
+        return False
+
+    readiness.mark_node_status(state_raw, phase, step_id, "reset")
+    state_raw["status"] = "active"
+    return True
+
+
 def _apply_routing(
     entry: dict[str, Any],
     step_id: str,
@@ -645,13 +701,31 @@ def _apply_routing(
             )
             readiness.mark_node_status(state_raw, phase, step_id, node_status)
             if node_status == "abandoned":
-                # A human has to decide what happens next: there is no routing
-                # to retry and no usable artifact to carry forward.
-                state_raw["status"] = "needs_you"
                 reason = ""
                 if isinstance(outputs, dict):
                     reason = str(outputs.get("reason") or "").strip()
+
+                reset_for_retry = False
+                judge_kind = None
+                if status == "abandoned":
+                    node = _find_workflow_node(state_raw, phase, step_id)
+                    reset_for_retry = _triage_abandoned(
+                        entry, step_id, phase, node, state_raw, reason,
+                    )
+                    judge_kind = (entry.get("judge") or {}).get("kind") if entry.get("judge") else None
+                if reset_for_retry:
+                    # Judge says this was transient and retries remain:
+                    # readiness.mark_node_status above already set the node to
+                    # "abandoned" but _triage_abandoned then reset it to
+                    # "reset" and re-activated the run — re-dispatch, no human
+                    # needed.
+                    return
+                # A human has to decide what happens next: there is no routing
+                # to retry and no usable artifact to carry forward.
+                state_raw["status"] = "needs_you"
                 what = "abandoned" if status == "abandoned" else "rejected"
+                if judge_kind and judge_kind != "transient":
+                    what = f"{what} [{judge_kind}]"
                 state_raw["needs_you_reason"] = (
                     f"{step_id} {what}: {reason}" if reason
                     else f"{step_id} {what}"
@@ -688,6 +762,46 @@ def _apply_routing(
             readiness.mark_node_status(state_raw, phase, routing, "reset")
 
 
+_ISSUE_KIND_CRITERIA = {
+    "retry_success": "the step failed then succeeded on retry",
+    "script_failed": "a run: script exited non-zero",
+    "tool_crashed": "the harness or a tool errored, not the task itself",
+    "prompt_gap": "the step's instructions lacked something the agent needed",
+    "other": "none of the above",
+}
+
+_ISSUE_TEXT_KEYS = ("summary", "detail", "description")
+
+
+def _classify_issues(issues: list[dict[str, Any]]) -> None:
+    """Set issue["kind"] on each issue lacking one, via one batched judge call
+    (one Choice question per issue, keyed by index). No-op when the judge is
+    unavailable — issues are left untouched, exactly as before."""
+    to_classify = [(i, issue) for i, issue in enumerate(issues) if not issue.get("kind")]
+    if not to_classify:
+        return
+    questions = {}
+    for i, issue in to_classify:
+        text = " ".join(
+            str(issue[k]) for k in _ISSUE_TEXT_KEYS if issue.get(k)
+        ) or "(no description)"
+        questions[str(i)] = _judge.choice(
+            instructions=f"Classify this workflow issue: {text}",
+            criteria=_ISSUE_KIND_CRITERIA,
+        )
+    state = {
+        str(i): {k: issue[k] for k in _ISSUE_TEXT_KEYS if issue.get(k)}
+        for i, issue in to_classify
+    }
+    r = _judge.ask(state=state, questions=questions)
+    if r is None:
+        return
+    for i, issue in to_classify:
+        result = r.choices.get(str(i)) if isinstance(r.choices, dict) else None
+        if result is not None:
+            issue["kind"] = result.choice
+
+
 def _accumulate_issues(
     state_raw: dict[str, Any],
     phase: str,
@@ -705,6 +819,7 @@ def _accumulate_issues(
         seen_dedup_keys = {
             i.get("dedup_key") for i in existing if isinstance(i, dict) and i.get("dedup_key")
         }
+        new_issues = []
         for issue in incoming_issues:
             if not isinstance(issue, dict):
                 continue
@@ -713,8 +828,10 @@ def _accumulate_issues(
                 continue
             issue.setdefault("surfaced_at", f"{phase}/{step_id}")
             existing.append(issue)
+            new_issues.append(issue)
             if dk:
                 seen_dedup_keys.add(dk)
+        _classify_issues(new_issues)
         state_raw["workflow_issues"] = existing
 
 

@@ -16,7 +16,14 @@ import json
 import sys
 from pathlib import Path
 
+from orchestrator_next import judge as _judge
 from orchestrator_next import state_store as ss
+
+# ponytail: cap the semantic-dedupe comparison set rather than diffing a
+# candidate against a whole train.jsonl — keeps the judge call's state small
+# and bounded as a step's scenario file grows.
+_SEMANTIC_DEDUPE_RECENT = 40
+_SEMANTIC_DEDUPE_THRESHOLD = 0.85
 
 
 def _canonical(row: dict) -> str:
@@ -45,6 +52,50 @@ def existing_hashes(path: Path) -> set[str]:
     return out
 
 
+def _existing_rows(path: Path) -> list[dict]:
+    """Rows already in a train.jsonl, most recent last (append order)."""
+    out: list[dict] = []
+    if not path.is_file():
+        return out
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return out
+
+
+def _semantic_duplicate_of(row: dict, existing_rows: list[dict]) -> str | None:
+    """None if judge unavailable or no near-duplicate found; else a marker
+    identifying which existing row (by its position among the recent set)
+    the candidate duplicates."""
+    recent = existing_rows[-_SEMANTIC_DEDUPE_RECENT:]
+    if not recent:
+        return None
+    questions = {
+        str(i): _judge.noul(
+            instructions=(
+                "Do `candidate` and `existing` describe the same scenario "
+                "and expect the same behavior (a near-duplicate, not merely "
+                "the same topic)?"
+            ),
+        )
+        for i in range(len(recent))
+    }
+    state = {"candidate": row, "existing": recent}
+    r = _judge.ask(state=state, questions=questions)
+    if r is None:
+        return None
+    for i, existing_row in enumerate(recent):
+        result = r.nouls.get(str(i)) if isinstance(r.nouls, dict) else None
+        if result is not None and result.noul >= _SEMANTIC_DEDUPE_THRESHOLD:
+            return existing_row.get("id") or f"row {i}"
+    return None
+
+
 def publish(pack_dir: Path, *, step: str | None = None,
             handle: str | None = None) -> dict[str, int]:
     """Append accepted learn rows to each step's scenarios/train.jsonl.
@@ -69,6 +120,10 @@ def publish(pack_dir: Path, *, step: str | None = None,
         target = pack_dir / "steps" / step_id / "scenarios" / "train.jsonl"
         seen = existing_hashes(target)
         if _row_hash(row) in seen:
+            continue
+        dup_of = _semantic_duplicate_of(row, _existing_rows(target))
+        if dup_of is not None:
+            print(f"skipped near-duplicate of {dup_of}", file=sys.stderr)
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         with open(target, "a", encoding="utf-8") as f:

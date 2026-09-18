@@ -277,6 +277,20 @@ def check_prompt_optimizer() -> CheckResult:
     )
 
 
+def check_judge() -> CheckResult:
+    """PASS when the optional TypeSafe judge is on and callable, else WARN
+    with why (never FAIL — every call site has a judge-free fallback)."""
+    from orchestrator_next import judge
+
+    if os.environ.get("ORCHESTRATOR_JUDGE", "").strip().lower() == "off":
+        return CheckResult("judge", "WARN", "ORCHESTRATOR_JUDGE=off")
+    if not os.environ.get("TYPESAFE_API_KEY", "").strip():
+        return CheckResult("judge", "WARN", "TYPESAFE_API_KEY is not set")
+    if not judge.enabled():
+        return CheckResult("judge", "WARN", "typesafe_sdk is not installed")
+    return CheckResult("judge", "PASS", "TypeSafe judge is configured")
+
+
 def check_contract_aliases_resolve(config_root: Path) -> CheckResult:
     """D4: every prompt step must have a step_models entry whose tier alias
     resolves to a route somewhere in the layer chain. Catch missing mappings
@@ -502,6 +516,7 @@ def run_all() -> int:
         check_pack_trust_and_lock(repo_root),
         check_claude_plugin(repo_root),
         check_run_store(),
+        check_judge(),
     ]
     print(_format_table(results))
     if any(r.status == "FAIL" for r in results):
