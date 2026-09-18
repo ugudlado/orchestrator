@@ -101,6 +101,9 @@ SCHEMA: tuple[Spec, ...] = (
     Spec("trust", "trust_all", "bool", False, "ORCHESTRATOR_TRUST_ALL",
          "Bypass every trust check (dev/test escape hatch)."),
 
+    Spec("serve", "port", "int", 8765, "",
+         "Port `orchestrator serve` binds for the local web UI."),
+
     Spec("models", "config", "str", "", "ORCHESTRATOR_MODELS_CONFIG",
          "models.yaml to layer above the pack's (also --models-config)."),
     Spec("models", "route_overrides", "table", {},

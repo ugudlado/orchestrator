@@ -394,6 +394,15 @@ def check_run_store() -> CheckResult:
     return CheckResult("run store", "PASS", f"sqlite ({store.db_path})")
 
 
+def check_web_ui() -> CheckResult:
+    """The web UI's one static file ships with the wheel, or the page is blank."""
+    from orchestrator_next.serve import UI_FILE
+
+    if not UI_FILE.is_file():
+        return CheckResult("web ui", "FAIL", f"missing {UI_FILE}")
+    return CheckResult("web ui", "PASS", "run `orchestrator serve`")
+
+
 def check_pack_trust_and_lock(repo_root: Path) -> CheckResult:
     """Lock presence, trust status and pack drift — plan phase 3.2.
 
@@ -538,6 +547,7 @@ def run_all() -> int:
         check_claude_plugin(repo_root),
         check_settings(),
         check_run_store(),
+        check_web_ui(),
         check_judge(),
     ]
     print(_format_table(results))

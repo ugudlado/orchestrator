@@ -148,8 +148,16 @@ Net **−170 lines and one fewer external dependency.**
 
 ## 5. Surfaces: one
 
-**The Claude Code Mod, alone.** Not CLI-plus-Mod-plus-Desktop, and not the
-`skills/orchestrate` driver.
+**The Claude Code Mod plus a minimal web UI (`serve.py`).** Not
+CLI-plus-Mod-plus-Desktop, and not the `skills/orchestrate` driver.
+
+The Mod stays the place work is driven. `orchestrator serve` is the read-and-
+approve surface for everything else: one stdlib module and one static file, no
+dependencies and no build step, every route a wrapper over an existing
+`protocol` verb. It answers "what is running and what did it cost" without a
+terminal, and it seeds runs but never drives them — so it adds a second
+renderer, which §5 warned about, at the cost of ~650 lines and zero new
+engine concepts.
 
 **Desktop/MCP is a later phase, only if a non-Claude-Code user appears.** MCP
 Apps (SEP-1865) reached Final on 2026-01-26 with Claude desktop support

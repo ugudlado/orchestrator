@@ -169,3 +169,19 @@ an archived run adds `archived` to its breadcrumb note, right after the
 recipe name. Archived is a separate fact from `stale` or `run_status`: a
 run can be finished, archived, and long done, all at once, and each of the
 three is reported independently.
+
+## The web page mirrors this
+
+`orchestrator serve` (`orchestrator_next/serve.py`) draws the same two screens
+in a browser, against the same `protocol` functions — `status`/`runs` for the
+rows, `events --step` for the log panel. Every convention above is the page's
+too: the glyph leads the row, ongoing pins to the top, `⋯` marks stale and `⊡`
+archived, and the run view is the metrics table above the log panel with a
+Totals row and `?` for a partial cost.
+
+Two things differ, both because a browser is not a pane. The page is wide, so
+Home puts Recipes and Runs side by side (Actions' own layout) instead of
+stacking them; and at phone width the metrics table scrolls inside its own box
+rather than falling to a compact list, because dropping columns would make the
+page and the pane disagree about what a run cost. Refresh is a 5s fetch while a
+run is ongoing, not SSE.

@@ -163,6 +163,20 @@ orchestrator report --state <path> --json
 Run state lives in the local RunStore (SQLite at `~/.orchestrator/orchestrator.db`
 by default); set `state.url` for a shared store.
 
+## Web UI
+
+```bash
+orchestrator serve            # http://127.0.0.1:8765
+orchestrator serve --port 9000 --open
+```
+
+A local page over the same verbs the Claude Code pane uses: recipes and runs on
+one screen, per-step metrics and logs on another, settings and health on a
+third. It seeds a run but never drives one — driving happens in Claude Code or
+`orchestrator headless <slug>`. It binds loopback and has **no authentication**,
+so anyone who can reach the port can approve and cancel runs; `--host` is
+required to bind anything else. Port: `[serve] port`.
+
 ## Settings
 
 Engine settings live in `orchestrator.toml`, not in a pile of environment

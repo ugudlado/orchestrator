@@ -38,6 +38,8 @@ def _usage() -> None:
         "  orchestrator report --state <state.yaml> | --all [--repo PATH] [--json]\n"
         "  orchestrator graph <workflow> | orchestrator validate-workflow <workflow>\n"
         "  orchestrator state <list|show|migrate|project> | orchestrator pack …\n"
+        "  orchestrator serve [--port 8765] [--host 127.0.0.1] [--open]\n"
+        "      Local web UI over the same protocol verbs (loopback, no auth).\n"
         "  orchestrator reset-step <run> <step-id> --json\n"
         "      Retry a run parked at needs_you on an abandoned step.\n"
         "\n"
@@ -223,6 +225,7 @@ def main() -> None:
         "run", "headless",
         # inspection / admin
         "graph", "doctor", "validate-workflow", "report", "state", "pack",
+        "serve",
     )
     if not args or args[0] not in _core_verbs:
         _usage()
@@ -236,6 +239,10 @@ def main() -> None:
 
     if args[0] == "state":
         sys.exit(_state_verb(args[1:]))
+
+    if args[0] == "serve":
+        from orchestrator_next.serve import main as _serve_main
+        sys.exit(_serve_main(args[1:]))
 
     # --- protocol v2 verbs (docs/protocol-v2.md §3) ------------------------
     if args[0] in ("start", "step", "done", "status", "events", "approve",
