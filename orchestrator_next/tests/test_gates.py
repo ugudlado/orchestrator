@@ -185,6 +185,74 @@ def test_step_at_a_gate_blocks_with_a_preview_and_a_token(run):
     assert raw["gates"][0]["token_name"] == "impl_token"
 
 
+def test_gate_payload_shape_matches_what_the_mod_reads(run):
+    """Drift guard: `protocol.ts`'s `GatePayload` type and every `gate.<path>`
+    the Mod actually reads must resolve against a real `_gate_payload`.
+
+    The Mod's `register.ts`/`protocol.ts` are generated straight from this
+    engine (`pack_export.generate_claude`) but are hand-maintained TypeScript,
+    not derived from `protocol.py` by any tool — nothing stops the two
+    drifting apart the way `GatePayload` once did (flat `step_id`/`show`/
+    `approve_as`/`gate_token` fields that `_gate_payload` never emitted,
+    silently reading as `undefined` everywhere: "Approve undefined?").
+
+    This greps the Mod source for the field paths it dereferences off a
+    `GatePayload` and walks each one against an actual blocked-gate payload,
+    so a future rename on either side fails a test instead of failing
+    silently in the running Mod.
+    """
+    import re
+    from pathlib import Path
+
+    mod_dir = Path(__file__).resolve().parents[1] / "mod"
+    register_src = (mod_dir / "register.ts").read_text(encoding="utf-8")
+    protocol_src = (mod_dir / "protocol.ts").read_text(encoding="utf-8")
+
+    # Every `gate.<dotted path>` register.ts dereferences off a GatePayload
+    # (`gate` is that function's parameter name throughout runGate/pane wiring).
+    paths = set(re.findall(r"\bgate\.([a-zA-Z_][a-zA-Z0-9_.]*)", register_src))
+    assert paths, "no gate.<path> reads found — the grep itself drifted"
+    assert "preview.token_name" in paths
+    assert "preview.show" in paths
+    assert "step_id" in paths
+
+    _finish_design(run)
+    result, code = protocol.step(run)
+    assert code == 0
+    assert result["status"] == "blocked"
+
+    # StepResult.step_id, the sibling gateOf() reads step_id from (protocol.ts
+    # documents this explicitly) — required even though it is not a `gate.`
+    # path in register.ts.
+    assert result["step_id"]
+
+    payload = result["payload"]
+
+    def resolve(obj, dotted):
+        for part in dotted.split("."):
+            assert isinstance(obj, dict), f"payload.{dotted}: {part!r} is not on a dict"
+            assert part in obj, f"payload.{dotted}: {part!r} missing"
+            obj = obj[part]
+        return obj
+
+    for dotted in paths:
+        if dotted == "step_id":
+            # payload.step_id is NOT trustworthy (this is the exact bug):
+            # gateOf() must use the StepResult-level step_id instead. Assert
+            # the sibling exists rather than the payload key, so this test
+            # would have failed before that fix and stays meaningful after.
+            continue
+        resolve(payload, dotted)
+
+    # GatePayload's declared shape must still name every field register.ts
+    # dereferences, so `tsc` — not just this test — catches a future drift.
+    for dotted in paths:
+        top = dotted.split(".")[0]
+        assert re.search(rf"\b{re.escape(top)}\??:", protocol_src), (
+            f"GatePayload has no {top!r} field for register.ts's gate.{dotted}"
+        )
+
+
 def test_re_stepping_a_blocked_gate_returns_the_same_token(run):
     _finish_design(run)
     first, _ = protocol.step(run)

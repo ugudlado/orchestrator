@@ -939,6 +939,21 @@ async function drive(
           )
         }
 
+        // An approve/mint failure leaves the gate exactly as open as it was —
+        // this is not a person choosing to cancel, so it must not be reported
+        // as one. The run is left standing at the same gate for a retry.
+        if (answered.error !== undefined) {
+          record.phase = 'needs_you'
+
+          return (
+            `orchestrator: ${start.slug} could not approve gate ${gate.step_id}: ` +
+            `${answered.error}\nThe gate is still open. Retry from a shell:\n` +
+            `  orchestrator status ${start.slug} --json\n` +
+            `  orchestrator approve ${start.slug} <token>\n` +
+            'then run this recipe on the same slug again to resume.'
+          )
+        }
+
         record.phase = 'cancelled'
 
         return (
@@ -1065,7 +1080,13 @@ async function runGate(
   cli: Cli,
   run: string,
   gate: GatePayload,
-): Promise<{ next: StepResult | null; stderr: string; unattended?: boolean }> {
+): Promise<{
+  next: StepResult | null
+  stderr: string
+  unattended?: boolean
+  /** Set when `approve` itself failed — the gate is still open, not cancelled. */
+  error?: string
+}> {
   const tokenName = gate.preview.token_name
   const showLines = Object.entries(gate.preview.show).map(([name, entry]) => {
     const producer = entry.produced_by || '?'
@@ -1102,7 +1123,11 @@ async function runGate(
     ...pane.model,
     gate: {
       stepId: gate.step_id,
-      token: gate.token ?? gate.preview.token_name,
+      // The token VALUE, never `preview.token_name` (see the guard below,
+      // in the approve path proper) — left empty rather than faked when the
+      // gate has not actually minted one, so nothing downstream mistakes
+      // this for something `approve` would accept.
+      token: gate.token ?? '',
     },
   }
 
@@ -1144,7 +1169,23 @@ async function runGate(
     return { next: null, stderr: ran.stderr.trim() }
   }
 
-  state.gateToken = gate.token ?? gate.preview.token_name
+  // `approve` takes the token VALUE the gate minted (`payload.token`), never
+  // `preview.token_name` — that is only the name the token gets bound to for
+  // downstream `requires:`. A gate that reached here without a minted token
+  // (payload.token missing) cannot be approved at all: sending the name
+  // instead is exactly the bug this guards, since gates.approve_token()
+  // accepts it silently as "some string that happens not to match any
+  // record" and raises `unknown or expired gate token` — which nextOf used
+  // to swallow (see below) rather than report.
+  if (gate.token === undefined) {
+    return {
+      next: null,
+      stderr: '',
+      error: `gate ${gate.step_id} has no minted token to approve with`,
+    }
+  }
+
+  state.gateToken = gate.token
 
   const ran = await cli([
     'orchestrator',
@@ -1154,11 +1195,19 @@ async function runGate(
     '--json',
   ])
 
-  const advanced = await nextOf(cli, run, ran)
-
   // The token only unlocks writes for the steps this gate opened; the next
   // gate re-arms the deny hook.
   state.gateToken = null
+
+  const advanced = await nextOf(cli, run, ran)
+
+  if (advanced.error !== undefined) {
+    return {
+      next: null,
+      stderr: advanced.stderr,
+      error: `approve failed for gate ${gate.step_id}: ${advanced.error}`,
+    }
+  }
 
   return advanced
 }
@@ -1296,21 +1345,39 @@ async function runAsk(
 }
 
 /**
- * The step a `done` / `approve` call left the run at.
+ * The step a `done` / `approve` / `resume` call left the run at.
  *
- * Both verbs print `{..., "next": <step result>}`; when the verb is missing
- * or failed (Phase 3 lands `approve`/`cancel`), fall back to asking `step`
- * so the loop keeps its own reading of the run rather than the CLI's error.
+ * A verb that advanced the run prints `{..., "next": <step result>}`; a verb
+ * that failed prints `{"status": "error", "error": "<message>"}` on the SAME
+ * exit-0-looking stdout (protocol.py's `main` always emits parseable JSON,
+ * exit 3 on failure) — that failure is reported via `error` rather than
+ * treated as silence, since the run never moved and the caller must not
+ * mistake that for "nothing to report, ask `step`". Only when the verb
+ * printed neither shape (not valid JSON at all) does this fall back to
+ * asking `step` for the loop's own reading of the run.
  */
 async function nextOf(
   cli: Cli,
   run: string,
   ran: Ran,
-): Promise<{ next: StepResult; stderr: string }> {
+): Promise<{ next: StepResult; stderr: string; error?: string }> {
   const stderr = ran.stderr.trim()
 
   try {
-    const parsed = parseJson<{ next?: StepResult }>(ran.argv, ran)
+    const parsed = parseJson<{ next?: StepResult; status?: string; error?: string }>(
+      ran.argv,
+      ran,
+    )
+
+    // protocol.py's `main` prints valid JSON even on failure —
+    // `{"status": "error", "error": "<message>"}`, exit 3 — so a verb that
+    // did not advance the run must not be read as "no news, ask step": that
+    // silently discarded a bad-token approve as if the run had simply not
+    // moved, when the run in fact never budged.
+    if (parsed.status === 'error') {
+      return { next: { status: 'error', step_id: null, detail: parsed.error ?? '' },
+        stderr, error: parsed.error ?? 'unknown error' }
+    }
 
     if (parsed.next) {
       return { next: parsed.next, stderr }
