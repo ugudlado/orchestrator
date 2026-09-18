@@ -122,6 +122,12 @@ export type RunRow = {
   cost_partial?: boolean
   nodes_done?: number
   nodes_total?: number
+  /**
+   * True when `run_store` archived this run — a flag it flips on a finished
+   * run rather than deleting it (protocol.py `runs`), independent of
+   * `run_status` or `stale`. Drawn as `⊡` beside the row's age/duration cell
+   * (`runLineOf`) and named in the run view's breadcrumb.
+   */
   archived?: boolean
   /**
    * True when `run_status` still says ongoing but nothing has touched the
@@ -1445,6 +1451,16 @@ export const runGlyphOf = (status: string): string => RUN_GLYPHS[status] ?? '◦
 /** The glyph for a run the engine has demoted to stale, whatever its status. */
 export const STALE_GLYPH = '⋯'
 
+/**
+ * The marker for a run `run_store` has archived (`row.archived`).
+ *
+ * `run_store` archives a finished run by flipping a flag rather than
+ * deleting it, so an archived row still draws with its normal status glyph
+ * (`✓`/`✗`/`⊘`) — archived is a separate fact from how the run ended, and
+ * rides beside the age cell rather than replacing the leading glyph.
+ */
+export const ARCHIVED_GLYPH = '⊡'
+
 /** A second, in milliseconds — the unit every relative span is built from. */
 const SECOND_MS = 1000
 const MINUTE_MS = 60 * SECOND_MS
@@ -1595,11 +1611,16 @@ export function runLineOf(
     : ongoing
       ? (row.current_step ?? '-')
       : relativeTimeOf(row.ended_at, nowMs)
-  const time = stale
+  const timeValue = stale
     ? relativeTimeOf(row.last_activity, nowMs)
     : ongoing
       ? runElapsedOf(row.started_at, nowMs)
       : runDurationOf(row.started_at, row.ended_at)
+  // The archived marker rides in the same cell as the age/duration, right
+  // beside it, rather than adding a column of its own: a row already has as
+  // many columns as a 50-column pane can fit, and archived is a property of
+  // an already-past row, not a fifth thing to compare across every row.
+  const time = row.archived === true ? `${timeValue} ${ARCHIVED_GLYPH}` : timeValue
 
   // Every column is capped as well as padded, so one outlier row cannot widen
   // the line: an idle run's clock really does reach `689:36:21`, and a slug
@@ -1608,7 +1629,10 @@ export function runLineOf(
   const slugCells = width >= ROOMY_MIN_COLUMNS ? 14 : 12
   const middleCells = width >= ROOMY_MIN_COLUMNS ? 18 : 10
   // Nine cells because a run left standing overnight really does clock
-  // `689:36:55`, and a clipped clock is worse than a narrow step name.
+  // `689:36:55`, and a clipped clock is worse than a narrow step name; an
+  // archived row's marker fits the same budget (`ellipsize` clips the clock
+  // first if it ever came to that, which it never realistically does since
+  // an archived run's clock is a duration, not a live elapsed span).
   const timeCells = 9
 
   const tail = [
@@ -1675,7 +1699,10 @@ export const AGAIN_KEY = 'orchestrator-again'
  *
  * Leads with the way back, the way Temporal's detail view leads with its
  * execution-metadata block: the first thing a detail screen owes its reader is
- * where they are and how to leave.
+ * where they are and how to leave. A run `run_store` has archived says so
+ * too — `archived` is a separate fact from `run_status` (a flag flipped on a
+ * finished run rather than deleting it), so the reader would otherwise have
+ * no way to tell an archived run's view from a live one's.
  */
 export function breadcrumbOf(model: PaneModel): string {
   const status = model.status
@@ -1684,10 +1711,13 @@ export function breadcrumbOf(model: PaneModel): string {
   if (status !== null) {
     parts.push(status.slug, status.run_status)
 
-    const recipe = model.runs.find(row => row.run_id === status.run_id)?.recipe
+    const row = model.runs.find(candidate => candidate.run_id === status.run_id)
 
-    if (recipe !== undefined && recipe !== '') {
-      parts.splice(2, 0, recipe)
+    if (row?.recipe !== undefined && row.recipe !== '') {
+      parts.splice(2, 0, row.recipe)
+    }
+    if (row?.archived === true) {
+      parts.push('archived')
     }
   }
 

@@ -155,3 +155,17 @@ finished run gets instead.
 run stays in the ongoing section (still carrying `stale: true` where it
 applies), for a person who wants to see everything the engine still calls
 "active" regardless of how long ago that was.
+
+## Archived runs
+
+`run_store` archives a finished run by flipping a flag rather than deleting
+it (the past section would otherwise empty itself the moment a run is
+archived), and the listing has always carried that flag as `row.archived` —
+but until now the home screen never drew it, so an archived row looked
+identical to a plain finished one. It now draws the marker `⊡` beside the
+row's age/duration cell (capped to the same nine-cell budget the clock
+already had, so no width tier gets wider for it), and a run view opened on
+an archived run adds `archived` to its breadcrumb note, right after the
+recipe name. Archived is a separate fact from `stale` or `run_status`: a
+run can be finished, archived, and long done, all at once, and each of the
+three is reported independently.

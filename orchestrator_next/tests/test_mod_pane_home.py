@@ -246,6 +246,43 @@ def test_a_past_row_shows_when_it_ran_and_how_long_it_took() -> None:
 
 
 @requires_node
+def test_an_archived_row_carries_the_archived_marker_at_50_columns() -> None:
+    row = {
+        **PAST,
+        "started_at": _at(2 * HOUR + 1_085_000),
+        "ended_at": _at(2 * HOUR),
+        "archived": True,
+    }
+    line = str(_call("(m, a) => m.runLineOf(a[0], a[1], a[2])", row, 50, NOW))
+
+    assert "⊡" in line
+    assert len(line) <= 50
+
+
+@requires_node
+def test_an_archived_row_carries_the_archived_marker_at_100_columns() -> None:
+    row = {
+        **PAST,
+        "started_at": _at(2 * HOUR + 1_085_000),
+        "ended_at": _at(2 * HOUR),
+        "archived": True,
+    }
+    line = str(_call("(m, a) => m.runLineOf(a[0], a[1], a[2])", row, 100, NOW))
+
+    assert "⊡" in line
+    assert len(line) <= 100
+
+
+@requires_node
+def test_a_non_archived_row_carries_no_marker() -> None:
+    """`archived` is opt-in per row: a live/past run with it unset draws plain."""
+    row = {**PAST, "started_at": _at(2 * HOUR + 1_085_000), "ended_at": _at(2 * HOUR)}
+    line = str(_call("(m, a) => m.runLineOf(a[0], a[1], a[2])", row, 100, NOW))
+
+    assert "⊡" not in line
+
+
+@requires_node
 def test_a_partial_cost_is_marked_on_the_row() -> None:
     row = {**ONGOING, "started_at": _at(255_000), "cost_partial": True}
 
@@ -460,3 +497,25 @@ def test_the_breadcrumb_leads_with_the_way_back() -> None:
     assert crumb.startswith("‹ Home")
     assert "design" in crumb
     assert "4:15" in crumb
+
+
+@requires_node
+def test_the_breadcrumb_says_archived_for_an_archived_run() -> None:
+    model = _model(
+        runs=[{"run_id": "r", "slug": "s", "recipe": "design",
+               "run_status": "completed", "archived": True}],
+        ownership="past",
+    )
+    crumb = str(_call("(m, a) => m.breadcrumbOf(a[0])", model))
+
+    assert "archived" in crumb
+
+
+@requires_node
+def test_the_breadcrumb_says_nothing_about_archived_for_a_live_run() -> None:
+    model = _model(
+        runs=[{"run_id": "r", "slug": "s", "recipe": "design", "run_status": "active"}],
+    )
+    crumb = str(_call("(m, a) => m.breadcrumbOf(a[0])", model))
+
+    assert "archived" not in crumb
