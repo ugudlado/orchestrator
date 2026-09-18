@@ -10,12 +10,16 @@ order, or a staleness rule — `docs/pane-ux.md` is the screen spec, and
 Security: this binds 127.0.0.1 and refuses any other host unless `--host` is
 passed explicitly. There is no authentication beyond that loopback bind — the
 page can approve gates and cancel runs, so do not expose it to a network you do
-not control. Writes additionally require a same-origin `Origin` header, which
-stops a page in another tab from POSTing to the server on your behalf.
+not control. Every request is also checked against a `Host`-header allowlist
+(the loopback names, or the exact `--host` given) to stop DNS rebinding, and
+every POST must carry a random per-process token minted at startup, plus a
+same-origin `Origin`/`Sec-Fetch-Site` check, to stop CSRF.
 """
 from __future__ import annotations
 
+import hmac
 import json
+import secrets
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -24,6 +28,7 @@ from urllib.parse import parse_qs, urlparse
 from orchestrator_next import protocol
 
 UI_FILE = Path(__file__).parent / "data" / "ui" / "index.html"
+TOKEN_PLACEHOLDER = "__ORCHESTRATOR_TOKEN__"
 
 #: POST bodies bigger than this are refused — every write here is a small JSON
 #: object, so a large body is a mistake or an attack, never a real request.
@@ -81,9 +86,41 @@ class Handler(BaseHTTPRequestHandler):
 
     server_version = "orchestrator-serve"
     origin: str = ""  # set per-server by `serve()`; the only accepted Origin
+    token: str = ""  # set per-server by `serve()`; required on every POST
+    allowed_hosts: frozenset[str] = frozenset({"127.0.0.1", "localhost", "::1"})
 
     def log_message(self, fmt: str, *args) -> None:
         sys.stderr.write(f"{self.command} {self.path} — {fmt % args}\n")
+
+    # -- request gate -------------------------------------------------------
+    def _host_ok(self) -> bool:
+        """Reject DNS rebinding: the `Host` header must name this server.
+
+        A browser sends whatever `Host` the URL bar's hostname was, even when
+        that name's DNS resolves to 127.0.0.1 — so binding loopback alone
+        does not stop a remote page from reaching this API. Checked before
+        any route dispatch, for both GET and POST.
+        """
+        host = self.headers.get("Host")
+        if not host:
+            return False
+        if host.startswith("["):
+            # IPv6 with brackets, e.g. "[::1]" or "[::1]:8765" — the brackets
+            # are what let a bracket-free port suffix be stripped unambiguously.
+            host = host[1:].split("]", 1)[0]
+        elif host.count(":") == 1:
+            # A bare "host:port" (IPv4 or name); a raw IPv6 literal without
+            # brackets (invalid in a Host header) would hit this branch too,
+            # but is never one of our allowed hosts either way.
+            host = host.rsplit(":", 1)[0]
+        return host in self.allowed_hosts
+
+    def _dispatch_guard(self) -> bool:
+        """Host check common to every method. True = continue, False = sent."""
+        if not self._host_ok():
+            self._send(421, b"", "text/plain")
+            return False
+        return True
 
     # -- framing ----------------------------------------------------------
     def _send(self, code: int, body: bytes, ctype: str) -> None:
@@ -117,11 +154,15 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- routing ----------------------------------------------------------
     def do_GET(self) -> None:
+        if not self._dispatch_guard():
+            return
         url = urlparse(self.path)
         path, query = url.path, parse_qs(url.query)
         try:
             if path in ("/", "/index.html"):
-                self._send(200, UI_FILE.read_bytes(), "text/html; charset=utf-8")
+                html = UI_FILE.read_bytes().replace(
+                    TOKEN_PLACEHOLDER.encode(), self.token.encode())
+                self._send(200, html, "text/html; charset=utf-8")
                 return
             self._json(self._get(path, query))
         except protocol.ProtocolError as exc:
@@ -152,12 +193,31 @@ class Handler(BaseHTTPRequestHandler):
         raise FileNotFoundError(path)
 
     def do_POST(self) -> None:
-        # Same-origin only. A browser sends `Origin` on every cross-site POST,
-        # so refusing anything but our own address is what keeps a page in
-        # another tab from approving a gate through this server.
-        sent = self.headers.get("Origin")
-        if sent is not None and sent != self.origin:
-            self._error(403, f"cross-origin POST refused (Origin: {sent})")
+        if not self._dispatch_guard():
+            return
+        # CSRF defense in depth, all checked before any route runs:
+        #  1. a random per-process token, sent back by our own page's JS,
+        #     that a cross-site form or fetch cannot know;
+        #  2. same-origin only. A browser sends `Origin` on every cross-site
+        #     POST, so refusing anything but our own address is a second
+        #     layer that keeps a page in another tab from acting here;
+        #  3. `Sec-Fetch-Site`, when present, must agree it's same-origin;
+        #  4. a JSON content type, so a plain HTML form can't submit here.
+        sent_token = self.headers.get("X-Orchestrator-Token", "")
+        if not self.token or not hmac.compare_digest(sent_token, self.token):
+            self._send(403, b"", "text/plain")
+            return
+        origin = self.headers.get("Origin")
+        if origin is not None and origin != self.origin:
+            self._error(403, f"cross-origin POST refused (Origin: {origin})")
+            return
+        fetch_site = self.headers.get("Sec-Fetch-Site")
+        if fetch_site is not None and fetch_site not in ("same-origin", "none"):
+            self._error(403, f"cross-origin POST refused (Sec-Fetch-Site: {fetch_site})")
+            return
+        ctype = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip()
+        if ctype != "application/json":
+            self._error(403, f"unsupported Content-Type: {ctype or '(none)'}")
             return
         try:
             body = self._body()
@@ -202,10 +262,17 @@ class Handler(BaseHTTPRequestHandler):
         raise FileNotFoundError(path)
 
 
-def serve(host: str, port: int, *, open_browser: bool = False) -> int:
+def serve(host: str, port: int, *, open_browser: bool = False,
+          explicit_host: bool = False) -> int:
     """Run the server until interrupted. Returns the process exit code."""
-    handler = type("BoundHandler", (Handler,),
-                   {"origin": f"http://{host}:{port}"})
+    # Host allowlist for the DNS-rebinding check: the loopback names when the
+    # bind is the default, or exactly the host the caller named explicitly.
+    allowed_hosts = frozenset({host}) if explicit_host else LOOPBACK
+    handler = type("BoundHandler", (Handler,), {
+        "origin": f"http://{host}:{port}",
+        "token": secrets.token_urlsafe(32),
+        "allowed_hosts": allowed_hosts,
+    })
     httpd = ThreadingHTTPServer((host, port), handler)
     url = f"http://{host}:{port}/"
     print(f"orchestrator serve — {url}  (ctrl-c to stop)", file=sys.stderr)
@@ -260,4 +327,4 @@ def main(argv: list[str]) -> int:
     if host not in LOOPBACK:
         print(f"warning: {host} is reachable off this machine and serve has "
               "no authentication.", file=sys.stderr)
-    return serve(host, port, open_browser=open_browser)
+    return serve(host, port, open_browser=open_browser, explicit_host=explicit_host)

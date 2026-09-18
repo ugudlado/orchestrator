@@ -177,6 +177,13 @@ third. It seeds a run but never drives one — driving happens in Claude Code or
 so anyone who can reach the port can approve and cancel runs; `--host` is
 required to bind anything else. Port: `[serve] port`.
 
+Every request is checked against a `Host`-header allowlist (loopback names by
+default, or the exact `--host` given) to stop DNS rebinding, and every POST
+must carry a random per-process CSRF token — minted at startup and embedded in
+the served page — plus a same-origin `Origin`/`Sec-Fetch-Site` check and a
+`application/json` content type. A request that fails any of these is refused
+before it reaches the API.
+
 ## Settings
 
 Engine settings live in `orchestrator.toml`, not in a pile of environment

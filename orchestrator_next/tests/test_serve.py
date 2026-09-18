@@ -28,6 +28,7 @@ def server():
     handler = type("Bound", (serve.Handler,), {})
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     handler.origin = f"http://127.0.0.1:{httpd.server_port}"
+    handler.token = "test-token"
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
     yield httpd
@@ -40,8 +41,11 @@ def _request(httpd, method: str, path: str, body=None, headers=None):
     conn = http.client.HTTPConnection("127.0.0.1", httpd.server_port, timeout=10)
     payload = json.dumps(body) if body is not None else None
     hdrs = dict(headers or {})
+    hdrs.setdefault("Host", f"127.0.0.1:{httpd.server_port}")
     if payload is not None:
         hdrs.setdefault("Content-Type", "application/json")
+    if method == "POST":
+        hdrs.setdefault("X-Orchestrator-Token", "test-token")
     try:
         conn.request(method, path, body=payload, headers=hdrs)
         res = conn.getresponse()
@@ -59,8 +63,37 @@ def _json(httpd, method: str, path: str, body=None, headers=None):
 def test_root_serves_the_ui_file(server) -> None:
     status, text = _request(server, "GET", "/")
     assert status == 200
-    assert text == serve.UI_FILE.read_text(encoding="utf-8")
+    raw = serve.UI_FILE.read_text(encoding="utf-8")
+    assert text == raw.replace(serve.TOKEN_PLACEHOLDER, "test-token")
     assert "<title>Orchestrator</title>" in text
+
+
+def test_index_embeds_the_csrf_token(server) -> None:
+    status, text = _request(server, "GET", "/")
+    assert status == 200
+    assert '<meta name="orchestrator-token" content="test-token">' in text
+    assert serve.TOKEN_PLACEHOLDER not in text
+
+
+def test_two_servers_get_different_tokens(monkeypatch) -> None:
+    """Each process-lifetime `serve()` call mints its own token."""
+    tokens: list[str] = []
+
+    class FakeHTTPD:
+        def __init__(self, addr, handler_cls):
+            tokens.append(handler_cls.token)
+
+        def serve_forever(self):
+            pass
+
+        def server_close(self):
+            pass
+
+    monkeypatch.setattr(serve, "ThreadingHTTPServer", FakeHTTPD)
+    serve.serve("127.0.0.1", 0)
+    serve.serve("127.0.0.1", 0)
+    assert len(tokens) == 2
+    assert tokens[0] != tokens[1]
 
 
 def test_unknown_path_is_404(server) -> None:
@@ -275,12 +308,79 @@ def test_oversized_body_is_refused(server) -> None:
     conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=10)
     try:
         conn.request("POST", "/api/runs", body=b"{}", headers={
+            "Host": f"127.0.0.1:{server.server_port}",
             "Content-Type": "application/json",
             "Content-Length": str(serve.MAX_BODY + 1),
+            "X-Orchestrator-Token": "test-token",
         })
         assert conn.getresponse().status == 400
     finally:
         conn.close()
+
+
+# --- DNS rebinding: Host-header allowlist ----------------------------------
+def test_spoofed_host_header_is_refused_on_get(server) -> None:
+    status, text = _request(server, "GET", "/", headers={"Host": "evil.example"})
+    assert status == 421
+    assert text == ""
+
+
+def test_spoofed_host_header_is_refused_on_post(server, monkeypatch) -> None:
+    called: list[str] = []
+    monkeypatch.setattr(
+        protocol, "cancel", lambda ref: (called.append(ref), ({}, 0))[1])
+    status, text = _request(
+        server, "POST", "/api/runs/alpha/cancel", {}, headers={"Host": "evil.example"})
+    assert status == 421
+    assert text == ""
+    assert called == []
+
+
+def test_missing_host_header_is_refused(server) -> None:
+    conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+    try:
+        # http.client always injects Host unless we build the request by hand,
+        # so send the request line and headers ourselves, without Host.
+        conn.putrequest("GET", "/", skip_host=True)
+        conn.putheader("X-Orchestrator-Token", "test-token")
+        conn.endheaders()
+        res = conn.getresponse()
+        assert res.status == 421
+        res.read()
+    finally:
+        conn.close()
+
+
+# --- CSRF token -------------------------------------------------------------
+def test_post_without_token_is_403(server, monkeypatch) -> None:
+    called: list[str] = []
+    monkeypatch.setattr(
+        protocol, "cancel", lambda ref: (called.append(ref), ({}, 0))[1])
+    status, text = _request(
+        server, "POST", "/api/runs/alpha/cancel", {},
+        headers={"X-Orchestrator-Token": ""})
+    assert status == 403
+    assert text == ""
+    assert called == []
+
+
+def test_post_with_correct_token_and_foreign_origin_is_403(server, monkeypatch) -> None:
+    called: list[str] = []
+    monkeypatch.setattr(
+        protocol, "cancel", lambda ref: (called.append(ref), ({}, 0))[1])
+    status, doc = _json(
+        server, "POST", "/api/runs/alpha/cancel", {},
+        headers={"Origin": "https://evil.example"})
+    assert status == 403
+    assert "cross-origin" in doc["error"]
+    assert called == []
+
+
+def test_post_with_token_and_same_origin_succeeds(server, monkeypatch) -> None:
+    monkeypatch.setattr(protocol, "cancel", lambda ref: ({"status": "cancelled"}, 0))
+    status, doc = _json(server, "POST", "/api/runs/alpha/cancel", {})
+    assert status == 200
+    assert doc == {"status": "cancelled"}
 
 
 def test_explicit_non_loopback_host_binds_with_a_warning(monkeypatch, capsys) -> None:

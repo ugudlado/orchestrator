@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="orchestrator-token" content="__ORCHESTRATOR_TOKEN__">
 <title>Orchestrator</title>
 <style>
 :root {
@@ -108,9 +109,12 @@ const view = document.getElementById("view");
 const sub = document.getElementById("sub");
 let timer = null, lastGood = null;
 
+const csrfToken = document.querySelector('meta[name="orchestrator-token"]')?.content || "";
+
 const api = async (path, body) => {
   const res = await fetch(path, body ? {
-    method: "POST", headers: { "Content-Type": "application/json" },
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Orchestrator-Token": csrfToken },
     body: JSON.stringify(body),
   } : {});
   const doc = await res.json();
