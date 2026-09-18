@@ -1009,7 +1009,7 @@ async function runJudgment(
   cli: Cli,
   run: string,
   payload: JudgmentPayload,
-): Promise<{ next: StepResult; stderr: string }> {
+): Promise<{ next: StepResult; stderr: string; error?: string }> {
   const stepId = payload.step_id
 
   const spawned = await $.agent.spawn({
@@ -1035,17 +1035,33 @@ async function runJudgment(
 
   const out = jsonBlockOf(turn.answer)
 
-  if (out === undefined) {
-    return recordAbandoned(
-      cli,
-      run,
-      stepId,
-      'the subagent ended without a fenced ```json block',
-      turn.usage,
-    )
+  if (out !== undefined) {
+    return recordDone(cli, run, stepId, out, turn.usage, 'completed')
   }
 
-  return recordDone(cli, run, stepId, out, turn.usage, 'completed')
+  // No parseable JSON block. That is not the same as "the step failed": a
+  // contract whose outs are all optional or artifact-backed is satisfied by
+  // what the step wrote to disk, and `learn`'s is exactly that (one optional
+  // `proposed_scenarios` artifact, written in the live run while the agent's
+  // final message carried no fence). The ENGINE owns that judgment, not this
+  // harness, so offer an empty `out` and let `validate_out` decide
+  // (protocol.py `done`).
+  const attempted = await recordDone(cli, run, stepId, {}, turn.usage, 'completed')
+
+  if (attempted.error === undefined) {
+    return attempted
+  }
+
+  // The engine refused it, so the contract really did want something the step
+  // never produced. Record the abandon with the engine's own complaint as the
+  // reason — it names the missing out, which "no fenced json block" does not.
+  return recordAbandoned(
+    cli,
+    run,
+    stepId,
+    `${attempted.error} (the subagent ended without a fenced \`\`\`json block)`,
+    turn.usage,
+  )
 }
 
 /**
@@ -1054,6 +1070,12 @@ async function runJudgment(
  * `done --status abandoned` skips the `out` contract check (protocol.py
  * `done`), so a step the harness could not complete records its reason in
  * `out.reason` instead of a contract-shaped payload.
+ *
+ * `error` is set when the engine REFUSED the call — `done` exits 3 with
+ * `{"status": "error", …}` when `out` does not satisfy the contract, and
+ * `nextOf` surfaces that rather than reading a rejected call as "the run did
+ * not move". `runJudgment` needs it to tell a contract the step satisfied
+ * from one it did not.
  */
 async function recordDone(
   cli: Cli,
@@ -1062,7 +1084,7 @@ async function recordDone(
   out: Record<string, unknown>,
   usage: UsageCounts,
   status: 'completed' | 'abandoned',
-): Promise<{ next: StepResult; stderr: string }> {
+): Promise<{ next: StepResult; stderr: string; error?: string }> {
   const ran = await cli(
     [
       'orchestrator',

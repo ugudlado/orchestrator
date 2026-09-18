@@ -280,3 +280,66 @@ def test_a_pre_enrichment_status_still_draws_zeros_rather_than_undefined() -> No
     assert "undefined" not in "".join(lines)
     assert "NaN" not in "".join(lines)
     assert any("plan" in line for line in lines)
+
+
+# --- the parked-retry line -------------------------------------------------
+# `record.py` writes `needs_you_reason` as "<step_id> abandoned: <detail>"
+# and `dispatch.py` falls back to a bare "<step_id> abandoned", so the pane
+# must not prefix the step id a second time.
+def _retry_text(step_id: str, reason: str) -> str:
+    return _call("(m, a) => m.retryTextOf({stepId: a[0], reason: a[1]})",
+                 step_id, reason)
+
+
+@requires_node
+def test_a_reason_that_already_names_the_step_is_printed_as_is() -> None:
+    """The live bug: "learn abandoned: learn abandoned: …"."""
+    reason = "learn abandoned: the subagent ended without a fenced json block"
+    assert _retry_text("learn", reason) == reason
+
+
+@requires_node
+def test_a_bare_engine_fallback_reason_is_not_doubled() -> None:
+    assert _retry_text("learn", "learn abandoned") == "learn abandoned"
+
+
+@requires_node
+def test_a_rejected_verdict_reason_is_also_left_alone() -> None:
+    """`record.py` writes "rejected" for a fail_on verdict, not "abandoned"."""
+    reason = "review rejected: verdict=needs_work"
+    assert _retry_text("review", reason) == reason
+
+
+@requires_node
+def test_a_reason_that_does_not_name_the_step_is_prefixed() -> None:
+    assert (
+        _retry_text("learn", "spawn refused: no agent id")
+        == "learn abandoned: spawn refused: no agent id"
+    )
+
+
+@requires_node
+def test_an_empty_reason_still_says_which_step() -> None:
+    assert _retry_text("learn", "") == "learn abandoned"
+    assert _retry_text("learn", "   ") == "learn abandoned"
+
+
+@requires_node
+def test_a_step_whose_name_prefixes_another_is_not_confused() -> None:
+    """"learn" must not swallow a reason about "learn-more"."""
+    assert (
+        _retry_text("learn", "learn-more abandoned: nope")
+        == "learn abandoned: learn-more abandoned: nope"
+    )
+
+
+@requires_node
+def test_the_prompt_line_uses_it_so_the_pane_and_the_helper_cannot_diverge() -> None:
+    reason = "learn abandoned: no fenced json block"
+    prompt = _call(
+        "(m, a) => m.promptTextOf({status: null, phase: 'running', elapsedMs: 0,"
+        " gate: null, ask: null, note: '',"
+        " retry: {stepId: a[0], reason: a[1]}})",
+        "learn", reason,
+    )
+    assert prompt == reason

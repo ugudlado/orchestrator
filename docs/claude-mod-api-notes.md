@@ -148,6 +148,23 @@ styling is limited to what `TextProps` allows (7841-7845: `color`, `dimColor`,
 `bold` — no `key`): header and Totals bold, the running row `color: 'cyan'`,
 untouched rows dimmed.
 
+**A missing JSON block is not a failed step.** When a judgment subagent's
+final message carries no parseable fence, `runJudgment` does NOT record an
+abandon: it calls `done --out '{}'` and lets `protocol.validate_out` decide,
+because a contract whose outs are all optional or artifact-backed is satisfied
+by what the step wrote to disk (`learn`'s single optional `proposed_scenarios`
+artifact is the live case). Only when the engine refuses the call — `done`
+exits 3 with `{"status": "error", …}`, which `nextOf` surfaces as `error` — is
+the step recorded `abandoned`, with the engine's complaint as the reason
+because it names the out that is actually missing.
+
+**Do not re-prefix the engine's abandoned reason.** `record.py` writes
+`needs_you_reason` as `"<step_id> abandoned: <detail>"` (or `rejected` for a
+`fail_on:` verdict) and `dispatch.py` falls back to a bare
+`"<step_id> abandoned"`, so both the pane's `retryTextOf` and the retry popup
+print it as-is when it already opens with the step id. Prefixing
+unconditionally drew `learn abandoned: learn abandoned: …` in a live run.
+
 **The gate buttons and the approval dialog answer the same gate.** `runGate`
 races `$.ui.ask` against a promise the pane's `onPress` resolves, so a press
 and a dialog answer run one code path. The dialog that loses the race can

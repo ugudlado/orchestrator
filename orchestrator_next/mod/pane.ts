@@ -631,6 +631,31 @@ export function actionRowOf(model: PaneModel): readonly PaneAction[] {
 }
 
 /**
+ * The line for a run parked on an abandoned step.
+ *
+ * The engine's own reason usually already names the step: `record.py` writes
+ * `needs_you_reason` as "<step_id> abandoned: <detail>" (or "<step_id>
+ * rejected: …" for a `fail_on:` verdict), and `dispatch.py` falls back to a
+ * bare "<step_id> abandoned". Prefixing that again here drew it twice — a
+ * live pane showed "learn abandoned: learn abandoned: …".
+ *
+ * So the reason is printed as-is whenever it already opens with the step id,
+ * and prefixed only when it does not, which keeps a bare detail (a reason
+ * from somewhere that never named the step) saying which step it is about.
+ */
+export function retryTextOf(retry: ParkedRetry): string {
+  const reason = retry.reason.trim()
+
+  if (reason === '') {
+    return `${retry.stepId} abandoned`
+  }
+
+  return reason.startsWith(`${retry.stepId} `) || reason === retry.stepId
+    ? reason
+    : `${retry.stepId} abandoned: ${reason}`
+}
+
+/**
  * The line above the action row saying what is being asked, if anything.
  *
  * A parked question is the one state where the pane must carry text the run
@@ -646,7 +671,7 @@ export function promptTextOf(model: PaneModel): string {
   }
 
   if (model.retry !== null) {
-    return `${model.retry.stepId} abandoned: ${model.retry.reason}`
+    return retryTextOf(model.retry)
   }
 
   return ''
