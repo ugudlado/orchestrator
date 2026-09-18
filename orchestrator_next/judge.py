@@ -28,16 +28,21 @@ def enabled() -> bool:
     return True
 
 
-def choice(instructions: str, criteria: dict[str, str]) -> Any:
-    """Build a TypeSafe Choice question. Import only happens when a caller
-    reaches this, so modules that merely import judge.py stay SDK-free."""
+def choice(instructions: str, criteria: dict[str, str]) -> Any | None:
+    """Build a TypeSafe Choice question, or None when the judge is
+    unavailable (callers pass this straight to `ask`, which is a no-op on
+    None questions — but never call SDK code when the SDK is not there)."""
+    if not enabled():
+        return None
     from typesafe_sdk import Choice
 
     return Choice(instructions=instructions, criteria=criteria)
 
 
-def noul(instructions: str) -> Any:
-    """Build a TypeSafe Noul (yes/no) question."""
+def noul(instructions: str) -> Any | None:
+    """Build a TypeSafe Noul (yes/no) question, or None when unavailable."""
+    if not enabled():
+        return None
     from typesafe_sdk import Noul
 
     return Noul(instructions=instructions)
