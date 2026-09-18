@@ -412,8 +412,7 @@ def resolve_types_path(explicit: str | Path | None = None) -> Path | None:
         if not path.is_file():
             raise PackExportError(f"--types {path} does not exist")
         return path
-    from orchestrator_next import settings
-    from_env = str(settings.get("plugin.types") or "").strip()
+    from_env = os.environ.get(TYPES_ENV_VAR, "").strip()
     if from_env:
         path = Path(from_env).expanduser()
         if path.is_file():
@@ -683,15 +682,12 @@ def generate_claude(
     generated["tsconfig.json"] = json.dumps(MOD_TSCONFIG, indent=2) + "\n"
     # The declarations are the machine's, not the wheel's: the plugin loads
     # without them (the runtime never reads types), only `tsc` needs them.
+    # No source found is the common case for a consumer and must stay quiet —
+    # only an explicit `--types <path>` that does not exist is an error
+    # (raised by `resolve_types_path` above, before we get here).
     dts = _claude_code_dts(types_path)
     if dts is not None:
         generated["types/claude-code.d.ts"] = dts
-    else:
-        warnings.append(
-            "claude target: no claude-code.d.ts found, so types/ was not "
-            f"written and `tsc -p` has nothing to check against. Looked at: "
-            f"{TYPES_SOURCES_HINT}."
-        )
 
     generated["README.md"] = _readme_claude(plugin_name)
 

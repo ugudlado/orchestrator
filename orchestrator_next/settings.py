@@ -72,8 +72,8 @@ SCHEMA: tuple[Spec, ...] = (
     Spec("state", "tenant", "str", "default", "ORCHESTRATOR_TENANT",
          "Tenant id new runs are written under."),
 
-    Spec("run", "max_parallel", "int", 4, "ORCHESTRATOR_MAX_PARALLEL",
-         "Steps to run concurrently; 1 restores serial dispatch."),
+    Spec("run", "max_parallel", "int", 1, "ORCHESTRATOR_MAX_PARALLEL",
+         "Steps to run concurrently; 1 = serial dispatch (default)."),
     Spec("run", "stale_after_hours", "float", 24.0, "ORCHESTRATOR_STALE_AFTER_HOURS",
          "Hours of no activity after which an active run counts as stale."),
     Spec("run", "disable_worktree_lock", "bool", False,
@@ -106,9 +106,6 @@ SCHEMA: tuple[Spec, ...] = (
     Spec("models", "route_overrides", "table", {},
          "ORCHESTRATOR_MODEL_ROUTE_OVERRIDES",
          "Per-alias route overrides, e.g. {designer = {model_id = \"…\"}}."),
-
-    Spec("plugin", "types", "str", "", "CLAUDE_CODE_TYPES",
-         "claude-code.d.ts used by `orchestrator pack --types`."),
 )
 
 _BY_DOTTED = {s.dotted: s for s in SCHEMA}

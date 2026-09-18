@@ -162,7 +162,7 @@ backend = "sqlite"                    # or "file" for one YAML per run
 tenant = "default"
 
 [run]
-max_parallel = 4                      # 1 = serial dispatch
+max_parallel = 1                      # 1 = serial
 stale_after_hours = 24.0
 disable_worktree_lock = false
 
@@ -184,9 +184,6 @@ trust_all = false
 [models]
 config = "/path/to/models.yaml"
 route_overrides = { designer = { model_id = "claude-opus-5" } }
-
-[plugin]
-types = "~/.claude/types/claude-code.d.ts"
 ```
 
 Every key keeps its old environment variable as an override, so nothing breaks
@@ -207,7 +204,6 @@ for an existing setup:
 | `ORCHESTRATOR_TRUST_ALL`             | `trust.trust_all`           |
 | `ORCHESTRATOR_MODELS_CONFIG`         | `models.config`             |
 | `ORCHESTRATOR_MODEL_ROUTE_OVERRIDES` | `models.route_overrides`    |
-| `CLAUDE_CODE_TYPES`                  | `plugin.types`              |
 
 `ORCHESTRATOR_CONFIG` is deliberately **not** a setting: the config root comes
 from the pack layout, and that env var stays its one explicit override.

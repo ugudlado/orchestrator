@@ -214,18 +214,15 @@ def no_ambient_types(
 def test_generate_claude_types_are_optional(
     fake_pack: Path, tmp_path: Path, no_ambient_types: None
 ) -> None:
-    """With no d.ts anywhere the plugin still generates, with a warning."""
+    """With no d.ts anywhere the plugin still generates, silently — a consumer
+    with no types source configured must never see a warning."""
     out_dir = tmp_path / "out-no-types"
     files, warnings = pack_export.generate_claude(fake_pack, out_dir)
 
     assert "types/claude-code.d.ts" not in files
     assert (out_dir / "hooks" / "register.ts").is_file()
     assert (out_dir / "tsconfig.json").is_file()  # emitted regardless
-    # The warning names all three sources.
-    warning = next(w for w in warnings if "claude-code.d.ts" in w)
-    assert "--types" in warning
-    assert "~/.claude/types/claude-code.d.ts" in warning
-    assert "CLAUDE_CODE_TYPES" in warning
+    assert not any("claude-code.d.ts" in w for w in warnings)
 
 
 def test_types_resolution_order(

@@ -38,7 +38,7 @@ def _write(path: Path, text: str) -> Path:
 # ---------------------------------------------------------------------------
 def test_defaults_apply_when_no_file_exists():
     cfg = settings.load()
-    assert cfg.get("run.max_parallel") == 4
+    assert cfg.get("run.max_parallel") == 1
     assert cfg.source("run.max_parallel") == "default"
     assert cfg.files == []
 
@@ -78,7 +78,7 @@ def test_flag_overrides_env(monkeypatch):
 
 def test_full_precedence_chain_in_one_go(monkeypatch):
     """default < machine < repo < env < flag, all on the same key."""
-    assert settings.load().get("run.max_parallel") == 4
+    assert settings.load().get("run.max_parallel") == 1
     _write(settings.global_file(), "[run]\nmax_parallel = 2\n")
     assert settings.load().get("run.max_parallel") == 2
     _write(settings.repo_file(), "[run]\nmax_parallel = 8\n")

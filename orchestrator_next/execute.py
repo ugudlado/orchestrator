@@ -387,12 +387,12 @@ def _finalize_state(state_yaml_path: str) -> None:
 # ---------------------------------------------------------------------------
 # Recording
 # ---------------------------------------------------------------------------
-DEFAULT_MAX_PARALLEL = 4
+DEFAULT_MAX_PARALLEL = 1
 _RECORD_CONFLICT_RETRIES = 6
 
 
 def max_parallel() -> int:
-    """Steps to run concurrently. `run.max_parallel = 1` restores serial."""
+    """Steps to run concurrently. `run.max_parallel = 1` (default) is serial."""
     from orchestrator_next import settings
     try:
         return max(1, int(settings.get("run.max_parallel")))

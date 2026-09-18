@@ -106,7 +106,7 @@ Sections: `[state]` (`url`, `backend`, `tenant`), `[run]` (`max_parallel`,
 `stale_after_hours`, `disable_worktree_lock`), `[headless]` (`backend`,
 `step_budget_usd`, `claude_bin`), `[backlog]` (`url`, `project`, `token_env`),
 `[trust]` (`allow`, `require_signed`, `trust_all`), `[models]` (`config`,
-`route_overrides`), `[plugin]` (`types`).
+`route_overrides`).
 
 Every key keeps its old `ORCHESTRATOR_*` variable as an override, so existing
 setups keep working; `README.md` has the full env→key table. Secrets are never
