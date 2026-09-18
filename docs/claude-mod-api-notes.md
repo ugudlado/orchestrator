@@ -120,13 +120,33 @@ Drawn by a `ui.render` hook on `{ component: 'Pane' }` matching
 | `$.clock.every`                       | 2553, `TimerCall` 7886    | Returns a `Timer` with `.cancel()` — not a bare function (the `every` at 1097 is a `Client` instance's, a different noun).                           |
 | `$.ui.toast` / `$.ui.status`          | 1927 / 1938               | Transient line vs this plugin's pinned one. A pane opened with `holdToasts` **swallows** toasts until it closes, so this pane is opened without it.  |
 
-**Per-node cost is not in `status --json`.** `protocol.py`'s `status`
-projects only `id/phase/kind/status/attempts` onto each node; the model and
-`cost_usd` live in `step_history[].usage`, which only `orchestrator events
-<run> --json` returns raw. The pane therefore makes both calls and folds the
-event rows by `step_id` (last attempt wins the model, costs sum).
-`record.py` stamps `cost_partial` when a model has no pricing row, which is
-what the footer's `(partial)` reports.
+**Per-node metrics ride on `status --json`.** `protocol.py`'s `node_metrics`
+folds `step_history` into one row per step and `status` projects it onto each
+node: `model`, `verdict`, `seconds`, the four token counts
+(`input_tokens`/`output_tokens`/`cache_read_tokens`/`cache_write_tokens`),
+`cost_usd` and `cost_partial`, plus a run-level `totals` of the same numeric
+keys. Counts and `seconds` **sum** across a step's attempts; `model` and
+`verdict` take the **last** attempt's. The pane therefore makes one call and
+no longer folds `events --json` itself. `record.py` stamps `cost_partial` when
+a model has no pricing row, which is what a `?` on a cost cell and the
+footer's `(partial)` report.
+
+**The pane draws a metrics table, in three width tiers.** `tableRowsOf`
+(pane.ts) pads every cell to its column's width so the numbers line up, and
+`columnsFor` picks the column set from the terminal width:
+
+| Width   | Columns                                                                        |
+| ------- | ------------------------------------------------------------------------------ |
+| ≥150    | Step · Model · Att · Verdict · Time · In · Out · C-rd · C-wr · Cost + cost bar |
+| 110–149 | Step · Model · Att · Verdict · In · Out · Cost                                 |
+| <110    | no table — the one-line-per-node list (`nodeLineOf`)                           |
+
+A header row and a bold Totals row bracket the nodes. The cost bar is eight
+cells of block characters scaled to the priciest row, and rounds **up** to one
+eighth so a cheap step still draws something rather than vanishing. Row
+styling is limited to what `TextProps` allows (7841-7845: `color`, `dimColor`,
+`bold` — no `key`): header and Totals bold, the running row `color: 'cyan'`,
+untouched rows dimmed.
 
 **The gate buttons and the approval dialog answer the same gate.** `runGate`
 races `$.ui.ask` against a promise the pane's `onPress` resolves, so a press

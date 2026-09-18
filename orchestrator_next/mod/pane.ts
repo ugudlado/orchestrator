@@ -31,13 +31,35 @@ export const OPEN_MIN_COLUMNS = 110
 /** How often a live driver re-reads the CLI while the pane is open. */
 export const REFRESH_EVERY_MS = 15_000
 
+/**
+ * The numeric columns a node bills, as `status --json` now reports them
+ * (protocol.py `node_metrics`) and as the Totals row sums them.
+ *
+ * Every field is optional because an engine older than the enrichment answers
+ * without them, and the table must still draw: a missing count reads 0.
+ */
+export type NodeMetrics = {
+  seconds?: number
+  input_tokens?: number
+  output_tokens?: number
+  cache_read_tokens?: number
+  cache_write_tokens?: number
+  cost_usd?: number
+  /** True when some of this row billed tokens the engine could not price. */
+  cost_partial?: boolean
+}
+
 /** One node of the run, as `orchestrator status --json` reports it. */
-export type StatusNode = {
+export type StatusNode = NodeMetrics & {
   id: string
   phase: string
   kind: string
   status: string
   attempts: number
+  /** The model the last attempt ran as; "" before the node has run. */
+  model?: string
+  /** The last attempt's enum verdict; "" when the step declares none. */
+  verdict?: string
 }
 
 /** What `orchestrator status <run> --json` answers (protocol.py `status`). */
@@ -49,19 +71,8 @@ export type StatusJson = {
   nodes: readonly StatusNode[]
   usage?: { input_tokens?: number; output_tokens?: number }
   cost_usd?: number
-}
-
-/**
- * What a node billed, folded out of `orchestrator events --json`.
- *
- * `status --json` reports no per-node model or cost: both live in
- * `step_history[].usage` (protocol.py `status` projects only id/phase/kind/
- * status/attempts), which `events` returns raw.
- */
-export type NodeUsage = {
-  model: string
-  costUsd: number
-  isPartial: boolean
+  /** The Totals row: the numeric columns summed over `nodes`. */
+  totals?: NodeMetrics
 }
 
 /** Where the driver loop stands, as `register.ts` words its phases. */
@@ -88,8 +99,6 @@ export type ParkedRetry = {
 export type PaneModel = {
   /** The last `status --json` read, or null before the first one settled. */
   status: StatusJson | null
-  /** Per-node model and cost, by step id. */
-  usage: ReadonlyMap<string, NodeUsage>
   /** The driver's own phase, which `status` says nothing about. */
   phase: DriverPhase
   /** Wall time since the run started, in milliseconds. */
@@ -107,7 +116,6 @@ export type PaneModel = {
 /** The pane before any run: nothing fetched, nothing to bill. */
 export const INITIAL_MODEL: PaneModel = Object.freeze({
   status: null,
-  usage: new Map<string, NodeUsage>(),
   phase: 'running' as DriverPhase,
   elapsedMs: 0,
   gate: null,
@@ -149,31 +157,348 @@ export function elapsedTextOf(ms: number): string {
 /** A run id shortened to its first eight characters, as `status` prints it. */
 export const shortRunOf = (run: string): string => run.slice(0, 8)
 
-/** `$0.0123`, or a dash when a node billed nothing. */
-const costTextOf = (usage: NodeUsage | undefined): string =>
-  usage === undefined || usage.costUsd === 0
-    ? '-'
-    : `$${usage.costUsd.toFixed(4)}${usage.isPartial ? '?' : ''}`
+/**
+ * A token count in the table's compact form: `840`, `1.2k`, `12.5k`, `1.3M`.
+ *
+ * Kept to at most six cells so ten numeric columns fit a 150-column pane. A
+ * thousands value keeps one decimal up to `999.9k`, because the difference
+ * between a 12.5k and a 12.9k cache read is real money at cache-read rates;
+ * only past a hundred thousand is the decimal noise, and it is dropped.
+ */
+export function tokenTextOf(value: number): string {
+  const n = Math.max(0, Math.round(value))
 
-/** One node's line: glyph, id, kind, attempts, model, cost. */
-export function nodeLineOf(
-  node: StatusNode,
-  usage: NodeUsage | undefined,
-): string {
+  if (n === 0) return '-'
+  if (n < 1000) return String(n)
+  if (n < 1_000_000) {
+    const k = n / 1000
+    return k < 100 ? `${k.toFixed(1)}k` : `${Math.round(k)}k`
+  }
+  const m = n / 1_000_000
+  return m < 100 ? `${m.toFixed(1)}M` : `${Math.round(m)}M`
+}
+
+/**
+ * A duration as `12s`, `3m05s` or `1h04m`.
+ *
+ * Distinct from `elapsedTextOf`, which draws the run's own clock in the
+ * header as `mm:ss`: a table cell has to stay narrow and self-labelling,
+ * because it sits under a `Seconds` heading beside other numbers.
+ */
+export function secondsTextOf(value: number): string {
+  const total = Math.max(0, Math.round(value))
+
+  if (total === 0) return '-'
+  if (total < 60) return `${total}s`
+  if (total < 3600) {
+    return `${Math.floor(total / 60)}m${String(total % 60).padStart(2, '0')}s`
+  }
+  return `${Math.floor(total / 3600)}h${String(Math.floor(total / 60) % 60).padStart(2, '0')}m`
+}
+
+/**
+ * A cost as `$0.1731`, with `?` when part of it could not be priced.
+ *
+ * Four decimals because a cheap step really does bill $0.0002, and rounding
+ * that to cents would draw a column of `$0.00` that reads as free.
+ */
+export function costTextOf(value: number, isPartial = false): string {
+  return value === 0 && !isPartial
+    ? '-'
+    : `$${value.toFixed(4)}${isPartial ? '?' : ''}`
+}
+
+/** How many cells wide the cost bar is drawn. */
+export const COST_BAR_CELLS = 8
+
+/** The eighths a partial cell is drawn with, lightest first. */
+const BAR_EIGHTHS = ['', '▏', '▎', '▍', '▌', '▋', '▊', '▉'] as const
+
+/**
+ * A cost as a bar `COST_BAR_CELLS` wide, scaled to the largest row's cost.
+ *
+ * Uses the eighth-block characters so a step costing a twentieth of the
+ * priciest still draws something rather than rounding to an empty cell: the
+ * bar is there to make the expensive row obvious at a glance, which it cannot
+ * do if the cheap rows are invisible AND the expensive one is also clipped.
+ * A zero (or an unpriced max) draws blank, never a full bar.
+ */
+export function costBarOf(value: number, max: number): string {
+  if (!(max > 0) || value <= 0) {
+    return ' '.repeat(COST_BAR_CELLS)
+  }
+
+  const eighths = Math.min(
+    COST_BAR_CELLS * 8,
+    Math.max(1, Math.round((value / max) * COST_BAR_CELLS * 8)),
+  )
+  const full = Math.floor(eighths / 8)
+  const rest = eighths % 8
+  const bar = '█'.repeat(full) + BAR_EIGHTHS[rest]
+
+  return bar.padEnd(COST_BAR_CELLS, ' ').slice(0, COST_BAR_CELLS)
+}
+
+/** A number off a node, defaulting to 0 so a pre-enrichment engine still draws. */
+const numOf = (value: number | undefined): number => value ?? 0
+
+/**
+ * One column of the metrics table.
+ *
+ * `cellOf` renders a node's cell and `totalOf` the Totals row's, which is not
+ * always the same thing: `Skill` totals to the word "Totals", `Model` and
+ * `Verdict` total to nothing, and `Cost` totals with the run's partial flag
+ * rather than any one row's.
+ */
+export type TableColumn = {
+  key: string
+  label: string
+  align: 'left' | 'right'
+  cellOf: (node: StatusNode) => string
+  totalOf: (totals: NodeMetrics) => string
+}
+
+/**
+ * Every column the table can draw, widest tier first.
+ *
+ * Mirrors the reference table's column set (agentdos run_detail.html's
+ * DataTable: Skill · Model · Attempt · Verdict · Seconds · In tok · Out tok ·
+ * Cache read · Cache write · Cost), plus a leading status glyph and a trailing
+ * cost bar, which a terminal can draw and a web table gets from CSS.
+ */
+export const ALL_COLUMNS: readonly TableColumn[] = [
+  {
+    key: 'step',
+    label: 'Step',
+    align: 'left',
+    cellOf: node => `${glyphOf(node.status)} ${node.id}`,
+    totalOf: () => 'Totals',
+  },
+  {
+    key: 'model',
+    label: 'Model',
+    align: 'left',
+    cellOf: node => shortModelOf(node.model ?? ''),
+    totalOf: () => '',
+  },
+  {
+    key: 'attempts',
+    label: 'Att',
+    align: 'right',
+    cellOf: node => (node.attempts > 0 ? String(node.attempts) : '-'),
+    totalOf: () => '',
+  },
+  {
+    key: 'verdict',
+    label: 'Verdict',
+    align: 'left',
+    cellOf: node => node.verdict ?? '',
+    totalOf: () => '',
+  },
+  {
+    key: 'seconds',
+    label: 'Time',
+    align: 'right',
+    cellOf: node => secondsTextOf(numOf(node.seconds)),
+    totalOf: totals => secondsTextOf(numOf(totals.seconds)),
+  },
+  {
+    key: 'input_tokens',
+    label: 'In',
+    align: 'right',
+    cellOf: node => tokenTextOf(numOf(node.input_tokens)),
+    totalOf: totals => tokenTextOf(numOf(totals.input_tokens)),
+  },
+  {
+    key: 'output_tokens',
+    label: 'Out',
+    align: 'right',
+    cellOf: node => tokenTextOf(numOf(node.output_tokens)),
+    totalOf: totals => tokenTextOf(numOf(totals.output_tokens)),
+  },
+  {
+    key: 'cache_read_tokens',
+    label: 'C-rd',
+    align: 'right',
+    cellOf: node => tokenTextOf(numOf(node.cache_read_tokens)),
+    totalOf: totals => tokenTextOf(numOf(totals.cache_read_tokens)),
+  },
+  {
+    key: 'cache_write_tokens',
+    label: 'C-wr',
+    align: 'right',
+    cellOf: node => tokenTextOf(numOf(node.cache_write_tokens)),
+    totalOf: totals => tokenTextOf(numOf(totals.cache_write_tokens)),
+  },
+  {
+    key: 'cost_usd',
+    label: 'Cost',
+    align: 'right',
+    cellOf: node => costTextOf(numOf(node.cost_usd), node.cost_partial === true),
+    totalOf: totals => costTextOf(numOf(totals.cost_usd), totals.cost_partial === true),
+  },
+]
+
+/**
+ * A model id shortened to what distinguishes it in a narrow column.
+ *
+ * `claude-sonnet-5` is drawn `sonnet-5`: the vendor prefix is the same on
+ * every row of every run, so it costs eight cells and says nothing.
+ */
+export const shortModelOf = (model: string): string =>
+  model.replace(/^claude-/, '')
+
+/** The width tier a terminal falls in, which decides the column set. */
+export const WIDE_MIN_COLUMNS = 150
+export const MEDIUM_MIN_COLUMNS = 110
+
+/** The columns dropped first, when the pane is too narrow for all of them. */
+const MEDIUM_DROPS = new Set(['cache_read_tokens', 'cache_write_tokens', 'seconds'])
+
+/**
+ * The columns to draw at a given terminal width.
+ *
+ * Three tiers, because a table that overflows its pane is worse than a list:
+ * the surface wraps or truncates, and either way the numbers stop lining up.
+ * Below `MEDIUM_MIN_COLUMNS` this answers an empty set and `paneView` falls
+ * back to the one-line-per-node list the pane drew before the table.
+ *
+ * @param columns the terminal's width, or null before the first drawing
+ */
+export function columnsFor(columns: number | null): readonly TableColumn[] {
+  const width = columns ?? WIDE_MIN_COLUMNS
+
+  if (width >= WIDE_MIN_COLUMNS) {
+    return ALL_COLUMNS
+  }
+  if (width >= MEDIUM_MIN_COLUMNS) {
+    return ALL_COLUMNS.filter(column => !MEDIUM_DROPS.has(column.key))
+  }
+  return []
+}
+
+/** Whether the cost bar has room; it rides with the widest tier only. */
+export const showsCostBar = (columns: number | null): boolean =>
+  (columns ?? WIDE_MIN_COLUMNS) >= WIDE_MIN_COLUMNS
+
+/** One drawn row: its cells, and what the row is (for its styling). */
+export type TableRow = {
+  key: string
+  cells: readonly string[]
+  /** The bar cell, when the tier draws one. */
+  bar: string
+  kind: 'header' | 'node' | 'totals'
+  /** The node's status, for a node row; "" otherwise. */
+  status: string
+}
+
+/** The gap between columns, in cells. */
+const GAP = '  '
+
+/**
+ * The table's rows — header, one per node, Totals — with every cell padded to
+ * its column's width.
+ *
+ * Widths are computed from the content (label included) so no column is wider
+ * than it needs, and `align` decides which side the padding goes on. The
+ * whole table is built as plain strings here, so a test can assert the drawn
+ * text without a terminal, and `paneView` only wraps each row in a `Text`.
+ *
+ * @param nodes the run's nodes, in plan order
+ * @param totals the Totals row's numbers
+ * @param columns the terminal width, which picks the column set
+ */
+export function tableRowsOf(
+  nodes: readonly StatusNode[],
+  totals: NodeMetrics,
+  columns: number | null,
+): readonly TableRow[] {
+  const picked = columnsFor(columns)
+
+  if (picked.length === 0) {
+    return []
+  }
+
+  const withBar = showsCostBar(columns)
+  const maxCost = nodes.reduce((max, node) => Math.max(max, numOf(node.cost_usd)), 0)
+
+  const body: readonly { key: string; cells: string[]; bar: string; kind: TableRow['kind']; status: string }[] = [
+    {
+      key: 'header',
+      cells: picked.map(column => column.label),
+      bar: '',
+      kind: 'header' as const,
+      status: '',
+    },
+    ...nodes.map(node => ({
+      key: node.id,
+      cells: picked.map(column => column.cellOf(node)),
+      bar: withBar ? costBarOf(numOf(node.cost_usd), maxCost) : '',
+      kind: 'node' as const,
+      status: node.status,
+    })),
+    {
+      key: 'totals',
+      cells: picked.map(column => column.totalOf(totals)),
+      bar: '',
+      kind: 'totals' as const,
+      status: '',
+    },
+  ]
+
+  const widths = picked.map((_, index) =>
+    body.reduce((max, row) => Math.max(max, (row.cells[index] ?? '').length), 0),
+  )
+
+  return body.map(row => ({
+    key: row.key,
+    kind: row.kind,
+    status: row.status,
+    bar: row.bar,
+    cells: row.cells.map((cell, index) => {
+      const width = widths[index] ?? 0
+
+      return picked[index]?.align === 'right'
+        ? cell.padStart(width, ' ')
+        : cell.padEnd(width, ' ')
+    }),
+  }))
+}
+
+/** One row's drawn line: its padded cells joined, plus the bar when drawn. */
+export const rowTextOf = (row: TableRow): string =>
+  (row.cells.join(GAP) + (row.bar === '' ? '' : `${GAP}${row.bar}`)).trimEnd()
+
+/**
+ * One node's line in the compact tier: glyph, id, kind, attempts, model, cost.
+ *
+ * What the pane drew everywhere before the table, and still draws below
+ * `MEDIUM_MIN_COLUMNS`, where no table's columns would line up.
+ */
+export function nodeLineOf(node: StatusNode): string {
   const attempts = node.attempts > 1 ? ` x${node.attempts}` : ''
-  const model = usage?.model ?? ''
+  const model = shortModelOf(node.model ?? '')
 
   return (
     `${glyphOf(node.status)} ${node.id} · ${node.kind}${attempts}` +
     (model === '' ? '' : ` · ${model}`) +
-    ` · ${costTextOf(usage)}`
+    ` · ${costTextOf(node.cost_usd ?? 0, node.cost_partial === true)}`
   )
 }
 
-/** The footer: the run's total cost, whether any of it is a guess, the phase. */
+/**
+ * The footer: the run's total cost, whether any of it is a guess, the phase.
+ *
+ * Reads the run total off `status.totals` when the engine reported one, so
+ * the footer and the table's Totals row can never disagree; `cost_usd` is the
+ * fallback for an engine that predates the enrichment.
+ */
 export function footerTextOf(model: PaneModel): string {
-  const total = model.status?.cost_usd ?? 0
-  const isPartial = [...model.usage.values()].some(entry => entry.isPartial)
+  const totals = model.status?.totals
+  const total = totals?.cost_usd ?? model.status?.cost_usd ?? 0
+  const isPartial =
+    totals?.cost_partial === true ||
+    (model.status?.nodes ?? []).some(node => node.cost_partial === true)
 
   return (
     `$${total.toFixed(4)}${isPartial ? ' (partial)' : ''} · ` +
@@ -328,6 +653,53 @@ export function promptTextOf(model: PaneModel): string {
 }
 
 /**
+ * The node body: the metrics table, or the compact list when the pane is too
+ * narrow for one.
+ *
+ * Styling is limited to what `TextProps` offers (claude-code.d.ts:7841-7845:
+ * `color`, `dimColor`, `bold`; no `key`, which is why no row carries one):
+ * the header and the Totals row are bold, a running node is highlighted with
+ * `color`, and a node nothing has touched yet is dimmed so the eye lands on
+ * the rows that have actually billed something.
+ *
+ * @param Text the surface's Text constructor
+ * @param status the last `status --json` read
+ * @param columns the terminal's width, which picks the tier
+ */
+export function nodeChildrenOf(
+  Text: Elements['terminal']['Text'],
+  status: StatusJson,
+  columns: number | null,
+): RenderElement[] {
+  const rows = tableRowsOf(status.nodes, status.totals ?? {}, columns)
+
+  if (rows.length === 0) {
+    return status.nodes.map(node =>
+      Text({ dimColor: isPendingStatus(node.status), children: nodeLineOf(node) }),
+    )
+  }
+
+  return rows.map(row =>
+    Text({
+      bold: row.kind !== 'node',
+      dimColor: row.kind === 'node' && isPendingStatus(row.status),
+      ...(row.kind === 'node' && isRunningStatus(row.status)
+        ? { color: 'cyan' }
+        : {}),
+      children: rowTextOf(row),
+    }),
+  )
+}
+
+/** Whether a node status means "not started" — the rows the table dims. */
+export const isPendingStatus = (status: string): boolean =>
+  status === 'pending' || status === '' || status === 'skipped'
+
+/** Whether a node status means "running now" — the row the table highlights. */
+export const isRunningStatus = (status: string): boolean =>
+  status === 'running' || status === 'active' || status === 'in_progress'
+
+/**
  * The pane's element tree.
  *
  * `Box`, `Text` and `Button` come from the surface's table, which the hook
@@ -342,12 +714,15 @@ export function promptTextOf(model: PaneModel): string {
  * @param ui the resolved elements
  * @param model what the last refresh read
  * @param actions what the gate buttons run
+ * @param columns the terminal's width, which picks the table's column set;
+ *   null (before any drawing reported one) draws the widest tier
  * @returns the tree to return from the `ui.render` hook
  */
 export function paneView(
   ui: Pick<Elements['terminal'], 'Box' | 'Text' | 'Button'>,
   model: PaneModel,
   actions: PaneActions,
+  columns: number | null = null,
 ): RenderElement {
   const { Box, Text, Button } = ui
   const { status } = model
@@ -385,9 +760,7 @@ export function paneView(
   const nodes = Box({
     key: 'nodes',
     flexDirection: 'column',
-    children: status.nodes.map(node =>
-      Text({ children: nodeLineOf(node, model.usage.get(node.id)) }),
-    ),
+    children: nodeChildrenOf(Text, status, columns),
   })
 
   return Box({

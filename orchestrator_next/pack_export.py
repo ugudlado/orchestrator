@@ -499,11 +499,34 @@ nothing is started.
 ### The pane
 
 While the mod drives a run it opens a side pane (`hooks/pane.ts` draws it)
-listing the run's nodes: a status glyph, the step id, its kind, its attempts,
-the model it ran on and what it cost. The header carries the slug, the short
-run id, the run status and the elapsed clock; the footer the total cost
-(marked `(partial)` when a step billed on a model with no pricing row), the
-run's phase and the driver's.
+showing a metrics table: one row per node, a header row, and a bold **Totals**
+row at the bottom. The header carries the slug, the short run id, the run
+status and the elapsed clock; the footer the total cost (marked `(partial)`
+when a step billed on a model with no pricing row), the run's phase and the
+driver's.
+
+How many columns you get depends on how wide the terminal is:
+
+| Width      | Columns                                                                      |
+| ---------- | ---------------------------------------------------------------------------- |
+| 150+       | Step, Model, Att, Verdict, Time, In, Out, C-rd, C-wr, Cost, and a cost bar   |
+| 110–149    | Step, Model, Att, Verdict, In, Out, Cost                                     |
+| under 110  | one line per node, as before                                                 |
+
+Token counts are abbreviated (`1.2k`, `12.5k`, `1.3M`) and costs print to four
+decimals, because a cheap step really does bill `$0.0002`. A cost the engine
+could not price is marked `?` and makes the Totals row a floor rather than the
+real spend. The cost bar is scaled to the priciest row, so the step that cost
+you the most is obvious without reading a number. The running row is
+highlighted, and nodes that have not started yet are dimmed.
+
+```text
+Step         Model      Att  Verdict   Time    In   Out   C-rd  C-wr      Cost
+✓ discovery  sonnet-5     1  pass       12s  1.2k   340  12.5k   800   $0.1731  ███▎
+▶ implement  fable-5-1    2           3m05s  1.3M  9.4k    250     -  $0.4200?  ████████
+◦ review                  -               -     -     -      -     -         -
+Totals                                3m17s  1.3M  9.7k  12.8k   800  $0.5931?
+```
 
 Along the bottom is an action row for whatever the run is doing right now:
 

@@ -20,7 +20,6 @@ import {
   optionKeyOf,
   paneView,
   type DriverPhase,
-  type NodeUsage,
   type PaneModel,
   type StatusJson,
 } from './pane'
@@ -304,10 +303,10 @@ function notify(
 /**
  * Re-read the CLI and redraw the pane.
  *
- * Two calls, because `status --json` carries no per-node model or cost:
- * those live in `step_history[].usage`, which `events --json` returns raw
- * (protocol.py `events`). A failure of either leaves the last good model up
- * rather than blanking the pane mid-run.
+ * One call: `status --json` now carries each node's model, verdict, duration,
+ * token counts and cost, plus the run's `totals` (protocol.py `node_metrics`),
+ * so the pane no longer folds `events --json` itself. A failed read leaves the
+ * last good numbers up rather than blanking the pane mid-run.
  *
  * @param $ the engine
  * @param cli the CLI runner
@@ -321,21 +320,13 @@ async function refreshPane(
   const run = pane.run
 
   if (run !== null) {
-    const [status, events] = await Promise.all([
-      cli(['orchestrator', 'status', run, '--json']).catch(() => null),
-      cli(['orchestrator', 'events', run, '--json']).catch(() => null),
-    ])
+    const status = await cli(['orchestrator', 'status', run, '--json'])
+      .catch(() => null)
 
     const parsed = status === null ? null : safeJson<StatusJson>(status.stdout)
 
     if (parsed !== null) {
       pane.model = { ...pane.model, status: parsed }
-    }
-
-    const rows = events === null ? null : safeJson<unknown[]>(events.stdout)
-
-    if (rows !== null) {
-      pane.model = { ...pane.model, usage: usageByStepOf(rows) }
     }
   }
 
@@ -356,42 +347,6 @@ function safeJson<T>(text: string): T | null {
   } catch {
     return null
   }
-}
-
-/**
- * Per-node model and cost, folded out of `events --json` rows.
- *
- * The last attempt of a step wins its model; the costs of every attempt sum,
- * so a step retried twice shows what it really billed. `cost_partial` is what
- * `record.py` stamps when a model has no pricing row.
- */
-function usageByStepOf(rows: readonly unknown[]): Map<string, NodeUsage> {
-  const out = new Map<string, NodeUsage>()
-
-  for (const row of rows) {
-    if (typeof row !== 'object' || row === null) {
-      continue
-    }
-
-    const entry = row as { step_id?: unknown; usage?: unknown }
-    const stepId = typeof entry.step_id === 'string' ? entry.step_id : ''
-    const usage = (entry.usage ?? {}) as Record<string, unknown>
-
-    if (stepId === '') {
-      continue
-    }
-
-    const prior = out.get(stepId)
-    const cost = typeof usage.cost_usd === 'number' ? usage.cost_usd : 0
-
-    out.set(stepId, {
-      model: typeof usage.model === 'string' ? usage.model : prior?.model ?? '',
-      costUsd: (prior?.costUsd ?? 0) + cost,
-      isPartial: prior?.isPartial === true || usage.cost_partial === true,
-    })
-  }
-
-  return out
 }
 
 /**
@@ -600,7 +555,7 @@ export function register(on: On) {
         void $.ui.close({ id: PANE_ID }).catch(() => undefined)
         pane.isOpen = false
       },
-    })
+    }, pane.columns)
   })
 
   // Every Button the pane draws. Core runs the element's `onPress` beneath
@@ -1648,9 +1603,7 @@ async function statusText($: EngineInterface): Promise<string> {
 
   return [
     `${model.status?.slug ?? run} · ${model.status?.run_status ?? '-'}`,
-    ...(model.status?.nodes ?? []).map(node =>
-      nodeLineOf(node, model.usage.get(node.id)),
-    ),
+    ...(model.status?.nodes ?? []).map(node => nodeLineOf(node)),
   ].join('\n')
 }
 

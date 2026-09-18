@@ -12,6 +12,7 @@ protocol untouched.
 """
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import os
 import re
@@ -991,6 +992,193 @@ def cancel(run_ref: str) -> tuple[dict[str, Any], int]:
 
 
 # ---------------------------------------------------------------------------
+# per-node metrics (what the Mod's table draws)
+# ---------------------------------------------------------------------------
+
+# The four token counts a step bills, as `record.py` writes them into
+# `step_history[].usage`, mapped to the names `status --json` reports them
+# under. The `usage.*` spelling is the API's (`cache_read_input_tokens`);
+# the reported spelling is the table's column key.
+_TOKEN_KEYS: dict[str, str] = {
+    "input_tokens": "input_tokens",
+    "output_tokens": "output_tokens",
+    "cache_read_input_tokens": "cache_read_tokens",
+    "cache_creation_input_tokens": "cache_write_tokens",
+}
+
+# Keys a step's `outputs` may carry a verdict under when no contract declares
+# a `fail_on:` enum. Checked in order, so an explicit `verdict` wins.
+_VERDICT_KEYS = ("verdict", "decision")
+
+# Every numeric column the table sums into its Totals row.
+_METRIC_NUMERIC_KEYS = (
+    "seconds",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "cost_usd",
+)
+
+
+def _num(value: Any) -> float:
+    """``value`` as a float, or 0.0 for anything non-numeric (incl. bool-free)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    return float(value)
+
+
+def _entry_seconds(entry: dict[str, Any]) -> float:
+    """One attempt's wall time in seconds.
+
+    ``usage.duration_ms`` is what ``record.py`` derives from the entry's own
+    ``started_at``/``ended_at`` (record.py's ``duration_ms`` block), so prefer
+    it; fall back to re-deriving from the stamps for an entry written before
+    that, and to 0.0 when neither parses.
+    """
+    usage = entry.get("usage")
+    usage = usage if isinstance(usage, dict) else {}
+    duration_ms = usage.get("duration_ms")
+    if isinstance(duration_ms, (int, float)) and not isinstance(duration_ms, bool):
+        return max(0.0, float(duration_ms) / 1000.0)
+    try:
+        started = _dt.datetime.fromisoformat(
+            str(entry.get("started_at") or "").replace("Z", "+00:00")
+        )
+        ended = _dt.datetime.fromisoformat(
+            str(entry.get("ended_at") or "").replace("Z", "+00:00")
+        )
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, (ended - started).total_seconds())
+
+
+def _enum_out_names(step_id: str) -> tuple[frozenset[str], frozenset[str]]:
+    """``(names of enum outs, names carrying a ``fail_on:``)`` for a step.
+
+    A missing or unparseable contract yields two empty sets rather than
+    raising: a metrics projection must never take `status` down.
+    """
+    try:
+        contract = load_contract_for_step(step_id)
+    except Exception:  # noqa: BLE001 — metrics are informational
+        return frozenset(), frozenset()
+    declared = getattr(contract, "outputs", None) or {}
+    enums: set[str] = set()
+    fail_on: set[str] = set()
+    for name, spec in declared.items():
+        if not isinstance(spec, dict):
+            continue
+        if spec.get("type") == "enum":
+            enums.add(str(name))
+        if isinstance(spec.get("fail_on"), list):
+            fail_on.add(str(name))
+    return frozenset(enums), frozenset(fail_on)
+
+
+def _entry_verdict(entry: dict[str, Any], step_id: str) -> str:
+    """The verdict one attempt reported, or "".
+
+    Prefers an out the contract declared as an enum with ``fail_on:`` (the
+    same declaration routing reads — see ``record.failing_verdict``), then any
+    enum out, then a plain ``verdict``/``decision`` key for a step whose
+    contract declares nothing.
+    """
+    outputs = entry.get("outputs")
+    if not isinstance(outputs, dict):
+        return ""
+    enums, fail_on = _enum_out_names(step_id)
+    for names in (fail_on, enums):
+        for name in sorted(names):
+            value = outputs.get(name)
+            if isinstance(value, str) and value:
+                return value
+    for key in _VERDICT_KEYS:
+        value = outputs.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
+def node_metrics(step_history: list[Any]) -> dict[str, dict[str, Any]]:
+    """Per-step-id metrics folded out of ``step_history``.
+
+    One row per step the history touched, with every attempt of that step
+    folded in: the counts and ``seconds`` **sum** across attempts (a step
+    retried twice really did bill twice), while ``model`` and ``verdict`` take
+    the **last** attempt's (what the step finally ran as, and finally said).
+
+    ``cost_partial`` is true when any attempt billed tokens the engine could
+    not price — ``record.py`` stamps it when a model has no pricing row — so a
+    reader knows the cost is a floor rather than a total.
+
+    Pure: takes the raw history list, touches no state and no store.
+    """
+    rows: dict[str, dict[str, Any]] = {}
+    for raw in step_history or []:
+        entry = raw if isinstance(raw, dict) else getattr(raw, "raw", None)
+        if not isinstance(entry, dict):
+            continue
+        step_id = str(entry.get("step_id") or "")
+        if not step_id:
+            continue
+        usage = entry.get("usage")
+        usage = usage if isinstance(usage, dict) else {}
+
+        row = rows.setdefault(step_id, {
+            "attempts": 0,
+            "model": "",
+            "verdict": "",
+            "seconds": 0.0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cost_usd": 0.0,
+            "cost_partial": False,
+        })
+
+        row["attempts"] += 1
+        model = usage.get("model")
+        if isinstance(model, str) and model:
+            row["model"] = model
+        verdict = _entry_verdict(entry, step_id)
+        if verdict:
+            row["verdict"] = verdict
+        row["seconds"] += _entry_seconds(entry)
+        for usage_key, column in _TOKEN_KEYS.items():
+            row[column] += int(_num(usage.get(usage_key)))
+        row["cost_usd"] += _num(usage.get("cost_usd"))
+        if usage.get("cost_partial") is True:
+            row["cost_partial"] = True
+
+    for row in rows.values():
+        row["seconds"] = round(row["seconds"], 3)
+        row["cost_usd"] = round(row["cost_usd"], 6)
+    return rows
+
+
+def metrics_totals(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """The Totals row: every numeric column summed over ``rows``.
+
+    ``cost_partial`` rides along so the table can mark a total that is a floor
+    rather than the real spend.
+    """
+    totals: dict[str, Any] = {key: 0 for key in _METRIC_NUMERIC_KEYS}
+    totals["cost_partial"] = False
+    for row in rows:
+        for key in _METRIC_NUMERIC_KEYS:
+            totals[key] += _num(row.get(key))
+        if row.get("cost_partial") is True:
+            totals["cost_partial"] = True
+    totals["seconds"] = round(totals["seconds"], 3)
+    totals["cost_usd"] = round(totals["cost_usd"], 6)
+    for key in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"):
+        totals[key] = int(totals[key])
+    return totals
+
+
+# ---------------------------------------------------------------------------
 # verbs: status / events
 # ---------------------------------------------------------------------------
 def status(run_ref: str) -> tuple[dict[str, Any], int]:
@@ -1008,6 +1196,10 @@ def status(run_ref: str) -> tuple[dict[str, Any], int]:
         if entry.attempt:
             attempts[entry.step_id] = max(attempts.get(entry.step_id, 0), int(entry.attempt))
 
+    # Per-node model/verdict/duration/tokens/cost, so a reader drawing a table
+    # does not have to fold `events --json` itself.
+    metrics = node_metrics([entry.raw for entry in state.step_history])
+
     nodes = []
     all_artifacts: list[dict[str, Any]] = []
     for phase in state.workflow_plan:
@@ -1018,14 +1210,27 @@ def status(run_ref: str) -> tuple[dict[str, Any], int]:
             node_artifacts = [
                 a for a in (node.get("artifacts") or []) if isinstance(a, dict)
             ]
+            row = metrics.get(step_id, {})
             nodes.append({
                 "id": step_id,
                 "phase": phase,
                 "kind": (KIND_GATE if gates.node_is_gate(node)
                          else _kind_of(step_id)),
                 "status": str(node.get("status") or "pending"),
-                "attempts": attempts.get(step_id, 0),
+                # `attempts` stays the contract's own max-attempt number; the
+                # metrics row counts history entries, which agree for a normal
+                # run and differ only for a history written without `attempt`.
+                "attempts": attempts.get(step_id, 0) or int(row.get("attempts", 0)),
                 "artifacts": node_artifacts,
+                "model": row.get("model", ""),
+                "verdict": row.get("verdict", ""),
+                "seconds": row.get("seconds", 0.0),
+                "input_tokens": row.get("input_tokens", 0),
+                "output_tokens": row.get("output_tokens", 0),
+                "cache_read_tokens": row.get("cache_read_tokens", 0),
+                "cache_write_tokens": row.get("cache_write_tokens", 0),
+                "cost_usd": row.get("cost_usd", 0.0),
+                "cost_partial": row.get("cost_partial", False),
             })
             for a in node_artifacts:
                 all_artifacts.append({**a, "step_id": step_id})
@@ -1053,6 +1258,9 @@ def status(run_ref: str) -> tuple[dict[str, Any], int]:
         "artifacts_base": str(_artifact_base(state.raw)),
         "usage": totals,
         "cost_usd": cost,
+        # The table's Totals row: every numeric column summed over the nodes
+        # above, so the footer and the rows can never disagree.
+        "totals": metrics_totals(nodes),
         # The most recently approved token, and every gate this run has seen.
         "gate_token": gates.latest_approved_token(state.raw),
         "gates": gates.gate_records(state.raw),
