@@ -294,8 +294,24 @@ const pane = {
   /** True between our `$.ui.open` and the close that went through. */
   isOpen: false,
 
-  /** The terminal's width as last drawn; null before any drawing. */
+  /**
+   * The terminal's width as last drawn; null before any drawing.
+   *
+   * Only for the `$.ui.open` floors (`AUTO_OPEN_MIN_COLUMNS`,
+   * `OPEN_MIN_COLUMNS`), which mirror the surface's own terminal-wide
+   * thresholds (claude-code.d.ts:4897-4899) — the table's own column tiers
+   * use `bodyColumns` below, not this.
+   */
   columns: null as number | null,
+
+  /**
+   * The docked pane's own body width, in cells inside its frame
+   * (`RenderPropsOf['Pane'].bodyColumns`, claude-code.d.ts); null before the
+   * `ui.render` hook has drawn once. A real docked pane runs far narrower
+   * than the terminal (~50 columns in a live session), so the table's tiers
+   * key off this, not `columns`.
+   */
+  bodyColumns: null as number | null,
 
   /** Set once per run so a re-entered driver does not re-open a closed pane. */
   hasAutoOpened: false,
@@ -586,6 +602,7 @@ export function register(on: On) {
     const { Box, Text, Button } = await $.ui.resolve(e)
 
     pane.columns = e.viewport?.columns ?? pane.columns
+    pane.bodyColumns = e.props.bodyColumns ?? pane.bodyColumns
 
     // Every Button routes through the SAME actions the tool and the command
     // call, so "approve" means one thing however it was asked for. Each is
@@ -602,7 +619,7 @@ export function register(on: On) {
         void $.ui.close({ id: PANE_ID }).catch(() => undefined)
         pane.isOpen = false
       },
-    }, pane.columns)
+    }, pane.bodyColumns)
   })
 
   // Every Button the pane draws. Core runs the element's `onPress` beneath

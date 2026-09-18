@@ -131,15 +131,43 @@ no longer folds `events --json` itself. `record.py` stamps `cost_partial` when
 a model has no pricing row, which is what a `?` on a cost cell and the
 footer's `(partial)` report.
 
-**The pane draws a metrics table, in three width tiers.** `tableRowsOf`
-(pane.ts) pads every cell to its column's width so the numbers line up, and
-`columnsFor` picks the column set from the terminal width:
+**The table's width tiers key off the PANE's own body, not the terminal.**
 
-| Width   | Columns                                                                        |
-| ------- | ------------------------------------------------------------------------------ |
-| ≥150    | Step · Model · Att · Verdict · Time · In · Out · C-rd · C-wr · Cost + cost bar |
-| 110–149 | Step · Model · Att · Verdict · In · Out · Cost                                 |
-| <110    | no table — the one-line-per-node list (`nodeLineOf`)                           |
+A live session showed the bug: the docked pane's `ui.render` hook was reading
+`e.viewport?.columns`, which is the **terminal's** width (`RenderInputOf`,
+d.ts:6237-6244) — the conversation's full column count, not what the pane
+itself has room for. A docked pane's actual body ran ~50 columns in that
+session, so `columnsFor`'s old 110/150 thresholds never fired and the table
+always fell back to the compact list, even in a wide terminal.
+
+The `Pane` component's own props carry the real number: `bodyColumns`,
+"Cells across the body, inside the frame" (d.ts, `RenderPropsOf['Pane']`,
+read-only). `register.ts`'s render hook now reads `e.props.bodyColumns` into
+`pane.bodyColumns` and passes _that_ to `paneView`/`tableRowsOf`, not
+`pane.columns` (which still exists, fed by `e.viewport?.columns`, but only for
+the `$.ui.open` floors — `AUTO_OPEN_MIN_COLUMNS`/`OPEN_MIN_COLUMNS` mirror the
+surface's own terminal-wide thresholds at 4897-4899, a separate concern from
+the table's layout). The diff mod (`mods/diff/hooks/register.ts`) reads the
+same field the same way, reserving one column at the right edge
+(`PANE_RIGHT_PAD_COLUMNS`) — this pane does not pad the edge, but truncates
+the Step id instead (below).
+
+`tableRowsOf` (pane.ts) pads every cell to its column's width so the numbers
+line up, and `columnsFor` picks the column set from the pane body's width —
+retiered for a docked pane's real size (no unknown-width case tests above
+~50, since a real pane rarely gets there):
+
+| Width  | Columns                                                                        |
+| ------ | ------------------------------------------------------------------------------ |
+| ≥120   | Step · Model · Att · Verdict · Time · In · Out · C-rd · C-wr · Cost + cost bar |
+| 90–119 | Step · Model · Att · Verdict · Time · In · Out · Cost                          |
+| 64–89  | Step · Model · Att · Time · Out · Cost                                         |
+| 40–63  | Step · Att · Time · Cost                                                       |
+| <40    | no table — the one-line-per-node list (`nodeLineOf`)                           |
+
+`DEFAULT_BODY_COLUMNS = 48` is what `columnsFor(null)` assumes before the
+first `ui.render` reports a real `bodyColumns` — the 40-63 tier, not the
+widest, since a docked pane is more often narrow than wide.
 
 A header row and a bold Totals row bracket the nodes. The cost bar is eight
 cells of block characters scaled to the priciest row, and rounds **up** to one
@@ -147,6 +175,16 @@ eighth so a cheap step still draws something rather than vanishing. Row
 styling is limited to what `TextProps` allows (7841-7845: `color`, `dimColor`,
 `bold` — no `key`): header and Totals bold, the running row `color: 'cyan'`,
 untouched rows dimmed.
+
+**A table row never exceeds the pane's own width.** `shrinkStepColumn`
+compares the natural (unpadded) row width — every column's width, the
+inter-column gaps, and the cost bar when it rides — against the pane's
+`bodyColumns`, and shrinks the Step column (always index 0) by however much
+the row overflows, down to a floor of one cell. `ellipsize` then clips the
+Step cell's text to that width with a trailing `…`. A step id is the column
+most likely to be long and the one already carrying a status glyph, so it
+absorbs the cut rather than every numeric column shrinking a little and
+breaking alignment with the header.
 
 **A missing JSON block is not a failed step.** When a judgment subagent's
 final message carries no parseable fence, `runJudgment` does NOT record an

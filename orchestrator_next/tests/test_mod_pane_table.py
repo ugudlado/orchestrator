@@ -108,47 +108,104 @@ def _lines(columns: int | None) -> list[str]:
     )
 
 
-# --- width tiers -----------------------------------------------------------
+# --- width tiers -------------------------------------------------------
+# Keyed to the docked PANE's own body width (`bodyColumns`), not the
+# terminal's: a real docked pane runs far narrower than a terminal (a live
+# session measured ~50 columns), so the old terminal-width tiers (150/110)
+# never fired and the table always fell back to the compact list.
 @requires_node
 def test_wide_tier_draws_every_column() -> None:
-    keys = _call("(m, a) => m.columnsFor(a[0]).map(c => c.key)", 150)
+    keys = _call("(m, a) => m.columnsFor(a[0]).map(c => c.key)", 120)
     assert keys == [
         "step", "model", "attempts", "verdict", "seconds",
         "input_tokens", "output_tokens", "cache_read_tokens",
         "cache_write_tokens", "cost_usd",
     ]
-    assert _call("(m, a) => m.showsCostBar(a[0])", 150) is True
+    assert _call("(m, a) => m.showsCostBar(a[0])", 120) is True
 
 
 @requires_node
-def test_medium_tier_drops_cache_columns_and_seconds() -> None:
-    keys = _call("(m, a) => m.columnsFor(a[0]).map(c => c.key)", 120)
+def test_roomy_tier_drops_cache_columns() -> None:
+    keys = _call("(m, a) => m.columnsFor(a[0]).map(c => c.key)", 90)
     assert keys == [
-        "step", "model", "attempts", "verdict",
+        "step", "model", "attempts", "verdict", "seconds",
         "input_tokens", "output_tokens", "cost_usd",
     ]
     # The bar rides with the widest tier only.
-    assert _call("(m, a) => m.showsCostBar(a[0])", 120) is False
+    assert _call("(m, a) => m.showsCostBar(a[0])", 90) is False
 
 
 @requires_node
-def test_narrow_tier_has_no_table_so_the_pane_falls_back_to_the_list() -> None:
-    assert _call("(m, a) => m.columnsFor(a[0]).map(c => c.key)", 100) == []
-    assert _rows(100) == []
+def test_compact_tier_keeps_model_and_out_only() -> None:
+    keys = _call("(m, a) => m.columnsFor(a[0]).map(c => c.key)", 64)
+    assert keys == ["step", "model", "attempts", "seconds", "output_tokens", "cost_usd"]
+
+
+@requires_node
+def test_narrowest_table_tier_is_step_att_time_cost() -> None:
+    keys = _call("(m, a) => m.columnsFor(a[0]).map(c => c.key)", 40)
+    assert keys == ["step", "attempts", "seconds", "cost_usd"]
+
+
+@requires_node
+def test_below_narrow_floor_has_no_table_so_the_pane_falls_back_to_the_list() -> None:
+    assert _call("(m, a) => m.columnsFor(a[0]).map(c => c.key)", 39) == []
+    assert _rows(39) == []
 
 
 @requires_node
 def test_tier_boundaries_are_inclusive() -> None:
-    assert len(_call("(m, a) => m.columnsFor(a[0])", 150)) == 10
-    assert len(_call("(m, a) => m.columnsFor(a[0])", 149)) == 7
-    assert len(_call("(m, a) => m.columnsFor(a[0])", 110)) == 7
-    assert len(_call("(m, a) => m.columnsFor(a[0])", 109)) == 0
+    assert len(_call("(m, a) => m.columnsFor(a[0])", 120)) == 10
+    assert len(_call("(m, a) => m.columnsFor(a[0])", 119)) == 8
+    assert len(_call("(m, a) => m.columnsFor(a[0])", 90)) == 8
+    assert len(_call("(m, a) => m.columnsFor(a[0])", 89)) == 6
+    assert len(_call("(m, a) => m.columnsFor(a[0])", 64)) == 6
+    assert len(_call("(m, a) => m.columnsFor(a[0])", 63)) == 4
+    assert len(_call("(m, a) => m.columnsFor(a[0])", 40)) == 4
+    assert len(_call("(m, a) => m.columnsFor(a[0])", 39)) == 0
 
 
 @requires_node
-def test_unknown_width_draws_the_widest_tier() -> None:
-    """Before any drawing reports a width, assume room rather than degrade."""
-    assert len(_call("(m, a) => m.columnsFor(a[0])", None)) == 10
+def test_unknown_width_assumes_the_default_body_width() -> None:
+    """Before any drawing reports a width, assume a real docked pane's size."""
+    default_width = _call("(m, a) => m.DEFAULT_BODY_COLUMNS")
+    assert default_width == 48
+    assert (
+        _call("(m, a) => m.columnsFor(a[0]).map(c => c.key)", None)
+        == _call("(m, a) => m.columnsFor(a[0]).map(c => c.key)", default_width)
+    )
+
+
+@requires_node
+def test_a_docked_render_never_exceeds_its_own_width() -> None:
+    """A 60-column pane's table never draws a line wider than 60 cells.
+
+    Live finding: a docked pane is far narrower than the terminal, and a
+    long step id at the "roomy" tier (`Model`, `Verdict`, `In` all present)
+    can add up to more than 60 cells before this — the row wrapped
+    mid-cell on a real terminal instead of clipping the Step id.
+    """
+    wide_status = dict(STATUS)
+    wide_status["nodes"] = [
+        {**STATUS["nodes"][0], "id": "a-very-long-step-identifier-that-would-overflow"},
+        STATUS["nodes"][1],
+        STATUS["nodes"][2],
+    ]
+    lines = _call(
+        "(m, a) => m.tableRowsOf(a[0].nodes, a[0].totals, a[1]).map(m.rowTextOf)",
+        wide_status, 60,
+    )
+    assert lines != []
+    for line in lines:
+        assert len(line) <= 60, line
+
+
+@requires_node
+def test_ellipsize_marks_a_cut_string_and_leaves_a_short_one_alone() -> None:
+    assert _call("(m, a) => m.ellipsize(a[0], a[1])", "implement", 20) == "implement"
+    assert _call("(m, a) => m.ellipsize(a[0], a[1])", "implement", 5) == "impl…"
+    assert _call("(m, a) => m.ellipsize(a[0], a[1])", "implement", 1) == "…"
+    assert _call("(m, a) => m.ellipsize(a[0], a[1])", "implement", 0) == ""
 
 
 # --- formatting ------------------------------------------------------------
@@ -255,7 +312,7 @@ def test_only_node_rows_get_a_bar_and_only_in_the_wide_tier() -> None:
     wide = _rows(150)
     assert wide[0]["bar"] == "" and wide[-1]["bar"] == ""
     assert wide[2]["bar"].strip() == "█" * 8      # the priciest node
-    assert all(row["bar"] == "" for row in _rows(120))
+    assert all(row["bar"] == "" for row in _rows(90))
 
 
 @requires_node

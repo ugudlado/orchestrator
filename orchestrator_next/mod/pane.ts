@@ -348,38 +348,72 @@ export const ALL_COLUMNS: readonly TableColumn[] = [
 export const shortModelOf = (model: string): string =>
   model.replace(/^claude-/, '')
 
-/** The width tier a terminal falls in, which decides the column set. */
-export const WIDE_MIN_COLUMNS = 150
-export const MEDIUM_MIN_COLUMNS = 110
+/**
+ * The width tiers a *docked pane's own body* falls in, which decide the
+ * column set.
+ *
+ * A real docked pane runs about 48-56 cells wide (a live session measured
+ * ~50), never the 110-150 a full terminal width once suggested — the table
+ * used to key off the terminal's columns (`PromptHint`'s viewport) and so
+ * always fell to the compact list in a real session. These tiers are sized
+ * for the pane's `bodyColumns` (claude-code.d.ts Pane props) instead.
+ */
+export const NARROW_MIN_COLUMNS = 40
+export const COMPACT_MIN_COLUMNS = 64
+export const ROOMY_MIN_COLUMNS = 90
+export const WIDE_MIN_COLUMNS = 120
 
-/** The columns dropped first, when the pane is too narrow for all of them. */
-const MEDIUM_DROPS = new Set(['cache_read_tokens', 'cache_write_tokens', 'seconds'])
+/** The pane body width assumed before any drawing has reported one. */
+export const DEFAULT_BODY_COLUMNS = 48
 
 /**
- * The columns to draw at a given terminal width.
+ * The columns to draw at a given pane body width, widest tier first so a
+ * later tier's additions read as "everything the previous tier had, plus".
  *
- * Three tiers, because a table that overflows its pane is worse than a list:
- * the surface wraps or truncates, and either way the numbers stop lining up.
- * Below `MEDIUM_MIN_COLUMNS` this answers an empty set and `paneView` falls
- * back to the one-line-per-node list the pane drew before the table.
+ * | Tier                    | Columns                                     |
+ * | ------------------------ | -------------------------------------------- |
+ * | `< NARROW_MIN_COLUMNS`   | none — `paneView` falls back to the list     |
+ * | `>= NARROW_MIN_COLUMNS`  | Step, Att, Time, Cost                        |
+ * | `>= COMPACT_MIN_COLUMNS` | + Model, Out                                 |
+ * | `>= ROOMY_MIN_COLUMNS`   | + In, Verdict                                |
+ * | `>= WIDE_MIN_COLUMNS`    | + C-rd, C-wr, and the cost bar               |
  *
- * @param columns the terminal's width, or null before the first drawing
+ * Each tier is additive over the previous one (never drops a column the
+ * narrower tier already drew), which is what lets `shrinkStepColumn` assume
+ * the Step column is always index 0.
+ *
+ * @param columns the pane body's width, or null before the first drawing
  */
 export function columnsFor(columns: number | null): readonly TableColumn[] {
-  const width = columns ?? WIDE_MIN_COLUMNS
+  const width = columns ?? DEFAULT_BODY_COLUMNS
+  const byKey = new Map(ALL_COLUMNS.map(column => [column.key, column]))
+  const pick = (keys: readonly string[]): TableColumn[] =>
+    keys.map(key => byKey.get(key)).filter((c): c is TableColumn => c !== undefined)
 
   if (width >= WIDE_MIN_COLUMNS) {
-    return ALL_COLUMNS
+    return pick([
+      'step', 'model', 'attempts', 'verdict', 'seconds', 'input_tokens',
+      'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'cost_usd',
+    ])
   }
-  if (width >= MEDIUM_MIN_COLUMNS) {
-    return ALL_COLUMNS.filter(column => !MEDIUM_DROPS.has(column.key))
+  if (width >= ROOMY_MIN_COLUMNS) {
+    return pick([
+      'step', 'model', 'attempts', 'verdict', 'seconds', 'input_tokens',
+      'output_tokens', 'cost_usd',
+    ])
+  }
+  if (width >= COMPACT_MIN_COLUMNS) {
+    return pick(['step', 'model', 'attempts', 'seconds', 'output_tokens', 'cost_usd'])
+  }
+  if (width >= NARROW_MIN_COLUMNS) {
+    return pick(['step', 'attempts', 'seconds', 'cost_usd'])
   }
   return []
 }
 
 /** Whether the cost bar has room; it rides with the widest tier only. */
 export const showsCostBar = (columns: number | null): boolean =>
-  (columns ?? WIDE_MIN_COLUMNS) >= WIDE_MIN_COLUMNS
+  (columns ?? DEFAULT_BODY_COLUMNS) >= WIDE_MIN_COLUMNS
 
 /** One drawn row: its cells, and what the row is (for its styling). */
 export type TableRow = {
@@ -406,7 +440,7 @@ const GAP = '  '
  *
  * @param nodes the run's nodes, in plan order
  * @param totals the Totals row's numbers
- * @param columns the terminal width, which picks the column set
+ * @param columns the pane body's width, which picks the column set
  */
 export function tableRowsOf(
   nodes: readonly StatusNode[],
@@ -446,8 +480,12 @@ export function tableRowsOf(
     },
   ]
 
-  const widths = picked.map((_, index) =>
-    body.reduce((max, row) => Math.max(max, (row.cells[index] ?? '').length), 0),
+  const widths = shrinkStepColumn(
+    picked.map((_, index) =>
+      body.reduce((max, row) => Math.max(max, (row.cells[index] ?? '').length), 0),
+    ),
+    withBar,
+    columns,
   )
 
   return body.map(row => ({
@@ -457,12 +495,68 @@ export function tableRowsOf(
     bar: row.bar,
     cells: row.cells.map((cell, index) => {
       const width = widths[index] ?? 0
+      const clipped = cell.length > width ? ellipsize(cell, width) : cell
 
       return picked[index]?.align === 'right'
-        ? cell.padStart(width, ' ')
-        : cell.padEnd(width, ' ')
+        ? clipped.padStart(width, ' ')
+        : clipped.padEnd(width, ' ')
     }),
   }))
+}
+
+/**
+ * Shrinks the Step column (always index 0, when the table has one) so the
+ * whole row — every column's width plus the inter-column gaps and the bar —
+ * never exceeds the pane's own width.
+ *
+ * A table wider than its pane wraps mid-row on a real terminal, which breaks
+ * the alignment truncation is meant to protect; the Step cell (a step id,
+ * usually the longest single field and the one already carrying a glyph and
+ * `…`-safe text) absorbs the cut rather than every column shrinking a little.
+ * Never shrinks below 1 cell — a table this squeezed already has no business
+ * being drawn (see `columnsFor`'s `NARROW_MIN_COLUMNS` floor).
+ *
+ * @param widths each column's natural (content) width, widest-content-first
+ * @param withBar whether a cost bar rides along (adds `GAP.length + COST_BAR_CELLS`)
+ * @param paneColumns the pane body's width, or null to skip shrinking
+ */
+export function shrinkStepColumn(
+  widths: readonly number[],
+  withBar: boolean,
+  paneColumns: number | null,
+): readonly number[] {
+  if (paneColumns === null || widths.length === 0) {
+    return widths
+  }
+
+  const gaps = Math.max(0, widths.length - 1) * GAP.length
+  const barWidth = withBar ? GAP.length + COST_BAR_CELLS : 0
+  const total = widths.reduce((sum, width) => sum + width, 0) + gaps + barWidth
+  const overflow = total - paneColumns
+
+  if (overflow <= 0) {
+    return widths
+  }
+
+  const stepWidth = widths[0] ?? 0
+  const shrunk = Math.max(1, stepWidth - overflow)
+
+  return [shrunk, ...widths.slice(1)]
+}
+
+/** `cell` cut to `width` cells, the last one an ellipsis when anything was cut. */
+export function ellipsize(cell: string, width: number): string {
+  if (width <= 0) {
+    return ''
+  }
+  if (cell.length <= width) {
+    return cell
+  }
+  if (width === 1) {
+    return '…'
+  }
+
+  return `${cell.slice(0, width - 1)}…`
 }
 
 /** One row's drawn line: its padded cells joined, plus the bar when drawn. */
@@ -473,7 +567,7 @@ export const rowTextOf = (row: TableRow): string =>
  * One node's line in the compact tier: glyph, id, kind, attempts, model, cost.
  *
  * What the pane drew everywhere before the table, and still draws below
- * `MEDIUM_MIN_COLUMNS`, where no table's columns would line up.
+ * `NARROW_MIN_COLUMNS`, where no table's columns would line up.
  */
 export function nodeLineOf(node: StatusNode): string {
   const attempts = node.attempts > 1 ? ` x${node.attempts}` : ''
@@ -689,7 +783,7 @@ export function promptTextOf(model: PaneModel): string {
  *
  * @param Text the surface's Text constructor
  * @param status the last `status --json` read
- * @param columns the terminal's width, which picks the tier
+ * @param columns the pane body's width, which picks the tier
  */
 export function nodeChildrenOf(
   Text: Elements['terminal']['Text'],
@@ -739,8 +833,8 @@ export const isRunningStatus = (status: string): boolean =>
  * @param ui the resolved elements
  * @param model what the last refresh read
  * @param actions what the gate buttons run
- * @param columns the terminal's width, which picks the table's column set;
- *   null (before any drawing reported one) draws the widest tier
+ * @param columns the pane body's width, which picks the table's column set;
+ *   null (before any drawing reported one) assumes `DEFAULT_BODY_COLUMNS`
  * @returns the tree to return from the `ui.render` hook
  */
 export function paneView(
