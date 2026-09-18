@@ -147,14 +147,14 @@ def test_status_with_no_run_lists_live_runs(
     rows = json.loads(capsys.readouterr().out)
     # Active first, so a single-live-run session resolves without asking.
     assert [row["slug"] for row in rows] == ["orc-1", "orc-2"]
-    assert rows[0] == {
-        "run_id": "run-a",
-        "slug": "orc-1",
-        "run_status": "active",
-        "recipe": "feature",
-        # The step the run stands at is the last one its history touched.
-        "current_step": "design",
-    }
+    assert rows[0]["run_id"] == "run-a"
+    assert rows[0]["run_status"] == "active"
+    assert rows[0]["recipe"] == "feature"
+    # The step the run stands at is the last one its history touched.
+    assert rows[0]["current_step"] == "design"
+    # An ongoing run has no end: reporting one would sort it among the
+    # finished runs, which is the opposite of where it belongs.
+    assert rows[0]["ended_at"] is None
     assert rows[1]["current_step"] is None
 
 

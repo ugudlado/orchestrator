@@ -319,10 +319,48 @@ nothing ever presses, and the run is left standing exactly as before.
 `orchestrator recipes --json` lists every recipe in the resolved pack(s) with
 `{name, pack, steps, gates, inputs}` — `inputs` is what the wizard asks for
 beyond a slug, and `recipeRefOf` qualifies a name as `<pack>/<name>` only when
-it collides. `orchestrator status --json` with **no run** lists live runs
-(`{slug, run_id, run_status, recipe, current_step}`). `state list` was not
-reusable for this: it takes a store URL and prints a fixed-width table for a
-human at a shell.
+it collides. `orchestrator status --json` with **no run** lists runs.
+`state list` was not reusable for this: it takes a store URL and prints a
+fixed-width table for a human at a shell.
+
+That listing is what the home screen draws, so it carries everything a row
+shows and not just the run's identity: `{slug, run_id, run_status, recipe,
+current_step, started_at, ended_at, cost_usd, cost_partial, nodes_done,
+nodes_total, archived}`. Three things about it are load-bearing:
+
+- **Both the live and the archived blobs are listed.** `run_store` archives a
+  finished run by flipping a flag rather than deleting it, so a listing that
+  read only the live ones would empty its own past section. A run that appears
+  in both is listed once, as live.
+- **Ongoing runs sort first**, then the rest by `ended_at` descending. An
+  ongoing run reports `ended_at: null` on purpose — giving it its last
+  attempt's end would sort it among the finished ones.
+- **`--limit N` caps AFTER sorting** (default 20, `0` means every run), so the
+  cap can never drop the ongoing row the list exists to show.
+
+Every number is folded out of the state document in `_run_row`, so listing
+twenty runs costs one store read each rather than twenty `status` calls.
+
+### The home screen's two row shapes
+
+`runLineOf` draws the two kinds of run row differently because they answer
+different questions: an ongoing run is described by **what it is doing** (its
+current step) and how long it has been at it, a finished one by **when it
+ran** and how long it took. Both end with the cost.
+
+Width is handled the way the metrics table handles it: the slug absorbs the
+overflow first (as `shrinkStepColumn` shrinks the Step cell), and the whole
+line is clamped as a last resort — a row wider than its pane wraps, which
+pushes every row below it out of alignment, not just itself.
+
+### A run the pane does not drive is read-only
+
+`RunOwnership` is `live`, `elsewhere` or `past`. Only `live` — this session's
+own driver — gets Approve/Cancel/Retry. A run some other session (or a
+headless run) is driving gets `[Home]` and nothing else: the pane's approve
+answers the driver loop's own parked promise, so offering it for a loop in
+another process would answer a gate that loop is already awaiting. A finished
+run gets `[Start again]`, which pre-fills the wizard with its recipe and slug.
 
 ### Button keys carry data the press event does not
 

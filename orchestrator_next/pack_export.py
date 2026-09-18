@@ -488,19 +488,47 @@ thing however you reach for it.
 
 | Command                                       | Does                                       |
 | --------------------------------------------- | ------------------------------------------ |
-| `/orchestrator`                               | toggles the pane; opens the wizard when nothing is running |
+| `/orchestrator`                               | toggles the pane                           |
 | `/orchestrator run [recipe] [slug] [ticket…]` | starts a run, asking for whatever you left out |
 | `/orchestrator approve`                       | approves the gate the run is parked at     |
 | `/orchestrator cancel`                        | cancels the run                            |
 | `/orchestrator retry`                         | resets the abandoned step and carries on   |
 | `/orchestrator resume <text>`                 | answers the question the run is parked on  |
 | `/orchestrator status`                        | prints the node list (or every live run) as text |
+| `/orchestrator runs`                          | prints every run — ongoing first — as text |
+| `/orchestrator home`                          | opens the pane on its home screen          |
 | `/orchestrator pane`                          | opens the pane                             |
 
 `/orchestrator run` with nothing after it is a wizard: it offers the recipes
 `orchestrator recipes --json` reports (four at a time, with **Other** for the
 rest), then asks for a slug and an optional ticket. Dismiss any popup and
 nothing is started.
+
+### The home screen
+
+The pane opens on a home screen with two sections. **Recipes** lists what the
+pack offers, one row per recipe with its step and gate counts; press one to
+start the wizard already filled in with it. **Runs** lists every run the store
+knows, ongoing ones first (`▶` running, `⏸` waiting on you) with the step they
+are on and a clock, then the finished ones (`✓`, `✗`, `⊘`) with when they ran
+and how long they took. Every row is pressable, and pressing one opens that
+run's view.
+
+```text
+ Recipes
+ feature      17 steps · 2 gates
+ bugfix        6 steps
+
+ Runs
+ ▶ orc-118  feature   implement       4:15  $1.8300
+ ✓ orc-117  feature   2h ago        18m05s  $6.0200
+```
+
+A finished run's view is read-only: it offers **Start again**, which pre-fills
+the wizard with the same recipe and slug. A run some other session drives is
+read-only too, refreshed every 15s and marked `driven elsewhere`, because
+approving or cancelling from here would race the loop that is actually driving
+it. **Home** on any run view goes back.
 
 ### The pane
 

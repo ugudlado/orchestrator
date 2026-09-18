@@ -1331,9 +1331,21 @@ def recipes() -> tuple[list[dict[str, Any]], int]:
     return out, 0
 
 
-def runs() -> tuple[list[dict[str, Any]], int]:
-    """Every live run in the store, newest state first — what `status` with no
-    run reports.
+#: How many runs ``runs()`` answers when the caller names no limit.
+#:
+#: A home screen shows a page, not a history: twenty rows is about what fits
+#: above the fold at any pane width, and a caller that wants the whole store
+#: asks for it with ``--limit 0``.
+DEFAULT_RUN_LIMIT = 20
+
+#: The ``run_status`` values that mean the run is still going — drawn first,
+#: because an ongoing run is the one a person opened the list to look at.
+ONGOING_RUN_STATUSES = frozenset({"active", "running", "blocked", "needs_you"})
+
+
+def runs(limit: int = DEFAULT_RUN_LIMIT) -> tuple[list[dict[str, Any]], int]:
+    """Every run the store knows, ongoing first then newest-finished — what
+    ``status`` with no run reports.
 
     ``state list`` exists but answers a *store admin* question (it takes a
     store URL, prints a fixed-width table, and reports schema/step counts), so
@@ -1341,30 +1353,179 @@ def runs() -> tuple[list[dict[str, Any]], int]:
     mod needs: the fields it would otherwise call ``status`` once per run to
     learn. A run whose state will not parse is skipped rather than raising,
     for the same reason ``recipes`` tolerates a bad YAML.
+
+    Both the live and the archived blobs are listed (``run_store`` archives by
+    flipping a flag, never by deleting), so a finished run stays reachable —
+    a home screen whose past section empties itself the moment a run is
+    archived is not a history.
+
+    Ordering is what a list is *for*: ongoing runs first, then the rest by
+    ``ended_at`` descending, so the newest finished run is the first past row.
+    ``limit`` caps the result after sorting; 0 or less means no cap.
     """
     from orchestrator_next.run_store import open_store
 
     store = open_store()
     out: list[dict[str, Any]] = []
-    for run_id in store.list_ids():
-        text = store.load(run_id)
-        if not text:
-            continue
+    seen: set[str] = set()
+
+    for archived in (False, True):
         try:
-            raw = yaml.safe_load(text) or {}
-        except yaml.YAMLError:
+            ids = store.list_ids(archived=archived)
+        except TypeError:  # pragma: no cover — a store predating the flag
+            ids = store.list_ids() if not archived else []
+        for run_id in ids:
+            if run_id in seen:
+                continue
+            try:
+                text = store.load(run_id, archived=archived)
+            except TypeError:  # pragma: no cover — ditto
+                text = store.load(run_id)
+            if not text:
+                continue
+            try:
+                raw = yaml.safe_load(text) or {}
+            except yaml.YAMLError:
+                continue
+            if not isinstance(raw, dict):
+                continue
+            seen.add(run_id)
+            out.append(_run_row(run_id, raw, archived=archived))
+
+    out.sort(key=_run_sort_key)
+    return (out if limit is None or limit <= 0 else out[:limit]), 0
+
+
+def _run_row(run_id: str, raw: dict[str, Any], *, archived: bool) -> dict[str, Any]:
+    """One run's home-screen row, folded out of its state document.
+
+    Every number is derived here rather than by calling ``status`` once per
+    run: a list of twenty runs must cost one store read each, not twenty full
+    plan walks.
+    """
+    from orchestrator_next.pricing import sum_cost_usd
+
+    history = raw.get("step_history")
+    history = history if isinstance(history, list) else []
+    done, total = _node_counts(raw)
+
+    try:
+        cost = round(sum_cost_usd(raw), 6)
+    except Exception:  # noqa: BLE001 — pricing is informational, never fatal
+        cost = 0.0
+
+    return {
+        "run_id": str(raw.get("run_id") or run_id),
+        "slug": str(raw.get("slug") or raw.get("change_id") or ""),
+        "run_status": str(raw.get("status") or "active"),
+        "recipe": str(raw.get("schema") or raw.get("workflow") or ""),
+        "current_step": _current_step_of(raw),
+        "started_at": _run_started_at(raw, history),
+        "ended_at": _run_ended_at(raw, history),
+        "cost_usd": cost,
+        "cost_partial": any(
+            isinstance(e, dict)
+            and isinstance(e.get("usage"), dict)
+            and e["usage"].get("cost_partial") is True
+            for e in history
+        ),
+        "nodes_done": done,
+        "nodes_total": total,
+        "archived": archived,
+    }
+
+
+def _node_counts(raw: dict[str, Any]) -> tuple[int, int]:
+    """``(finished, total)`` nodes across every phase of the plan.
+
+    Counted off the plan rather than the history so the denominator is the
+    work the run set out to do, not the work it has already recorded.
+    """
+    plan = raw.get("workflow_plan")
+    if not isinstance(plan, dict):
+        return 0, 0
+    done = total = 0
+    for phase in plan.values():
+        nodes = phase.get("nodes") if isinstance(phase, dict) else None
+        if not isinstance(nodes, list):
             continue
-        if not isinstance(raw, dict):
-            continue
-        out.append({
-            "run_id": str(raw.get("run_id") or run_id),
-            "slug": str(raw.get("slug") or raw.get("change_id") or ""),
-            "run_status": str(raw.get("status") or "active"),
-            "recipe": str(raw.get("schema") or raw.get("workflow") or ""),
-            "current_step": _current_step_of(raw),
-        })
-    out.sort(key=lambda row: (row["run_status"] != "active", row["slug"]))
-    return out, 0
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            total += 1
+            if str(node.get("status") or "") in _FINISHED_NODE_STATUSES:
+                done += 1
+    return done, total
+
+
+#: Node statuses that mean the node will not run again.
+_FINISHED_NODE_STATUSES = frozenset({"completed", "done", "skipped"})
+
+
+def _run_started_at(raw: dict[str, Any], history: list[Any]) -> str | None:
+    """When the run began: its own stamp, else its first attempt's."""
+    for key in ("started_at", "created_at"):
+        value = raw.get(key)
+        if isinstance(value, str) and value:
+            return value
+    for entry in history:
+        if isinstance(entry, dict) and entry.get("started_at"):
+            return str(entry["started_at"])
+    return None
+
+
+def _run_ended_at(raw: dict[str, Any], history: list[Any]) -> str | None:
+    """When the run finished, or ``None`` while it is still going.
+
+    An ongoing run has no end, and reporting its last attempt's ``ended_at``
+    as the run's would sort it among the finished ones.
+    """
+    if str(raw.get("status") or "active") in ONGOING_RUN_STATUSES:
+        return None
+    for key in ("ended_at", "completed_at", "updated_at"):
+        value = raw.get(key)
+        if isinstance(value, str) and value:
+            return value
+    for entry in reversed(history):
+        if isinstance(entry, dict) and entry.get("ended_at"):
+            return str(entry["ended_at"])
+    return None
+
+
+def _run_sort_key(row: dict[str, Any]) -> tuple[Any, ...]:
+    """Ongoing first, then by ``ended_at`` descending, then by slug.
+
+    ``ended_at`` is an ISO stamp, which sorts lexically the right way, so the
+    descending half is spelled as a reversed string comparison rather than a
+    parse — an unparseable or missing stamp then sorts last instead of
+    raising.
+    """
+    ongoing = row["run_status"] in ONGOING_RUN_STATUSES
+    ended = row.get("ended_at") or ""
+
+    return (not ongoing, _descending(ended), row.get("slug") or "")
+
+
+class _descending:
+    """Wraps a string so ``sorted`` orders it the other way round."""
+
+    __slots__ = ("value",)
+
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def __lt__(self, other: "_descending") -> bool:
+        # An empty stamp is "unknown", which belongs last either way.
+        if self.value == other.value:
+            return False
+        if self.value == "":
+            return False
+        if other.value == "":
+            return True
+        return self.value > other.value
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _descending) and self.value == other.value
 
 
 def _current_step_of(raw: dict[str, Any]) -> str | None:
@@ -1514,8 +1675,17 @@ def main(verb: str, argv: list[str]) -> int:
             # what a picker asks first ("is anything running?"), and asking it
             # used to mean `state list`, whose fixed-width table is for a
             # human at a shell, not a caller.
+            limit_flag = _pop_flag(args, "--limit")
             if not args:
-                rows, code = runs()
+                try:
+                    limit = (
+                        DEFAULT_RUN_LIMIT if limit_flag is None else int(limit_flag)
+                    )
+                except ValueError:
+                    raise ProtocolError(
+                        f"--limit takes a whole number, not {limit_flag!r}"
+                    ) from None
+                rows, code = runs(limit)
                 print(json.dumps(rows, sort_keys=True, indent=2, default=str))
                 return code
             result, code = status(args[0])

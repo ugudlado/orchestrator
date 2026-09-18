@@ -95,8 +95,65 @@ export type ParkedRetry = {
   reason: string
 }
 
+/** One recipe the pack offers, as `recipes --json` reports it. */
+export type RecipeRow = {
+  name: string
+  pack: string
+  steps: number
+  gates: readonly string[]
+  error?: string
+}
+
+/**
+ * One run as `status --json` (no run) reports it — the home screen's row.
+ *
+ * Everything a row draws is here, so listing twenty runs costs one store read
+ * each rather than twenty full `status` calls: see protocol.py `_run_row`.
+ */
+export type RunRow = {
+  run_id: string
+  slug: string
+  run_status: string
+  recipe: string
+  current_step: string | null
+  started_at?: string | null
+  ended_at?: string | null
+  cost_usd?: number
+  cost_partial?: boolean
+  nodes_done?: number
+  nodes_total?: number
+  archived?: boolean
+}
+
+/** Which screen the pane is showing. */
+export type PaneScreen = 'home' | 'run'
+
+/**
+ * Whether the run on screen is one THIS session drives.
+ *
+ * A run driven elsewhere (another session, or a headless run) draws the same
+ * table, but its action row offers nothing that would race that driver: the
+ * pane may not cancel a loop it is not the one awaiting.
+ */
+export type RunOwnership = 'live' | 'elsewhere' | 'past'
+
 /** Everything one drawing of the pane reads. */
 export type PaneModel = {
+  /** Which screen is drawn: the home list, or one run. */
+  screen: PaneScreen
+  /** Every recipe the pack offers, for the home screen's first section. */
+  recipes: readonly RecipeRow[]
+  /** Every run the store knows, ongoing first (protocol.py `runs`). */
+  runs: readonly RunRow[]
+  /**
+   * The run the run view shows, when it is not this session's own driver.
+   *
+   * Null means "the run this session drives", which is what `pane.run`
+   * already names; a slug here is a run the person picked off the home list.
+   */
+  selectedRun: string | null
+  /** Who drives the run on screen, which decides the action row. */
+  ownership: RunOwnership
   /** The last `status --json` read, or null before the first one settled. */
   status: StatusJson | null
   /** The driver's own phase, which `status` says nothing about. */
@@ -119,6 +176,11 @@ export type PaneModel = {
 
 /** The pane before any run: nothing fetched, nothing to bill. */
 export const INITIAL_MODEL: PaneModel = Object.freeze({
+  screen: 'home' as PaneScreen,
+  recipes: [] as readonly RecipeRow[],
+  runs: [] as readonly RunRow[],
+  selectedRun: null,
+  ownership: 'live' as RunOwnership,
   status: null,
   phase: 'running' as DriverPhase,
   elapsedMs: 0,
@@ -600,9 +662,18 @@ export function footerTextOf(model: PaneModel): string {
     totals?.cost_partial === true ||
     (model.status?.nodes ?? []).some(node => node.cost_partial === true)
 
+  // A run this session does not drive says so: without it, a table that is
+  // not advancing reads as a wedged run rather than as somebody else's.
+  const driver =
+    model.ownership === 'elsewhere'
+      ? 'driven elsewhere'
+      : model.ownership === 'past'
+        ? 'finished'
+        : model.phase
+
   return (
     `$${total.toFixed(4)}${isPartial ? ' (partial)' : ''} · ` +
-    `${model.status?.phase ?? '-'} · ${model.phase}`
+    `${model.status?.phase ?? '-'} · ${driver}`
   )
 }
 
@@ -1026,6 +1097,14 @@ export type PaneActions = {
   answerOther: () => void
   /** Show this step's log in the panel below the table. */
   select: (stepId: string) => void
+  /** Go back to the home screen. */
+  home: () => void
+  /** Open a run's view from the home list. */
+  openRun: (run: string) => void
+  /** Start the wizard pre-filled with this recipe. */
+  startRecipe: (recipe: string) => void
+  /** Start the shown run's recipe again, pre-filling the wizard. */
+  again: () => void
   /** Hide the pane. */
   close: () => void
 }
@@ -1091,13 +1170,38 @@ export type PaneAction = {
  *
  * | State                      | Buttons                                   |
  * | -------------------------- | ----------------------------------------- |
+ * | the home screen            | Start run, Close                          |
+ * | a past run                 | Start again, Home                         |
+ * | a run driven elsewhere     | Home                                      |
  * | awaiting an answer         | one per option (≤4) + Answer…  + Cancel   |
  * | parked at a gate           | Approve, Cancel                           |
  * | parked on an abandoned step| Retry, Cancel                             |
- * | driving                    | Cancel                                    |
- * | finished / no run          | Start run, Close                          |
+ * | driving                    | Cancel, Home                              |
+ * | finished / no run          | Start another, Home                       |
+ *
+ * A run this session does not drive offers nothing that would race the driver
+ * that does: approving or cancelling from here would answer a gate the other
+ * loop is already awaiting, which is the one thing the pane must never do.
  */
 export function actionRowOf(model: PaneModel): readonly PaneAction[] {
+  if (model.screen === 'home') {
+    return [
+      { key: START_KEY, label: 'Start run' },
+      { key: CLOSE_KEY, label: 'Close' },
+    ]
+  }
+
+  if (model.ownership === 'past') {
+    return [
+      { key: AGAIN_KEY, label: 'Start again' },
+      { key: HOME_KEY, label: 'Home' },
+    ]
+  }
+
+  if (model.ownership === 'elsewhere') {
+    return [{ key: HOME_KEY, label: 'Home' }]
+  }
+
   if (model.ask !== null) {
     return [
       ...model.ask.options
@@ -1125,12 +1229,15 @@ export function actionRowOf(model: PaneModel): readonly PaneAction[] {
   // A finished run (however it finished) offers another one; only a run
   // still being driven offers to stop.
   if (model.status !== null && model.phase === 'running') {
-    return [{ key: CANCEL_KEY, label: 'Cancel' }]
+    return [
+      { key: CANCEL_KEY, label: 'Cancel' },
+      { key: HOME_KEY, label: 'Home' },
+    ]
   }
 
   return [
     { key: START_KEY, label: model.status === null ? 'Start run' : 'Start another' },
-    { key: CLOSE_KEY, label: 'Close' },
+    { key: HOME_KEY, label: 'Home' },
   ]
 }
 
@@ -1258,6 +1365,350 @@ export function nodeChildrenOf(
   })
 }
 
+// --- the home screen -------------------------------------------------------
+
+/** The `run_status` values that mean a run is still going (protocol.py). */
+const ONGOING_RUN_STATUSES = new Set([
+  'active', 'running', 'blocked', 'needs_you',
+])
+
+/** Whether a run is still going — the rows the home screen pins to the top. */
+export const isOngoingRun = (row: RunRow): boolean =>
+  ONGOING_RUN_STATUSES.has(row.run_status)
+
+/** What the home screen draws for each run status. */
+const RUN_GLYPHS: Record<string, string> = {
+  active: '▶',
+  running: '▶',
+  blocked: '⏸',
+  needs_you: '⏸',
+  completed: '✓',
+  done: '✓',
+  failed: '✗',
+  error: '✗',
+  abandoned: '✗',
+  cancelled: '⊘',
+  canceled: '⊘',
+}
+
+/** The glyph for a run's status; an unknown status stays a plain bullet. */
+export const runGlyphOf = (status: string): string => RUN_GLYPHS[status] ?? '◦'
+
+/** A second, in milliseconds — the unit every relative span is built from. */
+const SECOND_MS = 1000
+const MINUTE_MS = 60 * SECOND_MS
+const HOUR_MS = 60 * MINUTE_MS
+const DAY_MS = 24 * HOUR_MS
+
+/**
+ * How long ago a stamp was, in the words a list reads best: `3m ago`,
+ * `2h ago`, `yesterday`, `3d ago`, `5w ago`.
+ *
+ * Relative rather than absolute because the question a runs list answers is
+ * "is this recent", not "what o'clock was it" — the same reason Temporal's
+ * Web UI offers a Relative format beside UTC and Local. `yesterday` is spelled
+ * out rather than drawn `1d ago`, which reads as a duration rather than a day.
+ *
+ * An unparseable or missing stamp answers `-`, never `NaN ago`.
+ */
+export function relativeTimeOf(stamp: string | null | undefined, nowMs: number): string {
+  if (stamp === null || stamp === undefined || stamp === '') {
+    return '-'
+  }
+
+  const at = Date.parse(stamp)
+
+  if (!Number.isFinite(at)) {
+    return '-'
+  }
+
+  const ago = nowMs - at
+
+  if (ago < MINUTE_MS) {
+    return 'just now'
+  }
+  if (ago < HOUR_MS) {
+    return `${Math.floor(ago / MINUTE_MS)}m ago`
+  }
+  if (ago < DAY_MS) {
+    return `${Math.floor(ago / HOUR_MS)}h ago`
+  }
+  if (ago < 2 * DAY_MS) {
+    return 'yesterday'
+  }
+  if (ago < 7 * DAY_MS) {
+    return `${Math.floor(ago / DAY_MS)}d ago`
+  }
+
+  return `${Math.floor(ago / (7 * DAY_MS))}w ago`
+}
+
+/**
+ * How long a run took, from its two stamps: the `18m` of a past row.
+ *
+ * Answers `-` when either stamp is missing or the pair is nonsense (an end
+ * before its start), because a wrong duration is worse than none.
+ */
+export function runDurationOf(
+  startedAt: string | null | undefined,
+  endedAt: string | null | undefined,
+): string {
+  const from = Date.parse(startedAt ?? '')
+  const to = Date.parse(endedAt ?? '')
+
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
+    return '-'
+  }
+
+  return secondsTextOf((to - from) / SECOND_MS)
+}
+
+/** A run's elapsed clock, for an ongoing row: `4:15` since it started. */
+export function runElapsedOf(
+  startedAt: string | null | undefined,
+  nowMs: number,
+): string {
+  const from = Date.parse(startedAt ?? '')
+
+  return Number.isFinite(from) && nowMs > from
+    ? elapsedTextOf(nowMs - from)
+    : '-'
+}
+
+/** A run's `4/10` progress; `-` when the plan reported no nodes. */
+export function progressTextOf(row: RunRow): string {
+  const total = row.nodes_total ?? 0
+
+  return total > 0 ? `${row.nodes_done ?? 0}/${total}` : '-'
+}
+
+/**
+ * One recipe's line: `feature      17 steps · 2 gates`, with the gate names
+ * when the pane is wide enough to name them.
+ *
+ * A recipe that would not parse says so instead of drawing a zero — a row
+ * reading "0 steps" looks like an empty recipe rather than a broken one.
+ */
+export function recipeLineOf(row: RecipeRow, columns: number | null): string {
+  const width = columns ?? DEFAULT_BODY_COLUMNS
+
+  if (row.error !== undefined && row.error !== '') {
+    return ellipsize(`${row.name}  (unreadable: ${row.error})`, width)
+  }
+
+  const gates = row.gates.length
+  const counts =
+    `${row.steps} step${row.steps === 1 ? '' : 's'}` +
+    (gates === 0 ? '' : ` · ${gates} gate${gates === 1 ? '' : 's'}`)
+  // The counts column is fixed too, so the gate names of every recipe start
+  // at the same cell rather than ragging with the step count's digits.
+  const named =
+    width >= ROOMY_MIN_COLUMNS && gates > 0
+      ? `  ${row.gates.join(', ')}`
+      : ''
+  const head = fitted(row.name, 14, 'left')
+  const body = named === '' ? counts : `${fitted(counts, 18, 'left')}${named}`
+
+  return ellipsize(`${head} ${body}`.trimEnd(), width)
+}
+
+/**
+ * One run's line on the home screen.
+ *
+ * The two kinds of row answer different questions, so they carry different
+ * middles: an ongoing run is described by **what it is doing now** (its
+ * current step) and how long it has been at it; a finished one by **when it
+ * ran** and how long it took. Both end with the cost, and the widest tier
+ * adds the `4/10` progress fraction.
+ *
+ * Built as a plain string so a test can assert it without a terminal, exactly
+ * as `nodeLineOf` and `rowTextOf` are.
+ */
+export function runLineOf(
+  row: RunRow,
+  columns: number | null,
+  nowMs: number,
+): string {
+  const width = columns ?? DEFAULT_BODY_COLUMNS
+  const ongoing = isOngoingRun(row)
+  const glyph = runGlyphOf(row.run_status)
+  const cost = costTextOf(row.cost_usd ?? 0, row.cost_partial === true)
+
+  const middle = ongoing
+    ? (row.current_step ?? '-')
+    : relativeTimeOf(row.ended_at, nowMs)
+  const time = ongoing
+    ? runElapsedOf(row.started_at, nowMs)
+    : runDurationOf(row.started_at, row.ended_at)
+
+  // Every column is capped as well as padded, so one outlier row cannot widen
+  // the line: an idle run's clock really does reach `689:36:21`, and a slug
+  // really can be a 36-character UUID. Each cell is given the room its worst
+  // realistic value needs and no more.
+  const slugCells = width >= ROOMY_MIN_COLUMNS ? 14 : 12
+  const middleCells = width >= ROOMY_MIN_COLUMNS ? 18 : 10
+  // Nine cells because a run left standing overnight really does clock
+  // `689:36:55`, and a clipped clock is worse than a narrow step name.
+  const timeCells = 9
+
+  const tail = [
+    fitted(row.recipe, 9, 'left'),
+    fitted(middle, middleCells, 'left'),
+    fitted(time, timeCells, 'right'),
+    fitted(cost, 8, 'right'),
+    ...(width >= ROOMY_MIN_COLUMNS
+      ? [fitted(progressTextOf(row), 6, 'right')]
+      : []),
+  ].join(' ')
+
+  // The trailing columns are what the row exists to compare — a clipped cost
+  // is a row that has stopped answering its own question — so the SLUG
+  // absorbs any overflow first, exactly as `shrinkStepColumn` shrinks the Step
+  // cell rather than letting the table overrun its pane.
+  const room = Math.min(slugCells, Math.max(1, width - tail.length - 1))
+  const line = `${fitted(`${glyph} ${row.slug}`, room, 'left')} ${tail}`
+
+  // The slug can only give back what it has: on a very narrow pane the tail
+  // alone may still not fit, so the whole line is clamped as a last resort.
+  // Clipping is the lesser evil — a wrapped row would push every row below it
+  // out of alignment, not just itself.
+  return ellipsize(line.trimEnd(), width)
+}
+
+/** `text` in exactly `cells` cells: ellipsized if long, padded if short. */
+function fitted(text: string, cells: number, align: 'left' | 'right'): string {
+  const clipped = ellipsize(text, cells)
+
+  return align === 'right'
+    ? clipped.padStart(cells, ' ')
+    : clipped.padEnd(cells, ' ')
+}
+
+/** The Button key for a recipe row; `register.ts` reads the name back. */
+export const recipeKeyOf = (name: string): string => `orchestrator-recipe-${name}`
+
+/** The recipe a press names, or null when the key is not a recipe row's. */
+export function recipeNameOf(key: string): string | null {
+  const match = /^orchestrator-recipe-(.+)$/.exec(key)
+
+  return match?.[1] ?? null
+}
+
+/** The Button key for a run row; `register.ts` reads the run back. */
+export const runKeyOf = (run: string): string => `orchestrator-run-${run}`
+
+/** The run a press names, or null when the key is not a run row's. */
+export function runRefOf(key: string): string | null {
+  const match = /^orchestrator-run-(.+)$/.exec(key)
+
+  return match?.[1] ?? null
+}
+
+/** The Button that returns to the home screen from a run view. */
+export const HOME_KEY = 'orchestrator-home'
+
+/** The Button that starts a finished run's recipe again. */
+export const AGAIN_KEY = 'orchestrator-again'
+
+/**
+ * The breadcrumb above a run view: `‹ Home · pane-2 · design · active · 4:15`.
+ *
+ * Leads with the way back, the way Temporal's detail view leads with its
+ * execution-metadata block: the first thing a detail screen owes its reader is
+ * where they are and how to leave.
+ */
+export function breadcrumbOf(model: PaneModel): string {
+  const status = model.status
+  const parts = ['‹ Home']
+
+  if (status !== null) {
+    parts.push(status.slug, status.run_status)
+
+    const recipe = model.runs.find(row => row.run_id === status.run_id)?.recipe
+
+    if (recipe !== undefined && recipe !== '') {
+      parts.splice(2, 0, recipe)
+    }
+  }
+
+  if (model.ownership !== 'past') {
+    parts.push(elapsedTextOf(model.elapsedMs))
+  }
+
+  return parts.join(' · ')
+}
+
+/**
+ * The home screen's whole body as plain lines, section headings included.
+ *
+ * Returned as `{ key, text, kind }` rather than bare strings so the view can
+ * make the two kinds of row a Button (and dim the headings) without parsing
+ * the text back apart.
+ */
+export type HomeRow = {
+  key: string
+  text: string
+  kind: 'heading' | 'recipe' | 'run' | 'note'
+}
+
+/**
+ * Every row of the home screen, in drawing order: the recipes, then the runs
+ * with the ongoing ones first.
+ *
+ * The engine already sorts `runs` ongoing-first (protocol.py `_run_sort_key`),
+ * so this does not re-sort: it only inserts the blank-line break between the
+ * ongoing rows and the past ones, which is what makes the split visible
+ * without a second heading.
+ */
+export function homeRowsOf(
+  model: PaneModel,
+  columns: number | null,
+  nowMs: number,
+): readonly HomeRow[] {
+  const rows: HomeRow[] = [{ key: 'h-recipes', text: 'Recipes', kind: 'heading' }]
+
+  if (model.recipes.length === 0) {
+    rows.push({ key: 'no-recipes', text: 'No recipes found.', kind: 'note' })
+  }
+
+  for (const recipe of model.recipes) {
+    rows.push({
+      key: recipeKeyOf(recipe.name),
+      text: recipeLineOf(recipe, columns),
+      kind: 'recipe',
+    })
+  }
+
+  rows.push({ key: 'gap', text: '', kind: 'note' })
+  rows.push({ key: 'h-runs', text: 'Runs', kind: 'heading' })
+
+  if (model.runs.length === 0) {
+    rows.push({ key: 'no-runs', text: 'No runs yet.', kind: 'note' })
+  }
+
+  let drewOngoing = false
+
+  for (const run of model.runs) {
+    const ongoing = isOngoingRun(run)
+
+    if (!ongoing && drewOngoing) {
+      rows.push({ key: 'run-gap', text: '', kind: 'note' })
+      drewOngoing = false
+    }
+    if (ongoing) {
+      drewOngoing = true
+    }
+
+    rows.push({
+      key: runKeyOf(run.slug || run.run_id),
+      text: runLineOf(run, columns, nowMs),
+      kind: 'run',
+    })
+  }
+
+  return rows
+}
+
 /** Whether a node status means "not started" — the rows the table dims. */
 export const isPendingStatus = (status: string): boolean =>
   status === 'pending' || status === '' || status === 'skipped'
@@ -1314,6 +1765,32 @@ export function paneView(
   const prompt = promptTextOf(model)
   const promptLines = prompt === '' ? [] : [Text({ children: prompt })]
 
+  // The home screen: recipes to start, runs to look at. Drawn before the
+  // `status === null` fallback, because home has plenty to show with no run
+  // read at all — which is exactly the state it exists for.
+  if (model.screen === 'home') {
+    return Box({
+      flexDirection: 'column',
+      children: [
+        ...homeRowsOf(model, columns, nowMs).map(home =>
+          home.kind === 'recipe' || home.kind === 'run'
+            ? Button({
+                key: home.key,
+                plain: true,
+                label: ` ${home.text}`,
+                onPress: () => pressOf(model, actions, home.key),
+              })
+            : Text({
+                bold: home.kind === 'heading',
+                dimColor: home.kind === 'note',
+                children: ` ${home.text}`,
+              }),
+        ),
+        row,
+      ],
+    })
+  }
+
   if (status === null) {
     return Box({
       flexDirection: 'column',
@@ -1321,9 +1798,7 @@ export function paneView(
     })
   }
 
-  const head =
-    `${status.slug} · ${shortRunOf(status.run_id)} · ` +
-    `${status.run_status} · ${elapsedTextOf(model.elapsedMs)}`
+  const head = breadcrumbOf(model)
 
   const selected = selectedStepOf(status.nodes, model.logs.selected)
 
@@ -1383,10 +1858,30 @@ export function pressOf(
   actions: PaneActions,
   key: string,
 ): void {
+  // The row keys are checked before the fixed ones because each carries its
+  // own payload in the key: `ui.press` reports only the key
+  // (claude-code.d.ts:8988), so the step, run or recipe a row stands for can
+  // be read from nowhere else.
   const stepId = stepIdOf(key)
 
   if (stepId !== null) {
     actions.select(stepId)
+
+    return
+  }
+
+  const recipe = recipeNameOf(key)
+
+  if (recipe !== null) {
+    actions.startRecipe(recipe)
+
+    return
+  }
+
+  const run = runRefOf(key)
+
+  if (run !== null) {
+    actions.openRun(run)
 
     return
   }
@@ -1413,6 +1908,10 @@ export function pressOf(
     actions.start()
   } else if (key === ANSWER_KEY) {
     actions.answerOther()
+  } else if (key === HOME_KEY) {
+    actions.home()
+  } else if (key === AGAIN_KEY) {
+    actions.again()
   } else if (key === CLOSE_KEY) {
     actions.close()
   }

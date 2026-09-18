@@ -1,12 +1,14 @@
 import type { EngineInterface, On } from 'claude-code'
 
 import {
+  AGAIN_KEY,
   ANSWER_KEY,
   APPROVE_KEY,
   AUTO_OPEN_MIN_COLUMNS,
   CANCEL_KEY,
   CLOSE_KEY,
   COMMAND_NAME,
+  HOME_KEY,
   INITIAL_MODEL,
   MAX_OPTION_BUTTONS,
   OPEN_MIN_COLUMNS,
@@ -16,9 +18,15 @@ import {
   RETRY_KEY,
   START_KEY,
   isOnPaneSurface,
+  isOngoingRun,
   nodeLineOf,
   optionKeyOf,
   paneView,
+  recipeKeyOf,
+  recipeNameOf,
+  runKeyOf,
+  runLineOf,
+  runRefOf,
   LIVE_ARG_KEYS,
   LOG_PANEL_ROWS,
   MAX_LIVE_TOOLS,
@@ -30,6 +38,7 @@ import {
   type DriverPhase,
   type LiveTool,
   type PaneModel,
+  type RunOwnership,
   type StatusJson,
   type StepLog,
 } from './pane'
@@ -424,12 +433,115 @@ function notify(
  * @param cli the CLI runner
  * @param patch anything the caller knows that the CLI does not (the gate)
  */
+/**
+ * Re-read the recipes and the runs the home screen lists.
+ *
+ * Two calls, both cheap: `recipes --json` reads the pack's workflow YAMLs and
+ * `status --json` (no run) reads one row per run out of the store
+ * (protocol.py `runs`), so twenty rows cost one listing rather than twenty
+ * `status` calls. A failed read leaves the last good rows up.
+ */
+async function refreshHome($: EngineInterface, host: ActionHost): Promise<void> {
+  const [recipes, runs] = await Promise.all([
+    listRecipes(host).catch(() => null),
+    listRuns(host).catch(() => null),
+  ])
+
+  pane.model = {
+    ...pane.model,
+    ...(recipes === null ? {} : { recipes }),
+    ...(runs === null ? {} : { runs }),
+  }
+
+  $.ui.invalidate('ui.render')
+}
+
+/**
+ * Show the home screen.
+ *
+ * The rows are redrawn from whatever was last read before the fresh listing
+ * lands, so the press feels immediate; `refreshHome` then replaces them.
+ */
+function goHome($: EngineInterface): void {
+  pane.model = { ...pane.model, screen: 'home', selectedRun: null }
+
+  $.ui.invalidate('ui.render')
+
+  void refreshHome($, hostOf($)).catch(() => undefined)
+}
+
+/**
+ * Show one run's view, from a pressed home row.
+ *
+ * Who drives the run decides what the view offers: this session's own run
+ * keeps the live action row, any other ongoing run is read-only (cancelling
+ * it from here would race the loop that IS driving it), and a finished one
+ * offers to start its recipe again.
+ */
+function openRunView($: EngineInterface, ref: string): void {
+  const row = pane.model.runs.find(
+    candidate => candidate.slug === ref || candidate.run_id === ref,
+  )
+  const isOurs = pane.run !== null && (pane.run === ref || state.active?.slug === ref)
+  const ownership: RunOwnership =
+    row !== undefined && !isOngoingRun(row)
+      ? 'past'
+      : isOurs
+        ? 'live'
+        : 'elsewhere'
+
+  pane.model = {
+    ...pane.model,
+    screen: 'run',
+    selectedRun: isOurs ? null : ref,
+    ownership,
+    // A different run's table must not inherit the last one's rows or log.
+    ...(isOurs ? {} : { status: null, logs: { selected: null, log: null, offset: 0 } }),
+  }
+
+  $.ui.invalidate('ui.render')
+
+  void refreshPane($, cliOf($)).catch(() => undefined)
+}
+
+/**
+ * The clock the run view draws.
+ *
+ * This session's own driver has `pane.startedAt`, which is when the loop
+ * began. A run picked off the home list has no loop here, so its clock is
+ * measured from the `started_at` the listing reported — and a finished run,
+ * whose row carries an `ended_at`, shows the span it actually took rather
+ * than a clock still counting up.
+ */
+function elapsedMsOf(): number {
+  const ref = pane.model.selectedRun
+
+  if (ref === null) {
+    return pane.startedAt === 0 ? 0 : Date.now() - pane.startedAt
+  }
+
+  const row = pane.model.runs.find(
+    candidate => candidate.slug === ref || candidate.run_id === ref,
+  )
+  const from = Date.parse(row?.started_at ?? '')
+
+  if (!Number.isFinite(from)) {
+    return 0
+  }
+
+  const to = Date.parse(row?.ended_at ?? '')
+
+  return Math.max(0, (Number.isFinite(to) ? to : Date.now()) - from)
+}
+
 async function refreshPane(
   $: EngineInterface,
   cli: Cli,
   patch: Partial<PaneModel> = {},
 ): Promise<void> {
-  const run = pane.run
+  // A run picked off the home list is read through the same `status` call as
+  // this session's own; `selectedRun` simply names a different one.
+  const run = pane.model.selectedRun ?? pane.run
 
   if (run !== null) {
     const status = await cli(['orchestrator', 'status', run, '--json'])
@@ -444,7 +556,7 @@ async function refreshPane(
 
   pane.model = {
     ...pane.model,
-    elapsedMs: pane.startedAt === 0 ? 0 : Date.now() - pane.startedAt,
+    elapsedMs: elapsedMsOf(),
     ...patch,
   }
 
@@ -463,7 +575,7 @@ async function refreshPane(
  * the last good log up rather than blanking the panel mid-run.
  */
 async function refreshLog(cli: Cli): Promise<void> {
-  const run = pane.run
+  const run = pane.model.selectedRun ?? pane.run
   const nodes = pane.model.status?.nodes ?? []
   const stepId = selectedStepOf(nodes, pane.model.logs.selected)
 
@@ -777,6 +889,10 @@ export function register(on: On) {
       answer: option => void report($, 'resume', answerAsk($, option)),
       answerOther: () => void report($, 'resume', askFreeText($)),
       select: stepId => selectStep($, stepId),
+      home: () => goHome($),
+      openRun: run => openRunView($, run),
+      startRecipe: recipe => void report($, 'start', startWizard($, recipe)),
+      again: () => void report($, 'start', startAgain($)),
       close: () => {
         void $.ui.close({ id: PANE_ID }).catch(() => undefined)
         pane.isOpen = false
@@ -798,6 +914,8 @@ export function register(on: On) {
         START_KEY,
         ANSWER_KEY,
         CLOSE_KEY,
+        HOME_KEY,
+        AGAIN_KEY,
         ...Array.from({ length: MAX_OPTION_BUTTONS }, (_v, i) => optionKeyOf(i)),
       ],
     },
@@ -1064,7 +1182,18 @@ async function beginRun(
 
   pane.run = start.run_id
   pane.startedAt = Date.now()
-  pane.model = { ...INITIAL_MODEL, phase: 'running' }
+  // A run started from THIS session is the thing to look at, so the pane
+  // switches to its view; the listings are kept rather than reset, so
+  // pressing Home lands on rows that are already drawn.
+  pane.model = {
+    ...INITIAL_MODEL,
+    phase: 'running',
+    screen: 'run',
+    selectedRun: null,
+    ownership: 'live',
+    recipes: pane.model.recipes,
+    runs: pane.model.runs,
+  }
   notify($, start.slug, 'start', `run ${start.run_id}`)
 
   if (!pane.hasAutoOpened) {
@@ -2065,6 +2194,16 @@ async function runCommand($: EngineInterface, argument: string): Promise<string>
     return await statusText($)
   }
 
+  if (verb === 'runs') {
+    return await runsText($)
+  }
+
+  if (verb === 'home') {
+    goHome($)
+
+    return await showPane($)
+  }
+
   if (verb === 'pane') {
     return await showPane($)
   }
@@ -2072,18 +2211,14 @@ async function runCommand($: EngineInterface, argument: string): Promise<string>
   if (verb !== '') {
     return (
       `orchestrator: no verb "${verb}". Try: run, approve, cancel, retry, ` +
-      'resume <text>, status, pane.'
+      'resume <text>, status, runs, home, pane.'
     )
   }
 
-  // Bare `/orchestrator`: with a run to look at, the pane is the thing to
-  // toggle; with none, there is nothing to show, so offer to start one.
-  const live = await currentRun(host)
-
-  if (live === null && pane.model.status === null) {
-    return (await startWizard($, '')).text
-  }
-
+  // Bare `/orchestrator` toggles the pane. It no longer falls through to the
+  // wizard when nothing is running: the home screen lists the recipes and the
+  // past runs, so an idle pane now has something to show, and starting a run
+  // is one press away rather than forced.
   if (pane.isOpen) {
     await $.ui.close({ id: PANE_ID }).catch(() => undefined)
     pane.isOpen = false
@@ -2105,10 +2240,38 @@ async function showPane($: EngineInterface): Promise<string> {
 
   await openPaneForRun($, true)
   await refreshPane($, cliOf($))
+  // The home screen is the pane's default, so its rows are read whenever the
+  // pane opens rather than only when Home is pressed.
+  await refreshHome($, hostOf($)).catch(() => undefined)
 
   return pane.isOpen
     ? 'orchestrator: pane shown.'
     : 'orchestrator: the surface declined to open the pane.'
+}
+
+/**
+ * The runs list as text — what `/orchestrator runs` prints.
+ *
+ * The same rows the home screen draws, for a terminal too narrow to open a
+ * pane at all: `runLineOf` is shared, so the text and the pane can never
+ * disagree about what a run cost or how far it got.
+ */
+async function runsText($: EngineInterface): Promise<string> {
+  const host = hostOf($)
+  const rows = await listRuns(host)
+
+  pane.model = { ...pane.model, runs: rows }
+
+  if (rows.length === 0) {
+    return 'orchestrator: no runs. Start one with `/orchestrator run`.'
+  }
+
+  const now = Date.now()
+
+  return [
+    `orchestrator: ${rows.length} run${rows.length === 1 ? '' : 's'}`,
+    ...rows.map(row => `  ${runLineOf(row, pane.bodyColumns, now)}`),
+  ].join('\n')
 }
 
 /** The node list as text — what `/orchestrator status` prints. */
@@ -2151,6 +2314,25 @@ async function statusText($: EngineInterface): Promise<string> {
  * free text. A dismissed popup abandons the wizard without starting anything,
  * since a run seeded on a guessed slug is worse than no run.
  */
+/**
+ * Start the shown run's recipe again, with the wizard pre-filled.
+ *
+ * Temporal's detail view offers "start a new execution with pre-filled
+ * values" from a finished one, and this is the same move: the recipe and the
+ * slug are handed to the wizard, which still asks for anything it did not
+ * get — so the person confirms rather than re-types.
+ */
+async function startAgain($: EngineInterface): Promise<ActionResult> {
+  const ref = pane.model.selectedRun
+  const row = pane.model.runs.find(
+    candidate => candidate.slug === ref || candidate.run_id === ref,
+  )
+  const recipe = row?.recipe ?? ''
+  const slug = row?.slug ?? ''
+
+  return await startWizard($, `${recipe} ${slug}`.trim())
+}
+
 async function startWizard(
   $: EngineInterface,
   argument: string,
