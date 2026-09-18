@@ -33,12 +33,39 @@ export type JudgmentPayload = {
   env?: Record<string, string>
 }
 
-/** The `payload` of a `kind: gate` step (protocol.py `_gate_payload`). */
+/**
+ * One `show:` artifact's preview in a gate payload (protocol.py `gates.preview`
+ * merged with `gates.provenance`): the rendered head plus who stands behind it.
+ */
+export type GateArtifactPreview = {
+  path?: string
+  exists?: boolean
+  sha256?: string
+  head?: string
+  produced_by?: string
+  producer_status?: string
+  attempts?: number
+  written_by?: string
+  last_verdict?: string
+}
+
+/**
+ * The `payload` of a `kind: gate` step (protocol.py `_gate_payload`).
+ *
+ * The gate's own id is `StepResult.step_id`, a sibling of `payload`, not a
+ * field of it — `gateOf` copies it in below. `preview.token_name` is the
+ * name `orchestrator approve <run> <token>` expects the token bound to;
+ * `token` (present once the gate actually minted, i.e. `status: blocked`)
+ * is that token's value.
+ */
 export type GatePayload = {
   step_id: string
-  show?: string[]
-  approve_as?: string
-  gate_token?: string | null
+  preview: {
+    step_id: string
+    show: Record<string, GateArtifactPreview>
+    token_name: string
+  }
+  token?: string
   hint?: string
 }
 
@@ -272,9 +299,23 @@ export function judgmentOf(result: StepResult): JudgmentPayload | undefined {
     : undefined
 }
 
-/** `payload` narrowed to a gate step's, or undefined for anything else. */
+/**
+ * `payload` narrowed to a gate step's, or undefined for anything else.
+ *
+ * `payload.step_id` is unreliable in practice — `_gate_payload` only nests
+ * the id under `payload.preview.step_id`, never at `payload.step_id` itself
+ * — so this fills the top-level field in from `StepResult.step_id`, the one
+ * the engine always sets, rather than trust whatever (if anything) is on
+ * the payload object.
+ */
 export function gateOf(result: StepResult): GatePayload | undefined {
-  return result.kind === 'gate' ? (result.payload as GatePayload | undefined) : undefined
+  if (result.kind !== 'gate' || result.payload === undefined) {
+    return undefined
+  }
+
+  const payload = result.payload as GatePayload
+
+  return { ...payload, step_id: result.step_id ?? payload.step_id }
 }
 
 /**

@@ -1066,10 +1066,16 @@ async function runGate(
   run: string,
   gate: GatePayload,
 ): Promise<{ next: StepResult | null; stderr: string; unattended?: boolean }> {
-  const shown = (gate.show ?? []).join(', ')
+  const tokenName = gate.preview.token_name
+  const showLines = Object.entries(gate.preview.show).map(([name, entry]) => {
+    const producer = entry.produced_by || '?'
+    const verdict = entry.last_verdict || 'no verdict'
+    return `  - ${name}: ${producer} (${verdict})`
+  })
 
   const question =
-    `Approve ${gate.step_id}?` + (shown === '' ? '' : ` (review: ${shown})`)
+    `Approve ${gate.step_id} (${tokenName})?` +
+    (showLines.length === 0 ? '' : `\n${showLines.join('\n')}`)
 
   // `$.ui.ask` rejects both when the person dismisses it and in a `-p` run
   // where there is nobody to ask (claude-code.d.ts:1908). Those are not the
@@ -1096,7 +1102,7 @@ async function runGate(
     ...pane.model,
     gate: {
       stepId: gate.step_id,
-      token: gate.gate_token ?? gate.approve_as ?? gate.step_id,
+      token: gate.token ?? gate.preview.token_name,
     },
   }
 
@@ -1138,7 +1144,7 @@ async function runGate(
     return { next: null, stderr: ran.stderr.trim() }
   }
 
-  state.gateToken = gate.gate_token ?? gate.approve_as ?? gate.step_id
+  state.gateToken = gate.token ?? gate.preview.token_name
 
   const ran = await cli([
     'orchestrator',
