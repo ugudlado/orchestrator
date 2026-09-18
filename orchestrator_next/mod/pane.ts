@@ -109,6 +109,10 @@ export type PaneModel = {
   retry: ParkedRetry | null
   /** The question the run is parked on, when it is awaiting an answer. */
   ask: ParkedAsk | null
+  /** The step log panel: which step is selected, and what was read for it. */
+  logs: LogModel
+  /** The run's working directory, for drawing artifact paths relative. */
+  cwd: string
   /** What to say when there is no run to draw. */
   note: string
 }
@@ -121,6 +125,8 @@ export const INITIAL_MODEL: PaneModel = Object.freeze({
   gate: null,
   retry: null,
   ask: null,
+  logs: { selected: null, log: null, offset: 0 },
+  cwd: '',
   note: 'No run yet. Press Start run, or type `/orchestrator run`.',
 })
 
@@ -600,6 +606,408 @@ export function footerTextOf(model: PaneModel): string {
   )
 }
 
+// --- the step log panel ----------------------------------------------------
+
+/**
+ * One `orchestrator events <run> --step <id> --json` line: one attempt of one
+ * step, as `record.py` `_build_history_entry` writes it into `step_history`.
+ *
+ * Every field is optional because an inline script step records almost none of
+ * them (a real entry: `{step_id, phase, status, attempt, started_at, ended_at,
+ * usage: {}, evidence: {outputs: {...}}}`), and the panel must still draw.
+ */
+export type AttemptEvent = {
+  step_id?: string
+  phase?: string
+  status?: string
+  agent?: string | null
+  attempt?: number
+  started_at?: string
+  ended_at?: string
+  usage?: {
+    model?: string
+    duration_ms?: number
+    cost_usd?: number
+    cost_partial?: boolean
+  }
+  evidence?: {
+    outputs?: Record<string, unknown>
+    summary?: string
+    detail?: unknown
+  }
+  /** Artifact paths the step wrote, as `record.py` lists them. */
+  artifacts?: readonly string[]
+  outputs?: Record<string, unknown>
+}
+
+/**
+ * What the pane knows about the step a subagent is running RIGHT NOW.
+ *
+ * Fed from the `tool.call` hook (`e.agentId` on AgentLoop, claude-code.d.ts
+ * 7916), which is the only event that reliably names the tool a spawned agent
+ * is using: `turn.step`'s chunks stream the model's own response, so a tool
+ * call only becomes visible there once the model has finished emitting it,
+ * and a long `Bash` shows nothing until it returns. Never persisted — this is
+ * live progress, and a reloaded pane simply has none until the next call.
+ */
+export type LiveTool = {
+  /** The tool's name, e.g. `Bash`, `Read`. */
+  tool: string
+  /** The first 60 characters of its main argument. */
+  argument: string
+  /** When the call was seen, for the elapsed clock. */
+  atMs: number
+}
+
+/** How many live tool calls the panel remembers per running step. */
+export const MAX_LIVE_TOOLS = 3
+
+/** The characters of a tool argument the panel keeps. */
+export const LIVE_ARG_CHARS = 60
+
+/** How many lines of a judgment step's final answer the panel shows. */
+export const ANSWER_TAIL_LINES = 6
+
+/** The most lines the whole log panel draws, before scrolling. */
+export const LOG_PANEL_ROWS = 12
+
+/** Everything the log panel knows about one step. */
+export type StepLog = {
+  /** The step's attempts, newest first. */
+  attempts: readonly AttemptEvent[]
+  /** The last answer a judgment subagent gave for this step, if any. */
+  answer?: string
+  /** The last few tool calls a running subagent made, newest last. */
+  live: readonly LiveTool[]
+}
+
+/** The log panel's own state, which `register.ts` folds into the model. */
+export type LogModel = {
+  /** The step whose log is shown, or null to follow the running node. */
+  selected: string | null
+  /** What has been read for the selected step; null before the first read. */
+  log: StepLog | null
+  /** The panel's own scroll offset, in lines. */
+  offset: number
+}
+
+/** A log panel with nothing selected and nothing read. */
+export const INITIAL_LOG: LogModel = Object.freeze({
+  selected: null,
+  log: null,
+  offset: 0,
+})
+
+/**
+ * The step whose log the panel shows: the one the person selected, else the
+ * running node, else the last node that got as far as running.
+ *
+ * "Follows the running step until the person selects one" is the whole rule:
+ * `selected` is null until a row is pressed, and the running node moves on its
+ * own as the run advances, so an untouched pane always shows live work.
+ */
+export function selectedStepOf(
+  nodes: readonly StatusNode[],
+  selected: string | null,
+): string | null {
+  if (selected !== null && nodes.some(node => node.id === selected)) {
+    return selected
+  }
+
+  const running = nodes.find(node => isRunningStatus(node.status))
+
+  if (running !== undefined) {
+    return running.id
+  }
+
+  // No node is running: the last one that has attempted anything is the one
+  // whose result the person is most likely looking for.
+  const touched = nodes.filter(node => !isPendingStatus(node.status))
+
+  return touched[touched.length - 1]?.id ?? nodes[0]?.id ?? null
+}
+
+/** A duration in milliseconds as the attempt line's `3m05s`. */
+const durationTextOf = (ms: number): string => secondsTextOf(ms / 1000)
+
+/**
+ * The reason or verdict an attempt ended with — the tail of its line.
+ *
+ * Prefers the enum verdict the step declared (an out named `verdict` or
+ * `decision`, the same keys `protocol.py` `_entry_verdict` reads), then the
+ * summary an inline script wrote, then the plain detail. An attempt that
+ * reported none answers "" and the line simply ends after the cost.
+ */
+export function attemptReasonOf(event: AttemptEvent): string {
+  const outputs = event.evidence?.outputs ?? event.outputs ?? {}
+
+  for (const key of ['verdict', 'decision']) {
+    const value = outputs[key]
+
+    if (typeof value === 'string' && value !== '') {
+      return value
+    }
+  }
+
+  const summary = event.evidence?.summary
+
+  if (typeof summary === 'string' && summary !== '') {
+    return summary
+  }
+
+  const detail = event.evidence?.detail
+
+  return typeof detail === 'string' ? detail : ''
+}
+
+/**
+ * One attempt's line: `#2 completed · sonnet-5 · 3m05s · $0.1731 · approved`.
+ *
+ * Every segment after the status is dropped when the attempt did not record
+ * it, so an inline script (no model, no usage) draws `#1 completed · ok`
+ * rather than a line of padding and `-` cells. Duration comes from
+ * `usage.duration_ms`, which `record.py` derives from the two timestamps when
+ * the driver omits it, and falls back to those timestamps here for an entry
+ * written before that derivation existed.
+ */
+export function attemptLineOf(event: AttemptEvent): string {
+  const parts = [`#${event.attempt ?? 1} ${event.status ?? 'unknown'}`]
+  const model = shortModelOf(event.usage?.model ?? '')
+
+  if (model !== '') {
+    parts.push(model)
+  }
+
+  const ms = event.usage?.duration_ms ?? spanMsOf(event)
+
+  if (ms > 0) {
+    parts.push(durationTextOf(ms))
+  }
+
+  const cost = event.usage?.cost_usd ?? 0
+
+  if (cost > 0 || event.usage?.cost_partial === true) {
+    parts.push(costTextOf(cost, event.usage?.cost_partial === true))
+  }
+
+  const reason = attemptReasonOf(event)
+
+  if (reason !== '') {
+    parts.push(reason)
+  }
+
+  return parts.join(' · ')
+}
+
+/** An attempt's wall time from its two stamps, or 0 when either is unusable. */
+function spanMsOf(event: AttemptEvent): number {
+  const started = Date.parse(event.started_at ?? '')
+  const ended = Date.parse(event.ended_at ?? '')
+
+  return Number.isFinite(started) && Number.isFinite(ended) && ended > started
+    ? ended - started
+    : 0
+}
+
+/**
+ * The non-artifact outputs an attempt recorded, one `key: value` line each.
+ *
+ * An artifact's out is its path, and paths already get their own `→` lines, so
+ * a value that names one of `artifacts` is skipped rather than printed twice.
+ * A nested value (a `state_patch`) is drawn as compact JSON: it is evidence,
+ * not prose, and one line of it says more than "[object Object]".
+ */
+export function outputLinesOf(event: AttemptEvent): readonly string[] {
+  const outputs = event.evidence?.outputs ?? event.outputs ?? {}
+  const artifacts = new Set(event.artifacts ?? [])
+
+  return Object.entries(outputs)
+    .filter(([, value]) => !(typeof value === 'string' && artifacts.has(value)))
+    .map(([key, value]) => `${key}: ${scalarTextOf(value)}`)
+}
+
+/** One output value on one line: a string as-is, anything else as JSON. */
+function scalarTextOf(value: unknown): string {
+  if (typeof value === 'string') {
+    return value
+  }
+
+  try {
+    return JSON.stringify(value) ?? String(value)
+  } catch {
+    return String(value)
+  }
+}
+
+/**
+ * The artifact lines for an attempt: `→ design.md`, one per path.
+ *
+ * Paths are drawn relative to the run's cwd when they are absolute and share
+ * its prefix — the pane is narrow and a repo path's leading 40 cells are the
+ * same on every line, saying nothing.
+ */
+export function artifactLinesOf(
+  event: AttemptEvent,
+  cwd = '',
+): readonly string[] {
+  return (event.artifacts ?? []).map(path => `→ ${relativeTo(path, cwd)}`)
+}
+
+/** `path` with `cwd`'s prefix removed, when it has one. */
+export function relativeTo(path: string, cwd: string): string {
+  if (cwd === '' || !path.startsWith(cwd)) {
+    return path
+  }
+
+  return path.slice(cwd.length).replace(/^\/+/, '') || path
+}
+
+/**
+ * The last `ANSWER_TAIL_LINES` non-blank lines of a judgment subagent's answer.
+ *
+ * The tail, not the head: an agent's final message opens with what it set out
+ * to do and closes with what it concluded, and the conclusion is the part a
+ * person watching the pane is waiting for. The fenced JSON block the driver
+ * parses is dropped — it is the machine's copy of the same outputs the panel
+ * already lists above.
+ */
+export function answerTailOf(answer: string): readonly string[] {
+  const withoutFences = answer.replace(/```(?:json)?[ \t]*\r?\n[\s\S]*?```/g, '')
+
+  return withoutFences
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line !== '')
+    .slice(-ANSWER_TAIL_LINES)
+}
+
+/**
+ * The live line for a tool a spawned subagent is running now:
+ * `now: Bash git status… (12s)`.
+ *
+ * The elapsed clock is the point: a `Bash` that has been the newest call for
+ * four minutes is the difference between a step working and a step wedged,
+ * and nothing else the pane draws says so.
+ */
+export function liveLineOf(live: LiveTool, nowMs: number): string {
+  const elapsed = Math.max(0, nowMs - live.atMs)
+  const argument = live.argument === '' ? '' : ` ${live.argument}`
+
+  return `now: ${live.tool}${argument} (${secondsTextOf(elapsed / 1000)})`
+}
+
+/** A tool call's main argument, cut to `LIVE_ARG_CHARS` with an ellipsis. */
+export const liveArgumentOf = (argument: string): string =>
+  ellipsize(argument.replace(/\s+/g, ' ').trim(), LIVE_ARG_CHARS)
+
+/**
+ * The tool.call arguments, in priority order, that name what a call is doing.
+ *
+ * `command` for Bash, `file_path` for the file tools, `pattern` for the search
+ * ones, `description` for a spawn, `prompt` last: whichever the call carries
+ * first is the one drawn.
+ */
+export const LIVE_ARG_KEYS: readonly string[] = [
+  'command',
+  'file_path',
+  'path',
+  'pattern',
+  'query',
+  'description',
+  'prompt',
+]
+
+/**
+ * Every line of the log panel for one step, in drawing order: a heading, the
+ * live tool calls (newest last), the attempts (newest first), then the
+ * outputs and artifacts of the newest attempt, then the answer's tail.
+ *
+ * Built as plain strings so a test can assert the whole panel without a
+ * terminal, exactly as `tableRowsOf` is.
+ *
+ * @param stepId the step the panel is showing
+ * @param log what was read for it, or null before the first read
+ * @param columns the pane body's width, which every line is cut to
+ * @param nowMs the clock, for the live lines' elapsed spans
+ * @param cwd the run's directory, for relative artifact paths
+ */
+export function logLinesOf(
+  stepId: string | null,
+  log: StepLog | null,
+  columns: number | null,
+  nowMs: number,
+  cwd = '',
+): readonly string[] {
+  if (stepId === null) {
+    return []
+  }
+
+  const width = columns ?? DEFAULT_BODY_COLUMNS
+  const lines: string[] = [`── ${stepId}`]
+
+  if (log === null) {
+    lines.push('reading…')
+
+    return lines.map(line => ellipsize(line, width))
+  }
+
+  for (const live of log.live) {
+    lines.push(liveLineOf(live, nowMs))
+  }
+
+  const [newest] = log.attempts
+
+  for (const attempt of log.attempts) {
+    lines.push(attemptLineOf(attempt))
+  }
+
+  if (newest !== undefined) {
+    lines.push(...outputLinesOf(newest), ...artifactLinesOf(newest, cwd))
+  }
+
+  if (log.answer !== undefined) {
+    lines.push(...answerTailOf(log.answer))
+  }
+
+  if (lines.length === 1) {
+    lines.push('no attempts yet')
+  }
+
+  return lines.map(line => ellipsize(line, width))
+}
+
+/**
+ * The window of log lines drawn, given the panel's scroll offset.
+ *
+ * The offset is clamped here rather than where the scroll event lands, so a
+ * panel whose step changed under a scrolled window (the run advanced) can
+ * never draw blank: a too-large offset simply shows the last page.
+ */
+export function logWindowOf(
+  lines: readonly string[],
+  offset: number,
+  rows: number = LOG_PANEL_ROWS,
+): readonly string[] {
+  if (lines.length <= rows) {
+    return lines
+  }
+
+  const last = lines.length - rows
+  const from = Math.min(Math.max(0, offset), last)
+
+  return lines.slice(from, from + rows)
+}
+
+/** The Button key for the row that selects a step; `register.ts` reads it back. */
+export const stepKeyOf = (stepId: string): string => `orchestrator-step-${stepId}`
+
+/** The step a press names, or null when the key is not a step row's. */
+export function stepIdOf(key: string): string | null {
+  const match = /^orchestrator-step-(.+)$/.exec(key)
+
+  return match?.[1] ?? null
+}
+
 /** Whether a render event comes from a surface that can draw this pane. */
 export const isOnPaneSurface = <E extends Record<'surface', RenderSurface>>(
   e: E,
@@ -616,6 +1024,8 @@ export type PaneActions = {
   answer: (option: string) => void
   /** Answer the parked question with free text, via a popup. */
   answerOther: () => void
+  /** Show this step's log in the panel below the table. */
+  select: (stepId: string) => void
   /** Hide the pane. */
   close: () => void
 }
@@ -789,25 +1199,63 @@ export function nodeChildrenOf(
   Text: Elements['terminal']['Text'],
   status: StatusJson,
   columns: number | null,
+  select?: {
+    Button: Elements['terminal']['Button']
+    onSelect: (stepId: string) => void
+    selected: string | null
+  },
 ): RenderElement[] {
   const rows = tableRowsOf(status.nodes, status.totals ?? {}, columns)
+  const lineOf = (node: StatusNode): string => nodeLineOf(node)
+
+  // Every node row is a `plain` Button, which the terminal draws as its bare
+  // label (claude-code.d.ts:678-684) — so the table still reads as a table —
+  // while the site's focus ring can land on it and Enter selects the step
+  // (`ui.press`, d.ts:639). The selected row is marked with `›` rather than a
+  // background, because `TextProps` offers no highlight a Button's label
+  // inherits and a glyph survives every terminal.
+  const rowElement = (
+    key: string,
+    text: string,
+    props: { bold?: boolean; dimColor?: boolean; color?: string },
+  ): RenderElement => {
+    if (select === undefined) {
+      return Text({ ...props, children: text })
+    }
+
+    const isSelected = select.selected === key
+    const marked = `${isSelected ? '›' : ' '}${text}`
+
+    return select.Button({
+      key: stepKeyOf(key),
+      plain: true,
+      ...(props.dimColor === true ? { dimColor: true } : {}),
+      label: marked,
+      onPress: () => select.onSelect(key),
+    })
+  }
 
   if (rows.length === 0) {
     return status.nodes.map(node =>
-      Text({ dimColor: isPendingStatus(node.status), children: nodeLineOf(node) }),
+      rowElement(node.id, lineOf(node), { dimColor: isPendingStatus(node.status) }),
     )
   }
 
-  return rows.map(row =>
-    Text({
+  return rows.map(row => {
+    const props = {
       bold: row.kind !== 'node',
       dimColor: row.kind === 'node' && isPendingStatus(row.status),
       ...(row.kind === 'node' && isRunningStatus(row.status)
         ? { color: 'cyan' }
         : {}),
-      children: rowTextOf(row),
-    }),
-  )
+    }
+
+    // The header and Totals rows are not steps: they stay plain Text, and the
+    // leading space keeps their cells lined up with the marked node rows.
+    return row.kind === 'node'
+      ? rowElement(row.key, rowTextOf(row), props)
+      : Text({ ...props, children: select === undefined ? rowTextOf(row) : ` ${rowTextOf(row)}` })
+  })
 }
 
 /** Whether a node status means "not started" — the rows the table dims. */
@@ -842,6 +1290,7 @@ export function paneView(
   model: PaneModel,
   actions: PaneActions,
   columns: number | null = null,
+  nowMs: number = Date.now(),
 ): RenderElement {
   const { Box, Text, Button } = ui
   const { status } = model
@@ -876,17 +1325,44 @@ export function paneView(
     `${status.slug} · ${shortRunOf(status.run_id)} · ` +
     `${status.run_status} · ${elapsedTextOf(model.elapsedMs)}`
 
+  const selected = selectedStepOf(status.nodes, model.logs.selected)
+
   const nodes = Box({
     key: 'nodes',
     flexDirection: 'column',
-    children: nodeChildrenOf(Text, status, columns),
+    children: nodeChildrenOf(Text, status, columns, {
+      Button,
+      onSelect: actions.select,
+      selected,
+    }),
   })
+
+  // The log panel sits between the table and the parked-question block, so
+  // the action row stays at the bottom where the eye already looks for it.
+  const logLines = logWindowOf(
+    logLinesOf(selected, model.logs.log, columns, nowMs, model.cwd),
+    model.logs.offset,
+  )
+
+  const logPanel =
+    logLines.length === 0
+      ? []
+      : [
+          Box({
+            key: 'logs',
+            flexDirection: 'column',
+            children: logLines.map((line, index) =>
+              Text({ dimColor: index > 0, children: line }),
+            ),
+          }),
+        ]
 
   return Box({
     flexDirection: 'column',
     children: [
       Text({ bold: true, children: head }),
       nodes,
+      ...logPanel,
       ...promptLines,
       row,
       Text({ dimColor: true, children: footerTextOf(model) }),
@@ -907,6 +1383,14 @@ export function pressOf(
   actions: PaneActions,
   key: string,
 ): void {
+  const stepId = stepIdOf(key)
+
+  if (stepId !== null) {
+    actions.select(stepId)
+
+    return
+  }
+
   const optionIndex = optionIndexOf(key)
 
   if (optionIndex !== null) {

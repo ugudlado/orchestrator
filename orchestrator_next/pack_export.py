@@ -534,6 +534,39 @@ Step         Model      Att  Verdict   Time    In   Out   C-rd  C-wr      Cost
 Totals                                3m17s  1.3M  9.7k  12.8k   800  $0.5931?
 ```
 
+### Per-step logs
+
+Every step row is pressable. Select one and the panel below the table shows
+what that step has actually been doing:
+
+```text
+── implement
+now: Bash pytest -q (12s)
+#2 completed · sonnet-5 · 3m05s · $0.1731 · pass
+#1 abandoned · fable-5-1 · 42s · $0.0000? · tool crash
+verdict: pass
+→ design.md
+Tests pass, nothing else touched.
+```
+
+- **Attempts**, newest first: the attempt number, how it ended, the model, the
+  time, the cost, and the verdict or the reason it stopped.
+- **Outputs and artifacts** of the newest attempt, one line each. Artifact
+  paths are drawn relative to the run's directory.
+- **The tail of the agent's own final answer**, for a judgment step, so you can
+  read what it concluded without opening the transcript. This is kept in
+  memory for the session only — the engine records the parsed outputs, not the
+  message, so a restarted session shows attempts and artifacts but no tail.
+- **Live progress** while a step is running: `now:` names the tool the subagent
+  is using, the first 60 characters of its argument, and how long that call has
+  been going. A `Bash` that has been the newest call for four minutes is how
+  you tell a step working from a step wedged.
+
+The panel follows the running step on its own until you select one; from then
+on it shows what you picked. It draws at most twelve lines, and the wheel or
+the scroll keys over the pane move it. Reach a row with Tab (the pane's focus
+ring) and press Enter, or click it.
+
 Along the bottom is an action row for whatever the run is doing right now:
 
 | The run is…                  | The pane offers                          |

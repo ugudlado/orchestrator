@@ -186,6 +186,61 @@ most likely to be long and the one already carrying a status glyph, so it
 absorbs the cut rather than every numeric column shrinking a little and
 breaking alignment with the header.
 
+### The per-step log panel
+
+**A step row is a `plain` Button, which is how selection works at all.** The
+pane has no key event of its own: `ClientKeyEvent`/`surface.onKey` (d.ts:1107, 946) belongs to a `Client`, not to a render hook, and there is no `ui.key`.
+What a pane body _does_ have is a focus ring over the `Button`/`Input`/`Select`
+elements a hook drew in it (`UiFocusComponent`, d.ts:8789), with Enter under
+the ring raising `ui.press` (d.ts:639). So each node row is drawn as a Button
+with `plain: true` — the terminal then draws its bare label rather than
+`[ label ]` (d.ts:678-684) — and the table still reads as a table while Tab
+reaches every row and Enter selects it. Header and Totals rows stay `Text`,
+with a leading space so their cells line up with the marked node rows. The
+selected row is marked with a leading `›`: `ButtonProps` offers no background,
+and `TextProps` (7832) has no highlight a Button's label would inherit.
+
+Keys round-trip through `stepKeyOf` / `stepIdOf` (`orchestrator-step-<id>`),
+the same shape the option Buttons use, because `ui.press` reports only the key
+(d.ts:8988) and never the label.
+
+**Selection follows the running step until the person picks one.**
+`selectedStepOf` answers the pinned selection when it still names a live node,
+else the running node, else the last node that got past `pending`. A selection
+naming a step that left the plan falls back rather than blanking the panel.
+
+**The panel scrolls itself, not the pane body.** `on('ui.scroll', {requestId:
+PANE_ID})` takes the person's own moves (`e.origin.kind === 'person'`,
+`UiScrollOrigin` d.ts:9142-9160) and moves the panel's own offset, returning
+`{}` so the engine's body window stays put — otherwise scrolling the log would
+slide the action row off screen. A plugin's own `$.ui.scroll` passes through
+with `next(e)`, and so does every move when the log fits in its twelve rows.
+
+**Live progress comes from `tool.call`, not `turn.step`.** `turn.step` is a
+streaming event (`StreamingEventName`, d.ts:7629) whose chunks are the model's
+own response — a `TurnStepToolChunk` (8669) only lands once the model has
+finished emitting the call, so a long `Bash` would show nothing at all while it
+ran, which is exactly the case the line exists for. `tool.call` carries
+`e.agentId` (AgentLoop, d.ts:7916), which ties a call to the subagent and so to
+its step. The hook is a strict observer: it always returns `next(e)`, so it can
+neither block a call nor alter one. It matches a named tool list rather than
+registering bare, because the engine refuses two bare `on('tool.call')` in one
+module — and every name in it must be a key of this build's `BuiltinToolInputs`
+(d.ts:610). `Grep`, `Glob` and `Task` are **not** declared there and were a tsc
+error.
+
+**The answer tail is in-memory only.** `record.py` writes the parsed `out` into
+`step_history`, never the agent's message, so the tail is kept in a Map at
+`turn.complete` and is gone on reload. That is the trade: this is a live
+progress aid, not a record.
+
+**`events` takes `--step`.** The panel asks for one node's attempts, and
+without the filter it would read and parse the whole run's history on every
+selection. `protocol.py`'s `events` filters on `step_id`; the flag is popped
+into a local named `step_id`, **not** `step` — binding `step` in `main` makes
+it a local for the whole function and the `elif verb == "step"` branch then
+raises `UnboundLocalError`.
+
 **A missing JSON block is not a failed step.** When a judgment subagent's
 final message carries no parseable fence, `runJudgment` does NOT record an
 abandon: it calls `done --out '{}'` and lets `protocol.validate_out` decide,

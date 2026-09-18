@@ -19,9 +19,19 @@ import {
   nodeLineOf,
   optionKeyOf,
   paneView,
+  LIVE_ARG_KEYS,
+  LOG_PANEL_ROWS,
+  MAX_LIVE_TOOLS,
+  liveArgumentOf,
+  logLinesOf,
+  selectedStepOf,
+  stepIdOf,
+  type AttemptEvent,
   type DriverPhase,
+  type LiveTool,
   type PaneModel,
   type StatusJson,
+  type StepLog,
 } from './pane'
 import {
   approve as approveAction,
@@ -188,6 +198,25 @@ const watchdogs = new Map<string, { cancel: () => void }>()
  */
 const WRITE_TOOLS = ['Edit', 'Write', 'NotebookEdit'] as const
 
+/**
+ * The tools the log panel's live line reports a subagent using.
+ *
+ * Named rather than matched bare because the engine refuses two bare
+ * `on('tool.call')` registrations in one module, and because a live line is
+ * only useful for the tools that take real time: the shell, the file tools,
+ * the web ones, a nested spawn and a skill. `Bash` and the write tools appear
+ * here as well as in the gating matcher above — two hooks on one tool are
+ * fine, they simply sit at different points in the onion.
+ *
+ * Every name is one of this build's `BuiltinToolInputs` keys
+ * (claude-code.d.ts:610), which is what the `tool:` matcher's type accepts;
+ * `Grep`, `Glob` and `Task` are NOT declared in it and were refused by tsc.
+ */
+const OBSERVED_TOOLS = [
+  'Bash', 'Read', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch',
+  'Agent', 'Skill',
+] as const
+
 /** Bash commands that publish work, refused on the same terms. */
 const PUBLISHING_COMMAND = /\bgit\s+(push|commit)\b/
 
@@ -333,6 +362,28 @@ const pane = {
 
   /** Resolves the parked question a pane option Button answers. */
   answerAsk: null as null | ((answer: string) => void),
+
+  /**
+   * The last final answer each judgment subagent gave, keyed by step id.
+   *
+   * Filled at `turn.complete` and never written to disk: the panel shows the
+   * tail of the agent's own words, which the engine's `step_history` does not
+   * keep (it records the parsed `out`, not the message). A reloaded session
+   * therefore shows attempts and artifacts but no answer tail, which is the
+   * intended trade — this is a live progress aid, not a record.
+   */
+  answers: new Map<string, string>(),
+
+  /**
+   * The recent tool calls of each running step, keyed by step id, newest last.
+   *
+   * Capped at `MAX_LIVE_TOOLS` per step so a long step cannot grow this
+   * without bound, and cleared for a step when its next attempt starts.
+   */
+  liveTools: new Map<string, LiveTool[]>(),
+
+  /** The step id each spawned agent is running, so `tool.call` can key by it. */
+  agentSteps: new Map<string, string>(),
 }
 
 /**
@@ -397,8 +448,118 @@ async function refreshPane(
     ...patch,
   }
 
+  await refreshLog(cli)
+
   // `invalidate` re-runs the cached `ui.render` (claude-code.d.ts:1853).
   $.ui.invalidate('ui.render')
+}
+
+/**
+ * Re-read the selected step's attempts into the log panel.
+ *
+ * `events <run> --step <id> --json` prints one JSON object per line
+ * (protocol.py's `events` branch), oldest first; the panel wants newest first,
+ * so the parsed rows are reversed here. A failed or unparseable read leaves
+ * the last good log up rather than blanking the panel mid-run.
+ */
+async function refreshLog(cli: Cli): Promise<void> {
+  const run = pane.run
+  const nodes = pane.model.status?.nodes ?? []
+  const stepId = selectedStepOf(nodes, pane.model.logs.selected)
+
+  if (run === null || stepId === null) {
+    return
+  }
+
+  const ran = await cli([
+    'orchestrator', 'events', run, '--step', stepId, '--json',
+  ]).catch(() => null)
+
+  const attempts =
+    ran === null
+      ? pane.model.logs.log?.attempts ?? []
+      : ran.stdout
+          .split('\n')
+          .map(line => line.trim())
+          .filter(line => line !== '')
+          .map(line => safeJson<AttemptEvent>(line))
+          .filter((entry): entry is AttemptEvent => entry !== null)
+          .reverse()
+
+  const log: StepLog = {
+    attempts,
+    ...(pane.answers.has(stepId) ? { answer: pane.answers.get(stepId) } : {}),
+    live: pane.liveTools.get(stepId) ?? [],
+  }
+
+  pane.model = { ...pane.model, logs: { ...pane.model.logs, log } }
+}
+
+/**
+ * Show a step's log, from a pressed row.
+ *
+ * Pins the selection (the panel stops following the running step until the
+ * person picks the running one again) and resets the scroll, so a selection
+ * never lands mid-way down a shorter log. The read is fire-and-forget: the
+ * panel draws the heading and `reading…` at once, then redraws with the
+ * attempts, which is what makes the press feel immediate on a slow CLI.
+ */
+function selectStep($: EngineInterface, stepId: string): void {
+  pane.model = {
+    ...pane.model,
+    logs: { selected: stepId, log: null, offset: 0 },
+  }
+
+  $.ui.invalidate('ui.render')
+
+  void refreshLog(cliOf($))
+    .then(() => $.ui.invalidate('ui.render'))
+    .catch(() => undefined)
+}
+
+/**
+ * Record a tool call a spawned subagent made, for the live progress line.
+ *
+ * Keyed by the step the agent is running rather than by the agent id, because
+ * that is what the panel is showing; an agent whose step is unknown (not one
+ * we spawned for a judgment step) is ignored.
+ */
+function noteLiveTool(agentId: string, tool: string, argument: string): void {
+  const stepId = pane.agentSteps.get(agentId)
+
+  if (stepId === undefined) {
+    return
+  }
+
+  const kept = [
+    ...(pane.liveTools.get(stepId) ?? []),
+    { tool, argument: liveArgumentOf(argument), atMs: Date.now() },
+  ].slice(-MAX_LIVE_TOOLS)
+
+  pane.liveTools.set(stepId, kept)
+
+  if (pane.model.logs.log !== null) {
+    pane.model = {
+      ...pane.model,
+      logs: {
+        ...pane.model.logs,
+        log: { ...pane.model.logs.log, live: kept },
+      },
+    }
+  }
+}
+
+/** The first of `LIVE_ARG_KEYS` a tool call carries, as a string. */
+function liveArgOf(e: unknown): string {
+  for (const key of LIVE_ARG_KEYS) {
+    const value = stringArg(e, key)
+
+    if (value !== '') {
+      return value
+    }
+  }
+
+  return ''
 }
 
 /** `JSON.parse` that answers null rather than throwing on CLI noise. */
@@ -615,11 +776,12 @@ export function register(on: On) {
       start: () => void report($, 'start', startWizard($, '')),
       answer: option => void report($, 'resume', answerAsk($, option)),
       answerOther: () => void report($, 'resume', askFreeText($)),
+      select: stepId => selectStep($, stepId),
       close: () => {
         void $.ui.close({ id: PANE_ID }).catch(() => undefined)
         pane.isOpen = false
       },
-    }, pane.bodyColumns)
+    }, pane.bodyColumns, Date.now())
   })
 
   // Every Button the pane draws. Core runs the element's `onPress` beneath
@@ -647,6 +809,38 @@ export function register(on: On) {
       return result
     },
   )
+
+  // The person's wheel or scroll keys over the pane body. The log panel is the
+  // only part of the pane taller than its window, so a scroll moves ITS offset
+  // rather than the engine's body window, which would slide the action row off
+  // screen. Only the person's own scrolls are taken; `$.ui.scroll`'s pass
+  // through so another plugin's move is never swallowed (UiScrollOrigin,
+  // claude-code.d.ts:9142-9160).
+  on('ui.scroll', { requestId: PANE_ID }, ($, e, next) => {
+    if (e.origin.kind !== 'person' || pane.model.status === null) {
+      return next(e)
+    }
+
+    const lines = logLinesOf(
+      selectedStepOf(pane.model.status.nodes, pane.model.logs.selected),
+      pane.model.logs.log,
+      pane.bodyColumns,
+      Date.now(),
+      pane.model.cwd,
+    )
+
+    if (lines.length <= LOG_PANEL_ROWS) {
+      return next(e)
+    }
+
+    const last = lines.length - LOG_PANEL_ROWS
+    const offset = Math.min(Math.max(0, pane.model.logs.offset + e.by), last)
+
+    pane.model = { ...pane.model, logs: { ...pane.model.logs, offset } }
+    $.ui.invalidate('ui.render')
+
+    return {}
+  })
 
   on('ui.close', { id: PANE_ID }, async ($, e, next) => {
     const result = await next(e)
@@ -701,6 +895,24 @@ export function register(on: On) {
     return isPublish ? { deny: DENY_REASON } : next(e)
   })
 
+  // --- live progress -------------------------------------------------------
+
+  // Every tool call one of OUR subagents makes, noted for the log panel's
+  // `now:` line. Strictly an observer: it always returns `next(e)`, never a
+  // verdict, so it can neither block a call nor change one. `e.agentId`
+  // (AgentLoop, claude-code.d.ts:7916) is what ties the call to the step —
+  // the main session's calls carry none and are ignored.
+  on('tool.call', { tool: [...OBSERVED_TOOLS] }, ($, e, next) => {
+    const agentId = e.agentId
+
+    if (agentId !== undefined && pane.agentSteps.has(agentId)) {
+      noteLiveTool(agentId, e.tool, liveArgOf(e))
+      $.ui.invalidate('ui.render')
+    }
+
+    return next(e)
+  })
+
   // While a run is live, the MAIN agent carries one line saying it must not
   // touch the CLI. `prompt.context` fires once per conversation and is cached
   // until `$.ui.invalidate('prompt.context')` (claude-code.d.ts:3010-3020), so
@@ -745,6 +957,14 @@ export function register(on: On) {
       state.lastNonFinal.set(agentId, e.reason)
 
       return next(e)
+    }
+
+    // The agent's own words, kept for the log panel's answer tail. Held in
+    // memory only: `step_history` records the parsed `out`, never the message.
+    const stepId = pane.agentSteps.get(agentId)
+
+    if (stepId !== undefined) {
+      pane.answers.set(stepId, e.answer)
     }
 
     state.waiting.get(agentId)?.({ answer: e.answer, usage: usageOf(e.usage) })
@@ -1133,6 +1353,13 @@ async function runJudgment(
 ): Promise<{ next: StepResult; stderr: string; error?: string }> {
   const stepId = payload.step_id
 
+  // The run's directory, so the log panel can draw artifact paths relative to
+  // it: an absolute repo path's leading cells are the same on every line and
+  // say nothing in a pane this narrow.
+  if (payload.cwd !== undefined && payload.cwd !== '') {
+    pane.model = { ...pane.model, cwd: payload.cwd }
+  }
+
   const spawned = await $.agent.spawn({
     subagentType: agentTypeOf(stepId),
     model: spawnModelOf(payload),
@@ -1147,6 +1374,12 @@ async function runJudgment(
 
   const agentId = spawned.agentId
   state.ours.add(agentId)
+
+  // Tie the agent to its step so `tool.call` can file its live progress under
+  // the row the panel draws, and clear the previous attempt's calls: a retry
+  // starts with an empty `now:` line rather than the stale one that failed.
+  pane.agentSteps.set(agentId, stepId)
+  pane.liveTools.set(stepId, [])
 
   // When the step began, so `done` can carry a real `started_at`: record.py
   // defaults it to `now` and derives `duration_ms` from it, so omitting it
@@ -1189,6 +1422,11 @@ async function runJudgment(
   }).finally(() => {
     state.waiting.delete(agentId)
     state.lastNonFinal.delete(agentId)
+
+    // The step is no longer running, so its `now:` line would be a stale claim
+    // that it still is. The answer stays: that is the result the panel shows.
+    pane.agentSteps.delete(agentId)
+    pane.liveTools.set(stepId, [])
 
     watchdogs.get(agentId)?.cancel()
     watchdogs.delete(agentId)

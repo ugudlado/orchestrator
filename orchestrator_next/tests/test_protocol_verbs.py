@@ -240,6 +240,52 @@ def test_events_lists_history(pack, repo):
     assert any(e["step_id"] == "prep" for e in entries)
 
 
+def test_events_step_filter_keeps_one_nodes_attempts(pack, repo):
+    """The pane's log panel asks for one step, not the whole run's history."""
+    started, _ = protocol.start("mini", "p-run")
+    (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
+    protocol.done(
+        started["state"], "think",
+        out={"notes": "notes.md", "complexity": "L"},
+        usage={"input_tokens": 100, "output_tokens": 20, "model": "mock-model"},
+    )
+    every, _ = protocol.events(started["state"])
+    assert {e["step_id"] for e in every} > {"think"}
+
+    entries, code = protocol.events(started["state"], step="think")
+    assert code == 0
+    assert entries
+    assert {e["step_id"] for e in entries} == {"think"}
+
+
+def test_events_step_filter_on_an_unknown_step_is_empty_not_an_error(pack, repo):
+    """A step that left the plan answers nothing rather than failing the pane."""
+    started, _ = protocol.start("mini", "p-run")
+    entries, code = protocol.events(started["state"], step="no-such-step")
+    assert code == 0
+    assert entries == []
+
+
+def test_events_step_and_since_narrow_together(pack, repo):
+    """Both filters apply; neither cancels the other."""
+    started, _ = protocol.start("mini", "p-run")
+    entries, code = protocol.events(
+        started["state"], step="prep", since="2999-01-01T00:00:00Z"
+    )
+    assert code == 0
+    assert entries == []
+
+
+def test_events_cli_takes_the_step_flag(pack, repo, capsys):
+    """`orchestrator events <run> --step <id> --json` — what the Mod runs."""
+    started, _ = protocol.start("mini", "p-run")
+    code = protocol.main("events", [started["state"], "--step", "prep", "--json"])
+    assert code == 0
+    printed = capsys.readouterr().out.strip().splitlines()
+    assert printed
+    assert all(json.loads(line)["step_id"] == "prep" for line in printed)
+
+
 def test_resolve_run_rejects_unknown_ref(pack):
     with pytest.raises(protocol.ProtocolError):
         protocol.resolve_run("definitely-not-a-run")

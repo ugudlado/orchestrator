@@ -1382,13 +1382,27 @@ def _current_step_of(raw: dict[str, Any]) -> str | None:
     return None
 
 
-def events(run_ref: str, *, since: str = "") -> tuple[list[dict[str, Any]], int]:
-    """Return step_history entries, optionally those at or after ``since``."""
+def events(
+    run_ref: str,
+    *,
+    since: str = "",
+    step: str = "",
+) -> tuple[list[dict[str, Any]], int]:
+    """Return step_history entries, optionally narrowed.
+
+    ``since`` keeps the entries at or after that timestamp; ``step`` keeps only
+    the attempts of one node. The pane's log panel asks for one step's attempts
+    and would otherwise have to read (and parse) the whole run's history on
+    every selection, which on a long run is most of a megabyte of JSON per
+    keystroke.
+    """
     state_yaml_path = resolve_run(run_ref)
     state = load_state(state_yaml_path)
     out = []
     for entry in state.step_history:
         raw = dict(entry.raw)
+        if step and str(raw.get("step_id") or "") != step:
+            continue
         if since:
             stamp = str(raw.get("ended_at") or raw.get("started_at") or "")
             if stamp and stamp < since:
@@ -1508,9 +1522,13 @@ def main(verb: str, argv: list[str]) -> int:
         elif verb == "events":
             if not args:
                 raise ProtocolError("usage: orchestrator events <run> "
-                                    "[--since TS] --json")
+                                    "[--since TS] [--step ID] --json")
             since = _pop_flag(args, "--since") or ""
-            entries, code = events(args[0], since=since)
+            # Not `step`: that name is the module's own `step` verb, and
+            # binding it here makes it a local for the WHOLE function, so the
+            # `elif verb == "step"` branch above raises UnboundLocalError.
+            step_id = _pop_flag(args, "--step") or ""
+            entries, code = events(args[0], since=since, step=step_id)
             for entry in entries:
                 print(json.dumps(entry, sort_keys=True, default=str))
             return code
