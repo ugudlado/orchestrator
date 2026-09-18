@@ -466,6 +466,12 @@ lets the CLI batch the script steps, spawns one subagent per judgment step
 to approve each gate, and reports the final status. The `status` tool prints
 a run's nodes, usage and cost.
 
+**The plugin drives the run itself, in the background.** The agent you are
+talking to must not run `orchestrator` CLI commands, and must never call
+`orchestrator done` on its own: the driver loop owns every `done`, and a
+second writer corrupts the run's state. Ask the `status` tool where things
+stand, and drive the run from the pane or `/orchestrator`.
+
 While a run is active, Edit/Write/NotebookEdit and `git commit` /
 `git push` are refused **inside the subagents this plugin spawned** until a
 gate is approved. Your own session is never gated, and a subagent started any

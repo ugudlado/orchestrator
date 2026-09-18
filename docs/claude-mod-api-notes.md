@@ -237,3 +237,93 @@ human at a shell.
 option Button encodes its index in its key (`orchestrator-option-<n>`) and
 `pressOf` reads the LABEL back out of the pane model. The `ui.press` matcher
 lists every key the row can draw, including all four option keys.
+
+---
+
+## `turn.complete` fires per turn, and only `reason: 'answer'` is an answer
+
+`TurnCompleteReason` (d.ts:8432) is exactly:
+
+```
+'answer' | 'aborted' | 'refusal' | 'error'
+```
+
+There is **no** `awaiting-input` / `paused` / `interrupted` member. A
+permission prompt or a clarifying question does not end a turn in this build,
+so a subagent raises at most one `turn.complete` per run of its loop
+(`agentId`: "each run of its loop one turn", d.ts:8400).
+
+The driver therefore accepts **only `reason === 'answer'`** (and
+`isAborted !== true`, since d.ts:8396 ties the two together) as a step's
+result — `isFinalTurn` in `mod/protocol.ts`. The other three all carry a
+partial or empty `e.answer`:
+
+| `reason`  | What it means                                           |
+| --------- | ------------------------------------------------------- |
+| `aborted` | interrupted; whatever text exists is partial            |
+| `refusal` | the model refused, no fallback model retried it         |
+| `error`   | API error killed the turn; `usage` may be absent (8418) |
+
+A non-final turn is remembered (`state.lastNonFinal`) rather than recorded, so
+the step can be abandoned with the engine's own reason instead of the far less
+useful "ended without a fenced ```json block".
+
+### The watchdog
+
+A loop that ends on `aborted` / `refusal` / `error` raises its non-final turn
+and then **nothing more**, so waiting on the promise alone would hang the
+driver forever. `$.clock.every(10s, …)` polls `$.agent.list()` and gives up
+when the agent's `AgentInfo.status` (d.ts:104) is no longer `running`
+(`completed`, `failed`, `killed`, …). An id the listing does not name at all
+is **not** treated as finished: a workflow's own agents carry ids no list
+names (d.ts:141), so absence is not evidence of termination.
+
+Note `setInterval` is not part of the mod runtime's surface; `$.clock.every`
+is (it is what the pane's refresh ticker uses).
+
+## What zero-duration steps actually were
+
+Run 01a0af3f recorded `duration_ms: 0` on **every** judgment step, including
+ones that plainly did hours of real work (`explore` attempt 2 spanned
+13:11→20:05). That was never a symptom of a turn resolving early — it is
+`record.py` defaulting `started_at` to `now` when the `done` payload omits it,
+then deriving `duration_ms` from `ended_at - started_at`.
+
+`orchestrator done` now takes `--started-at ISO8601`, and the driver stamps it
+when it spawns the subagent. The stamp must carry a trailing `Z`: record.py
+parses it with `fromisoformat` after replacing one.
+
+## Popup vs pane: never raise both
+
+`$.ui.ask` **cannot be retracted**. When the pane was open, a gate raised both
+the chat popup and the pane's Approve/Cancel row; the Button won the race and
+the dialog stayed on screen, stale, inviting a second answer to a gate that
+was already decided.
+
+Policy (`shouldRaisePopup` in `mod/protocol.ts`), applied at all three parked
+decisions — gate, retry and `await_input`:
+
+- **Pane open** → do not raise `$.ui.ask` at all. Toast where to press, and
+  wait on the pane's Button.
+- **Pane closed** → raise the popup as before, racing it against the Button.
+
+Each decision has exactly one code path for acting on the answer
+(`approveGate` / `cancelGate`, `finishRetry`, `resumeWith`), so a verb means
+one thing whichever surface produced it.
+
+## Telling the main agent not to drive
+
+On run 01a0af3f the main agent read a step report and started running
+`orchestrator` itself: the sandbox denied its writes to `~/.orchestrator/state`
+and it then "recorded a nominal estimate", i.e. invented a result for a step
+the plugin was already driving. A second writer corrupts the run's state.
+
+`DRIVER_GUIDANCE` (one string, `mod/register.ts`) now rides on four surfaces:
+the `run` and `status` tool descriptions, the `run` tool's own result text, and
+a `prompt.context` block while a run is live.
+
+`prompt.context` (d.ts:3010-3020) fires **once per conversation** and is cached
+until `$.ui.invalidate('prompt.context')`, so the driver invalidates it when a
+run starts and again when one ends — otherwise the block is computed before any
+run exists and would never appear. Blocks are `{ name, text }` (d.ts:5449); the
+hook appends one named `orchestratorRun`.

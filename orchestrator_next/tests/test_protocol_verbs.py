@@ -323,3 +323,44 @@ def test_done_prices_a_step_whose_usage_names_no_model(pack, repo):
     from orchestrator_next.pricing import sum_cost_usd
     assert sum_cost_usd(raw) == pytest.approx(3.0)
     _pricing_mod._load_pricing_table.cache_clear()
+
+
+def test_done_records_started_at_so_duration_is_real(pack, repo):
+    """`--started-at` is what keeps a judgment step's duration from being 0.
+
+    record.py defaults `started_at` to `now` and derives `duration_ms` from
+    `ended_at - started_at`, so a harness that omits it records EVERY agent
+    step at 0ms however long it ran. Observed on run 01a0af3f: `explore`
+    spanned 13:11 to 20:05 and still recorded `duration_ms: 0`.
+    """
+    started, _ = protocol.start("mini", "p-run")
+    run = started["state"]
+    (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
+
+    result, code = protocol.done(
+        run, "think",
+        out={"notes": str(_artifacts(repo) / "notes.md"), "complexity": "M"},
+        usage={"input_tokens": 120, "output_tokens": 45, "model": "mock-model"},
+        started_at="2020-01-01T00:00:00.000Z",
+    )
+    assert code == 0
+
+    state = yaml.safe_load(Path(run).read_text(encoding="utf-8"))
+    entry = next(e for e in state["step_history"] if e["step_id"] == "think")
+    assert entry["started_at"] == "2020-01-01T00:00:00.000Z"
+    # Years, not zero: the duration now comes off the real span.
+    assert entry["usage"]["duration_ms"] > 0
+
+
+def test_done_without_started_at_still_records(pack, repo):
+    """The flag is optional: omitting it keeps the previous behaviour."""
+    started, _ = protocol.start("mini", "p-run")
+    run = started["state"]
+    (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
+
+    _, code = protocol.done(
+        run, "think",
+        out={"notes": str(_artifacts(repo) / "notes.md"), "complexity": "M"},
+        usage={"input_tokens": 120, "output_tokens": 45, "model": "mock-model"},
+    )
+    assert code == 0

@@ -42,12 +42,17 @@ import {
   argsOf,
   askOf,
   gateOf,
+  isAgentFinished,
+  isFinalTurn,
+  isoStamp,
   judgmentOf,
   jsonBlockOf,
   MODEL_FAMILY_TO_SPAWN_ALIAS,
+  paneOnlyToast,
   parseJson,
   promptOf,
   recipeRefOf,
+  shouldRaisePopup,
   stringArg,
   usageOf,
   type AbandonedPayload,
@@ -143,8 +148,39 @@ function agentTypeOf(stepId: string): string {
   return state.plugin === '' ? stepId : `${state.plugin}:${stepId}`
 }
 
+/**
+ * What every surface tells the MAIN agent about who drives the run.
+ *
+ * On run 01a0af3f the main agent read a step report and started running
+ * `orchestrator` itself — the sandbox denied its writes to ~/.orchestrator/state
+ * and it then "recorded a nominal estimate", i.e. invented a result for a step
+ * this plugin was already driving. The loop here owns every `done`; a second
+ * writer corrupts the run's state. So the tool descriptions, the `run` tool's
+ * own result text and the live-run context block all say so in the same words.
+ */
+const DRIVER_GUIDANCE =
+  'This plugin drives the run itself, in the background. Do NOT run ' +
+  '`orchestrator` CLI commands, and never call `orchestrator done` yourself: ' +
+  'report what the status tool prints and tell the person to use the pane or ' +
+  '`/orchestrator`.'
+
 /** Exec steps batch inside one `step` call, so give the child ten minutes. */
 const STEP_TIMEOUT_MS = 600_000
+
+/**
+ * How often to ask `$.agent.list()` whether a waited-on subagent is still
+ * running.
+ *
+ * Only the safety net: the answer normally arrives as a `reason: answer`
+ * `turn.complete`. This catches the loop that ended without one (interrupted,
+ * refused, an API error), which raises a non-final turn and then nothing —
+ * so the driver would otherwise wait forever. Ten seconds is far below any
+ * step's real duration and costs one in-process call.
+ */
+const AGENT_WATCH_MS = 10_000
+
+/** Live `$.agent.list()` watchdogs, keyed by the agent id they watch. */
+const watchdogs = new Map<string, { cancel: () => void }>()
 
 /**
  * Tools a gated run refuses inside our subagents until a gate is approved.
@@ -212,6 +248,15 @@ const state = {
 
   /** Every agent id this module spawned, so the deny hook knows its own. */
   ours: new Set<string>(),
+
+  /**
+   * The `reason` of the last non-final `turn.complete` seen per waited-on
+   * agent (`aborted` / `refusal` / `error`).
+   *
+   * Kept so that when `$.agent.list()` finally reports the agent stopped, the
+   * step is abandoned with the reason the ENGINE gave rather than a guess.
+   */
+  lastNonFinal: new Map<string, string>(),
 
   /** The run this session is driving, if any: also the deny hook's switch. */
   active: null as { run: string; slug: string } | null,
@@ -461,7 +506,8 @@ export function register(on: On) {
       description:
         'Run an orchestrator recipe end to end: seeds the run, executes its ' +
         'script steps, spawns one subagent per judgment step, and asks you at ' +
-        'each gate. Returns the final status and artifacts.',
+        'each gate. Returns the final status and artifacts. ' +
+        DRIVER_GUIDANCE,
       inputSchema: {
         type: 'object',
         properties: {
@@ -486,7 +532,8 @@ export function register(on: On) {
       name: 'status',
       description:
         "Report an orchestrator run's nodes, usage and cost. Takes the run id " +
-        'or slug; with none, the run this session started.',
+        'or slug; with none, the run this session started. ' +
+        DRIVER_GUIDANCE,
       inputSchema: {
         type: 'object',
         properties: {
@@ -589,6 +636,18 @@ export function register(on: On) {
 
     if (result.deny === undefined) {
       pane.isOpen = false
+
+      // A decision parked on the pane alone (the popup was suppressed because
+      // the pane was open) would have NO surface left once the pane closes,
+      // and the driver would wait on a Button nobody can press. Say where the
+      // decision still lives: `/orchestrator` answers all three, and reopening
+      // the pane brings the same action row back.
+      if (pane.answerGate !== null || pane.answerRetry !== null || pane.answerAsk !== null) {
+        $.ui.toast(
+          'orchestrator: a decision is still waiting — reopen the pane with ' +
+            '`/orchestrator`, or answer it there (approve / retry / resume).',
+        )
+      }
     }
 
     return result
@@ -625,14 +684,53 @@ export function register(on: On) {
     return isPublish ? { deny: DENY_REASON } : next(e)
   })
 
+  // While a run is live, the MAIN agent carries one line saying it must not
+  // touch the CLI. `prompt.context` fires once per conversation and is cached
+  // until `$.ui.invalidate('prompt.context')` (claude-code.d.ts:3010-3020), so
+  // the driver invalidates it when a run starts and again when one ends — the
+  // block is otherwise computed before any run exists and would never appear.
+  on('prompt.context', ($, e, next) => {
+    if (state.active === null) {
+      return next(e)
+    }
+
+    return next({
+      ...e,
+      blocks: [
+        ...e.blocks,
+        {
+          name: 'orchestratorRun',
+          text:
+            `orchestrator run ${state.active.slug} is live and self-driving. ` +
+            DRIVER_GUIDANCE,
+        },
+      ],
+    })
+  })
+
   // A subagent's answer arrives as its own `turn.complete`, keyed by the
   // `agentId` `$.agent.spawn` resolved (claude-code.d.ts:287-291).
+  //
+  // Only a turn that ENDED IN AN ANSWER is that agent's answer. `reason` is
+  // one of `answer | aborted | refusal | error` (TurnCompleteReason,
+  // d.ts:8432), and the other three carry a partial or empty `e.answer` that
+  // must not be recorded as the step's result — `isFinalTurn` is the gate.
+  // A non-final turn is remembered instead, so the driver can say WHY the
+  // agent stopped rather than report "no fenced json block".
   on('turn.complete', ($, e, next) => {
     const agentId = e.agentId
 
-    if (agentId !== undefined) {
-      state.waiting.get(agentId)?.({ answer: e.answer, usage: usageOf(e.usage) })
+    if (agentId === undefined || !state.waiting.has(agentId)) {
+      return next(e)
     }
+
+    if (!isFinalTurn(e)) {
+      state.lastNonFinal.set(agentId, e.reason)
+
+      return next(e)
+    }
+
+    state.waiting.get(agentId)?.({ answer: e.answer, usage: usageOf(e.usage) })
 
     return next(e)
   })
@@ -723,6 +821,9 @@ async function beginRun(
 
   state.active = { run: start.run_id, slug: start.slug }
   state.gateToken = null
+  // `prompt.context` is cached per conversation, so the live-run block only
+  // appears if the cache is dropped now that there IS a run (d.ts:3010-3020).
+  $.ui.invalidate('prompt.context')
 
   pane.run = start.run_id
   pane.startedAt = Date.now()
@@ -775,6 +876,8 @@ async function beginRun(
       // only the session-wide switches are cleared.
       if (state.active?.slug === start.slug) {
         state.active = null
+        // Drop the live-run context block again now the run is over.
+        $.ui.invalidate('prompt.context')
       }
       state.gateToken = null
       // The spawn bookkeeping is per-run: every agent this loop waited on has
@@ -813,7 +916,8 @@ async function beginRun(
     `orchestrator: run ${start.slug} started (run_id ${start.run_id}).\n` +
     'It is driving in the background: progress shows in the pane, gates will ' +
     'prompt you, and a toast lands when it finishes. Press the pane buttons, ' +
-    'use `/orchestrator status`, or call the status tool for where it stands.'
+    'use `/orchestrator status`, or call the status tool for where it stands.\n' +
+    DRIVER_GUIDANCE
   )
 }
 
@@ -1027,16 +1131,71 @@ async function runJudgment(
   const agentId = spawned.agentId
   state.ours.add(agentId)
 
-  const turn = await new Promise<{ answer: string; usage: UsageCounts }>(resolve => {
+  // When the step began, so `done` can carry a real `started_at`: record.py
+  // defaults it to `now` and derives `duration_ms` from it, so omitting it
+  // recorded a flat 0 for every judgment step however long it ran.
+  const startedAt = isoStamp(Date.now())
+
+  // Only a `reason: answer` turn resolves this (see the `turn.complete` hook).
+  // A subagent that was interrupted, refused or died on an API error raises a
+  // non-final turn and then never another, so the promise alone would hang:
+  // the watchdog asks `$.agent.list()` whether the loop is still running and
+  // gives up when it is not, with the engine's own reason.
+  const turn = await new Promise<{
+    answer: string
+    usage: UsageCounts
+    stopped?: string
+  }>(resolve => {
     state.waiting.set(agentId, resolve)
+
+    // `$.clock.every` is the engine's own ticker (the pane's refresh uses it);
+    // a bare `setInterval` is not part of the mod runtime's surface.
+    watchdogs.set(
+      agentId,
+      $.clock.every(AGENT_WATCH_MS, () => {
+        void $.agent
+          .list()
+          .then(agents => {
+            if (!state.waiting.has(agentId) || !isAgentFinished(agents, agentId)) {
+              return
+            }
+
+            resolve({
+              answer: '',
+              usage: usageOf(undefined),
+              stopped: state.lastNonFinal.get(agentId) ?? 'stopped without answering',
+            })
+          })
+          .catch(() => undefined)
+      }),
+    )
   }).finally(() => {
     state.waiting.delete(agentId)
+    state.lastNonFinal.delete(agentId)
+
+    watchdogs.get(agentId)?.cancel()
+    watchdogs.delete(agentId)
   })
+
+  // The subagent's loop ended without an answer (interrupted, refused, or an
+  // API error). Nothing it wrote is a result, so the step is abandoned with
+  // the engine's reason rather than run through the JSON-block path, which
+  // would report the far less useful "ended without a fenced ```json block".
+  if (turn.stopped !== undefined) {
+    return recordAbandoned(
+      cli,
+      run,
+      stepId,
+      `the subagent ended without answering (${turn.stopped})`,
+      turn.usage,
+      startedAt,
+    )
+  }
 
   const out = jsonBlockOf(turn.answer)
 
   if (out !== undefined) {
-    return recordDone(cli, run, stepId, out, turn.usage, 'completed')
+    return recordDone(cli, run, stepId, out, turn.usage, 'completed', startedAt)
   }
 
   // No parseable JSON block. That is not the same as "the step failed": a
@@ -1046,7 +1205,7 @@ async function runJudgment(
   // final message carried no fence). The ENGINE owns that judgment, not this
   // harness, so offer an empty `out` and let `validate_out` decide
   // (protocol.py `done`).
-  const attempted = await recordDone(cli, run, stepId, {}, turn.usage, 'completed')
+  const attempted = await recordDone(cli, run, stepId, {}, turn.usage, 'completed', startedAt)
 
   if (attempted.error === undefined) {
     return attempted
@@ -1061,6 +1220,7 @@ async function runJudgment(
     stepId,
     `${attempted.error} (the subagent ended without a fenced \`\`\`json block)`,
     turn.usage,
+    startedAt,
   )
 }
 
@@ -1084,6 +1244,7 @@ async function recordDone(
   out: Record<string, unknown>,
   usage: UsageCounts,
   status: 'completed' | 'abandoned',
+  startedAt?: string,
 ): Promise<{ next: StepResult; stderr: string; error?: string }> {
   const ran = await cli(
     [
@@ -1097,6 +1258,7 @@ async function recordDone(
       JSON.stringify(usage),
       '--status',
       status,
+      ...(startedAt === undefined ? [] : ['--started-at', startedAt]),
       '--json',
     ],
     STEP_TIMEOUT_MS,
@@ -1112,7 +1274,8 @@ const recordAbandoned = (
   stepId: string,
   reason: string,
   usage: UsageCounts = usageOf(undefined),
-) => recordDone(cli, run, stepId, { reason }, usage, 'abandoned')
+  startedAt?: string,
+) => recordDone(cli, run, stepId, { reason }, usage, 'abandoned', startedAt)
 
 /**
  * Ask the person, then approve or cancel through the CLI.
@@ -1180,6 +1343,23 @@ async function runGate(
 
   $.ui.invalidate('ui.render')
 
+  // With the pane open, do NOT raise the popup at all: both surfaces would
+  // offer the same gate, the Button would win the race, and the dialog —
+  // which cannot be retracted — would sit there stale, inviting a second
+  // answer to a gate already decided. The pane's Approve/Cancel row is the
+  // single surface then, and a toast says so. (Observed on run 01a0af3f.)
+  if (!shouldRaisePopup(pane.isOpen)) {
+    $.ui.toast(paneOnlyToast(`${gate.step_id} (${tokenName})`, 'Approve'))
+
+    const choice = await pressed
+
+    pane.answerGate = null
+    pane.model = { ...pane.model, gate: null }
+    $.ui.invalidate('ui.render')
+
+    return choice === 'approve' ? approveGate($, cli, run, gate) : cancelGate(cli, run)
+  }
+
   // The loser of the race is never awaited, so a dialog that rejects after a
   // press already won must not surface as an unhandled rejection.
   const asked = $.ui
@@ -1218,20 +1398,40 @@ async function runGate(
   pane.model = { ...pane.model, gate: null }
   $.ui.invalidate('ui.render')
 
-  if (answer !== 'approve') {
-    const ran = await cli(['orchestrator', 'cancel', run, '--json'])
+  return answer === 'approve'
+    ? approveGate($, cli, run, gate)
+    : cancelGate(cli, run)
+}
 
-    return { next: null, stderr: ran.stderr.trim() }
-  }
+/** `orchestrator cancel`, as both gate surfaces reach it. */
+async function cancelGate(
+  cli: Cli,
+  run: string,
+): Promise<{ next: StepResult | null; stderr: string; error?: string }> {
+  const ran = await cli(['orchestrator', 'cancel', run, '--json'])
 
-  // `approve` takes the token VALUE the gate minted (`payload.token`), never
-  // `preview.token_name` — that is only the name the token gets bound to for
-  // downstream `requires:`. A gate that reached here without a minted token
-  // (payload.token missing) cannot be approved at all: sending the name
-  // instead is exactly the bug this guards, since gates.approve_token()
-  // accepts it silently as "some string that happens not to match any
-  // record" and raises `unknown or expired gate token` — which nextOf used
-  // to swallow (see below) rather than report.
+  return { next: null, stderr: ran.stderr.trim() }
+}
+
+/**
+ * Approve the gate and advance the run — the ONE approve path, whether the
+ * decision came from the popup or from the pane's Button.
+ *
+ * `approve` takes the token VALUE the gate minted (`payload.token`), never
+ * `preview.token_name` — that is only the name the token gets bound to for
+ * downstream `requires:`. A gate that reached here without a minted token
+ * (payload.token missing) cannot be approved at all: sending the name
+ * instead is exactly the bug this guards, since gates.approve_token()
+ * accepts it silently as "some string that happens not to match any
+ * record" and raises `unknown or expired gate token` — which nextOf used
+ * to swallow rather than report.
+ */
+async function approveGate(
+  $: EngineInterface,
+  cli: Cli,
+  run: string,
+  gate: GatePayload,
+): Promise<{ next: StepResult | null; stderr: string; error?: string }> {
   if (gate.token === undefined) {
     return {
       next: null,
@@ -1308,6 +1508,19 @@ async function runRetry(
 
   $.ui.invalidate('ui.render')
 
+  // Pane open → the pane's Retry row is the only surface (see `runGate`).
+  if (!shouldRaisePopup(pane.isOpen)) {
+    $.ui.toast(paneOnlyToast(abandoned.reason.slice(0, 120), 'Retry'))
+
+    const choice = await pressed
+
+    pane.answerRetry = null
+    pane.model = { ...pane.model, retry: null }
+    $.ui.invalidate('ui.render')
+
+    return finishRetry($, cli, run, stepId, choice)
+  }
+
   const asked = $.ui
     .ask(question, { options: ['retry', 'cancel', 'leave'], header: 'needs_you' })
     .catch((error: unknown) => {
@@ -1339,6 +1552,20 @@ async function runRetry(
   pane.model = { ...pane.model, retry: null }
   $.ui.invalidate('ui.render')
 
+  return finishRetry($, cli, run, stepId, answer)
+}
+
+/**
+ * Act on a retry decision — the ONE path, whether it came from the popup or
+ * the pane's Button.
+ */
+async function finishRetry(
+  $: EngineInterface,
+  cli: Cli,
+  run: string,
+  stepId: string,
+  answer: string,
+): Promise<{ next: StepResult; stderr: string } | null | 'cancelled'> {
   if (answer === 'leave') {
     return null
   }
@@ -1401,6 +1628,21 @@ async function runAsk(
   pane.model = { ...pane.model, ask: { question: ask.ask, options } }
   $.ui.invalidate('ui.render')
 
+  // Pane open → the pane already carries the question and its option Buttons,
+  // so raising the popup too would leave a stale, unretractable dialog behind
+  // whichever surface answered first (see `runGate`).
+  if (!shouldRaisePopup(pane.isOpen)) {
+    $.ui.toast(paneOnlyToast(ask.ask.slice(0, 120), 'Resume'))
+
+    const choice = await pressed
+
+    pane.answerAsk = null
+    pane.model = { ...pane.model, ask: null }
+    $.ui.invalidate('ui.render')
+
+    return resumeWith(cli, run, stepId, choice)
+  }
+
   const asked = (
     shown.length >= 2
       ? $.ui.ask(question, { options: shown, header: 'orchestrator' })
@@ -1438,6 +1680,21 @@ async function runAsk(
   pane.model = { ...pane.model, ask: null }
   $.ui.invalidate('ui.render')
 
+  return resumeWith(cli, run, stepId, answer)
+}
+
+/**
+ * Advance a run parked on `await_input` with the person's answer — the ONE
+ * resume path, whether the answer came from the popup or the pane's Button.
+ *
+ * An empty answer means nobody answered, so the run is left standing.
+ */
+async function resumeWith(
+  cli: Cli,
+  run: string,
+  stepId: string | null,
+  answer: string,
+): Promise<{ next: StepResult; stderr: string } | null> {
   if (answer === '') {
     return null
   }

@@ -771,6 +771,7 @@ def done(
     out: dict[str, Any],
     usage: dict[str, Any],
     status: str = "completed",
+    started_at: str | None = None,
 ) -> tuple[dict[str, Any], int]:
     """Record a judgment step's structured result, then return the next step.
 
@@ -813,6 +814,12 @@ def done(
         "outputs": outputs,
         "usage": dict(usage or {}),
     }
+    # When the harness knows when the step actually began, say so: record.py
+    # defaults `started_at` to `now` and derives `duration_ms` from
+    # `ended_at - started_at`, so a harness that omits it records every
+    # judgment step at a flat 0ms however long the step really ran.
+    if started_at:
+        payload["started_at"] = started_at
     if isinstance(contract, AgentStepContract):
         # record.py requires `agent` on a completed agent step and enforces the
         # usage-token guard against it (docs/protocol-v2.md §5).
@@ -1438,18 +1445,27 @@ def main(verb: str, argv: list[str]) -> int:
             if len(args) < 2:
                 raise ProtocolError(
                     "usage: orchestrator done <run> <step_id> --out JSON "
-                    "--usage JSON [--status completed|abandoned]"
+                    "--usage JSON [--status completed|abandoned] "
+                    "[--started-at ISO8601]"
                 )
             run_ref, step_id = args[0], args[1]
             rest = args[2:]
             out = _json_flag(rest, "--out", default={})
             usage = _json_flag(rest, "--usage", default={})
             st = _pop_flag(rest, "--status") or "completed"
+            started_at = _pop_flag(rest, "--started-at")
             if not isinstance(out, dict):
                 raise ProtocolError("--out must be a JSON object")
             if not isinstance(usage, dict):
                 raise ProtocolError("--usage must be a JSON object")
-            result, code = done(run_ref, step_id, out=out, usage=usage, status=st)
+            result, code = done(
+                run_ref,
+                step_id,
+                out=out,
+                usage=usage,
+                status=st,
+                started_at=started_at,
+            )
         elif verb == "approve":
             if len(args) < 2:
                 raise ProtocolError(

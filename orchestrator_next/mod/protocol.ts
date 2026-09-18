@@ -405,3 +405,99 @@ export function parseJson<T>(argv: readonly string[], run: {
     )
   }
 }
+
+/**
+ * Why a turn ended (`TurnCompleteReason`, claude-code.d.ts:8432): the model
+ * answered, the person interrupted it, the model refused with no fallback
+ * model to retry on, or an API error ended it.
+ *
+ * There is no `awaiting-input` / `paused` member: a permission prompt or a
+ * clarifying question does NOT end a turn in this build, so a subagent raises
+ * at most one `turn.complete` per run of its loop (`agentId` "each run of its
+ * loop one turn", d.ts:8400).
+ */
+export type TurnCompleteReason = 'answer' | 'aborted' | 'refusal' | 'error'
+
+/**
+ * Whether a `turn.complete` is the subagent's FINAL answer, i.e. the one a
+ * judgment step may be recorded from.
+ *
+ * Only `answer` is. The other three all mean the loop stopped without the
+ * model finishing its say:
+ *
+ * - `aborted`   — interrupted (`isAborted`); whatever text exists is partial.
+ * - `refusal`   — the model refused and no fallback model retried it.
+ * - `error`     — an API error killed the turn (retries exhausted, context
+ *                 limit); `usage` may be absent entirely (d.ts:8418).
+ *
+ * Recording a step from any of those three writes a partial or empty `answer`
+ * into `done` as though the agent had finished, which is how a step lands
+ * `abandoned` while its work was never actually attempted. The driver keeps
+ * waiting instead, and reports the reason rather than inventing an `out`.
+ *
+ * `isAborted` is checked as well as `reason`: d.ts:8396 ties the two together
+ * (`true when the turn ended by interruption`), so a build that set one
+ * without the other must not slip through as a final answer.
+ */
+export function isFinalTurn(turn: {
+  reason?: string
+  isAborted?: boolean
+}): boolean {
+  return turn.reason === 'answer' && turn.isAborted !== true
+}
+
+/**
+ * Whether `$.agent.list()` considers the agent finished (`AgentInfo.status`,
+ * claude-code.d.ts:104): `running` means it is still going, anything else
+ * (`completed`, `failed`, `killed`, or another engine task status) means it
+ * stopped.
+ *
+ * Belt and braces beside `isFinalTurn`: an agent the listing no longer calls
+ * `running` will raise no further `turn.complete`, so waiting on one forever
+ * would hang the driver. An id the listing does not name at all answers
+ * `false` — a workflow's own agents carry ids no list names (d.ts:141), so
+ * absence is not evidence of termination.
+ */
+export function isAgentFinished(
+  agents: readonly { id: string; status: string }[],
+  agentId: string,
+): boolean {
+  const found = agents.find(agent => agent.id === agentId)
+
+  return found !== undefined && found.status !== 'running'
+}
+
+/**
+ * The `started_at` a judgment step should be recorded with, given when its
+ * subagent was spawned.
+ *
+ * `record.py` defaults `started_at` to `now` when the `done` payload omits it
+ * and then derives `duration_ms` from `ended_at - started_at`, so a mod-driven
+ * step that never sends one records `started_at == ended_at` and a flat
+ * `duration_ms: 0` — for every judgment step, however long it actually ran.
+ * (Observed on run 01a0af3f: `explore` attempt 2 spanned 13:11→20:05 and still
+ * recorded 0.) An ISO-8601 stamp in the engine's own format is what fixes it.
+ */
+export function isoStamp(atMs: number): string {
+  return new Date(atMs).toISOString().replace(/Z$/, 'Z')
+}
+
+/**
+ * Whether a parked decision should raise the chat popup (`$.ui.ask`).
+ *
+ * Only when the pane is CLOSED. With the pane open, both surfaces raise the
+ * same decision and the pane's Button wins the race — but `$.ui.ask` cannot be
+ * retracted, so the dialog stays on screen after the decision was already
+ * made, inviting a second, contradictory answer to a gate that is gone.
+ *
+ * The pane already draws the gate / retry / question with its own Buttons, so
+ * closing that second surface loses nothing: a toast says where to press.
+ */
+export function shouldRaisePopup(paneIsOpen: boolean): boolean {
+  return !paneIsOpen
+}
+
+/** The toast that stands in for the popup while the pane is open. */
+export function paneOnlyToast(what: string, verb: string): string {
+  return `orchestrator: ${what} — press ${verb} in the pane, or run \`/orchestrator ${verb.toLowerCase()}\`.`
+}
