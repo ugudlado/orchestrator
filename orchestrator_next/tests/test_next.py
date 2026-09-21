@@ -6,6 +6,7 @@ answer out.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -54,6 +55,8 @@ def pack(tmp_path) -> Path:
             "out": {
                 "notes": {"artifact": "notes.md"},
                 "complexity": {"type": "enum", "values": ["S", "M", "L"]},
+                "verdict": {"type": "enum", "values": ["pass", "needs_work"],
+                            "fail_on": ["needs_work"]},
             },
         }),
         encoding="utf-8",
@@ -242,7 +245,7 @@ def test_a_satisfied_out_advances(pack, repo):
     _artifacts(repo).mkdir(parents=True)
     (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
     r = _next(pack, repo, after="think", status="completed",
-              out={"complexity": "M"})
+              out={"complexity": "M", "verdict": "pass"})
     assert r["status"] == "ready"
     assert r["step_id"] == "finish"
 
@@ -353,7 +356,8 @@ def test_out_artifact_check_resolves_against_the_cwd(pack, repo, tmp_path):
     (repo / "spec" / "changes" / "s1").mkdir(parents=True)
     (repo / "spec" / "changes" / "s1" / "notes.md").write_text("n\n")
     r = _next(pack, repo, after="think", status="completed",
-              out={"notes": "spec/changes/s1/notes.md", "complexity": "M"})
+              out={"notes": "spec/changes/s1/notes.md", "complexity": "M",
+                   "verdict": "pass"})
     assert r["status"] == "ready", r
 
     # The same relative path from a different cwd must NOT be found.
@@ -362,7 +366,8 @@ def test_out_artifact_check_resolves_against_the_cwd(pack, repo, tmp_path):
     import os
     os.chdir(elsewhere)
     r = _next(pack, repo, after="think", status="completed",
-              out={"notes": "spec/changes/s1/notes.md", "complexity": "M"})
+              out={"notes": "spec/changes/s1/notes.md", "complexity": "M",
+                   "verdict": "pass"})
     assert r["status"] == "error"
 
 
@@ -372,5 +377,77 @@ def test_an_absolute_out_path_is_checked_as_given(pack, repo, tmp_path):
     art.parent.mkdir(parents=True)
     art.write_text("n\n")
     r = _next(pack, repo, after="think", status="completed",
-              out={"notes": str(art), "complexity": "M"})
+              out={"notes": str(art), "complexity": "M", "verdict": "pass"})
     assert r["status"] == "ready", r
+
+
+# ------------------------------------------- fail_on: the engine derives it
+def test_a_fail_on_verdict_routes_as_failed_though_reported_completed(pack, repo):
+    """A review saying needs_work must not advance onto the work it rejected."""
+    (repo / "spec" / "changes" / "s1").mkdir(parents=True)
+    (repo / "spec" / "changes" / "s1" / "notes.md").write_text("n\n")
+    r = _next(pack, repo, after="think", status="completed", attempt=1,
+              out={"complexity": "M", "verdict": "needs_work"})
+    assert r["status"] == "ready"
+    assert r["step_id"] == "prep", "should take think's on_failure edge"
+    assert r["route"] == "on_failure"
+    assert r["recorded"]["status"] == "failed"
+    assert "fail_on" in r["recorded"]["derived_from"]
+    assert "verdict=needs_work" in r["recorded"]["derived_from"]
+
+
+def test_a_passing_verdict_still_advances(pack, repo):
+    (repo / "spec" / "changes" / "s1").mkdir(parents=True)
+    (repo / "spec" / "changes" / "s1" / "notes.md").write_text("n\n")
+    r = _next(pack, repo, after="think", status="completed",
+              out={"complexity": "M", "verdict": "pass"})
+    assert r["step_id"] == "finish"
+    assert r["recorded"]["status"] == "completed"
+    assert "derived_from" not in r["recorded"]
+
+
+def test_out_schema_exposes_fail_on(pack, repo):
+    """The driver can see which values the contract treats as a rejection."""
+    r = _next(pack, repo, after="signoff", status="completed")
+    schema = r["payload"]["out_schema"]
+    assert schema["verdict"]["fail_on"] == ["needs_work"]
+    assert schema["complexity"].get("fail_on") is None
+
+
+# --------------------------------------------------- ORCHESTRATOR_PROMPT_DIRS
+def test_prompt_dirs_maps_every_judgment_step(pack, repo):
+    """The learn charter needs step_id -> charter dir; it is pure config."""
+    r = _next(pack, repo)
+    dirs = json.loads(r["payload"]["env"]["ORCHESTRATOR_PROMPT_DIRS"])
+    assert set(dirs) == {"think"}, "only judgment steps have charters"
+    assert dirs["think"].endswith("steps/think")
+    # Exec steps get the same map — a script may need to write beside another
+    # step's charter (persist-learnings does).
+    assert r["kind"] == "exec"
+
+
+# ------------------------------------------------- attempts terminate a loop
+def test_the_documented_attempt_rule_terminates_at_max_retries(pack, repo):
+    """Walk think -> prep -> think … counting attempts the way the skill says.
+
+    `--attempt` is how many times the step being reported has now run,
+    counting this one. With `max_retries: 2` on think, the second report of a
+    failing think must stop the run.
+    """
+    (repo / "spec" / "changes" / "s1").mkdir(parents=True)
+    (repo / "spec" / "changes" / "s1" / "notes.md").write_text("n\n")
+    runs: dict[str, int] = {}
+    step, guard = "think", 0
+    while guard < 10:
+        guard += 1
+        runs[step] = runs.get(step, 0) + 1          # this run of this step
+        r = _next(pack, repo, after=step, status="completed", attempt=runs[step],
+                  out={"complexity": "M", "verdict": "needs_work"}) \
+            if step == "think" else \
+            _next(pack, repo, after=step, exit_code=0, attempt=runs[step])
+        if r["status"] == "needs_you":
+            assert r["reason"] == "retries exhausted"
+            assert runs["think"] == 2, runs      # max_retries: 2
+            return
+        step = r["step_id"]
+    raise AssertionError(f"never exhausted retries: {runs}")

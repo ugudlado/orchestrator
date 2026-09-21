@@ -28,6 +28,11 @@ Usage:
 Prints JSON: the step to run, or {"status": "done"|"needs_you"|"error"}.
 With no --after it returns the workflow's first step.
 
+--attempt N is how many times the step you are REPORTING has now been run,
+counting this one (first report: 1; after one failure round-trip back to it:
+2). The engine stops with "retries exhausted" at N >= max_retries. The
+`attempt` in the answer is what the RETURNED step's counter will be.
+
 Artifact paths (in/out, a gate's show) are RELATIVE — join them to the
 worktree you are running in. Run the CLI with that worktree as the working
 directory so --out artifact checks resolve there.

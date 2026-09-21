@@ -17,6 +17,19 @@ Routing, in full:
                           reached ``max_retries`` → ``needs_you``
   abandoned             → the same step again (``route: retry``)
 
+A judgment step whose contract marks an out value ``fail_on:`` is routed as
+``failed`` even when the driver reports it ``completed`` — a review that says
+``needs_work`` must not advance onto the work it just rejected.
+
+Attempts, precisely. ``--attempt N`` is **how many times the step being
+reported has now been run, counting this one** — so the first report of a
+step passes 1, and the report after one ``on_failure``/``retry`` round-trip
+back to it passes 2. The engine stops with ``retries exhausted`` when
+``N >= max_retries``. The ``attempt`` in the answer is what the *returned*
+step's counter will be when the driver reports it: 1 for a step the run is
+arriving at fresh, ``N + 1`` when routing sends it back to the step just
+reported.
+
 A gate is emitted as a ready step with its ``show:`` artifacts resolved; the
 driver approves it however it likes and calls back with
 ``--after <gate> --status completed``.
@@ -144,6 +157,9 @@ def _resolve_io(
         if artifact:
             paths[name] = str(base / str(artifact))
         else:
+            # `fail_on` rides along so a reader can see which values the
+            # contract treats as a rejection — the engine derives routing
+            # from it, but a driver should be able to see the same rule.
             schema[name] = {k: v for k, v in spec.items() if k != "artifact"}
     return paths, schema
 
@@ -176,8 +192,56 @@ def _show_paths(
 # ---------------------------------------------------------------------------
 # the step payload
 # ---------------------------------------------------------------------------
+def failing_verdict(contract: Any, out: dict[str, Any] | None) -> str:
+    """The contract-declared negative verdict this payload reported, or "".
+
+    A judgment contract may mark enum outs with ``fail_on:``::
+
+        out:
+          verdict: {type: enum, values: [pass, needs_work], fail_on: [needs_work]}
+
+    A step reporting one of those values has judged its own subject
+    unacceptable. The step itself ran fine — the driver reports it
+    ``completed`` — but the workflow must not advance, or the next step
+    consumes work the reviewer just rejected. Routing treats it as a failure
+    and takes the ``on_failure`` edge, bounded by ``max_retries``.
+
+    Deriving this here rather than in the driver is what keeps a rejected
+    review from being waved through by a driver that forgot the rule.
+    """
+    if not isinstance(out, dict):
+        return ""
+    for name, spec in (getattr(contract, "outputs", None) or {}).items():
+        fail_on = spec.get("fail_on")
+        if not isinstance(fail_on, list):
+            continue
+        if out.get(name) in fail_on:
+            return f"{name}={out[name]}"
+    return ""
+
+
+def _prompt_dir_map(entries: list[dict[str, Any]], config_root: Path) -> dict[str, str]:
+    """step_id → charter dir for every judgment step in this workflow.
+
+    Config-derived, so the engine can answer it without any run state. The
+    learn charter needs it to know where a proposed scenario could land.
+    """
+    dirs: dict[str, str] = {}
+    for entry in entries:
+        step_id = entry["id"]
+        if step_id in dirs or entry.get("_gate"):
+            continue
+        try:
+            contract = load_contract_for_step(step_id, config_root)
+        except (OSError, ValueError):
+            continue
+        if isinstance(contract, AgentStepContract) and contract.prompt_dir:
+            dirs[step_id] = contract.prompt_dir
+    return dirs
+
+
 def _step_env(step_id: str, attempt: int, step_dir: str,
-              slug: str) -> dict[str, str]:
+              slug: str, prompt_dirs: dict[str, str] | None = None) -> dict[str, str]:
     """The variables the ENGINE contributes to a step's environment.
 
     Only what the engine actually knows: which step, which attempt, where the
@@ -198,6 +262,10 @@ def _step_env(step_id: str, attempt: int, step_dir: str,
         env["CHANGE_ID"] = slug
     if step_dir:
         env["ORCHESTRATOR_STEP_DIR"] = step_dir
+    if prompt_dirs:
+        # Every judgment step's charter dir in this workflow. The learn
+        # charter reads it to know where a proposed scenario could land.
+        env["ORCHESTRATOR_PROMPT_DIRS"] = json.dumps(prompt_dirs, sort_keys=True)
     return env
 
 
@@ -227,6 +295,7 @@ def build_step(
     """Build the ready-step answer for one workflow entry."""
     step_id = entry["id"]
     base = artifacts_base(doc, slug)
+    prompt_dirs = _prompt_dir_map(entries, config_root)
     result: dict[str, Any] = {
         "status": "ready", "step_id": step_id, "route": route,
         "attempt": attempt,
@@ -278,7 +347,7 @@ def build_step(
         payload["run_path"] = contract.run
         payload["step_dir"] = step_dir
         payload["state_mutating"] = bool(contract.state_mutating)
-        env = _step_env(step_id, attempt, step_dir, slug)
+        env = _step_env(step_id, attempt, step_dir, slug, prompt_dirs)
         for key, value in _contract_params(step_id, config_root).items():
             env.setdefault(key, value)
         payload["env"] = env
@@ -288,7 +357,7 @@ def build_step(
         payload["prompt_path"] = contract.prompt_path
         payload["step_dir"] = step_dir
         payload["max_turns"] = contract.max_turns
-        payload["env"] = _step_env(step_id, attempt, step_dir, slug)
+        payload["env"] = _step_env(step_id, attempt, step_dir, slug, prompt_dirs)
 
     result["payload"] = payload
     return result
@@ -473,6 +542,15 @@ def next_step(
                     "step_id": after,
                     "error": "invalid out: " + "; ".join(problems),
                 }
+            # A contract-declared negative verdict IS a failure, whatever the
+            # driver called it. The step ran fine; the work it judged did not
+            # pass, so the workflow takes the on_failure edge rather than
+            # advancing onto rejected work.
+            verdict = failing_verdict(contract, out)
+            if verdict:
+                status = "failed"
+                recorded["status"] = "failed"
+                recorded["derived_from"] = f"fail_on ({verdict})"
 
     def _emit(target_entry, route, att):
         result = build_step(
