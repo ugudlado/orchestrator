@@ -10,14 +10,14 @@ The engine is a pure function: it says what runs next and stores nothing.
 
 **Inputs:** workflow name, pack path, slug, the ticket id or brief text, repo
 root, and `$ORCH` — how this machine invokes the CLI. `$ORCH` is usually
-several argv tokens (`python -m orchestrator_next`), so never quote it as one
-word: write `$ORCH next …`, or build an argv list.
+several argv tokens (`python -m orchestrator_next`): never quote it as one
+word — write `$ORCH next …`, or build an argv list.
 
 ## Before you start
 
-Create ONE state.yaml at `<repo>/.orchestrator/<slug>/state.yaml` and always
-pass its **absolute** path as `STATE_YAML_PATH`. It stays there for the whole
-run — never copy or move it into the worktree. The pack's scripts read:
+Create ONE state.yaml at `<repo>/.orchestrator/<slug>/state.yaml`; pass its
+**absolute** path as `STATE_YAML_PATH`. It stays there all run — never copied
+into the worktree. The pack's scripts read:
 
 ```yaml
 change_id: <slug> # check-rerun, load-ticket-context
@@ -41,7 +41,6 @@ no-op and `user_input` becomes `ticket-context.md`. That is the offline path.
 Call `$ORCH next <workflow> --config <pack> --slug <slug>` (no `--after` the
 first time), act on `kind`, report, repeat until `status: done`.
 `status: ready` is the normal answer: run `step_id`, then report it.
-
 **Run the CLI with cwd = the run's working tree** — the repo root until
 `create-worktree` reports `worktree_path`, the worktree after. Artifact paths
 are relative and `--out` checks resolve against cwd.
@@ -67,9 +66,26 @@ has `extends:`, read the base charter first, and read `learnings.md` in
 (they are mandatory whatever the charter says — a missing one is rejected),
 and produce a value per `out_schema` key. Then
 `--status completed --out '{"<key>": "<value>", …}'`.
-Report the verdict honestly: if an `out_schema` key lists `fail_on`, sending
-one of those values routes the workflow back automatically. You do not need
-to call it failed — the engine derives that.
+
+**Substitute placeholders before briefing the worker.** Charters contain
+literal `{in.<name>}` and `{out.<name>}` — replace each with the matching path
+from `payload.in` / `payload.out` (names are `[A-Za-z0-9_-]+`). Leave any name
+the payload does not define exactly as written rather than blanking it. These
+are the only placeholders charters use.
+
+A charter may say "read the installed `<role>` skill first" (developer,
+code-reviewer, learner…). If your harness has no such skill, **the step's own
+SKILL.md is sufficient — proceed with it.**
+
+**Verdicts.** Either `--status failed` (as some charters instruct) or
+`--status completed` works for a rejecting verdict: the engine derives failure
+from `fail_on` either way. **Always put the verdict itself in `--out`** — that
+is what the engine reads. Ignore charter warnings that `completed` disarms the
+routing; that was true of an older engine, not this one.
+
+A charter may ask the worker for `tokens_in` / `tokens_out` / `duration_s`.
+A worker cannot measure those: fill them yourself if your harness exposes them,
+otherwise omit them or send zeros.
 
 ### kind: gate
 
@@ -83,10 +99,10 @@ self-approve. On approval append `payload.approve_as` to `tokens`, then
 `exec` → subprocess (no model). `judgment` → a fresh subagent with its own
 context; if your harness has no subagents, run a subprocess of your agent CLI
 with a model flag. Inline only as a last resort. **Never run a review step in
-the same context that produced the work.**
-Hand the worker: the charter path (plus its `extends` base and `learnings.md`
-if present), the `in` paths, the `out` paths it must write, the `out_schema`
-keys to return as JSON, and the cwd.
+the same context that produced the work.** Hand the worker: the charter
+(placeholders already substituted, plus its `extends` base and `learnings.md`),
+the `in` paths, the `out` paths it must write, the `out_schema` keys to return
+as JSON, and the cwd.
 
 ## Picking the model: choose a TIER, the pack maps tier → model
 
@@ -109,8 +125,7 @@ lacks that model use its nearest equivalent. Record `{step, tier, model}` in
 ## Outcomes
 
 - `needs_you` → stop, give the user `reason`, ask.
-- `await_input` → ask `await_input.ask`, re-run that step with the answer,
-  report it again with `--after <same step>`.
+- `await_input` → ask `await_input.ask`, re-run that step with the answer.
 - `error` (`invalid out: …`) → re-run the step once with the error text; if it
   fails again, stop and ask.
 - `done` → short report from `step_history`.
