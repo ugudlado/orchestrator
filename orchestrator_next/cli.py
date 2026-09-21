@@ -1,7 +1,6 @@
-# orchestrator — the workflow engine CLI.
+# orchestrator — the workflow engine CLI. One verb:
 #
 #   orchestrator next <workflow> --config PATH [...]   what runs next
-#   orchestrator graph <workflow> --config PATH        Mermaid DAG
 #
 # The engine is a pure function of the workflow config plus the step that
 # just ran. It keeps no state: history, attempts, gate approvals, worktrees
@@ -21,14 +20,17 @@ from pathlib import Path
 
 USAGE = """\
 Usage:
-  orchestrator next <workflow> --config PATH [--slug S] [--repo-root P]
+  orchestrator next <workflow> --config PATH [--slug S]
       [--after STEP (--status completed|failed|abandoned
                      | --exit-code N [--stdout-file F])
        [--out JSON] [--attempt N]]
-  orchestrator graph <workflow> --config PATH
 
-`next` prints JSON: the step to run, or {"status": "done"|"needs_you"|"error"}.
+Prints JSON: the step to run, or {"status": "done"|"needs_you"|"error"}.
 With no --after it returns the workflow's first step.
+
+Artifact paths (in/out, a gate's show) are RELATIVE — join them to the
+worktree you are running in. Run the CLI with that worktree as the working
+directory so --out artifact checks resolve there.
 """
 
 EXIT_ERROR = 3
@@ -62,8 +64,7 @@ def _next_verb(args: list[str]) -> int:
     if not (config_root / "workflows").is_dir():
         raise ValueError(f"--config {config!r} is not a pack root (no workflows/)")
 
-    repo_root = Path(_pop_flag(rest, "--repo-root") or os.getcwd()).expanduser()
-    slug = _pop_flag(rest, "--slug") or "run"
+    slug = _pop_flag(rest, "--slug") or ""
     after = _pop_flag(rest, "--after") or ""
     status = _pop_flag(rest, "--status") or ""
     stdout_file = _pop_flag(rest, "--stdout-file") or ""
@@ -91,7 +92,7 @@ def _next_verb(args: list[str]) -> int:
 
     try:
         result = next_step(
-            workflow, config_root=config_root, repo_root=repo_root, slug=slug,
+            workflow, config_root=config_root, slug=slug,
             after=after, status=status, exit_code=exit_code,
             stdout_file=stdout_file, out=out, attempt=attempt,
         )
@@ -99,25 +100,6 @@ def _next_verb(args: list[str]) -> int:
         raise ValueError(str(exc)) from None
 
     print(json.dumps(result, sort_keys=True, indent=2, default=str))
-    return 0
-
-
-def _graph_verb(args: list[str]) -> int:
-    """`orchestrator graph <workflow> --config PATH` — Mermaid, exit 0."""
-    from orchestrator_next.graph import render_workflow_graph
-
-    if not args or args[0].startswith("-"):
-        raise ValueError("usage: orchestrator graph <workflow> --config PATH")
-    workflow, rest = args[0], args[1:]
-    config = _pop_flag(rest, "--config") or os.environ.get("ORCHESTRATOR_CONFIG", "")
-    if not config:
-        raise ValueError(
-            "no config root — pass --config <pack> or set ORCHESTRATOR_CONFIG"
-        )
-    try:
-        print(render_workflow_graph(workflow, Path(config).expanduser()), end="")
-    except FileNotFoundError as exc:
-        raise ValueError(str(exc)) from None
     return 0
 
 
@@ -131,8 +113,6 @@ def main() -> None:
     try:
         if verb == "next":
             sys.exit(_next_verb(rest))
-        if verb == "graph":
-            sys.exit(_graph_verb(rest))
     except ValueError as exc:
         # Usage and infrastructure errors are JSON on stdout too, so a driver
         # never has to parse stderr. A protocol status (done / needs_you /

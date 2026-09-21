@@ -24,7 +24,7 @@ driver approves it however it likes and calls back with
 from __future__ import annotations
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
@@ -106,23 +106,37 @@ def _index_of(entries: list[dict[str, Any]], step_id: str) -> int:
 # ---------------------------------------------------------------------------
 # artifact paths
 # ---------------------------------------------------------------------------
-def artifacts_base(doc: dict[str, Any], slug: str, repo_root: Path) -> Path:
-    """Where this run's named artifacts live.
+def artifacts_base(doc: dict[str, Any], slug: str) -> PurePosixPath:
+    """Where this run's named artifacts live, RELATIVE to the working dir.
 
-    The workflow's ``artifacts_root`` template with ``{slug}`` filled in,
-    resolved under ``repo_root``. With no template, the engine's own default
-    location is used.
+    The workflow's ``artifacts_root`` template with ``{slug}`` filled in, or
+    the engine's default location when the workflow declares none.
+
+    Relative on purpose. A run's artifacts live in its worktree, and the
+    worktree is the driver's — it created it and knows its path. An absolute
+    path rendered here against some "repo root" would be wrong the moment a
+    worktree exists, so the engine says *where under the working dir* and the
+    driver joins that to the tree it is actually running in.
     """
     template = str(doc.get("artifacts_root") or "").strip()
     if template:
-        return repo_root / template.format(slug=slug)
-    return repo_root / ".orchestrator" / "runs" / slug / "artifacts"
+        if "{slug}" in template and not slug:
+            raise NextError(
+                f"workflow artifacts_root is {template!r} but no --slug was given"
+            )
+        return PurePosixPath(template.format(slug=slug))
+    if not slug:
+        raise NextError("no --slug: artifact paths cannot be resolved without one")
+    return PurePosixPath(".orchestrator") / "runs" / slug / "artifacts"
 
 
 def _resolve_io(
-    specs: dict[str, dict], base: Path
+    specs: dict[str, dict], base: PurePosixPath
 ) -> tuple[dict[str, str], dict[str, dict]]:
-    """Split an ``in:``/``out:`` block into resolved paths and a value schema."""
+    """Split an ``in:``/``out:`` block into paths and a value schema.
+
+    Paths are relative to the driver's working dir (see ``artifacts_base``).
+    """
     paths: dict[str, str] = {}
     schema: dict[str, dict] = {}
     for name, spec in (specs or {}).items():
@@ -137,7 +151,7 @@ def _resolve_io(
 def _show_paths(
     entries: list[dict[str, Any]],
     show: list[str],
-    base: Path,
+    base: PurePosixPath,
     config_root: Path,
 ) -> dict[str, str]:
     """Resolve a gate's ``show:`` names to paths, by asking who declares them.
@@ -162,24 +176,26 @@ def _show_paths(
 # ---------------------------------------------------------------------------
 # the step payload
 # ---------------------------------------------------------------------------
-def _step_env(step_id: str, entry: dict[str, Any], attempt: int,
-              step_dir: str, repo_root: Path, slug: str) -> dict[str, str]:
+def _step_env(step_id: str, attempt: int, step_dir: str,
+              slug: str) -> dict[str, str]:
     """The variables the ENGINE contributes to a step's environment.
 
-    Engine-set only. The caller's own environment is deliberately absent:
-    this block is printed as part of the payload, and copying os.environ into
-    it would print every secret the engine was started with. The driver merges
-    it over its own environment. Nothing here refers to a state document —
-    there isn't one; a step that needs run state gets it from the driver.
+    Only what the engine actually knows: which step, which attempt, where the
+    step's own files are, and the run's slug. Everything else a script reads
+    — the repo root, the worktree, the branch — belongs to the driver, which
+    is the thing that created them.
+
+    The caller's environment is deliberately absent: this block is printed as
+    part of the payload, and copying os.environ into it would print every
+    secret the engine was started with. The driver merges it over its own.
     """
     env = {
         "ORCHESTRATOR_STEP_ID": step_id,
         "ORCHESTRATOR_ATTEMPT": str(attempt),
-        "ORCHESTRATOR_CHANGE_ID": slug,
-        "ORCHESTRATOR_REPO_ROOT": str(repo_root),
-        "CHANGE_ID": slug,
-        "REPO_ROOT": str(repo_root),
     }
+    if slug:
+        env["ORCHESTRATOR_CHANGE_ID"] = slug
+        env["CHANGE_ID"] = slug
     if step_dir:
         env["ORCHESTRATOR_STEP_DIR"] = step_dir
     return env
@@ -204,14 +220,13 @@ def build_step(
     entries: list[dict[str, Any]],
     *,
     config_root: Path,
-    repo_root: Path,
     slug: str,
     attempt: int,
     route: str,
 ) -> dict[str, Any]:
     """Build the ready-step answer for one workflow entry."""
     step_id = entry["id"]
-    base = artifacts_base(doc, slug, repo_root)
+    base = artifacts_base(doc, slug)
     result: dict[str, Any] = {
         "status": "ready", "step_id": step_id, "route": route,
         "attempt": attempt,
@@ -263,7 +278,7 @@ def build_step(
         payload["run_path"] = contract.run
         payload["step_dir"] = step_dir
         payload["state_mutating"] = bool(contract.state_mutating)
-        env = _step_env(step_id, entry, attempt, step_dir, repo_root, slug)
+        env = _step_env(step_id, attempt, step_dir, slug)
         for key, value in _contract_params(step_id, config_root).items():
             env.setdefault(key, value)
         payload["env"] = env
@@ -273,9 +288,7 @@ def build_step(
         payload["prompt_path"] = contract.prompt_path
         payload["step_dir"] = step_dir
         payload["max_turns"] = contract.max_turns
-        payload["env"] = _step_env(
-            step_id, entry, attempt, step_dir, repo_root, slug
-        )
+        payload["env"] = _step_env(step_id, attempt, step_dir, slug)
 
     result["payload"] = payload
     return result
@@ -331,12 +344,18 @@ def parse_script_stdout(stdout: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # judgment output validation — the trust boundary for agent output
 # ---------------------------------------------------------------------------
-def validate_out(contract: Any, out: dict[str, Any], base: Path) -> list[str]:
+def validate_out(
+    contract: Any, out: dict[str, Any], base: PurePosixPath
+) -> list[str]:
     """Every way ``out`` fails the contract's ``out:`` block.
 
     Artifact outs must exist on disk; ``type: enum`` outs must carry a
     declared value; any other declared out must simply be present. An empty
     list means the payload satisfies the contract.
+
+    A relative path — the engine's own ``out`` paths are relative — resolves
+    against the process cwd, which is the worktree the driver invoked the CLI
+    from. An absolute path is checked exactly as given.
     """
     declared = getattr(contract, "outputs", None) or {}
     problems: list[str] = []
@@ -344,9 +363,10 @@ def validate_out(contract: Any, out: dict[str, Any], base: Path) -> list[str]:
         optional = bool(spec.get("optional"))
         artifact = spec.get("artifact")
         if artifact:
-            path = Path(str(out.get(name) or (base / str(artifact))))
+            reported = str(out.get(name) or "")
+            path = Path(reported) if reported else Path(base / str(artifact))
             if not path.is_absolute():
-                path = base / path
+                path = Path.cwd() / path
             if not path.is_file() and not optional:
                 problems.append(f"out.{name}: artifact not found at {path}")
             continue
@@ -370,8 +390,7 @@ def next_step(
     workflow: str,
     *,
     config_root: Path,
-    repo_root: Path,
-    slug: str = "run",
+    slug: str = "",
     after: str = "",
     status: str = "",
     exit_code: int | None = None,
@@ -387,12 +406,12 @@ def next_step(
     if not after:
         return build_step(
             entries[0], doc, entries, config_root=config_root,
-            repo_root=repo_root, slug=slug, attempt=1, route="next",
+            slug=slug, attempt=1, route="next",
         )
 
     index = _index_of(entries, after)
     entry = entries[index]
-    base = artifacts_base(doc, slug, repo_root)
+    base = artifacts_base(doc, slug)
     recorded: dict[str, Any] = {}
 
     # --- derive the outcome ------------------------------------------------
@@ -458,7 +477,7 @@ def next_step(
     def _emit(target_entry, route, att):
         result = build_step(
             target_entry, doc, entries, config_root=config_root,
-            repo_root=repo_root, slug=slug, attempt=att, route=route,
+            slug=slug, attempt=att, route=route,
         )
         result["recorded"] = recorded
         return result

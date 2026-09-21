@@ -63,14 +63,16 @@ def pack(tmp_path) -> Path:
 
 
 @pytest.fixture
-def repo(tmp_path) -> Path:
+def repo(tmp_path, monkeypatch) -> Path:
+    """The worktree the driver runs from — the CLI's working directory."""
     root = tmp_path / "repo"
     root.mkdir()
+    monkeypatch.chdir(root)
     return root
 
 
 def _next(pack, repo, **kw):
-    return next_step("mini", config_root=pack, repo_root=repo, slug="s1", **kw)
+    return next_step("mini", config_root=pack, slug="s1", **kw)
 
 
 # --------------------------------------------------------------- the basics
@@ -109,7 +111,8 @@ def test_a_gate_is_emitted_with_resolved_show_paths(pack, repo):
     payload = r["payload"]
     assert payload["approve_as"] == "impl_token"
     # `notes` is declared by think's out:, so the gate shows that path.
-    assert payload["show"]["notes"].endswith("spec/changes/s1/notes.md")
+    # Relative: the driver joins it to the worktree it owns.
+    assert payload["show"]["notes"] == "spec/changes/s1/notes.md"
 
 
 def test_a_gate_is_passed_by_reporting_it_completed(pack, repo):
@@ -268,6 +271,8 @@ def test_the_payload_never_leaks_the_engines_environment(pack, repo, monkeypatch
     assert "super-secret-value" not in str(r)
     assert env["ORCHESTRATOR_STEP_ID"] == "prep"
     assert env["CHANGE_ID"] == "s1"
+    # The repo root is the driver's to know, not the engine's.
+    assert "REPO_ROOT" not in env and "ORCHESTRATOR_REPO_ROOT" not in env
 
 
 def test_next_writes_nothing(pack, repo):
@@ -281,7 +286,7 @@ def test_next_writes_nothing(pack, repo):
 
 
 # ------------------------------------------- every real workflow terminates
-def test_every_real_workflow_walks_to_done(real_pack, tmp_path):
+def test_every_real_workflow_walks_to_done(real_pack, tmp_path, monkeypatch):
     """Walk each shipped workflow start→finish with all-completed outcomes."""
     workflows = sorted(
         p.stem for p in (real_pack / "workflows").glob("*.yaml")
@@ -290,8 +295,9 @@ def test_every_real_workflow_walks_to_done(real_pack, tmp_path):
     for name in workflows:
         repo = tmp_path / name
         repo.mkdir()
+        monkeypatch.chdir(repo)          # the worktree the driver runs from
         seen, step = [], next_step(
-            name, config_root=real_pack, repo_root=repo, slug="s1"
+            name, config_root=real_pack, slug="s1"
         )
         for _ in range(200):
             if step["status"] == "done":
@@ -309,7 +315,7 @@ def test_every_real_workflow_walks_to_done(real_pack, tmp_path):
                 values = spec.get("values")
                 out[out_name] = values[0] if values else "ok"
             step = next_step(
-                name, config_root=real_pack, repo_root=repo, slug="s1",
+                name, config_root=real_pack, slug="s1",
                 after=step["step_id"], status="completed", out=out,
             )
         else:
@@ -322,3 +328,49 @@ def test_every_real_workflow_walks_to_done(real_pack, tmp_path):
             )["steps"]
         ]
         assert seen == declared, name
+
+
+# --------------------------------------------- relative paths & the slug
+def test_artifact_paths_are_relative_to_the_working_dir(pack, repo):
+    """The engine names a location under the worktree; it does not own one."""
+    r = _next(pack, repo, after="signoff", status="completed")
+    payload = r["payload"]
+    assert payload["out"]["notes"] == "spec/changes/s1/notes.md"
+    assert not Path(payload["out"]["notes"]).is_absolute()
+    # The step's own files DO come back absolute: they derive from --config.
+    assert Path(payload["prompt_path"]).is_absolute()
+    assert Path(payload["step_dir"]).is_absolute()
+
+
+def test_a_template_needing_a_slug_errors_without_one(pack):
+    """No silent default: `{slug}` with no --slug is a loud failure."""
+    with pytest.raises(NextError, match="no --slug"):
+        next_step("mini", config_root=pack, slug="")
+
+
+def test_out_artifact_check_resolves_against_the_cwd(pack, repo, tmp_path):
+    """A relative --out path is checked in the tree the CLI runs from."""
+    (repo / "spec" / "changes" / "s1").mkdir(parents=True)
+    (repo / "spec" / "changes" / "s1" / "notes.md").write_text("n\n")
+    r = _next(pack, repo, after="think", status="completed",
+              out={"notes": "spec/changes/s1/notes.md", "complexity": "M"})
+    assert r["status"] == "ready", r
+
+    # The same relative path from a different cwd must NOT be found.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    import os
+    os.chdir(elsewhere)
+    r = _next(pack, repo, after="think", status="completed",
+              out={"notes": "spec/changes/s1/notes.md", "complexity": "M"})
+    assert r["status"] == "error"
+
+
+def test_an_absolute_out_path_is_checked_as_given(pack, repo, tmp_path):
+    """A driver may report an absolute path; it is honoured verbatim."""
+    art = tmp_path / "somewhere" / "notes.md"
+    art.parent.mkdir(parents=True)
+    art.write_text("n\n")
+    r = _next(pack, repo, after="think", status="completed",
+              out={"notes": str(art), "complexity": "M"})
+    assert r["status"] == "ready", r
