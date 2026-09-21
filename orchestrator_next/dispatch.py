@@ -2,11 +2,11 @@
 Pure dispatcher: State → (action_dict, exit_code).
 
 Two-path dispatch protocol:
-  exit 0 + JSON with agent key  → driver spawns Agent tool
+  exit 0 + JSON action          → the caller hands it to the driver
   exit 0 + no JSON              → inline script ran and recorded; driver loops
   exit 1                        → workflow complete; driver reads state.yaml
   exit 2                        → step blocked; driver reads state.yaml
-  exit 3                        → ContractDispatchError (missing agent: and run:)
+  exit 3                        → ContractDispatchError (no prompt: or run:)
   exit 4                        → next step `requires:` an unapproved gate token
 
 No action field. No signal field. No verify_phase.
@@ -20,8 +20,6 @@ from typing import Any
 import yaml
 
 from orchestrator_next import readiness
-from orchestrator_next.model_routes import resolve_step_alias
-from orchestrator_next.paths import ConfigRootError, config_root
 from orchestrator_next.step_env import build_dispatch_env as _build_dispatch_env
 from orchestrator_next.parser import (
     AgentStepContract,
@@ -32,26 +30,6 @@ from orchestrator_next.parser import (
     load_contract_for_step,
     phase_nodes,
 )
-
-
-def _models_yaml_path() -> str | None:
-    """Config-root models.yaml — ORCHESTRATOR_MODELS_CONFIG is applied via
-    model_routes layer chain (env_file), not by replacing this path."""
-    try:
-        return str(config_root() / "models.yaml")
-    except ConfigRootError:
-        return None
-
-
-def _resolved_model(step_id: str, contract: AgentStepContract) -> str:
-    """Resolve tier alias from models.yaml step_models (required)."""
-    alias = resolve_step_alias(step_id, None, _models_yaml_path())
-    if not alias:
-        raise ContractDispatchError(
-            f"step {step_id}: no step_models entry in models.yaml — "
-            f"add step_models.{step_id}: <strong|standard|code>"
-        )
-    return alias
 
 
 def _step_in_plan(state, phase: str, step_id: str) -> bool:
@@ -77,35 +55,6 @@ class ContractDispatchError(RuntimeError):
 
 # Blocking statuses: caller cannot proceed
 _BLOCKING_STATUSES = frozenset({"escalate_to_architect", "blocked"})
-_DEFAULT_MAX_SPAWN_FAILURES = 3
-
-
-def _is_spawn_failure(entry: StepHistoryEntry) -> bool:
-    """True when the entry is a pre-agent spawn failure (model=none, zero tokens)."""
-    if entry.status != "failed":
-        return False
-    usage = entry.usage if isinstance(entry.usage, dict) else {}
-    model = usage.get("model")
-    input_tokens = usage.get("input_tokens", 0)
-    output_tokens = usage.get("output_tokens", 0)
-    return model == "none" and input_tokens == 0 and output_tokens == 0
-
-
-def _consecutive_spawn_failures(
-    step_history: list[StepHistoryEntry], phase: str, step_id: str
-) -> int:
-    """Count trailing spawn failures for (phase, step_id) in step_history."""
-    count = 0
-    for entry in reversed(step_history):
-        if entry.phase != phase or entry.step_id != step_id:
-            continue
-        if _is_spawn_failure(entry):
-            count += 1
-            continue
-        break
-    return count
-
-
 def _node_step_context(state: State, step_id: str) -> dict[str, Any]:
     """Return the plan node dict for (current phase, step_id) as step_context."""
     node = readiness.find_node(phase_nodes(state, state.phase), step_id)
@@ -316,8 +265,8 @@ def _build_action_base(
 ) -> dict[str, Any]:
     """Build the base keys shared by both resume and fresh-dispatch action dicts.
 
-    Resume path adds: is_resume, started_at, model.
-    Fresh path adds: model (agent step) or run (script step).
+    Resume path adds: is_resume, started_at.
+    Fresh path adds: run (script step).
     """
     env = _build_dispatch_env(state, step_id, attempt, state_yaml_path)
     # The map goes to script steps too: persist-learnings resolves its append
@@ -332,7 +281,9 @@ def _build_action_base(
         "step_id": step_id,
         "phase": phase,
         "attempt": attempt,
-        "instruction": contract.instruction if isinstance(contract, AgentStepContract) else "",
+        "prompt_path": (
+            contract.prompt_path if isinstance(contract, AgentStepContract) else ""
+        ),
         "env": env,
         "step_context": _node_step_context(state, step_id),
         "prompt_dir": (
@@ -354,7 +305,7 @@ def _handle_resume(
     try:
         contract = load_contract_for_step(step_id)
     except FileNotFoundError:
-        contract = AgentStepContract(id=step_id, model=last.agent, instruction="")
+        contract = AgentStepContract(id=step_id)
     action = _build_action_base(
         contract,
         step_id,
@@ -365,8 +316,6 @@ def _handle_resume(
     )
     action["is_resume"] = True
     action["started_at"] = last.started_at
-    if isinstance(contract, AgentStepContract):
-        action["model"] = _resolved_model(step_id, contract)
     return action, 0
 
 
@@ -409,18 +358,6 @@ def _dispatch_fresh(
 
     contract = load_contract_for_step(next_step_id)
 
-    spawn_failures = _consecutive_spawn_failures(
-        state.step_history, state.phase, next_step_id
-    )
-    if spawn_failures >= _DEFAULT_MAX_SPAWN_FAILURES:
-        print(
-            f"BLOCKED: spawn_failure_cap — {spawn_failures} consecutive zero-token "
-            f"failures for {state.phase}/{next_step_id}",
-            file=sys.stderr,
-        )
-        _persist_blocked_status(state_yaml_path, state.raw)
-        return {"reason": "spawn_failure_cap"}, 2
-
     attempt = compute_attempt(state.step_history, state.phase, next_step_id, include_in_progress=True)
 
     action = _build_action_base(
@@ -431,9 +368,7 @@ def _dispatch_fresh(
         state,
         state_yaml_path,
     )
-    if isinstance(contract, AgentStepContract):
-        action["model"] = _resolved_model(next_step_id, contract)
-    else:
+    if not isinstance(contract, AgentStepContract):
         action["run"] = contract.run
 
     if claim:
@@ -444,7 +379,7 @@ def _dispatch_fresh(
 def dispatch(state: State, state_yaml_path: str) -> tuple[dict[str, Any], int]:
     """DAG-walk dispatcher: State → (action_dict, exit_code).
 
-    exit 0 + JSON with agent key → driver spawns Agent tool
+    exit 0 + JSON action → the caller hands it to the driver
     exit 0 + no JSON → inline script ran and recorded; driver loops
     exit 1 → workflow complete
     exit 2 → step blocked

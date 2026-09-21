@@ -20,7 +20,8 @@ import pytest
 import yaml
 
 from orchestrator_next import protocol
-from orchestrator_next.parser import KIND_JUDGMENT
+from orchestrator_next.parser import KIND_EXEC, KIND_JUDGMENT
+from orchestrator_next.tests.conftest import drive
 
 STEPS = ("prep", "think", "finish")
 
@@ -37,7 +38,7 @@ def repo(tmp_path):
         ["config", "user.email", "t@t.test"],
         ["config", "user.name", "t"],
         ["add", "-A"],
-        ["commit", "-m", "init"],
+        ["commit", "-m", "init"]
     ):
         subprocess.run(["git", "-C", str(root), *args],
                        capture_output=True, env=env, check=True)
@@ -60,7 +61,7 @@ def pack(tmp_path, repo, monkeypatch):
         (d / "contract.yaml").write_text(
             yaml.safe_dump({"id": step_id, "version": 1, "kind": "exec",
                             "run": "script.sh"}),
-            encoding="utf-8",
+            encoding="utf-8"
         )
         script = d / "script.sh"
         script.write_text(
@@ -85,7 +86,7 @@ def pack(tmp_path, repo, monkeypatch):
                 "complexity": {"type": "enum", "values": ["S", "M", "L"]},
             },
         }),
-        encoding="utf-8",
+        encoding="utf-8"
     )
     (think / "SKILL.md").write_text("# think\n\nThink about it.\n", encoding="utf-8")
 
@@ -93,7 +94,7 @@ def pack(tmp_path, repo, monkeypatch):
     models.write_text(
         "models:\n  standard: {model_id: mock-model, tool: mock}\n"
         "step_models:\n" + "".join(f"  {s}: standard\n" for s in STEPS),
-        encoding="utf-8",
+        encoding="utf-8"
     )
     monkeypatch.setenv("ORCHESTRATOR_MODELS_CONFIG", str(models))
     monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack_root))
@@ -112,10 +113,11 @@ def _artifacts(repo: Path) -> Path:
     return repo / ".orchestrator" / "runs" / "p-run" / "artifacts"
 
 
-def test_start_runs_exec_then_stops_at_judgment(pack, repo):
-    """start seeds the run and returns the first judgment payload.
+def test_start_returns_the_exec_step_without_running_it(pack, repo):
+    """start seeds the run and hands back the FIRST step, whatever its kind.
 
-    The leading exec step must already have run: the harness never sees it.
+    The leading step is an exec step: the engine returns it as a payload
+    naming the script, and never spawns anything itself.
     """
     result, code = protocol.start("mini", "p-run")
     assert code == 0
@@ -124,40 +126,51 @@ def test_start_runs_exec_then_stops_at_judgment(pack, repo):
 
     nxt = result["next"]
     assert nxt["status"] == "ready"
+    assert nxt["kind"] == KIND_EXEC
+    assert nxt["step_id"] == "prep"
+    exec_payload = nxt["payload"]
+    assert exec_payload["run_path"].endswith(".sh")
+    assert Path(exec_payload["run_path"]).is_file()
+    assert exec_payload["step_dir"]
+    assert exec_payload["env"]["ORCHESTRATOR_STEP_ID"] == "prep"
+    # Nothing ran: no history entry for it yet.
+    assert yaml.safe_load(Path(result["state"]).read_text())["step_history"] == []
+
+    # Drive it the way a driver does, and the judgment step comes next.
+    nxt = drive(result["state"], first=nxt)
+    assert nxt["status"] == "ready"
     assert nxt["kind"] == KIND_JUDGMENT
     assert nxt["step_id"] == "think"
 
     payload = nxt["payload"]
     assert payload["max_turns"] == 12
     assert payload["tools"] == ["fs.read", "fs.write"]
-    assert payload["model"] == "standard"
-    assert payload["model_id"] == "mock-model"
     # Artifacts are resolved to absolute paths by the engine (principle 4).
     assert payload["out"]["notes"] == str(_artifacts(repo) / "notes.md")
     assert payload["in"]["brief"] == str(_artifacts(repo) / "brief.md")
     assert payload["out_schema"]["complexity"]["values"] == ["S", "M", "L"]
-    # A migrated step's prompt carries the structured-output contract, not
-    # the legacy COMPLETION block.
-    assert "COMPLETION:" not in payload["system"]
-    assert "```json" in payload["system"]
+    # The engine composes no prompt: it names the charter to read.
+    assert "system" not in payload and "prompt" not in payload
+    assert payload["prompt_path"].endswith(".md")
 
 
 def test_done_records_and_returns_next_step(pack, repo):
     """A valid --out advances the run through the trailing exec step to done."""
     started, _ = protocol.start("mini", "p-run")
     run = started["state"]
+    drive(run, first=started["next"])          # run the leading exec step
+    (_artifacts(repo) / "notes.md").parent.mkdir(parents=True, exist_ok=True)
     (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
 
     result, code = protocol.done(
         run, "think",
-        out={"notes": str(_artifacts(repo) / "notes.md"), "complexity": "M"},
-        usage={"input_tokens": 120, "output_tokens": 45, "model": "mock-model"},
+        out={"notes": str(_artifacts(repo) / "notes.md"), "complexity": "M"}
     )
     assert code == 0
     assert result["status"] == "ok"
-    # `finish` is an exec step, so `done`'s own next-step lookup runs it and
-    # reports the completed run rather than handing anything back.
-    assert result["next"]["status"] == "done"
+    # `finish` is an exec step: `done` hands it back for the driver to run.
+    assert result["next"]["kind"] == KIND_EXEC
+    assert drive(run, first=result["next"])["status"] == "done"
 
 
 def test_done_rejects_missing_artifact(pack, repo):
@@ -166,8 +179,7 @@ def test_done_rejects_missing_artifact(pack, repo):
     with pytest.raises(protocol.ProtocolError) as exc:
         protocol.done(
             started["state"], "think",
-            out={"complexity": "M"},
-            usage={"input_tokens": 1, "output_tokens": 1},
+            out={"complexity": "M"}
         )
     assert "notes" in str(exc.value)
     assert "artifact not found" in str(exc.value)
@@ -175,12 +187,13 @@ def test_done_rejects_missing_artifact(pack, repo):
 
 def test_done_rejects_enum_outside_declared_values(pack, repo):
     started, _ = protocol.start("mini", "p-run")
+    drive(started["state"], first=started["next"])
+    (_artifacts(repo) / "notes.md").parent.mkdir(parents=True, exist_ok=True)
     (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
     with pytest.raises(protocol.ProtocolError) as exc:
         protocol.done(
             started["state"], "think",
-            out={"notes": "notes.md", "complexity": "XXL"},
-            usage={"input_tokens": 1, "output_tokens": 1},
+            out={"notes": "notes.md", "complexity": "XXL"}
         )
     assert "complexity" in str(exc.value)
 
@@ -191,99 +204,30 @@ def test_done_rejects_a_declared_value_left_out_entirely(pack, repo):
     harness fixes the step's output and retries, rather than the engine
     recording a half-finished step (protocol v2 §5)."""
     started, _ = protocol.start("mini", "p-run")
+    drive(started["state"], first=started["next"])
+    (_artifacts(repo) / "notes.md").parent.mkdir(parents=True, exist_ok=True)
     (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
     with pytest.raises(protocol.ProtocolError) as exc:
         protocol.done(
             started["state"], "think",
             out={"notes": "notes.md"},  # complexity declared, never reported
-            usage={"input_tokens": 1, "output_tokens": 1},
         )
     assert "complexity" in str(exc.value)
     assert "missing" in str(exc.value)
 
 
-def test_done_rejects_zero_usage(pack, repo):
-    """protocol-v2 §5 keeps record.py's existing usage guard verbatim."""
-    started, _ = protocol.start("mini", "p-run")
-    (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
-    with pytest.raises(protocol.ProtocolError) as exc:
-        protocol.done(
-            started["state"], "think",
-            out={"notes": "notes.md", "complexity": "S"},
-            usage={"input_tokens": 0, "output_tokens": 0},
-        )
-    assert "agent_step_missing_usage" in str(exc.value)
 
 
-def test_status_reports_nodes_and_usage(pack, repo):
-    started, _ = protocol.start("mini", "p-run")
-    (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
-    protocol.done(
-        started["state"], "think",
-        out={"notes": "notes.md", "complexity": "L"},
-        usage={"input_tokens": 100, "output_tokens": 20, "model": "mock-model"},
-    )
-    result, code = protocol.status(started["state"])
-    assert code == 0
-    ids = {n["id"]: n for n in result["nodes"]}
-    assert set(ids) == set(STEPS)
-    assert ids["think"]["kind"] == KIND_JUDGMENT
-    assert ids["prep"]["kind"] == "exec"
-    assert result["usage"]["input_tokens"] == 100
-    assert result["gate_token"] is None
 
 
-def test_events_lists_history(pack, repo):
-    started, _ = protocol.start("mini", "p-run")
-    entries, code = protocol.events(started["state"])
-    assert code == 0
-    assert any(e["step_id"] == "prep" for e in entries)
 
 
-def test_events_step_filter_keeps_one_nodes_attempts(pack, repo):
-    """The pane's log panel asks for one step, not the whole run's history."""
-    started, _ = protocol.start("mini", "p-run")
-    (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
-    protocol.done(
-        started["state"], "think",
-        out={"notes": "notes.md", "complexity": "L"},
-        usage={"input_tokens": 100, "output_tokens": 20, "model": "mock-model"},
-    )
-    every, _ = protocol.events(started["state"])
-    assert {e["step_id"] for e in every} > {"think"}
-
-    entries, code = protocol.events(started["state"], step="think")
-    assert code == 0
-    assert entries
-    assert {e["step_id"] for e in entries} == {"think"}
 
 
-def test_events_step_filter_on_an_unknown_step_is_empty_not_an_error(pack, repo):
-    """A step that left the plan answers nothing rather than failing the pane."""
-    started, _ = protocol.start("mini", "p-run")
-    entries, code = protocol.events(started["state"], step="no-such-step")
-    assert code == 0
-    assert entries == []
 
 
-def test_events_step_and_since_narrow_together(pack, repo):
-    """Both filters apply; neither cancels the other."""
-    started, _ = protocol.start("mini", "p-run")
-    entries, code = protocol.events(
-        started["state"], step="prep", since="2999-01-01T00:00:00Z"
-    )
-    assert code == 0
-    assert entries == []
 
 
-def test_events_cli_takes_the_step_flag(pack, repo, capsys):
-    """`orchestrator events <run> --step <id> --json` — what the Mod runs."""
-    started, _ = protocol.start("mini", "p-run")
-    code = protocol.main("events", [started["state"], "--step", "prep", "--json"])
-    assert code == 0
-    printed = capsys.readouterr().out.strip().splitlines()
-    assert printed
-    assert all(json.loads(line)["step_id"] == "prep" for line in printed)
 
 
 def test_resolve_run_rejects_unknown_ref(pack):
@@ -324,89 +268,3 @@ def test_start_on_an_unknown_slug_still_seeds(pack, repo):
     assert code == 0
     assert result.get("resumed") is not True
     assert result["run_id"]
-
-
-def test_done_prices_a_step_whose_usage_names_no_model(pack, repo):
-    """A harness that reports tokens but not the model still gets a cost.
-
-    The Claude mod sent only `{input_tokens, output_tokens}`, so pricing found
-    no `usage.model`, recorded no cost, and `status --json` summed every agent
-    step to `cost_usd: 0.0`. `done` now falls back to the model the dispatcher
-    routed the step to, and flags the figure as an estimate.
-    """
-    import yaml as _yaml
-
-    (pack / "pricing.yaml").write_text(
-        "models:\n"
-        "  - model_id: mock-model\n"
-        "    input_usd: 3.0\n"
-        "    output_usd: 15.0\n"
-        "    cache_read_usd: 0.0\n"
-        "    cache_creation_usd: 0.0\n"
-        '    effective_from: "2000-01-01T00:00:00"\n',
-        encoding="utf-8",
-    )
-    from orchestrator_next import pricing as _pricing_mod
-    _pricing_mod._load_pricing_table.cache_clear()
-
-    started, _ = protocol.start("mini", "p-run")
-    run = started["state"]
-    (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
-
-    _result, code = protocol.done(
-        run, "think",
-        out={"notes": str(_artifacts(repo) / "notes.md"), "complexity": "M"},
-        usage={"input_tokens": 1_000_000, "output_tokens": 0},
-    )
-    assert code == 0
-
-    raw = _yaml.safe_load(Path(run).read_text(encoding="utf-8"))
-    entry = next(e for e in raw["step_history"] if e["step_id"] == "think")
-    assert entry["usage"]["model"] == "mock-model"
-    assert entry["usage"]["cost_partial"] is True
-    assert entry["usage"]["cost_usd"] == pytest.approx(3.0)
-
-    from orchestrator_next.pricing import sum_cost_usd
-    assert sum_cost_usd(raw) == pytest.approx(3.0)
-    _pricing_mod._load_pricing_table.cache_clear()
-
-
-def test_done_records_started_at_so_duration_is_real(pack, repo):
-    """`--started-at` is what keeps a judgment step's duration from being 0.
-
-    record.py defaults `started_at` to `now` and derives `duration_ms` from
-    `ended_at - started_at`, so a harness that omits it records EVERY agent
-    step at 0ms however long it ran. Observed on run 01a0af3f: `explore`
-    spanned 13:11 to 20:05 and still recorded `duration_ms: 0`.
-    """
-    started, _ = protocol.start("mini", "p-run")
-    run = started["state"]
-    (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
-
-    result, code = protocol.done(
-        run, "think",
-        out={"notes": str(_artifacts(repo) / "notes.md"), "complexity": "M"},
-        usage={"input_tokens": 120, "output_tokens": 45, "model": "mock-model"},
-        started_at="2020-01-01T00:00:00.000Z",
-    )
-    assert code == 0
-
-    state = yaml.safe_load(Path(run).read_text(encoding="utf-8"))
-    entry = next(e for e in state["step_history"] if e["step_id"] == "think")
-    assert entry["started_at"] == "2020-01-01T00:00:00.000Z"
-    # Years, not zero: the duration now comes off the real span.
-    assert entry["usage"]["duration_ms"] > 0
-
-
-def test_done_without_started_at_still_records(pack, repo):
-    """The flag is optional: omitting it keeps the previous behaviour."""
-    started, _ = protocol.start("mini", "p-run")
-    run = started["state"]
-    (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
-
-    _, code = protocol.done(
-        run, "think",
-        out={"notes": str(_artifacts(repo) / "notes.md"), "complexity": "M"},
-        usage={"input_tokens": 120, "output_tokens": 45, "model": "mock-model"},
-    )
-    assert code == 0

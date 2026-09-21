@@ -89,7 +89,7 @@ def _doc(repo_root, base, *, build_status="pending"):
 
 
 def _handle(tmp_path, doc):
-    handle = f"sqlite:///{tmp_path}/skip.db#orc-skip"
+    handle = str(tmp_path / "orc-skip.yaml")
     store, h = ss.open_store(handle)
     store.create(h, json.loads(json.dumps(doc)))
     return handle

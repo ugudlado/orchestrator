@@ -17,7 +17,6 @@ import pytest
 import yaml
 
 from orchestrator_next.protocol import ProtocolError, resume
-from orchestrator_next.protocol import step as protocol_step
 from orchestrator_next.seed import seed_state_file
 
 
@@ -134,14 +133,15 @@ def _seed(tmp_path, pack, monkeypatch, slug):
     return state, repo
 
 
-def _drive(state_path: Path, limit: int = 12) -> dict:
-    """`orchestrator step` until the run is no longer dispatchable."""
-    result: dict = {}
-    for _ in range(limit):
-        result, _ = protocol_step(str(state_path))
-        if result.get("status") != "ready":
-            return result
-    raise AssertionError("step did not settle")
+def _drive(state_path: Path, limit: int = 12, first: dict | None = None) -> dict:
+    """`orchestrator step` until the run is no longer dispatchable.
+
+    Exec steps come back as payloads now, so the loop runs them the way a
+    driver would (see conftest.drive).
+    """
+    from orchestrator_next.tests.conftest import drive
+
+    return drive(state_path, limit=limit, first=first)
 
 
 def _awaiting(state_path: Path) -> dict | None:
@@ -149,9 +149,18 @@ def _awaiting(state_path: Path) -> dict | None:
 
 
 def _resume(state_path: Path, repo: Path, text: str) -> dict:
-    """`orchestrator resume <run> "<text>"` — the verb a harness calls."""
+    """`orchestrator resume <run> "<text>"`, then drive to the next stop.
+
+    `resume` hands back the next step; when that is an exec step the driver
+    still has to run it, so keep walking until the run settles.
+    """
     result, _ = resume(str(state_path), text)
-    return result["next"]
+    nxt = result["next"]
+    if nxt.get("status") == "ready" and nxt.get("kind") == "exec":
+        # Run the payload resume handed back, not a fresh one: it is the one
+        # carrying the unmatched text as ORCHESTRATOR_USER_DIRECTION.
+        return _drive(state_path, first=nxt)
+    return nxt
 
 
 def test_option_label_match_advances_without_redispatch(tmp_path, monkeypatch):
@@ -258,7 +267,8 @@ def test_resume_matches_by_label(tmp_path, monkeypatch):
     result, code = resume(str(state), "approve")
     assert code == 0
     assert result["matched"] is True
-    assert result["next"]["status"] == "done"
+    # `resume` hands back the next step; the driver still runs it.
+    assert _drive(state)["status"] == "done"
 
 
 def test_resume_matches_by_index(tmp_path, monkeypatch):
@@ -269,6 +279,7 @@ def test_resume_matches_by_index(tmp_path, monkeypatch):
 
     result, _ = resume(str(state), "2")  # 2 == rework, which resets the DAG
     assert result["matched"] is True
+    _drive(state)
 
     raw = yaml.safe_load(state.read_text())
     statuses = [(e.get("step_id"), e.get("status")) for e in raw["step_history"]]
@@ -284,8 +295,9 @@ def test_resume_with_a_wrong_answer_falls_through_to_the_step(tmp_path, monkeypa
     result, code = resume(str(state), "maybe later?")
     assert code == 0
     assert result["matched"] is False
-    # The step re-ran with the raw text and asked a clarifying question.
-    assert result["next"]["status"] == "needs_you"
+    # The step is handed back for the driver to re-run with the raw text; it
+    # then asks a clarifying question.
+    assert _drive(state, first=result["next"])["status"] == "needs_you"
     assert "maybe later?" in yaml.safe_load(state.read_text())["awaiting"]["ask"]
 
 

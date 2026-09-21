@@ -57,7 +57,8 @@ def test_pending_judgment_step_is_ready_with_a_payload(tmp_path, monkeypatch):
     assert result["status"] == "ready"
     assert result["kind"] == "judgment"
     assert result["step_id"] == "my-step"
-    assert result["payload"]["model"] == "auto"
+    # The engine resolves no model: the charter path is what it names.
+    assert result["payload"]["prompt_path"].endswith(".md")
     # v1's `action` envelope is gone: the harness reads `payload`.
     assert "action" not in result
 

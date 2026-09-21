@@ -12,7 +12,6 @@ the functions are directly unit-testable.
 from __future__ import annotations
 
 import hashlib
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -109,23 +108,6 @@ def collect(
             "declared out: artifacts not found: " + ", ".join(missing)
         )
     return out
-
-
-def run_validate(script: str, cwd: str | Path, env: dict[str, str] | None = None) -> None:
-    """Run a contract's ``validate:`` script; non-zero exit raises ArtifactError."""
-    proc = subprocess.run(
-        ["bash", "-c", script],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip()
-        raise ArtifactError(
-            f"validate: script failed (exit {proc.returncode})"
-            + (f": {detail}" if detail else "")
-        )
 
 
 # ---------------------------------------------------------------------------

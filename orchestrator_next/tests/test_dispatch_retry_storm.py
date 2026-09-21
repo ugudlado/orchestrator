@@ -206,53 +206,8 @@ def _orc84_storm_completion_storm_history() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def test_three_consecutive_model_none_failures_for_same_step_id_returns_exit_2_with_spawn_failure_cap_reason(
-    tmp_path, monkeypatch, capsys
-):
-    state = _promoted_plan_state(
-        tmp_path,
-        nodes=[_task_node("task-T-1", status="pending")],
-        step_history=[
-            _spawn_failure_entry("task-T-1", "main", 1),
-            _spawn_failure_entry("task-T-1", "main", 2),
-            _spawn_failure_entry("task-T-1", "main", 3),
-        ],
-    )
-    state_path = _setup(tmp_path, monkeypatch, state)
-    action, code = dispatch(load_state(state_path), state_path)
-
-    assert code == 2, f"expected exit 2 (spawn_failure_cap), got {code}"
-    assert action.get("reason") == "spawn_failure_cap", (
-        f"expected blocked reason spawn_failure_cap, got {action!r}"
-    )
-    err = capsys.readouterr().err
-    assert "spawn_failure_cap" in err
-    assert "task-T-1" in err
 
 
-def test_spawn_failure_cap_persists_blocked_status_to_state_yaml(
-    tmp_path, monkeypatch, capsys
-):
-    """dispatch() returning exit 2 for the spawn_failure_cap must also persist
-    status: blocked to the state store — a consumer reading state.yaml alone
-    (not just the CLI exit code) must be able to see the run is stuck."""
-    state = _promoted_plan_state(
-        tmp_path,
-        nodes=[_task_node("task-T-1", status="pending")],
-        step_history=[
-            _spawn_failure_entry("task-T-1", "main", 1),
-            _spawn_failure_entry("task-T-1", "main", 2),
-            _spawn_failure_entry("task-T-1", "main", 3),
-        ],
-    )
-    state_path = _setup(tmp_path, monkeypatch, state)
-    action, code = dispatch(load_state(state_path), state_path)
-    assert code == 2
-
-    raw = yaml.safe_load(open(state_path).read())
-    assert raw.get("status") == "blocked", (
-        f"expected state.yaml status=blocked after spawn_failure_cap, got {raw.get('status')!r}"
-    )
 
 
 def test_two_consecutive_model_none_failures_then_a_third_for_a_different_step_id_does_not_trip_cap(

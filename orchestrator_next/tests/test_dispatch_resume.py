@@ -15,16 +15,17 @@ These tests are RED until T-6 replaces the retry_step branch with resume_step.
 """
 from __future__ import annotations
 
+import json as _json
 import os
+import os as _os
+import subprocess as _subprocess
 import sys
+import sys as _sys
+import textwrap as _textwrap
+import unittest as _unittest
 
 import pytest
 import yaml
-
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_SCRIPTS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
-if _SCRIPTS_DIR not in sys.path:
-    sys.path.insert(0, _SCRIPTS_DIR)
 
 from orchestrator_next.parser import State, StepHistoryEntry
 from orchestrator_next.tests.conftest import install_step_models
@@ -156,7 +157,7 @@ class TestResumeStepActionShape:
         state = _make_state_with_inprogress("my-resume-step", "developer")
         action, code = dispatch(state, state_yaml_path)
 
-        assert action.get("is_resume") is True and "model" in action, (
+        assert action.get("is_resume") is True and "prompt_path" in action, (
             "Expected is_resume=True and agent key (ORC-45: no action field)"
         )
         assert action.get("is_resume") is True, (
@@ -183,7 +184,7 @@ class TestResumeStepActionShape:
         state = _make_state_with_inprogress("my-resume-step", "developer", attempt=1)
         action, code = dispatch(state, state_yaml_path)
 
-        assert action.get("is_resume") is True and "model" in action  # ORC-45: no action field
+        assert action.get("is_resume") is True and "prompt_path" in action  # ORC-45: no action field
         assert action.get("is_resume") is True
         assert action["attempt"] == 1, (
             f"Expected attempt=1 (preserved), got: {action['attempt']} "
@@ -211,7 +212,7 @@ class TestResumeStepActionShape:
         )
         action, code = dispatch(state, state_yaml_path)
 
-        assert action.get("is_resume") is True and "model" in action  # ORC-45: no action field
+        assert action.get("is_resume") is True and "prompt_path" in action  # ORC-45: no action field
         assert action.get("started_at") == original_started_at, (
             f"Expected started_at={original_started_at!r}, got: {action.get('started_at')!r}"
         )
@@ -280,7 +281,7 @@ class TestResumeStepActionShape:
         )
         action, code = dispatch(state, state_yaml_path)
 
-        assert action.get("is_resume") is True and "model" in action  # ORC-45: no action field
+        assert action.get("is_resume") is True and "prompt_path" in action  # ORC-45: no action field
         assert action["attempt"] == 2, (
             f"Expected attempt=2 (preserved from in_progress entry), got: {action['attempt']} "
             "(must NOT return _compute_attempt which would give max(1,2,2)+1=3)"
@@ -306,7 +307,7 @@ class TestResumeStepActionShape:
         state = _make_state_with_inprogress("ctx-step", "developer")
         action, code = dispatch(state, state_yaml_path)
 
-        assert action.get("is_resume") is True and "model" in action  # ORC-45: no action field
+        assert action.get("is_resume") is True and "prompt_path" in action  # ORC-45: no action field
         assert "step_context" in action
         assert action["step_context"].get("id") == "ctx-step", (
             f"step_context must identify the resumed step, got: {action['step_context']}"
@@ -323,13 +324,6 @@ class TestResumeStepActionShape:
 # is enforced by SKILL.md prose contract. Testing it from Python would require
 # mocking the driver loop — overkill. Instead we verify the CLI emits the
 # correct JSON action that the driver interprets as a resume signal.
-
-import json as _json
-import os as _os
-import subprocess as _subprocess
-import sys as _sys
-import textwrap as _textwrap
-import unittest as _unittest
 
 _HERE_SUB = _os.path.dirname(_os.path.abspath(__file__))
 _WORKTREE_ROOT_SUB = _os.path.abspath(_os.path.join(_HERE_SUB, "..", ".."))

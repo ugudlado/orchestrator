@@ -23,33 +23,9 @@ class WorkflowRefError(RuntimeError):
     """Raised when a workflow name / pack/workflow ref cannot be resolved."""
 
 
-PACK_GIT_URL = "https://github.com/ugudlado/skills.git"
-WORKFLOW_CONFIG_GIT_URL = "https://github.com/ugudlado/workflows.git"
-PACK_DOWNLOAD_HINT = (
-    "pull a workflow pack into the repo: "
-    f"orchestrator config pull {WORKFLOW_CONFIG_GIT_URL} [pack-name]"
-)
-
-# Synthetic pack name for a root reached via ORCHESTRATOR_CONFIG rather than
-# by name under .orchestrator/<pack>/.
-DEFAULT_PACK = "default"
-
-# Reserved name under .orchestrator/ that is never a pack, even if one of its
-# generated subdirectories happens to be named after a real pack (a plugin
-# generated for a pack named "workflows" lands at .orchestrator/plugins/
-# workflows/, which would otherwise satisfy the "has a workflows/ dir" test
-# below by coincidence).
-_RESERVED_ORCH_DIR_NAMES = frozenset({"plugins"})
-
-
 def pack_root() -> Path:
     """Global downloaded base-role pack (~/.orchestrator/pack)."""
     return Path.home() / ".orchestrator" / "pack"
-
-
-def engine_data_dir() -> Path:
-    """Engine-owned data shipped in the wheel (pricing rates, models seed)."""
-    return Path(__file__).resolve().parent / "data"
 
 
 def bundled_config_root() -> Path:
@@ -62,75 +38,27 @@ def repo_root_from_env() -> Path | None:
     return Path(raw) if raw else None
 
 
-def list_config_packs(repo_root: Path | None = None) -> list[tuple[str, Path]]:
-    """Named config packs under ``<repo>/.orchestrator/<pack>/``.
+#: Synthetic pack label for a root the caller pointed at explicitly.
+DEFAULT_PACK = "default"
 
-    A pack is a directory that contains ``workflows/``. Ticket state dirs
-    (``.orchestrator/<slug>/``) are skipped because they have no workflows/.
-    """
-    root = repo_root if repo_root is not None else repo_root_from_env()
-    if root is None:
-        return []
-    orch = Path(root) / ".orchestrator"
-    if not orch.is_dir():
-        return []
-
-    packs: list[tuple[str, Path]] = []
-    for child in sorted(orch.iterdir()):
-        if not child.is_dir() or child.name.startswith("."):
-            continue
-        if child.name in _RESERVED_ORCH_DIR_NAMES:
-            continue
-        if (child / "workflows").is_dir():
-            packs.append((child.name, child))
-    return packs
-
-
-def _vendored_config_root(repo_root: Path) -> Path | None:
-    """Pick a default vendored pack when ORCHESTRATOR_CONFIG is unset.
-
-    - Exactly one pack → that pack
-    - Multiple packs → None (caller must use pack/workflow or set ORCHESTRATOR_CONFIG)
-    """
-    packs = list_config_packs(repo_root)
-    if len(packs) == 1:
-        return packs[0][1]
-    return None
+CONFIG_HINT = (
+    "point the engine at a pack root: `--config <path>` on `start`, "
+    "or the ORCHESTRATOR_CONFIG environment variable"
+)
 
 
 def config_root_with_source() -> tuple[Path, str]:
     """Resolve the active config root, plus a label for which source won.
 
-    Resolution order (first hit wins):
-      1. ORCHESTRATOR_CONFIG — explicit config root ("env")
-      2. Exactly one ``<repo>/.orchestrator/<pack>/`` ("vendored")
-
-    Plan phase 3.2 deleted the two implicit fallbacks (the engine checkout's
-    ``config/`` and ``~/.orchestrator/pack/config``): a run must be able to say
-    exactly which pulled, locked pack it came from, and a silent global
-    fallback makes that unanswerable.
-
-    Multiple vendored packs with no env → ConfigRootError (use pack/workflow).
+    Explicit only: the pack root is an input to the engine, never something it
+    goes looking for. ``--config`` on ``start`` sets ORCHESTRATOR_CONFIG for
+    the process, and ``start`` persists the resolved root in the run doc so
+    every later verb reads it back off the run rather than the environment.
     """
     explicit = os.environ.get("ORCHESTRATOR_CONFIG")
     if explicit:
         return Path(explicit), "env"
-    repo_root = repo_root_from_env()
-    if repo_root is not None:
-        packs = list_config_packs(repo_root)
-        if len(packs) == 1:
-            return packs[0][1], "vendored"
-        if len(packs) > 1:
-            names = ", ".join(p[0] for p in packs)
-            raise ConfigRootError(
-                f"multiple config packs under {repo_root / '.orchestrator'} ({names}); "
-                "pass a workflow as <pack>/<workflow> or set ORCHESTRATOR_CONFIG — "
-                + PACK_DOWNLOAD_HINT
-            )
-    raise ConfigRootError(
-        "no workflow config found (checked ORCHESTRATOR_CONFIG and "
-        "repo .orchestrator/<pack>/) — " + PACK_DOWNLOAD_HINT
-    )
+    raise ConfigRootError("no workflow config root set — " + CONFIG_HINT)
 
 
 def config_root() -> Path:
@@ -143,29 +71,16 @@ def list_workflows(
     repo_root: Path | None = None,
 ) -> dict[str, list[tuple[str, Path]]]:
     """Map bare workflow name → [(pack_name, config_root), ...]."""
-    packs = list_config_packs(repo_root)
-    if not packs:
-        # Fall back to the active config_root (ORCHESTRATOR_CONFIG).
-        try:
-            root = config_root()
-        except ConfigRootError:
-            return {}
-        return _workflows_in_root(DEFAULT_PACK, root)
-
+    try:
+        root = config_root()
+    except ConfigRootError:
+        return {}
     out: dict[str, list[tuple[str, Path]]] = {}
-    for pack_name, root in packs:
-        for wf, hits in _workflows_in_root(pack_name, root).items():
-            out.setdefault(wf, []).extend(hits)
-    return out
-
-
-def _workflows_in_root(pack_name: str, root: Path) -> dict[str, list[tuple[str, Path]]]:
     wf_dir = root / "workflows"
-    out: dict[str, list[tuple[str, Path]]] = {}
     if not wf_dir.is_dir():
         return out
     for path in sorted(wf_dir.glob("*.yaml")):
-        out.setdefault(path.stem, []).append((pack_name, root))
+        out.setdefault(path.stem, []).append((DEFAULT_PACK, root))
     return out
 
 
@@ -173,76 +88,30 @@ def resolve_workflow_ref(
     ref: str,
     repo_root: Path | None = None,
 ) -> tuple[str, str, Path]:
-    """Resolve ``feature`` or ``mypack/feature`` → (pack, workflow, config_root).
+    """Resolve a workflow name → (pack, workflow, config_root).
 
-    Bare names work only when unique across all packs. Ambiguous bare names and
-    unknown refs raise WorkflowRefError with a clear hint.
+    One config root, so the name is a bare workflow name and the pack label is
+    always ``DEFAULT_PACK``. Pack qualification (``mypack/feature``) is gone
+    with multi-pack auto-resolution: whoever runs the engine names the root.
     """
     ref = (ref or "").strip()
-    if not ref or ref.startswith("/") or ".." in ref.split("/"):
-        raise WorkflowRefError(f"invalid workflow ref: {ref!r}")
-
-    if "/" in ref:
-        pack_name, _, workflow = ref.partition("/")
-        if not pack_name or not workflow or "/" in workflow:
-            raise WorkflowRefError(
-                f"workflow ref must be <pack>/<workflow> or <workflow> (got {ref!r})"
-            )
-        packs = {name: root for name, root in list_config_packs(repo_root)}
-        if pack_name not in packs:
-            # Allow resolving against env/checkout when pack list is empty.
-            if not packs and os.environ.get("ORCHESTRATOR_CONFIG"):
-                root = Path(os.environ["ORCHESTRATOR_CONFIG"])
-                if (root / "workflows" / f"{workflow}.yaml").is_file():
-                    return pack_name, workflow, root
-            available = ", ".join(sorted(packs)) or "(none)"
-            raise WorkflowRefError(
-                f"unknown config pack {pack_name!r} (packs: {available})"
-            )
-        root = packs[pack_name]
-        if not (root / "workflows" / f"{workflow}.yaml").is_file():
-            raise WorkflowRefError(
-                f"workflow {workflow!r} not found in pack {pack_name!r} "
-                f"({root / 'workflows'})"
-            )
-        return pack_name, workflow, root
-
-    # Bare workflow name — must be unique.
-    index = list_workflows(repo_root)
-    hits = index.get(ref, [])
-    if len(hits) == 1:
-        pack_name, root = hits[0]
-        return pack_name, ref, root
-    if len(hits) > 1:
-        opts = ", ".join(f"{p}/{ref}" for p, _ in hits)
+    if not ref or "/" in ref or ".." in ref:
         raise WorkflowRefError(
-            f"workflow {ref!r} is not unique; use one of: {opts}"
+            f"workflow ref must be a bare workflow name (got {ref!r})"
         )
-    raise WorkflowRefError(f"unknown workflow {ref!r}")
-
-
-def workflow_mode(name: str, repo_root: Path | None = None) -> str:
-    """Return the workflow YAML's top-level ``mode`` (default ``"ticket"``)."""
-    import yaml
-
-    try:
-        _, wf, cfg = resolve_workflow_ref(name, repo_root)
-    except WorkflowRefError:
-        return "ticket"
-    schema_yaml = cfg / "workflows" / f"{wf}.yaml"
-    if not schema_yaml.is_file():
-        return "ticket"
-    doc = yaml.safe_load(schema_yaml.read_text(encoding="utf-8")) or {}
-    return str(doc.get("mode") or "ticket")
+    root = config_root()
+    if not (root / "workflows" / f"{ref}.yaml").is_file():
+        available = ", ".join(sorted(list_workflows())) or "(none)"
+        raise WorkflowRefError(
+            f"unknown workflow {ref!r} in {root / 'workflows'} "
+            f"(available: {available})"
+        )
+    return DEFAULT_PACK, ref, root
 
 
 # ---------------------------------------------------------------------------
 # Phase 2.1 — engine-owned run base paths
 # ---------------------------------------------------------------------------
-#: Line added to a consumer repo's .gitignore so scratch never gets committed.
-SCRATCH_GITIGNORE_LINE = ".orchestrator/runs/*/scratch/"
-
-
 def run_base(state_raw: dict) -> Path:
     """The checkout a run's paths hang off: its worktree, else its repo root."""
     base = os.path.expanduser(str(state_raw.get("worktree_path") or "")) or str(
@@ -281,29 +150,6 @@ def scratch_dir(state_raw: dict) -> Path:
     return run_dir(run_slug(state_raw), run_base(state_raw)) / "scratch"
 
 
-def ensure_scratch_gitignored(repo_root: str | Path) -> bool:
-    """Append the scratch ignore line to ``<repo>/.gitignore`` when absent.
-
-    Returns True when the file was modified. Best-effort: an unwritable repo
-    is not an error the engine should fail a run over.
-    """
-    path = Path(repo_root) / ".gitignore"
-    try:
-        text = path.read_text(encoding="utf-8") if path.is_file() else ""
-    except OSError:
-        return False
-    if SCRATCH_GITIGNORE_LINE in text.splitlines():
-        return False
-    suffix = "" if (not text or text.endswith("\n")) else "\n"
-    try:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(f"{suffix}# orchestrator per-run scratch (never committed)\n"
-                    f"{SCRATCH_GITIGNORE_LINE}\n")
-    except OSError:
-        return False
-    return True
-
-
 def new_run_id() -> str:
     """A sortable, stdlib-only run identifier (UUIDv7 — time-ordered)."""
     import uuid
@@ -314,24 +160,12 @@ def new_run_id() -> str:
 def pack_sha(config_root_path: str | Path) -> str:
     """Identify the exact pack a run was seeded from.
 
-    A git checkout answers with its HEAD sha; anything else (a vendored copy,
-    a wheel-bundled pack) falls back to the sha256 of the workflow YAML files,
-    so the field is always populated and always changes when the pack does.
+    The sha256 of the pack's workflow YAML files: always populated, always
+    changes when the pack does, and computed without shelling out to git.
     """
     import hashlib
-    import subprocess
 
     root = Path(config_root_path)
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
-            capture_output=True, text=True, timeout=10,
-        )
-        if proc.returncode == 0 and proc.stdout.strip():
-            return proc.stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        pass
-
     digest = hashlib.sha256()
     wf_dir = root / "workflows"
     if wf_dir.is_dir():

@@ -1,27 +1,22 @@
-"""orchestrator record subcommand.
+"""Recording a step's outcome into the run document.
 
-Accepts a completed step's outputs + usage + evidence via stdin JSON,
-validates against the contract's `expected_outputs`, writes a terminal
-`step_history` entry with uniform `started_at` / `completed_at` / `usage`,
-and advances `next_step` per `workflow_plan`.
+Validates a finished step's payload against its contract's `out:` block,
+writes a terminal `step_history` entry, applies any `state_patch`, and
+advances `next_step` per `workflow_plan` (including failure routing).
 """
 from __future__ import annotations
 
 import datetime as _dt
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from orchestrator_next import judge as _judge
 from orchestrator_next import readiness
-from orchestrator_next.parser import AgentStepContract, ContractError, State, compute_attempt, load_contract_for_step, safe_write_yaml as _safe_write_yaml_base
-from orchestrator_next.redact import redact_entry
+from orchestrator_next.parser import ContractError, State, compute_attempt, load_contract_for_step, safe_write_yaml as _safe_write_yaml_base
 from orchestrator_next.paths import ConfigRootError
-from orchestrator_next.pricing import _billable_token_units, _compute_cost_usd
 
 
 class _RecordError(Exception):
@@ -86,17 +81,6 @@ _STATE_PATCH_KEYS = frozenset({
 
 _SUCCESS_STATUSES = frozenset({"completed", "recovered"})
 
-
-def _usage_has_tokens(usage: dict[str, Any]) -> bool:
-    return (
-        (isinstance(usage.get("input_tokens"), (int, float)) and usage["input_tokens"] > 0)
-        or (isinstance(usage.get("output_tokens"), (int, float)) and usage["output_tokens"] > 0)
-    )
-
-
-# ---------------------------------------------------------------------------
-# review needs_work rework loop
-# ---------------------------------------------------------------------------
 
 _DEFAULT_MAX_RETRY_ROUNDS = 3
 
@@ -362,40 +346,6 @@ def _load_contract(step_id: str) -> Any:
         return None
 
 
-def _validate_agent_usage(
-    payload: dict[str, Any], step_id: str, status: str, contract: Any,
-) -> str | None:
-    """Check agent field presence and token guard. Returns agent name or None."""
-    is_agent = isinstance(contract, AgentStepContract)
-    if status == "completed" and is_agent and "agent" not in payload:
-        raise _RecordError(
-            {
-                "reason": "payload_missing_agent_for_agent_step",
-                "step_id": step_id,
-                "expected_model": contract.model,
-                "hint": (
-                    "prompt step requires the 'agent' field in the done payload "
-                    "(tier alias from step_models). The driver must include agent and "
-                    "usage (input_tokens/output_tokens)."
-                ),
-            },
-            3,
-        )
-    agent = payload.get("agent")
-    if status == "completed" and agent is not None:
-        if not _usage_has_tokens(payload.get("usage") or {}) and not os.environ.get("ORCHESTRATOR_SKIP_USAGE_CHECK"):
-            raise _RecordError(
-                {
-                    "reason": "agent_step_missing_usage",
-                    "step_id": step_id,
-                    "agent": agent,
-                    "hint": "agent steps must self-report usage in the done payload: set usage.input_tokens / usage.output_tokens",
-                },
-                3,
-            )
-    return agent
-
-
 def _validate_payload(
     payload: dict[str, Any],
     state_raw: dict[str, Any] | None = None,
@@ -404,7 +354,7 @@ def _validate_payload(
     step_id, phase, status = _validate_shape(payload)
     outputs = _coerce_payload_outputs(payload.get("outputs"))
     contract = _load_contract(step_id)
-    agent = _validate_agent_usage(payload, step_id, status, contract)
+    agent = payload.get("agent")
     _require_reason(outputs, step_id, status)
     if status == "await_input":
         _validate_options(outputs, step_id, phase, state_raw or {})
@@ -542,30 +492,6 @@ def _build_history_entry(
 
     now = _utcnow_iso()
 
-    # Compute cost_usd live when absent from the payload.
-    # Work on a local copy so we never mutate the caller's dict.
-    usage: dict[str, Any] = dict(payload.get("usage") or {})
-    agent_id = payload.get("agent_id") or usage.get("agent_id")
-    if agent_id:
-        usage["agent_id"] = agent_id
-
-    if not usage.get("cost_usd"):
-        resolved_model, computed_cost = _compute_cost_usd(agent, usage)
-        if resolved_model is not None and computed_cost is not None:
-            usage["model"] = resolved_model
-            usage["cost_usd"] = computed_cost
-        elif resolved_model is not None and _billable_token_units(usage) > 0:
-            # A model with no pricing row: the step really did bill tokens, so
-            # say the cost is unknown rather than leave a bare 0 that sums into
-            # a total reading as free.
-            usage["model"] = resolved_model
-            usage["cost_partial"] = True
-            sys.stderr.write(
-                f"[record] cost_usd: no usable price for {resolved_model!r} "
-                f"(missing row, or a row without the rate this step billed); "
-                f"recording usage with cost_partial\n"
-            )
-
     entry: dict[str, Any] = {
         "step_id": step_id,
         "phase": phase,
@@ -574,82 +500,10 @@ def _build_history_entry(
         "attempt": payload.get("attempt", attempt),
         "started_at": payload.get("started_at", now),
         "ended_at": now,
-        "usage": usage,
         "evidence": _merge_evidence_block(outputs, payload.get("evidence")),
     }
-    # Derive duration_ms from wall-clock timestamps when the payload omitted it
-    # (script steps never self-report duration). Unparseable stamps → skip.
-    if "duration_ms" not in usage:
-        try:
-            started_dt = _dt.datetime.fromisoformat(
-                str(entry["started_at"]).replace("Z", "+00:00")
-            )
-            ended_dt = _dt.datetime.fromisoformat(
-                str(entry["ended_at"]).replace("Z", "+00:00")
-            )
-            # Floor at 0: defends against any remaining precision mismatch
-            # (e.g. a payload-supplied started_at with coarser precision than
-            # our own ended_at, or clock skew) still yielding a negative value.
-            usage["duration_ms"] = max(0, int((ended_dt - started_dt).total_seconds() * 1000))
-        except (TypeError, ValueError):
-            pass
     entry["outputs"] = dict(outputs)
     return entry
-
-
-_ABANDON_TRIAGE_CRITERIA = {
-    "transient": "a tool crash, timeout, rate limit, network error, or other "
-                 "flaky-environment failure — retrying unchanged would likely succeed",
-    "missing_input": "a required artifact, file, or piece of context was absent",
-    "prompt_defect": "the step's instructions were contradictory or impossible to satisfy",
-    "scope_too_big": "the step gave up because the task was too large for one pass",
-}
-
-
-def _triage_abandoned(
-    entry: dict[str, Any],
-    step_id: str,
-    phase: str,
-    node: dict[str, Any] | None,
-    state_raw: dict[str, Any],
-    reason: str,
-) -> bool:
-    """Ask the judge to classify why a step abandoned. Returns True when it
-    decided the node should be reset for a retry (caller re-dispatches);
-    False means the existing needs_you path applies (judge unavailable, low
-    confidence, non-transient kind, or retries exhausted)."""
-    r = _judge.ask(
-        state={"reason": reason or "(no reason given)"},
-        questions={"kind": _judge.choice(
-            instructions="Why did this workflow step abandon rather than complete?",
-            criteria=_ABANDON_TRIAGE_CRITERIA,
-        )},
-    )
-    if r is None:
-        entry["judge"] = None
-        return False
-
-    result = r.choices["kind"]
-    kind = result.choice
-    confidence = result.confidence
-    entry["judge"] = {"kind": kind, "confidence": confidence}
-
-    if kind != "transient" or confidence < 0.7:
-        return False
-
-    max_r = int((node or {}).get("max_retries") or _DEFAULT_MAX_RETRY_ROUNDS)
-    history = state_raw.get("step_history") or []
-    abandoned_count = sum(
-        1 for h in history
-        if isinstance(h, dict) and h.get("phase") == phase and h.get("step_id") == step_id
-        and h.get("status") == "abandoned"
-    )
-    if abandoned_count >= max_r:
-        return False
-
-    readiness.mark_node_status(state_raw, phase, step_id, "reset")
-    state_raw["status"] = "active"
-    return True
 
 
 def _apply_routing(
@@ -705,27 +559,10 @@ def _apply_routing(
                 if isinstance(outputs, dict):
                     reason = str(outputs.get("reason") or "").strip()
 
-                reset_for_retry = False
-                judge_kind = None
-                if status == "abandoned":
-                    node = _find_workflow_node(state_raw, phase, step_id)
-                    reset_for_retry = _triage_abandoned(
-                        entry, step_id, phase, node, state_raw, reason,
-                    )
-                    judge_kind = (entry.get("judge") or {}).get("kind") if entry.get("judge") else None
-                if reset_for_retry:
-                    # Judge says this was transient and retries remain:
-                    # readiness.mark_node_status above already set the node to
-                    # "abandoned" but _triage_abandoned then reset it to
-                    # "reset" and re-activated the run — re-dispatch, no human
-                    # needed.
-                    return
                 # A human has to decide what happens next: there is no routing
                 # to retry and no usable artifact to carry forward.
                 state_raw["status"] = "needs_you"
                 what = "abandoned" if status == "abandoned" else "rejected"
-                if judge_kind and judge_kind != "transient":
-                    what = f"{what} [{judge_kind}]"
                 state_raw["needs_you_reason"] = (
                     f"{step_id} {what}: {reason}" if reason
                     else f"{step_id} {what}"
@@ -760,79 +597,6 @@ def _apply_routing(
             # advance past 1.
             readiness.mark_node_status(state_raw, phase, step_id, "reset")
             readiness.mark_node_status(state_raw, phase, routing, "reset")
-
-
-_ISSUE_KIND_CRITERIA = {
-    "retry_success": "the step failed then succeeded on retry",
-    "script_failed": "a run: script exited non-zero",
-    "tool_crashed": "the harness or a tool errored, not the task itself",
-    "prompt_gap": "the step's instructions lacked something the agent needed",
-    "other": "none of the above",
-}
-
-_ISSUE_TEXT_KEYS = ("summary", "detail", "description")
-
-
-def _classify_issues(issues: list[dict[str, Any]]) -> None:
-    """Set issue["kind"] on each issue lacking one, via one batched judge call
-    (one Choice question per issue, keyed by index). No-op when the judge is
-    unavailable — issues are left untouched, exactly as before."""
-    to_classify = [(i, issue) for i, issue in enumerate(issues) if not issue.get("kind")]
-    if not to_classify:
-        return
-    questions = {}
-    for i, issue in to_classify:
-        text = " ".join(
-            str(issue[k]) for k in _ISSUE_TEXT_KEYS if issue.get(k)
-        ) or "(no description)"
-        questions[str(i)] = _judge.choice(
-            instructions=f"Classify this workflow issue: {text}",
-            criteria=_ISSUE_KIND_CRITERIA,
-        )
-    state = {
-        str(i): {k: issue[k] for k in _ISSUE_TEXT_KEYS if issue.get(k)}
-        for i, issue in to_classify
-    }
-    r = _judge.ask(state=state, questions=questions)
-    if r is None:
-        return
-    for i, issue in to_classify:
-        result = r.choices.get(str(i)) if isinstance(r.choices, dict) else None
-        if result is not None:
-            issue["kind"] = result.choice
-
-
-def _accumulate_issues(
-    state_raw: dict[str, Any],
-    phase: str,
-    step_id: str,
-    payload: dict[str, Any],
-) -> None:
-    """Merge payload["workflow_issues"] into state_raw["workflow_issues"], deduped by dedup_key."""
-    # Accumulate workflow_issues from this step's payload into state.yaml.
-    # Dedup by dedup_key when present; stamp surfaced_at from phase/step_id.
-    incoming_issues = payload.get("workflow_issues")
-    if isinstance(incoming_issues, list) and incoming_issues:
-        existing = state_raw.get("workflow_issues")
-        if not isinstance(existing, list):
-            existing = []
-        seen_dedup_keys = {
-            i.get("dedup_key") for i in existing if isinstance(i, dict) and i.get("dedup_key")
-        }
-        new_issues = []
-        for issue in incoming_issues:
-            if not isinstance(issue, dict):
-                continue
-            dk = (issue.get("dedup_key") or "").strip()
-            if dk and dk in seen_dedup_keys:
-                continue
-            issue.setdefault("surfaced_at", f"{phase}/{step_id}")
-            existing.append(issue)
-            new_issues.append(issue)
-            if dk:
-                seen_dedup_keys.add(dk)
-        _classify_issues(new_issues)
-        state_raw["workflow_issues"] = existing
 
 
 def _safe_write_yaml(path: Path, state_raw: dict[str, Any], pre_write_bytes: bytes) -> None:
@@ -877,29 +641,6 @@ def _safe_write_yaml(path: Path, state_raw: dict[str, Any], pre_write_bytes: byt
 # ---------------------------------------------------------------------------
 # Headless durability — auto-commit state so ephemeral runs can resume
 # ---------------------------------------------------------------------------
-
-def _persist_if_materialized(path: Path, state_raw: dict[str, Any]) -> None:
-    """Save back to the RunStore, but only for a materialized run path.
-
-    Tests and any other caller writing directly to an arbitrary state.yaml
-    (not under the RunStore's stable state dir) never touch the store — this
-    keeps `record()` usable without a store configured, matching how it's
-    called throughout the test suite.
-    """
-    from orchestrator_next.run_store import _state_root
-
-    resolved = path.resolve()
-    # resolve() both sides: a symlinked home (macOS /var → /private/var) must
-    # not silently skip the persist.
-    if resolved.parent != _state_root().resolve():
-        return
-    from orchestrator_next.run_store import open_store, persist
-
-    # Key by the materialized filename (the run_id run_cmd locked/seeded under),
-    # not change_id — with `--ticket-id` the slug diverges from the run_id and
-    # keying by change_id would fork every record() into a second store key.
-    persist(open_store(), resolved.stem, path)
-
 
 def apply_task_updates(
     payload: dict[str, Any],
@@ -1026,16 +767,6 @@ def _record_artifacts(
     except OSError:
         recorded = []
 
-    script = str(getattr(contract, "validate", "") or "")
-    if script and recorded:
-        cwd = str(state_raw.get("worktree_path") or state_raw.get("repo_root") or ".")
-        try:
-            _art.run_validate(script, os.path.expanduser(cwd))
-        except (_art.ArtifactError, OSError) as exc:
-            raise _RecordError(
-                {"error": "validate_failed", "step_id": step_id, "detail": str(exc)}, 3
-            ) from exc
-
     if recorded and entry is not None:
         # gates.provenance() derives written_by/last_verdict from the history
         # entry, so the same list has to land there too — the plan node only
@@ -1068,11 +799,6 @@ def record(
 
     entry = _build_history_entry(payload, step_id, phase, status, outputs, agent, state_raw)
     # Strip contract-declared PII before the entry reaches the run doc. Must
-    # happen here: redact_entry returns a copy, and _apply_routing mutates the
-    # appended dict in place, so redacting after the append would edit a
-    # discarded object. `outputs` stays unredacted for _record_artifacts and
-    # routing — artifact paths and hashes are not PII (see redact.py).
-    entry = redact_entry(entry, getattr(contract, "pii", None) or [])
 
     state_patch = payload.get("state_patch")
     if isinstance(state_patch, dict):
@@ -1120,18 +846,11 @@ def record(
         if next_step:
             state_raw["next_step"] = next_step
 
-    _accumulate_issues(state_raw, phase, step_id, payload)
 
     try:
         _safe_write_yaml(path, state_raw, pre_write_bytes)
     except _RecordError as e:
         return (e.reason, e.code)
-
-    # A materialized run (path under the RunStore's stable state dir) persists
-    # its durable copy back to the store on every write — this is what makes
-    # standalone `orchestrator done` (a separate process from the one that
-    # last wrote state) durable without state ever living in the repo.
-    _persist_if_materialized(path, state_raw)
 
     response: dict[str, Any] = {
         "step_id": step_id,
@@ -1158,16 +877,6 @@ def main(argv: list[str]) -> int:
 
     result, code = record(state_yaml_path, payload)
     print(json.dumps(result, sort_keys=True, indent=2))
-    # Surface the running cost total mid-run for standalone/self-driven callers
-    # (a caller walking next/done itself). Re-derived from the just-written state.
-    if code == 0:
-        try:
-            from orchestrator_next.pricing import format_cost_so_far
-            with open(state_yaml_path) as f:
-                _state = yaml.safe_load(f) or {}
-            sys.stderr.write(format_cost_so_far(_state) + "\n")
-        except (OSError, yaml.YAMLError):
-            pass
     return code
 
 

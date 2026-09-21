@@ -1,21 +1,17 @@
-"""Protocol v2 CLI verbs: ``start`` / ``step`` / ``done`` / ``status`` / ``events``.
+"""CLI verbs: ``start`` / ``step`` / ``done`` / ``status`` (+ gate/resume).
 
-See ``docs/protocol-v2.md`` §3-§5. The engine never spawns a model here: it
-computes the next step, hands the harness a payload, validates what comes
-back, and records it.
+The engine is a step generator and a step recorder. It never spawns a model:
+it computes the next step, hands the driver a payload, validates what comes
+back, and records it. Metrics, cost, usage and logs belong to the driver.
 
 Every verb in this module exits 0 on success and encodes the run's condition
 in the JSON ``status`` field; exit 3 is reserved for an engine error (bad
-arguments, unknown run, rejected ``done`` payload). The pre-v2 verbs
-(``next`` / ``done <state.yaml>`` / ``run``) keep their own exit-code
-protocol untouched.
+arguments, unknown run, rejected ``done`` payload).
 """
 from __future__ import annotations
 
-import datetime as _dt
 import json
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -25,11 +21,13 @@ import yaml
 from orchestrator_next.parser import (
     AgentStepContract,
     GateStepContract,
+    ScriptStepContract,
     KIND_EXEC,
     KIND_GATE,
     KIND_JUDGMENT,
     ContractError,
     ContractNotFoundError,
+    compute_attempt,
     load_contract_for_step,
     load_state,
 )
@@ -51,68 +49,47 @@ class ProtocolError(RuntimeError):
 # run resolution
 # ---------------------------------------------------------------------------
 def resolve_run(ref: str) -> str:
-    """Return a state handle for ``ref``: a slug, a run_id, or a state path.
+    """Return the path to ``ref``'s run document: a run_id, slug, or path.
 
-    Tried in order — an existing path or store URL wins, then a live run in the
-    RunStore (by run_id, then lowercased), then a run whose ``slug`` /
-    ``ticket_id`` / ``change_id`` matches. Raises ProtocolError when nothing
-    resolves, so the caller can report it rather than seeding a second run.
+    A path is already an answer. Otherwise the state directory is searched by
+    run id, then by any run whose ``slug`` / ``ticket_id`` / ``change_id``
+    matches — so a driver can name a run the way a person would.
     """
-    from orchestrator_next import state_store
-    from orchestrator_next.run_store import materialize, open_store
+    from orchestrator_next import state_dir as sd
 
     if not ref or not str(ref).strip():
         raise ProtocolError("missing <run>: pass a slug, run_id, or state path")
     ref = str(ref).strip()
 
-    # A path or an explicit store URL is already a handle.
-    if "://" in ref or os.path.sep in ref or ref.endswith((".yaml", ".yml")):
-        handle = state_store.parse_handle(ref)
-        if not handle.is_file or Path(handle.location).is_file():
+    if os.path.sep in ref or ref.endswith((".yaml", ".yml")):
+        if Path(ref).is_file():
             return ref
         raise ProtocolError(f"no state file at {ref}")
 
-    store = open_store()
-    repo_root = os.environ.get("REPO_ROOT", "")
-    for candidate in (ref, ref.lower()):
-        if store.load(candidate) is not None:
-            return str(materialize(store, candidate, repo_root=repo_root))
+    try:
+        for candidate in (ref, ref.lower()):
+            path = sd.run_path(candidate)
+            if path.is_file():
+                return str(path)
 
-    # Slug / ticket-id lookup: scan live runs for a matching identity field.
-    for run_id in store.list_ids():
-        text = store.load(run_id)
-        if not text:
-            continue
-        try:
-            raw = yaml.safe_load(text) or {}
-        except yaml.YAMLError:
-            continue
-        if not isinstance(raw, dict):
-            continue
-        identities = {
-            str(raw.get(k) or "").lower()
-            for k in ("slug", "ticket_id", "change_id")
-        }
-        if ref.lower() in identities - {""}:
-            return str(materialize(store, run_id, repo_root=repo_root))
+        for run_id in sd.list_run_ids():
+            path = sd.run_path(run_id)
+            try:
+                raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError):
+                continue
+            if not isinstance(raw, dict):
+                continue
+            identities = {
+                str(raw.get(k) or "").lower()
+                for k in ("slug", "ticket_id", "change_id")
+            }
+            if ref.lower() in identities - {""}:
+                return str(path)
+    except sd.StateDirError as exc:
+        raise ProtocolError(str(exc)) from exc
 
     raise ProtocolError(f"no run found for {ref!r} (not a run_id, slug, or state path)")
-
-
-def _persist(state_yaml_path: str) -> None:
-    """Write a materialized run back to the RunStore (no-op otherwise)."""
-    from orchestrator_next.run_store import _state_root, open_store, persist
-
-    path = Path(state_yaml_path)
-    try:
-        if path.parent.resolve() != _state_root().resolve():
-            return
-    except OSError:
-        return
-    try:
-        persist(open_store(), path.stem, path)
-    except (OSError, ValueError):
-        pass
 
 
 # ---------------------------------------------------------------------------
@@ -155,37 +132,6 @@ def _artifact_base(state_raw: dict[str, Any]) -> Path:
     return artifacts_dir(state_raw, _recipe_artifacts_root(state_raw))
 
 
-def _scratch_base(state_raw: dict[str, Any]) -> Path:
-    """The run's throwaway workspace — created on demand, discarded on archive."""
-    from orchestrator_next.paths import scratch_dir
-
-    return scratch_dir(state_raw)
-
-
-def render_placeholders(
-    text: str, in_paths: dict[str, str], out_paths: dict[str, str]
-) -> str:
-    """Substitute ``{in.x}`` / ``{out.y}`` in a charter with resolved paths.
-
-    Unknown names are left verbatim so a prompt never silently loses meaning;
-    ``validate-workflow`` is what turns an unknown name into an error.
-    """
-    if "{in." not in text and "{out." not in text:
-        return text
-    for prefix, mapping in (("in", in_paths), ("out", out_paths)):
-        for name, path in mapping.items():
-            text = text.replace("{%s.%s}" % (prefix, name), path)
-    return text
-
-
-def placeholder_names(text: str) -> set[tuple[str, str]]:
-    """Every ``{in.x}`` / ``{out.y}`` reference in a charter, as (side, name)."""
-    return {
-        (m.group(1), m.group(2))
-        for m in re.finditer(r"\{(in|out)\.([A-Za-z0-9_-]+)\}", text or "")
-    }
-
-
 def _resolve_io(specs: dict[str, dict], base: Path) -> tuple[dict[str, str], dict[str, dict]]:
     """Split an ``in:``/``out:`` block into resolved paths and a value schema.
 
@@ -210,15 +156,12 @@ def _judgment_payload(
     state_yaml_path: str,
     repo_root: str,
 ) -> dict[str, Any]:
-    """Build the protocol-v2 judgment payload (docs/protocol-v2.md §4)."""
-    from orchestrator_next import model_routes
-    from orchestrator_next.execute import (
-        _structured_output_contract,
-        build_agent_payload,
-        resolve_models_yaml,
-    )
+    """Build the judgment payload: paths and inputs, never composed prose.
 
-    models_yaml = resolve_models_yaml(repo_root=repo_root)
+    The engine says *what* to run and *where* things live — the charter's
+    path, the resolved ``in:`` paths, the ``out:`` paths and schema. Reading
+    the charter and composing a prompt from it is the driver's job.
+    """
     base = _artifact_base(state_raw)
     in_paths, _in_schema = _resolve_io(contract.inputs, base)
     out_paths, out_schema = _resolve_io(contract.outputs, base)
@@ -227,18 +170,9 @@ def _judgment_payload(
     if out_paths:
         base.mkdir(parents=True, exist_ok=True)
 
-    output_contract = _structured_output_contract(
-        action["step_id"], out_paths, out_schema
-    )
-    base_payload = build_agent_payload(
-        action,
-        repo_root=repo_root,
-        models_yaml=models_yaml,
-        state_raw=state_raw,
-        state_yaml_path=state_yaml_path,
-        output_contract=output_contract,
-    )
-    route = model_routes.resolve_route(action["model"], models_yaml)
+    work_dir = state_raw.get("worktree_path") or repo_root
+    if not Path(work_dir).is_dir():
+        work_dir = repo_root
 
     return {
         "status": "ready",
@@ -248,21 +182,103 @@ def _judgment_payload(
             "step_id": action["step_id"],
             "phase": action.get("phase", "main"),
             "attempt": action.get("attempt", 1),
-            "model": action["model"],
-            "model_id": route.get("model_id") or "",
+            # Opaque contract data, passed through untouched: the driver
+            # decides what a tool list or a turn cap means.
             "max_turns": contract.max_turns,
             "tools": list(contract.tools),
             "side_effects": list(contract.side_effects),
-            "system": render_placeholders(
-                base_payload["prompt"], in_paths, out_paths
-            ),
+            # The charter to read, and the dir holding anything colocated
+            # with it (scenarios, learnings). The driver opens them.
+            "prompt_path": contract.prompt_path,
+            "prompt_dir": contract.prompt_dir or "",
             "in": in_paths,
             "out": out_paths,
             "out_schema": out_schema,
-            "cwd": base_payload["cwd"],
-            "env": base_payload.get("env") or {},
+            "step_context": action.get("step_context") or {},
+            "user_direction": action.get("user_direction") or "",
+            "cwd": str(work_dir),
+            "env": dict(action.get("env") or {}),
         },
     }
+
+
+def _exec_payload(
+    action: dict[str, Any],
+    contract: ScriptStepContract,
+    state_raw: dict[str, Any],
+    state_yaml_path: str,
+    state: Any,
+    repo_root: str,
+) -> dict[str, Any]:
+    """Build the exec payload: the script to run and the env to run it in.
+
+    The engine does not spawn anything. It hands back the absolute script
+    path plus the environment block it would have applied, as *data*; the
+    driver runs ``bash <run_path>`` and reports the exit code and stdout
+    back through ``done``.
+    """
+    from orchestrator_next.step_env import inline_script_env
+
+    base = _artifact_base(state_raw)
+    in_paths, _in_schema = _resolve_io(contract.inputs, base)
+    out_paths, out_schema = _resolve_io(contract.outputs, base)
+    if out_paths:
+        base.mkdir(parents=True, exist_ok=True)
+
+    env = inline_script_env(
+        state, state_yaml_path, action_env=dict(action.get("env") or {})
+    )
+    # parser absolutizes run: against the contract dir, so the script's own
+    # directory IS the step dir.
+    step_dir = os.path.dirname(contract.run)
+    env["ORCHESTRATOR_STEP_DIR"] = step_dir
+    for key, value in _contract_params(action["step_id"]).items():
+        env.setdefault(key, value)
+
+    work_dir = env.get("REPO_ROOT") or repo_root
+    if not Path(work_dir).is_dir():
+        work_dir = repo_root
+
+    return {
+        "status": "ready",
+        "kind": KIND_EXEC,
+        "step_id": action["step_id"],
+        "payload": {
+            "step_id": action["step_id"],
+            "phase": action.get("phase", "main"),
+            "attempt": action.get("attempt", 1),
+            "run_path": contract.run,
+            "step_dir": step_dir,
+            "state_mutating": bool(contract.state_mutating),
+            "tools": list(contract.tools),
+            "side_effects": list(contract.side_effects),
+            "in": in_paths,
+            "out": out_paths,
+            "out_schema": out_schema,
+            "step_context": action.get("step_context") or {},
+            "cwd": str(work_dir),
+            # The full environment the script expects, as data. The driver
+            # applies it; the engine sets nothing in its own process.
+            "env": env,
+        },
+    }
+
+
+def _contract_params(step_id: str) -> dict[str, str]:
+    """A step contract's ``params:`` block, as environment strings."""
+    from orchestrator_next.paths import config_root
+
+    try:
+        path = config_root() / "steps" / step_id / "contract.yaml"
+        if not path.is_file():
+            return {}
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError, Exception):  # noqa: BLE001
+        return {}
+    params = raw.get("params") if isinstance(raw, dict) else None
+    if not isinstance(params, dict):
+        return {}
+    return {str(k): str(v) for k, v in params.items()}
 
 
 def _gate_payload(
@@ -419,22 +435,22 @@ def _save_state(state_yaml_path: str, state_raw: dict[str, Any]) -> None:
         store.save(h, state_raw, token)
     except (state_store.StateConflictError, yaml.YAMLError):
         return
-    _persist(state_yaml_path)
 
 
 # ---------------------------------------------------------------------------
 # verb: step
 # ---------------------------------------------------------------------------
 def step(run_ref: str, *, user_direction: str = "") -> tuple[dict[str, Any], int]:
-    """Advance the run: execute consecutive exec steps, stop at judgment/gate.
+    """Report the one step that is ready now — judgment, exec, or gate.
 
     Returns ``(result, exit_code)``. ``result['status']`` is one of
-    ``ready|running|done|blocked|needs_you|error`` (protocol v2 §3).
+    ``ready|done|blocked|needs_you|error``. The engine runs nothing: an exec
+    step comes back as a payload naming the script and its environment, and
+    the driver reports the outcome through ``done``.
 
     ``user_direction`` is free-form text from `resume` that matched no
-    await_input option. It reaches the step that asked — an exec step through
-    ``ORCHESTRATOR_USER_DIRECTION``, a judgment step appended to its prompt —
-    and is consumed by the first step dispatched, not carried onward.
+    await_input option. It rides along on the payload of the step that asked,
+    for the driver to pass on; it is not carried past that step.
     """
     from orchestrator_next.dispatch import (
         EXIT_GATE_REQUIRED,
@@ -442,141 +458,120 @@ def step(run_ref: str, *, user_direction: str = "") -> tuple[dict[str, Any], int
         ContractDispatchError,
         dispatch,
     )
-    from orchestrator_next.execute import _finalize_state, run_script_step
+    from orchestrator_next.execute import _finalize_state
 
     state_yaml_path = resolve_run(run_ref)
     repo_root = os.environ.get("REPO_ROOT", "") or os.getcwd()
 
-    for _ in range(MAX_EXEC_BATCH):
-        if not Path(state_yaml_path).is_file():
-            return {"status": "done", "step_id": None,
-                    "detail": "run archived"}, 0
-        state = load_state(state_yaml_path)
-        _pin_config(state.raw)
-        if isinstance(state.raw.get("awaiting"), dict):
-            # Parked on a question from an earlier turn. `orchestrator resume`
-            # is what clears it; dispatching would re-run the parked step.
-            return _awaiting_result(state_yaml_path), 0
-        try:
-            action, code = dispatch(state, state_yaml_path)
-        except (ContractDispatchError, ContractNotFoundError, ContractError) as exc:
-            return {"status": "error", "step_id": None, "detail": str(exc)}, 0
-        except FileNotFoundError as exc:
-            return {"status": "error", "step_id": None, "detail": str(exc)}, 0
+    if not Path(state_yaml_path).is_file():
+        return {"status": "done", "step_id": None,
+                "detail": "run archived"}, 0  # archived: nothing left to report
+    state = load_state(state_yaml_path)
+    _pin_config(state.raw)
+    if isinstance(state.raw.get("awaiting"), dict):
+        # Parked on a question from an earlier turn. `orchestrator resume`
+        # is what clears it; dispatching would re-run the parked step.
+        return _awaiting_result(state_yaml_path), 0
+    try:
+        action, code = dispatch(state, state_yaml_path)
+    except (ContractDispatchError, ContractNotFoundError, ContractError) as exc:
+        return {"status": "error", "step_id": None, "detail": str(exc)}, 0
+    except FileNotFoundError as exc:
+        return {"status": "error", "step_id": None, "detail": str(exc)}, 0
 
-        if code == 1:
-            # A finished run flips to `completed`, clears next_step, and drops
-            # its scratch dir. Under the old self-drive loop this happened in
-            # the loop's exit arm; `step` is the only thing that sees the run
-            # finish now.
-            _finalize_state(state_yaml_path)
-            _persist(state_yaml_path)
-            return {"status": "done", "step_id": None}, 0
-        if code == 2:
-            return {
-                "status": "blocked",
-                "kind": None,
-                "step_id": (action or {}).get("step_id"),
-                "detail": (action or {}).get("reason") or "blocked (signoff or halt)",
-            }, 0
-        if code == EXIT_NEEDS_YOU:
-            # A node abandoned and nothing downstream can ever run. No `ask`:
-            # the engine has no question, it has a dead end the human must
-            # resolve (retry the step with `reset-step`, edit the recipe, or
-            # abort). `payload.abandoned_step` + `payload.reason` let a
-            # harness (the Claude Mod, the fallback skill) offer a retry
-            # without re-parsing `detail`.
-            abandoned_step = (action or {}).get("step_id")
-            reason = (action or {}).get("detail") or "step abandoned"
-            return {
-                "status": "needs_you",
-                "kind": KIND_JUDGMENT,
-                "step_id": abandoned_step,
-                "detail": reason,
-                "payload": {
-                    "reason": reason,
-                    "abandoned_step": abandoned_step,
-                },
-            }, 0
-        if code == EXIT_GATE_REQUIRED:
-            # A human has to approve the gate before this step may run; the
-            # engine has nothing further to decide (docs/protocol-v2.md §7).
-            return {
-                "status": "needs_you",
-                "kind": KIND_GATE,
-                "step_id": (action or {}).get("step_id"),
-                "requires": (action or {}).get("requires"),
-                "detail": (action or {}).get("detail") or "gate token required",
-            }, 0
-        if code != 0:
-            return {"status": "error", "step_id": None,
-                    "detail": f"dispatch exit {code}"}, 0
+    if code == 1:
+        # A finished run flips to `completed`, clears next_step, and drops
+        # its scratch dir. Under the old self-drive loop this happened in
+        # the loop's exit arm; `step` is the only thing that sees the run
+        # finish now.
+        _finalize_state(state_yaml_path)
+        return _terminal_report(
+            {"status": "done", "step_id": None}, state_yaml_path
+        ), 0
+    if code == 2:
+        return {
+            "status": "blocked",
+            "kind": None,
+            "step_id": (action or {}).get("step_id"),
+            "detail": (action or {}).get("reason") or "blocked (signoff or halt)",
+        }, 0
+    if code == EXIT_NEEDS_YOU:
+        # A node abandoned and nothing downstream can ever run. No `ask`:
+        # the engine has no question, it has a dead end the human must
+        # resolve (retry the step with `reset-step`, edit the recipe, or
+        # abort). `payload.abandoned_step` + `payload.reason` let a
+        # harness (the Claude Mod, the fallback skill) offer a retry
+        # without re-parsing `detail`.
+        abandoned_step = (action or {}).get("step_id")
+        reason = (action or {}).get("detail") or "step abandoned"
+        return {
+            "status": "needs_you",
+            "kind": KIND_JUDGMENT,
+            "step_id": abandoned_step,
+            "detail": reason,
+            "payload": {
+                "reason": reason,
+                "abandoned_step": abandoned_step,
+            },
+        }, 0
+    if code == EXIT_GATE_REQUIRED:
+        # A human has to approve the gate before this step may run; the
+        # engine has nothing further to decide (docs/protocol-v2.md §7).
+        return {
+            "status": "needs_you",
+            "kind": KIND_GATE,
+            "step_id": (action or {}).get("step_id"),
+            "requires": (action or {}).get("requires"),
+            "detail": (action or {}).get("detail") or "gate token required",
+        }, 0
+    if code != 0:
+        return {"status": "error", "step_id": None,
+                "detail": f"dispatch exit {code}"}, 0
 
-        step_id = action["step_id"]
+    step_id = action["step_id"]
 
-        # A gate lives in the recipe, not in steps/: dispatch tags the action
-        # rather than loading a contract that does not exist.
-        if action.get("kind") == KIND_GATE:
-            return _gate_payload(
-                step_id,
-                list(action.get("show") or []),
-                str(action.get("approve_as") or ""),
-                state.raw,
-                state_yaml_path,
-            ), 0
+    # A gate lives in the recipe, not in steps/: dispatch tags the action
+    # rather than loading a contract that does not exist.
+    if action.get("kind") == KIND_GATE:
+        return _gate_payload(
+            step_id,
+            list(action.get("show") or []),
+            str(action.get("approve_as") or ""),
+            state.raw,
+            state_yaml_path,
+        ), 0
 
-        try:
-            contract = load_contract_for_step(step_id)
-        except (FileNotFoundError, ContractError, ContractNotFoundError) as exc:
-            return {"status": "error", "step_id": step_id, "detail": str(exc)}, 0
+    try:
+        contract = load_contract_for_step(step_id)
+    except (FileNotFoundError, ContractError, ContractNotFoundError) as exc:
+        return {"status": "error", "step_id": step_id, "detail": str(exc)}, 0
 
-        if isinstance(contract, GateStepContract):
-            # A pack that still ships a `kind: gate` contract file: the
-            # contract carries show/approve_as instead of the recipe entry.
-            return _gate_payload(
-                step_id, list(contract.show), contract.approve_as,
-                state.raw, state_yaml_path,
-            ), 0
+    if isinstance(contract, GateStepContract):
+        # A pack that still ships a `kind: gate` contract file: the
+        # contract carries show/approve_as instead of the recipe entry.
+        return _gate_payload(
+            step_id, list(contract.show), contract.approve_as,
+            state.raw, state_yaml_path,
+        ), 0
 
-        if isinstance(contract, AgentStepContract):
-            if user_direction:
-                base = action.get("instruction") or ""
-                action["instruction"] = (
-                    f"{base}\n\nUser direction: {user_direction}"
-                    if base else f"User direction: {user_direction}"
-                )
-            result = _judgment_payload(
-                action, contract, state.raw, state_yaml_path, repo_root
-            )
-            _persist(state_yaml_path)
-            return result, 0
-
-        # exec step: run it here and loop, so the harness never sees it.
-        ok, state_yaml_path, exec_status = run_script_step(
-            action, state_yaml_path=state_yaml_path, state=state,
-            user_direction=user_direction,
+    if isinstance(contract, AgentStepContract):
+        if user_direction:
+            # Reported as its own field: the engine composes no prose, so
+            # the driver decides how to put this in front of the agent.
+            action["user_direction"] = user_direction
+        result = _judgment_payload(
+            action, contract, state.raw, state_yaml_path, repo_root
         )
-        user_direction = ""  # consumed by the step that was asking
-        _persist(state_yaml_path)
-        if not ok:
-            return {
-                "status": "error",
-                "kind": KIND_EXEC,
-                "step_id": step_id,
-                "detail": f"exec step {step_id} failed and has no retry routing",
-            }, 0
-        if exec_status == "await_input":
-            # The step parked on a question. Its node stays in_progress, so
-            # dispatch would hand it straight back — looping here would re-run
-            # the step until MAX_EXEC_BATCH instead of asking the human.
-            return _awaiting_result(state_yaml_path), 0
+        return result, 0
 
-    return {
-        "status": "needs_you",
-        "step_id": None,
-        "detail": f"ran {MAX_EXEC_BATCH} exec steps without reaching a judgment "
-                  "step — the recipe is probably not advancing",
-    }, 0
+    # exec step: hand the script to the driver, same as a judgment step.
+    if user_direction:
+        action.setdefault("env", {})
+        action["env"]["ORCHESTRATOR_USER_DIRECTION"] = user_direction
+    result = _exec_payload(
+        action, contract, state.raw, state_yaml_path, state, repo_root
+    )
+    return result, 0
 
 
 def _awaiting_result(state_yaml_path: str) -> dict[str, Any]:
@@ -621,20 +616,24 @@ def resume(run_ref: str, text: str) -> tuple[dict[str, Any], int]:
         raw = yaml.safe_load(Path(state_yaml_path).read_text(encoding="utf-8")) or {}
         raw.pop("awaiting", None)
         _save_state(state_yaml_path, raw)
-    _persist(state_yaml_path)
 
     next_result, _ = step(state_yaml_path, user_direction="" if matched else text)
     return {"status": "ok", "matched": matched, "next": next_result}, 0
 
 
 def _pin_config(state_raw: dict[str, Any]) -> None:
-    """Point ORCHESTRATOR_CONFIG at the pack this run was seeded from."""
+    """Point ORCHESTRATOR_CONFIG at the pack root this run was seeded from.
+
+    ``start`` resolves the root once (from ``--config`` or the environment)
+    and writes it into the run doc, so ``step`` / ``done`` / ``status`` need
+    neither the flag nor the variable: the run carries its own pack.
+    """
     if os.environ.get("ORCHESTRATOR_CONFIG"):
         return
-    pack = str(state_raw.get("config_pack") or "")
-    repo = str(state_raw.get("repo_root") or "") or os.environ.get("REPO_ROOT", "")
-    if pack and repo:
-        os.environ["ORCHESTRATOR_CONFIG"] = str(Path(repo) / ".orchestrator" / pack)
+    root = str(state_raw.get("config_root") or "")
+    if root:
+        os.environ["ORCHESTRATOR_CONFIG"] = root
+    repo = str(state_raw.get("repo_root") or "")
     if repo and not os.environ.get("REPO_ROOT"):
         os.environ["REPO_ROOT"] = repo
 
@@ -648,11 +647,17 @@ def start(
     *,
     inputs: dict[str, Any] | None = None,
     ticket_id: str = "",
+    config: str = "",
 ) -> tuple[dict[str, Any], int]:
-    """Seed a run and return its identity plus the first ``step`` result."""
-    from orchestrator_next.paths import WorkflowRefError, resolve_workflow_ref
+    """Seed a run and return its identity plus the first ``step`` result.
+
+    ``config`` is the pack root (``--config``), and wins over
+    ORCHESTRATOR_CONFIG. The resolved root is persisted on the run, so no
+    later verb needs either.
+    """
+    from orchestrator_next.paths import ConfigRootError, WorkflowRefError, resolve_workflow_ref
     from orchestrator_next.paths import new_run_id as paths_new_run_id
-    from orchestrator_next.run_store import _state_root, open_store, persist
+    from orchestrator_next import state_dir as sd
     from orchestrator_next.seed import seed_state_file
 
     if not slug or not slug.strip():
@@ -679,16 +684,27 @@ def start(
         }, 0
 
     repo_root = os.environ.get("REPO_ROOT", "") or os.getcwd()
+    if config:
+        root = Path(config)
+        if not (root / "workflows").is_dir():
+            raise ProtocolError(
+                f"--config {config!r} is not a pack root (no workflows/ in it)"
+            )
+        os.environ["ORCHESTRATOR_CONFIG"] = str(root.resolve())
     try:
         config_pack, schema, cfg_root = resolve_workflow_ref(
             recipe_ref, Path(repo_root)
         )
-    except (WorkflowRefError, FileNotFoundError) as exc:
+    except (WorkflowRefError, ConfigRootError, FileNotFoundError) as exc:
         raise ProtocolError(str(exc)) from exc
     os.environ["ORCHESTRATOR_CONFIG"] = str(cfg_root)
 
     run_id = paths_new_run_id()
-    state_path = _state_root() / f"{run_id}.yaml"
+    try:
+        state_path = sd.run_path(run_id)
+    except sd.StateDirError as exc:
+        raise ProtocolError(str(exc)) from exc
+    state_path.parent.mkdir(parents=True, exist_ok=True)
     user_input = json.dumps(inputs, sort_keys=True) if inputs else slug
     try:
         seed_state_file(
@@ -697,6 +713,7 @@ def start(
             schema=schema,
             repo_root=repo_root,
             config_pack=config_pack,
+            config_root=str(cfg_root),
             user_input=user_input,
             ticket_id=ticket_id,
             run_id=run_id,
@@ -711,8 +728,6 @@ def start(
         state_path.write_text(
             yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8"
         )
-    persist(open_store(), run_id, state_path)
-
     next_result, _code = step(str(state_path))
     return {
         "run_id": run_id,
@@ -764,28 +779,166 @@ def validate_out(
     return problems
 
 
+#: `next.status` values that mean the run will not advance again.
+TERMINAL_STATUSES = frozenset({"done", "error"})
+
+
+def _run_report(state_yaml_path: str) -> dict[str, Any] | None:
+    """The run as ``status`` reports it, or None when it cannot be built."""
+    try:
+        # `status` is a parameter name in `done`, so reach the verb through
+        # the module rather than the shadowed local.
+        import sys as _sys
+
+        report, _ = _sys.modules[__name__].status(state_yaml_path)
+    except (ProtocolError, OSError):
+        return None
+    return report
+
+
+def _terminal_report(result: dict[str, Any], state_yaml_path: str) -> dict[str, Any]:
+    """Attach the full run report to a terminal `step` answer.
+
+    Same builder as `done` uses, so a driver that crashed and re-asked `step`
+    gets exactly the report the finishing `done` would have carried.
+    """
+    if str(result.get("status") or "") not in TERMINAL_STATUSES:
+        return result
+    report = _run_report(state_yaml_path)
+    if report is not None:
+        result["report"] = report
+    return result
+
+
+def _with_report(result: dict[str, Any], state_yaml_path: str) -> dict[str, Any]:
+    """Attach the full run report once the run has reached a terminal state.
+
+    A driver wants the whole picture exactly when the run stops — not after
+    every step. The report is whatever ``status`` builds, so there is one
+    projection of a run and no second one to drift.
+    """
+    nxt = result.get("next") or {}
+    if str(nxt.get("status") or "") not in TERMINAL_STATUSES:
+        return result
+    # `step` already built the report on its terminal answer; lift it rather
+    # than building a second one, and drop the nested copy so the payload
+    # carries the run exactly once.
+    report = nxt.pop("report", None)
+    if report is None:
+        report = _run_report(state_yaml_path)
+    if report is not None:
+        result["report"] = report
+    return result
+
+
+def _exec_done_payload(
+    step_id: str,
+    state: Any,
+    contract: Any,
+    exit_code: int,
+    stdout_file: str,
+    out: dict[str, Any],
+) -> dict[str, Any]:
+    """Turn a driver-reported script outcome into a record payload."""
+    phase = state.phase or "main"
+    attempt = compute_attempt(
+        state.step_history, phase, step_id, include_in_progress=True
+    )
+
+    if exit_code != 0:
+        return {
+            "step_id": step_id, "phase": phase, "attempt": attempt,
+            "status": "failed",
+            "outputs": {"reason": f"script exited {exit_code}"},
+            "evidence": {"summary": f"script exited {exit_code}"},
+        }
+
+    stdout = ""
+    if stdout_file:
+        try:
+            stdout = Path(stdout_file).read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            raise ProtocolError(f"--stdout-file unreadable: {exc}") from exc
+
+    status, outputs, patch = script_result(stdout)
+    # An explicit --out overlays whatever the script printed.
+    outputs.update(out)
+    if status != "await_input" and not str(outputs.get("reason") or "").strip():
+        outputs["reason"] = "script completed"
+
+    payload: dict[str, Any] = {
+        "step_id": step_id, "phase": phase, "attempt": attempt,
+        "status": status, "outputs": outputs,
+        "evidence": {"outputs": outputs, "summary": f"script {status}"},
+    }
+    if patch is not None:
+        payload["state_patch"] = patch
+    return payload
+
+
+def script_result(stdout: str) -> tuple[str, dict[str, Any], dict[str, Any] | None]:
+    """Parse a script step's stdout into ``(status, outputs, state_patch)``.
+
+    The protocol is the last JSON line of stdout, in either shape:
+
+      ``{"status": "...", "outputs": {...}}``   — explicit status
+      ``{"status": "...", "k": v, ...}``        — status plus flat outputs
+      ``{"k": v, ...}``                         — flat outputs, status completed
+
+    ``state_patch`` is lifted from either the top level or ``outputs``.
+    Unparseable or absent stdout means a plain completed step with no outputs
+    — a script that prints nothing is not an error.
+    """
+    parsed: Any = {}
+    lines = (stdout or "").strip().splitlines()
+    if lines:
+        try:
+            parsed = json.loads(lines[-1])
+        except (json.JSONDecodeError, ValueError):
+            parsed = {}
+    if not isinstance(parsed, dict):
+        return "completed", {}, None
+
+    raw_status = parsed.get("status")
+    raw_outputs = parsed.get("outputs")
+    if isinstance(raw_status, str) and isinstance(raw_outputs, dict):
+        status, outputs = raw_status, dict(raw_outputs)
+    elif isinstance(raw_status, str):
+        status = raw_status
+        outputs = {
+            k: v for k, v in parsed.items() if k not in ("status", "state_patch")
+        }
+    else:
+        status, outputs = "completed", dict(parsed)
+
+    patch = parsed.get("state_patch")
+    if not isinstance(patch, dict):
+        patch = outputs.get("state_patch")
+    return status, outputs, patch if isinstance(patch, dict) else None
+
+
 def done(
     run_ref: str,
     step_id: str,
     *,
-    out: dict[str, Any],
-    usage: dict[str, Any],
+    out: dict[str, Any] | None = None,
     status: str = "completed",
-    started_at: str | None = None,
+    exit_code: int | None = None,
+    stdout_file: str = "",
 ) -> tuple[dict[str, Any], int]:
-    """Record a judgment step's structured result, then return the next step.
+    """Record a step's result, then return the next step.
 
-    Rejects the call (exit 3) when ``out`` does not satisfy the contract's
-    ``out:`` block — the harness is expected to fix the step's output and
-    retry, rather than have the engine record a half-finished step.
+    A judgment step reports ``--out`` (rejected, exit 3, when it does not
+    satisfy the contract's ``out:`` block). An exec step reports what the
+    driver observed running the script: ``--exit-code`` and, optionally,
+    ``--stdout-file``. The engine parses that stdout for the script protocol
+    (``status`` / outputs / ``state_patch``) and routes exactly as it did
+    when it ran the script itself: a non-zero exit records ``failed`` and
+    takes failure routing, ``await_input`` parks the run.
     """
     from orchestrator_next.execute import _record_with_retry
 
-    if status not in {"completed", "abandoned"}:
-        raise ProtocolError(
-            f"--status must be completed or abandoned (got {status!r})"
-        )
-
+    out = dict(out or {})
     state_yaml_path = resolve_run(run_ref)
     state = load_state(state_yaml_path)
     _pin_config(state.raw)
@@ -795,91 +948,54 @@ def done(
     except (FileNotFoundError, ContractError, ContractNotFoundError) as exc:
         raise ProtocolError(str(exc)) from exc
 
-    if status == "completed":
-        problems = validate_out(contract, out, state.raw)
-        if problems:
-            raise ProtocolError(
-                "out does not satisfy the step contract: " + "; ".join(problems)
-            )
+    is_exec = isinstance(contract, ScriptStepContract)
+    if exit_code is not None and not is_exec:
+        raise ProtocolError(
+            f"--exit-code is for exec steps; {step_id} is {contract.kind}"
+        )
+    if is_exec and exit_code is None:
+        raise ProtocolError(
+            f"exec step {step_id} needs --exit-code (and --stdout-file when the "
+            "script printed a result)"
+        )
 
-    outputs = dict(out)
-    outputs.setdefault(
-        "reason",
-        f"{step_id} {status} (structured out, protocol v2)",
-    )
-    payload: dict[str, Any] = {
-        "step_id": step_id,
-        "phase": state.phase or "main",
-        "status": status,
-        "outputs": outputs,
-        "usage": dict(usage or {}),
-    }
-    # When the harness knows when the step actually began, say so: record.py
-    # defaults `started_at` to `now` and derives `duration_ms` from
-    # `ended_at - started_at`, so a harness that omits it records every
-    # judgment step at a flat 0ms however long the step really ran.
-    if started_at:
-        payload["started_at"] = started_at
-    if isinstance(contract, AgentStepContract):
-        # record.py requires `agent` on a completed agent step and enforces the
-        # usage-token guard against it (docs/protocol-v2.md §5).
-        payload["agent"] = _step_alias(step_id)
-        # pricing.py keys its rate lookup on `usage.model` and records no cost
-        # at all without one, so a harness that reports tokens but not which
-        # model answered used to zero the step silently. Fall back to the model
-        # the dispatcher routed this step to, and say the cost is an estimate
-        # rather than a reading.
-        step_usage = payload["usage"]
-        if step_usage and not step_usage.get("model"):
-            routed = _step_model_id(step_id)
-            if routed:
-                step_usage["model"] = routed
-                step_usage["cost_partial"] = True
+    if is_exec:
+        payload = _exec_done_payload(
+            step_id, state, contract, exit_code or 0, stdout_file, out
+        )
+    else:
+        if status not in {"completed", "abandoned"}:
+            raise ProtocolError(
+                f"--status must be completed or abandoned (got {status!r})"
+            )
+        if status == "completed":
+            problems = validate_out(contract, out, state.raw)
+            if problems:
+                raise ProtocolError(
+                    "out does not satisfy the step contract: " + "; ".join(problems)
+                )
+        outputs = dict(out)
+        outputs.setdefault("reason", f"{step_id} {status} (structured out)")
+        payload = {
+            "step_id": step_id,
+            "phase": state.phase or "main",
+            "status": status,
+            "outputs": outputs,
+        }
 
     result, code = _record_with_retry(state_yaml_path, payload)
     if code != 0:
         raise ProtocolError(
             f"record rejected the done payload: {json.dumps(result, sort_keys=True)}"
         )
-    _persist(state_yaml_path)
 
     next_result, _ = step(state_yaml_path)
-    return {
+    return _with_report({
         "status": "ok",
         "step_id": step_id,
         "attempt": (result or {}).get("attempt"),
         "next": next_result,
-    }, 0
-
-
-def _step_alias(step_id: str) -> str:
-    """The models.yaml tier alias for this step, or "" when unroutable."""
-    from orchestrator_next.dispatch import _models_yaml_path
-    from orchestrator_next.model_routes import resolve_step_alias
-
-    try:
-        return resolve_step_alias(step_id, None, _models_yaml_path()) or ""
-    except Exception:  # noqa: BLE001 — an unroutable step still records
-        return ""
-
-
-def _step_model_id(step_id: str) -> str:
-    """The concrete model id this step routes to, or "" when unroutable.
-
-    The step's ``model_id`` is what the dispatcher told the harness to run, so
-    it is the right thing to price against when the harness did not report
-    which model actually answered.
-    """
-    from orchestrator_next.dispatch import _models_yaml_path
-    from orchestrator_next.model_routes import resolve_route
-
-    alias = _step_alias(step_id)
-    if not alias:
-        return ""
-    try:
-        return str(resolve_route(alias, _models_yaml_path()).get("model_id") or "")
-    except Exception:  # noqa: BLE001 — an unroutable step still records
-        return ""
+    }, state_yaml_path), 0
 
 
 # ---------------------------------------------------------------------------
@@ -966,7 +1082,6 @@ def reset_step(run_ref: str, step_id: str) -> tuple[dict[str, Any], int]:
     except (ValueError, FileNotFoundError) as exc:
         raise ProtocolError(str(exc)) from exc
 
-    _persist(state_yaml_path)
 
     next_result, _ = step(state_yaml_path)
     return {
@@ -999,200 +1114,16 @@ def cancel(run_ref: str) -> tuple[dict[str, Any], int]:
 
 
 # ---------------------------------------------------------------------------
-# per-node metrics (what the Mod's table draws)
-# ---------------------------------------------------------------------------
-
-# The four token counts a step bills, as `record.py` writes them into
-# `step_history[].usage`, mapped to the names `status --json` reports them
-# under. The `usage.*` spelling is the API's (`cache_read_input_tokens`);
-# the reported spelling is the table's column key.
-_TOKEN_KEYS: dict[str, str] = {
-    "input_tokens": "input_tokens",
-    "output_tokens": "output_tokens",
-    "cache_read_input_tokens": "cache_read_tokens",
-    "cache_creation_input_tokens": "cache_write_tokens",
-}
-
-# Keys a step's `outputs` may carry a verdict under when no contract declares
-# a `fail_on:` enum. Checked in order, so an explicit `verdict` wins.
-_VERDICT_KEYS = ("verdict", "decision")
-
-# Every numeric column the table sums into its Totals row.
-_METRIC_NUMERIC_KEYS = (
-    "seconds",
-    "input_tokens",
-    "output_tokens",
-    "cache_read_tokens",
-    "cache_write_tokens",
-    "cost_usd",
-)
-
-
-def _num(value: Any) -> float:
-    """``value`` as a float, or 0.0 for anything non-numeric (incl. bool-free)."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return 0.0
-    return float(value)
-
-
-def _entry_seconds(entry: dict[str, Any]) -> float:
-    """One attempt's wall time in seconds.
-
-    ``usage.duration_ms`` is what ``record.py`` derives from the entry's own
-    ``started_at``/``ended_at`` (record.py's ``duration_ms`` block), so prefer
-    it; fall back to re-deriving from the stamps for an entry written before
-    that, and to 0.0 when neither parses.
-    """
-    usage = entry.get("usage")
-    usage = usage if isinstance(usage, dict) else {}
-    duration_ms = usage.get("duration_ms")
-    if isinstance(duration_ms, (int, float)) and not isinstance(duration_ms, bool):
-        return max(0.0, float(duration_ms) / 1000.0)
-    try:
-        started = _dt.datetime.fromisoformat(
-            str(entry.get("started_at") or "").replace("Z", "+00:00")
-        )
-        ended = _dt.datetime.fromisoformat(
-            str(entry.get("ended_at") or "").replace("Z", "+00:00")
-        )
-    except (TypeError, ValueError):
-        return 0.0
-    return max(0.0, (ended - started).total_seconds())
-
-
-def _enum_out_names(step_id: str) -> tuple[frozenset[str], frozenset[str]]:
-    """``(names of enum outs, names carrying a ``fail_on:``)`` for a step.
-
-    A missing or unparseable contract yields two empty sets rather than
-    raising: a metrics projection must never take `status` down.
-    """
-    try:
-        contract = load_contract_for_step(step_id)
-    except Exception:  # noqa: BLE001 — metrics are informational
-        return frozenset(), frozenset()
-    declared = getattr(contract, "outputs", None) or {}
-    enums: set[str] = set()
-    fail_on: set[str] = set()
-    for name, spec in declared.items():
-        if not isinstance(spec, dict):
-            continue
-        if spec.get("type") == "enum":
-            enums.add(str(name))
-        if isinstance(spec.get("fail_on"), list):
-            fail_on.add(str(name))
-    return frozenset(enums), frozenset(fail_on)
-
-
-def _entry_verdict(entry: dict[str, Any], step_id: str) -> str:
-    """The verdict one attempt reported, or "".
-
-    Prefers an out the contract declared as an enum with ``fail_on:`` (the
-    same declaration routing reads — see ``record.failing_verdict``), then any
-    enum out, then a plain ``verdict``/``decision`` key for a step whose
-    contract declares nothing.
-    """
-    outputs = entry.get("outputs")
-    if not isinstance(outputs, dict):
-        return ""
-    enums, fail_on = _enum_out_names(step_id)
-    for names in (fail_on, enums):
-        for name in sorted(names):
-            value = outputs.get(name)
-            if isinstance(value, str) and value:
-                return value
-    for key in _VERDICT_KEYS:
-        value = outputs.get(key)
-        if isinstance(value, str) and value:
-            return value
-    return ""
-
-
-def node_metrics(step_history: list[Any]) -> dict[str, dict[str, Any]]:
-    """Per-step-id metrics folded out of ``step_history``.
-
-    One row per step the history touched, with every attempt of that step
-    folded in: the counts and ``seconds`` **sum** across attempts (a step
-    retried twice really did bill twice), while ``model`` and ``verdict`` take
-    the **last** attempt's (what the step finally ran as, and finally said).
-
-    ``cost_partial`` is true when any attempt billed tokens the engine could
-    not price — ``record.py`` stamps it when a model has no pricing row — so a
-    reader knows the cost is a floor rather than a total.
-
-    Pure: takes the raw history list, touches no state and no store.
-    """
-    rows: dict[str, dict[str, Any]] = {}
-    for raw in step_history or []:
-        entry = raw if isinstance(raw, dict) else getattr(raw, "raw", None)
-        if not isinstance(entry, dict):
-            continue
-        step_id = str(entry.get("step_id") or "")
-        if not step_id:
-            continue
-        usage = entry.get("usage")
-        usage = usage if isinstance(usage, dict) else {}
-
-        row = rows.setdefault(step_id, {
-            "attempts": 0,
-            "model": "",
-            "verdict": "",
-            "seconds": 0.0,
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "cache_read_tokens": 0,
-            "cache_write_tokens": 0,
-            "cost_usd": 0.0,
-            "cost_partial": False,
-        })
-
-        row["attempts"] += 1
-        model = usage.get("model")
-        if isinstance(model, str) and model:
-            row["model"] = model
-        verdict = _entry_verdict(entry, step_id)
-        if verdict:
-            row["verdict"] = verdict
-        row["seconds"] += _entry_seconds(entry)
-        for usage_key, column in _TOKEN_KEYS.items():
-            row[column] += int(_num(usage.get(usage_key)))
-        row["cost_usd"] += _num(usage.get("cost_usd"))
-        if usage.get("cost_partial") is True:
-            row["cost_partial"] = True
-
-    for row in rows.values():
-        row["seconds"] = round(row["seconds"], 3)
-        row["cost_usd"] = round(row["cost_usd"], 6)
-    return rows
-
-
-def metrics_totals(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """The Totals row: every numeric column summed over ``rows``.
-
-    ``cost_partial`` rides along so the table can mark a total that is a floor
-    rather than the real spend.
-    """
-    totals: dict[str, Any] = {key: 0 for key in _METRIC_NUMERIC_KEYS}
-    totals["cost_partial"] = False
-    for row in rows:
-        for key in _METRIC_NUMERIC_KEYS:
-            totals[key] += _num(row.get(key))
-        if row.get("cost_partial") is True:
-            totals["cost_partial"] = True
-    totals["seconds"] = round(totals["seconds"], 3)
-    totals["cost_usd"] = round(totals["cost_usd"], 6)
-    for key in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"):
-        totals[key] = int(totals[key])
-    return totals
-
-
-# ---------------------------------------------------------------------------
 # verbs: status / events
 # ---------------------------------------------------------------------------
 def status(run_ref: str) -> tuple[dict[str, Any], int]:
-    """Report nodes, usage totals, and gate state for a run."""
+    """Report nodes, artifacts, and gate state for a run.
+
+    State only: what each node is, what it produced, and where the run
+    stands. Metrics, cost and usage belong to the driver that ran the steps.
+    """
     from orchestrator_next import gates
     from orchestrator_next.parser import phase_nodes
-    from orchestrator_next.pricing import sum_cost_usd
 
     state_yaml_path = resolve_run(run_ref)
     state = load_state(state_yaml_path)
@@ -1202,10 +1133,6 @@ def status(run_ref: str) -> tuple[dict[str, Any], int]:
     for entry in state.step_history:
         if entry.attempt:
             attempts[entry.step_id] = max(attempts.get(entry.step_id, 0), int(entry.attempt))
-
-    # Per-node model/verdict/duration/tokens/cost, so a reader drawing a table
-    # does not have to fold `events --json` itself.
-    metrics = node_metrics([entry.raw for entry in state.step_history])
 
     nodes = []
     all_artifacts: list[dict[str, Any]] = []
@@ -1217,42 +1144,17 @@ def status(run_ref: str) -> tuple[dict[str, Any], int]:
             node_artifacts = [
                 a for a in (node.get("artifacts") or []) if isinstance(a, dict)
             ]
-            row = metrics.get(step_id, {})
             nodes.append({
                 "id": step_id,
                 "phase": phase,
                 "kind": (KIND_GATE if gates.node_is_gate(node)
                          else _kind_of(step_id)),
                 "status": str(node.get("status") or "pending"),
-                # `attempts` stays the contract's own max-attempt number; the
-                # metrics row counts history entries, which agree for a normal
-                # run and differ only for a history written without `attempt`.
-                "attempts": attempts.get(step_id, 0) or int(row.get("attempts", 0)),
+                "attempts": attempts.get(step_id, 0),
                 "artifacts": node_artifacts,
-                "model": row.get("model", ""),
-                "verdict": row.get("verdict", ""),
-                "seconds": row.get("seconds", 0.0),
-                "input_tokens": row.get("input_tokens", 0),
-                "output_tokens": row.get("output_tokens", 0),
-                "cache_read_tokens": row.get("cache_read_tokens", 0),
-                "cache_write_tokens": row.get("cache_write_tokens", 0),
-                "cost_usd": row.get("cost_usd", 0.0),
-                "cost_partial": row.get("cost_partial", False),
             })
             for a in node_artifacts:
                 all_artifacts.append({**a, "step_id": step_id})
-
-    totals = {"input_tokens": 0, "output_tokens": 0}
-    for entry in state.step_history:
-        u = entry.usage if isinstance(entry.usage, dict) else {}
-        for key in totals:
-            value = u.get(key)
-            if isinstance(value, (int, float)):
-                totals[key] += int(value)
-    try:
-        cost = round(sum_cost_usd(state.raw), 6)
-    except Exception:  # noqa: BLE001 — pricing is informational
-        cost = 0.0
 
     return {
         "run_id": str(state.raw.get("run_id") or Path(state_yaml_path).stem),
@@ -1263,11 +1165,11 @@ def status(run_ref: str) -> tuple[dict[str, Any], int]:
         "nodes": nodes,
         "artifacts": all_artifacts,   # {name, path, sha256, step_id}
         "artifacts_base": str(_artifact_base(state.raw)),
-        "usage": totals,
-        "cost_usd": cost,
-        # The table's Totals row: every numeric column summed over the nodes
-        # above, so the footer and the rows can never disagree.
-        "totals": metrics_totals(nodes),
+        # The pack this run was seeded from, so a driver reading only this
+        # report knows which charters the step ids refer to.
+        "config_root": str(state.raw.get("config_root") or ""),
+        # Every attempt, in order — what `events` used to project.
+        "step_history": [dict(entry.raw) for entry in state.step_history],
         # The most recently approved token, and every gate this run has seen.
         "gate_token": gates.latest_approved_token(state.raw),
         "gates": gates.gate_records(state.raw),
@@ -1280,392 +1182,6 @@ def _kind_of(step_id: str) -> str:
     except Exception:  # noqa: BLE001 — a missing contract is not a status failure
         return "unknown"
     return getattr(contract, "kind", KIND_JUDGMENT)
-
-
-def recipes() -> tuple[list[dict[str, Any]], int]:
-    """Every recipe the resolved pack(s) offer, for a picker to choose from.
-
-    One row per workflow YAML found by ``paths.list_workflows`` — the same
-    index ``resolve_workflow_ref`` resolves a CLI ref against, so a ``name``
-    here is always startable, and ``pack`` disambiguates the ones that are not
-    unique (``<pack>/<name>``). ``steps`` counts the recipe's entries and
-    ``gates`` names its ``{gate: ...}`` ones; ``inputs`` is the recipe's own
-    ``inputs:`` block, which tells a wizard what to ask for beyond the slug.
-
-    Never raises for one unreadable YAML: a malformed recipe is reported with
-    an ``error`` field rather than taking the whole listing down, since the
-    caller is usually drawing a menu.
-    """
-    from orchestrator_next.paths import list_workflows
-
-    index = list_workflows()
-    out: list[dict[str, Any]] = []
-    for name in sorted(index):
-        for pack_name, root in sorted(index[name]):
-            row: dict[str, Any] = {"name": name, "pack": pack_name}
-            path = root / "workflows" / f"{name}.yaml"
-            try:
-                doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-            except (OSError, yaml.YAMLError) as exc:
-                out.append({**row, "steps": 0, "gates": [], "inputs": {},
-                            "error": str(exc)})
-                continue
-            if not isinstance(doc, dict):
-                out.append({**row, "steps": 0, "gates": [], "inputs": {},
-                            "error": "recipe is not a mapping"})
-                continue
-            entries = doc.get("steps") or []
-            entries = entries if isinstance(entries, list) else []
-            gate_ids = [
-                str(entry["gate"])
-                for entry in entries
-                if isinstance(entry, dict) and entry.get("gate")
-            ]
-            inputs = doc.get("inputs") or {}
-            out.append({
-                **row,
-                "steps": len(entries),
-                "gates": gate_ids,
-                "inputs": inputs if isinstance(inputs, dict) else {},
-            })
-    return out, 0
-
-
-#: How many runs ``runs()`` answers when the caller names no limit.
-#:
-#: A home screen shows a page, not a history: twenty rows is about what fits
-#: above the fold at any pane width, and a caller that wants the whole store
-#: asks for it with ``--limit 0``.
-DEFAULT_RUN_LIMIT = 20
-
-#: The ``run_status`` values that mean the run is still going — drawn first,
-#: because an ongoing run is the one a person opened the list to look at.
-ONGOING_RUN_STATUSES = frozenset({"active", "running", "blocked", "needs_you"})
-
-#: How long a run with no recorded activity still counts as ongoing, in hours.
-#:
-#: A run an earlier session abandoned months ago keeps ``status: active`` in
-#: its state doc forever — nothing ever flips it, because nothing is driving
-#: it any more. Without a staleness check that run pins to the top of the
-#: list ahead of work actually in progress today, on the strength of a status
-#: field nobody is updating. ``run.stale_after_hours`` overrides it,
-#: for a person who genuinely runs something for days at a time.
-def _stale_after_hours() -> float:
-    from orchestrator_next import settings
-    try:
-        return float(settings.get("run.stale_after_hours"))
-    except (settings.SettingsError, ValueError):
-        return 24.0
-
-
-def runs(
-    limit: int = DEFAULT_RUN_LIMIT, *, all_ongoing: bool = False
-) -> tuple[list[dict[str, Any]], int]:
-    """Every run the store knows, ongoing first then newest-finished — what
-    ``status`` with no run reports.
-
-    ``all_ongoing`` (``--all`` on the CLI) is the escape hatch for staleness:
-    it leaves every ongoing-status run in the ongoing section, `stale` field
-    and all, instead of demoting the ones idle past
-    ``ORCHESTRATOR_STALE_AFTER_HOURS``. Nothing else about a row changes.
-
-    ``state list`` exists but answers a *store admin* question (it takes a
-    store URL, prints a fixed-width table, and reports schema/step counts), so
-    it is not what a picker can read. This is the run-identity projection the
-    mod needs: the fields it would otherwise call ``status`` once per run to
-    learn. A run whose state will not parse is skipped rather than raising,
-    for the same reason ``recipes`` tolerates a bad YAML.
-
-    Both the live and the archived blobs are listed (``run_store`` archives by
-    flipping a flag, never by deleting), so a finished run stays reachable —
-    a home screen whose past section empties itself the moment a run is
-    archived is not a history.
-
-    Ordering is what a list is *for*: ongoing runs first, then the rest by
-    ``ended_at`` descending, so the newest finished run is the first past row.
-    ``limit`` caps the result after sorting; 0 or less means no cap.
-    """
-    from orchestrator_next.run_store import open_store
-
-    store = open_store()
-    out: list[dict[str, Any]] = []
-    seen: set[str] = set()
-
-    for archived in (False, True):
-        try:
-            ids = store.list_ids(archived=archived)
-        except TypeError:  # pragma: no cover — a store predating the flag
-            ids = store.list_ids() if not archived else []
-        for run_id in ids:
-            if run_id in seen:
-                continue
-            try:
-                text = store.load(run_id, archived=archived)
-            except TypeError:  # pragma: no cover — ditto
-                text = store.load(run_id)
-            if not text:
-                continue
-            try:
-                raw = yaml.safe_load(text) or {}
-            except yaml.YAMLError:
-                continue
-            if not isinstance(raw, dict):
-                continue
-            seen.add(run_id)
-            out.append(_run_row(run_id, raw, archived=archived))
-
-    out.sort(key=lambda row: _run_sort_key(row, force_ongoing=all_ongoing))
-    return (out if limit is None or limit <= 0 else out[:limit]), 0
-
-
-def _run_row(run_id: str, raw: dict[str, Any], *, archived: bool) -> dict[str, Any]:
-    """One run's home-screen row, folded out of its state document.
-
-    Every number is derived here rather than by calling ``status`` once per
-    run: a list of twenty runs must cost one store read each, not twenty full
-    plan walks.
-    """
-    from orchestrator_next.pricing import sum_cost_usd
-
-    history = raw.get("step_history")
-    history = history if isinstance(history, list) else []
-    done, total = _node_counts(raw)
-
-    try:
-        cost = round(sum_cost_usd(raw), 6)
-    except Exception:  # noqa: BLE001 — pricing is informational, never fatal
-        cost = 0.0
-
-    run_status = str(raw.get("status") or "active")
-    last_activity = _last_activity(raw, history)
-    stale = run_status in ONGOING_RUN_STATUSES and _is_stale(last_activity)
-
-    return {
-        "run_id": str(raw.get("run_id") or run_id),
-        "slug": str(raw.get("slug") or raw.get("change_id") or ""),
-        "run_status": run_status,
-        "recipe": str(raw.get("schema") or raw.get("workflow") or ""),
-        "current_step": _current_step_of(raw),
-        "started_at": _run_started_at(raw, history),
-        "ended_at": _run_ended_at(raw, history),
-        "cost_usd": cost,
-        "cost_partial": any(
-            isinstance(e, dict)
-            and isinstance(e.get("usage"), dict)
-            and e["usage"].get("cost_partial") is True
-            for e in history
-        ),
-        "nodes_done": done,
-        "nodes_total": total,
-        "archived": archived,
-        "stale": stale,
-        "last_activity": last_activity,
-    }
-
-
-def _last_activity(raw: dict[str, Any], history: list[Any]) -> str | None:
-    """The most recent timestamp anything happened on this run, or ``None``.
-
-    Drawn from every place a run leaves a stamp: the state doc's own
-    ``updated_at``, the last step attempt's ``ended_at``/``started_at``, and
-    the most recent gate's ``issued_at``. The maximum of what is available —
-    an ISO stamp sorts lexically, so a plain string max works — is what
-    "still going" has to mean once ``run_status`` alone cannot be trusted: a
-    run nothing has touched in months is not "active" just because its state
-    doc still says so.
-    """
-    candidates: list[str] = []
-
-    for key in ("updated_at", "started_at", "created_at"):
-        value = raw.get(key)
-        if isinstance(value, str) and value:
-            candidates.append(value)
-
-    for entry in history:
-        if not isinstance(entry, dict):
-            continue
-        for key in ("ended_at", "started_at"):
-            value = entry.get(key)
-            if isinstance(value, str) and value:
-                candidates.append(value)
-
-    gates = raw.get("gates")
-    if isinstance(gates, list):
-        for record in gates:
-            if not isinstance(record, dict):
-                continue
-            for key in ("approved_at", "issued_at"):
-                value = record.get(key)
-                if isinstance(value, str) and value:
-                    candidates.append(value)
-
-    return max(candidates) if candidates else None
-
-
-def _is_stale(last_activity: str | None) -> bool:
-    """Whether ``last_activity`` is older than ``ORCHESTRATOR_STALE_AFTER_HOURS``.
-
-    A run with no timestamp at all (a very old or hand-built state doc) is
-    treated as stale rather than raising or guessing recent — silence is
-    itself the strongest signal nothing is driving it.
-    """
-    if not last_activity:
-        return True
-    try:
-        at = _dt.datetime.fromisoformat(last_activity.replace("Z", "+00:00"))
-    except (TypeError, ValueError):
-        return True
-    if at.tzinfo is None:
-        at = at.replace(tzinfo=_dt.timezone.utc)
-    now = _dt.datetime.now(_dt.timezone.utc)
-    age_hours = (now - at).total_seconds() / 3600.0
-    return age_hours > _stale_after_hours()
-
-
-def _node_counts(raw: dict[str, Any]) -> tuple[int, int]:
-    """``(finished, total)`` nodes across every phase of the plan.
-
-    Counted off the plan rather than the history so the denominator is the
-    work the run set out to do, not the work it has already recorded.
-    """
-    plan = raw.get("workflow_plan")
-    if not isinstance(plan, dict):
-        return 0, 0
-    done = total = 0
-    for phase in plan.values():
-        nodes = phase.get("nodes") if isinstance(phase, dict) else None
-        if not isinstance(nodes, list):
-            continue
-        for node in nodes:
-            if not isinstance(node, dict):
-                continue
-            total += 1
-            if str(node.get("status") or "") in _FINISHED_NODE_STATUSES:
-                done += 1
-    return done, total
-
-
-#: Node statuses that mean the node will not run again.
-_FINISHED_NODE_STATUSES = frozenset({"completed", "done", "skipped"})
-
-
-def _run_started_at(raw: dict[str, Any], history: list[Any]) -> str | None:
-    """When the run began: its own stamp, else its first attempt's."""
-    for key in ("started_at", "created_at"):
-        value = raw.get(key)
-        if isinstance(value, str) and value:
-            return value
-    for entry in history:
-        if isinstance(entry, dict) and entry.get("started_at"):
-            return str(entry["started_at"])
-    return None
-
-
-def _run_ended_at(raw: dict[str, Any], history: list[Any]) -> str | None:
-    """When the run finished, or ``None`` while it is still going.
-
-    An ongoing run has no end, and reporting its last attempt's ``ended_at``
-    as the run's would sort it among the finished ones.
-    """
-    if str(raw.get("status") or "active") in ONGOING_RUN_STATUSES:
-        return None
-    for key in ("ended_at", "completed_at", "updated_at"):
-        value = raw.get(key)
-        if isinstance(value, str) and value:
-            return value
-    for entry in reversed(history):
-        if isinstance(entry, dict) and entry.get("ended_at"):
-            return str(entry["ended_at"])
-    return None
-
-
-def _run_sort_key(
-    row: dict[str, Any], *, force_ongoing: bool = False
-) -> tuple[Any, ...]:
-    """Ongoing (and not stale) first, then by recency descending, then slug.
-
-    A stale run — ``run_status`` still says ongoing, but nothing has touched
-    it inside ``ORCHESTRATOR_STALE_AFTER_HOURS`` — sorts with the past
-    section rather than the ongoing one (see ``_is_stale``): it is drawn by
-    ``last_activity`` there, the same way a finished run is drawn by
-    ``ended_at``. ``force_ongoing`` (``--all``) keeps a stale run in the
-    ongoing section instead, unchanged otherwise. ``ended_at``/
-    ``last_activity`` are ISO stamps, which sort lexically the right way, so
-    the descending half is a reversed string comparison rather than a parse —
-    an unparseable or missing stamp then sorts last instead of raising.
-    """
-    ongoing = row["run_status"] in ONGOING_RUN_STATUSES and (
-        force_ongoing or not row.get("stale")
-    )
-    recency = row.get("last_activity") if ongoing else row.get("ended_at")
-
-    return (not ongoing, _descending(recency or ""), row.get("slug") or "")
-
-
-class _descending:
-    """Wraps a string so ``sorted`` orders it the other way round."""
-
-    __slots__ = ("value",)
-
-    def __init__(self, value: str) -> None:
-        self.value = value
-
-    def __lt__(self, other: "_descending") -> bool:
-        # An empty stamp is "unknown", which belongs last either way.
-        if self.value == other.value:
-            return False
-        if self.value == "":
-            return False
-        if other.value == "":
-            return True
-        return self.value > other.value
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, _descending) and self.value == other.value
-
-
-def _current_step_of(raw: dict[str, Any]) -> str | None:
-    """The step a run stands at: the last one its history touched.
-
-    Read off ``step_history`` rather than the plan, because a node's
-    ``status`` says what happened to it, not which one the driver is on.
-    """
-    history = raw.get("step_history")
-    if not isinstance(history, list):
-        return None
-    for entry in reversed(history):
-        if isinstance(entry, dict) and entry.get("step_id"):
-            return str(entry["step_id"])
-    return None
-
-
-def events(
-    run_ref: str,
-    *,
-    since: str = "",
-    step: str = "",
-) -> tuple[list[dict[str, Any]], int]:
-    """Return step_history entries, optionally narrowed.
-
-    ``since`` keeps the entries at or after that timestamp; ``step`` keeps only
-    the attempts of one node. The pane's log panel asks for one step's attempts
-    and would otherwise have to read (and parse) the whole run's history on
-    every selection, which on a long run is most of a megabyte of JSON per
-    keystroke.
-    """
-    state_yaml_path = resolve_run(run_ref)
-    state = load_state(state_yaml_path)
-    out = []
-    for entry in state.step_history:
-        raw = dict(entry.raw)
-        if step and str(raw.get("step_id") or "") != step:
-            continue
-        if since:
-            stamp = str(raw.get("ended_at") or raw.get("started_at") or "")
-            if stamp and stamp < since:
-                continue
-        out.append(raw)
-    return out, 0
 
 
 # ---------------------------------------------------------------------------
@@ -1694,53 +1210,69 @@ def _json_flag(args: list[str], flag: str, *, default: Any = None) -> Any:
 
 
 def main(verb: str, argv: list[str]) -> int:
-    """Dispatch one protocol-v2 verb. Always prints JSON; exit 3 on error."""
+    """Dispatch one verb. JSON is the only output; exit 3 on an engine error.
+
+    ``--state <dir>`` names where run documents live and is accepted by every
+    verb (ORCHESTRATOR_STATE is the fallback). A protocol status — blocked,
+    needs_you, even a failed run — is a successful call and exits 0; only a
+    usage or infrastructure error exits non-zero.
+    """
     args = list(argv)
-    if "--json" in args:
+    # Accepted and ignored: JSON is the only format there is now.
+    while "--json" in args:
         args.remove("--json")
     try:
+        state_flag = _pop_flag(args, "--state")
+        if state_flag:
+            from orchestrator_next.state_dir import ENV_STATE_DIR
+            os.environ[ENV_STATE_DIR] = state_flag
         if verb == "start":
             if len(args) < 2:
                 raise ProtocolError("usage: orchestrator start <recipe> <slug> "
-                                    "[--inputs JSON] [--ticket-id ID] --json")
+                                    "--state DIR [--config PATH] "
+                                    "[--inputs JSON] [--ticket-id ID]")
             inputs = _json_flag(args, "--inputs")
             ticket_id = _pop_flag(args, "--ticket-id") or ""
+            config = _pop_flag(args, "--config") or ""
             if inputs is not None and not isinstance(inputs, dict):
                 raise ProtocolError("--inputs must be a JSON object")
-            result, code = start(args[0], args[1], inputs=inputs, ticket_id=ticket_id)
+            result, code = start(
+                args[0], args[1], inputs=inputs, ticket_id=ticket_id, config=config,
+            )
         elif verb == "step":
             if not args:
-                raise ProtocolError("usage: orchestrator step <run> --json")
+                raise ProtocolError("usage: orchestrator step <run> --state DIR")
             result, code = step(args[0])
         elif verb == "done":
             if len(args) < 2:
                 raise ProtocolError(
-                    "usage: orchestrator done <run> <step_id> --out JSON "
-                    "--usage JSON [--status completed|abandoned] "
-                    "[--started-at ISO8601]"
+                    "usage: orchestrator done <run> <step_id> "
+                    "[--out JSON] [--status completed|abandoned]   (judgment)\n"
+                    "       orchestrator done <run> <step_id> "
+                    "--exit-code N [--stdout-file PATH]            (exec)"
                 )
             run_ref, step_id = args[0], args[1]
             rest = args[2:]
             out = _json_flag(rest, "--out", default={})
-            usage = _json_flag(rest, "--usage", default={})
             st = _pop_flag(rest, "--status") or "completed"
-            started_at = _pop_flag(rest, "--started-at")
+            raw_exit = _pop_flag(rest, "--exit-code")
+            stdout_file = _pop_flag(rest, "--stdout-file") or ""
             if not isinstance(out, dict):
                 raise ProtocolError("--out must be a JSON object")
-            if not isinstance(usage, dict):
-                raise ProtocolError("--usage must be a JSON object")
+            try:
+                exit_code = None if raw_exit is None else int(raw_exit)
+            except ValueError:
+                raise ProtocolError(
+                    f"--exit-code takes a whole number, not {raw_exit!r}"
+                ) from None
             result, code = done(
-                run_ref,
-                step_id,
-                out=out,
-                usage=usage,
-                status=st,
-                started_at=started_at,
+                run_ref, step_id, out=out, status=st,
+                exit_code=exit_code, stdout_file=stdout_file,
             )
         elif verb == "approve":
             if len(args) < 2:
                 raise ProtocolError(
-                    "usage: orchestrator approve <run> <token> [--edits JSON]"
+                    "usage: orchestrator approve <run> <token> --state DIR [--edits JSON]"
                 )
             run_ref, token = args[0], args[1]
             rest = args[2:]
@@ -1750,57 +1282,22 @@ def main(verb: str, argv: list[str]) -> int:
             result, code = approve(run_ref, token, edits=edits)
         elif verb == "resume":
             if len(args) < 2:
-                raise ProtocolError('usage: orchestrator resume <run> "<text>" --json')
+                raise ProtocolError('usage: orchestrator resume <run> "<text>" --state DIR')
             result, code = resume(args[0], " ".join(args[1:]).strip())
         elif verb == "cancel":
             if not args:
-                raise ProtocolError("usage: orchestrator cancel <run>")
+                raise ProtocolError("usage: orchestrator cancel <run> --state DIR")
             result, code = cancel(args[0])
         elif verb == "reset-step":
             if len(args) < 2:
                 raise ProtocolError(
-                    "usage: orchestrator reset-step <run> <step_id> --json"
+                    "usage: orchestrator reset-step <run> <step_id> --state DIR"
                 )
             result, code = reset_step(args[0], args[1])
-        elif verb == "recipes":
-            rows, code = recipes()
-            print(json.dumps(rows, sort_keys=True, indent=2, default=str))
-            return code
         elif verb == "status":
-            # No run named: report every live run instead of failing. This is
-            # what a picker asks first ("is anything running?"), and asking it
-            # used to mean `state list`, whose fixed-width table is for a
-            # human at a shell, not a caller.
-            limit_flag = _pop_flag(args, "--limit")
-            all_ongoing = "--all" in args
-            if all_ongoing:
-                args.remove("--all")
             if not args:
-                try:
-                    limit = (
-                        DEFAULT_RUN_LIMIT if limit_flag is None else int(limit_flag)
-                    )
-                except ValueError:
-                    raise ProtocolError(
-                        f"--limit takes a whole number, not {limit_flag!r}"
-                    ) from None
-                rows, code = runs(limit, all_ongoing=all_ongoing)
-                print(json.dumps(rows, sort_keys=True, indent=2, default=str))
-                return code
+                raise ProtocolError("usage: orchestrator status <run> --state DIR")
             result, code = status(args[0])
-        elif verb == "events":
-            if not args:
-                raise ProtocolError("usage: orchestrator events <run> "
-                                    "[--since TS] [--step ID] --json")
-            since = _pop_flag(args, "--since") or ""
-            # Not `step`: that name is the module's own `step` verb, and
-            # binding it here makes it a local for the WHOLE function, so the
-            # `elif verb == "step"` branch above raises UnboundLocalError.
-            step_id = _pop_flag(args, "--step") or ""
-            entries, code = events(args[0], since=since, step=step_id)
-            for entry in entries:
-                print(json.dumps(entry, sort_keys=True, default=str))
-            return code
         else:  # pragma: no cover — cli.py routes only the verbs above
             raise ProtocolError(f"unknown protocol verb: {verb}")
     except ProtocolError as exc:

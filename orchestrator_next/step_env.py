@@ -68,17 +68,19 @@ def inline_script_env(
     *,
     action_env: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Full subprocess env for inline step scripts (bin/orchestrator, rework, etc.)."""
+    """The variables the ENGINE contributes to a step script's environment.
+
+    Only what the engine knows about the run. The caller's own environment is
+    deliberately NOT included: this block is handed to the driver as data (it
+    is part of the `step` payload, which is printed), and copying os.environ
+    into it would print every secret the engine happened to be started with.
+    The driver merges this over its own environment when it runs the script.
+    """
     raw = getattr(state, "raw", None) or {}
     change_id = getattr(state, "change_id", "") or raw.get("slug") or ""
     repo_root = getattr(state, "repo_root", "") or ""
 
-    # Start with os.environ, then overlay action_env (which already carries the
-    # canonical ORCHESTRATOR_* fields from build_dispatch_env).
-    env: dict[str, str] = {
-        **{k: str(v) for k, v in os.environ.items()},
-        **(action_env or {}),
-    }
+    env: dict[str, str] = dict(action_env or {})
 
     # Script-specific fields not present in the dispatch env.
     env["STATE_YAML_PATH"] = state_yaml_path

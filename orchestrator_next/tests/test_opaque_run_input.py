@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from orchestrator_next.protocol import start, step
+from orchestrator_next.protocol import start
 from orchestrator_next.seed import seed_state_file
 from orchestrator_next.tests.store_fixture import install_test_store
 
@@ -116,13 +116,10 @@ def test_seed_user_input_not_as_ticket_id(tmp_path, monkeypatch):
 
 
 def _drive(state_path: str, limit: int = 10) -> dict:
-    """Walk `step` to a terminal result (every step in the mini pack is exec)."""
-    result = {}
-    for _ in range(limit):
-        result, _ = step(state_path)
-        if result.get("status") != "ready":
-            return result
-    return result
+    """Walk to a terminal result, running exec steps as a driver does."""
+    from orchestrator_next.tests.conftest import drive
+
+    return drive(state_path, limit=limit)
 
 
 def test_start_stores_free_text_as_opaque_user_input(tmp_path, monkeypatch):

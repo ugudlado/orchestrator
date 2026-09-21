@@ -14,18 +14,14 @@ from pathlib import Path
 
 import yaml
 
-from orchestrator_next.protocol import step as protocol_step
 from orchestrator_next.seed import seed_state_file
 
 
 def _drive(state_path, limit: int = 20) -> dict:
-    """`orchestrator step` until the run settles (every step here is exec)."""
-    result: dict = {}
-    for _ in range(limit):
-        result, _ = protocol_step(str(state_path))
-        if result.get("status") != "ready":
-            return result
-    raise AssertionError("step did not settle")
+    """Walk until the run settles, running exec steps as a driver does."""
+    from orchestrator_next.tests.conftest import drive
+
+    return drive(state_path, limit=limit)
 
 
 def _mini_pack(tmp_path: Path) -> Path:

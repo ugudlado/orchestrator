@@ -1,16 +1,15 @@
-"""Test helper: point the RunStore at a throwaway SQLite home."""
+"""Test helper: point the engine at a throwaway state directory."""
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
 
-from orchestrator_next.run_store import SqliteRunStore
+from orchestrator_next.state_dir import ENV_STATE_DIR
 
 
-def install_test_store(monkeypatch) -> SqliteRunStore:
-    # Resolve symlinks (macOS /var -> /private/var): record's
-    # _persist_if_materialized compares a resolved state path against
-    # _state_root(), so the env var must hold the resolved form.
-    home = str(Path(tempfile.mkdtemp(prefix="orc-test-home-")).resolve())
-    monkeypatch.setenv("ORCHESTRATOR_HOME_DIR", home)
-    return SqliteRunStore()
+def install_test_store(monkeypatch) -> Path:
+    """Give this test its own `--state` directory, as a driver would pass."""
+    # Resolve symlinks (macOS /var -> /private/var) so paths compare equal.
+    root = Path(tempfile.mkdtemp(prefix="orc-test-state-")).resolve()
+    monkeypatch.setenv(ENV_STATE_DIR, str(root))
+    return root

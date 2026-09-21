@@ -1,15 +1,7 @@
 """
 Tests for render_workflow_graph — static schema topology visualisation.
 """
-import os
-import sys
-
 import pytest
-
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT_STR = os.path.abspath(os.path.join(_HERE, "..", ".."))
-if _REPO_ROOT_STR not in sys.path:
-    sys.path.insert(0, _REPO_ROOT_STR)
 
 from orchestrator_next.graph import render_workflow_graph
 

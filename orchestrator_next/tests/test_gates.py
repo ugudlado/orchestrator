@@ -39,7 +39,7 @@ def gates_pack(tmp_path):
 
     for step_id, out_name, side_effects in (
         ("design", "design.md", []),
-        ("implement", "impl.md", ["write:git"]),
+        ("implement", "impl.md", ["write:git"])
     ):
         d = root / "steps" / step_id
         d.mkdir(parents=True)
@@ -110,8 +110,7 @@ def _finish_design(run):
     base = _artifacts(run)
     base.mkdir(parents=True, exist_ok=True)
     (base / "design.md").write_text("the design\n" * 60, encoding="utf-8")
-    protocol.done(run, "design", out={"design": "design.md"},
-                  usage={"input_tokens": 10, "output_tokens": 5})
+    protocol.done(run, "design", out={"design": "design.md"})
 
 
 # ---------------------------------------------------------------------------
@@ -185,72 +184,6 @@ def test_step_at_a_gate_blocks_with_a_preview_and_a_token(run):
     assert raw["gates"][0]["token_name"] == "impl_token"
 
 
-def test_gate_payload_shape_matches_what_the_mod_reads(run):
-    """Drift guard: `protocol.ts`'s `GatePayload` type and every `gate.<path>`
-    the Mod actually reads must resolve against a real `_gate_payload`.
-
-    The Mod's `register.ts`/`protocol.ts` are generated straight from this
-    engine (`pack_export.generate_claude`) but are hand-maintained TypeScript,
-    not derived from `protocol.py` by any tool — nothing stops the two
-    drifting apart the way `GatePayload` once did (flat `step_id`/`show`/
-    `approve_as`/`gate_token` fields that `_gate_payload` never emitted,
-    silently reading as `undefined` everywhere: "Approve undefined?").
-
-    This greps the Mod source for the field paths it dereferences off a
-    `GatePayload` and walks each one against an actual blocked-gate payload,
-    so a future rename on either side fails a test instead of failing
-    silently in the running Mod.
-    """
-    import re
-    from pathlib import Path
-
-    mod_dir = Path(__file__).resolve().parents[1] / "mod"
-    register_src = (mod_dir / "register.ts").read_text(encoding="utf-8")
-    protocol_src = (mod_dir / "protocol.ts").read_text(encoding="utf-8")
-
-    # Every `gate.<dotted path>` register.ts dereferences off a GatePayload
-    # (`gate` is that function's parameter name throughout runGate/pane wiring).
-    paths = set(re.findall(r"\bgate\.([a-zA-Z_][a-zA-Z0-9_.]*)", register_src))
-    assert paths, "no gate.<path> reads found — the grep itself drifted"
-    assert "preview.token_name" in paths
-    assert "preview.show" in paths
-    assert "step_id" in paths
-
-    _finish_design(run)
-    result, code = protocol.step(run)
-    assert code == 0
-    assert result["status"] == "blocked"
-
-    # StepResult.step_id, the sibling gateOf() reads step_id from (protocol.ts
-    # documents this explicitly) — required even though it is not a `gate.`
-    # path in register.ts.
-    assert result["step_id"]
-
-    payload = result["payload"]
-
-    def resolve(obj, dotted):
-        for part in dotted.split("."):
-            assert isinstance(obj, dict), f"payload.{dotted}: {part!r} is not on a dict"
-            assert part in obj, f"payload.{dotted}: {part!r} missing"
-            obj = obj[part]
-        return obj
-
-    for dotted in paths:
-        if dotted == "step_id":
-            # payload.step_id is NOT trustworthy (this is the exact bug):
-            # gateOf() must use the StepResult-level step_id instead. Assert
-            # the sibling exists rather than the payload key, so this test
-            # would have failed before that fix and stays meaningful after.
-            continue
-        resolve(payload, dotted)
-
-    # GatePayload's declared shape must still name every field register.ts
-    # dereferences, so `tsc` — not just this test — catches a future drift.
-    for dotted in paths:
-        top = dotted.split(".")[0]
-        assert re.search(rf"\b{re.escape(top)}\??:", protocol_src), (
-            f"GatePayload has no {top!r} field for register.ts's gate.{dotted}"
-        )
 
 
 def test_re_stepping_a_blocked_gate_returns_the_same_token(run):
@@ -269,7 +202,6 @@ def test_preview_reports_a_show_artifact_that_was_never_written(run):
     base.mkdir(parents=True, exist_ok=True)
     result, _ = protocol.step(run)
     protocol.done(run, "design", out={"design": "design.md"},
-                  usage={"input_tokens": 1, "output_tokens": 1},
                   status="abandoned")
     # design was abandoned, so its node re-queues; force the gate instead.
     raw = yaml.safe_load(open(run, encoding="utf-8"))
@@ -384,58 +316,14 @@ def test_status_reports_gate_token_and_gate_records(run):
 # ---------------------------------------------------------------------------
 # 5. validate-workflow: gates before writes
 # ---------------------------------------------------------------------------
-def _validate(pack_root, monkeypatch, capsys):
-    from orchestrator_next.validate_workflow import validate_workflow
-
-    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack_root))
-    try:
-        validate_workflow("feature", str(pack_root))
-    except SystemExit as exc:
-        return int(exc.code or 1), capsys.readouterr().err
-    return 0, capsys.readouterr().err
 
 
-def test_validate_accepts_a_write_step_behind_a_gate(pack, monkeypatch, capsys):
-    code, err = _validate(pack, monkeypatch, capsys)
-    assert code == 0, err
 
 
-def test_validate_rejects_a_write_step_with_no_gate(pack, monkeypatch, capsys):
-    recipe = pack / "workflows" / "feature.yaml"
-    recipe.write_text(yaml.safe_dump({
-        "name": "feature", "steps": ["design", "implement"],
-    }, sort_keys=False), encoding="utf-8")
-
-    code, err = _validate(pack, monkeypatch, capsys)
-    assert code == 1
-    assert "gates before writes" in err
-    assert "write:git" in err
 
 
-def test_validate_rejects_a_requires_naming_no_upstream_gate(pack, monkeypatch,
-                                                             capsys):
-    recipe = pack / "workflows" / "feature.yaml"
-    recipe.write_text(yaml.safe_dump({
-        "name": "feature",
-        "steps": ["design", {"id": "implement", "requires": "ghost_token"}],
-    }, sort_keys=False), encoding="utf-8")
-
-    code, err = _validate(pack, monkeypatch, capsys)
-    assert code == 1
-    assert "ghost_token" in err
 
 
-def test_validate_rejects_a_gate_with_no_approve_as(pack, monkeypatch, capsys):
-    recipe = pack / "workflows" / "feature.yaml"
-    recipe.write_text(yaml.safe_dump({
-        "name": "feature",
-        "steps": ["design", {"gate": "g", "show": ["design"]},
-                  {"id": "implement", "requires": "impl_token"}],
-    }, sort_keys=False), encoding="utf-8")
-
-    code, err = _validate(pack, monkeypatch, capsys)
-    assert code == 1
-    assert "approve_as" in err
 
 
 def test_v2_verbs_report_blocked_in_json_and_exit_zero(run, capsys):
@@ -477,7 +365,7 @@ def test_cli_routes_approve_and_cancel(run, pack, tmp_path, monkeypatch):
     env = dict(**{k: v for k, v in __import__("os").environ.items()})
     proc = subprocess.run(
         [sys.executable, "-m", "orchestrator_next", "approve", run, token],
-        capture_output=True, text=True, env=env,
+        capture_output=True, text=True, env=env
     )
     assert proc.returncode == 0, proc.stderr
     assert json.loads(proc.stdout)["gate_id"] == "design-signoff"
@@ -486,45 +374,8 @@ def test_cli_routes_approve_and_cancel(run, pack, tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # 7. headless
 # ---------------------------------------------------------------------------
-def test_headless_parks_at_a_gate_and_prints_the_preview(run, capsys):
-    from orchestrator_next import headless
-
-    _finish_design(run)
-    rc = headless.drive(run, client=object())
-    assert rc == 0
-
-    out = capsys.readouterr()
-    printed = json.loads(out.out)
-    assert printed["status"] == "blocked"
-    assert printed["kind"] == "gate"
-    assert "orchestrator approve" in out.err
 
 
-def test_headless_auto_approve_walks_through_the_gate(run, monkeypatch, capsys):
-    from orchestrator_next import headless
-
-    _finish_design(run)
-
-    # The step after the gate would call the model; stub the judgment runner so
-    # the test is about the gate, not about the API.
-    base = _artifacts(run)
-
-    def _fake_judgment(payload, client=None):
-        (base / "impl.md").write_text("done\n", encoding="utf-8")
-        return {"out": {"impl": "impl.md"}, "text": "{}",
-                "usage": {"input_tokens": 5, "output_tokens": 5}}
-
-    monkeypatch.setattr(headless, "run_judgment", _fake_judgment)
-
-    rc = headless.drive(run, client=object(), auto_approve=True)
-    assert rc == 0
-
-    raw = yaml.safe_load(open(run, encoding="utf-8"))
-    assert raw["gates"][0]["status"] == "approved"
-    assert raw["gates"][0]["edits"] == {"auto_approved": True}
-    done_ids = {e["step_id"] for e in raw["step_history"]
-                if e["status"] == "completed"}
-    assert "implement" in done_ids
 
 
 # ---------------------------------------------------------------------------
@@ -537,102 +388,10 @@ def _set_side_effects(pack, step_id, side_effects):
     contract.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
 
 
-def test_validate_exempts_write_workspace_from_needing_a_gate(pack, monkeypatch,
-                                                              capsys):
-    """Provisioning the run's own workspace cannot sit behind a gate.
-
-    A worktree-create step writes git before any gate could exist — the gate's
-    own artifacts live in the directory it makes — so requiring one would make
-    every recipe unstartable.
-    """
-    recipe = pack / "workflows" / "feature.yaml"
-    recipe.write_text(yaml.safe_dump({
-        "name": "feature", "steps": ["design", "implement"],
-    }, sort_keys=False), encoding="utf-8")
-    _set_side_effects(pack, "implement", ["write:workspace"])
-
-    code, err = _validate(pack, monkeypatch, capsys)
-    assert code == 0, err
-    assert "gates before writes" not in err
 
 
-def test_validate_still_requires_a_gate_beside_a_workspace_write(pack,
-                                                                 monkeypatch,
-                                                                 capsys):
-    """The exemption covers only write:workspace, not whatever rides with it."""
-    recipe = pack / "workflows" / "feature.yaml"
-    recipe.write_text(yaml.safe_dump({
-        "name": "feature", "steps": ["design", "implement"],
-    }, sort_keys=False), encoding="utf-8")
-    _set_side_effects(pack, "implement", ["write:workspace", "write:ticket"])
-
-    code, err = _validate(pack, monkeypatch, capsys)
-    assert code == 1
-    assert "write:ticket" in err
-    assert "write:workspace" not in err
 
 
 # ---------------------------------------------------------------------------
 # 9. validate-workflow --json
 # ---------------------------------------------------------------------------
-def _validate_json(pack_root, monkeypatch, capsys):
-    from orchestrator_next.validate_workflow import main
-
-    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(pack_root))
-    code = main(["feature", "--json"])
-    return code, json.loads(capsys.readouterr().out)
-
-
-def test_validate_json_reports_ok_with_no_errors(pack, monkeypatch, capsys):
-    code, doc = _validate_json(pack, monkeypatch, capsys)
-    assert code == 0
-    assert doc == {"ok": True, "errors": [], "warnings": []}
-
-
-def test_validate_json_lists_each_error(pack, monkeypatch, capsys):
-    recipe = pack / "workflows" / "feature.yaml"
-    recipe.write_text(yaml.safe_dump({
-        "name": "feature",
-        "steps": ["design", {"id": "implement", "requires": "ghost_token"}],
-    }, sort_keys=False), encoding="utf-8")
-
-    code, doc = _validate_json(pack, monkeypatch, capsys)
-    assert code == 1
-    assert doc["ok"] is False
-    assert any("ghost_token" in e for e in doc["errors"])
-    # The `ERROR:` header is dropped in favor of its bullets.
-    assert "gates before writes:" not in doc["errors"]
-
-
-def test_validate_json_separates_warnings_from_errors(pack, monkeypatch, capsys):
-    """A wiring WARN is reported as a warning, not an error: the recipe is
-    still valid, so `ok` stays true and exit stays 0.
-
-    An exec step declares no in:/out: at all, so the engine cannot see what it
-    produces. A later step consuming its artifact gets "no declared producer"
-    — a warning, because the producer may well write it.
-    """
-    setup = pack / "steps" / "setup"
-    setup.mkdir(parents=True)
-    (setup / "contract.yaml").write_text(yaml.safe_dump({
-        "id": "setup", "version": 1, "run": "script.sh",
-    }, sort_keys=False), encoding="utf-8")
-    script = setup / "script.sh"
-    script.write_text("#!/usr/bin/env bash\necho '{}'\n", encoding="utf-8")
-    script.chmod(0o755)
-
-    recipe = pack / "workflows" / "feature.yaml"
-    doc_in = yaml.safe_load(recipe.read_text())
-    doc_in["steps"].insert(0, "setup")
-    recipe.write_text(yaml.safe_dump(doc_in, sort_keys=False), encoding="utf-8")
-
-    contract = pack / "steps" / "design" / "contract.yaml"
-    doc_c = yaml.safe_load(contract.read_text())
-    doc_c.setdefault("in", {})["seed"] = {"artifact": "seed.md"}
-    contract.write_text(yaml.safe_dump(doc_c, sort_keys=False), encoding="utf-8")
-
-    code, doc = _validate_json(pack, monkeypatch, capsys)
-    assert code == 0
-    assert doc["ok"] is True
-    assert doc["errors"] == []
-    assert any("no declared producer" in w for w in doc["warnings"])

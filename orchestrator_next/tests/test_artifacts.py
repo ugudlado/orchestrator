@@ -45,21 +45,8 @@ def test_scratch_dir_is_beside_artifacts_not_inside_them(tmp_path):
     assert not scratch.is_relative_to(paths.artifacts_dir(state))
 
 
-def test_gitignore_helper_adds_the_scratch_line_once(tmp_path):
-    (tmp_path / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
-    assert paths.ensure_scratch_gitignored(tmp_path) is True
-    text = (tmp_path / ".gitignore").read_text(encoding="utf-8")
-    assert paths.SCRATCH_GITIGNORE_LINE in text.splitlines()
-    # Idempotent: a second call is a no-op.
-    assert paths.ensure_scratch_gitignored(tmp_path) is False
-    assert (tmp_path / ".gitignore").read_text(encoding="utf-8") == text
 
 
-def test_gitignore_helper_creates_the_file_when_absent(tmp_path):
-    assert paths.ensure_scratch_gitignored(tmp_path) is True
-    assert paths.SCRATCH_GITIGNORE_LINE in (
-        tmp_path / ".gitignore"
-    ).read_text(encoding="utf-8")
 
 
 def test_run_id_is_unique_and_sortable():
@@ -128,14 +115,8 @@ def test_collect_require_false_tolerates_missing_files(tmp_path):
     ) == []
 
 
-def test_run_validate_raises_on_non_zero_exit(tmp_path):
-    with pytest.raises(art.ArtifactError) as exc:
-        art.run_validate("echo nope >&2; exit 1", tmp_path)
-    assert "nope" in str(exc.value)
 
 
-def test_run_validate_passes_on_zero_exit(tmp_path):
-    art.run_validate("true", tmp_path)  # does not raise
 
 
 # ---------------------------------------------------------------------------

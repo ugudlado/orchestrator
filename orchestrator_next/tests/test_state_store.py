@@ -1,15 +1,13 @@
-"""Tests for the pluggable state store.
+"""Tests for the state store.
 
-The contract every backend must satisfy is identical, so the round-trip and
-concurrency tests are parametrized across backends. Postgres is skipped unless
-ORCHESTRATOR_TEST_PG_DSN is set, and is honestly unproven without it.
+State is one YAML document per run. The properties that matter are the
+compare-and-swap (a lost update must be a loud error, never silence) and the
+restore-on-bad-write guarantee — both are data-loss protection.
 """
 from __future__ import annotations
 
 import concurrent.futures
 import json
-import os
-import sqlite3
 import threading
 
 import pytest
@@ -28,63 +26,48 @@ DOC = {
     "phase": "main",
     "workflow_plan": {"main": {"nodes": [
         {"id": "explore", "status": "completed"},
-        {"id": "design", "depends_on": ["explore"], "status": "pending"},
+        {"id": "design", "status": "pending"},
     ]}},
     "step_history": [
         {"step_id": "explore", "phase": "main", "status": "completed",
-         "agent": "claude", "attempt": 1,
-         "started_at": "2026-08-18T10:00:00Z", "ended_at": "2026-08-18T10:04:00Z",
-         "usage": {"model": "claude-sonnet-5", "input_tokens": 1200,
-                   "output_tokens": 340, "cache_read_input_tokens": 900,
-                   "cache_creation_input_tokens": 100, "cost_usd": 0.021,
-                   "duration_ms": 240000}},
+         "attempt": 1},
     ],
-    "retries": {},
 }
 
 
-# --------------------------------------------------------------- handle parsing
-@pytest.mark.parametrize("raw,scheme,run_id", [
-    ("/repo/.orchestrator/orc-1/x_state.yaml", "file", ""),
-    ("file:///repo/x_state.yaml", "file", ""),
-    ("sqlite:///repo/state.db#orc-123", "sqlite", "orc-123"),
-    ("postgresql://u@h:5432/orch#orc-9", "postgresql", "orc-9"),
+# ------------------------------------------------------------ handle parsing
+@pytest.mark.parametrize("raw", [
+    "/repo/.orchestrator/orc-1/x_state.yaml",
+    "file:///repo/x_state.yaml",
 ])
-def test_parse_handle(raw, scheme, run_id):
+def test_parse_handle_is_always_a_file(raw):
     h = ss.parse_handle(raw)
-    assert h.scheme == scheme
-    assert h.run_id == run_id
+    assert h.scheme == "file"
+    assert h.run_id == ""
 
 
 def test_bare_path_is_a_file_handle_not_a_url():
-    """A plain path must never be mistaken for a URL — this is the back-compat hinge."""
     h = ss.parse_handle("/a/b/c_state.yaml")
     assert h.is_file and h.location == "/a/b/c_state.yaml"
 
 
-def test_unknown_scheme_is_a_loud_error():
+def test_a_remote_url_is_a_loud_error():
+    """Remote backends are gone — a driver names a directory, not a server."""
     with pytest.raises(ValueError, match="unsupported state URL scheme"):
-        ss.parse_handle("mysql://host/db#run")
+        ss.parse_handle("postgresql://u@h:5432/orch#orc-9")
+    with pytest.raises(ValueError, match="unsupported state URL scheme"):
+        ss.parse_handle("sqlite:///repo/state.db#orc-123")
 
 
-def test_sql_handle_without_run_id_is_rejected():
-    store, h = ss.open_store("sqlite:///tmp/x.db")
-    with pytest.raises(ValueError, match="append '#<run-id>'"):
-        store.load(h)
+@pytest.fixture
+def handle(tmp_path):
+    return str(tmp_path / "20260818T100000_workflows_feature_state.yaml")
 
 
-# ------------------------------------------------------------------- fixtures
-@pytest.fixture(params=["file", "sqlite"])
-def handle(request, tmp_path):
-    if request.param == "file":
-        return str(tmp_path / "20260818T100000_workflows_feature_state.yaml")
-    return f"sqlite:///{tmp_path}/state.db#orc-900"
-
-
-# ------------------------------------------------------------ round-trip contract
+# ------------------------------------------------------------ round-trip
 def test_create_load_save_round_trip(handle):
     store, h = ss.open_store(handle)
-    token = store.create(h, DOC)
+    store.create(h, DOC)
     doc, token2 = store.load(h)
     assert doc == DOC
     assert doc["workflow_plan"]["main"]["nodes"][1]["id"] == "design"
@@ -137,10 +120,9 @@ def test_token_advances_on_every_save(handle):
     assert t2 != t1 and t1 is not None and t0 is not None
 
 
-def test_concurrent_writers_exactly_one_wins(tmp_path):
-    """Eight threads, one run. Under state.yaml today this silently loses writes."""
-    url = f"sqlite:///{tmp_path}/state.db#orc-900"
-    store, h = ss.open_store(url)
+def test_concurrent_writers_exactly_one_wins(handle):
+    """Eight threads, one run: seven must be refused, not silently dropped."""
+    store, h = ss.open_store(handle)
     store.create(h, DOC)
     doc, token = store.load(h)
 
@@ -167,24 +149,23 @@ def test_concurrent_writers_exactly_one_wins(tmp_path):
     assert outcomes.count("conflict") == 7, outcomes
 
 
-def test_serial_read_modify_write_all_succeed(tmp_path):
+def test_serial_read_modify_write_all_succeed(handle):
     """Reload-then-write always makes progress — retry is a valid strategy."""
-    url = f"sqlite:///{tmp_path}/state.db#orc-900"
-    store, h = ss.open_store(url)
+    store, h = ss.open_store(handle)
     store.create(h, DOC)
     for i in range(20):
         doc, token = store.load(h)
         doc.setdefault("step_history", []).append(
             {"step_id": f"s{i}", "phase": "main", "status": "completed",
-             "agent": "claude", "attempt": 1, "usage": {"model": "m"}})
+             "attempt": 1})
         store.save(h, doc, token)
     doc, _ = store.load(h)
     assert len(doc["step_history"]) == 21
 
 
-# --------------------------------------------------------- file back-compat
+# --------------------------------------------------------- file semantics
 def test_file_store_writes_plain_readable_yaml(tmp_path):
-    """The 'debuggable with cat' property must survive for the default backend."""
+    """The 'debuggable with cat' property is the reason state is a file."""
     p = tmp_path / "s_state.yaml"
     store, h = ss.open_store(str(p))
     store.create(h, DOC)
@@ -220,113 +201,13 @@ def test_file_store_detects_an_external_edit(tmp_path):
         store.save(h, doc, token)
 
 
-# ----------------------------------------------------- derived history index
-def test_step_history_is_queryable_in_sqlite(tmp_path):
-    """This is what replaces globbing archived state files in `report --all`."""
-    db = tmp_path / "state.db"
+def test_list_runs_reads_the_state_directory(tmp_path):
     for n in range(3):
-        store, h = ss.open_store(f"sqlite:///{db}#orc-{n}")
+        store, h = ss.open_store(str(tmp_path / f"orc-{n}.yaml"))
         d = json.loads(json.dumps(DOC))
         d["slug"] = f"orc-{n}"
-        d["step_history"][0]["usage"]["cost_usd"] = 0.10 * (n + 1)
         store.create(h, d)
-
-    conn = sqlite3.connect(db)
-    rows = conn.execute(
-        "SELECT step_id, COUNT(*), ROUND(AVG(cost_usd), 4), SUM(input_tokens) "
-        "FROM step_history GROUP BY step_id"
-    ).fetchall()
-    conn.close()
-    assert rows == [("explore", 3, 0.2, 3600)]
-
-
-def test_history_index_is_rebuilt_not_appended(tmp_path):
-    """The index is derived. A save must not duplicate rows."""
-    db = tmp_path / "state.db"
-    store, h = ss.open_store(f"sqlite:///{db}#orc-900")
-    store.create(h, DOC)
-    for _ in range(3):
-        doc, token = store.load(h)
-        store.save(h, doc, token)
-    conn = sqlite3.connect(db)
-    n = conn.execute("SELECT COUNT(*) FROM step_history WHERE run_id='orc-900'").fetchone()[0]
-    conn.close()
-    assert n == 1
-
-
-def test_doc_is_the_source_of_truth_not_the_columns(tmp_path):
-    """Extracted columns are an index. Round-tripping must not lose unknown keys."""
-    db = tmp_path / "state.db"
-    store, h = ss.open_store(f"sqlite:///{db}#orc-900")
-    d = json.loads(json.dumps(DOC))
-    d["some_future_key"] = {"nested": [1, 2, 3]}
-    store.create(h, d)
-    back, _ = store.load(h)
-    assert back["some_future_key"] == {"nested": [1, 2, 3]}
-
-
-# ---------------------------------------------------------------- projection
-def test_project_yaml_materializes_a_readable_file_for_pack_scripts(tmp_path):
-    """Eight pack scripts read state.yaml by path; a SQL store has no such file."""
-    store, h = ss.open_store(f"sqlite:///{tmp_path}/state.db#orc-900")
-    store.create(h, DOC)
-    out = ss.project_yaml(f"sqlite:///{tmp_path}/state.db#orc-900", tmp_path / "proj" / "state.yaml")
-    assert out.is_file()
-    loaded = yaml.safe_load(out.read_text(encoding="utf-8"))
-    assert loaded == DOC
-
-
-# ----------------------------------------------------------------- migration
-def test_import_yaml_moves_an_existing_run_into_a_store(tmp_path):
-    src = tmp_path / "20260818T100000_workflows_feature_state.yaml"
-    src.write_text(yaml.safe_dump(DOC), encoding="utf-8")
-    url = f"sqlite:///{tmp_path}/state.db"
-    handle = ss.import_yaml(src, url)
-    assert handle.endswith("#20260818T100000_workflows_feature")
-    doc, _, _ = ss.load_doc(handle)
-    assert doc == DOC
-
-
-def test_import_yaml_refuses_to_overwrite(tmp_path):
-    src = tmp_path / "a_state.yaml"
-    src.write_text(yaml.safe_dump(DOC), encoding="utf-8")
-    url = f"sqlite:///{tmp_path}/state.db"
-    ss.import_yaml(src, url, run_id="orc-900")
-    with pytest.raises(FileExistsError):
-        ss.import_yaml(src, url, run_id="orc-900")
-
-
-def test_list_runs(tmp_path):
-    url = f"sqlite:///{tmp_path}/state.db"
-    for n in range(3):
-        store, h = ss.open_store(f"{url}#orc-{n}")
-        d = json.loads(json.dumps(DOC)); d["slug"] = f"orc-{n}"
-        store.create(h, d)
-    store, h = ss.open_store(f"{url}#ignored")
+    store, h = ss.open_store(str(tmp_path / "orc-0.yaml"))
     runs = store.list_runs(h)
     assert [r["slug"] for r in runs] == ["orc-0", "orc-1", "orc-2"]
     assert all(r["schema"] == "feature" for r in runs)
-
-
-# ------------------------------------------------------------------ postgres
-PG_DSN = os.environ.get("ORCHESTRATOR_TEST_PG_DSN")
-
-
-@pytest.mark.skipif(not PG_DSN, reason="set ORCHESTRATOR_TEST_PG_DSN to run")
-def test_postgres_round_trip_and_conflict():
-    url = f"{PG_DSN}#orc-900-test"
-    store, h = ss.open_store(url)
-    try:
-        store.create(h, DOC)
-        doc_a, tok_a = store.load(h)
-        doc_b, tok_b = store.load(h)
-        doc_a["status"] = "a"
-        store.save(h, doc_a, tok_a)
-        doc_b["status"] = "b"
-        with pytest.raises(ss.StateConflictError):
-            store.save(h, doc_b, tok_b)
-    finally:
-        import psycopg  # type: ignore
-        with psycopg.connect(h.location) as c:
-            c.execute("DELETE FROM runs WHERE run_id = %s", ("orc-900-test",))
-            c.execute("DELETE FROM step_history WHERE run_id = %s", ("orc-900-test",))

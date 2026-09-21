@@ -114,49 +114,6 @@ class TestAgentContractDispatch:
     """Directory-form agent contract → dispatch emits action with instruction
     loaded from prompt.md and step_id matching the contract id."""
 
-    def test_agent_contract_emits_instruction(self, tmp_path, monkeypatch):
-        """Agent contract directory form → action['instruction'] non-empty."""
-        steps_dir = tmp_path / "steps"
-        steps_dir.mkdir()
-        artifact_dir = tmp_path / "artifacts"
-        artifact_dir.mkdir()
-        state_dir = tmp_path / "state"
-        state_dir.mkdir()
-
-        prompt = "## Architect\n\nRun the explore phase and produce discovery.md.\n"
-        _write_agent_contract(steps_dir, "explore", {
-            "id": "explore",
-            "version": 1,
-            "kind": "agent",
-            "agent": "discoverer",
-            "inputs": [],
-            "outputs": ["discovery_result"],
-            "rules": [],
-        }, prompt_text=prompt)
-
-        monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps_dir))
-
-        sp = _make_state_yaml(
-            state_dir,
-            change_id="orc-smoke",
-            worktree_artifact_dir=str(artifact_dir),
-            phase="main",
-            nodes=[_node("explore")],
-        )
-
-        from orchestrator_next.dispatch import dispatch
-        from orchestrator_next.parser import load_state
-
-        action, code = dispatch(load_state(sp), sp)
-
-        assert code == 0, f"Expected exit 0, got {code}"
-        assert action.get("step_id") == "explore", (
-            f"Expected step_id='explore', got {action.get('step_id')!r}"
-        )
-        assert action.get("instruction"), "Expected non-empty instruction in action"
-        assert "discover" in action["instruction"].lower() or "architect" in action["instruction"].lower(), (
-            f"Expected instruction content from prompt.md, got: {action['instruction'][:100]!r}"
-        )
 
 
 # ---------------------------------------------------------------------------

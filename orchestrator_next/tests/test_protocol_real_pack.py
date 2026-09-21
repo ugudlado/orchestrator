@@ -28,7 +28,7 @@ MIGRATED = ("explore", "design", "design-review")
 
 pytestmark = pytest.mark.skipif(
     not (PACK / "steps" / "design" / "contract.yaml").is_file(),
-    reason="local workflows pack not vendored in this checkout",
+    reason="local workflows pack not vendored in this checkout"
 )
 
 
@@ -113,23 +113,18 @@ def test_walks_explore_design_design_review(seeded, repo):
         assert result["step_id"] == expected, result
 
         payload = result["payload"]
-        # The real SKILL.md charter is in the payload, with the structured
-        # output contract replacing the COMPLETION block.
-        assert payload["system"].strip()
-        assert "COMPLETION:" not in payload["system"].split("---")[-1]
-        assert "```json" in payload["system"]
+        # The real SKILL.md charter is named, not inlined: the driver reads it.
+        assert payload["prompt_path"].endswith("SKILL.md")
+        assert Path(payload["prompt_path"]).is_file()
         assert payload["cwd"] == str(repo)
         # Every declared artifact resolves under the run's artifact base —
         # here the pack's own `artifacts_root: spec/changes/{slug}` override.
         for path in payload["out"].values():
             assert path.startswith(str(art))
-        # Phase 2.2: the charter's {in.x} / {out.y} are already resolved to
-        # absolute paths — the agent never sees a placeholder.
-        assert "{in." not in payload["system"]
-        assert "{out." not in payload["system"]
-        for name, path in payload["out"].items():
-            if name in ("discovery", "design", "tasks"):
-                assert path in payload["system"], name
+        # Every declared in:/out: name resolves to an absolute path in the
+        # payload — substituting them into the charter is the driver's job.
+        for path in payload["in"].values():
+            assert Path(path).is_absolute()
 
         # Write whatever artifacts this step declared, then report them.
         for name, spec in outs[expected].items():
@@ -138,9 +133,7 @@ def test_walks_explore_design_design_review(seeded, repo):
                                              encoding="utf-8")
 
         done_result, done_code = protocol.done(
-            seeded, expected, out=outs[expected],
-            usage={"input_tokens": 500, "output_tokens": 120,
-                   "model": "claude-sonnet-5"},
+            seeded, expected, out=outs[expected]
         )
         assert done_code == 0
         assert done_result["status"] == "ok"
@@ -151,7 +144,6 @@ def test_walks_explore_design_design_review(seeded, repo):
     status, _ = protocol.status(seeded)
     done_ids = {n["id"] for n in status["nodes"] if n["status"] == "completed"}
     assert set(MIGRATED) <= done_ids
-    assert status["usage"]["input_tokens"] == 1500
 
     # Phase 2.3: every artifact the real steps wrote is recorded by hash,
     # against the override base rather than the engine default.
@@ -241,9 +233,7 @@ def test_gate_blocks_then_approve_dispatches_implement(seeded_with_gate, repo):
             if str(spec).endswith((".md", ".yaml")):
                 (art / str(spec)).write_text(f"{expected}:{name}\n",
                                              encoding="utf-8")
-        protocol.done(run, expected, out=outs[expected],
-                      usage={"input_tokens": 100, "output_tokens": 20,
-                             "model": "claude-sonnet-5"})
+        protocol.done(run, expected, out=outs[expected])
 
     blocked, code = protocol.step(run)
     assert code == 0
@@ -292,13 +282,11 @@ def test_done_rejects_a_design_that_never_wrote_tasks_yaml(seeded, repo):
     art = _artifacts(repo)
     (art / "discovery.md").write_text("d\n", encoding="utf-8")
     protocol.step(seeded)
-    protocol.done(seeded, "explore", out={"discovery": "discovery.md"},
-                  usage={"input_tokens": 10, "output_tokens": 5})
+    protocol.done(seeded, "explore", out={"discovery": "discovery.md"})
 
     protocol.step(seeded)
     (art / "design.md").write_text("design\n", encoding="utf-8")
     with pytest.raises(protocol.ProtocolError) as exc:
         protocol.done(seeded, "design",
-                      out={"design": "design.md", "complexity": "M"},
-                      usage={"input_tokens": 10, "output_tokens": 5})
+                      out={"design": "design.md", "complexity": "M"})
     assert "tasks" in str(exc.value)

@@ -39,10 +39,12 @@ _KIND_ALIASES = {"agent": KIND_JUDGMENT, "script": KIND_EXEC}
 class AgentStepContract:
     """Contract for steps dispatched to an agent subprocess."""
     id: str
-    instruction: str
-    model: str | None = None
-    # Resolved prompt directory (skills/<name> or legacy step dir). Exported as
-    # ORCHESTRATOR_PROMPT_DIR so learn can colocate scenarios beside the charter.
+    # Absolute path to the charter the driver reads (e.g. <step>/SKILL.md).
+    # The engine resolves the path and never opens the file: composing the
+    # prompt (frontmatter, `extends:` base roles, learnings) is the driver's.
+    prompt_path: str = ""
+    # Directory holding the charter, so colocated files (scenarios, learnings)
+    # are reachable without re-deriving it.
     prompt_dir: str | None = None
     state_mutating: bool = False
     # --- protocol v2 (Phase 1.2) ---
@@ -106,25 +108,6 @@ class GateStepContract:
 StepContract = AgentStepContract | ScriptStepContract | GateStepContract
 
 
-_FRONTMATTER_DELIM = "---"
-
-
-def strip_frontmatter(text: str) -> str:
-    """Return the body of a SKILL.md (or any markdown) after YAML frontmatter.
-
-    If the file does not start with a frontmatter block, return text unchanged.
-    """
-    if not text.startswith(_FRONTMATTER_DELIM):
-        return text
-    lines = text.splitlines(keepends=True)
-    if not lines or lines[0].strip() != _FRONTMATTER_DELIM:
-        return text
-    for i in range(1, len(lines)):
-        if lines[i].strip() == _FRONTMATTER_DELIM:
-            return "".join(lines[i + 1 :]).lstrip("\n")
-    return text
-
-
 def prompt_search_dirs() -> list[Path]:
     """Dirs searched to resolve ``prompt:`` refs (e.g. <name>/SKILL.md).
 
@@ -183,68 +166,6 @@ def resolve_prompt_file(prompt_ref: str) -> Path:
     )
 
 
-def _extends_ref(text: str) -> str | None:
-    """The frontmatter ``extends:`` value, or None. Cheap line scan — no YAML lib."""
-    if not text.startswith(_FRONTMATTER_DELIM):
-        return None
-    for line in text.splitlines()[1:]:
-        if line.strip() == _FRONTMATTER_DELIM:
-            return None
-        if line.startswith("extends:"):
-            return line.split(":", 1)[1].strip() or None
-    return None
-
-
-def _base_role_line(skill_dir: Path, ref: str) -> str | None:
-    """Instruction pointing the agent at the base role prompt, or None.
-
-    The engine never downloads or composes the ``extends`` hierarchy — it just
-    resolves a path ref and tells the agent to read it. Two roots tried in
-    order: the skill's own dir (local override), then the downloaded pack
-    root ``~/.orchestrator/pack`` (global base roles, e.g. ``developer``).
-    git+ refs and missing paths are skipped (behavior identical to before).
-    """
-    if ref.startswith("git+"):
-        return None
-
-    from orchestrator_next.paths import pack_root
-
-    candidates = [skill_dir / ref, pack_root() / ref]
-    for candidate in candidates:
-        base_dir = candidate.resolve()
-        for name in ("SKILL.md", "prompt.md"):
-            base = base_dir / name
-            if base.is_file():
-                return (
-                    f"Base role: read {base} first (follow its own `extends`, if any) — "
-                    "it defines the role this skill specializes.\n\n"
-                )
-    return None
-
-
-def _load_prompt_file(path: Path) -> str:
-    raw = path.read_text(encoding="utf-8")
-    if path.name == "SKILL.md":
-        body = strip_frontmatter(raw)
-        ref = _extends_ref(raw)
-        if ref:
-            line = _base_role_line(path.parent, ref)
-            if line:
-                return line + body
-        return body
-    return raw
-
-
-def _append_learnings(prompt_dir: str | Path, instruction: str) -> str:
-    """Append colocated ``learnings.md`` beside the prompt that ran (not pack/)."""
-    learnings_path = Path(prompt_dir) / "learnings.md"
-    if learnings_path.is_file():
-        learnings = learnings_path.read_text(encoding="utf-8").strip()
-        if learnings:
-            return f"{instruction}\n\n{learnings}\n"
-    return instruction
-
-
 def _resolve_local_prompt(contract_dir: str, prompt_ref: str) -> Path | None:
     """Resolve ``prompt:`` relative to the step dir when the file exists there.
 
@@ -264,32 +185,28 @@ def _resolve_local_prompt(contract_dir: str, prompt_ref: str) -> Path | None:
     return None
 
 
-def _resolve_agent_instruction(
+def _resolve_prompt_path(
     contract_dir: str, step_id: str, data: dict[str, Any]
 ) -> tuple[str, str]:
-    """Load instruction and resolved prompt dir from ``prompt:``.
+    """Resolve ``prompt:`` to ``(prompt_path, prompt_dir)``.
 
-    Returns ``(instruction, prompt_dir)``.
+    Path resolution only — the file is never opened. The driver reads the
+    charter and decides what to do with its frontmatter, ``extends:`` chain
+    and any colocated learnings.
     """
     prompt = data.get("prompt")
     if not prompt:
-        # Colocated fallback: prompt file beside the step contract.
+        # Colocated fallback: charter beside the step contract.
         for rel in ("pack/SKILL.md", "SKILL.md", "pack/prompt.md", "prompt.md"):
             path = Path(contract_dir) / rel
             if path.is_file():
-                prompt_dir = path.parent
-                instruction = _append_learnings(prompt_dir, _load_prompt_file(path))
-                return instruction, str(prompt_dir.resolve())
+                resolved = path.resolve()
+                return str(resolved), str(resolved.parent)
         raise ContractError(
             f"step contract {step_id} must declare prompt: <path>.md "
             "(or run: for shell steps)"
         )
 
-    if data.get("model") is not None:
-        raise ContractError(
-            f"step contract {step_id}: model: is removed — map the step under "
-            f"step_models: in models.yaml instead"
-        )
     if not isinstance(prompt, str) or not prompt.strip():
         raise ContractError(f"step contract {step_id} prompt: must be a non-empty string")
 
@@ -297,12 +214,7 @@ def _resolve_agent_instruction(
     prompt_file = _resolve_local_prompt(contract_dir, prompt)
     if prompt_file is None:
         prompt_file = resolve_prompt_file(prompt)
-    prompt_dir = prompt_file.parent
-    instruction = _append_learnings(
-        prompt_dir,
-        _load_prompt_file(prompt_file),
-    )
-    return instruction, str(prompt_dir)
+    return str(prompt_file), str(prompt_file.parent)
 
 
 @dataclass
@@ -480,7 +392,7 @@ def _make_contract(
     step_id: str,
     data: dict[str, Any],
     run: str | None,
-    instruction: str,
+    prompt_path: str = "",
     prompt_dir: str | None = None,
 ) -> StepContract:
     kind = _resolve_kind(step_id, data, run)
@@ -510,7 +422,7 @@ def _make_contract(
             )
         return AgentStepContract(
             **shared,
-            instruction=instruction,
+            prompt_path=prompt_path,
             prompt_dir=prompt_dir,
             max_turns=raw_turns,
         )
@@ -555,16 +467,16 @@ def load_contract_for_step(step_id: str) -> StepContract:
                     raise ContractNotFoundError(
                         f"script contract {step_id} missing script payload: {run}"
                     )
-                instruction = ""
+                prompt_path = ""
                 prompt_dir = None
             else:
-                instruction, prompt_dir = _resolve_agent_instruction(
+                prompt_path, prompt_dir = _resolve_prompt_path(
                     contract_dir, step_id, data
                 )
                 run = None
 
             return _make_contract(
-                step_id, data, run, instruction, prompt_dir=prompt_dir
+                step_id, data, run, prompt_path, prompt_dir=prompt_dir
             )
 
     raise FileNotFoundError(

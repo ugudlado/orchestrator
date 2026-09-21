@@ -85,6 +85,7 @@ def _schema_active_steps(schema: str, repo_root: str = "") -> list[str]:
 def _write_initial_state(
     state_yaml: Path, *, slug: str, schema: str, repo_root: str,
     active: list[str], prior_path: str, config_pack: str = "",
+    config_root: str = "",
     worktree_path: str = "",
     user_input: str = "",
     ticket_id: str = "",
@@ -103,7 +104,7 @@ def _write_initial_state(
         try:
             prior_raw = yaml.safe_load(Path(prior_path).read_text()) or {}
             for key in ("worktree_path", "branch", "repo_root", "change_id", "slug",
-                        "ticket_id", "config_pack", "user_input"):
+                        "ticket_id", "config_pack", "config_root", "user_input"):
                 if prior_raw.get(key):
                     prior_context[key] = prior_raw[key]
         except (OSError, yaml.YAMLError):
@@ -111,6 +112,7 @@ def _write_initial_state(
 
     repo_root = prior_context.get("repo_root") or repo_root
     config_pack = config_pack or prior_context.get("config_pack") or ""
+    config_root = config_root or prior_context.get("config_root") or ""
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     slug = prior_context.get("slug") or slug
@@ -137,6 +139,10 @@ def _write_initial_state(
         state["user_input"] = ui
     if config_pack:
         state["config_pack"] = config_pack
+    # The pack root this run was seeded from, so later verbs need no --config
+    # and no ORCHESTRATOR_CONFIG: the run carries its own config.
+    if config_root:
+        state["config_root"] = config_root
     sha = _pack_sha_for(schema, repo_root)
     if sha:
         state["pack_sha"] = sha
@@ -171,6 +177,7 @@ def seed_state_file(
     repo_root: str,
     worktree_path: str = "",
     config_pack: str = "",
+    config_root: str = "",
     prior_path: str = "",
     user_input: str = "",
     ticket_id: str = "",
@@ -187,6 +194,7 @@ def seed_state_file(
         active=active,
         prior_path=prior_path,
         config_pack=config_pack,
+        config_root=config_root,
         worktree_path=worktree_path,
         user_input=user_input,
         ticket_id=ticket_id,

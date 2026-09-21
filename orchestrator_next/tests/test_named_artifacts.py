@@ -7,12 +7,13 @@ scripts, ``status --json``), plus the 2.4 state-diet fields.
 from __future__ import annotations
 
 import hashlib
-import subprocess
 
 import pytest
 import yaml
 
-from orchestrator_next import parser, protocol, record, validate_workflow
+from pathlib import Path
+
+from orchestrator_next import parser, protocol, record
 
 
 # ---------------------------------------------------------------------------
@@ -114,33 +115,25 @@ def test_artifact_base_defaults_to_the_engine_location(pack, tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 2.2 — templating
+# the step payload: paths and inputs, never composed prose
 # ---------------------------------------------------------------------------
-def test_render_placeholders_substitutes_both_sides():
-    out = protocol.render_placeholders(
-        "read {in.a} write {out.b}", {"a": "/A"}, {"b": "/B"})
-    assert out == "read /A write /B"
+def test_dispatched_step_carries_resolved_paths_not_a_prompt(pack, tmp_path):
+    """`step` hands back the charter's PATH plus resolved in:/out: paths.
 
-
-def test_render_placeholders_leaves_unknown_names_alone():
-    assert protocol.render_placeholders("{in.zzz}", {"a": "/A"}, {}) == "{in.zzz}"
-
-
-def test_placeholder_names_finds_every_reference():
-    assert protocol.placeholder_names("{in.a} x {out.b} y {in.a}") == {
-        ("in", "a"), ("out", "b")}
-
-
-def test_dispatched_charter_carries_resolved_paths(pack, tmp_path, monkeypatch):
-    """The judgment payload's system prompt has real paths, not placeholders."""
+    The engine composes nothing: there is no `system` prompt in the payload,
+    and the driver is what reads `prompt_path` and substitutes the paths.
+    """
     state_path = tmp_path / "state.yaml"
     state_path.write_text(yaml.safe_dump(_state(tmp_path)), encoding="utf-8")
     result, code = protocol.step(str(state_path))
     assert code == 0, result
-    system = result["payload"]["system"]
-    assert "{in.brief}" not in system and "{out.notes}" not in system
-    assert result["payload"]["in"]["brief"] in system
-    assert result["payload"]["out"]["notes"] in system
+    payload = result["payload"]
+    assert "system" not in payload and "prompt" not in payload
+    assert payload["prompt_path"].endswith("SKILL.md")
+    assert Path(payload["prompt_path"]).is_file()
+    assert Path(payload["prompt_dir"]).is_dir()
+    assert payload["in"]["brief"].endswith("brief.md")
+    assert payload["out"]["notes"].endswith("notes.md")
 
 
 def test_dispatch_creates_the_artifacts_dir(pack, tmp_path):
@@ -152,59 +145,6 @@ def test_dispatch_creates_the_artifacts_dir(pack, tmp_path):
 
 # ---------------------------------------------------------------------------
 # 2.2 — wiring validation
-# ---------------------------------------------------------------------------
-def test_wiring_accepts_an_input_produced_upstream(pack, tmp_path):
-    validate_workflow.validate_workflow("wf", str(tmp_path / "repo"))
-
-
-def test_wiring_rejects_an_input_nobody_produces(pack, tmp_path, capsys):
-    (pack / "steps" / "think" / "contract.yaml").write_text(yaml.safe_dump({
-        "id": "think", "kind": "judgment", "prompt": "SKILL.md",
-        "in": {"ghost": {"artifact": "ghost.md"}},
-        "out": {"notes": {"artifact": "notes.md"}},
-    }, sort_keys=False), encoding="utf-8")
-    (pack / "steps" / "think" / "SKILL.md").write_text("no placeholders\n",
-                                                       encoding="utf-8")
-    with pytest.raises(SystemExit):
-        validate_workflow.validate_workflow("wf", str(tmp_path / "repo"))
-    err = capsys.readouterr().err
-    assert "think: in.ghost" in err
-
-
-def test_wiring_accepts_an_input_declared_by_the_recipe(pack, tmp_path):
-    (pack / "workflows" / "wf.yaml").write_text(yaml.safe_dump({
-        "inputs": {"ghost": {"artifact": "ghost.md"}},
-        "steps": ["brief", "think"],
-    }, sort_keys=False), encoding="utf-8")
-    (pack / "steps" / "think" / "contract.yaml").write_text(yaml.safe_dump({
-        "id": "think", "kind": "judgment", "prompt": "SKILL.md",
-        "in": {"ghost": {"artifact": "ghost.md"}},
-        "out": {"notes": {"artifact": "notes.md"}},
-    }, sort_keys=False), encoding="utf-8")
-    (pack / "steps" / "think" / "SKILL.md").write_text("ok\n", encoding="utf-8")
-    validate_workflow.validate_workflow("wf", str(tmp_path / "repo"))
-
-
-def test_wiring_accepts_an_optional_unproduced_input(pack, tmp_path):
-    (pack / "steps" / "think" / "contract.yaml").write_text(yaml.safe_dump({
-        "id": "think", "kind": "judgment", "prompt": "SKILL.md",
-        "in": {"ghost": {"artifact": "ghost.md", "optional": True}},
-        "out": {"notes": {"artifact": "notes.md"}},
-    }, sort_keys=False), encoding="utf-8")
-    (pack / "steps" / "think" / "SKILL.md").write_text("ok\n", encoding="utf-8")
-    validate_workflow.validate_workflow("wf", str(tmp_path / "repo"))
-
-
-def test_wiring_rejects_an_undeclared_placeholder(pack, tmp_path, capsys):
-    (pack / "steps" / "think" / "SKILL.md").write_text(
-        "write {out.zzz}\n", encoding="utf-8")
-    with pytest.raises(SystemExit):
-        validate_workflow.validate_workflow("wf", str(tmp_path / "repo"))
-    assert "{out.zzz}" in capsys.readouterr().err
-
-
-# ---------------------------------------------------------------------------
-# 2.3 — recording artifacts onto the node
 # ---------------------------------------------------------------------------
 def _done_payload(step_id="think", **kw):
     payload = {
@@ -240,41 +180,8 @@ def test_record_hashes_declared_outputs_onto_the_node(pack, tmp_path):
     ]
 
 
-def test_record_runs_a_validate_script_and_rejects_a_failure(pack, tmp_path):
-    (pack / "steps" / "think" / "contract.yaml").write_text(yaml.safe_dump({
-        "id": "think", "kind": "judgment", "prompt": "SKILL.md",
-        "in": {"brief": {"artifact": "brief.md"}},
-        "out": {"notes": {"artifact": "notes.md"}},
-        "validate": "exit 7",
-    }, sort_keys=False), encoding="utf-8")
-    base = protocol._artifact_base(_state(tmp_path))
-    base.mkdir(parents=True)
-    (base / "notes.md").write_text("n\n", encoding="utf-8")
-
-    state_path = tmp_path / "state.yaml"
-    state_path.write_text(yaml.safe_dump(_state(tmp_path)), encoding="utf-8")
-    result, rc = record.record(str(state_path), _done_payload())
-    assert rc == 3
-    assert result["error"] == "validate_failed"
-
-    doc = yaml.safe_load(state_path.read_text(encoding="utf-8"))
-    node = next(n for n in doc["workflow_plan"]["main"]["nodes"] if n["id"] == "think")
-    assert node["status"] == "pending"  # not advanced
 
 
-def test_record_accepts_a_passing_validate_script(pack, tmp_path):
-    (pack / "steps" / "think" / "contract.yaml").write_text(yaml.safe_dump({
-        "id": "think", "kind": "judgment", "prompt": "SKILL.md",
-        "out": {"notes": {"artifact": "notes.md"}},
-        "validate": "true",
-    }, sort_keys=False), encoding="utf-8")
-    base = protocol._artifact_base(_state(tmp_path))
-    base.mkdir(parents=True)
-    (base / "notes.md").write_text("n\n", encoding="utf-8")
-    state_path = tmp_path / "state.yaml"
-    state_path.write_text(yaml.safe_dump(_state(tmp_path)), encoding="utf-8")
-    _result, rc = record.record(str(state_path), _done_payload())
-    assert rc == 0
 
 
 def test_parser_rejects_a_non_string_validate(pack):
@@ -351,18 +258,6 @@ def test_seeded_state_uses_a_caller_supplied_run_id(pack, tmp_path):
     assert doc["run_id"] == "fixed-id"
 
 
-def test_pack_sha_prefers_the_git_head(pack, tmp_path):
-    from orchestrator_next.paths import pack_sha
-
-    env = {"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"}
-    for args in (["init", "-b", "main"], ["config", "user.email", "t@t.test"],
-                 ["config", "user.name", "t"], ["add", "-A"],
-                 ["commit", "-m", "init"]):
-        subprocess.run(["git", "-C", str(pack), *args],
-                       capture_output=True, env=env, check=True)
-    head = subprocess.run(["git", "-C", str(pack), "rev-parse", "HEAD"],
-                          capture_output=True, text=True, env=env).stdout.strip()
-    assert pack_sha(pack) == head
 
 
 def test_finalize_discards_scratch_but_keeps_artifacts(pack, tmp_path):
@@ -411,41 +306,12 @@ def test_finalize_state_discards_scratch(pack, tmp_path):
     assert doc["status"] == "completed"
 
 
-def test_wiring_warns_instead_of_failing_when_a_producer_is_unmigrated(
-    pack, tmp_path, capsys
-):
-    """A step with no in:/out: at all may still write the file — warn, don't fail."""
-    (pack / "steps" / "brief" / "contract.yaml").write_text(yaml.safe_dump({
-        "id": "brief", "kind": "exec", "run": "script.sh",
-    }, sort_keys=False), encoding="utf-8")
-    validate_workflow.validate_workflow("wf", str(tmp_path / "repo"))
-    err = capsys.readouterr().err
-    assert "WARN" in err and "in.brief has no declared producer" in err
-
-
-def test_wiring_still_fails_when_every_upstream_step_is_migrated(
-    pack, tmp_path, capsys
-):
-    """With no unmigrated step to hide behind, a missing producer is an error."""
-    (pack / "steps" / "think" / "contract.yaml").write_text(yaml.safe_dump({
-        "id": "think", "kind": "judgment", "prompt": "SKILL.md",
-        "in": {"ghost": {"artifact": "ghost.md"}},
-        "out": {"notes": {"artifact": "notes.md"}},
-    }, sort_keys=False), encoding="utf-8")
-    (pack / "steps" / "think" / "SKILL.md").write_text("ok\n", encoding="utf-8")
-    with pytest.raises(SystemExit):
-        validate_workflow.validate_workflow("wf", str(tmp_path / "repo"))
-    assert "think: in.ghost" in capsys.readouterr().err
-
-
-# ---------------------------------------------------------------------------
-# regression: artifacts_root must not depend on the ambient cwd/env
-# ---------------------------------------------------------------------------
 def _vendored_pack(tmp_path, monkeypatch):
     """A pack vendored under ``<repo>/.orchestrator/wfpack/``, as a consumer has.
 
-    No ``ORCHESTRATOR_CONFIG`` and no ``REPO_ROOT``: that is the situation every
-    verb after ``start`` runs in, and the one the unit tests used to paper over.
+    The root is explicit (``ORCHESTRATOR_CONFIG``, as ``start`` persists it on
+    the run) while ``REPO_ROOT`` and the cwd point elsewhere — the situation
+    every verb after ``start`` runs in.
     """
     repo = tmp_path / "repo"
     root = repo / ".orchestrator" / "wfpack"
@@ -457,7 +323,7 @@ def _vendored_pack(tmp_path, monkeypatch):
         ),
         encoding="utf-8",
     )
-    monkeypatch.delenv("ORCHESTRATOR_CONFIG", raising=False)
+    monkeypatch.setenv("ORCHESTRATOR_CONFIG", str(root))
     monkeypatch.delenv("ORCHESTRATOR_REPO_ROOT", raising=False)
     monkeypatch.delenv("REPO_ROOT", raising=False)
     return repo
