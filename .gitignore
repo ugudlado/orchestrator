@@ -58,7 +58,10 @@ n8n/.env
 # Skills live in their own repo (ugudlado/skills) and are installed here via
 # `npx skills` — nothing under skills/ is vendored anymore
 # (workflow-creator moved to that repo Aug 2026).
-skills/
+skills/*
+# ...except the driver skill, which is this repo's own: it documents how to
+# call the engine, so it ships with the engine.
+!skills/drive/
 .agents/skills/
 .claude/skills/backlog/
 
