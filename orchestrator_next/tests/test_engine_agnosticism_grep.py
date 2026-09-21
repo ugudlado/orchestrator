@@ -21,13 +21,8 @@ def test_no_specific_step_ids_in_engine():
         + py_files,
         capture_output=True,
         text=True,
+        check=False,
     )
     assert result.returncode == 1 and result.stdout.strip() == "", (
         f"Found specific step/output references in engine files:\n{result.stdout}"
     )
-
-
-def test_no_optional_history_keys_constant():
-    """_OPTIONAL_STEP_HISTORY_KEYS constant no longer exists in record.py."""
-    from orchestrator_next import record
-    assert not hasattr(record, "_OPTIONAL_STEP_HISTORY_KEYS")

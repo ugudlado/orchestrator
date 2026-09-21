@@ -1,7 +1,7 @@
 """
 Mermaid DAG renderer for the orchestrator engine (ORC-63).
 
-`render_workflow_graph(schema_name)` returns a static Mermaid `flowchart TD`
+`render_workflow_graph(name, config_root)` returns a static Mermaid `flowchart TD`
 of a workflow schema's step topology — linear chain + conditional routing
 edges (on_success / on_failure).
 
@@ -10,6 +10,7 @@ Read-only: no state mutation.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -33,20 +34,13 @@ def _normalize_steps(schema: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
-def _load_wf_schema(schema_name: str) -> dict[str, Any]:
-    """Load config/workflows/<name>.yaml or raise FileNotFoundError."""
-    from orchestrator_next.paths import config_root
-
-    schema_path = config_root() / "workflows" / f"{schema_name}.yaml"
+def render_workflow_graph(schema_name: str, config_root: Path) -> str:
+    """Render a workflow's step topology as a Mermaid `flowchart TD` string."""
+    schema_path = Path(config_root) / "workflows" / f"{schema_name}.yaml"
     if not schema_path.is_file():
         raise FileNotFoundError(f"Workflow schema not found: {schema_path}")
     with open(schema_path, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
-
-
-def render_workflow_graph(schema_name: str) -> str:
-    """Render a workflow schema's step topology as a Mermaid `flowchart TD` string."""
-    schema = _load_wf_schema(schema_name)
+        schema = yaml.safe_load(f) or {}
     steps = _normalize_steps(schema)
     lines = ["flowchart TD", f"  %% workflow: {schema_name}"]
 

@@ -28,17 +28,16 @@ if _SCRIPTS_DIR not in sys.path:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture()
-def steps_dir(tmp_path):
-    """Create a temp steps directory."""
-    d = tmp_path / "steps"
-    d.mkdir()
-    return d
+def config_root(tmp_path):
+    """A pack root; contracts live in its steps/ dir."""
+    (tmp_path / "pack" / "steps").mkdir(parents=True)
+    return tmp_path / "pack"
 
 
-@pytest.fixture(autouse=True)
-def set_override(steps_dir, monkeypatch):
-    """Point load_contract_for_step to the temp steps dir."""
-    monkeypatch.setenv("ORCHESTRATOR_STEP_CONTRACTS_TEST_OVERRIDE", str(steps_dir))
+@pytest.fixture()
+def steps_dir(config_root):
+    """The pack's steps/ dir, where contract fixtures are written."""
+    return config_root / "steps"
 
 
 def _write_dir_contract(
@@ -69,7 +68,7 @@ def _write_dir_contract(
 class TestAgentKindContractLoad:
     """Tests for directory-form contract loading with kind: agent."""
 
-    def test_agent_dir_contract_loads_kind_and_instruction(self, steps_dir):
+    def test_agent_dir_contract_loads_kind_and_instruction(self, steps_dir, config_root):
         """Scenario 1: directory form with prompt.md loads kind=='agent' and instruction.
 
         AC-1: given config/steps/<id>/contract.yaml + prompt.md, load_contract_for_step
@@ -89,12 +88,12 @@ class TestAgentKindContractLoad:
             "rules": [],
         }, prompt_text=prompt_text)
 
-        from orchestrator_next.parser import load_contract_for_step, AgentStepContract
-        contract = load_contract_for_step("explore")
+        from orchestrator_next.parser import AgentStepContract, load_contract_for_step
+        contract = load_contract_for_step("explore", config_root)
         assert isinstance(contract, AgentStepContract)
         assert contract.prompt_path == str((steps_dir / "explore" / "prompt.md").resolve())
 
-    def test_agent_dir_contract_prefers_pack_prompt_md(self, steps_dir):
+    def test_agent_dir_contract_prefers_pack_prompt_md(self, steps_dir, config_root):
         """pack/prompt.md wins over a root prompt.md — steps-as-packs layout;
         root prompt.md remains as a fallback for unmigrated vendored configs."""
         step_dir = _write_dir_contract(steps_dir, "explore", {
@@ -106,12 +105,12 @@ class TestAgentKindContractLoad:
         (pack_dir / "prompt.md").write_text("Pack prompt.\n")
 
         from orchestrator_next.parser import load_contract_for_step
-        contract = load_contract_for_step("explore")
+        contract = load_contract_for_step("explore", config_root)
         assert contract.prompt_path == str((pack_dir / "prompt.md").resolve())
 
 
 
-    def test_agent_dir_contract_missing_prompt_raises_contract_error(self, steps_dir):
+    def test_agent_dir_contract_missing_prompt_raises_contract_error(self, steps_dir, config_root):
         """Scenario 2: directory form with kind: agent but missing prompt.md raises ContractError.
 
         AC-6: load_contract_for_step must raise ContractError (not FileNotFoundError) when
@@ -130,44 +129,38 @@ class TestAgentKindContractLoad:
             "rules": [],
         }, prompt_text=None)  # deliberately no prompt.md
 
-        from orchestrator_next.parser import load_contract_for_step, ContractError
+        from orchestrator_next.parser import ContractError, load_contract_for_step
         with pytest.raises(ContractError, match="prompt: <path>.md"):
-            load_contract_for_step("no-prompt")
+            load_contract_for_step("no-prompt", config_root)
 
     def test_prompt_dir_skill_md_preferred_and_frontmatter_stripped(
-        self, steps_dir, tmp_path, monkeypatch
+        self, steps_dir, config_root, tmp_path
     ):
         """prompt: resolves an .md path; SKILL.md gets frontmatter stripped."""
-        skills = tmp_path / "skills"
-        skill_dir = skills / "explore"
+        skill_dir = config_root.parent / "skills" / "explore"
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text(
             "---\nname: explore\ndescription: test\n---\n\nSkill body here.\n"
         )
-        monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", str(skills))
         _write_dir_contract(steps_dir, "explore", {
             "id": "explore", "version": 1, "prompt": "explore/SKILL.md",
         }, prompt_text=None)
 
         from orchestrator_next.parser import load_contract_for_step
-        contract = load_contract_for_step("explore")
+        contract = load_contract_for_step("explore", config_root)
         assert contract.prompt_path == str((skill_dir / "SKILL.md").resolve())
         assert contract.prompt_dir == str(skill_dir.resolve())
 
     def test_step_local_skill_symlink_resolves_before_skills_search(
-        self, steps_dir, tmp_path, monkeypatch
+        self, steps_dir, config_root, tmp_path
     ):
         """prompt: <id>/SKILL.md loads via step-dir symlink to pack-root skills/."""
-        pack_root = tmp_path / "pack"
-        skills = pack_root / "skills"
-        skill_dir = skills / "explore"
+        skill_dir = tmp_path / "elsewhere" / "explore"
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text(
             "---\nname: explore\n---\n\nFrom pack-root skill.\n"
         )
-        # Skills search would fail / miss — override points at an empty dir.
-        monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", str(tmp_path / "empty-skills"))
-        (tmp_path / "empty-skills").mkdir()
+        # The skills search would miss it: only the step-local symlink finds it.
 
         step_dir = _write_dir_contract(steps_dir, "explore", {
             "id": "explore", "version": 1, "prompt": "explore/SKILL.md",
@@ -175,51 +168,46 @@ class TestAgentKindContractLoad:
         (step_dir / "explore").symlink_to(skill_dir)
 
         from orchestrator_next.parser import load_contract_for_step
-        contract = load_contract_for_step("explore")
+        contract = load_contract_for_step("explore", config_root)
         assert contract.prompt_path == str((skill_dir / "SKILL.md").resolve())
         assert contract.prompt_dir == str(skill_dir.resolve())
 
     def test_prompt_field_loads_directory_with_prompt_md(
-        self, steps_dir, tmp_path, monkeypatch
+        self, steps_dir, config_root, tmp_path
     ):
-        skills = tmp_path / "skills"
-        prompt_dir = skills / "one-off"
+        prompt_dir = config_root.parent / "skills" / "one-off"
         prompt_dir.mkdir(parents=True)
         (prompt_dir / "prompt.md").write_text("Local charter body.\n")
-        monkeypatch.setenv("ORCHESTRATOR_SKILLS_TEST_OVERRIDE", str(skills))
         _write_dir_contract(steps_dir, "one-off", {
             "id": "one-off", "version": 1, "prompt": "one-off/prompt.md",
         }, prompt_text=None)
 
         from orchestrator_next.parser import load_contract_for_step
-        contract = load_contract_for_step("one-off")
+        contract = load_contract_for_step("one-off", config_root)
         assert contract.prompt_path == str((prompt_dir / "prompt.md").resolve())
         assert contract.prompt_dir == str(prompt_dir.resolve())
 
-    def test_prompt_path_env_multi_dir_resolves_in_order(
-        self, steps_dir, tmp_path, monkeypatch
+    def test_prompt_resolves_against_the_packs_own_skills_dir(
+        self, steps_dir, config_root, tmp_path
     ):
-        """Test override is os.pathsep-separated; first hit wins. (The public
-        ORCHESTRATOR_PROMPT_PATH knob was removed — search order is fixed.)"""
-        first = tmp_path / "first"
-        second = tmp_path / "second"
-        for root, body in ((first, "First body.\n"), (second, "Second body.\n")):
-            d = root / "explore"
-            d.mkdir(parents=True)
-            (d / "SKILL.md").write_text(body)
-        monkeypatch.setenv(
-            "ORCHESTRATOR_SKILLS_TEST_OVERRIDE", os.pathsep.join([str(first), str(second)])
-        )
+        """The search is one place: `<pack>/../skills`. No env, no override."""
+        beside = config_root.parent / "skills" / "explore"
+        beside.mkdir(parents=True)
+        (beside / "SKILL.md").write_text("Body.\n")
+        # A same-named dir somewhere else must NOT be found.
+        stray = tmp_path / "stray" / "explore"
+        stray.mkdir(parents=True)
+        (stray / "SKILL.md").write_text("Wrong body.\n")
         _write_dir_contract(steps_dir, "explore", {
             "id": "explore", "version": 1, "prompt": "explore/SKILL.md",
         }, prompt_text=None)
 
         from orchestrator_next.parser import load_contract_for_step
-        contract = load_contract_for_step("explore")
-        assert contract.prompt_path == str((first / "explore" / "SKILL.md").resolve())
-        assert contract.prompt_dir == str((first / "explore").resolve())
+        contract = load_contract_for_step("explore", config_root)
+        assert contract.prompt_path == str((beside / "SKILL.md").resolve())
+        assert contract.prompt_dir == str(beside.resolve())
 
-    def test_contract_without_prompt_or_run_is_rejected(self, steps_dir):
+    def test_contract_without_prompt_or_run_is_rejected(self, steps_dir, config_root):
         """A contract must name a payload. `skill:` was protocol v1's spelling
         and is no longer recognised, so a contract carrying only that is simply
         a contract with nothing to run."""
@@ -228,7 +216,7 @@ class TestAgentKindContractLoad:
         }, prompt_text=None)
         from orchestrator_next.parser import ContractError, load_contract_for_step
         with pytest.raises(ContractError) as exc:
-            load_contract_for_step("no-payload")
+            load_contract_for_step("no-payload", config_root)
         assert "must declare prompt:" in str(exc.value)
 
 
@@ -244,7 +232,7 @@ class TestScriptKindContractLoad:
     selects all three scenarios in this class.
     """
 
-    def test_script_dir_contract_loads_and_run_resolves_to_abs_path(self, steps_dir):
+    def test_script_dir_contract_loads_and_run_resolves_to_abs_path(self, steps_dir, config_root):
         """Scenario 1: directory form with script.sh loads; run resolves to absolute path.
 
         AC-2: given config/steps/<id>/contract.yaml (kind: script, run: script.sh)
@@ -272,12 +260,12 @@ class TestScriptKindContractLoad:
         )
         expected_run = str(step_dir / "script.sh")
 
-        from orchestrator_next.parser import load_contract_for_step, ScriptStepContract
-        contract = load_contract_for_step("inline-step")
+        from orchestrator_next.parser import ScriptStepContract, load_contract_for_step
+        contract = load_contract_for_step("inline-step", config_root)
         assert isinstance(contract, ScriptStepContract)
         assert contract.run == expected_run
 
-    def test_script_dir_contract_missing_script_raises_contract_dispatch_error(self, steps_dir):
+    def test_script_dir_contract_missing_script_raises_contract_dispatch_error(self, steps_dir, config_root):
         """Scenario 2: directory form with kind: script but missing script.sh raises ContractDispatchError.
 
         AC-6: load_contract_for_step must raise ContractDispatchError (not FileNotFoundError)
@@ -301,11 +289,12 @@ class TestScriptKindContractLoad:
             script_text=None,  # deliberately no script.sh
         )
 
-        from orchestrator_next.parser import load_contract_for_step, ContractNotFoundError as ContractDispatchError
+        from orchestrator_next.parser import ContractNotFoundError as ContractDispatchError
+        from orchestrator_next.parser import load_contract_for_step
         with pytest.raises(ContractDispatchError, match="script"):
-            load_contract_for_step("no-script")
+            load_contract_for_step("no-script", config_root)
 
-    def test_dir_contract_missing_kind_raises_contract_error(self, steps_dir):
+    def test_dir_contract_missing_kind_raises_contract_error(self, steps_dir, config_root):
         """Agent contracts without prompt:/run: and without a sibling charter raise."""
         _write_dir_contract(
             steps_dir,
@@ -321,6 +310,6 @@ class TestScriptKindContractLoad:
             },
         )
 
-        from orchestrator_next.parser import load_contract_for_step, ContractError
+        from orchestrator_next.parser import ContractError, load_contract_for_step
         with pytest.raises(ContractError, match="prompt: <path>.md"):
-            load_contract_for_step("no-kind")
+            load_contract_for_step("no-kind", config_root)
