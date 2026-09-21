@@ -134,7 +134,8 @@ def test_failed_routes_to_on_failure(pack, repo):
     assert r["status"] == "ready"
     assert r["step_id"] == "prep"
     assert r["route"] == "on_failure"
-    assert r["attempt"] == 2
+    # No attempt echo: the engine keeps no history, so it cannot count.
+    assert "attempt" not in r
 
 
 def test_retries_exhausted_needs_you(pack, repo):
@@ -170,7 +171,7 @@ def test_abandoned_re_queues_the_same_step(pack, repo):
     r = _next(pack, repo, after="think", status="abandoned", attempt=1)
     assert r["step_id"] == "think"
     assert r["route"] == "retry"
-    assert r["attempt"] == 2
+    assert "attempt" not in r
 
 
 # ------------------------------------------------- the exec stdout protocol
@@ -274,8 +275,10 @@ def test_the_payload_never_leaks_the_engines_environment(pack, repo, monkeypatch
     assert "super-secret-value" not in str(r)
     assert env["ORCHESTRATOR_STEP_ID"] == "prep"
     assert env["CHANGE_ID"] == "s1"
-    # The repo root is the driver's to know, not the engine's.
+    # The repo root is the driver's to know, not the engine's — and so is how
+    # many times a step has run.
     assert "REPO_ROOT" not in env and "ORCHESTRATOR_REPO_ROOT" not in env
+    assert "ORCHESTRATOR_ATTEMPT" not in env
 
 
 def test_next_writes_nothing(pack, repo):
@@ -426,28 +429,49 @@ def test_prompt_dirs_maps_every_judgment_step(pack, repo):
     assert r["kind"] == "exec"
 
 
-# ------------------------------------------------- attempts terminate a loop
-def test_the_documented_attempt_rule_terminates_at_max_retries(pack, repo):
-    """Walk think -> prep -> think … counting attempts the way the skill says.
+def test_prompt_path_is_emitted_for_append_confinement(pack, repo):
+    """persist-learnings confines appends to these roots; pack-derived."""
+    r = _next(pack, repo)
+    roots = r["payload"]["env"]["ORCHESTRATOR_PROMPT_PATH"]
+    assert roots.endswith("skills"), roots
+    assert str(pack.parent) in roots
 
-    `--attempt` is how many times the step being reported has now run,
-    counting this one. With `max_retries: 2` on think, the second report of a
-    failing think must stop the run.
+
+# ------------------------------------------------- attempts terminate a loop
+def test_a_rejecting_review_loop_terminates_at_max_retries(pack, repo):
+    """The real shape: review fails -> its on_failure target completes ->
+    review runs again and fails -> ... must reach `retries exhausted`.
+
+    This is the live infinite-loop hazard. Each hop through `prep` makes the
+    run "arrive" at `think` afresh, so a driver that reset the counter on a
+    forward move would never exhaust the cap. The rule that saves it: the
+    counter is per-step for the WHOLE run, and the cap is checked against the
+    failing step's own counter.
     """
     (repo / "spec" / "changes" / "s1").mkdir(parents=True)
     (repo / "spec" / "changes" / "s1" / "notes.md").write_text("n\n")
-    runs: dict[str, int] = {}
+
+    runs: dict[str, int] = {}          # the driver's step_history, folded
+
+    def report(step, **kw):
+        runs[step] = runs.get(step, 0) + 1
+        return _next(pack, repo, after=step, attempt=runs[step], **kw)
+
     step, guard = "think", 0
-    while guard < 10:
+    while guard < 20:
         guard += 1
-        runs[step] = runs.get(step, 0) + 1          # this run of this step
-        r = _next(pack, repo, after=step, status="completed", attempt=runs[step],
-                  out={"complexity": "M", "verdict": "needs_work"}) \
-            if step == "think" else \
-            _next(pack, repo, after=step, exit_code=0, attempt=runs[step])
+        if step == "think":
+            r = report("think", status="completed",       # a reviewer that
+                       out={"complexity": "M",            # always rejects
+                            "verdict": "needs_work"})
+        else:
+            r = report(step, exit_code=0)
         if r["status"] == "needs_you":
             assert r["reason"] == "retries exhausted"
-            assert runs["think"] == 2, runs      # max_retries: 2
+            # think declares max_retries: 2, so the SECOND rejection stops it,
+            # even though `prep` completed in between and the run re-arrived.
+            assert runs["think"] == 2, runs
+            assert runs["prep"] == 1, runs
             return
         step = r["step_id"]
     raise AssertionError(f"never exhausted retries: {runs}")

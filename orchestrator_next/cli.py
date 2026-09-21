@@ -28,10 +28,12 @@ Usage:
 Prints JSON: the step to run, or {"status": "done"|"needs_you"|"error"}.
 With no --after it returns the workflow's first step.
 
---attempt N is how many times the step you are REPORTING has now been run,
-counting this one (first report: 1; after one failure round-trip back to it:
-2). The engine stops with "retries exhausted" at N >= max_retries. The
-`attempt` in the answer is what the RETURNED step's counter will be.
+--attempt N is how many times the step you are REPORTING has run in this
+whole run, counting this one. It is a per-step lifetime counter, never reset
+by routing: a review reached a second time after sending work back reports 2.
+The cap is checked against that step's own counter; the engine stops with
+"retries exhausted" at N >= max_retries. The answer carries no `attempt` —
+the engine keeps no history, so only you can count it.
 
 Artifact paths (in/out, a gate's show) are RELATIVE — join them to the
 worktree you are running in. Run the CLI with that worktree as the working

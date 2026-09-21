@@ -22,13 +22,18 @@ A judgment step whose contract marks an out value ``fail_on:`` is routed as
 ``needs_work`` must not advance onto the work it just rejected.
 
 Attempts, precisely. ``--attempt N`` is **how many times the step being
-reported has now been run, counting this one** — so the first report of a
-step passes 1, and the report after one ``on_failure``/``retry`` round-trip
-back to it passes 2. The engine stops with ``retries exhausted`` when
-``N >= max_retries``. The ``attempt`` in the answer is what the *returned*
-step's counter will be when the driver reports it: 1 for a step the run is
-arriving at fresh, ``N + 1`` when routing sends it back to the step just
-reported.
+reported has run in this whole run, counting this one**. It is a per-step
+lifetime counter, never reset by routing: a review that fails, sends the run
+back to an earlier step, and is then reached again reports ``--attempt 2``
+the second time, even though the run "arrived" at it afresh. The cap is
+checked against the *failing* step's own counter (the step named by
+``--after``), not the ``on_failure`` target's — the same step whose
+``max_retries`` bounds it.
+
+The answer carries no ``attempt``: the engine has no history, so any number
+it echoed would be a guess. A driver that trusted such a guess over its own
+history would reset the counter on every forward move and never exhaust a
+retry cap.
 
 A gate is emitted as a ready step with its ``show:`` artifacts resolved; the
 driver approves it however it likes and calls back with
@@ -37,6 +42,7 @@ driver approves it however it likes and calls back with
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -52,6 +58,7 @@ from orchestrator_next.parser import (
     GateStepContract,
     ScriptStepContract,
     load_contract_for_step,
+    prompt_search_dirs,
 )
 from orchestrator_next.workflow_steps import is_gate_entry, normalize_step_entry
 
@@ -240,8 +247,9 @@ def _prompt_dir_map(entries: list[dict[str, Any]], config_root: Path) -> dict[st
     return dirs
 
 
-def _step_env(step_id: str, attempt: int, step_dir: str,
-              slug: str, prompt_dirs: dict[str, str] | None = None) -> dict[str, str]:
+def _step_env(step_id: str, step_dir: str, slug: str,
+              prompt_dirs: dict[str, str] | None = None,
+              prompt_path: str = "") -> dict[str, str]:
     """The variables the ENGINE contributes to a step's environment.
 
     Only what the engine actually knows: which step, which attempt, where the
@@ -253,10 +261,10 @@ def _step_env(step_id: str, attempt: int, step_dir: str,
     part of the payload, and copying os.environ into it would print every
     secret the engine was started with. The driver merges it over its own.
     """
-    env = {
-        "ORCHESTRATOR_STEP_ID": step_id,
-        "ORCHESTRATOR_ATTEMPT": str(attempt),
-    }
+    # No ORCHESTRATOR_ATTEMPT: how many times a step has run is run history,
+    # which the driver owns. The engine guessing it is how a retry cap gets
+    # silently disarmed.
+    env = {"ORCHESTRATOR_STEP_ID": step_id}
     if slug:
         env["ORCHESTRATOR_CHANGE_ID"] = slug
         env["CHANGE_ID"] = slug
@@ -266,6 +274,10 @@ def _step_env(step_id: str, attempt: int, step_dir: str,
         # Every judgment step's charter dir in this workflow. The learn
         # charter reads it to know where a proposed scenario could land.
         env["ORCHESTRATOR_PROMPT_DIRS"] = json.dumps(prompt_dirs, sort_keys=True)
+    if prompt_path:
+        # The roots persist-learnings confines an append to. Pack-derived, so
+        # the engine knows it; without it every proposed row is skipped.
+        env["ORCHESTRATOR_PROMPT_PATH"] = prompt_path
     return env
 
 
@@ -289,16 +301,17 @@ def build_step(
     *,
     config_root: Path,
     slug: str,
-    attempt: int,
     route: str,
 ) -> dict[str, Any]:
     """Build the ready-step answer for one workflow entry."""
     step_id = entry["id"]
     base = artifacts_base(doc, slug)
     prompt_dirs = _prompt_dir_map(entries, config_root)
+    prompt_path_env = os.pathsep.join(
+        str(d) for d in prompt_search_dirs(config_root)
+    )
     result: dict[str, Any] = {
         "status": "ready", "step_id": step_id, "route": route,
-        "attempt": attempt,
     }
 
     # A gate has no contract file: the workflow entry IS the contract.
@@ -347,7 +360,7 @@ def build_step(
         payload["run_path"] = contract.run
         payload["step_dir"] = step_dir
         payload["state_mutating"] = bool(contract.state_mutating)
-        env = _step_env(step_id, attempt, step_dir, slug, prompt_dirs)
+        env = _step_env(step_id, step_dir, slug, prompt_dirs, prompt_path_env)
         for key, value in _contract_params(step_id, config_root).items():
             env.setdefault(key, value)
         payload["env"] = env
@@ -357,7 +370,9 @@ def build_step(
         payload["prompt_path"] = contract.prompt_path
         payload["step_dir"] = step_dir
         payload["max_turns"] = contract.max_turns
-        payload["env"] = _step_env(step_id, attempt, step_dir, slug, prompt_dirs)
+        payload["env"] = _step_env(
+            step_id, step_dir, slug, prompt_dirs, prompt_path_env
+        )
 
     result["payload"] = payload
     return result
@@ -475,7 +490,7 @@ def next_step(
     if not after:
         return build_step(
             entries[0], doc, entries, config_root=config_root,
-            slug=slug, attempt=1, route="next",
+            slug=slug, route="next",
         )
 
     index = _index_of(entries, after)
@@ -552,10 +567,10 @@ def next_step(
                 recorded["status"] = "failed"
                 recorded["derived_from"] = f"fail_on ({verdict})"
 
-    def _emit(target_entry, route, att):
+    def _emit(target_entry, route):
         result = build_step(
             target_entry, doc, entries, config_root=config_root,
-            slug=slug, attempt=att, route=route,
+            slug=slug, route=route,
         )
         result["recorded"] = recorded
         return result
@@ -563,7 +578,7 @@ def next_step(
     # --- route -------------------------------------------------------------
     if status == "abandoned":
         # Re-queue the same step, unchanged: current semantics.
-        return _emit(entry, "retry", attempt + 1)
+        return _emit(entry, "retry")
 
     if status == "failed":
         max_retries = int(entry.get("max_retries") or DEFAULT_MAX_RETRIES)
@@ -592,9 +607,9 @@ def next_step(
                 "reason": "retries exhausted",
                 "recorded": recorded,
             }
-        return _emit(entries[_index_of(entries, target_id)], route, attempt + 1)
+        return _emit(entries[_index_of(entries, target_id)], route)
 
     # completed
     if index + 1 >= len(entries):
         return {"status": "done", "recorded": recorded}
-    return _emit(entries[index + 1], "next", 1)
+    return _emit(entries[index + 1], "next")
