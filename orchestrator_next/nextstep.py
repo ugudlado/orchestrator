@@ -58,7 +58,6 @@ from orchestrator_next.parser import (
     GateStepContract,
     ScriptStepContract,
     load_contract_for_step,
-    prompt_search_dirs,
 )
 from orchestrator_next.workflow_steps import is_gate_entry, normalize_step_entry
 
@@ -163,6 +162,12 @@ def _resolve_io(
         artifact = spec.get("artifact")
         if artifact:
             paths[name] = str(base / str(artifact))
+            # An artifact out otherwise has no schema entry, so `optional`
+            # would be invisible — and a driver that cannot see it writes a
+            # stub to be safe, which is worse than the missing file: the next
+            # step reads the stub as real work.
+            if spec.get("optional"):
+                schema[name] = {"artifact": True, "optional": True}
         else:
             # `fail_on` rides along so a reader can see which values the
             # contract treats as a rejection — the engine derives routing
@@ -225,6 +230,21 @@ def failing_verdict(contract: Any, out: dict[str, Any] | None) -> str:
         if out.get(name) in fail_on:
             return f"{name}={out[name]}"
     return ""
+
+
+def _prompt_roots(config_root: Path) -> str:
+    """The roots a step's charter dir may live under, os.pathsep-joined.
+
+    This is a *confinement* list, not the charter search path: a pack script
+    that appends beside a charter (persist-learnings) checks the dir it is
+    about to write into against these roots, so an append can never escape
+    the pack. Both layouts are allowed — charters inside the step dir
+    (``<pack>/steps/<id>``) and the ``skills/`` convention beside the pack —
+    and only dirs that exist are offered, so a nonexistent root cannot make
+    every legitimate path look unconfined.
+    """
+    roots = [Path(config_root), Path(config_root).parent / "skills"]
+    return os.pathsep.join(str(r) for r in roots if r.is_dir())
 
 
 def _prompt_dir_map(entries: list[dict[str, Any]], config_root: Path) -> dict[str, str]:
@@ -307,9 +327,7 @@ def build_step(
     step_id = entry["id"]
     base = artifacts_base(doc, slug)
     prompt_dirs = _prompt_dir_map(entries, config_root)
-    prompt_path_env = os.pathsep.join(
-        str(d) for d in prompt_search_dirs(config_root)
-    )
+    prompt_path_env = _prompt_roots(config_root)
     result: dict[str, Any] = {
         "status": "ready", "step_id": step_id, "route": route,
     }
@@ -448,10 +466,15 @@ def validate_out(
         artifact = spec.get("artifact")
         if artifact:
             reported = str(out.get(name) or "")
+            # Optional means the step may not produce it at all. Naming a
+            # path is a claim that it exists, and a claim is checked — an
+            # unchecked claim is how a stub gets read as real work.
+            if optional and not reported:
+                continue
             path = Path(reported) if reported else Path(base / str(artifact))
             if not path.is_absolute():
                 path = Path.cwd() / path
-            if not path.is_file() and not optional:
+            if not path.is_file():
                 problems.append(f"out.{name}: artifact not found at {path}")
             continue
         if name not in out or out[name] is None:

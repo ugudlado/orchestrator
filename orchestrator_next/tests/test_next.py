@@ -7,6 +7,7 @@ answer out.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -57,6 +58,7 @@ def pack(tmp_path) -> Path:
                 "complexity": {"type": "enum", "values": ["S", "M", "L"]},
                 "verdict": {"type": "enum", "values": ["pass", "needs_work"],
                             "fail_on": ["needs_work"]},
+                "sketch": {"artifact": "sketch.md", "optional": True},
             },
         }),
         encoding="utf-8",
@@ -318,6 +320,8 @@ def test_every_real_workflow_walks_to_done(real_pack, tmp_path, monkeypatch):
                 Path(path).write_text(f"{out_name}\n", encoding="utf-8")
                 out[out_name] = path
             for out_name, spec in (step["payload"].get("out_schema") or {}).items():
+                if spec.get("artifact"):
+                    continue          # an optional artifact: leave it unclaimed
                 values = spec.get("values")
                 out[out_name] = values[0] if values else "ok"
             step = next_step(
@@ -429,12 +433,54 @@ def test_prompt_dirs_maps_every_judgment_step(pack, repo):
     assert r["kind"] == "exec"
 
 
-def test_prompt_path_is_emitted_for_append_confinement(pack, repo):
-    """persist-learnings confines appends to these roots; pack-derived."""
+def test_prompt_path_roots_actually_contain_the_step_dirs(pack, repo):
+    """The confinement roots must make every charter dir legitimate.
+
+    persist-learnings checks each ORCHESTRATOR_PROMPT_DIRS value against
+    ORCHESTRATOR_PROMPT_PATH and silently drops any row whose dir falls
+    outside. A root that does not exist rejects everything.
+    """
     r = _next(pack, repo)
-    roots = r["payload"]["env"]["ORCHESTRATOR_PROMPT_PATH"]
-    assert roots.endswith("skills"), roots
-    assert str(pack.parent) in roots
+    env = r["payload"]["env"]
+    roots = [Path(p) for p in env["ORCHESTRATOR_PROMPT_PATH"].split(os.pathsep)]
+    assert roots, "no roots emitted"
+    for root in roots:
+        assert root.is_dir(), f"emitted a nonexistent root: {root}"
+    for step_id, charter_dir in json.loads(env["ORCHESTRATOR_PROMPT_DIRS"]).items():
+        assert any(
+            root == Path(charter_dir) or root in Path(charter_dir).parents
+            for root in roots
+        ), f"{step_id}'s charter dir is outside the roots: {charter_dir}"
+
+
+def test_an_omitted_optional_artifact_is_accepted(pack, repo):
+    """`ux-design` declares optional outs; a driver must not write stubs."""
+    (repo / "spec" / "changes" / "s1").mkdir(parents=True)
+    (repo / "spec" / "changes" / "s1" / "notes.md").write_text("n\n")
+    r = _next(pack, repo, after="think", status="completed",
+              out={"complexity": "M", "verdict": "pass"})   # no `sketch`
+    assert r["status"] == "ready", r
+    assert r["step_id"] == "finish"
+
+
+def test_a_present_optional_artifact_is_still_validated(pack, repo):
+    """Optional means "may be absent", not "unchecked when named"."""
+    art = repo / "spec" / "changes" / "s1"
+    art.mkdir(parents=True)
+    (art / "notes.md").write_text("n\n")
+    r = _next(pack, repo, after="think", status="completed",
+              out={"complexity": "M", "verdict": "pass",
+                   "sketch": "spec/changes/s1/nope.md"})
+    assert r["status"] == "error"
+    assert "sketch" in r["error"]
+
+
+def test_out_schema_exposes_optional_on_artifact_outs(pack, repo):
+    """Invisible `optional` is what makes a driver write a misleading stub."""
+    r = _next(pack, repo, after="signoff", status="completed")
+    schema = r["payload"]["out_schema"]
+    assert schema["sketch"] == {"artifact": True, "optional": True}
+    assert "notes" not in schema, "a required artifact out stays out of schema"
 
 
 # ------------------------------------------------- attempts terminate a loop

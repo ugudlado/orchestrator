@@ -90,7 +90,10 @@ That is the supported offline path — no backlog is needed.
 `workflow_plan` to be present. If an archive dir matching the slug exists under
 `<repo>/spec/changes/archive/`, it declares the run already complete.
 
-**create-worktree** — branch is `<schema>/<slug>`. Known pack bug: it reads
+**create-worktree / remove-worktree** — both shell out to a bare `python3` to
+read state, so a `python3` **on PATH** must have `pyyaml` importable;
+`ORCHESTRATOR_PYTHON` is not consulted here. create-worktree's branch is
+`<schema>/<slug>`. Known pack bug: it reads
 state with `IFS=$'\n' read -r a b <<< "$(...)"`, which captures only the first
 line, so `schema` is always empty and the branch is always `feature/<slug>`
 whatever the workflow. Harmless (nothing downstream parses the branch name),
@@ -101,8 +104,11 @@ but do not be surprised by it.
 renders `payload.out.proposed_scenarios` into the artifacts dir. Write it where
 `payload.out` says, then **copy it next to state.yaml** before running this
 step. It **deletes the staging file** when it finishes, so re-create it before
-any retry. Without `ORCHESTRATOR_PROMPT_PATH` every row is silently skipped
-(the engine now supplies it). It also has a dead branch calling
+any retry. `ORCHESTRATOR_PROMPT_PATH` is the _confinement_ root list: the script checks
+each charter dir from `ORCHESTRATOR_PROMPT_DIRS` against it and silently drops
+any row whose dir falls outside. The engine now emits the pack root (and
+`<pack>/../skills` when that exists), so every `steps/<id>` charter is
+allowed. It also has a dead branch calling
 `orchestrator pack publish-scenarios` — a verb that no longer exists — guarded
 by `command -v orchestrator`, so it no-ops unless an unrelated `orchestrator`
 binary is on PATH with `ORCHESTRATOR_PACK` set. Leave `ORCHESTRATOR_PACK` unset.
@@ -144,3 +150,34 @@ A judgment step that pauses for a person. Its `decision` enum is
 The charter mentions a "User direction" the old engine injected after a
 `resume` verb. There is no `resume` now: you ask the user yourself and re-run
 the step, passing their text in the worker's brief.
+
+## Upstream fixes this pack needs
+
+Found while driving `patch` and `feature` end to end. None are engine bugs.
+
+1. **`archive-completed-change` uses `mv`, not `git mv`** — the old tracked
+   path (e.g. `spec/changes/<slug>/tasks.yaml`) survives the merge as a stale
+   tracked file alongside the archived copy. Verified on a real run.
+2. **`design-review/eval.sh` references a nonexistent `../architect/`** dir.
+3. **Non-JSON on stdout.** `create-worktree` has its redirection backwards
+   (`2>&1 >&2` sends stdout to the old stderr, then stderr to the terminal),
+   and the archive script leaks git output. The engine parses the _last_ JSON
+   line so runs survive it, but a stricter reader would break.
+4. **`human-review`'s `decision: await_input` is not in `fail_on`**, so
+   reporting it advances the run and loses the human pause. Needs either a
+   `needs_you`-style out kind or a documented driver rule (currently the
+   latter — see the human-review section above).
+5. **`code-review/SKILL.md` still says "status MUST be failed"** citing the
+   BKG-575 gate bypass. The engine derives failure from `fail_on` now, so both
+   statuses are correct; the charter's warning is stale and misleads a worker.
+6. **`persist-learnings` deletes the staging file** after every run, so a
+   retry silently has nothing to persist unless the driver re-creates it.
+7. **`implement/SKILL.md`** carries a dangling COMPLETION template, references
+   `prompt.md` paths that no longer exist, and asks the worker for
+   `tokens_in`/`tokens_out`/`duration_s` it cannot measure.
+8. **`ticket-sync` no-op is indistinguishable from success** — offline it
+   prints `{"ticket_status_set": "<status>"}` and exits 0 whether or not a
+   ticket was touched, so a misconfigured backlog looks like a working one.
+9. **`learn`'s charter says the staging file goes in the state dir**, but its
+   contract renders `out.proposed_scenarios` into the artifacts dir, and
+   `persist-learnings` reads the state dir. Three places, two answers.

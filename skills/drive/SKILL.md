@@ -36,6 +36,9 @@ says the pack needs. Capture stdout to
 `$ORCH next … --after <step> --exit-code <N> --stdout-file <that file>`.
 **Do not validate exec stdout yourself** — the engine parses it. Merge any
 `recorded.state_patch` into your state file before the next step.
+On a non-zero exit the engine **replaces** the script's outputs with
+`{"reason": "script exited N"}`, so read the stdout file yourself if you need
+what it said.
 
 ### kind: judgment
 
@@ -44,6 +47,10 @@ read the base charter first, and `learnings.md` in `step_dir` if present).
 Read `payload.in`, **write every `payload.out` path** (mandatory whatever the
 charter says — a missing one is rejected), produce a value per `out_schema`
 key, then `--status completed --out '{"<key>": "<value>", …}'`.
+An out whose `out_schema` entry says `optional: true` **may be left out
+entirely — never write a stub**: a stub is read by the next step as real work.
+Naming a path in `--out` is a claim it exists, and the claim is checked even
+when optional.
 
 **Substitute placeholders before briefing the worker**: charters contain
 literal `{in.<name>}` / `{out.<name>}` (names `[A-Za-z0-9_-]+`) — replace from
@@ -70,10 +77,13 @@ self-approve. **Refuse any step whose `payload.requires` token is not in
 - approved with changes → record the note in your state file (the engine never
   interpreted gate edits), then approve as above and brief the next worker
   with it.
-- rejected → `--after <gate> --status failed`. A gate with no `on_failure`
-  answers `needs_you`; ask the user which step to go back to and report that
-  rejection as `--out '{"reset_to":"<step>"}'`, which routes there directly.
-  `--status abandoned` simply re-presents the same gate.
+- rejected, user named a step → `--after <gate> --status failed --out
+'{"reset_to":"<step>"}'` routes straight there, in one call.
+- rejected, no step named → `--after <gate> --status failed`. A gate with no
+  `on_failure` answers `needs_you`; ask which step to go back to, then make
+  the call above. `--status abandoned` re-presents the same gate unchanged.
+
+Gates take `--attempt` too, counted per presentation of that gate.
 
 ## Results: the handback is the file
 
@@ -104,11 +114,10 @@ From the charter's `description` plus payload signals; first match wins:
 1. a `step_models` pin in `<pack>/models.yaml` → that tier
 2. `attempt` > 1 or `route` == `on_failure` → one tier above that step's last
    attempt (order: fast < standard < code < strong)
-3. designs, decides trade-offs, breaks down work, or its verdict gates other
-   steps → **strong** (reviews run tests but write no code — rule 3, not 4)
-4. writes code (`write:git`, or `git.commit` / `shell.test` in tools) → **code**
-5. read-only survey, summarize, reflect → **standard**
-6. mechanical: format, status update, small `max_turns` → **fast**
+
+**Rule 1 outranks rule 2**: a pinned step keeps its pinned tier on a retry —
+the pack author chose it deliberately. Escalation applies to unpinned steps. 3. designs, decides trade-offs, breaks down work, or its verdict gates other
+steps → **strong** (reviews run tests but write no code — rule 3, not 4) 4. writes code (`write:git`, or `git.commit` / `shell.test` in tools) → **code** 5. read-only survey, summarize, reflect → **standard** 6. mechanical: format, status update, small `max_turns` → **fast**
 
 Resolve via `models:` in `<pack>/models.yaml`; use your nearest equivalent if
 the harness lacks that model. Record `{step, tier, model}`.
@@ -122,8 +131,9 @@ the harness lacks that model. Record `{step, tier, model}`.
 - `await_input` (exec) → ask `await_input.ask`, re-run that step with the
   answer. A judgment reporting an `await_input`-ish value in `--out` is **not
   finished**: ask, re-run it, report the real decision.
-- `error` (`invalid out: …`) → re-run the step once with the error text; if it
-  fails again, stop and ask.
+- `error` (`invalid out: …`) → **nothing was recorded**: do not append to
+  `step_history` and do not advance `--attempt`. Re-run the step once with the
+  error text at the same attempt; if it fails again, stop and ask.
 - `done` → short report from `step_history`.
 
 ## Attempts — count them yourself, or the run never stops
