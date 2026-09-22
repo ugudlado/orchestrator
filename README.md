@@ -1,272 +1,141 @@
 # orchestrator
 
-Config-driven, LLM-agnostic workflow engine for deterministic multi-step
-development workflows (design → implement → review → QA → learn).
+A workflow engine that is a **pure function**:
 
-> The CLI speaks protocol v2: `start` / `step` / `done`, plus `--headless`
-> when the engine should drive the model itself. The v1 `next` / `done`
-> exit-code protocol and the self-driving `orchestrator run` are removed. See
-> [`docs/protocol-v2.md`](docs/protocol-v2.md).
+```
+workflow config  +  the step that just ran and how it went  →  what runs next
+```
+
+It keeps no state, spawns no processes, and calls no models. There is no run
+database, no history, no attempt counters, no gate tokens. Everything that
+happens is done by a **driver** — an agent, a script, whatever you like — that
+calls this CLI, does the work it names, and reports back.
 
 ## Install
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh   # if you don't have uv
-uv tool install git+https://github.com/ugudlado/orchestrator.git
-orchestrator doctor
+uv tool install git+https://github.com/ugudlado/orchestrator.git   # `orchestrator`
+# or, from a checkout:
+python -m orchestrator_next
 ```
 
-Upgrade: `uv tool upgrade orchestrator`.
+## The one verb
 
-## First run
-
-```bash
-orchestrator init
+```
+Usage:
+  orchestrator next <workflow> --config PATH [--slug S]
+      [--after STEP (--status completed|failed|abandoned
+                     | --exit-code N [--stdout-file F])
+       [--out JSON] [--attempt N]]
 ```
 
-Asks a short set of questions on a TTY (state store, concurrency, headless
-backend and budget, backlog sync, trust list) — Enter keeps the shown
-default — and writes only the keys you changed to
-`~/.orchestrator/orchestrator.toml` by default, the machine-wide file
-(`--repo` writes `.orchestrator/orchestrator.toml` in the current repo
-instead). It then offers to pull a workflow pack if the repo has none yet,
-using the trust list it just wrote. Off a TTY, or with `--yes`, it writes the
-all-default template and skips the questions — safe for scripts and CI. It
-always prints which file it wrote, and if a repo-level file already exists
-that would shadow the global one for this repo, it says so.
-`orchestrator config init` is kept as an alias for `init --yes`.
-`orchestrator init --help` prints usage and writes nothing.
+`--config` is the pack root. `--slug` names the run (it fills `{slug}` in the
+pack's `artifacts_root`). With no `--after` you get the workflow's first step;
+otherwise you report what the named step did and get the next one.
 
-Skipped `orchestrator init`? Every other verb prints a one-line reminder to
-stderr the first time it runs with no settings file anywhere in the layer
-chain; it never blocks. `orchestrator doctor` reports the same thing as a
-WARN. See [Settings](#settings) for what each key does and the full
-precedence chain.
+Output is always JSON, always exit 0 for a protocol answer (`ready`, `done`,
+`needs_you`, `error`); exit 3 is a usage or infrastructure error.
 
-## Trust a pack source
+### `status: ready` — a step to run
 
-A pulled pack carries shell scripts and agent charters that run against your
-repo, so remote pulls must be allow-listed first in the `[trust]` section of
-`~/.orchestrator/orchestrator.toml`:
+Every `ready` answer is `{status, kind, step_id, route, payload}` (plus
+`recorded` once you are reporting steps). `route` says which rule fired:
+`next`, `on_failure`, `reset_to`, `retry`.
 
-```toml
-[trust]
-allow = ["https://github.com/ugudlado/*"]
-require_signed = false
+**`kind: exec`** — run `payload.run_path` yourself, with `payload.env` merged
+over your own. Payload: `run_path`, `step_dir`, `state_mutating`, `in`, `out`,
+`out_schema`, `tools`, `side_effects`, `requires`, `env`. The `env` block is
+engine-set only (`ORCHESTRATOR_STEP_ID`, `_STEP_DIR`, `_CHANGE_ID`,
+`CHANGE_ID`, `_PROMPT_DIRS`, `_PROMPT_PATH`) — never a copy of yours, so it
+cannot leak your secrets into printed output.
+
+**`kind: judgment`** — hand the charter to a model. Same payload, with
+`prompt_path` and `max_turns` instead of `run_path`:
+
+```json
+{
+  "prompt_path": "<pack>/steps/design/SKILL.md",
+  "max_turns": 40,
+  "in": { "discovery": "spec/changes/demo/discovery.md", "ticket": "…" },
+  "out": { "design": "spec/changes/demo/design.md", "tasks": "…/tasks.yaml" },
+  "out_schema": {
+    "complexity": { "type": "enum", "values": ["XS", "S", "M", "L", "XL"] }
+  }
+}
 ```
 
-Or in one command:
+**`kind: gate`** — show the files and wait for a human:
 
-```bash
-orchestrator config set trust.allow "https://github.com/ugudlado/*" --global
+```json
+{
+  "step_id": "design-signoff",
+  "approve_as": "impl_token",
+  "show": { "design": "spec/changes/demo/design.md", "tasks": "…/tasks.yaml" }
+}
 ```
 
-Local paths are always allowed — trust only governs network pulls. The older
-`~/.orchestrator/trust.toml` is still read, with a deprecation warning.
+### The other three answers
 
-## Pull a workflow pack into a repo
-
-```bash
-cd /path/to/your-repo
-orchestrator config pull https://github.com/ugudlado/workflows.git workflows
-orchestrator doctor
-orchestrator feature TICKET-1
-# same name in two packs: orchestrator mypack/feature TICKET-1
+```json
+{"status": "done", "recorded": {…}}
+{"status": "needs_you", "step_id": "code-review", "reason": "retries exhausted", "recorded": {…}}
+{"status": "error", "step_id": "design",
+ "error": "invalid out: out.complexity: 'XXL' not one of ['XS','S','M','L','XL']"}
 ```
 
-See [`docs/pack-convention.md`](docs/pack-convention.md) for pack layout and
-config resolution order.
+An `error` records nothing — fix the output and report the step again.
 
-## Run from Claude Code
+## Semantics worth knowing
 
-`orchestrator config pull` generates the Claude plugin automatically (pass
-`--no-plugin` to skip). It lands at the stable default location,
-`.orchestrator/plugins/<pack>/claude/`, and the pull prints the exact command
-to load it:
+**Artifact paths are relative.** `in`, `out` and a gate's `show` are relative
+to the driver's working tree, because a run's artifacts live in its worktree
+and only the driver knows where that is. Run the CLI from that tree.
 
-```bash
-orchestrator config pull https://github.com/ugudlado/workflows.git workflows
-# ... prints: CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir /abs/path/.orchestrator/plugins/workflows/claude
-```
+**exec stdout protocol.** The engine parses the last JSON line of a script's
+stdout: `{"status": …, "outputs": {…}}`, or a status plus flat keys, or bare
+keys (status defaults to `completed`). `state_patch` is lifted from either
+level. All of it is echoed back under `recorded` and **applied to nothing** —
+there is nothing to apply it to. A non-zero exit is a failure whose outputs
+the engine replaces with `{"reason": "script exited N"}`.
 
-To regenerate it later (after hand-editing a step, or with `--no-plugin`
-pulls), run `orchestrator pack` directly — no `--out` needed, it writes to the
-same default location and prints the same hint:
+**`fail_on`.** A contract may mark out values as rejections
+(`verdict: {type: enum, values: [pass, needs_work], fail_on: [needs_work]}`).
+Reporting one routes `on_failure` even if the driver said `completed`, so a
+rejected review can never be waved through.
 
-```bash
-orchestrator pack --target claude
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir .orchestrator/plugins/workflows/claude
-```
+**`reset_to`.** A failed step may name its own rework target in `--out`, at or
+before itself; it wins over the static `on_failure` edge.
 
-`--out <dir>` still overrides the location for a one-off export.
+**`requires`.** A step may declare a gate token. It is passed through as data —
+with no state the engine cannot know a token was issued, so **the driver must
+refuse a step whose token it does not hold.**
 
-In the session, ask for e.g. "use orchestrator run with recipe feature slug
-TICKET-1". If function hooks aren't enabled, the plugin still installs a
-fallback skill that drives the same workflow. See
-[`docs/claude-mod-api-notes.md`](docs/claude-mod-api-notes.md) for how the
-generated hooks map pack steps to Claude Code agents/tools.
+**optional outs.** An `out` marked `optional: true` may be omitted. Naming a
+path is a claim, and a claim is checked.
 
-The generated plugin dir is not gitignored by default — a team may choose to
-commit it so every clone gets a ready-to-load plugin without regenerating.
-`orchestrator doctor` reports whether it exists and is still fresh against the
-pulled pack.
+**Retries.** `--attempt` is the driver's count of how many times that step has
+run, for the whole run; the engine stops at `max_retries`.
 
-## Run from Codex
+## Driving it
 
-```bash
-orchestrator pack --target codex --out .tmp/plugin-codex
-```
+The protocol is small but has sharp edges (attempt counting, gate tokens,
+worktree paths). [`skills/drive/SKILL.md`](skills/drive/SKILL.md) is a skill
+that drives a workflow end to end. A pack may ship its own `DRIVER.md`
+describing what its scripts need — see
+[`docs/pack-driver-notes.md`](docs/pack-driver-notes.md).
 
-Points Codex at the generated agent/tool definitions the same way. The
-`.codex-plugin/` manifest format is unverified against Codex's actual plugin
-loader — check the generator's own warning output before relying on it.
-
-## Run headless (CI / cloud)
-
-```bash
-orchestrator run --headless <recipe> <slug>
-orchestrator headless <run-id>   # resume
-```
-
-The engine walks `step`/`done` in-process and runs each judgment step itself —
-no driver script needed.
-
-Two backends run those steps:
-
-| Backend      | How it runs                               | Credential                                   |
-| ------------ | ----------------------------------------- | -------------------------------------------- |
-| `claude-cli` | `claude -p` (Claude Code non-interactive) | the machine's Claude Code login              |
-| `anthropic`  | Anthropic Messages API via the SDK        | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` |
-
-The default is `claude-cli` unless an API credential is already in the
-environment, so a workstation with Claude Code signed in needs no API key.
-Pin one with `--backend claude-cli|anthropic` or `headless.backend`:
-
-```bash
-orchestrator run --headless design my-slug --backend claude-cli
-```
-
-`claude-cli` maps the step contract's `tools:` to Claude Code's own tools and
-asks for the declared outputs via `--json-schema`. Set
-`headless.step_budget_usd` to cap the spend of each step. See
-[`docs/cloud-environment.md`](docs/cloud-environment.md) for Slack `@Claude`
-/ cloud-sandbox setup (secrets, network access, MCP).
-
-## Reporting
-
-```bash
-orchestrator status <run-id> --json
-orchestrator events <run-id>
-orchestrator report --state <path> --json
-```
-
-Run state lives in the local RunStore (SQLite at `~/.orchestrator/orchestrator.db`
-by default); set `state.url` for a shared store.
-
-## Web UI
-
-```bash
-orchestrator serve            # http://127.0.0.1:8765
-orchestrator serve --port 9000 --open
-```
-
-A local page over the same verbs the Claude Code pane uses: recipes and runs on
-one screen, per-step metrics and logs on another, settings and health on a
-third. It seeds a run but never drives one — driving happens in Claude Code or
-`orchestrator headless <slug>`. It binds loopback and has **no authentication**,
-so anyone who can reach the port can approve and cancel runs; `--host` is
-required to bind anything else. Port: `[serve] port`.
-
-Every request is checked against a `Host`-header allowlist (loopback names by
-default, or the exact `--host` given) to stop DNS rebinding, and every POST
-must carry a random per-process CSRF token — minted at startup and embedded in
-the served page — plus a same-origin `Origin`/`Sec-Fetch-Site` check and a
-`application/json` content type. A request that fails any of these is refused
-before it reaches the API.
-
-## Settings
-
-Engine settings live in `orchestrator.toml`, not in a pile of environment
-variables. Later layers win, and `orchestrator config show` prints the source
-of every key:
+## Pack layout
 
 ```text
-defaults < ~/.orchestrator/orchestrator.toml < <repo>/.orchestrator/orchestrator.toml
-        < ORCHESTRATOR_* env var < CLI flag
+<pack>/
+  workflows/<name>.yaml    steps:, artifacts_root:, inputs:
+  steps/<id>/
+    contract.yaml          kind, in:, out:, tools, max_turns, run: | prompt:
+    SKILL.md               judgment steps: the charter
+    script.sh              exec steps: the script
+  DRIVER.md                what this pack's scripts need from a driver
+  models.yaml              read by the DRIVER, not the engine
 ```
 
-```bash
-orchestrator config init            # commented template in this repo
-orchestrator config set run.max_parallel 2
-orchestrator config show --json
-```
-
-```toml
-[state]
-url = "postgresql://user@host/orch"   # shared store; unset = local SQLite
-backend = "sqlite"                    # or "file" for one YAML per run
-tenant = "default"
-
-[run]
-max_parallel = 1                      # 1 = serial
-stale_after_hours = 24.0
-disable_worktree_lock = false
-
-[headless]
-backend = "claude-cli"                # or "anthropic"
-step_budget_usd = 0.50
-claude_bin = "claude"
-
-[backlog]
-url = "https://backlog.example"
-project = "ORC"
-token_env = "BACKLOG_TOKEN"           # the env var NAME — never the token
-
-[trust]
-allow = ["https://github.com/ugudlado/*"]
-require_signed = false
-trust_all = false
-
-[models]
-config = "/path/to/models.yaml"
-route_overrides = { designer = { model_id = "claude-opus-5" } }
-```
-
-Every key keeps its old environment variable as an override, so nothing breaks
-for an existing setup:
-
-| Env override                         | Setting                     |
-| ------------------------------------ | --------------------------- |
-| `ORCHESTRATOR_STATE_URL`             | `state.url`                 |
-| `ORCHESTRATOR_STATE_BACKEND`         | `state.backend`             |
-| `ORCHESTRATOR_TENANT`                | `state.tenant`              |
-| `ORCHESTRATOR_MAX_PARALLEL`          | `run.max_parallel`          |
-| `ORCHESTRATOR_STALE_AFTER_HOURS`     | `run.stale_after_hours`     |
-| `ORCHESTRATOR_DISABLE_WORKTREE_LOCK` | `run.disable_worktree_lock` |
-| `ORCHESTRATOR_HEADLESS_BACKEND`      | `headless.backend`          |
-| `ORCHESTRATOR_STEP_BUDGET_USD`       | `headless.step_budget_usd`  |
-| `ORCHESTRATOR_CLAUDE_BIN`            | `headless.claude_bin`       |
-| `BACKLOG_URL` / `BACKLOG_PROJECT`    | `backlog.url` / `.project`  |
-| `ORCHESTRATOR_TRUST_ALL`             | `trust.trust_all`           |
-| `ORCHESTRATOR_MODELS_CONFIG`         | `models.config`             |
-| `ORCHESTRATOR_MODEL_ROUTE_OVERRIDES` | `models.route_overrides`    |
-
-`ORCHESTRATOR_CONFIG` is deliberately **not** a setting: the config root comes
-from the pack layout, and that env var stays its one explicit override.
-
-## From this checkout (engine contributors)
-
-```bash
-git clone https://github.com/ugudlado/orchestrator.git
-cd orchestrator
-uv sync --extra dev
-.venv/bin/python -m pytest orchestrator_next/tests -q   # or: make test
-```
-
-Use `.venv/bin/python -m pytest` (or `make test`) — a bare `pytest` on PATH
-may resolve to a system interpreter without the dev extras installed, which
-silently fakes failures.
-
-See `AGENTS.md` (`CLAUDE.md` is a symlink) and
-[`docs/distribution.md`](docs/distribution.md) for CLI reference, model
-routing, ticketing env vars, and the engine/pack split.
+Packs are installed by a separate tool and handed to the engine with
+`--config`. The engine never fetches one.

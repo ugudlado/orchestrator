@@ -50,7 +50,8 @@ key, then `--status completed --out '{"<key>": "<value>", …}'`.
 An out whose `out_schema` entry says `optional: true` **may be left out
 entirely — never write a stub**: a stub is read by the next step as real work.
 Naming a path in `--out` is a claim it exists, and the claim is checked even
-when optional.
+when optional. A pack may also want an artifact somewhere its own scripts
+read — DRIVER.md says where (this pack's `learn` staging file is one).
 
 **Substitute placeholders before briefing the worker**: charters contain
 literal `{in.<name>}` / `{out.<name>}` (names `[A-Za-z0-9_-]+`) — replace from
@@ -157,7 +158,9 @@ checked against the **failing step's own** counter (the one in `--after`).
 
 **Append to `step_history` once per step run, right after `next --after`
 returns**, recording the status the ENGINE derived (`recorded.status`) — not
-what you passed. To resume, read the last entry and call `next --after` it.
+what you passed. To resume, read the last entry and call `next --after` it:
+that call is a **replay, not a run** — it returns the step you never got to,
+so do not append an entry for it. Append only for steps you actually ran.
 
 **Precedence:** where a charter and this skill disagree about CLI protocol
 (status, attempts, paths), **this skill wins** — charters were written for an
