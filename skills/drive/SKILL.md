@@ -13,25 +13,39 @@ and `$ORCH` — how this machine invokes the CLI. `$ORCH` is usually several arg
 tokens (`python -m orchestrator_next`): never quote it as one word — write
 `$ORCH next …`, or build an argv list.
 
-**If `<pack>/DRIVER.md` exists, read it first** — it lists what that pack's
-scripts need (state file keys, environment, quirks). This skill is the
-protocol; DRIVER.md is the pack. Keep a run state file (one per run, e.g.
+**If `<pack>/DRIVER.md` exists, read it too** — it may note pack-specific
+quirks. This skill is the protocol. Keep a run state file (one per run, e.g.
 `<repo>/.orchestrator/<slug>/state.yaml`) with at least `tokens: []` for gate
 approvals and `step_history: []`.
+
+## Spawn env: every step, exec or judgment
+
+env = your env + `payload.env` + this driver block:
+
+| var                    | value                                             |
+| ---------------------- | ------------------------------------------------- |
+| `ORCHESTRATOR_ATTEMPT` | this step's attempt, same number as `--attempt`   |
+| `REPO_ROOT`            | the repository the run started in                 |
+| `WORKTREE_PATH`        | the run worktree once it exists, else `REPO_ROOT` |
+| `STATE_YAML_PATH`      | your state file                                   |
+| `TICKET_ID`            | the ticket, if any                                |
+
+That is the whole list — nothing else, no telemetry vars. Anything a script
+needs beyond this comes through `payload.in` / `payload.env`
+(contract `params:`), not by reading your state file.
 
 ## The loop
 
 Call `$ORCH next <workflow> --config <pack> --slug <slug>` (no `--after` the
 first time), act on `kind`, report, repeat until `status: done`.
 `status: ready` is the normal answer: run `step_id`, then report it.
-**Run the CLI with cwd = the run's working tree** (the repo root until a
-worktree exists, the worktree after): artifact paths are relative and `--out`
-checks resolve against cwd.
+**Run the CLI with cwd = `WORKTREE_PATH`** (the repo root until a worktree
+exists, the worktree after): `--out` paths and `payload.in` resolve against
+the CLI's cwd, so `next` must be run from there.
 
 ### kind: exec
 
-Run `payload.run_path` with env = your env + `payload.env` + whatever DRIVER.md
-says the pack needs. Capture stdout to
+Run `payload.run_path` with the spawn env above. Capture stdout to
 `<state dir>/results/<step>-<attempt>.stdout`, then
 `$ORCH next … --after <step> --exit-code <N> --stdout-file <that file>`.
 **Do not validate exec stdout yourself** — the engine parses it. Merge any
@@ -44,6 +58,9 @@ what it said.
 
 Read `payload.prompt_path` (skip its `---` frontmatter; if it has `extends:`,
 read the base charter first, and `learnings.md` in `step_dir` if present).
+**Inline this into the worker's brief** — a subprocess worker cannot read
+absolute paths outside its own cwd, so the charter text itself has to travel
+in the prompt, not a path to it.
 Read `payload.in`, **write every `payload.out` path** (mandatory whatever the
 charter says — a missing one is rejected), produce a value per `out_schema`
 key, then `--status completed --out '{"<key>": "<value>", …}'`.
@@ -56,9 +73,7 @@ read — DRIVER.md says where (this pack's `learn` staging file is one).
 **Substitute placeholders before briefing the worker**: charters contain
 literal `{in.<name>}` / `{out.<name>}` (names `[A-Za-z0-9_-]+`) — replace from
 `payload.in` / `payload.out`, leaving any name the payload lacks verbatim.
-These are the only placeholders charters use. A charter may say "read the
-installed `<role>` skill first"; if your harness has none, **the step's own
-SKILL.md is sufficient.**
+These are the only placeholders charters use.
 
 **Verdicts.** Either `--status failed` or `--status completed` works for a
 rejecting verdict: the engine derives failure from `fail_on` either way.
@@ -103,10 +118,14 @@ attempt number rather than guessing what it did.
 `exec` → subprocess (no model). `judgment` → a fresh subagent with its own
 context; failing that, a subprocess of your agent CLI with a model flag.
 Inline only as a last resort. **Never run a review step in the same context
-that produced the work.** Hand the worker: the charter (placeholders
-substituted, plus its `extends` base and `learnings.md`), the `in` paths, the
+that produced the work.** Hand the worker: the charter, inlined into the
+brief (frontmatter stripped, placeholders substituted, `extends` base
+prepended, `learnings.md` appended if present), the `in` paths, the
 `out` paths it must write, the `out_schema` keys to return as JSON, the result
-file path it must write, and the cwd.
+file path it must write, the spawn env, and the cwd.
+
+Run tagging for external tools (e.g. `OTEL_RESOURCE_ATTRIBUTES`) is machine
+config built from these vars; the driver sets nothing for it.
 
 ## Picking the model: choose a TIER, the pack maps tier → model
 
@@ -158,7 +177,28 @@ checked against the **failing step's own** counter (the one in `--after`).
 
 **Append to `step_history` once per step run, right after `next --after`
 returns**, recording the status the ENGINE derived (`recorded.status`) — not
-what you passed. To resume, read the last entry and call `next --after` it:
+what you passed. For a judgment step, the entry also carries `model`,
+`started`, `ended`, `duration_ms`, `usage`, and `cost_usd` (omit if the CLI
+didn't report one) — these come from the worker CLI's own JSON result, not
+from anything the engine emits (e.g. an `--output-format json` flag on the
+CLI you spawned):
+
+```yaml
+- step: implement
+  attempt: 1
+  status: completed # engine-derived (recorded.status)
+  model: claude-sonnet-5
+  started: 2026-09-24T11:15:02Z
+  ended: 2026-09-24T11:16:57Z
+  duration_ms: 114864
+  usage: { input: 38, output: 5343, cache_read: 1249433, cache_write: 57486 }
+  cost_usd: 0.533
+```
+
+Exec entries record `step`, `attempt`, `status`, `started`, `ended` only —
+no model/usage/cost.
+
+To resume, read the last entry and call `next --after` it:
 that call is a **replay, not a run** — it returns the step you never got to,
 so do not append an entry for it. Append only for steps you actually ran.
 
