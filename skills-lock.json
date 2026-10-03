@@ -7,17 +7,71 @@
       "skillPath": "docs/skills/backlog/SKILL.md",
       "computedHash": "00a0299c06cbd692c013e348fcded598b96d95e939e1b38e6bb5338ebd18ec1c"
     },
+    "code-reviewer": {
+      "source": "ugudlado/skills",
+      "sourceType": "github",
+      "skillPath": "roles/code-reviewer/SKILL.md",
+      "computedHash": "52cd6b7b1255bff5b91f14dbf686cff0637f762c443d4d5aaeaa39e5e55c03f1"
+    },
+    "commit-group": {
+      "source": "ugudlado/skills",
+      "sourceType": "github",
+      "skillPath": "utils/commit-group/SKILL.md",
+      "computedHash": "8ac97519d95e2b92feed5187349ce990bd956158595ce985434faa3f103512d6"
+    },
+    "design-reviewer": {
+      "source": "ugudlado/skills",
+      "sourceType": "github",
+      "skillPath": "roles/design-reviewer/SKILL.md",
+      "computedHash": "f5eae9ed99d7cd4597b51e7735bcc33f06e44d85e3d875b8b0c592ffdcaffba3"
+    },
+    "designer": {
+      "source": "ugudlado/skills",
+      "sourceType": "github",
+      "skillPath": "roles/designer/SKILL.md",
+      "computedHash": "bd69b8d5f44e0ff07a5571347d316cc241d9da1cbfd111908c76d20aae55104d"
+    },
+    "developer": {
+      "source": "ugudlado/skills",
+      "sourceType": "github",
+      "skillPath": "roles/developer/SKILL.md",
+      "computedHash": "5264e03b1560c998318a3da1637af768ef2902f62470ff968047f24391b0b3c0"
+    },
+    "explorer": {
+      "source": "ugudlado/skills",
+      "sourceType": "github",
+      "skillPath": "roles/explorer/SKILL.md",
+      "computedHash": "e2a7f126b48ff22b05376becdbe87dd470a2ce425be5bae1bea1b8be1ae16bad"
+    },
     "find-skills": {
       "source": "vercel-labs/skills",
       "sourceType": "github",
       "skillPath": "skills/find-skills/SKILL.md",
       "computedHash": "b146008599c31057cef1c145774cea5d5afb30e8f43fa802e47a4b461419aaaf"
     },
+    "orchestrate": {
+      "source": "ugudlado/skills",
+      "sourceType": "github",
+      "skillPath": "workflow/orchestrate/SKILL.md",
+      "computedHash": "672c4ad7bf57bc7e3f33d805d60eea51463231d04758243b59851f85d1b0a1dc"
+    },
+    "scratchpad": {
+      "source": "ugudlado/skills",
+      "sourceType": "github",
+      "skillPath": "utils/scratchpad/SKILL.md",
+      "computedHash": "ac509170c6eff9412b1d2d3e089cd47efffca069efc72a1d72e76a4477f62f75"
+    },
     "systematic-debugging": {
       "source": "obra/superpowers",
       "sourceType": "github",
       "skillPath": "skills/systematic-debugging/SKILL.md",
       "computedHash": "3589907ee34dc8b1b7223a33fac98ab841a9e42f9960ab4433a832f0c6f00be0"
+    },
+    "workflow-creator": {
+      "source": "ugudlado/skills",
+      "sourceType": "github",
+      "skillPath": "workflow/operator/SKILL.md",
+      "computedHash": "ea472682e211ac8b40d9cea83c02cd2e7a55e19b221ca0514fa492995e8900fe"
     }
   }
 }
