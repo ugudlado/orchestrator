@@ -78,7 +78,7 @@ Every rule here traces to a real incident. Add rules only with an incident behin
 
 - The memory plane is **agentmemory** (hub `http://localhost:3111`, MCP `agentmemory`, skills `/remember` `/recall` `/handoff` `/recap` `/scratchpad`). Durable knowledge — decisions, gotchas, how-things-work, cross-session state — goes there via `remember`; past-work questions go through `recall`/`smart-search` FIRST, before grep-archaeology or any per-tool memory. Do not create new per-agent or per-tool memory silos.
 - Active multi-step work uses **scratchpad slots** (`memory_slot_*`, keyed by ticket or branch) so Cursor, Claude Code, and Codex share WIP state. Promote durable learnings with `memory_save`/`memory_lesson_save`, then delete the slot when done.
-- **Scoping**: project-specific memory uses the `project` field (auto-derived from cwd); machine-wide knowledge uses no project plus concept tag `global`. Recall project-first, then global/unfiltered.
+- **Scoping**: `memory_save` does NOT derive the project from cwd — pass `project` explicitly (the repo's directory name, e.g. `paperclip-factory`) for project-specific memory; machine-wide knowledge uses no project plus concept tag `global`. Recall project-first, then global/unfiltered.
 - When continuing implementation after a prior agent session, treat recent agentmemory observations for the same project/topic as the default source of truth unless the code has since diverged.
 
 ### Orchestration
