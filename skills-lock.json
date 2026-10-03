@@ -55,12 +55,6 @@
       "skillPath": "workflow/orchestrate/SKILL.md",
       "computedHash": "672c4ad7bf57bc7e3f33d805d60eea51463231d04758243b59851f85d1b0a1dc"
     },
-    "scratchpad": {
-      "source": "ugudlado/skills",
-      "sourceType": "github",
-      "skillPath": "utils/scratchpad/SKILL.md",
-      "computedHash": "ac509170c6eff9412b1d2d3e089cd47efffca069efc72a1d72e76a4477f62f75"
-    },
     "systematic-debugging": {
       "source": "obra/superpowers",
       "sourceType": "github",
