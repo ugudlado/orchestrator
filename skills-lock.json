@@ -4,8 +4,20 @@
     "backlog": {
       "source": "ugudlado/backlog",
       "sourceType": "github",
-      "skillPath": ".claude/skills/backlog/SKILL.md",
-      "computedHash": "2f6bdbfb21bd7ddea6d1d3755f3c5184a3de634905045f776047164607e46294"
+      "skillPath": "docs/skills/backlog/SKILL.md",
+      "computedHash": "00a0299c06cbd692c013e348fcded598b96d95e939e1b38e6bb5338ebd18ec1c"
+    },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "skillPath": "skills/find-skills/SKILL.md",
+      "computedHash": "b146008599c31057cef1c145774cea5d5afb30e8f43fa802e47a4b461419aaaf"
+    },
+    "systematic-debugging": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "skillPath": "skills/systematic-debugging/SKILL.md",
+      "computedHash": "3589907ee34dc8b1b7223a33fac98ab841a9e42f9960ab4433a832f0c6f00be0"
     }
   }
 }

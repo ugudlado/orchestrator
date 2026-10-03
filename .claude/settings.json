@@ -1,4 +1,24 @@
 {
+  "enabledPlugins": {
+    "agentmemory@agentmemory": true,
+    "ponytail@ponytail": true,
+    "context7@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true
+  },
+  "extraKnownMarketplaces": {
+    "agentmemory": {
+      "source": {
+        "source": "github",
+        "repo": "rohitg00/agentmemory"
+      }
+    },
+    "ponytail": {
+      "source": {
+        "source": "github",
+        "repo": "DietrichGebert/ponytail"
+      }
+    }
+  },
   "permissions": {
     "allow": [
       "Bash",
