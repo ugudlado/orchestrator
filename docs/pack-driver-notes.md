@@ -148,10 +148,6 @@ A judgment step that pauses for a person. Its `decision` enum is
 
 `intake-research`'s `intake_status: await_input` gets the same handling.
 
-The charter mentions a "User direction" the old engine injected after a
-`resume` verb. There is no `resume` now: you ask the user yourself and re-run
-the step, passing their text in the worker's brief.
-
 ## Upstream fixes this pack needs
 
 Found while driving `patch` and `feature` end to end. None are engine bugs.

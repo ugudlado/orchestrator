@@ -144,18 +144,19 @@ the harness lacks that model. Record `{step, tier, model}`.
 
 ## Outcomes
 
-- `needs_you` → stop and tell the user `reason`. On "retry", re-run that step
+- `needs_you` **with `reason`** → stop and tell the user `reason`. On "retry", re-run that step
   and report it again with `--attempt` one higher. After `retries exhausted`
   the options are: fix the blocker and retry anyway, send the run back to an
   earlier step (`--status failed --out '{"reset_to":"<step>"}'`), or abandon.
 - `needs_you` **with an `await_input` key** → the step asked. Show the user
   `await_input.ask` (and `options` if present) and wait. **Only the user
   answers** — never answer from conversation context, defaults or your own
-  judgment, for any step (same rule as gates). Append a `step_history` entry
-  `{step, attempt, status: await_input, ask, answer, started, ended}`
-  (`status` = `recorded.status`; `attempt` = the number the re-run will
-  report, i.e. 1 + the step's non-ask entries). Then rename the ask's result
-  file to `results/<step>-<attempt>-ask<k>.json` (k = the step's ask count), so
+  judgment, for any step (same rule as gates). Append a `step_history` entry when the ask is shown, with no `answer` yet
+  (`{step, attempt, status: await_input, ask, started, ended}`; `status` =
+  `recorded.status`; `attempt` = the number the re-run will report, i.e. 1 +
+  the step's non-ask entries), and add `answer` once the user replies. Then
+  rename the ask's result file (or `.stdout`) to
+  `results/<step>-<attempt>-ask<k>.json` (k = the step's ask count), so
   a re-run that dies before writing cannot be mistaken for the ask. Re-run the
   **same** step with `User direction: <answer>` in the worker brief and report
   its real outcome.
