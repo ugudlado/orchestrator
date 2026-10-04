@@ -1,7 +1,6 @@
 # AGENTS.md
 
-Guidance for agents working in this repo. For what the engine _is_ and how to
-call it, read [`README.md`](README.md) first.
+Read [`README.md`](README.md) first for what the engine is and how to call it.
 
 ## The design, in one paragraph
 
@@ -31,7 +30,7 @@ skills/drive/        the driver skill — the other half of the contract
 docs/                pack-driver-notes.md (belongs upstream in the pack)
 ```
 
-Five modules, ~1,250 lines. If a change makes that meaningfully bigger, check
+Four modules, ~1,200 lines. If a change makes that meaningfully bigger, check
 whether it belongs in the driver instead.
 
 ## Dev
@@ -48,70 +47,41 @@ Pre-commit runs ruff, pytest and vulture; don't bypass it.
 
 ## Rules for agents in this codebase
 
-1. **evidence-based** — verify before claiming done. Run the thing.
-2. **minimal-diffs** — scope to the task.
-3. **agent-agnostic** — no vendor names in the engine, schemas or steps.
-4. Prefer Python for YAML/state logic over new bash.
-
-Two more that this engine earned the hard way:
-
-5. **The engine may not guess.** If it cannot know something (how many times a
+1. **minimal-diffs** — scope to the task.
+2. **agent-agnostic** — no vendor names in the engine, schemas or steps.
+3. Prefer Python for YAML/state logic over new bash.
+4. **The engine may not guess.** If it cannot know something (how many times a
    step has run, where a worktree is, which model to use), it must not emit a
    number or a path that looks like an answer. A driver will trust it.
-6. **Nothing the engine prints may carry the caller's environment.** Payload
+5. **Nothing the engine prints may carry the caller's environment.** Payload
    `env` blocks are engine-set only; copying `os.environ` into one printed a
    full set of secrets to stdout before it was caught.
 
-## Pack installation
-
-Lives in the workflows repo, not here. A pack is a directory; point `--config`
-at it. Its layout and the driver contract are in `README.md` and
-[`docs/pack-driver-notes.md`](docs/pack-driver-notes.md).
-
-<!-- cc-profile:agents:start (generated) -->
-
 ## Shared agent rules
 
-Every rule here traces to a real incident. Add rules only with an incident behind them; delete rules that stop firing.
+Add rules only with a real reason behind them (an incident or a deliberate decision); delete rules that stop firing.
 
 ### Memory
 
-- The memory plane is **agentmemory** (hub `https://vmi3254961.tail4397c5.ts.net:3111` (tailnet; bearer `AGENTMEMORY_SECRET` from `~/.agentmemory/hub.env`), MCP `agentmemory`, skills `/remember` `/recall` `/handoff` `/recap`). Durable knowledge — decisions, gotchas, how-things-work, cross-session state — goes there via `remember`; past-work questions go through `recall`/`smart-search` FIRST, before grep-archaeology or any per-tool memory. Do not create new per-agent or per-tool memory silos.
-- Active multi-step work uses a **scratchpad slot** (agentmemory `memory_slot_*` / REST `/agentmemory/slot*`) keyed by ticket or `<repo>_<branch>` (`[a-z0-9_]`, e.g. `buzz_17`), shared by Cursor, Claude Code and Codex. Keep its Goal / State / Next steps / Key file paths / Dead ends current; in Claude Code the scratchpad mod logs each turn under `## Log`. Never delete a slot or save it to memory yourself: the user reviews it (`/scratchpad` in Claude Code) and saves or discards.
-- **Scoping**: `memory_save` does NOT derive the project from cwd — pass `project` explicitly (the repo's directory name, e.g. `paperclip-factory`) for project-specific memory; machine-wide knowledge uses no project plus concept tag `global`. Recall project-first, then global/unfiltered.
-- When continuing implementation after a prior agent session, treat recent agentmemory observations for the same project/topic as the default source of truth unless the code has since diverged.
+- **agentmemory** is the only memory plane (MCP `agentmemory`, hub `https://memory.curiousbots.in`, config in `~/.agentmemory/hub.env`). Durable knowledge goes there via `remember`; past-work questions go through `recall`/`smart-search` FIRST, before grep-archaeology. Recent observations for the same project/topic are the source of truth unless the code has diverged. No per-agent or per-tool memory silos; harness-local memory holds bootstrap pointers only.
+- `memory_save` does NOT derive the project from cwd: pass `project` (the repo's directory name) explicitly; machine-wide knowledge uses no project plus concept tag `global`. Recall project-first, then global.
+- Multi-step work keeps a **scratchpad slot** (`memory_slot_*`) keyed by ticket or `<repo>_<branch>` (`[a-z0-9_]`), shared by every coding agent. Keep its Goal / State / Next steps / Key file paths / Dead ends current. Never delete a slot or save it to memory yourself; the user reviews it.
 
 ### Orchestration
 
-- The main agent plans, scopes, integrates, and resolves decisions; subagents execute concrete edits. Use the smaller/cheaper model for execution, the strongest model for conflict-laden merges, cross-cutting refactors, and subtle debugging.
-- **Route work by task type to the matching skill, not a bespoke per-agent file.** Skills are portable across coding agents (Claude Code, Cursor, Codex); per-harness subagent tool/MCP scoping is not. Use: `explorer` for investigating a bug, tracing code, or read-only impact analysis; `designer` for planning an approach or breaking work into tasks; `developer` for implementing a scoped change from a plan/brief; `code-reviewer` for reviewing a diff; `design-reviewer` for reviewing a design/plan before implementation. (2026-09-15, playr session: Cursor/Codex agent formats can't express tool restriction.)
+- **Tier models by work type.** The main session runs the larger model: planning, design, strategy, thinking partner, conflict-laden merges, subtle bugs, and verifying subagent output (run the checks, read the diff) before committing; it edits nothing beyond one-line fixes. Execution — implementation, tests, exploration, mechanical edits — goes to subagents on a smaller model, the smallest for pure lookup. The spawner picks the model per call; skills never pin one. (2026-09-02/03: top-tier tokens burned on edits.)
+- **Skills, not bespoke agents — for every agent, subagents included.** Each subagent loads one installed skill (`.agents/skills/`: `explorer`, `designer`, `developer`, `systematic-debugging`, `code-reviewer`, `design-reviewer`); no per-agent definitions or persona prompts. Fix a skill gap at its source (per `skills-lock.json`), not in a prompt — local copies are lost on reinstall. Missing one? `npx skills add`; author new only when none fits. (2026-09-15: per-agent formats aren't portable.)
+- **One spawn per dependency chain, not per task.** Independent chains run in parallel.
 
 ### Working rules
 
-- When a constraint has ambiguous units or type (length limit, field type, API shape), state the assumption explicitly before building — don't guess.
-- Before any destructive or scope-expanding change (removing files from git, changing tracked configs, deleting branches), state the rationale and confirm there isn't a smaller fix.
-- For tooling, library versions, or external APIs, verify instead of answering from memory — prefer context7 docs, else web search.
-- Before speccing tests, confirm the test tooling actually exists in the project (check package.json / lockfile) — don't assume a library is installed.
-- If you notice a security issue outside the task scope, flag it — don't silently fix it.
-- When you don't know something, say "I'm not sure about X" and propose how to verify it — never guess an answer.
-- Create worktrees under `.worktrees/<name>` inside the repo (gitignored), not an external directory.
-- Put repo-related scratch files in `.tmp/` inside the repo (gitignored), not `/tmp`. Doesn't override a harness's own per-session scratchpad.
-- This repo is self-sufficient: plugins, skills, MCP servers and these rules are declared here, not in user-global config. Need something new? Add it to this repo (`cc-profile`, `npx skills add`, `.mcp.json`).
+- **Don't guess.** State assumptions on ambiguous constraints; verify tooling, versions, APIs and test tooling against docs or the lockfile; when unsure, say so and how to check. Run the thing before claiming done.
+- Before destructive or scope-expanding changes (removing files from git, changing tracked configs, deleting branches), state the rationale and look for a smaller fix.
+- Flag security issues outside the task scope; don't silently fix them.
+- Worktrees go in `.worktrees/<name>`, scratch files in `.tmp/` (both gitignored) — not external dirs or `/tmp`, unless the harness provides its own scratchpad.
+- This repo is self-sufficient: plugins, skills, MCP servers and rules are declared here (`npx skills add`, `.mcp.json`), not in user-global config.
 
 ### Communication
 
-- Short responses by default; extremely concise when reporting — sacrifice grammar for concision. Conclusions first, reasoning after. Don't sugarcoat technical risks.
-- No cheerleading, no filler, no "great question".
-- Disagree when you have good reason; state your confidence.
-- If something is unclear, ask one focused question — not five.
-
-<!-- cc-profile:agents:end -->
-
-<!-- cc-profile:claude:start (generated) -->
-
-## Claude Code specifics
-
-- **Fable is the architect, not the builder.** When the main session runs Fable (or any Mythos-class model), it plans, designs, reviews, orchestrates, and resolves decisions; it does not write or edit code itself beyond trivial one-line fixes and config nudges. Every implementation, refactor, test-writing, exploration, and mechanical-edit task goes to a subagent (Agent tool): `model: "sonnet"` by default; `model: "opus"` only for judgment-heavy work. Fable verifies the subagent's result (run the checks, read the diff) and commits. (2026-09-02, loop-design session burning Fable tokens; 2026-09-03, narada restructure confirming the split.)
-- The harness's file memory (`memory/` + MEMORY.md) is for session-bootstrap pointers only. Full memory content belongs in agentmemory.
-
-<!-- cc-profile:claude:end -->
+- Short by default, extremely concise when reporting; conclusions first. Don't sugarcoat risks. No cheerleading or filler.
+- Disagree when you have reason and state your confidence. If unclear, ask one focused question.
