@@ -247,6 +247,11 @@ def _parse_io_map(step_id: str, key: str, value: Any) -> dict[str, dict]:
                 raise ContractError(
                     f"step contract {step_id}: {key}.{name} fail_on: {unknown} not in values: {spec.get('values')}"
                 )
+            if "await_input" in spec["fail_on"]:
+                raise ContractError(
+                    f"step contract {step_id}: {key}.{name} fail_on: await_input is reserved for asking a human"
+                    " and cannot be a failure verdict"
+                )
         parsed[str(name)] = dict(spec)
     return parsed
 

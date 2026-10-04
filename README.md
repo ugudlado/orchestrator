@@ -106,6 +106,14 @@ rejected review can never be waved through.
 **`reset_to`.** A failed step may name its own rework target in `--out`, at or
 before itself; it wins over the static `on_failure` edge.
 
+**`await_input`.** A judgment enum out may list the reserved value
+`await_input`. Reporting it (as `completed` or `failed`) returns `needs_you`
+with an `await_input` payload and the same step id, so the driver relays the
+question and re-runs that step with the answer. It is checked before output
+validation (artifacts may be missing) and wins over `fail_on`, `reset_to`,
+`on_failure` and `max_retries`. It can never appear in `fail_on`; the parser
+rejects that.
+
 **`requires`.** A step may declare a gate token. It is passed through as data —
 with no state the engine cannot know a token was issued, so **the driver must
 refuse a step whose token it does not hold.**

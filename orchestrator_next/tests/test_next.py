@@ -56,7 +56,7 @@ def pack(tmp_path) -> Path:
                 "out": {
                     "notes": {"artifact": "notes.md"},
                     "complexity": {"type": "enum", "values": ["S", "M", "L"]},
-                    "verdict": {"type": "enum", "values": ["pass", "needs_work"], "fail_on": ["needs_work"]},
+                    "verdict": {"type": "enum", "values": ["pass", "needs_work", "await_input"], "fail_on": ["needs_work"]},
                     "sketch": {"artifact": "sketch.md", "optional": True},
                 },
             }
@@ -210,6 +210,37 @@ def test_await_input_needs_you(pack, repo, tmp_path):
     assert r["await_input"]["ask"] == "Ship it?"
 
 
+def test_judgment_await_input_needs_you_before_validation(pack, repo, tmp_path):
+    """No notes.md written: an ask must not trip `invalid out`."""
+    out = {"verdict": "await_input", "ask": "Which scope?"}
+    r = _next(pack, repo, after="think", status="completed", out=out, attempt=1)
+    assert r["status"] == "needs_you"
+    assert r["step_id"] == "think"
+    assert r["await_input"] == out
+    assert r["recorded"] == {"status": "await_input", "outputs": out}
+    assert "route" not in r
+    # same response shape as the exec ask
+    ex = tmp_path / "out.json"
+    ex.write_text('{"status": "await_input", "outputs": {"ask": "q"}}\n', encoding="utf-8")
+    e = _next(pack, repo, after="prep", exit_code=0, stdout_file=str(ex))
+    assert set(r) == set(e)
+
+
+def test_judgment_await_input_wins_over_failed(pack, repo):
+    out = {"verdict": "await_input", "ask": "Which scope?", "reset_to": "prep"}
+    r = _next(pack, repo, after="think", status="failed", out=out, attempt=2)
+    assert r["status"] == "needs_you"
+    assert r["step_id"] == "think"
+    assert r["await_input"] == out
+    assert "route" not in r
+
+
+def test_await_input_on_enum_without_value_is_invalid(pack, repo):
+    r = _next(pack, repo, after="think", status="completed", out={"complexity": "await_input"})
+    assert r["status"] == "error"
+    assert "invalid out" in r["error"]
+
+
 def test_unparseable_stdout_is_a_plain_completion(pack, repo, tmp_path):
     out = tmp_path / "out.json"
     out.write_text("just some log lines\nnot json\n", encoding="utf-8")
@@ -312,8 +343,8 @@ def test_every_real_workflow_walks_to_done(real_pack, tmp_path, monkeypatch):
             for out_name, spec in (step["payload"].get("out_schema") or {}).items():
                 if spec.get("artifact"):
                     continue  # an optional artifact: leave it unclaimed
-                values = spec.get("values")
-                out[out_name] = values[0] if values else "ok"
+                values = spec.get("values") or []
+                out[out_name] = next((v for v in values if v != "await_input"), "ok")
             step = next_step(
                 name,
                 config_root=real_pack,

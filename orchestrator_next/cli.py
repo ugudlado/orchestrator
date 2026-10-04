@@ -28,6 +28,9 @@ Usage:
 Prints JSON: the step to run, or {"status": "done"|"needs_you"|"error"}.
 With no --after it returns the workflow's first step.
 
+`needs_you` carrying `await_input` = the step asked a question: relay
+`await_input.ask` to the user and re-run the same step with the answer.
+
 --attempt N is how many times the step you are REPORTING has run in this
 whole run, counting this one. It is a per-step lifetime counter, never reset
 by routing: a review reached a second time after sending work back reports 2.

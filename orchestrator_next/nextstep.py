@@ -202,6 +202,19 @@ def _show_paths(
 # ---------------------------------------------------------------------------
 # the step payload
 # ---------------------------------------------------------------------------
+ASK_VALUE = "await_input"
+
+
+def asking_out(contract: Any, out: dict[str, Any] | None) -> str:
+    """Name of the enum out that reported the reserved ask value, or ""."""
+    if not isinstance(out, dict):
+        return ""
+    for name, spec in (getattr(contract, "outputs", None) or {}).items():
+        if spec.get("type") == "enum" and ASK_VALUE in (spec.get("values") or []) and out.get(name) == ASK_VALUE:
+            return name
+    return ""
+
+
 def failing_verdict(contract: Any, out: dict[str, Any] | None) -> str:
     """The contract-declared negative verdict this payload reported, or "".
 
@@ -545,12 +558,22 @@ def next_step(
     # --- validate a judgment step's declared output ------------------------
     # The trust boundary: an agent's claim that it produced what the contract
     # asked for is checked against the contract and the filesystem.
-    if status == "completed" and not entry.get("_gate") and exit_code is None:
+    if status in ("completed", "failed") and not entry.get("_gate") and exit_code is None:
         try:
             contract = load_contract_for_step(after, config_root)
         except (FileNotFoundError, ContractError, ContractNotFoundError):
             contract = None
-        if isinstance(contract, AgentStepContract):
+        # A judgment step may ask a human instead of finishing. Checked before
+        # validation (artifacts may be missing) and wins over failed/fail_on/
+        # reset_to/on_failure/max_retries.
+        if isinstance(contract, AgentStepContract) and asking_out(contract, out):
+            return {
+                "status": "needs_you",
+                "step_id": after,
+                "await_input": out,
+                "recorded": {"status": "await_input", "outputs": out},
+            }
+        if status == "completed" and isinstance(contract, AgentStepContract):
             problems = validate_out(contract, out, base)
             if problems:
                 return {
