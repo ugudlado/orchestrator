@@ -357,10 +357,10 @@ def load_contract_for_step(step_id: str, config_root: Path) -> StepContract:
     if data.get("kind") == KIND_GATE:
         return _make_contract(step_id, data, None, "", prompt_dir=None)
 
-    if data.get("run"):
+    run_rel = data.get("run")
+    if run_rel:
         if data.get("prompt"):
             raise ContractError(f"step contract {step_id} with run: must not declare prompt:")
-        run_rel = data.get("run")
         run = run_rel if os.path.isabs(run_rel) else os.path.join(contract_dir, run_rel)
         if not os.path.isfile(run):
             raise ContractNotFoundError(f"script contract {step_id} missing script payload: {run}")

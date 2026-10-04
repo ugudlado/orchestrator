@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 import pytest
 import yaml
@@ -30,25 +31,25 @@ if _SCRIPTS_DIR not in sys.path:
 
 
 @pytest.fixture()
-def config_root(tmp_path):
+def config_root(tmp_path: Path) -> Path:
     """A pack root; contracts live in its steps/ dir."""
     (tmp_path / "pack" / "steps").mkdir(parents=True)
     return tmp_path / "pack"
 
 
 @pytest.fixture()
-def steps_dir(config_root):
+def steps_dir(config_root: Path) -> Path:
     """The pack's steps/ dir, where contract fixtures are written."""
     return config_root / "steps"
 
 
 def _write_dir_contract(
-    steps_dir,
+    steps_dir: Path,
     step_id: str,
     contract_data: dict,
     prompt_text: str | None = None,
     script_text: str | None = None,
-) -> object:
+) -> Path:
     """Write a directory-form contract with optional payload siblings.
 
     Returns the step directory Path so callers can assert resolved paths.
@@ -123,9 +124,10 @@ class TestAgentKindContractLoad:
         pack_dir.mkdir()
         (pack_dir / "prompt.md").write_text("Pack prompt.\n")
 
-        from orchestrator_next.parser import load_contract_for_step
+        from orchestrator_next.parser import AgentStepContract, load_contract_for_step
 
         contract = load_contract_for_step("explore", config_root)
+        assert isinstance(contract, AgentStepContract)
         assert contract.prompt_path == str((pack_dir / "prompt.md").resolve())
 
     def test_agent_dir_contract_missing_prompt_raises_contract_error(self, steps_dir, config_root):
@@ -173,9 +175,10 @@ class TestAgentKindContractLoad:
             prompt_text=None,
         )
 
-        from orchestrator_next.parser import load_contract_for_step
+        from orchestrator_next.parser import AgentStepContract, load_contract_for_step
 
         contract = load_contract_for_step("explore", config_root)
+        assert isinstance(contract, AgentStepContract)
         assert contract.prompt_path == str((skill_dir / "SKILL.md").resolve())
         assert contract.prompt_dir == str(skill_dir.resolve())
 
@@ -198,9 +201,10 @@ class TestAgentKindContractLoad:
         )
         (step_dir / "explore").symlink_to(skill_dir)
 
-        from orchestrator_next.parser import load_contract_for_step
+        from orchestrator_next.parser import AgentStepContract, load_contract_for_step
 
         contract = load_contract_for_step("explore", config_root)
+        assert isinstance(contract, AgentStepContract)
         assert contract.prompt_path == str((skill_dir / "SKILL.md").resolve())
         assert contract.prompt_dir == str(skill_dir.resolve())
 
@@ -219,9 +223,10 @@ class TestAgentKindContractLoad:
             prompt_text=None,
         )
 
-        from orchestrator_next.parser import load_contract_for_step
+        from orchestrator_next.parser import AgentStepContract, load_contract_for_step
 
         contract = load_contract_for_step("one-off", config_root)
+        assert isinstance(contract, AgentStepContract)
         assert contract.prompt_path == str((prompt_dir / "prompt.md").resolve())
         assert contract.prompt_dir == str(prompt_dir.resolve())
 
@@ -245,9 +250,10 @@ class TestAgentKindContractLoad:
             prompt_text=None,
         )
 
-        from orchestrator_next.parser import load_contract_for_step
+        from orchestrator_next.parser import AgentStepContract, load_contract_for_step
 
         contract = load_contract_for_step("explore", config_root)
+        assert isinstance(contract, AgentStepContract)
         assert contract.prompt_path == str((beside / "SKILL.md").resolve())
         assert contract.prompt_dir == str(beside.resolve())
 
