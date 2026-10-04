@@ -43,3 +43,22 @@ def _write_contract(steps_dir, step_id: str, data: dict):
 # ---------------------------------------------------------------------------
 # ORC-63 T-1: parser.phase_nodes node-shape read path (AC-1, AC-11)
 # ---------------------------------------------------------------------------
+
+
+def test_fail_on_await_input_is_reserved(tmp_path):
+    from orchestrator_next.parser import ContractError, load_contract_for_step
+
+    root = tmp_path / "pack"
+    _write_contract(
+        root / "steps",
+        "judge",
+        {
+            "id": "judge",
+            "kind": "judgment",
+            "prompt": "SKILL.md",
+            "out": {"verdict": {"type": "enum", "values": ["pass", "await_input"], "fail_on": ["await_input"]}},
+        },
+    )
+    (root / "steps" / "judge" / "SKILL.md").write_text("# judge\n")
+    with pytest.raises(ContractError, match="await_input is reserved"):
+        load_contract_for_step("judge", root)

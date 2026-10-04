@@ -59,9 +59,6 @@ n8n/.env
 # `npx skills` — nothing under skills/ is vendored anymore
 # (workflow-creator moved to that repo Aug 2026).
 skills/*
-# ...except the driver skill, which is this repo's own: it documents how to
-# call the engine, so it ships with the engine.
-!skills/drive/
 .agents/skills/
 
 *.lock

@@ -8,7 +8,7 @@ The engine is deliberately dumb: `orchestrator next` is a pure function from
 (workflow config + the step that just ran + how it went) to the next step, as
 JSON. It keeps no state, spawns no processes, calls no models, and reads no
 environment beyond an explicit `--config` fallback. Everything else belongs to
-the **driver** — an agent plus [`skills/drive/SKILL.md`](skills/drive/SKILL.md)
+the **driver** — an agent plus the [`orchestrate`](https://github.com/ugudlado/skills/blob/main/workflow/orchestrate/SKILL.md) skill (skills repo)
 — which owns run history, attempt counts, gate approvals, the worktree, and
 model choice. Packs (workflows, step contracts, charters, scripts) are
 installed by a separate tool and handed in with `--config`; the engine never
@@ -26,7 +26,6 @@ orchestrator_next/
   parser.py          step contracts (contract.yaml → typed dataclass)
   workflow_steps.py  workflow step-entry normalization
   tests/
-skills/drive/        the driver skill — the other half of the contract
 docs/                pack-driver-notes.md (belongs upstream in the pack)
 ```
 

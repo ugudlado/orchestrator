@@ -9,7 +9,7 @@ pack root as DRIVER.md and delete this copy once it lands there.
 
 # Driving this pack
 
-The `drive` skill covers the protocol. This file covers what **these scripts**
+The `orchestrate` skill (ugudlado/skills, `workflow/orchestrate`) covers the protocol. This file covers what **these scripts**
 need. Read it before driving a workflow from this pack.
 
 ## The run state file
@@ -142,14 +142,11 @@ A judgment step that pauses for a person. Its `decision` enum is
   derives failure from `fail_on` and routes to `reset_to` (`route: reset_to`).
   Legal targets on `feature`: `explore`, `ux-design`, `design`, `implement`.
   Without `reset_to` it falls back to the static `on_failure: implement`.
-- **await_input** → **the engine advances the run**, because `await_input` is
-  not in `fail_on`. Do not report it and move on: ask the user, then re-run the
-  step with their answer and report the resulting `approved`/`rework`. Treat
-  `decision: await_input` as "the step is not finished".
+- **await_input** → the engine returns `needs_you` with an `await_input`
+  payload. Relay it to the user (never self-answer), then re-run the step with
+  their answer as User direction and report the resulting `approved`/`rework`.
 
-The charter mentions a "User direction" the old engine injected after a
-`resume` verb. There is no `resume` now: you ask the user yourself and re-run
-the step, passing their text in the worker's brief.
+`intake-research`'s `intake_status: await_input` gets the same handling.
 
 ## Upstream fixes this pack needs
 
@@ -163,21 +160,17 @@ Found while driving `patch` and `feature` end to end. None are engine bugs.
    (`2>&1 >&2` sends stdout to the old stderr, then stderr to the terminal),
    and the archive script leaks git output. The engine parses the _last_ JSON
    line so runs survive it, but a stricter reader would break.
-4. **`human-review`'s `decision: await_input` is not in `fail_on`**, so
-   reporting it advances the run and loses the human pause. Needs either a
-   `needs_you`-style out kind or a documented driver rule (currently the
-   latter — see the human-review section above).
-5. **`code-review/SKILL.md` still says "status MUST be failed"** citing the
+4. **`code-review/SKILL.md` still says "status MUST be failed"** citing the
    BKG-575 gate bypass. The engine derives failure from `fail_on` now, so both
    statuses are correct; the charter's warning is stale and misleads a worker.
-6. **`persist-learnings` deletes the staging file** after every run, so a
+5. **`persist-learnings` deletes the staging file** after every run, so a
    retry silently has nothing to persist unless the driver re-creates it.
-7. **`implement/SKILL.md`** carries a dangling COMPLETION template, references
+6. **`implement/SKILL.md`** carries a dangling COMPLETION template, references
    `prompt.md` paths that no longer exist, and asks the worker for
    `tokens_in`/`tokens_out`/`duration_s` it cannot measure.
-8. **`ticket-sync` no-op is indistinguishable from success** — offline it
+7. **`ticket-sync` no-op is indistinguishable from success** — offline it
    prints `{"ticket_status_set": "<status>"}` and exits 0 whether or not a
    ticket was touched, so a misconfigured backlog looks like a working one.
-9. **`learn`'s charter says the staging file goes in the state dir**, but its
+8. **`learn`'s charter says the staging file goes in the state dir**, but its
    contract renders `out.proposed_scenarios` into the artifacts dir, and
    `persist-learnings` reads the state dir. Three places, two answers.
