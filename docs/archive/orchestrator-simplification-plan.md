@@ -1,3 +1,9 @@
+> **Archived 2026-10-05 — superseded.** `simplify-v2` and workflows `protocol-v2`
+> are merged. The engine was later rewritten as the stateless `orchestrator_next`
+> (6 files, ~1.2k LOC, one `next` verb), so the open items below (run_loop,
+> parse_completion, headless, Mod, Codex marketplace, pricing) refer to code that
+> no longer exists. Kept for history only.
+
 # Orchestrator Simplification Plan
 
 **Repo:** `ugudlado/orchestrator` (engine) + `ugudlado/workflows` (pack)
