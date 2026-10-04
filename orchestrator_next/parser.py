@@ -7,6 +7,7 @@ step declares it reads (``in:``), writes (``out:``), and how it runs —
 The config root is always passed in. Nothing here reads the environment or
 any run state; there is no run state.
 """
+
 from __future__ import annotations
 
 import os
@@ -40,6 +41,7 @@ _KIND_ALIASES = {"agent": KIND_JUDGMENT, "script": KIND_EXEC}
 @dataclass
 class AgentStepContract:
     """Contract for steps dispatched to an agent subprocess."""
+
     id: str
     # Absolute path to the charter the driver reads (e.g. <step>/SKILL.md).
     # The engine resolves the path and never opens the file: composing the
@@ -54,7 +56,7 @@ class AgentStepContract:
     max_turns: int | None = None
     tools: list[str] = field(default_factory=list)
     side_effects: list[str] = field(default_factory=list)
-    inputs: dict[str, dict] = field(default_factory=dict)   # contract `in:`
+    inputs: dict[str, dict] = field(default_factory=dict)  # contract `in:`
     outputs: dict[str, dict] = field(default_factory=dict)  # contract `out:`
     validate: str = ""  # shell script run after out: artifacts land
     # Names from this step's in:/out: whose VALUES must never reach the run
@@ -66,6 +68,7 @@ class AgentStepContract:
 @dataclass
 class ScriptStepContract:
     """Contract for steps executed as inline scripts."""
+
     id: str
     run: str
     # When true, the driver records the step BEFORE running the script so
@@ -83,6 +86,9 @@ class ScriptStepContract:
     # and hashes survive (see redact.py).
     pii: list[str] = field(default_factory=list)
 
+    # Parsed at load time, without changing the existing constructor.
+    params: dict[str, str] = field(default_factory=dict, init=False)
+
 
 @dataclass
 class GateStepContract:
@@ -91,6 +97,7 @@ class GateStepContract:
     Phase 1.2 parses and validates it; dispatching one reports
     ``status: blocked`` / ``kind: gate``. Tokens arrive in Phase 3.
     """
+
     id: str
     kind: str = KIND_GATE
     state_mutating: bool = False
@@ -130,24 +137,17 @@ def resolve_prompt_file(prompt_ref: str, config_root: Path) -> Path:
     ref = prompt_ref.strip()
     rel = Path(ref)
     if not ref or rel.is_absolute() or ".." in rel.parts:
-        raise ContractError(
-            f"prompt: must be a relative .md path (got {prompt_ref!r})"
-        )
+        raise ContractError(f"prompt: must be a relative .md path (got {prompt_ref!r})")
     if rel.suffix != ".md":
         raise ContractError(
-            f"prompt: must point at a .md file, e.g. {ref}/SKILL.md "
-            f"or {ref}/prompt.md (got {prompt_ref!r})"
+            f"prompt: must point at a .md file, e.g. {ref}/SKILL.md or {ref}/prompt.md (got {prompt_ref!r})"
         )
     searched = prompt_search_dirs(config_root)
     for root in searched:
         candidate = root / rel
         if candidate.is_file():
             return candidate.resolve()
-    raise ContractError(
-        f"prompt {ref!r} not found (searched: "
-        + ", ".join(str(d) for d in searched)
-        + ")"
-    )
+    raise ContractError(f"prompt {ref!r} not found (searched: " + ", ".join(str(d) for d in searched) + ")")
 
 
 def _resolve_local_prompt(contract_dir: str, prompt_ref: str) -> Path | None:
@@ -169,9 +169,7 @@ def _resolve_local_prompt(contract_dir: str, prompt_ref: str) -> Path | None:
     return None
 
 
-def _resolve_prompt_path(
-    contract_dir: str, step_id: str, data: dict[str, Any], config_root: Path
-) -> tuple[str, str]:
+def _resolve_prompt_path(contract_dir: str, step_id: str, data: dict[str, Any], config_root: Path) -> tuple[str, str]:
     """Resolve ``prompt:`` to ``(prompt_path, prompt_dir)``.
 
     Path resolution only — the file is never opened. The driver reads the
@@ -186,10 +184,7 @@ def _resolve_prompt_path(
             if path.is_file():
                 resolved = path.resolve()
                 return str(resolved), str(resolved.parent)
-        raise ContractError(
-            f"step contract {step_id} must declare prompt: <path>.md "
-            "(or run: for shell steps)"
-        )
+        raise ContractError(f"step contract {step_id} must declare prompt: <path>.md (or run: for shell steps)")
 
     if not isinstance(prompt, str) or not prompt.strip():
         raise ContractError(f"step contract {step_id} prompt: must be a non-empty string")
@@ -201,11 +196,6 @@ def _resolve_prompt_path(
     return str(prompt_file), str(prompt_file.parent)
 
 
-def _contract_search_dirs(config_root: Path) -> list[str]:
-    """Where step contracts live: ``<config_root>/steps/``."""
-    return [str(Path(config_root) / "steps")]
-
-
 # ---------------------------------------------------------------------------
 # protocol v2 contract keys (Phase 1.2)
 # ---------------------------------------------------------------------------
@@ -214,9 +204,7 @@ def _str_list(step_id: str, key: str, value: Any) -> list[str]:
     if value is None:
         return []
     if not isinstance(value, list) or any(not isinstance(v, str) for v in value):
-        raise ContractError(
-            f"step contract {step_id}: {key}: must be a list of strings (got {value!r})"
-        )
+        raise ContractError(f"step contract {step_id}: {key}: must be a list of strings (got {value!r})")
     return list(value)
 
 
@@ -231,9 +219,7 @@ def _parse_io_map(step_id: str, key: str, value: Any) -> dict[str, dict]:
     if value is None:
         return {}
     if not isinstance(value, dict):
-        raise ContractError(
-            f"step contract {step_id}: {key}: must be a mapping of name -> spec"
-        )
+        raise ContractError(f"step contract {step_id}: {key}: must be a mapping of name -> spec")
     parsed: dict[str, dict] = {}
     for name, spec in value.items():
         if not isinstance(spec, dict):
@@ -242,36 +228,24 @@ def _parse_io_map(step_id: str, key: str, value: Any) -> dict[str, dict]:
                 f"(e.g. {{artifact: design.md}} or {{type: enum, values: [...]}})"
             )
         if "artifact" not in spec and "type" not in spec:
-            raise ContractError(
-                f"step contract {step_id}: {key}.{name} must declare artifact: or type:"
-            )
+            raise ContractError(f"step contract {step_id}: {key}.{name} must declare artifact: or type:")
         if "artifact" in spec and not isinstance(spec["artifact"], str):
-            raise ContractError(
-                f"step contract {step_id}: {key}.{name}.artifact must be a string"
-            )
+            raise ContractError(f"step contract {step_id}: {key}.{name}.artifact must be a string")
         if spec.get("type") == "enum" and not isinstance(spec.get("values"), list):
-            raise ContractError(
-                f"step contract {step_id}: {key}.{name} type: enum requires values: [...]"
-            )
+            raise ContractError(f"step contract {step_id}: {key}.{name} type: enum requires values: [...]")
         if "fail_on" in spec:
             # `fail_on:` names the enum values that mean the step's own
             # judgment was negative (a review verdict of needs_work). Routing
             # treats them as a failure and takes the node's on_failure edge, so
             # they must be values the step can actually report.
             if spec.get("type") != "enum":
-                raise ContractError(
-                    f"step contract {step_id}: {key}.{name} fail_on: "
-                    "requires type: enum"
-                )
+                raise ContractError(f"step contract {step_id}: {key}.{name} fail_on: requires type: enum")
             if not isinstance(spec["fail_on"], list):
-                raise ContractError(
-                    f"step contract {step_id}: {key}.{name} fail_on: must be a list"
-                )
+                raise ContractError(f"step contract {step_id}: {key}.{name} fail_on: must be a list")
             unknown = [v for v in spec["fail_on"] if v not in (spec.get("values") or [])]
             if unknown:
                 raise ContractError(
-                    f"step contract {step_id}: {key}.{name} fail_on: {unknown} "
-                    f"not in values: {spec.get('values')}"
+                    f"step contract {step_id}: {key}.{name} fail_on: {unknown} not in values: {spec.get('values')}"
                 )
         parsed[str(name)] = dict(spec)
     return parsed
@@ -292,8 +266,7 @@ def _resolve_kind(step_id: str, data: dict[str, Any], run: str | None) -> str:
         raw = _KIND_ALIASES.get(raw, raw)
     if not isinstance(raw, str) or raw not in VALID_KINDS:
         raise ContractError(
-            f"step contract {step_id}: unknown kind: {raw!r} "
-            f"(expected one of {', '.join(sorted(VALID_KINDS))})"
+            f"step contract {step_id}: unknown kind: {raw!r} (expected one of {', '.join(sorted(VALID_KINDS))})"
         )
     if raw != KIND_GATE and raw != inferred:
         raise ContractError(
@@ -320,9 +293,7 @@ def _validate_script(step_id: str, value: Any) -> str:
     if value is None:
         return ""
     if not isinstance(value, str):
-        raise ContractError(
-            f"step contract {step_id}: validate: must be a shell command string"
-        )
+        raise ContractError(f"step contract {step_id}: validate: must be a shell command string")
     return value
 
 
@@ -354,66 +325,49 @@ def _make_contract(
     if run is None:
         raw_turns = data.get("max_turns")
         if raw_turns is not None and (not isinstance(raw_turns, int) or isinstance(raw_turns, bool) or raw_turns < 1):
-            raise ContractError(
-                f"step contract {step_id}: max_turns: must be a positive integer "
-                f"(got {raw_turns!r})"
-            )
+            raise ContractError(f"step contract {step_id}: max_turns: must be a positive integer (got {raw_turns!r})")
         return AgentStepContract(
             **shared,
             prompt_path=prompt_path,
             prompt_dir=prompt_dir,
             max_turns=raw_turns,
         )
-    return ScriptStepContract(**shared, run=run)
+    contract = ScriptStepContract(**shared, run=run)
+    params = data.get("params")
+    if isinstance(params, dict):
+        contract.params = {str(k): str(v) for k, v in params.items()}
+    return contract
 
 
 def load_contract_for_step(step_id: str, config_root: Path) -> StepContract:
     """Load and parse ``<config_root>/steps/<step_id>/contract.yaml``."""
-    search_dirs = _contract_search_dirs(config_root)
-    for d in search_dirs:
-        dir_contract = os.path.join(d, step_id, "contract.yaml")
-        if os.path.isfile(dir_contract):
-            contract_dir = os.path.join(d, step_id)
-            with open(dir_contract, "r") as f:
-                data = yaml.safe_load(f)
+    steps_dir = Path(config_root) / "steps"
+    contract_dir = os.path.join(str(steps_dir), step_id)
+    path = Path(contract_dir) / "contract.yaml"
+    if not path.is_file():
+        raise FileNotFoundError(f"Step contract not found for '{step_id}'. Searched: {[str(steps_dir)]}")
+    with path.open("r") as f:
+        data = yaml.safe_load(f)
 
-            if not isinstance(data, dict):
-                raise ContractError(
-                    f"step contract {step_id}: contract.yaml must be a YAML mapping"
-                )
+    if not isinstance(data, dict):
+        raise ContractError(f"step contract {step_id}: contract.yaml must be a YAML mapping")
 
-            # A gate has neither a script nor a prompt payload — it is pure
-            # metadata the engine renders for a human (protocol v2 §7).
-            if data.get("kind") == KIND_GATE:
-                return _make_contract(step_id, data, None, "", prompt_dir=None)
+    # A gate has neither a script nor a prompt payload — it is pure
+    # metadata the engine renders for a human (protocol v2 §7).
+    if data.get("kind") == KIND_GATE:
+        return _make_contract(step_id, data, None, "", prompt_dir=None)
 
-            is_script = bool(data.get("run"))
-            if is_script:
-                if data.get("prompt"):
-                    raise ContractError(
-                        f"step contract {step_id} with run: must not declare prompt:"
-                    )
-                run_rel = data.get("run")
-                if os.path.isabs(run_rel):
-                    run = run_rel
-                else:
-                    run = os.path.join(contract_dir, run_rel)
-                if not os.path.isfile(run):
-                    raise ContractNotFoundError(
-                        f"script contract {step_id} missing script payload: {run}"
-                    )
-                prompt_path = ""
-                prompt_dir = None
-            else:
-                prompt_path, prompt_dir = _resolve_prompt_path(
-                    contract_dir, step_id, data, config_root
-                )
-                run = None
+    if data.get("run"):
+        if data.get("prompt"):
+            raise ContractError(f"step contract {step_id} with run: must not declare prompt:")
+        run_rel = data.get("run")
+        run = run_rel if os.path.isabs(run_rel) else os.path.join(contract_dir, run_rel)
+        if not os.path.isfile(run):
+            raise ContractNotFoundError(f"script contract {step_id} missing script payload: {run}")
+        prompt_path = ""
+        prompt_dir = None
+    else:
+        prompt_path, prompt_dir = _resolve_prompt_path(contract_dir, step_id, data, config_root)
+        run = None
 
-            return _make_contract(
-                step_id, data, run, prompt_path, prompt_dir=prompt_dir
-            )
-
-    raise FileNotFoundError(
-        f"Step contract not found for '{step_id}'. Searched: {search_dirs}"
-    )
+    return _make_contract(step_id, data, run, prompt_path, prompt_dir=prompt_dir)

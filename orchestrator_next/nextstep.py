@@ -39,6 +39,7 @@ A gate is emitted as a ready step with its ``show:`` artifacts resolved; the
 driver approves it however it likes and calls back with
 ``--after <gate> --status completed``.
 """
+
 from __future__ import annotations
 
 import json
@@ -83,12 +84,13 @@ def load_workflow(workflow: str, config_root: Path) -> dict[str, Any]:
         raise NextError(f"workflow must be a bare name (got {workflow!r})")
     path = config_root / "workflows" / f"{name}.yaml"
     if not path.is_file():
-        available = sorted(
-            p.stem for p in (config_root / "workflows").glob("*.yaml")
-        ) if (config_root / "workflows").is_dir() else []
+        available = (
+            sorted(p.stem for p in (config_root / "workflows").glob("*.yaml"))
+            if (config_root / "workflows").is_dir()
+            else []
+        )
         raise NextError(
-            f"unknown workflow {name!r} in {config_root / 'workflows'} "
-            f"(available: {', '.join(available) or 'none'})"
+            f"unknown workflow {name!r} in {config_root / 'workflows'} (available: {', '.join(available) or 'none'})"
         )
     try:
         doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
@@ -140,18 +142,14 @@ def artifacts_base(doc: dict[str, Any], slug: str) -> PurePosixPath:
     template = str(doc.get("artifacts_root") or "").strip()
     if template:
         if "{slug}" in template and not slug:
-            raise NextError(
-                f"workflow artifacts_root is {template!r} but no --slug was given"
-            )
+            raise NextError(f"workflow artifacts_root is {template!r} but no --slug was given")
         return PurePosixPath(template.format(slug=slug))
     if not slug:
         raise NextError("no --slug: artifact paths cannot be resolved without one")
     return PurePosixPath(".orchestrator") / "runs" / slug / "artifacts"
 
 
-def _resolve_io(
-    specs: dict[str, dict], base: PurePosixPath
-) -> tuple[dict[str, str], dict[str, dict]]:
+def _resolve_io(specs: dict[str, dict], base: PurePosixPath) -> tuple[dict[str, str], dict[str, dict]]:
     """Split an ``in:``/``out:`` block into paths and a value schema.
 
     Paths are relative to the driver's working dir (see ``artifacts_base``).
@@ -267,9 +265,9 @@ def _prompt_dir_map(entries: list[dict[str, Any]], config_root: Path) -> dict[st
     return dirs
 
 
-def _step_env(step_id: str, step_dir: str, slug: str,
-              prompt_dirs: dict[str, str] | None = None,
-              prompt_path: str = "") -> dict[str, str]:
+def _step_env(
+    step_id: str, step_dir: str, slug: str, prompt_dirs: dict[str, str] | None = None, prompt_path: str = ""
+) -> dict[str, str]:
     """The variables the ENGINE contributes to a step's environment.
 
     Only what the engine actually knows: which step, which attempt, where the
@@ -301,19 +299,6 @@ def _step_env(step_id: str, step_dir: str, slug: str,
     return env
 
 
-def _contract_params(step_id: str, config_root: Path) -> dict[str, str]:
-    """A step contract's ``params:`` block, as environment strings."""
-    path = config_root / "steps" / step_id / "contract.yaml"
-    try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        return {}
-    params = raw.get("params") if isinstance(raw, dict) else None
-    if not isinstance(params, dict):
-        return {}
-    return {str(k): str(v) for k, v in params.items()}
-
-
 def build_step(
     entry: dict[str, Any],
     doc: dict[str, Any],
@@ -329,7 +314,9 @@ def build_step(
     prompt_dirs = _prompt_dir_map(entries, config_root)
     prompt_path_env = _prompt_roots(config_root)
     result: dict[str, Any] = {
-        "status": "ready", "step_id": step_id, "route": route,
+        "status": "ready",
+        "step_id": step_id,
+        "route": route,
     }
 
     # A gate has no contract file: the workflow entry IS the contract.
@@ -376,21 +363,18 @@ def build_step(
         result["kind"] = KIND_EXEC
         step_dir = str(Path(contract.run).parent)
         payload["run_path"] = contract.run
-        payload["step_dir"] = step_dir
         payload["state_mutating"] = bool(contract.state_mutating)
-        env = _step_env(step_id, step_dir, slug, prompt_dirs, prompt_path_env)
-        for key, value in _contract_params(step_id, config_root).items():
-            env.setdefault(key, value)
-        payload["env"] = env
     else:
         result["kind"] = KIND_JUDGMENT
         step_dir = contract.prompt_dir or ""
         payload["prompt_path"] = contract.prompt_path
-        payload["step_dir"] = step_dir
         payload["max_turns"] = contract.max_turns
-        payload["env"] = _step_env(
-            step_id, step_dir, slug, prompt_dirs, prompt_path_env
-        )
+
+    payload["step_dir"] = step_dir
+    payload["env"] = _step_env(step_id, step_dir, slug, prompt_dirs, prompt_path_env)
+    if isinstance(contract, ScriptStepContract):
+        for key, value in contract.params.items():
+            payload["env"].setdefault(key, value)
 
     result["payload"] = payload
     return result
@@ -427,9 +411,7 @@ def parse_script_stdout(stdout: str) -> dict[str, Any]:
         status, outputs = raw_status, dict(raw_outputs)
     elif isinstance(raw_status, str):
         status = raw_status
-        outputs = {
-            k: v for k, v in parsed.items() if k not in ("status", "state_patch")
-        }
+        outputs = {k: v for k, v in parsed.items() if k not in ("status", "state_patch")}
     else:
         status, outputs = "completed", dict(parsed)
 
@@ -446,9 +428,7 @@ def parse_script_stdout(stdout: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # judgment output validation — the trust boundary for agent output
 # ---------------------------------------------------------------------------
-def validate_out(
-    contract: Any, out: dict[str, Any], base: PurePosixPath
-) -> list[str]:
+def validate_out(contract: Any, out: dict[str, Any], base: PurePosixPath) -> list[str]:
     """Every way ``out`` fails the contract's ``out:`` block.
 
     Artifact outs must exist on disk; ``type: enum`` outs must carry a
@@ -479,9 +459,7 @@ def validate_out(
             continue
         if name not in out or out[name] is None:
             if not optional:
-                problems.append(
-                    f"out.{name}: missing (declared type: {spec.get('type')})"
-                )
+                problems.append(f"out.{name}: missing (declared type: {spec.get('type')})")
             continue
         if spec.get("type") == "enum":
             values = spec.get("values") or []
@@ -512,8 +490,12 @@ def next_step(
 
     if not after:
         return build_step(
-            entries[0], doc, entries, config_root=config_root,
-            slug=slug, route="next",
+            entries[0],
+            doc,
+            entries,
+            config_root=config_root,
+            slug=slug,
+            route="next",
         )
 
     index = _index_of(entries, after)
@@ -537,9 +519,7 @@ def next_step(
             stdout = ""
             if stdout_file:
                 try:
-                    stdout = Path(stdout_file).read_text(
-                        encoding="utf-8", errors="replace"
-                    )
+                    stdout = Path(stdout_file).read_text(encoding="utf-8", errors="replace")
                 except OSError as exc:
                     raise NextError(f"--stdout-file unreadable: {exc}") from exc
             parsed = parse_script_stdout(stdout)
@@ -558,9 +538,7 @@ def next_step(
             out = {**parsed["outputs"], **out}
 
     if status not in VALID_STATUSES:
-        raise NextError(
-            f"--status must be one of {', '.join(VALID_STATUSES)} (got {status!r})"
-        )
+        raise NextError(f"--status must be one of {', '.join(VALID_STATUSES)} (got {status!r})")
     recorded.setdefault("status", status)
     recorded.setdefault("outputs", out)
 
@@ -592,8 +570,12 @@ def next_step(
 
     def _emit(target_entry, route):
         result = build_step(
-            target_entry, doc, entries, config_root=config_root,
-            slug=slug, route=route,
+            target_entry,
+            doc,
+            entries,
+            config_root=config_root,
+            slug=slug,
+            route=route,
         )
         result["recorded"] = recorded
         return result
@@ -620,13 +602,15 @@ def next_step(
 
         if not target_id:
             return {
-                "status": "needs_you", "step_id": after,
+                "status": "needs_you",
+                "step_id": after,
                 "reason": f"{after} failed and declares no on_failure target",
                 "recorded": recorded,
             }
         if attempt >= max_retries:
             return {
-                "status": "needs_you", "step_id": after,
+                "status": "needs_you",
+                "step_id": after,
                 "reason": "retries exhausted",
                 "recorded": recorded,
             }

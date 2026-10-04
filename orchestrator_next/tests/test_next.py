@@ -4,6 +4,7 @@ Given a workflow, the step that just ran and how it went, `next` says what
 runs next. It stores nothing, so every test here is one call in and one
 answer out.
 """
+
 from __future__ import annotations
 
 import json
@@ -20,11 +21,10 @@ WORKFLOW = {
     "name": "mini",
     "artifacts_root": "spec/changes/{slug}",
     "steps": [
-        "prep",                                              # exec
+        "prep",  # exec
         {"gate": "signoff", "show": ["notes"], "approve_as": "impl_token"},
-        {"id": "think", "on_failure": "prep", "max_retries": 2,
-         "requires": "impl_token"},                          # judgment
-        "finish",                                            # exec
+        {"id": "think", "on_failure": "prep", "max_retries": 2, "requires": "impl_token"},  # judgment
+        "finish",  # exec
     ],
 }
 
@@ -34,9 +34,7 @@ def pack(tmp_path) -> Path:
     """A four-step pack: exec, gate, judgment (with out:), exec."""
     root = tmp_path / "pack"
     (root / "workflows").mkdir(parents=True)
-    (root / "workflows" / "mini.yaml").write_text(
-        yaml.safe_dump(WORKFLOW), encoding="utf-8"
-    )
+    (root / "workflows" / "mini.yaml").write_text(yaml.safe_dump(WORKFLOW), encoding="utf-8")
     for step_id in ("prep", "finish"):
         d = root / "steps" / step_id
         d.mkdir(parents=True)
@@ -44,23 +42,25 @@ def pack(tmp_path) -> Path:
             yaml.safe_dump({"id": step_id, "kind": "exec", "run": "script.sh"}),
             encoding="utf-8",
         )
-        (d / "script.sh").write_text(
-            '#!/usr/bin/env bash\necho \'{"reason": "ran"}\'\n', encoding="utf-8"
-        )
+        (d / "script.sh").write_text('#!/usr/bin/env bash\necho \'{"reason": "ran"}\'\n', encoding="utf-8")
     think = root / "steps" / "think"
     think.mkdir(parents=True)
     (think / "contract.yaml").write_text(
-        yaml.safe_dump({
-            "id": "think", "kind": "judgment", "prompt": "SKILL.md",
-            "max_turns": 12, "tools": ["fs.read"],
-            "out": {
-                "notes": {"artifact": "notes.md"},
-                "complexity": {"type": "enum", "values": ["S", "M", "L"]},
-                "verdict": {"type": "enum", "values": ["pass", "needs_work"],
-                            "fail_on": ["needs_work"]},
-                "sketch": {"artifact": "sketch.md", "optional": True},
-            },
-        }),
+        yaml.safe_dump(
+            {
+                "id": "think",
+                "kind": "judgment",
+                "prompt": "SKILL.md",
+                "max_turns": 12,
+                "tools": ["fs.read"],
+                "out": {
+                    "notes": {"artifact": "notes.md"},
+                    "complexity": {"type": "enum", "values": ["S", "M", "L"]},
+                    "verdict": {"type": "enum", "values": ["pass", "needs_work"], "fail_on": ["needs_work"]},
+                    "sketch": {"artifact": "sketch.md", "optional": True},
+                },
+            }
+        ),
         encoding="utf-8",
     )
     (think / "SKILL.md").write_text("# think\n", encoding="utf-8")
@@ -155,16 +155,14 @@ def test_failure_with_no_on_failure_target_needs_you(pack, repo):
 
 def test_reset_to_wins_over_the_static_edge(pack, repo):
     """A step may name its own rework target, at or before itself."""
-    r = _next(pack, repo, after="think", status="failed",
-              out={"reset_to": "signoff"}, attempt=1)
+    r = _next(pack, repo, after="think", status="failed", out={"reset_to": "signoff"}, attempt=1)
     assert r["step_id"] == "signoff"
     assert r["route"] == "reset_to"
 
 
 def test_reset_to_after_the_current_step_is_ignored(pack, repo):
     """A failure must never skip work: a later target falls back to on_failure."""
-    r = _next(pack, repo, after="think", status="failed",
-              out={"reset_to": "finish"}, attempt=1)
+    r = _next(pack, repo, after="think", status="failed", out={"reset_to": "finish"}, attempt=1)
     assert r["step_id"] == "prep"
     assert r["route"] == "on_failure"
 
@@ -180,8 +178,7 @@ def test_abandoned_re_queues_the_same_step(pack, repo):
 def test_exec_stdout_is_parsed_and_echoed_not_applied(pack, repo, tmp_path):
     out = tmp_path / "out.json"
     out.write_text(
-        '{"status": "completed", "outputs": {"reason": "did it"}, '
-        '"state_patch": {"branch": "feat/x"}}\n',
+        '{"status": "completed", "outputs": {"reason": "did it"}, "state_patch": {"branch": "feat/x"}}\n',
         encoding="utf-8",
     )
     r = _next(pack, repo, after="prep", exit_code=0, stdout_file=str(out))
@@ -204,8 +201,7 @@ def test_a_nonzero_exit_takes_the_failure_route(pack, repo):
 def test_await_input_needs_you(pack, repo, tmp_path):
     out = tmp_path / "out.json"
     out.write_text(
-        '{"status": "await_input", "outputs": {"ask": "Ship it?", '
-        '"options": [{"label": "yes"}]}}\n',
+        '{"status": "await_input", "outputs": {"ask": "Ship it?", "options": [{"label": "yes"}]}}\n',
         encoding="utf-8",
     )
     r = _next(pack, repo, after="prep", exit_code=0, stdout_file=str(out))
@@ -231,15 +227,13 @@ def test_invalid_out_is_an_error_not_a_route(pack, repo):
     """The agent claimed a value the contract does not allow."""
     _artifacts(repo).mkdir(parents=True)
     (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
-    r = _next(pack, repo, after="think", status="completed",
-              out={"complexity": "XXL"})
+    r = _next(pack, repo, after="think", status="completed", out={"complexity": "XXL"})
     assert r["status"] == "error"
     assert "complexity" in r["error"]
 
 
 def test_a_missing_artifact_is_an_error(pack, repo):
-    r = _next(pack, repo, after="think", status="completed",
-              out={"complexity": "M"})
+    r = _next(pack, repo, after="think", status="completed", out={"complexity": "M"})
     assert r["status"] == "error"
     assert "notes" in r["error"]
 
@@ -247,8 +241,7 @@ def test_a_missing_artifact_is_an_error(pack, repo):
 def test_a_satisfied_out_advances(pack, repo):
     _artifacts(repo).mkdir(parents=True)
     (_artifacts(repo) / "notes.md").write_text("notes\n", encoding="utf-8")
-    r = _next(pack, repo, after="think", status="completed",
-              out={"complexity": "M", "verdict": "pass"})
+    r = _next(pack, repo, after="think", status="completed", out={"complexity": "M", "verdict": "pass"})
     assert r["status"] == "ready"
     assert r["step_id"] == "finish"
 
@@ -256,6 +249,7 @@ def test_a_satisfied_out_advances(pack, repo):
 # -------------------------------------------------------------- invariants
 def test_the_engine_never_spawns_a_process(pack, repo, monkeypatch):
     """The driver owns every subprocess; `next` is a pure function."""
+
     def boom(*args, **kwargs):
         raise AssertionError(f"the engine spawned a process: {args!r}")
 
@@ -296,17 +290,13 @@ def test_next_writes_nothing(pack, repo):
 # ------------------------------------------- every real workflow terminates
 def test_every_real_workflow_walks_to_done(real_pack, tmp_path, monkeypatch):
     """Walk each shipped workflow start→finish with all-completed outcomes."""
-    workflows = sorted(
-        p.stem for p in (real_pack / "workflows").glob("*.yaml")
-    )
+    workflows = sorted(p.stem for p in (real_pack / "workflows").glob("*.yaml"))
     assert len(workflows) >= 8, workflows
     for name in workflows:
         repo = tmp_path / name
         repo.mkdir()
-        monkeypatch.chdir(repo)          # the worktree the driver runs from
-        seen, step = [], next_step(
-            name, config_root=real_pack, slug="s1"
-        )
+        monkeypatch.chdir(repo)  # the worktree the driver runs from
+        seen, step = [], next_step(name, config_root=real_pack, slug="s1")
         for _ in range(200):
             if step["status"] == "done":
                 break
@@ -321,21 +311,23 @@ def test_every_real_workflow_walks_to_done(real_pack, tmp_path, monkeypatch):
                 out[out_name] = path
             for out_name, spec in (step["payload"].get("out_schema") or {}).items():
                 if spec.get("artifact"):
-                    continue          # an optional artifact: leave it unclaimed
+                    continue  # an optional artifact: leave it unclaimed
                 values = spec.get("values")
                 out[out_name] = values[0] if values else "ok"
             step = next_step(
-                name, config_root=real_pack, slug="s1",
-                after=step["step_id"], status="completed", out=out,
+                name,
+                config_root=real_pack,
+                slug="s1",
+                after=step["step_id"],
+                status="completed",
+                out=out,
             )
         else:
             raise AssertionError(f"{name} did not terminate: {seen}")
         # It visited every step the workflow declares, in order.
         declared = [
             s if isinstance(s, str) else (s.get("id") or s.get("gate"))
-            for s in yaml.safe_load(
-                (real_pack / "workflows" / f"{name}.yaml").read_text()
-            )["steps"]
+            for s in yaml.safe_load((real_pack / "workflows" / f"{name}.yaml").read_text())["steps"]
         ]
         assert seen == declared, name
 
@@ -362,19 +354,28 @@ def test_out_artifact_check_resolves_against_the_cwd(pack, repo, tmp_path):
     """A relative --out path is checked in the tree the CLI runs from."""
     (repo / "spec" / "changes" / "s1").mkdir(parents=True)
     (repo / "spec" / "changes" / "s1" / "notes.md").write_text("n\n")
-    r = _next(pack, repo, after="think", status="completed",
-              out={"notes": "spec/changes/s1/notes.md", "complexity": "M",
-                   "verdict": "pass"})
+    r = _next(
+        pack,
+        repo,
+        after="think",
+        status="completed",
+        out={"notes": "spec/changes/s1/notes.md", "complexity": "M", "verdict": "pass"},
+    )
     assert r["status"] == "ready", r
 
     # The same relative path from a different cwd must NOT be found.
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     import os
+
     os.chdir(elsewhere)
-    r = _next(pack, repo, after="think", status="completed",
-              out={"notes": "spec/changes/s1/notes.md", "complexity": "M",
-                   "verdict": "pass"})
+    r = _next(
+        pack,
+        repo,
+        after="think",
+        status="completed",
+        out={"notes": "spec/changes/s1/notes.md", "complexity": "M", "verdict": "pass"},
+    )
     assert r["status"] == "error"
 
 
@@ -383,8 +384,9 @@ def test_an_absolute_out_path_is_checked_as_given(pack, repo, tmp_path):
     art = tmp_path / "somewhere" / "notes.md"
     art.parent.mkdir(parents=True)
     art.write_text("n\n")
-    r = _next(pack, repo, after="think", status="completed",
-              out={"notes": str(art), "complexity": "M", "verdict": "pass"})
+    r = _next(
+        pack, repo, after="think", status="completed", out={"notes": str(art), "complexity": "M", "verdict": "pass"}
+    )
     assert r["status"] == "ready", r
 
 
@@ -393,8 +395,9 @@ def test_a_fail_on_verdict_routes_as_failed_though_reported_completed(pack, repo
     """A review saying needs_work must not advance onto the work it rejected."""
     (repo / "spec" / "changes" / "s1").mkdir(parents=True)
     (repo / "spec" / "changes" / "s1" / "notes.md").write_text("n\n")
-    r = _next(pack, repo, after="think", status="completed", attempt=1,
-              out={"complexity": "M", "verdict": "needs_work"})
+    r = _next(
+        pack, repo, after="think", status="completed", attempt=1, out={"complexity": "M", "verdict": "needs_work"}
+    )
     assert r["status"] == "ready"
     assert r["step_id"] == "prep", "should take think's on_failure edge"
     assert r["route"] == "on_failure"
@@ -406,8 +409,7 @@ def test_a_fail_on_verdict_routes_as_failed_though_reported_completed(pack, repo
 def test_a_passing_verdict_still_advances(pack, repo):
     (repo / "spec" / "changes" / "s1").mkdir(parents=True)
     (repo / "spec" / "changes" / "s1" / "notes.md").write_text("n\n")
-    r = _next(pack, repo, after="think", status="completed",
-              out={"complexity": "M", "verdict": "pass"})
+    r = _next(pack, repo, after="think", status="completed", out={"complexity": "M", "verdict": "pass"})
     assert r["step_id"] == "finish"
     assert r["recorded"]["status"] == "completed"
     assert "derived_from" not in r["recorded"]
@@ -447,18 +449,16 @@ def test_prompt_path_roots_actually_contain_the_step_dirs(pack, repo):
     for root in roots:
         assert root.is_dir(), f"emitted a nonexistent root: {root}"
     for step_id, charter_dir in json.loads(env["ORCHESTRATOR_PROMPT_DIRS"]).items():
-        assert any(
-            root == Path(charter_dir) or root in Path(charter_dir).parents
-            for root in roots
-        ), f"{step_id}'s charter dir is outside the roots: {charter_dir}"
+        assert any(root == Path(charter_dir) or root in Path(charter_dir).parents for root in roots), (
+            f"{step_id}'s charter dir is outside the roots: {charter_dir}"
+        )
 
 
 def test_an_omitted_optional_artifact_is_accepted(pack, repo):
     """`ux-design` declares optional outs; a driver must not write stubs."""
     (repo / "spec" / "changes" / "s1").mkdir(parents=True)
     (repo / "spec" / "changes" / "s1" / "notes.md").write_text("n\n")
-    r = _next(pack, repo, after="think", status="completed",
-              out={"complexity": "M", "verdict": "pass"})   # no `sketch`
+    r = _next(pack, repo, after="think", status="completed", out={"complexity": "M", "verdict": "pass"})  # no `sketch`
     assert r["status"] == "ready", r
     assert r["step_id"] == "finish"
 
@@ -468,9 +468,13 @@ def test_a_present_optional_artifact_is_still_validated(pack, repo):
     art = repo / "spec" / "changes" / "s1"
     art.mkdir(parents=True)
     (art / "notes.md").write_text("n\n")
-    r = _next(pack, repo, after="think", status="completed",
-              out={"complexity": "M", "verdict": "pass",
-                   "sketch": "spec/changes/s1/nope.md"})
+    r = _next(
+        pack,
+        repo,
+        after="think",
+        status="completed",
+        out={"complexity": "M", "verdict": "pass", "sketch": "spec/changes/s1/nope.md"},
+    )
     assert r["status"] == "error"
     assert "sketch" in r["error"]
 
@@ -497,7 +501,7 @@ def test_a_rejecting_review_loop_terminates_at_max_retries(pack, repo):
     (repo / "spec" / "changes" / "s1").mkdir(parents=True)
     (repo / "spec" / "changes" / "s1" / "notes.md").write_text("n\n")
 
-    runs: dict[str, int] = {}          # the driver's step_history, folded
+    runs: dict[str, int] = {}  # the driver's step_history, folded
 
     def report(step, **kw):
         runs[step] = runs.get(step, 0) + 1
@@ -507,9 +511,14 @@ def test_a_rejecting_review_loop_terminates_at_max_retries(pack, repo):
     while guard < 20:
         guard += 1
         if step == "think":
-            r = report("think", status="completed",       # a reviewer that
-                       out={"complexity": "M",            # always rejects
-                            "verdict": "needs_work"})
+            r = report(
+                "think",
+                status="completed",  # a reviewer that
+                out={
+                    "complexity": "M",  # always rejects
+                    "verdict": "needs_work",
+                },
+            )
         else:
             r = report(step, exit_code=0)
         if r["status"] == "needs_you":
@@ -521,3 +530,38 @@ def test_a_rejecting_review_loop_terminates_at_max_retries(pack, repo):
             return
         step = r["step_id"]
     raise AssertionError(f"never exhausted retries: {runs}")
+
+
+def test_exec_params_preserve_engine_keys_and_reread_between_calls(pack, repo):
+    path = pack / "steps" / "prep" / "contract.yaml"
+    doc = yaml.safe_load(path.read_text())
+    engine_env = _next(pack, repo)["payload"]["env"]
+    doc["params"] = {key: "wrong" for key in engine_env}
+    doc["params"].update({"COUNT": 3, "FLAG": False, 7: None})
+    path.write_text(yaml.safe_dump(doc))
+    env = _next(pack, repo)["payload"]["env"]
+    assert env == {**engine_env, "COUNT": "3", "FLAG": "False", "7": "None"}
+    doc["params"] = {"COUNT": 4}
+    path.write_text(yaml.safe_dump(doc))
+    assert _next(pack, repo)["payload"]["env"] == {**engine_env, "COUNT": "4"}
+
+
+@pytest.mark.parametrize("step_id", ["think", "prep"])
+def test_nonexec_or_nonmapping_params_are_ignored(pack, repo, step_id):
+    path = pack / "steps" / step_id / "contract.yaml"
+    doc = yaml.safe_load(path.read_text())
+    doc["params"] = {"EXTRA": "ignored"} if step_id == "think" else ["ignored"]
+    path.write_text(yaml.safe_dump(doc))
+    result = _next(pack, repo, after="signoff", status="completed") if step_id == "think" else _next(pack, repo)
+    assert "EXTRA" not in result["payload"]["env"]
+    assert "ignored" not in result["payload"]["env"]
+
+
+def test_gate_preview_duplicate_ids_keep_last_entry_order(pack, repo):
+    path = pack / "steps" / "prep" / "contract.yaml"
+    doc = yaml.safe_load(path.read_text())
+    doc["out"] = {"notes": {"artifact": "prep.md"}}
+    path.write_text(yaml.safe_dump(doc))
+    workflow = dict(WORKFLOW, steps=[WORKFLOW["steps"][1], "prep", "missing", "think", "prep"])
+    (pack / "workflows" / "mini.yaml").write_text(yaml.safe_dump(workflow))
+    assert _next(pack, repo)["payload"]["show"] == {"notes": "spec/changes/s1/prep.md"}
