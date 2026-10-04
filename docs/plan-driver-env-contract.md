@@ -69,7 +69,7 @@ Exec steps record `step`, `attempt`, `status`, `started`, `ended` only.
 attempt (the engine has no history) or paths (it has no state). Do not add
 telemetry vars of any kind.
 
-### Drive skill (`skills/drive/SKILL.md`)
+### Driver skill (now `orchestrate` in ugudlado/skills, `workflow/orchestrate/SKILL.md`)
 
 1. Replace "env = your env + `payload.env` + whatever DRIVER.md says" with the
    driver-block table above; it applies to judgment spawns too.

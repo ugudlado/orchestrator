@@ -127,7 +127,7 @@ run, for the whole run; the engine stops at `max_retries`.
 ## Driving it
 
 The protocol is small but has sharp edges (attempt counting, gate tokens,
-worktree paths). [`skills/drive/SKILL.md`](skills/drive/SKILL.md) is a skill
+worktree paths). The [`orchestrate`](https://github.com/ugudlado/skills/blob/main/workflow/orchestrate/SKILL.md) skill (skills repo) is a skill
 that drives a workflow end to end. A pack may ship its own `DRIVER.md`
 describing what its scripts need — see
 [`docs/pack-driver-notes.md`](docs/pack-driver-notes.md).

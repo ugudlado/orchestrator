@@ -9,7 +9,7 @@ pack root as DRIVER.md and delete this copy once it lands there.
 
 # Driving this pack
 
-The `drive` skill covers the protocol. This file covers what **these scripts**
+The `orchestrate` skill (ugudlado/skills, `workflow/orchestrate`) covers the protocol. This file covers what **these scripts**
 need. Read it before driving a workflow from this pack.
 
 ## The run state file
