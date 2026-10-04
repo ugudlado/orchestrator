@@ -148,9 +148,17 @@ the harness lacks that model. Record `{step, tier, model}`.
   and report it again with `--attempt` one higher. After `retries exhausted`
   the options are: fix the blocker and retry anyway, send the run back to an
   earlier step (`--status failed --out '{"reset_to":"<step>"}'`), or abandon.
-- `await_input` (exec) → ask `await_input.ask`, re-run that step with the
-  answer. A judgment reporting an `await_input`-ish value in `--out` is **not
-  finished**: ask, re-run it, report the real decision.
+- `needs_you` **with an `await_input` key** → the step asked. Show the user
+  `await_input.ask` (and `options` if present) and wait. **Only the user
+  answers** — never answer from conversation context, defaults or your own
+  judgment, for any step (same rule as gates). Append a `step_history` entry
+  `{step, attempt, status: await_input, ask, answer, started, ended}`
+  (`status` = `recorded.status`; `attempt` = the number the re-run will
+  report, i.e. 1 + the step's non-ask entries). Then rename the ask's result
+  file to `results/<step>-<attempt>-ask<k>.json` (k = the step's ask count), so
+  a re-run that dies before writing cannot be mistaken for the ask. Re-run the
+  **same** step with `User direction: <answer>` in the worker brief and report
+  its real outcome.
 - `error` (`invalid out: …`) → **nothing was recorded**: do not append to
   `step_history` and do not advance `--attempt`. Re-run the step once with the
   error text at the same attempt; if it fails again, stop and ask.
@@ -158,18 +166,20 @@ the harness lacks that model. Record `{step, tier, model}`.
 
 ## Attempts — count them yourself, or the run never stops
 
-`--attempt N` for step X = **the number of `step_history` entries for X,
-including the one you are about to report**. Per-step, for the whole run,
+`--attempt N` for step X = **the number of `step_history` entries for X
+whose status is not `await_input`, including the one you are about to
+report**. Asks never count toward `max_retries`. Per-step, for the whole run,
 **never reset by a forward move**. The answer carries no `attempt` — the engine
 has no history and cannot count for you.
 
 Worked example (`code-review` has `on_failure: implement`, `max_retries: 8`):
 
-| run                       | report                                                 | `--attempt`   |
-| ------------------------- | ------------------------------------------------------ | ------------- |
-| code-review rejects       | `--after code-review --out '{"verdict":"needs_work"}'` | 1             |
-| implement fixes           | `--after implement --status completed`                 | 1             |
-| code-review rejects again | `--after code-review …`                                | **2** — not 1 |
+| run                                                                 | report                                                 | `--attempt`   |
+| ------------------------------------------------------------------- | ------------------------------------------------------ | ------------- |
+| code-review rejects                                                 | `--after code-review --out '{"verdict":"needs_work"}'` | 1             |
+| implement fixes                                                     | `--after implement --status completed`                 | 1             |
+| code-review rejects again                                           | `--after code-review …`                                | **2** — not 1 |
+| human-review asks (entry `await_input`, attempt 1), re-run approves | `--after human-review …`                               | 1             |
 
 Passing 1 the second time is the bug that matters: with a reviewer that keeps
 rejecting, the cap is never reached and the run loops forever. The cap is
@@ -198,7 +208,10 @@ CLI you spawned):
 Exec entries record `step`, `attempt`, `status`, `started`, `ended` only —
 no model/usage/cost.
 
-To resume, read the last entry and call `next --after` it:
+To resume, read the last entry. If its status is `await_input` without
+`answer`, ask the user again; with `answer`, re-run that step with it as User
+direction. Do not replay `next --after` for an ask entry. Otherwise call
+`next --after` it:
 that call is a **replay, not a run** — it returns the step you never got to,
 so do not append an entry for it. Append only for steps you actually ran.
 
