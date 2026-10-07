@@ -30,29 +30,16 @@
       "Skill",
       "WebFetch",
       "WebSearch",
-      "mcp__chrome-devtools",
       "mcp__plugin_context7_context7",
-      "mcp__plugin_claude-mem_mcp",
-      "mcp__plugin_linear_linear",
-      "mcp__drawio",
-      "mcp__pal",
       "Edit(~/code/feature_worktrees/**)",
       "Read(~/code/feature_worktrees/**)",
-      "Read(~/.config/orchestrator/**)",
-      "Edit(~/.config/spec/**)",
-      "Read(~/.config/spec/**)",
       "Edit(~/.claude/logs/**)",
       "Read(~/.claude/logs/**)",
-      "Edit(~/.config/hooksmith/**)",
-      "Read(~/.config/hooksmith/**)",
-      "Edit(~/.config/linear/**)",
-      "Read(~/.config/linear/**)",
       "Read(~/.claude/projects/**)",
       "Edit(~/.claude/projects/**)",
       "Read(~/.claude/skills/**)",
       "Edit(~/.claude/skills/**)",
-      "Read(~/.local/bin/**)",
-      "mcp__claude_ai_Linear"
+      "Read(~/.local/bin/**)"
     ],
     "deny": []
   },
@@ -60,13 +47,7 @@
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
     "excludedCommands": [],
-    "additionalWritePaths": [
-      "~/.config/spec",
-      "~/.config/hooksmith",
-      "~/.config/linear",
-      "~/.claude/logs",
-      "~/code/feature_worktrees"
-    ]
+    "additionalWritePaths": ["~/.claude/logs", "~/code/feature_worktrees"]
   },
   "hooks": {
     "SessionStart": [
