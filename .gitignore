@@ -47,3 +47,9 @@ node_modules/
 .claude/skills/commit-group
 .claude/skills/orchestrate
 .claude/skills/workflow-creator
+
+# Local tool leftovers (not used by the engine)
+.pi/
+.pnpm-store/
+*.duckdb
+*.duckdb.bak-*
