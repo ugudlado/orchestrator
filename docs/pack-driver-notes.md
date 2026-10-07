@@ -117,7 +117,14 @@ binary is on PATH with `ORCHESTRATOR_PACK` set. Leave `ORCHESTRATOR_PACK` unset.
 `orchestrator_next.report`. The scratch copy is patched to fold the driver's
 own `step_history` from state.yaml instead. Upstream needs the same fix.
 
-## Complete-phase steps (feature / complete workflows)
+## Complete-phase steps (complete / feature-remote workflows)
+
+`feature` no longer runs these: its complete phase is `pr-signoff` gate →
+`mark-change-completed` → `open-pr` → `workflow-report`. `open-pr` is a
+judgment step (needs `git push` and `gh`, side effect `write:remote`): it
+rebases onto `origin/HEAD`, runs the repo's full verification, pushes the
+branch and opens a PR with evidence. It never merges; the worktree stays and
+the ticket is left open until the PR merges.
 
 All five work with **no git remote** and never push. Verified by dry run.
 
