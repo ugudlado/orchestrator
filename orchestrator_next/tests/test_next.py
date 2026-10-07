@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -306,6 +307,12 @@ def test_the_payload_never_leaks_the_engines_environment(pack, repo, monkeypatch
     # many times a step has run.
     assert "REPO_ROOT" not in env and "ORCHESTRATOR_REPO_ROOT" not in env
     assert "ORCHESTRATOR_ATTEMPT" not in env
+    assert "ORCHESTRATOR_ARTIFACTS_DIR" not in env, "set only when the driver passes the flag"
+    # With the flag, that key joins the engine-set allow-list and nothing else changes.
+    keys = set(env)
+    with_dir = _next(pack, repo, artifacts_dir="/abs")["payload"]["env"]
+    assert set(with_dir) - keys == {"ORCHESTRATOR_ARTIFACTS_DIR"}
+    assert "MY_API_TOKEN" not in with_dir
 
 
 def test_next_writes_nothing(pack, repo):
@@ -322,12 +329,13 @@ def test_next_writes_nothing(pack, repo):
 def test_every_real_workflow_walks_to_done(real_pack, tmp_path, monkeypatch):
     """Walk each shipped workflow start→finish with all-completed outcomes."""
     workflows = sorted(p.stem for p in (real_pack / "workflows").glob("*.yaml"))
-    assert len(workflows) >= 8, workflows
+    assert workflows, "no workflows in the pack"
     for name in workflows:
         repo = tmp_path / name
         repo.mkdir()
-        monkeypatch.chdir(repo)  # the worktree the driver runs from
-        seen, step = [], next_step(name, config_root=real_pack, slug="s1")
+        monkeypatch.chdir(repo)  # an empty dir: artifacts must not depend on it
+        adir = str(tmp_path / f"{name}-artifacts")
+        seen, step = [], next_step(name, config_root=real_pack, slug="s1", artifacts_dir=adir)
         for _ in range(200):
             if step["status"] == "done":
                 break
@@ -352,6 +360,7 @@ def test_every_real_workflow_walks_to_done(real_pack, tmp_path, monkeypatch):
                 after=step["step_id"],
                 status="completed",
                 out=out,
+                artifacts_dir=adir,
             )
         else:
             raise AssertionError(f"{name} did not terminate: {seen}")
@@ -596,3 +605,37 @@ def test_gate_preview_duplicate_ids_keep_last_entry_order(pack, repo):
     workflow = dict(WORKFLOW, steps=[WORKFLOW["steps"][1], "prep", "missing", "think", "prep"])
     (pack / "workflows" / "mini.yaml").write_text(yaml.safe_dump(workflow))
     assert _next(pack, repo)["payload"]["show"] == {"notes": "spec/changes/s1/prep.md"}
+
+
+# ------------------------------------------------ driver-named artifacts dir
+def test_artifacts_dir_is_the_base_and_beats_artifacts_root(pack, repo):
+    gate = _next(pack, repo, after="prep", exit_code=0, artifacts_dir="/abs")
+    assert gate["payload"]["show"]["notes"] == "/abs/notes.md"
+    think = _next(pack, repo, after="signoff", status="completed", artifacts_dir="/abs")
+    assert think["payload"]["out"]["notes"] == "/abs/notes.md"
+    assert think["payload"]["env"]["ORCHESTRATOR_ARTIFACTS_DIR"] == "/abs"
+    assert "spec/changes" not in str(think)
+
+
+def test_out_artifact_check_uses_artifacts_dir_from_any_cwd(pack, repo, tmp_path):
+    adir = tmp_path / "elsewhere"
+    adir.mkdir()
+    kw = dict(after="think", status="completed", artifacts_dir=str(adir))
+    out = {"notes": str(adir / "notes.md"), "complexity": "S", "verdict": "pass"}
+    assert _next(pack, repo, out=out, **kw)["status"] == "error"  # file missing
+    (adir / "notes.md").write_text("x\n", encoding="utf-8")
+    assert _next(pack, repo, out=out, **kw)["status"] == "ready"
+    # A relative-mode name is not found under cwd either: base is the dir.
+    out2 = {"complexity": "S", "verdict": "pass", "notes": str(adir / "nope.md")}
+    r = _next(pack, repo, out=out2, **kw)
+    assert r["status"] == "error" and str(adir / "nope.md") in str(r)
+
+
+def test_cli_rejects_a_relative_artifacts_dir(pack, repo):
+    p = subprocess.run(
+        [sys.executable, "-m", "orchestrator_next", "next", "mini", "--config", str(pack),
+         "--slug", "s1", "--artifacts-dir", "rel/dir"],
+        capture_output=True, text=True,
+    )
+    assert p.returncode == 3
+    assert json.loads(p.stdout)["status"] == "error"

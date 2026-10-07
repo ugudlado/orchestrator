@@ -23,13 +23,14 @@ python -m orchestrator_next
 
 ```
 Usage:
-  orchestrator next <workflow> --config PATH [--slug S]
+  orchestrator next <workflow> --config PATH [--slug S] [--artifacts-dir ABS]
       [--after STEP (--status completed|failed|abandoned
                      | --exit-code N [--stdout-file F])
        [--out JSON] [--attempt N]]
 ```
 
-`--config` is the pack root. `--slug` names the run (it fills `{slug}` in the
+`--config` is the pack root. `--artifacts-dir` is an absolute directory the
+driver owns (see below). `--slug` names the run (it fills `{slug}` in the
 pack's `artifacts_root`). With no `--after` you get the workflow's first step;
 otherwise you report what the named step did and get the next one.
 
@@ -87,9 +88,12 @@ An `error` records nothing — fix the output and report the step again.
 
 ## Semantics worth knowing
 
-**Artifact paths are relative.** `in`, `out` and a gate's `show` are relative
-to the driver's working tree, because a run's artifacts live in its worktree
-and only the driver knows where that is. Run the CLI from that tree.
+**Artifact paths.** With `--artifacts-dir /abs`, `in`, `out` and a gate's
+`show` are `/abs/<artifact>` (the pack's `artifacts_root` is ignored),
+`payload.env` gains `ORCHESTRATOR_ARTIFACTS_DIR`, and answers do not depend on
+the CLI's cwd. The flag must be absolute (else exit 3); the engine never
+creates the directory. Without it, paths are relative to the driver's working
+tree, per `artifacts_root`: run the CLI from that tree.
 
 **exec stdout protocol.** The engine parses the last JSON line of a script's
 stdout: `{"status": …, "outputs": {…}}`, or a status plus flat keys, or bare

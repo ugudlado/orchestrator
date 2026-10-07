@@ -127,10 +127,12 @@ def _index_of(entries: list[dict[str, Any]], step_id: str) -> int:
 # ---------------------------------------------------------------------------
 # artifact paths
 # ---------------------------------------------------------------------------
-def artifacts_base(doc: dict[str, Any], slug: str) -> PurePosixPath:
-    """Where this run's named artifacts live, RELATIVE to the working dir.
+def artifacts_base(doc: dict[str, Any], slug: str, artifacts_dir: str = "") -> PurePosixPath:
+    """Where this run's named artifacts live.
 
-    The workflow's ``artifacts_root`` template with ``{slug}`` filled in, or
+    ``artifacts_dir`` — the absolute dir the driver named with
+    ``--artifacts-dir`` — wins outright; the workflow's ``artifacts_root`` is
+    then ignored. Otherwise, RELATIVE to the working dir: the workflow's ``artifacts_root`` template with ``{slug}`` filled in, or
     the engine's default location when the workflow declares none.
 
     Relative on purpose. A run's artifacts live in its worktree, and the
@@ -139,6 +141,8 @@ def artifacts_base(doc: dict[str, Any], slug: str) -> PurePosixPath:
     worktree exists, so the engine says *where under the working dir* and the
     driver joins that to the tree it is actually running in.
     """
+    if artifacts_dir:
+        return PurePosixPath(artifacts_dir)
     template = str(doc.get("artifacts_root") or "").strip()
     if template:
         if "{slug}" in template and not slug:
@@ -279,7 +283,7 @@ def _prompt_dir_map(entries: list[dict[str, Any]], config_root: Path) -> dict[st
 
 
 def _step_env(
-    step_id: str, step_dir: str, slug: str, prompt_dirs: dict[str, str] | None = None, prompt_path: str = ""
+    step_id: str, step_dir: str, slug: str, prompt_dirs: dict[str, str] | None = None, prompt_path: str = "", artifacts_dir: str = ""
 ) -> dict[str, str]:
     """The variables the ENGINE contributes to a step's environment.
 
@@ -309,6 +313,8 @@ def _step_env(
         # The roots persist-learnings confines an append to. Pack-derived, so
         # the engine knows it; without it every proposed row is skipped.
         env["ORCHESTRATOR_PROMPT_PATH"] = prompt_path
+    if artifacts_dir:
+        env["ORCHESTRATOR_ARTIFACTS_DIR"] = artifacts_dir  # echoes the driver's argv
     return env
 
 
@@ -320,10 +326,11 @@ def build_step(
     config_root: Path,
     slug: str,
     route: str,
+    artifacts_dir: str = "",
 ) -> dict[str, Any]:
     """Build the ready-step answer for one workflow entry."""
     step_id = entry["id"]
-    base = artifacts_base(doc, slug)
+    base = artifacts_base(doc, slug, artifacts_dir)
     prompt_dirs = _prompt_dir_map(entries, config_root)
     prompt_path_env = _prompt_roots(config_root)
     result: dict[str, Any] = {
@@ -384,7 +391,7 @@ def build_step(
         payload["max_turns"] = contract.max_turns
 
     payload["step_dir"] = step_dir
-    payload["env"] = _step_env(step_id, step_dir, slug, prompt_dirs, prompt_path_env)
+    payload["env"] = _step_env(step_id, step_dir, slug, prompt_dirs, prompt_path_env, artifacts_dir)
     if isinstance(contract, ScriptStepContract):
         for key, value in contract.params.items():
             payload["env"].setdefault(key, value)
@@ -495,6 +502,7 @@ def next_step(
     stdout_file: str = "",
     out: dict[str, Any] | None = None,
     attempt: int = 1,
+    artifacts_dir: str = "",
 ) -> dict[str, Any]:
     """Answer what runs next. Pure: reads config and disk, writes nothing."""
     doc = load_workflow(workflow, config_root)
@@ -509,11 +517,12 @@ def next_step(
             config_root=config_root,
             slug=slug,
             route="next",
+            artifacts_dir=artifacts_dir,
         )
 
     index = _index_of(entries, after)
     entry = entries[index]
-    base = artifacts_base(doc, slug)
+    base = artifacts_base(doc, slug, artifacts_dir)
     recorded: dict[str, Any] = {}
 
     # --- derive the outcome ------------------------------------------------
@@ -599,6 +608,7 @@ def next_step(
             config_root=config_root,
             slug=slug,
             route=route,
+            artifacts_dir=artifacts_dir,
         )
         result["recorded"] = recorded
         return result
