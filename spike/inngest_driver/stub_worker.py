@@ -1,0 +1,62 @@
+"""Stub step worker for the Inngest spike: does no work, satisfies the contract.
+
+judgment: stub_worker.py <payload.json> <result.json>
+    writes every `out` artifact and a result JSON with one value per out_schema key.
+exec:     stub_worker.py --exec -
+    reads the payload from $ORCH_PAYLOAD and prints the engine's stdout protocol line.
+
+Enum values default to the first non-`await_input` value; override per step with
+$ORCH_STUB_CHOICES = {"<step_id>": {"<key>": <value>}}. A real worker (Claude Code
+on the subscription machine) replaces this via $ORCH_JUDGMENT_CMD.
+"""
+
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+
+def stub_value(spec: dict):
+    t = spec.get("type")
+    if t == "enum":
+        return next(v for v in spec["values"] if v != "await_input")
+    if t == "boolean":
+        return False
+    if t == "number":
+        return 0
+    if t == "object":
+        return {}
+    return "stub"
+
+
+def stub_outputs(payload: dict) -> dict:
+    for path in payload.get("out", {}).values():
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if p.suffix == ".json":
+            p.write_text("{}\n")
+        elif p.suffix in (".yaml", ".yml"):
+            p.write_text("stub: true\n")
+        else:
+            p.write_text(f"# stub\n\nWritten by the spike's stub worker for {payload['step_id']}.\n")
+    outs = {k: stub_value(v) for k, v in payload.get("out_schema", {}).items() if not v.get("optional")}
+    choices = dict(json.loads(os.environ.get("ORCH_STUB_CHOICES") or "{}").get(payload["step_id"], {}))
+    time.sleep(choices.pop("_sleep", 0))  # simulate a long step, for crash tests
+    outs.update(choices)
+    return outs
+
+
+def main() -> None:
+    if sys.argv[1] == "--exec":
+        payload = json.loads(os.environ["ORCH_PAYLOAD"])
+        print(json.dumps({"status": "completed", "outputs": stub_outputs(payload)}))
+        return
+    payload = json.loads(Path(sys.argv[1]).read_text())
+    result = {"status": "completed", **stub_outputs(payload), "summary": "stub"}
+    Path(sys.argv[2]).write_text(json.dumps(result))
+    print(json.dumps(result))
+
+
+if __name__ == "__main__":
+    main()
