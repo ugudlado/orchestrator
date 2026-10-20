@@ -139,18 +139,50 @@ def test_self_goto_is_a_loop_and_forward_goto_is_not_capped(tmp_path, repo):
     assert _next(pack, after="a", status="completed", out={"k": 2}, attempt=99)["step_id"] == "c"
 
 
+def test_default_matches_when_nothing_else_did(tmp_path, repo):
+    pack = _write_pack(tmp_path / "pack", [{"id": "a", "routes": [{"goto": "c"}]}, "b", "c"], {})
+    r = _next(pack, after="a", status="completed", out={"k": "anything"})
+    assert (r["step_id"], r["route"]) == ("c", "branch")
+    assert _next(pack, after="a", status="completed")["step_id"] == "c"
+
+
+def test_default_after_a_non_matching_case(tmp_path, repo):
+    routes = [{"when": {"k": 1}, "goto": "b"}, {"goto": "c"}]
+    pack = _write_pack(tmp_path / "pack", [{"id": "a", "routes": routes}, "b", "c"], {})
+    assert _next(pack, after="a", status="completed", out={"k": 1})["step_id"] == "b"
+    r = _next(pack, after="a", status="completed", out={"k": 2})
+    assert (r["step_id"], r["route"]) == ("c", "branch")
+
+
+def test_gate_default_route_branches(tmp_path, repo):
+    pack = _write_pack(tmp_path / "pack", [{"gate": "g", "routes": [{"goto": "c"}]}, "b", "c"], {})
+    r = _next(pack, after="g", status="completed")
+    assert (r["step_id"], r["route"]) == ("c", "branch")
+
+
+def test_backward_default_goto_is_capped_by_max_retries(tmp_path, repo):
+    pack = _write_pack(tmp_path / "pack", ["a", {"id": "b", "max_retries": 2, "routes": [{"goto": "a"}]}], {})
+    assert _next(pack, after="b", status="completed", attempt=1)["step_id"] == "a"
+    r = _next(pack, after="b", status="completed", attempt=2)
+    assert (r["status"], r["reason"]) == ("needs_you", "retries exhausted")
+
+
 @pytest.mark.parametrize(
     "entry, message",
     [
         ({"id": "a", "routes": "b"}, "must be a list"),
         ({"id": "a", "routes": ["b"]}, "must be a mapping"),
-        ({"id": "a", "routes": [{"goto": "b"}]}, "when must be a non-empty mapping"),
         ({"id": "a", "routes": [{"when": {}, "goto": "b"}]}, "when must be a non-empty mapping"),
         ({"id": "a", "routes": [{"when": {"k": 1}}]}, "goto must be a step id"),
         ({"id": "a", "routes": [{"when": {"k": 1}, "goto": 3}]}, "goto must be a step id"),
         ({"id": "a", "routes": [{"when": {"k": 1}, "goto": "nope"}]}, "'nope' is not a step"),
         ({"id": "a", "on_failure": "nope"}, "on_failure 'nope' is not a step"),
         ({"gate": "a", "routes": [{"when": {"k": 1}, "goto": "b"}]}, "gate has no outputs"),
+        ({"id": "a", "routes": [{"goto": "b"}, {"when": {"k": 1}, "goto": "b"}]}, "must be the last case"),
+        ({"id": "a", "routes": [{"goto": "b"}, {"goto": "b"}]}, "must be the last case"),
+        ({"id": "a", "routes": [{"when": {"k": 1}, "goto": "b"}, {"goto": "nope"}]}, "'nope' is not a step"),
+        ({"id": "a", "routes": [{"when": None, "goto": "b"}]}, "when must be a non-empty mapping"),
+        ({"id": "a", "routes": [{"when": "k", "goto": "b"}]}, "when must be a non-empty mapping"),
     ],
 )
 def test_bad_edges_are_next_errors(entry, message):

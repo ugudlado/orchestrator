@@ -21,6 +21,9 @@ Routing, in full:
 
 A ``routes:`` case lists ``when:`` (every key must match the step's ``out``:
 a list means "one of", a scalar means "equals") and a ``goto:`` step id.
+A case with no ``when:`` is a default: it always matches, so only the last
+case may be one. A gate has no outputs, so it may declare only a default
+(``routes: [{goto: X}]``), taken when it is reported ``completed``.
 Cases are tried in order and only after ``fail_on`` has been applied, so a
 rejected verdict still goes ``on_failure``. A ``goto`` at or before the step
 itself is a loop and is capped by ``max_retries`` like ``on_failure``.
@@ -138,16 +141,19 @@ def _check_edges(entry: dict[str, Any], ids: set[str]) -> None:
     if "routes" not in entry:
         return
     routes = entry["routes"]
-    if entry["_gate"]:
-        raise NextError(f"step {step_id!r}: a gate has no outputs, so it cannot declare routes:")
     if not isinstance(routes, list):
         raise NextError(f"step {step_id!r}: routes: must be a list")
     for n, case in enumerate(routes, 1):
         where = f"step {step_id!r}: routes[{n}]"
         if not isinstance(case, dict):
             raise NextError(f"{where} must be a mapping with when: and goto:")
-        when = case.get("when")
-        if not isinstance(when, dict) or not when:
+        if "when" not in case:
+            # A default always matches, so any case after it would be dead.
+            if n < len(routes):
+                raise NextError(f"{where} has no when: (a default), so it must be the last case")
+        elif entry["_gate"]:
+            raise NextError(f"{where}: a gate has no outputs, so it can only declare a default case (no when:)")
+        elif not isinstance(case["when"], dict) or not case["when"]:
             raise NextError(f"{where}.when must be a non-empty mapping")
         goto = case.get("goto")
         if not isinstance(goto, str):
@@ -161,12 +167,12 @@ def _branch_target(routes: list[dict[str, Any]], out: dict[str, Any]) -> str:
 
     A list matches when the reported value is one of its items, a scalar when
     it equals the value; every key must match, and a key ``out`` does not
-    carry never does.
+    carry never does. A case with no ``when:`` is a default and always matches.
     """
     for case in routes:
         if all(
             key in out and (out[key] in want if isinstance(want, list) else out[key] == want)
-            for key, want in case["when"].items()
+            for key, want in case.get("when", {}).items()
         ):
             return case["goto"]
     return ""

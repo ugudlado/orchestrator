@@ -118,7 +118,10 @@ A list means "one of", a scalar means "equals", every key must match, and a key
 absent from `out` never matches. The first matching case wins (`route: branch`);
 none matching falls through to the next entry. `goto` may name any step; one at
 or before the step itself is a loop, capped by `max_retries` like `on_failure`.
-Gates cannot declare routes. Bad `routes` or `on_failure` targets are an error.
+A case with no `when` is a default that always matches, so only the last case
+may be one; it lets branches rejoin (`routes: [{when: {kind: hotfix}, goto: ship}, {goto: review}]`).
+A gate has no outputs, so it may declare only a default (`routes: [{goto: ship}]`).
+Bad `routes` or `on_failure` targets are an error.
 
 **`fingerprint`.** A contract may opt in with a top-level
 `skip_when_unchanged: true`; the step then carries a sha256 of its own files
