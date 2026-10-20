@@ -43,6 +43,8 @@ def stub_outputs(payload: dict) -> dict:
     outs = {k: stub_value(v) for k, v in payload.get("out_schema", {}).items() if not v.get("optional")}
     choices = dict(json.loads(os.environ.get("ORCH_STUB_CHOICES") or "{}").get(payload["step_id"], {}))
     time.sleep(choices.pop("_sleep", 0))  # simulate a long step, for crash tests
+    if os.environ.get("ORCHESTRATOR_USER_ANSWER"):  # answered: stop asking
+        choices = {k: v for k, v in choices.items() if v != "await_input"}
     outs.update(choices)
     return outs
 
