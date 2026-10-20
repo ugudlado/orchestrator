@@ -21,6 +21,7 @@ from pathlib import Path
 USAGE = """\
 Usage:
   orchestrator next <workflow> --config PATH [--slug S] [--artifacts-dir ABS]
+      [--bindings PATH]...
       [--after STEP (--status completed|failed|abandoned
                      | --exit-code N [--stdout-file F])
        [--out JSON] [--attempt N]]
@@ -37,6 +38,11 @@ by routing: a review reached a second time after sending work back reports 2.
 The cap is checked against that step's own counter; the engine stops with
 "retries exhausted" at N >= max_retries. The answer carries no `attempt` —
 the engine keeps no history, so only you can count it.
+
+--bindings PATH (repeatable) layers a tool-bindings file over the pack's own
+bindings.yaml; later flags win, and the highest layer naming a role owns it
+wholesale. Each ready step's payload.bindings maps the roles its tools name
+(ticket, forge, chat) to a binding, or null when unbound.
 
 Artifact paths (in/out, a gate's show) are ABSOLUTE under --artifacts-dir when
 it is given (the directory must be absolute; the engine never creates it),
@@ -60,6 +66,14 @@ def _pop_flag(args: list[str], flag: str) -> str | None:
     return value
 
 
+def _pop_flags(args: list[str], flag: str) -> list[str]:
+    """Remove every ``--flag value`` pair from args; values in order."""
+    values = []
+    while flag in args:
+        values.append(_pop_flag(args, flag))
+    return values
+
+
 def _next_verb(args: list[str]) -> int:
     from orchestrator_next.nextstep import NextError, next_step
 
@@ -79,6 +93,7 @@ def _next_verb(args: list[str]) -> int:
     artifacts_dir = _pop_flag(rest, "--artifacts-dir") or ""
     if artifacts_dir and not os.path.isabs(artifacts_dir):
         raise ValueError(f"--artifacts-dir must be an absolute path, not {artifacts_dir!r}")
+    bindings_files = [Path(p).expanduser() for p in _pop_flags(rest, "--bindings")]
     slug = _pop_flag(rest, "--slug") or ""
     after = _pop_flag(rest, "--after") or ""
     status = _pop_flag(rest, "--status") or ""
@@ -110,6 +125,7 @@ def _next_verb(args: list[str]) -> int:
             workflow, config_root=config_root, slug=slug,
             after=after, status=status, exit_code=exit_code,
             stdout_file=stdout_file, out=out, attempt=attempt, artifacts_dir=artifacts_dir,
+            bindings_files=bindings_files,
         )
     except NextError as exc:
         raise ValueError(str(exc)) from None

@@ -23,13 +23,14 @@ it would advance past a rejected review.
 orchestrator_next/
   cli.py             arg parsing, the single `next` verb, JSON output
   nextstep.py        the engine: routing, payloads, stdout protocol, out validation
+  bindings.py        team tool bindings: roles, file loading, layering
   parser.py          step contracts (contract.yaml → typed dataclass)
   workflow_steps.py  workflow step-entry normalization
   tests/
 docs/                pack-driver-notes.md (belongs upstream in the pack)
 ```
 
-Four modules, ~1,200 lines. If a change makes that meaningfully bigger, check
+Five modules, ~1,300 lines. If a change makes that meaningfully bigger, check
 whether it belongs in the driver instead.
 
 ## Dev

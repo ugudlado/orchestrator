@@ -61,6 +61,7 @@ from typing import Any
 
 import yaml
 
+from orchestrator_next.bindings import BindingsError, load_bindings, tool_roles
 from orchestrator_next.parser import (
     KIND_EXEC,
     KIND_GATE,
@@ -344,7 +345,8 @@ def _prompt_dir_map(entries: list[dict[str, Any]], config_root: Path) -> dict[st
 
 
 def _step_env(
-    step_id: str, step_dir: str, slug: str, prompt_dirs: dict[str, str] | None = None, prompt_path: str = "", artifacts_dir: str = ""
+    step_id: str, step_dir: str, slug: str, prompt_dirs: dict[str, str] | None = None, prompt_path: str = "", artifacts_dir: str = "",
+    bindings: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """The variables the ENGINE contributes to a step's environment.
 
@@ -376,6 +378,9 @@ def _step_env(
         env["ORCHESTRATOR_PROMPT_PATH"] = prompt_path
     if artifacts_dir:
         env["ORCHESTRATOR_ARTIFACTS_DIR"] = artifacts_dir  # echoes the driver's argv
+    if bindings:
+        # The step's tool bindings, so a charter can read them. None = unbound.
+        env["ORCHESTRATOR_BINDINGS"] = json.dumps(bindings, sort_keys=True, separators=(",", ":"))
     return env
 
 
@@ -416,6 +421,7 @@ def build_step(
     slug: str,
     route: str,
     artifacts_dir: str = "",
+    bindings: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Build the ready-step answer for one workflow entry."""
     step_id = entry["id"]
@@ -455,12 +461,16 @@ def build_step(
     in_paths, _in_schema = _resolve_io(contract.inputs, base)
     out_paths, out_schema = _resolve_io(contract.outputs, base)
 
+    step_bindings = {r: (bindings or {}).get(r) for r in tool_roles(contract.tools)}
     payload: dict[str, Any] = {
         "step_id": step_id,
         "in": in_paths,
         "out": out_paths,
         "out_schema": out_schema,
         "tools": list(contract.tools),
+        # Only the roles this step's tools name; an unbound role is None —
+        # the engine does not guess, the driver falls back to detection.
+        "bindings": step_bindings,
         "side_effects": list(contract.side_effects),
         # Declared by the workflow, echoed as data: with no state to check
         # against, the engine cannot enforce that a token was ever issued.
@@ -485,7 +495,7 @@ def build_step(
     payload["fingerprint"] = (
         _fingerprint(step_id, step_dir, in_paths, config_root) if contract.skip_when_unchanged else None
     )
-    payload["env"] = _step_env(step_id, step_dir, slug, prompt_dirs, prompt_path_env, artifacts_dir)
+    payload["env"] = _step_env(step_id, step_dir, slug, prompt_dirs, prompt_path_env, artifacts_dir, step_bindings)
     if isinstance(contract, ScriptStepContract):
         for key, value in contract.params.items():
             payload["env"].setdefault(key, value)
@@ -621,8 +631,13 @@ def next_step(
     out: dict[str, Any] | None = None,
     attempt: int = 1,
     artifacts_dir: str = "",
+    bindings_files: list[Path] | None = None,
 ) -> dict[str, Any]:
     """Answer what runs next. Pure: reads config and disk, writes nothing."""
+    try:
+        bindings = load_bindings(config_root, bindings_files)
+    except BindingsError as exc:
+        raise NextError(str(exc)) from exc
     doc = load_workflow(workflow, config_root)
     entries = step_entries(doc)
     out = dict(out or {})
@@ -636,6 +651,7 @@ def next_step(
             slug=slug,
             route="next",
             artifacts_dir=artifacts_dir,
+            bindings=bindings,
         )
 
     index = _index_of(entries, after)
@@ -727,6 +743,7 @@ def next_step(
             slug=slug,
             route=route,
             artifacts_dir=artifacts_dir,
+            bindings=bindings,
         )
         result["recorded"] = recorded
         return result
