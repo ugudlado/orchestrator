@@ -3,7 +3,7 @@
 Workflow `steps:` entries may be:
 
 - a plain string id (shell or agent step — contract.yaml decides which)
-- ``{id: ...}`` with optional routing (``on_failure``, ``on_success``, ``max_retries``,
+- ``{id: ...}`` with optional routing (``on_failure``, ``routes``, ``max_retries``,
   ``depends_on``) and an optional ``requires: <token_name>`` gate binding
 - ``{gate: <id>, show: [...], approve_as: <token_name>}`` — a signoff gate
   (protocol v2 §7). A gate has no contract file: the recipe entry *is* the

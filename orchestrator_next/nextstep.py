@@ -8,7 +8,9 @@ that and passes back whatever this function needs to decide.
 Routing, in full:
 
   no ``--after``        → the workflow's first step
-  completed             → the following entry (``route: next``); past the end
+  completed             → the first matching ``routes:`` case's ``goto``
+                          (``route: branch``), else the following entry
+                          (``route: next``); past the end
                           → ``{"status": "done"}``
   failed                → ``outputs.reset_to`` when the step named one and it
                           points at or before itself (``route: reset_to``),
@@ -16,6 +18,15 @@ Routing, in full:
                           (``route: on_failure``); when ``--attempt`` has
                           reached ``max_retries`` → ``needs_you``
   abandoned             → the same step again (``route: retry``)
+
+A ``routes:`` case lists ``when:`` (every key must match the step's ``out``:
+a list means "one of", a scalar means "equals") and a ``goto:`` step id.
+A case with no ``when:`` is a default: it always matches, so only the last
+case may be one. A gate has no outputs, so it may declare only a default
+(``routes: [{goto: X}]``), taken when it is reported ``completed``.
+Cases are tried in order and only after ``fail_on`` has been applied, so a
+rejected verdict still goes ``on_failure``. A ``goto`` at or before the step
+itself is a loop and is capped by ``max_retries`` like ``on_failure``.
 
 A judgment step whose contract marks an out value ``fail_on:`` is routed as
 ``failed`` even when the driver reports it ``completed`` — a review that says
@@ -42,6 +53,7 @@ driver approves it however it likes and calls back with
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -114,7 +126,56 @@ def step_entries(doc: dict[str, Any]) -> list[dict[str, Any]]:
             out.append(norm)
     if not out:
         raise NextError("workflow has no usable steps")
+    ids = {e["id"] for e in out}
+    for entry in out:
+        _check_edges(entry, ids)
     return out
+
+
+def _check_edges(entry: dict[str, Any], ids: set[str]) -> None:
+    """Reject an entry whose ``on_failure`` or ``routes:`` cannot be followed."""
+    step_id = entry["id"]
+    on_failure = entry.get("on_failure")
+    if on_failure and str(on_failure) not in ids:
+        raise NextError(f"step {step_id!r}: on_failure {on_failure!r} is not a step in this workflow")
+    if "routes" not in entry:
+        return
+    routes = entry["routes"]
+    if not isinstance(routes, list):
+        raise NextError(f"step {step_id!r}: routes: must be a list")
+    for n, case in enumerate(routes, 1):
+        where = f"step {step_id!r}: routes[{n}]"
+        if not isinstance(case, dict):
+            raise NextError(f"{where} must be a mapping with when: and goto:")
+        if "when" not in case:
+            # A default always matches, so any case after it would be dead.
+            if n < len(routes):
+                raise NextError(f"{where} has no when: (a default), so it must be the last case")
+        elif entry["_gate"]:
+            raise NextError(f"{where}: a gate has no outputs, so it can only declare a default case (no when:)")
+        elif not isinstance(case["when"], dict) or not case["when"]:
+            raise NextError(f"{where}.when must be a non-empty mapping")
+        goto = case.get("goto")
+        if not isinstance(goto, str):
+            raise NextError(f"{where}.goto must be a step id (string)")
+        if goto not in ids:
+            raise NextError(f"{where}.goto {goto!r} is not a step in this workflow")
+
+
+def _branch_target(routes: list[dict[str, Any]], out: dict[str, Any]) -> str:
+    """The ``goto`` of the first ``routes:`` case whose ``when:`` matches ``out``, or "".
+
+    A list matches when the reported value is one of its items, a scalar when
+    it equals the value; every key must match, and a key ``out`` does not
+    carry never does. A case with no ``when:`` is a default and always matches.
+    """
+    for case in routes:
+        if all(
+            key in out and (out[key] in want if isinstance(want, list) else out[key] == want)
+            for key, want in case.get("when", {}).items()
+        ):
+            return case["goto"]
+    return ""
 
 
 def _index_of(entries: list[dict[str, Any]], step_id: str) -> int:
@@ -318,6 +379,34 @@ def _step_env(
     return env
 
 
+def _fingerprint(step_id: str, step_dir: str, in_paths: dict[str, str], config_root: Path) -> str:
+    """sha256 over everything a side-effect-free step's result can depend on.
+
+    The step's contract dir and charter/script dir (relative path + bytes of
+    every regular file, sorted) and each ``in`` artifact (name, path, bytes, or
+    a marker when absent). Relative ``in`` paths resolve against cwd, as in
+    ``validate_out``. Two equal fingerprints mean the same step would run on
+    the same inputs; deciding to skip is the driver's, which has the history.
+    """
+    digest = hashlib.sha256()
+
+    def feed(*parts: bytes) -> None:
+        for part in parts:
+            digest.update(len(part).to_bytes(8, "big") + part)
+
+    roots = [config_root / "steps" / step_id]
+    if step_dir and Path(step_dir) not in roots:
+        roots.append(Path(step_dir))
+    for n, root in enumerate(roots):
+        files = sorted(p for p in root.rglob("*") if p.is_file() and "__pycache__" not in p.parts)
+        for path in files:
+            feed(f"dir{n}/{path.relative_to(root).as_posix()}".encode(), path.read_bytes())
+    for name, rel in sorted(in_paths.items()):
+        path = Path(rel) if Path(rel).is_absolute() else Path.cwd() / rel
+        feed(f"in/{name}={rel}".encode(), path.read_bytes() if path.is_file() else b"\0missing")
+    return digest.hexdigest()
+
+
 def build_step(
     entry: dict[str, Any],
     doc: dict[str, Any],
@@ -391,6 +480,11 @@ def build_step(
         payload["max_turns"] = contract.max_turns
 
     payload["step_dir"] = step_dir
+    # Opt-in only: the fingerprint covers the step's own files and declared
+    # `in` artifacts, and the engine cannot know what else a step reads.
+    payload["fingerprint"] = (
+        _fingerprint(step_id, step_dir, in_paths, config_root) if contract.skip_when_unchanged else None
+    )
     payload["env"] = _step_env(step_id, step_dir, slug, prompt_dirs, prompt_path_env, artifacts_dir)
     if isinstance(contract, ScriptStepContract):
         for key, value in contract.params.items():
@@ -448,12 +542,34 @@ def parse_script_stdout(stdout: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # judgment output validation — the trust boundary for agent output
 # ---------------------------------------------------------------------------
+def _check_artifact(name: str, path: Path, checks: dict[str, Any]) -> list[str]:
+    """Every way an existing artifact fails its out's ``checks:`` block."""
+    problems: list[str] = []
+    if "min_bytes" in checks and path.stat().st_size < checks["min_bytes"]:
+        problems.append(f"out.{name}: {path.stat().st_size} bytes, need at least {checks['min_bytes']}")
+    if "contains" not in checks and "parses" not in checks:
+        return problems
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return [*problems, f"out.{name}: not valid UTF-8 text"]
+    problems += [f"out.{name}: does not contain {s!r}" for s in checks.get("contains") or [] if s not in text]
+    fmt = checks.get("parses")
+    if fmt:
+        try:
+            json.loads(text) if fmt == "json" else yaml.safe_load(text)
+        except (ValueError, yaml.YAMLError) as exc:
+            problems.append(f"out.{name}: does not parse as {fmt}: {str(exc).splitlines()[0] if str(exc) else exc!r}")
+    return problems
+
+
 def validate_out(contract: Any, out: dict[str, Any], base: PurePosixPath) -> list[str]:
     """Every way ``out`` fails the contract's ``out:`` block.
 
     Artifact outs must exist on disk; ``type: enum`` outs must carry a
-    declared value; any other declared out must simply be present. An empty
-    list means the payload satisfies the contract.
+    declared value; any other declared out must simply be present. An artifact
+    out's ``checks:`` (``min_bytes``, ``contains``, ``parses``) run against the
+    file once it exists. An empty list means the payload satisfies the contract.
 
     A relative path — the engine's own ``out`` paths are relative — resolves
     against the process cwd, which is the worktree the driver invoked the CLI
@@ -476,6 +592,8 @@ def validate_out(contract: Any, out: dict[str, Any], base: PurePosixPath) -> lis
                 path = Path.cwd() / path
             if not path.is_file():
                 problems.append(f"out.{name}: artifact not found at {path}")
+            else:
+                problems.extend(_check_artifact(name, path, spec.get("checks") or {}))
             continue
         if name not in out or out[name] is None:
             if not optional:
@@ -618,8 +736,9 @@ def next_step(
         # Re-queue the same step, unchanged: current semantics.
         return _emit(entry, "retry")
 
+    max_retries = int(entry.get("max_retries") or DEFAULT_MAX_RETRIES)
+
     if status == "failed":
-        max_retries = int(entry.get("max_retries") or DEFAULT_MAX_RETRIES)
         target_id, route = "", ""
 
         # A step may name its own rework target, which wins over the static
@@ -650,6 +769,13 @@ def next_step(
         return _emit(entries[_index_of(entries, target_id)], route)
 
     # completed
+    goto = _branch_target(entry.get("routes") or [], out)
+    if goto:
+        target = _index_of(entries, goto)
+        # A backward or self goto is a loop, bounded like an on_failure edge.
+        if target <= index and attempt >= max_retries:
+            return {"status": "needs_you", "step_id": after, "reason": "retries exhausted", "recorded": recorded}
+        return _emit(entries[target], "branch")
     if index + 1 >= len(entries):
         return {"status": "done", "recorded": recorded}
     return _emit(entries[index + 1], "next")

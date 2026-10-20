@@ -364,12 +364,16 @@ def test_every_real_workflow_walks_to_done(real_pack, tmp_path, monkeypatch):
             )
         else:
             raise AssertionError(f"{name} did not terminate: {seen}")
-        # It visited every step the workflow declares, in order.
-        declared = [
-            s if isinstance(s, str) else (s.get("id") or s.get("gate"))
-            for s in yaml.safe_load((real_pack / "workflows" / f"{name}.yaml").read_text())["steps"]
-        ]
-        assert seen == declared, name
+        # It visited every step the workflow declares, in order. A workflow
+        # with routes: branches, so its walk is an in-order subsequence.
+        raw = yaml.safe_load((real_pack / "workflows" / f"{name}.yaml").read_text())["steps"]
+        declared = [s if isinstance(s, str) else (s.get("id") or s.get("gate")) for s in raw]
+        if any(isinstance(s, dict) and s.get("routes") for s in raw):
+            remaining = iter(declared)
+            assert all(s in remaining for s in seen), (name, seen)
+            assert seen[-1] == declared[-1], (name, seen)
+        else:
+            assert seen == declared, name
 
 
 # --------------------------------------------- relative paths & the slug
