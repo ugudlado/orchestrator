@@ -41,11 +41,11 @@ Output is always JSON, always exit 0 for a protocol answer (`ready`, `done`,
 
 Every `ready` answer is `{status, kind, step_id, route, payload}` (plus
 `recorded` once you are reporting steps). `route` says which rule fired:
-`next`, `on_failure`, `reset_to`, `retry`.
+`next`, `branch`, `on_failure`, `reset_to`, `retry`.
 
 **`kind: exec`** — run `payload.run_path` yourself, with `payload.env` merged
 over your own. Payload: `run_path`, `step_dir`, `state_mutating`, `in`, `out`,
-`out_schema`, `tools`, `side_effects`, `requires`, `env`. The `env` block is
+`out_schema`, `tools`, `side_effects`, `requires`, `fingerprint`, `env`. The `env` block is
 engine-set only (`ORCHESTRATOR_STEP_ID`, `_STEP_DIR`, `_CHANGE_ID`,
 `CHANGE_ID`, `_PROMPT_DIRS`, `_PROMPT_PATH`) — never a copy of yours, so it
 cannot leak your secrets into printed output.
@@ -106,6 +106,31 @@ the engine replaces with `{"reason": "script exited N"}`.
 (`verdict: {type: enum, values: [pass, needs_work], fail_on: [needs_work]}`).
 Reporting one routes `on_failure` even if the driver said `completed`, so a
 rejected review can never be waved through.
+
+**`checks`.** An artifact out may declare `checks:` (`min_bytes: N`,
+`contains: [text, …]`, `parses: yaml | json`). `validate_out` enforces them, so
+a failing file is the same `error` answer as a missing one.
+
+**`routes`.** A step entry may branch on its outputs once it has `completed`
+(after `fail_on`, so a rejected verdict still goes `on_failure`):
+`routes: [{when: {severity: [low, trivial], area: billing}, goto: quick-fix}]`.
+A list means "one of", a scalar means "equals", every key must match, and a key
+absent from `out` never matches. The first matching case wins (`route: branch`);
+none matching falls through to the next entry. `goto` may name any step; one at
+or before the step itself is a loop, capped by `max_retries` like `on_failure`.
+Gates cannot declare routes. Bad `routes` or `on_failure` targets are an error.
+
+**`fingerprint`.** A contract may opt in with a top-level
+`skip_when_unchanged: true`; the step then carries a sha256 of its own files
+and its declared `in` artifacts. Every other step gets `null`, meaning never
+skip. It is opt-in because the fingerprint covers nothing else: a step that
+reads git state, human input or the web would be skipped wrongly, so opt in
+only for steps whose result depends on nothing beyond those. The parser
+rejects it together with `side_effects`, `state_mutating` or a gate. The
+driver may skip a ready step whose fingerprint equals that of the step's last
+`completed` record in this run, reporting the previous outputs again with
+`--after <step> --status completed --out <previous>`. The engine keeps no
+history, so it cannot do this itself.
 
 **`reset_to`.** A failed step may name its own rework target in `--out`, at or
 before itself; it wins over the static `on_failure` edge.

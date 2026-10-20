@@ -63,6 +63,8 @@ class AgentStepContract:
     # doc. record.py redacts them out of the history entry; artifact paths
     # and hashes survive (see redact.py).
     pii: list[str] = field(default_factory=list)
+    # Opt-in: the driver may skip this step when its fingerprint is unchanged.
+    skip_when_unchanged: bool = False
 
 
 @dataclass
@@ -85,6 +87,7 @@ class ScriptStepContract:
     # doc. record.py redacts them out of the history entry; artifact paths
     # and hashes survive (see redact.py).
     pii: list[str] = field(default_factory=list)
+    skip_when_unchanged: bool = False
 
     # Parsed at load time, without changing the existing constructor.
     params: dict[str, str] = field(default_factory=dict, init=False)
@@ -252,8 +255,31 @@ def _parse_io_map(step_id: str, key: str, value: Any) -> dict[str, dict]:
                     f"step contract {step_id}: {key}.{name} fail_on: await_input is reserved for asking a human"
                     " and cannot be a failure verdict"
                 )
+        if "checks" in spec:
+            _check_checks(step_id, key, name, spec)
         parsed[str(name)] = dict(spec)
     return parsed
+
+
+def _check_checks(step_id: str, key: str, name: Any, spec: dict) -> None:
+    """Validate an artifact out's ``checks:`` block, enforced by ``validate_out``."""
+    where = f"step contract {step_id}: {key}.{name} checks:"
+    if key != "out" or "artifact" not in spec:
+        raise ContractError(f"{where} is only valid on an artifact under out:")
+    checks = spec["checks"]
+    if not isinstance(checks, dict):
+        raise ContractError(f"{where} must be a mapping")
+    unknown = sorted(str(k) for k in checks if k not in ("min_bytes", "contains", "parses"))
+    if unknown:
+        raise ContractError(f"{where} unknown keys {unknown} (expected min_bytes, contains, parses)")
+    size = checks.get("min_bytes", 0)
+    if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+        raise ContractError(f"{where} min_bytes must be a non-negative integer (got {size!r})")
+    contains = checks.get("contains", [])
+    if not isinstance(contains, list) or any(not isinstance(v, str) for v in contains):
+        raise ContractError(f"{where} contains must be a list of strings (got {contains!r})")
+    if checks.get("parses", "yaml") not in ("yaml", "json"):
+        raise ContractError(f"{where} parses must be yaml or json (got {checks['parses']!r})")
 
 
 def _resolve_kind(step_id: str, data: dict[str, Any], run: str | None) -> str:
@@ -311,6 +337,13 @@ def _make_contract(
 ) -> StepContract:
     kind = _resolve_kind(step_id, data, run)
     v2 = _v2_fields(step_id, data)
+    skip = data.get("skip_when_unchanged", False)
+    if not isinstance(skip, bool):
+        raise ContractError(f"step contract {step_id}: skip_when_unchanged: must be true or false (got {skip!r})")
+    if skip and (kind == KIND_GATE or v2["side_effects"] or data.get("state_mutating")):
+        raise ContractError(
+            f"step contract {step_id}: skip_when_unchanged: cannot be combined with a gate, side_effects: or state_mutating:"
+        )
 
     if kind == KIND_GATE:
         return GateStepContract(
@@ -325,6 +358,7 @@ def _make_contract(
         id=data.get("id", step_id),
         state_mutating=bool(data.get("state_mutating", False)),
         kind=kind,
+        skip_when_unchanged=skip,
         **v2,
     )
     if run is None:
