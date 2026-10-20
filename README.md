@@ -24,6 +24,7 @@ python -m orchestrator_next
 ```
 Usage:
   orchestrator next <workflow> --config PATH [--slug S] [--artifacts-dir ABS]
+      [--bindings PATH]...
       [--after STEP (--status completed|failed|abandoned
                      | --exit-code N [--stdout-file F])
        [--out JSON] [--attempt N]]
@@ -45,7 +46,7 @@ Every `ready` answer is `{status, kind, step_id, route, payload}` (plus
 
 **`kind: exec`** — run `payload.run_path` yourself, with `payload.env` merged
 over your own. Payload: `run_path`, `step_dir`, `state_mutating`, `in`, `out`,
-`out_schema`, `tools`, `side_effects`, `requires`, `fingerprint`, `env`. The `env` block is
+`out_schema`, `tools`, `bindings`, `side_effects`, `requires`, `fingerprint`, `env`. The `env` block is
 engine-set only (`ORCHESTRATOR_STEP_ID`, `_STEP_DIR`, `_CHANGE_ID`,
 `CHANGE_ID`, `_PROMPT_DIRS`, `_PROMPT_PATH`) — never a copy of yours, so it
 cannot leak your secrets into printed output.
@@ -156,6 +157,32 @@ path is a claim, and a claim is checked.
 **Retries.** `--attempt` is the driver's count of how many times that step has
 run, for the whole run; the engine stops at `max_retries`.
 
+## Tool bindings
+
+A contract's `tools:` may name role capabilities `<role>.<verb>` — `ticket.read`,
+`ticket.write`, `forge.pr`, `chat.post` — where the role is `ticket`, `forge` or
+`chat`. Which product fills a role is a team choice, kept out of the workflow the
+way models are. A bindings file says what:
+
+```yaml
+roles:
+  ticket: { provider: linear, via: mcp, server: linear }
+  forge: { provider: github, via: cli, command: gh }
+  chat: { provider: slack, via: mcp, server: slack }
+```
+
+Each binding needs string `provider` and `via` (`mcp`, `cli` or `script`); any
+other string keys pass through verbatim. Layers, lowest to highest: the pack's
+`bindings.yaml` (optional), then each `--bindings PATH` in order (a driver passes
+team, then repo, then run). The highest layer naming a role owns it wholesale —
+no field merging. A missing or invalid `--bindings` file is exit 3.
+
+Every non-gate `ready` payload carries `bindings`: `{role: binding}` for the roles
+that step's `tools` name, `{}` if none. A named role with no binding is `null`:
+unbound, so the driver or agent falls back to its own detection; the engine does
+not guess. When non-empty, the same dict is in `payload.env` as compact JSON
+`ORCHESTRATOR_BINDINGS`.
+
 ## Driving it
 
 The protocol is small but has sharp edges (attempt counting, gate tokens,
@@ -175,6 +202,7 @@ describing what its scripts need — see
     script.sh              exec steps: the script
   DRIVER.md                what this pack's scripts need from a driver
   models.yaml              read by the DRIVER, not the engine
+  bindings.yaml            optional default tool bindings (see Tool bindings)
 ```
 
 Packs are installed by a separate tool and handed to the engine with
