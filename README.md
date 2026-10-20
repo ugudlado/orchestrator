@@ -173,9 +173,22 @@ roles:
 
 Each binding needs string `provider` and `via` (`mcp`, `cli` or `script`); any
 other string keys pass through verbatim. Layers, lowest to highest: the pack's
-`bindings.yaml` (optional), then each `--bindings PATH` in order (a driver passes
-team, then repo, then run). The highest layer naming a role owns it wholesale —
-no field merging. A missing or invalid `--bindings` file is exit 3.
+`bindings.yaml` (optional), then the repo's `.orchestrator/bindings.yaml`
+(optional, picked up automatically, no flag), then each `--bindings PATH` in order
+(a driver passes team, then run). The repo layer is read only when the pack is
+installed at `<repo>/.orchestrator/<pack>` (the parent directory is named
+`.orchestrator`), so a dev checkout like `workflows/config` never picks up a
+stray file. The highest layer naming a role owns it wholesale — no field
+merging. A missing or invalid `--bindings` file, or an invalid repo file, is
+exit 3.
+
+Consumers should commit `.orchestrator/bindings.yaml` and ignore the installed
+pack:
+
+```gitignore
+.orchestrator/*
+!.orchestrator/bindings.yaml
+```
 
 Every non-gate `ready` payload carries `bindings`: `{role: binding}` for the roles
 that step's `tools` name, `{}` if none. A named role with no binding is `null`:
