@@ -94,7 +94,7 @@ Gaps and sharp edges:
 - **Use external Redis.** The default in-memory store lost a parked gate across a restart.
 - **Orphaned workers.** Killing the worker doesn't kill the step's subprocess, and Inngest re-runs the step anyway. Fixed here with a process group per step and a lock file holding its id; tested above.
 - **"Rerun from step" rewinds Inngest's memo, not the artifacts on disk.** Treat it as unsafe for `state_mutating` steps.
-- **No auth on the self-hosted dashboard or API.** Keep it on the tailnet only.
+- **No auth on the self-hosted dashboard or API.** Keep it on the tailnet only. Anyone holding the event key can start a run whose ticket text reaches an agent with edit rights: the worker fences ticket text and answers as untrusted data, and the real worker should keep a narrow tool allowlist (`ORCH_CLAUDE_ARGS`).
 - The dashboard is a developer trace. Step names and JSON, not plain language, and nothing inside a Claude Code step unless the worker streams it.
 - The `/v1/events/{id}/runs` list reported `Completed` for runs that `/v1/runs/{id}` showed `Running`. Don't build on the list endpoint.
 - Lost-worker recovery took about 3 minutes (Connect lease plus retry). That's fine for agent steps, but worth knowing.
