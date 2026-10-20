@@ -40,7 +40,8 @@ The cap is checked against that step's own counter; the engine stops with
 the engine keeps no history, so only you can count it.
 
 --bindings PATH (repeatable) layers a tool-bindings file over the pack's own
-bindings.yaml; later flags win, and the highest layer naming a role owns it
+bindings.yaml and the repo's .orchestrator/bindings.yaml (read automatically
+when the pack is installed at <repo>/.orchestrator/<pack>); later flags win, and the highest layer naming a role owns it
 wholesale. Each ready step's payload.bindings maps the roles its tools name
 (ticket, forge, chat) to a binding, or null when unbound.
 

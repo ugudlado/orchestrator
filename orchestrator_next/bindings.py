@@ -62,14 +62,20 @@ def load_bindings_file(path: Path) -> dict[str, dict[str, str]]:
 
 
 def load_bindings(config_root: Path, files: list[Path] | None = None) -> dict[str, dict[str, str]]:
-    """Merge the pack's ``bindings.yaml`` (optional) with ``files``, later wins.
+    """Merge the pack's ``bindings.yaml``, the repo's, then ``files``; later wins.
 
-    The highest layer naming a role owns it wholesale — no field merging.
+    Both the pack and repo files are optional. The repo file is
+    ``<repo>/.orchestrator/bindings.yaml``, read only when the pack is installed
+    at ``<repo>/.orchestrator/<pack>`` so a dev checkout never picks up a stray
+    file. The highest layer naming a role owns it wholesale — no field merging.
     """
     merged: dict[str, dict[str, str]] = {}
-    pack_file = config_root / "bindings.yaml"
-    if pack_file.is_file():
-        merged.update(load_bindings_file(pack_file))
+    candidates = [config_root / "bindings.yaml"]
+    if config_root.resolve().parent.name == ".orchestrator":
+        candidates.append(config_root.parent / "bindings.yaml")
+    for layer in candidates:
+        if layer.is_file():
+            merged.update(load_bindings_file(layer))
     for path in files or []:
         merged.update(load_bindings_file(path))
     return merged

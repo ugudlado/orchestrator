@@ -138,3 +138,43 @@ def test_cli_flag_repeatable_and_missing_exits_3(tmp_path):
     bad = run("--bindings", str(tmp_path / "nope.yaml"))
     assert bad.returncode == 3
     assert json.loads(bad.stdout)["status"] == "error"
+
+
+def _installed(tmp_path: Path, tools: list[str], pack_bindings: dict | None = None) -> Path:
+    """A pack at ``<tmp>/.orchestrator/pack``, the install convention."""
+    base = tmp_path / ".orchestrator"
+    base.mkdir()
+    return _pack(base, tools, pack_bindings)
+
+
+def test_repo_layer_loaded_for_installed_pack(tmp_path):
+    pack = _installed(tmp_path, ["ticket.read"])
+    _bindings(tmp_path / ".orchestrator" / "bindings.yaml", {"ticket": LINEAR})
+    assert _first(pack)["payload"]["bindings"] == {"ticket": LINEAR}
+
+
+def test_repo_layer_ignored_outside_orchestrator_dir(tmp_path):
+    pack = _pack(tmp_path, ["ticket.read"])
+    _bindings(tmp_path / "bindings.yaml", {"ticket": LINEAR})
+    assert _first(pack)["payload"]["bindings"] == {"ticket": None}
+
+
+def test_repo_layer_overrides_pack_layer(tmp_path):
+    pack = _installed(tmp_path, ["ticket.read"], {"ticket": LINEAR})
+    repo = {"ticket": {"provider": "jira", "via": "cli"}}
+    _bindings(tmp_path / ".orchestrator" / "bindings.yaml", repo)
+    assert _first(pack)["payload"]["bindings"] == {"ticket": repo["ticket"]}
+
+
+def test_flag_overrides_repo_layer(tmp_path):
+    pack = _installed(tmp_path, ["ticket.read"])
+    _bindings(tmp_path / ".orchestrator" / "bindings.yaml", {"ticket": LINEAR})
+    team = _bindings(tmp_path / "team.yaml", {"ticket": {"provider": "jira", "via": "cli"}})
+    assert _first(pack, team)["payload"]["bindings"]["ticket"]["provider"] == "jira"
+
+
+def test_invalid_repo_file_is_error(tmp_path):
+    pack = _installed(tmp_path, ["ticket.read"])
+    (tmp_path / ".orchestrator" / "bindings.yaml").write_text("roles: [nope]\n", encoding="utf-8")
+    with pytest.raises(NextError, match="roles"):
+        _first(pack)
