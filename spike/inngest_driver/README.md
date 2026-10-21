@@ -55,6 +55,26 @@ curl -X POST localhost:8288/e/<key> -d '{"name":"orchestrator/gate.decided","dat
 
 Dashboard: http://localhost:8288.
 
+## Studio on your laptop
+
+One command starts Redis (if installed), Inngest, the worker and Studio, all on 127.0.0.1:
+
+```bash
+# workflows pack checked out next to this repo (../workflows), claude signed in
+spike/inngest_driver/run_local.sh --repo ~/code/my-repo
+# try the UI at no cost: stub agents and scripts
+spike/inngest_driver/run_local.sh --stub --repo ~/code/scratch-repo
+```
+
+Open http://localhost:8790. Start a run there, review its files (select text to
+comment), approve or send feedback at gates, answer questions. "View trace" opens
+the Inngest dashboard on :8288. State and generated keys live in
+`~/.orchestrator-studio`; logs are `~/.orchestrator-studio/*.log`. Needs uv and
+Node 20+. On macOS, `brew install redis` keeps parked runs across restarts.
+
+UI work: `cd studio && npm run dev` serves the UI with hot reload and proxies
+`/api` to the running `studio_server` on 8790.
+
 ## Findings (2026-10-20, Inngest server 1.46.0, Python SDK 0.5.19)
 
 | Test                                                                    | Result                                                                                                         |
