@@ -134,7 +134,9 @@ def sandbox_settings(result_file: str, hidden: list[str] | None = None) -> dict:
     domains = [d for d in os.environ.get("ORCH_SANDBOX_DOMAINS", "").split(",") if d]
     deny = DENY_READ + (hidden or [])
     # The project's MCP secrets and server list: not readable, and not something a step can change.
-    repo = os.environ.get("REPO_ROOT")
+    # Real paths, so a symlinked REPO_ROOT can't slip past the rules. Bash's denyRead masks the file
+    # itself, so a link the agent makes to it reads nothing either.
+    repo = os.path.realpath(os.environ["REPO_ROOT"]) if os.environ.get("REPO_ROOT") else None
     locked = [f"{repo}/.orchestrator/mcp.env", f"{repo}/.mcp.json"] if repo else []
     return {
         "sandbox": {
