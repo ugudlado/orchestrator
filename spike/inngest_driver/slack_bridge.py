@@ -33,7 +33,8 @@ APPROVERS = {u for u in os.environ.get("SLACK_APPROVERS", "").split(",") if u}
 SNIPPET = 2500  # characters of each shown artifact; Slack caps a section at 3000
 
 client = inngest.Inngest(app_id="orchestrator-slack", is_production=os.environ.get("INNGEST_DEV") != "1")
-slack = AsyncApp(token=os.environ["SLACK_BOT_TOKEN"])
+# Socket Mode carries no HTTP requests to sign, so there is no signing secret to check.
+slack = AsyncApp(token=os.environ["SLACK_BOT_TOKEN"], request_verification_enabled=False)
 
 TITLES = {
     "gate": ":raising_hand: *{slug}* is waiting for your sign-off at *{step_id}*",
