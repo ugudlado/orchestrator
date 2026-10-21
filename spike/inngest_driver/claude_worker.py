@@ -10,7 +10,8 @@ from the pack's models.yaml (`step_models` tier -> first route's model_id).
 Env: ORCHESTRATOR_CONFIG (pack root), WORKTREE_PATH (cwd), ORCHESTRATOR_ARTIFACTS_DIR,
 ORCHESTRATOR_ATTEMPT, ORCH_USER_DIRECTION, ORCHESTRATOR_USER_ANSWER,
 ORCH_MODEL_OVERRIDE (one model for every step), ORCH_SANDBOX_DOMAINS (comma-separated hosts
-the sandbox may reach), ORCH_CLAUDE_ARGS (extra CLI args).
+the sandbox may reach; empty by default, and every host listed is a way out for data),
+ORCH_CLAUDE_ARGS (extra CLI args).
 Prints one JSON line: {model, cost_usd, num_turns, duration_ms, session_id, is_error}.
 """
 
@@ -91,6 +92,16 @@ def brief(payload: dict, result_file: str) -> str:
     return "\n\n".join(parts)
 
 
+DENY_READ = ["~/.ssh", "~/.aws", "~/.config", "~/.netrc", "~/.docker", "~/.kube", "~/.gnupg", "~/.claude"]
+SECRET_ENV = re.compile(r"^INNGEST_|TOKEN|SECRET|PASSWORD|_KEY$")
+KEEP_ENV = {"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"}  # claude's own sign-in
+
+
+def step_env() -> dict:
+    """The worker's env minus the driver's secrets (Inngest keys and the like); claude keeps its sign-in."""
+    return {k: v for k, v in os.environ.items() if k in KEEP_ENV or not SECRET_ENV.search(k)}
+
+
 def sandbox_settings(result_file: str) -> dict:
     """Claude Code's Bash sandbox instead of a command allowlist: any test or build
     command runs without a prompt, but writes stay in the worktree, the run's
@@ -105,6 +116,8 @@ def sandbox_settings(result_file: str) -> dict:
             "failIfUnavailable": True,
             "filesystem": {
                 "allowWrite": [os.environ["ORCHESTRATOR_ARTIFACTS_DIR"], str(Path(result_file).parent)],
+                # Ticket text can steer the agent, so Bash must not read the machine's credentials.
+                "denyRead": DENY_READ,
             },
             "network": {"allowedDomains": domains},
         }
@@ -137,7 +150,7 @@ def main() -> None:
         json.dumps(sandbox_settings(result_file)),
         *shlex.split(os.environ.get("ORCH_CLAUDE_ARGS", "")),
     ]
-    proc = subprocess.run(argv, capture_output=True, text=True, check=False)
+    proc = subprocess.run(argv, capture_output=True, text=True, check=False, env=step_env())
     try:
         r = json.loads(proc.stdout)
     except json.JSONDecodeError:

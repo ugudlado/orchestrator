@@ -104,7 +104,12 @@ socat): any command runs without a prompt, writes are limited to the worktree,
 the run's artifacts/results and temp, the network is off unless
 `ORCH_SANDBOX_DOMAINS` lists hosts, and `failIfUnavailable` makes a step fail
 rather than run unsandboxed. `--strict-mcp-config` keeps the machine's MCP
-servers out of the step.
+servers out of the step. Because ticket text can steer the agent, sandboxed
+commands can't read `~/.ssh`, `~/.aws`, `~/.config`, `~/.claude` and similar,
+and the step's env drops `INNGEST_*` and other `*TOKEN*`/`*SECRET*`/`*_KEY`
+variables (claude's own sign-in stays). Keep `ORCH_SANDBOX_DOMAINS` short: any
+general-purpose host there (a paste site, a git host with write access) is an
+exfiltration path.
 
 Same ticket again on a fresh clone: the agents ran `pytest config/tests` (191 passed),
 proved the new test fails on a 100644 script, and found pre-existing shell-test
