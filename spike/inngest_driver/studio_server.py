@@ -186,7 +186,12 @@ def _waiting(slug: str, attention: list[dict], decided: list[dict], answered: li
     if done:
         return None
     keys = ("kind", "step_id", "attempt", "wait", "show", "question")
-    return {**{k: a[k] for k in keys if a.get(k) is not None}, "at": at}
+    out = {**{k: a[k] for k in keys if a.get(k) is not None}, "at": at}
+    if out.get("show") and a.get("artifacts_dir"):
+        # The driver names shown files by absolute path; Studio names them relative to the artifacts dir.
+        art = Path(a["artifacts_dir"])
+        out["show"] = {n: str(Path(p).relative_to(art)) if Path(p).is_relative_to(art) else p for n, p in out["show"].items()}
+    return out
 
 
 def list_runs() -> list[dict]:
