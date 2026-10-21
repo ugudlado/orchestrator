@@ -209,6 +209,13 @@ async def run_judgment(run: dict, ans: dict, attempt: int, state: dict, extra_en
     }
 
 
+async def _notify(ctx: inngest.Context, label: str, data: dict) -> None:
+    """Tell the chat bridge a person is needed. Memoized like any step, so a replay
+    doesn't post twice. It goes out before the wait opens, and a person's click
+    comes seconds later at the earliest, so the wait has no lookback problem."""
+    await ctx.step.send_event(label, [inngest.Event(name="orchestrator/attention", data=data)])
+
+
 @client.create_function(
     fn_id="drive-workflow",
     name="Drive workflow",
@@ -218,13 +225,6 @@ async def run_judgment(run: dict, ans: dict, attempt: int, state: dict, extra_en
     concurrency=[inngest.Concurrency(limit=1)],
     retries=2,
 )
-async def _notify(ctx: inngest.Context, label: str, data: dict) -> None:
-    """Tell the chat bridge a person is needed. Memoized like any step, so a replay
-    doesn't post twice. It goes out before the wait opens, and a person's click
-    comes seconds later at the earliest, so the wait has no lookback problem."""
-    await ctx.step.send_event(label, [inngest.Event(name="orchestrator/attention", data=data)])
-
-
 async def drive_workflow(ctx: inngest.Context) -> dict:
     d = ctx.event.data
     run = {k: d.get(k) for k in ("workflow", "pack", "slug", "artifacts_dir", "repo_root")}
