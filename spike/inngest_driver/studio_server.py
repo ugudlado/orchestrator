@@ -265,7 +265,11 @@ def _summary(step_dir: Path, step_id: str, kind: str) -> str | None:
     skill = step_dir / "SKILL.md"
     if skill.is_file():
         m = re.match(r"---\n(.*?)\n---", skill.read_text(errors="replace"), re.S)
-        desc = (yaml.safe_load(m.group(1)) or {}).get("description") if m else None
+        try:
+            desc = (yaml.safe_load(m.group(1)) or {}).get("description") if m else None
+        except yaml.YAMLError:  # some frontmatter isn't strict YAML; take the line as written
+            line = re.search(r'^description:\s*"?(.*?)"?\s*$', m.group(1), re.M) if m else None
+            desc = line.group(1) if line else None
         if desc:
             return re.split(r"\s+Use (?:when|at|after|before)\b", desc)[0].strip()
     return EXEC_SUMMARY.get(step_id) if kind == "exec" else None
