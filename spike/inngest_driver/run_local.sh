@@ -6,8 +6,8 @@
 #
 #   --repo PATH     a project folder (git repo) runs may change (repeatable)
 #   --projects DIR  every git repo (or folder with a .mcp.json) under DIR is a project too
-#                   A project's .mcp.json gives its agents their tools; secrets for it go in
-#                   <project>/.orchestrator/mcp.env (keep that out of git).
+#                   A project's .mcp.json gives its agents their tools (Codex: .codex/config.toml);
+#                   sign in to OAuth servers once with /mcp in Claude Code or `codex mcp login`.
 #   --pack PATH  the workflow pack (default: ../workflows/config next to this checkout)
 #   --stub       judgment steps write placeholder outputs instead of calling Claude Code,
 #                and exec steps are stubbed too; for trying the UI at no cost

@@ -53,8 +53,6 @@ from pathlib import Path
 
 import yaml
 
-from . import project_mcp
-
 HERE = Path(__file__).resolve().parent
 API = os.environ.get("INNGEST_API_BASE_URL", "http://127.0.0.1:8288").rstrip("/")
 UI_URL = os.environ.get("INNGEST_UI_URL", "http://localhost:8288").rstrip("/")
@@ -584,15 +582,35 @@ def project_dirs() -> list[str]:
     return list(dict.fromkeys(found))
 
 
+def mcp_summary(project: str) -> list[dict]:
+    """The servers in a project's .mcp.json: name, kind and what runs (no query strings, no env)."""
+    try:
+        found = json.loads((Path(project) / ".mcp.json").read_text()).get("mcpServers") or {}
+    except (OSError, ValueError, AttributeError):
+        return []
+    out = []
+    for name, srv in found.items():
+        if not isinstance(srv, dict):
+            continue
+        kind = srv.get("type") or ("http" if srv.get("url") else "stdio")
+        what = (
+            str(srv.get("url", "")).split("?")[0]
+            if kind != "stdio"
+            else " ".join([srv.get("command", ""), *srv.get("args", [])])
+        )
+        out.append({"name": name, "type": kind, "what": what[:120]})
+    return out
+
+
 def projects() -> list[dict]:
     """What Studio shows per project: its MCP servers (names and missing variables, never values)."""
     return [
         {
             "name": Path(d).name,
             "path": d,
-            "mcp": project_mcp.summary(d),
+            "mcp": mcp_summary(d),
             "has_mcp_json": (Path(d) / ".mcp.json").is_file(),
-            "has_mcp_env": (Path(d) / ".orchestrator" / "mcp.env").is_file(),
+            "has_codex_config": (Path(d) / ".codex" / "config.toml").is_file(),
             "has_bindings": (Path(d) / ".orchestrator" / "bindings.yaml").is_file(),
         }
         for d in project_dirs()

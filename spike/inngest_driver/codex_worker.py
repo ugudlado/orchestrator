@@ -10,7 +10,8 @@ this worker as a user whose home holds nothing but Codex's sign-in.
 
 Env: as claude_worker.py, plus ORCH_CODEX_MODEL (default: Codex's configured model)
 and ORCH_CODEX_ARGS (extra CLI args, e.g. `-c model_reasoning_effort=medium`).
-The project's MCP servers (REPO_ROOT's .mcp.json, see project_mcp.py) go in as `-c` overrides.
+MCP: Codex reads the project's .codex/config.toml itself once the project is trusted in
+~/.codex/config.toml, and its OAuth sign-ins from `codex mcp login`.
 Prints one JSON line: {model, cost_usd, num_turns, duration_ms, session_id, is_error, tokens}.
 """
 
@@ -23,7 +24,6 @@ import sys
 import time
 from pathlib import Path
 
-import project_mcp
 from claude_worker import ENV_KEEP, SECRET_ENV, brief
 
 SIGN_IN = {"OPENAI_API_KEY", "CODEX_API_KEY"}
@@ -31,12 +31,13 @@ KEEP = ENV_KEEP + ["OPENAI_", "CODEX_"]
 
 
 def step_env() -> dict:
-    keep = KEEP + [k for k in os.environ.get("ORCH_STEP_ENV_KEEP", "").split(",") if k]
+    extra = {k for k in os.environ.get("ORCH_STEP_ENV_KEEP", "").split(",") if k}
+    keep = KEEP + sorted(extra)
 
     def kept(name: str) -> bool:
         return any(name.upper().startswith(k) if k.endswith("_") else name.upper() == k for k in keep)
 
-    return {k: v for k, v in os.environ.items() if kept(k) and (k in SIGN_IN or not SECRET_ENV.search(k))}
+    return {k: v for k, v in os.environ.items() if kept(k) and (k in SIGN_IN or k in extra or not SECRET_ENV.search(k))}
 
 
 def main() -> None:
@@ -60,7 +61,6 @@ def main() -> None:
         "--add-dir",
         str(Path(result_file).parent),
         *(["--model", model] if model else []),
-        *project_mcp.codex_args(os.environ.get("REPO_ROOT") or os.getcwd()),
         *shlex.split(os.environ.get("ORCH_CODEX_ARGS", "")),
         brief(payload, result_file),
     ]

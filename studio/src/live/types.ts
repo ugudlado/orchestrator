@@ -59,8 +59,8 @@ export interface LiveRun {
   repo: string | null;
 }
 
-export interface LiveMcp { name: string; type: "stdio" | "http" | "sse" | (string & {}); what: string; missing: string[] }
-export interface LiveProject { name: string; path: string; mcp: LiveMcp[]; has_mcp_json: boolean; has_mcp_env: boolean; has_bindings: boolean }
+export interface LiveMcp { name: string; type: "stdio" | "http" | "sse" | (string & {}); what: string }
+export interface LiveProject { name: string; path: string; mcp: LiveMcp[]; has_mcp_json: boolean; has_codex_config: boolean; has_bindings: boolean }
 export interface LiveHealth { ok: boolean; inngest: boolean; inngest_error?: string | null; ui_url: string; repos: string[]; projects?: LiveProject[]; workflows: string[]; runs_root?: string; pack?: string }
 
 export interface LiveRunList { runs: LiveRun[]; stale: boolean; error: string | null }

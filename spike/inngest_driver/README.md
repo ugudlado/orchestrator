@@ -79,25 +79,22 @@ UI work: `cd studio && npm run dev` serves the UI with hot reload and proxies
 
 A project is a folder (a git repo) that runs work in. Pass them with `--repo`, or
 `--projects DIR` for every repo under a folder (on the box: `ORCH_STUDIO_REPOS`,
-`ORCH_PROJECTS_ROOT`). The web app has no connectors of its own: a project's
-agents get their tools from the project's `.mcp.json`, the file Claude Code
-already reads, and the Codex worker gets the same servers as `-c mcp_servers.*`.
+`ORCH_PROJECTS_ROOT`). The web app has no connectors of its own: a project's agents use
+the MCP servers the project declares, loaded by the agent harness itself.
+Claude Code reads `.mcp.json` (a headless run loads it without asking; the
+worker pre-allows those servers' tools), and Codex reads `.codex/config.toml`
+once the project is trusted in `~/.codex/config.toml`.
 
 ```json
-{"mcpServers": {"linear": {"command": "npx", "args": ["-y", "<server package>"],
-                           "env": {"LINEAR_API_KEY": "${LINEAR_API_KEY}"}}}}
+{"mcpServers": {"linear": {"type": "http", "url": "https://mcp.linear.app/mcp"}}}
 ```
 
-`${VAR}` comes from `<project>/.orchestrator/mcp.env` (KEY=value, keep it out
-of git) and nowhere else, so a `.mcp.json` can't reach the worker's own keys. It
-is read from the project's main checkout, never the run's worktree, so a step
-can't give itself a server. A server with a missing variable is
-left out of the run rather than started blank, and Studio's Projects view says
-which variable it needs. Step agents never see the values: Claude gets the
-resolved servers through a temporary `--mcp-config` file that its Read and Bash
-are denied, plus `--allowedTools mcp__<name>` since a headless step can't ask.
-Codex has no read sandbox and the `-c` values show in `ps`, so run its worker as
-a user of its own.
+Keys: prefer OAuth servers and sign in once as the worker's user (`/mcp` in
+Claude Code, `codex mcp login`); the tokens stay in `~/.claude` / `~/.codex`,
+which steps can't read. A server that needs an API key gets it through `${VAR}`
+from the step's environment: list the name in `ORCH_STEP_ENV_KEEP`, knowing the
+agent can see it. Steps can't edit `.mcp.json` or `.codex/config.toml`, so a step
+can't add a server for later steps.
 
 ## Findings (2026-10-20, Inngest server 1.46.0, Python SDK 0.5.19)
 
