@@ -134,10 +134,11 @@ def sandbox_settings(result_file: str, hidden: list[str] | None = None) -> dict:
     domains = [d for d in os.environ.get("ORCH_SANDBOX_DOMAINS", "").split(",") if d]
     deny = DENY_READ + (hidden or [])
     # The project's MCP secrets and server list: not readable, and not something a step can change.
-    # Real paths, so a symlinked REPO_ROOT can't slip past the rules. Bash's denyRead masks the file
-    # itself, so a link the agent makes to it reads nothing either.
-    repo = os.path.realpath(os.environ["REPO_ROOT"]) if os.environ.get("REPO_ROOT") else None
-    locked = [f"{repo}/.orchestrator/mcp.env", f"{repo}/.mcp.json"] if repo else []
+    # Both the given and the real path, so a symlinked REPO_ROOT can't slip past either matcher.
+    raw = os.environ.get("REPO_ROOT")
+    roots = list(dict.fromkeys([raw, os.path.realpath(raw)])) if raw else []
+    secrets = [f"{r}/.orchestrator/mcp.env" for r in roots]
+    locked = secrets + [f"{r}/.mcp.json" for r in roots]
     return {
         "sandbox": {
             "enabled": True,
@@ -147,7 +148,7 @@ def sandbox_settings(result_file: str, hidden: list[str] | None = None) -> dict:
             "filesystem": {
                 "allowWrite": [os.environ["ORCHESTRATOR_ARTIFACTS_DIR"], str(Path(result_file).parent)],
                 # Ticket text can steer the agent, so Bash must not read the machine's credentials.
-                "denyRead": deny + locked[:1],
+                "denyRead": deny + secrets,
                 "denyWrite": locked,
             },
             "network": {"allowedDomains": domains},
@@ -155,7 +156,7 @@ def sandbox_settings(result_file: str, hidden: list[str] | None = None) -> dict:
         # The sandbox covers Bash only; deny the same paths to Read/Grep/Glob.
         "permissions": {
             "deny": [_rule("Read", d) for d in deny]
-            + [_rule("Read", f, tree=False) for f in locked[:1]]
+            + [_rule("Read", f, tree=False) for f in secrets]
             + [_rule("Edit", f, tree=False) for f in locked]
         },
     }
