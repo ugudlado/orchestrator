@@ -77,6 +77,26 @@ Dashboard: http://localhost:8288.
 | Full path with real exec scripts (stub judgment)                                        | Passed: worktree created and removed, state file stamped, workflow-report counts 26 completed                  |
 | Worker SIGKILLed mid-step, orphan check                                                 | PASS: the re-run (about 2.5 min later) killed the leftover process group first                                 |
 
+### Real repo, per-step models (2026-10-21)
+
+The workflows repo, ticket "make step scripts executable and add a test", models
+from `models.yaml`. The run went triage (fix) → diagnose (hotfix) → hotfix-signoff
+→ implement → code-review (pass, 9/10) → verify → human-review (asked, answered)
+→ learn, stopping at pr-signoff. The result became ugudlado/workflows#4.
+
+| Step                                   | Model     | Cost           | Time                       |
+| -------------------------------------- | --------- | -------------- | -------------------------- |
+| load-ticket-context, triage, ticket-\* | haiku-4-5 | $0.04 each     | about 15 s each            |
+| diagnose                               | sonnet-5  | $0.84          | 219 s                      |
+| implement                              | opus-5    | $2.15          | 205 s                      |
+| code-review                            | fable-5-1 | $2.08          | 197 s                      |
+| verify-changes                         | sonnet-5  | $0.66          | 145 s                      |
+| human-review, learn, ux-critique       | sonnet-5  | $0.24 to $0.49 | 23 to 109 s                |
+| **Total**                              |           | **$7.14**      | about 20 min of model time |
+
+- **The tool allowlist was too narrow.** Agents called pytest by full path or as `python3`, so the `Bash(python -m pytest:*)` pattern never matched. Diagnose, implement and code-review all recorded that they couldn't run the tests, and code-review said so plainly. The worker needs an allowlist that matches how agents actually call the project's test command, or a sandbox.
+- **The container restarted between runs** (Redis and the server were gone). On a VM they would be services.
+
 Found on the way:
 
 - **An event sent before the wait opens is dropped.** `wait_for_event` has no lookback, so an approval or answer must come after the gate or question is posted (true for Slack buttons). Twice a scripted answer arrived seconds early and was lost.
