@@ -32,7 +32,7 @@ from slack_bolt.async_app import AsyncApp
 CHANNEL = os.environ["SLACK_CHANNEL"]
 APPROVERS = {u for u in os.environ.get("SLACK_APPROVERS", "").split(",") if u}
 RUNS_ROOT = Path(os.environ.get("ORCH_RUNS_ROOT", "/home/orch/runs"))
-SNIPPET = 2500
+SNIPPET = 2500  # characters of each shown artifact; Slack caps a section at 3000
 # dev.yaml's gates have no on_failure, so a reject without a step to go back to stops the run and
 # asks again. Default to the step that made what the gate shows (as Studio does); SLACK_REWORK
 # (JSON {gate: step}) overrides.
@@ -42,7 +42,7 @@ REWORK = {
     "quick-signoff": "triage",
     "pr-signoff": "implement",
     **json.loads(os.environ.get("SLACK_REWORK") or "{}"),
-}  # characters of each shown artifact; Slack caps a section at 3000
+}
 
 client = inngest.Inngest(app_id="orchestrator-slack", is_production=os.environ.get("INNGEST_DEV") != "1")
 # Socket Mode carries no HTTP requests to sign, so there is no signing secret to check.
