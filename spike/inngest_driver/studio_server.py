@@ -626,12 +626,26 @@ def _state(text: str) -> str:
     return "failed"
 
 
+def _committed(project: str) -> bool:
+    """A check starts the project's stdio servers, so only config as committed counts (as in a run)."""
+    for rel in (".mcp.json", ".claude/settings.json", ".claude/settings.local.json"):
+        head = subprocess.run(["git", "-C", project, "show", f"HEAD:{rel}"], capture_output=True, check=False)
+        f = Path(project) / rel
+        if (head.stdout if head.returncode == 0 else None) != (f.read_bytes() if f.is_file() else None):
+            return False
+    return True
+
+
 def check_mcp(project: str) -> dict:
     """Ask Claude Code itself, as the worker's user, whether each of the project's servers connects.
     The servers are approved for the check the same way a headless run approves them."""
     names = {s["name"] for s in mcp_summary(project)}
     res: dict = {"at": time.time(), "servers": {}, "error": None}
-    if names:
+    if names and not _committed(project):
+        res["error"] = (
+            "Not checked: .mcp.json or .claude settings have uncommitted changes, so their servers aren't trusted yet."
+        )
+    elif names:
         try:
             out = subprocess.run(
                 [CLAUDE, "--settings", '{"enableAllProjectMcpServers": true}', "mcp", "list"],
