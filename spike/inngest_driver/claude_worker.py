@@ -9,7 +9,8 @@ from the pack's models.yaml (`step_models` tier -> first route's model_id).
 
 Env: ORCHESTRATOR_CONFIG (pack root), WORKTREE_PATH (cwd), ORCHESTRATOR_ARTIFACTS_DIR,
 ORCHESTRATOR_ATTEMPT, ORCH_USER_DIRECTION, ORCHESTRATOR_USER_ANSWER,
-ORCH_MODEL_OVERRIDE (one model for every step), ORCH_CLAUDE_ARGS (extra CLI args).
+ORCH_MODEL_OVERRIDE (one model for every step), ORCH_SANDBOX_DOMAINS (comma-separated hosts
+the sandbox may reach), ORCH_CLAUDE_ARGS (extra CLI args).
 Prints one JSON line: {model, cost_usd, num_turns, duration_ms, session_id, is_error}.
 """
 
@@ -90,6 +91,26 @@ def brief(payload: dict, result_file: str) -> str:
     return "\n\n".join(parts)
 
 
+def sandbox_settings(result_file: str) -> dict:
+    """Claude Code's Bash sandbox instead of a command allowlist: any test or build
+    command runs without a prompt, but writes stay in the worktree, the run's
+    artifacts and results, and the network reaches only ORCH_SANDBOX_DOMAINS.
+    Fails closed: no bubblewrap/socat means the step errors instead of running bare."""
+    domains = [d for d in os.environ.get("ORCH_SANDBOX_DOMAINS", "").split(",") if d]
+    return {
+        "sandbox": {
+            "enabled": True,
+            "autoAllowBashIfSandboxed": True,
+            "allowUnsandboxedCommands": False,
+            "failIfUnavailable": True,
+            "filesystem": {
+                "allowWrite": [os.environ["ORCHESTRATOR_ARTIFACTS_DIR"], str(Path(result_file).parent)],
+            },
+            "network": {"allowedDomains": domains},
+        }
+    }
+
+
 def main() -> None:
     payload = json.loads(Path(sys.argv[1]).read_text())
     result_file = sys.argv[2]
@@ -108,7 +129,13 @@ def main() -> None:
         os.environ["ORCHESTRATOR_ARTIFACTS_DIR"],
         "--add-dir",
         str(Path(result_file).parent),
-        *shlex.split(os.environ.get("ORCH_CLAUDE_ARGS", "--permission-mode acceptEdits")),
+        "--permission-mode",
+        "acceptEdits",
+        # Only the MCP servers the step's bindings need, never the machine's whole set.
+        "--strict-mcp-config",
+        "--settings",
+        json.dumps(sandbox_settings(result_file)),
+        *shlex.split(os.environ.get("ORCH_CLAUDE_ARGS", "")),
     ]
     proc = subprocess.run(argv, capture_output=True, text=True, check=False)
     try:

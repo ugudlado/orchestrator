@@ -97,6 +97,23 @@ from `models.yaml`. The run went triage (fix) → diagnose (hotfix) → hotfix-s
 - **The tool allowlist was too narrow.** Agents called pytest by full path or as `python3`, so the `Bash(python -m pytest:*)` pattern never matched. Diagnose, implement and code-review all recorded that they couldn't run the tests, and code-review said so plainly. The worker needs an allowlist that matches how agents actually call the project's test command, or a sandbox.
 - **The container restarted between runs** (Redis and the server were gone). On a VM they would be services.
 
+### Sandbox instead of an allowlist (2026-10-21)
+
+`claude_worker.py` now passes Claude Code's Bash sandbox settings (bubblewrap +
+socat): any command runs without a prompt, writes are limited to the worktree,
+the run's artifacts/results and temp, the network is off unless
+`ORCH_SANDBOX_DOMAINS` lists hosts, and `failIfUnavailable` makes a step fail
+rather than run unsandboxed. `--strict-mcp-config` keeps the machine's MCP
+servers out of the step.
+
+Same ticket again on a fresh clone: the agents ran `pytest config/tests` (191 passed),
+proved the new test fails on a 100644 script, and found pre-existing shell-test
+failures. A write to `/home` from inside the sandbox was refused. But the first
+implement failed because this machine signs commits through a local service the
+sandbox can't reach; the run routed back to design (Fable, $4.31) and the second
+implement committed unsigned. Total $14.57. On the VM, make the commit signer
+reachable from the sandbox, or have agent commits skip signing on purpose.
+
 Found on the way:
 
 - **An event sent before the wait opens is dropped.** `wait_for_event` has no lookback, so an approval or answer must come after the gate or question is posted (true for Slack buttons). Twice a scripted answer arrived seconds early and was lost.
