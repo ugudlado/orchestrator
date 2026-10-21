@@ -93,13 +93,23 @@ def brief(payload: dict, result_file: str) -> str:
 
 
 DENY_READ = ["~/.ssh", "~/.aws", "~/.config", "~/.netrc", "~/.docker", "~/.kube", "~/.gnupg", "~/.claude"]
-SECRET_ENV = re.compile(r"^INNGEST_|TOKEN|SECRET|PASSWORD|_KEY$")
-KEEP_ENV = {"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"}  # claude's own sign-in
+# The step gets only these variables (prefixes end in _); everything else, Inngest keys included, stays out.
+# Claude's own sign-in, proxy and CA settings must pass, so Bash can still see them: run the worker as its
+# own user on the VM for real isolation. ORCH_STEP_ENV_KEEP adds names (comma-separated).
+ENV_KEEP = (
+    "PATH HOME USER SHELL LANG TERM TMPDIR PYTHONPATH VIRTUAL_ENV REPO_ROOT WORKTREE_PATH STATE_YAML_PATH "
+    "TICKET_ID ORCHESTRATOR_ LC_ CLAUDE_CODE_ ANTHROPIC_ HTTPS_PROXY HTTP_PROXY NO_PROXY SSL_CERT_FILE "
+    "NODE_EXTRA_CA_CERTS REQUESTS_CA_BUNDLE"
+).split()
 
 
 def step_env() -> dict:
-    """The worker's env minus the driver's secrets (Inngest keys and the like); claude keeps its sign-in."""
-    return {k: v for k, v in os.environ.items() if k in KEEP_ENV or not SECRET_ENV.search(k)}
+    keep = ENV_KEEP + [k for k in os.environ.get("ORCH_STEP_ENV_KEEP", "").split(",") if k]
+
+    def kept(name: str) -> bool:
+        return any(name.upper().startswith(k) if k.endswith("_") else name.upper() == k for k in keep)
+
+    return {k: v for k, v in os.environ.items() if kept(k)}
 
 
 def sandbox_settings(result_file: str) -> dict:
@@ -120,7 +130,9 @@ def sandbox_settings(result_file: str) -> dict:
                 "denyRead": DENY_READ,
             },
             "network": {"allowedDomains": domains},
-        }
+        },
+        # The sandbox covers Bash only; deny the same paths to Read/Grep/Glob.
+        "permissions": {"deny": [f"Read({d}/**)" for d in DENY_READ]},
     }
 
 

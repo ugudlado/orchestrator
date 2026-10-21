@@ -105,9 +105,11 @@ the run's artifacts/results and temp, the network is off unless
 `ORCH_SANDBOX_DOMAINS` lists hosts, and `failIfUnavailable` makes a step fail
 rather than run unsandboxed. `--strict-mcp-config` keeps the machine's MCP
 servers out of the step. Because ticket text can steer the agent, sandboxed
-commands can't read `~/.ssh`, `~/.aws`, `~/.config`, `~/.claude` and similar,
-and the step's env drops `INNGEST_*` and other `*TOKEN*`/`*SECRET*`/`*_KEY`
-variables (claude's own sign-in stays). Keep `ORCH_SANDBOX_DOMAINS` short: any
+commands and Read can't open `~/.ssh`, `~/.aws`, `~/.config`, `~/.claude` and
+similar, and the step's env is an allowlist (`ENV_KEEP`), so `INNGEST_*` and
+other secrets stay out. Claude's own sign-in has to pass through, and a path
+list is never complete, so on the VM run the worker as its own user with no
+credentials in its home beyond claude's. Keep `ORCH_SANDBOX_DOMAINS` short: any
 general-purpose host there (a paste site, a git host with write access) is an
 exfiltration path.
 
