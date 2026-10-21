@@ -229,6 +229,10 @@ path.be--hit { stroke-width: 2.4; stroke-dasharray: 6 4; animation: dash 1s line
 .projs { max-width: 760px; margin: 0 auto; display: grid; gap: 12px; }
 .mcpl { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .mcpl__h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .mcpl__w { color: var(--muted); font-size: 12px; word-break: break-all; }
+.mcpl__chk { display: flex; align-items: center; gap: 10px; font-size: 12.5px; } .mcpl__err { margin: 0; font-size: 12.5px; color: var(--danger); }
+.mcpl__d { margin-top: 4px; font-size: 12px; color: var(--muted); word-break: break-word; } .mcpl__d--warn { color: var(--warn); }
+.mstate { font: 500 11px/1 Inter, sans-serif; padding: 4px 8px; border-radius: 999px; background: var(--wash); color: var(--muted); white-space: nowrap; }
+.mstate[data-state="connected"] { background: var(--ok-soft); color: var(--ok); } .mstate[data-state="needs_auth"] { background: var(--warn-soft); color: var(--warn); } .mstate[data-state="failed"] { background: var(--danger-soft); color: var(--danger); }
 .mcpl__empty { display: grid; gap: 8px; font-size: 13px; } .mcpl__empty p { margin: 0; }
 .mcpl__code { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--wash); font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-all; }
 .conns { max-width: 1040px; margin: 0 auto; display: grid; gap: 16px; }

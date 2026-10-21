@@ -59,8 +59,21 @@ export interface LiveRun {
   repo: string | null;
 }
 
-export interface LiveMcp { name: string; type: "stdio" | "http" | "sse" | (string & {}); what: string }
-export interface LiveProject { name: string; path: string; mcp: LiveMcp[]; has_mcp_json: boolean; has_codex_config: boolean; has_bindings: boolean }
+export type LiveMcpState = "connected" | "needs_auth" | "failed" | "pending";
+export interface LiveMcp {
+  name: string; type: "stdio" | "http" | "sse" | (string & {}); what: string;
+  /** result of the last Claude Code check; absent when the server has not been checked yet */
+  state?: LiveMcpState;
+  /** the CLI's own text for the state, e.g. "Failed to connect: ENOENT ..." */
+  detail?: string;
+  /** env var names the server's config refers to that are not set */
+  missing?: string[];
+}
+export interface LiveProject { name: string; path: string; mcp: LiveMcp[];
+  /** unix seconds of the last check; null when never checked */
+  mcp_checked_at?: number | null;
+  /** why the check could not run, e.g. the claude CLI was not found */
+  mcp_error?: string | null; has_mcp_json: boolean; has_codex_config: boolean; has_bindings: boolean }
 export interface LiveHealth { ok: boolean; inngest: boolean; inngest_error?: string | null; ui_url: string; repos: string[]; projects?: LiveProject[]; workflows: string[]; runs_root?: string; pack?: string }
 
 export interface LiveRunList { runs: LiveRun[]; stale: boolean; error: string | null }

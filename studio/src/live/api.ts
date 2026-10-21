@@ -39,3 +39,6 @@ const cbase = (slug: string) => `/api/runs/${encodeURIComponent(slug)}/comments`
 export const getComments = (slug: string) => req<{ comments: LiveComment[] }>(cbase(slug)).then((d) => d.comments);
 export const addLiveComment = (slug: string, b: { text: string; file?: string; quote?: string; line?: number }) => req<LiveComment>(cbase(slug), b);
 export const deleteLiveComment = (slug: string, id: string) => req<{ ok: true }>(`${cbase(slug)}/${encodeURIComponent(id)}/delete`, {});
+
+/** Re-check one project's MCP servers now. The server takes up to about 90 seconds to answer. */
+export const checkProject = (path: string) => req<{ ok: true }>("/api/projects/check", { path });

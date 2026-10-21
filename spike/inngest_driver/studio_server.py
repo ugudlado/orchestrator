@@ -27,6 +27,7 @@ API (JSON; POSTs need `X-Studio: 1`, which a cross-site form can't send):
     POST /api/runs/<slug>/comments               {text, file?, quote?, line?}
     POST /api/runs/<slug>/comments/<id>/delete   (pending comments only)
     POST /api/runs/<slug>/gate    {gate, attempt, decision, note?, reset_to?, include_comments?}
+    POST /api/projects/check      {path}   (re-check a project's MCP servers now)
     POST /api/runs/<slug>/answer  {step_id, wait, answer?, reset_to?, include_comments?}
 
 Comments (on a whole document, or on a highlighted passage of one) are kept in
@@ -43,6 +44,8 @@ import logging
 import mimetypes
 import os
 import re
+import shutil
+import subprocess
 import threading
 import time
 import urllib.error
@@ -52,6 +55,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import yaml
+
+from .claude_worker import step_env
 
 HERE = Path(__file__).resolve().parent
 API = os.environ.get("INNGEST_API_BASE_URL", "http://127.0.0.1:8288").rstrip("/")
@@ -602,13 +607,77 @@ def mcp_summary(project: str) -> list[dict]:
     return out
 
 
+CLAUDE = os.environ.get("ORCH_CLAUDE_BIN") or shutil.which("claude") or str(Path.home() / ".local/bin/claude")
+MCP_CHECK_EVERY = 300  # seconds; a check starts every stdio server and calls every http one
+STATUS = re.compile(r"^([A-Za-z0-9_-]+): .*? - ([√✓✔×✗✘⏸!⚠].*)$")
+MISSING = re.compile(r"\[([A-Za-z0-9_-]+)\] mcpServers\.\S+: Missing environment variables: ([^\n]+)")
+_mcp_status: dict[str, dict] = {}  # project path -> {at, servers: {name: {state, detail}}, error}
+_mcp_lock = threading.Lock()
+
+
+def _state(text: str) -> str:
+    t = text.lower()
+    if "connected" in t and "fail" not in t:
+        return "connected"
+    if "auth" in t:
+        return "needs_auth"
+    if "pending" in t:
+        return "pending"
+    return "failed"
+
+
+def check_mcp(project: str) -> dict:
+    """Ask Claude Code itself, as the worker's user, whether each of the project's servers connects.
+    The servers are approved for the check the same way a headless run approves them."""
+    names = {s["name"] for s in mcp_summary(project)}
+    res: dict = {"at": time.time(), "servers": {}, "error": None}
+    if names:
+        try:
+            out = subprocess.run(
+                [CLAUDE, "--settings", '{"enableAllProjectMcpServers": true}', "mcp", "list"],
+                cwd=project,
+                capture_output=True,
+                text=True,
+                timeout=90,
+                stdin=subprocess.DEVNULL,
+                env=step_env(),
+                check=False,
+            )
+            for line in out.stdout.splitlines():
+                if (m := STATUS.match(line.strip())) and m.group(1) in names:
+                    status = m.group(2)[1:].strip()
+                    res["servers"][m.group(1)] = {"state": _state(status), "detail": status[:200]}
+            for name, missing in MISSING.findall(out.stdout + out.stderr):
+                if name in res["servers"]:
+                    res["servers"][name]["missing"] = [v.strip() for v in missing.split(",")]
+        except (OSError, subprocess.SubprocessError) as e:
+            res["error"] = f"couldn't run claude mcp list: {e}"
+    with _mcp_lock:
+        _mcp_status[project] = res
+    return res
+
+
+def _mcp_poll() -> None:
+    while True:
+        for d in project_dirs():
+            try:
+                check_mcp(d)
+            except Exception:
+                log.exception("MCP check failed for %s", d)
+        time.sleep(MCP_CHECK_EVERY)
+
+
 def projects() -> list[dict]:
     """What Studio shows per project: its MCP servers (names and missing variables, never values)."""
     return [
         {
             "name": Path(d).name,
             "path": d,
-            "mcp": mcp_summary(d),
+            "mcp": [
+                {**srv, **_mcp_status.get(d, {}).get("servers", {}).get(srv["name"], {})} for srv in mcp_summary(d)
+            ],
+            "mcp_checked_at": _mcp_status.get(d, {}).get("at"),
+            "mcp_error": _mcp_status.get(d, {}).get("error"),
             "has_mcp_json": (Path(d) / ".mcp.json").is_file(),
             "has_codex_config": (Path(d) / ".codex" / "config.toml").is_file(),
             "has_bindings": (Path(d) / ".orchestrator" / "bindings.yaml").is_file(),
@@ -844,6 +913,12 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
         if path == "/api/runs":
             res = start_run(body)
+        elif path == "/api/projects/check":
+            dirs = project_dirs()
+            if body.get("path") not in dirs:
+                raise BadRequest("unknown project")
+            check_mcp(body["path"])
+            res = {"ok": True}
         elif m := re.match(r"^/api/runs/([^/]+)/comments$", path):
             res = add_comment(m.group(1), body)
         elif m := re.match(r"^/api/runs/([^/]+)/comments/([^/]+)/delete$", path):
@@ -871,6 +946,7 @@ def main() -> None:
         if not Path(repo).is_dir():
             log.warning("repo %s doesn't exist; Studio won't offer it", repo)
     threading.Thread(target=_poll, daemon=True).start()
+    threading.Thread(target=_mcp_poll, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
 
 
