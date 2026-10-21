@@ -15,7 +15,6 @@ import { Chip } from "./RunsView";
 import { FilesPanel } from "./FilesPanel";
 import { filesFor } from "../files";
 import { accountLabel } from "../accounts";
-import { connKind, stepAction } from "../connectors";
 import { FeedbackTray, LiveGate, LiveQuestion } from "./LiveActions";
 import { DocOverlay } from "./DocReview";
 import { useLiveComments } from "../live/useComments";
@@ -97,13 +96,12 @@ export function RunDetail({ app, run }: { app: AppApi; run: Run }) {
         summary={`${sm || c.kind}${ps && ps !== sm ? ` · ${ps}` : ""}${c.attempt > 1 ? ` · attempt ${c.attempt}` : ""}${c.kind === "gate" && c.status === "running" ? " · waiting for approval" : ""}`} />;
     }
     const r = roleById(c.role);
-    const act = stepAction(c.step, run.source);
     const accId = r ? app.routing[app.tiers[r.id]] : null;
     const acc = accId ? app.accounts.find((x) => x.id === accId) : null;
     const accName = acc ? accountLabel(acc, app.runner) : "";
     return (
       <ToolCallCard key={c.n} name={c.step} status={c.status} args={c.args} result={c.result} error={c.error} duration={c.durationMs}
-        summary={`${c.kind}${r ? ` · ${r.name}${accName ? ` · ${accName}` : ""}` : ""}${act ? ` · ${act}` : ""}${c.attempt > 1 ? ` · attempt ${c.attempt}` : ""}${c.kind === "gate" && c.status === "running" ? " · waiting for approval" : ""}${c.result?.answer ? ` → ${c.result.answer}` : ""}`} />
+        summary={`${c.kind}${r ? ` · ${r.name}${accName ? ` · ${accName}` : ""}` : ""}${c.attempt > 1 ? ` · attempt ${c.attempt}` : ""}${c.kind === "gate" && c.status === "running" ? " · waiting for approval" : ""}${c.result?.answer ? ` → ${c.result.answer}` : ""}`} />
     );
   };
 
@@ -115,7 +113,6 @@ export function RunDetail({ app, run }: { app: AppApi; run: Run }) {
           <span className="rd__wf">{run.workflow}</span>
           <span className="rd__slug">{run.slug}</span>
           <span className="rd__title">{run.title}</span>
-          {run.source && !lv && <a className={`srcchip srcchip--${connKind(run.source.connector, app.connectors)}`} href={run.source.url} target="_blank" rel="noreferrer" title={run.source.url}>{run.source.label} ↗</a>}
           <Chip status={run.status} />
         </div>
         <div className="rd__ctl">

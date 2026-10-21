@@ -89,7 +89,9 @@ already reads, and the Codex worker gets the same servers as `-c mcp_servers.*`.
 ```
 
 `${VAR}` comes from `<project>/.orchestrator/mcp.env` (KEY=value, keep it out
-of git), then from the worker's environment. A server with a missing variable is
+of git) and nowhere else, so a `.mcp.json` can't reach the worker's own keys. It
+is read from the project's main checkout, never the run's worktree, so a step
+can't give itself a server. A server with a missing variable is
 left out of the run rather than started blank, and Studio's Projects view says
 which variable it needs. Step agents never see the values: Claude gets the
 resolved servers through a temporary `--mcp-config` file that its Read and Bash

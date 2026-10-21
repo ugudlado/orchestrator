@@ -33,7 +33,7 @@ export function contentFor(name: string, run: Run, version: number): string {
   const t = run.title, id = run.slug;
   switch (name) {
     case "ticket-context.md": return `# ${id}: ${t}
-Source: ${run.source?.label ?? id} · Priority: High · Reporter: dana@ugudlado
+Ticket: ${id} · Priority: High · Reporter: dana@ugudlado
 
 ## Summary
 Users cannot tell what a run is doing without opening it. This ticket asks for: ${t}.

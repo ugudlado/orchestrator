@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import type { AppApi } from "../app";
-import { makeSource } from "../connectors";
 import { decide, fastForward } from "../sim/engine";
 
 type Msg =
@@ -65,7 +64,7 @@ export function SlackPreview({ app, runId, onClose }: { app: AppApi; runId?: str
     if (act === "create") {
       const wfName = a.workflows["bug-intake"] ? "bug-intake" : "bugfix";
       const slug = "ORC-133";
-      const id = a.startRun(wfName, slug, { title: TITLE, source: makeSource("slack", slug) });
+      const id = a.startRun(wfName, slug, { title: TITLE });
       a.setView("runs"); a.openRun(null);
       setRun(id);
       const pipe = a.pipelines.find((p) => p.workflow === wfName);

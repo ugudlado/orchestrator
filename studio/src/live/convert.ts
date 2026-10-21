@@ -2,7 +2,7 @@ import type { Call, Run } from "../sim/engine";
 import type { Pipeline, Workflow } from "../types";
 import type { LiveHistoryEntry, LiveRun } from "./types";
 
-export const LIVE_PIPELINE: Pipeline = { id: "p-live", name: "Runs on the box", workflow: "dev", connector: "manual", event: "Start run", filter: "" };
+export const LIVE_PIPELINE: Pipeline = { id: "p-live", name: "Runs on the box", workflow: "dev" };
 
 const ms = (t: string | null) => (t ? Date.parse(t) : NaN);
 export function ago(t: string | null, now = Date.now()): string {

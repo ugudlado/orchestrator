@@ -37,7 +37,4 @@ export interface Pipeline {
   id: string;
   name: string;
   workflow: string;
-  connector: string;
-  event: string;
-  filter: string;
 }

@@ -1,5 +1,4 @@
 import type { Run } from "./sim/engine";
-import type { Connector, Source } from "./connectors";
 export interface Slack { connected: boolean; tickets: boolean; updates: boolean; gates: boolean }
 import type { Comment } from "./files";
 import type { Pipeline, Workflow } from "./types";
@@ -7,8 +6,8 @@ import type { Tier } from "./roles";
 import type { LiveHealth } from "./live/types";
 import type { Account, AccountId, Runner } from "./accounts";
 
-export type View = "workflows" | "runs" | "agents" | "settings"
-export type SettingsTab = "models" | "plugins" | "channels" | "connectors" | "agents";
+export type View = "workflows" | "runs" | "projects" | "agents" | "settings"
+export type SettingsTab = "models" | "plugins" | "channels" | "agents";
 export interface AppApi {
   dark: boolean;
   view: View;
@@ -27,13 +26,16 @@ export interface AppApi {
   setPipelines: (fn: (p: Pipeline[]) => Pipeline[]) => void;
   openRunId: string | null;
   openRun: (id: string | null) => void;
+  /** live mode: the project path the Runs list is filtered to, or null for all */
+  projectFilter: string | null;
+  setProjectFilter: (p: string | null) => void;
   playing: boolean;
   setPlaying: (b: boolean) => void;
   speed: number;
   setSpeed: (n: number) => void;
   tiers: Record<string, Tier>;
   setTier: (role: string, t: Tier) => void;
-  startRun: (workflow: string, slug: string, opts?: { source?: Source; title?: string }) => string;
+  startRun: (workflow: string, slug: string, opts?: { title?: string }) => string;
   slack: Slack;
   setSlack: (fn: (t: Slack) => Slack) => void;
   openSlack: (runId?: string) => void;
@@ -52,8 +54,6 @@ export interface AppApi {
   installedPlugins: string[];
   installPlugin: (id: string) => void;
   removePlugin: (id: string) => void;
-  connectors: Connector[];
-  setConnectors: (fn: (c: Connector[]) => Connector[]) => void;
   /** true when a studio backend answered /api/health */
   live: boolean;
   health: LiveHealth | null;

@@ -7,7 +7,6 @@ import { ThinkingLoader } from "../affectui/thinking-loader-clean";
 import { ToolCallCard, type ToolCallStatus } from "../affectui/tool-call-card-clean";
 import { ROLES, defaultRole } from "../roles";
 import { BUG_PIPELINE, SUPPORT_PIPELINE, bugIntakeRuns, bugIntakeWorkflow, supportRuns, supportTriageWorkflow } from "../seed";
-import { fakeEvents, fakeTools } from "../connectors";
 import { validate } from "../yaml";
 
 export const BUG_PROMPT = "Every incoming bug report should be triaged, reproduced, fixed and opened as a PR";
@@ -84,7 +83,7 @@ export function ChatPanel({ app, onClose }: { app: AppApi; onClose: () => void }
     push({
       k: "rec", id: nid(), title: "Next step",
       options: [
-        { id: "pipeline", label: "Standing pipeline", reason: "Run this for every new ticket. Trigger: Slack → Linear · label = bug; each message becomes a Linear ticket and starts its own run of bug-intake.", signal: 3 },
+        { id: "pipeline", label: "Standing pipeline", reason: "Keep bug-intake in the Runs list and run it for every new bug.", signal: 3 },
         { id: "once", label: "One run on BUG-214", reason: "Try the workflow on a single ticket first.", signal: 2 },
         { id: "draft", label: "Keep as draft", reason: "Leave it in My workflows without starting anything.", signal: 1 },
       ],
@@ -93,13 +92,7 @@ export function ChatPanel({ app, onClose }: { app: AppApi; onClose: () => void }
 
   async function zdScript() {
     const a = () => ref.current;
-    await think(["Reading the problem", "Checking connectors", "Drafting the workflow"], 1800);
-    if (!a().connectors.some((c) => c.id === "zendesk")) {
-      say("I don't see a Zendesk connector yet. Support tickets aren't code, so I'll add Zendesk as a custom MCP connector.");
-      await tool("add_connector", "Zendesk MCP · custom MCP", { name: "Zendesk MCP", url: "https://acme.zendesk.com/mcp", auth: "oauth" }, { connected: true, tools_discovered: fakeTools("Zendesk") }, 1200, () => {
-        a().setConnectors((l) => [...l, { id: "zendesk", name: "Zendesk MCP", kind: "mcp", connected: true, meta: ["https://acme.zendesk.com/mcp", "Auth: OAuth"], events: fakeEvents("Zendesk"), actions: [], url: "https://acme.zendesk.com/mcp", auth: "oauth", tools: fakeTools("Zendesk") }]);
-      });
-    }
+    await think(["Reading the problem", "Checking existing workflows", "Drafting the workflow"], 1800);
     if (a().workflows["support-triage"]) { say("support-triage already exists in My workflows."); return; }
     say("Now a non-coding workflow: read the ticket, look for similar ones, draft a reply, and wait for your sign-off before anything is posted.");
     const full = supportTriageWorkflow(a().workflows);
@@ -123,7 +116,7 @@ export function ChatPanel({ app, onClose }: { app: AppApi; onClose: () => void }
     push({
       k: "rec", id: nid(), title: "Next step",
       options: [
-        { id: "zd:pipeline", label: "Zendesk pipeline", reason: "Run this for every new ticket. Trigger: Zendesk · Ticket created · priority != urgent.", signal: 3 },
+        { id: "zd:pipeline", label: "Zendesk pipeline", reason: "Keep this workflow in the Runs list and run it for every new ticket.", signal: 3 },
         { id: "zd:once", label: "One run on ZD-4821", reason: "Try it on a single ticket first.", signal: 2 },
         { id: "zd:draft", label: "Keep as draft", reason: "Leave it in My workflows.", signal: 1 },
       ],
@@ -141,11 +134,11 @@ export function ChatPanel({ app, onClose }: { app: AppApi; onClose: () => void }
       push({ k: "links", id: nid(), links: [{ label: "Open run", act: () => { a().openRun(id); a().closeChatOnPhone(); } }] });
       return;
     }
-    await tool("create_pipeline", "Support triage · Zendesk · Ticket created · priority != urgent", { name: SUPPORT_PIPELINE.name, workflow: "support-triage", trigger: { connector: "zendesk", event: "Ticket created", filter: "priority != urgent" } }, { pipeline: SUPPORT_PIPELINE.id, enabled: true }, 800, () => {
+    await tool("create_pipeline", "Support triage", { name: SUPPORT_PIPELINE.name, workflow: "support-triage" }, { pipeline: SUPPORT_PIPELINE.id, enabled: true }, 800, () => {
       if (!a().pipelines.some((p) => p.id === SUPPORT_PIPELINE.id)) a().setPipelines((p) => [SUPPORT_PIPELINE, ...p]);
     });
     const rs = supportRuns(w);
-    await tool("start_run", "2 tickets matched the trigger", { workflow: "support-triage", tickets: rs.map((r) => r.slug) }, { started: rs.map((r) => ({ run: r.slug, status: r.status })) }, 900, () => {
+    await tool("start_run", "2 tickets started", { workflow: "support-triage", tickets: rs.map((r) => r.slug) }, { started: rs.map((r) => ({ run: r.slug, status: r.status })) }, 900, () => {
       a().setRuns((m) => { const n = { ...m }; rs.forEach((r) => (n[r.id] = r)); return n; });
       a().setRunOrder((o2) => [...rs.map((r) => r.id), ...o2.filter((x) => !rs.some((r) => r.id === x))]);
     });
@@ -167,15 +160,15 @@ export function ChatPanel({ app, onClose }: { app: AppApi; onClose: () => void }
         push({ k: "links", id: nid(), links: [{ label: "Open run", act: () => { a().setView("runs"); a().openRun(id); a().closeChatOnPhone(); } }] });
         return;
       }
-      await tool("create_pipeline", "Bug intake · Slack → Linear · label = bug", { name: BUG_PIPELINE.name, workflow: "bug-intake", trigger: { connector: "slack", event: "Message → Linear ticket", filter: "label = bug" } }, { pipeline: BUG_PIPELINE.id, enabled: true }, 800, () => {
+      await tool("create_pipeline", "Bug intake", { name: BUG_PIPELINE.name, workflow: "bug-intake" }, { pipeline: BUG_PIPELINE.id, enabled: true }, 800, () => {
         if (!a().pipelines.some((p) => p.id === BUG_PIPELINE.id)) a().setPipelines((p) => [BUG_PIPELINE, ...p]);
       });
       const rs = bugIntakeRuns(w);
-      await tool("start_run", "3 tickets matched the trigger", { workflow: "bug-intake", tickets: rs.map((r) => r.slug) }, { started: rs.map((r) => ({ run: r.slug, status: r.status })) }, 900, () => {
+      await tool("start_run", "3 tickets started", { workflow: "bug-intake", tickets: rs.map((r) => r.slug) }, { started: rs.map((r) => ({ run: r.slug, status: r.status })) }, 900, () => {
         a().setRuns((m) => { const n = { ...m }; rs.forEach((r) => (n[r.id] = r)); return n; });
         a().setRunOrder((o2) => [...rs.map((r) => r.id), ...o2.filter((x) => !rs.some((r) => r.id === x))]);
       });
-      say("Pipeline added. BUG-212 is waiting at design-signoff, BUG-214 is exploring, and BUG-209 already finished with a PR. Every bug message in #orchestrator will become a Linear ticket and start a run on its own.");
+      say("Pipeline added. BUG-212 is waiting at design-signoff, BUG-214 is exploring, and BUG-209 already finished with a PR. ");
       push({ k: "links", id: nid(), links: [{ label: "Open Runs", act: () => openView("runs") }, { label: "Approve BUG-212", act: () => { a().setView("runs"); a().openRun("rb212"); a().closeChatOnPhone(); } }] });
     } finally { setBusy(false); }
   }

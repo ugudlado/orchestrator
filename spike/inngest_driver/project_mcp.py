@@ -7,10 +7,15 @@ the file Claude Code already reads, in the same shape for every agent:
                                "env": {"LINEAR_API_KEY": "${LINEAR_API_KEY}"}},
                     "docs": {"type": "http", "url": "https://example.com/mcp"}}}
 
-`${VAR}` (and `${VAR:-default}`) is filled from `<project>/.orchestrator/mcp.env`
-(KEY=value lines; keep it out of git) and then from the worker's environment. Step
-agents never see these values in their own environment: the step env drops
-secret-looking names on purpose, so only the MCP servers get them.
+`${VAR}` (and `${VAR:-default}`) is filled only from `<project>/.orchestrator/mcp.env`
+(KEY=value lines; keep it out of git), never from the worker's environment, so a
+.mcp.json can't hand the worker's own keys (Inngest, sign-in) to a server. Step agents
+never see these values: the step env drops secret-looking names on purpose.
+
+Trust: servers run outside the step sandbox, so .mcp.json is code the project owner
+runs. It is read from the project's main checkout (REPO_ROOT), not from the run's
+worktree, so a step can't add a server for itself; a change lands only through a
+merge someone reviewed.
 
 Claude gets the resolved servers through a private `--mcp-config` file that the
 agent's Read and Bash are denied, plus `--allowedTools mcp__<name>` for each, since
@@ -63,7 +68,7 @@ def needed(srv: dict) -> set[str]:
 
 
 def resolve(project: str | os.PathLike) -> dict[str, dict]:
-    values = {**os.environ, **env_file(project)}
+    values = env_file(project)
 
     def fill(v):
         if isinstance(v, str):
@@ -81,7 +86,7 @@ def ready(project: str | os.PathLike | None) -> dict[str, dict]:
     """Resolved servers whose variables are all set; one missing a key is left out, not started blank."""
     if not project:
         return {}
-    have = {**os.environ, **env_file(project)}
+    have = env_file(project)
     raw = servers(project)
     return {n: srv for n, srv in resolve(project).items() if needed(raw[n]) <= have.keys()}
 
@@ -99,7 +104,7 @@ def summary(project: str | os.PathLike) -> list[dict]:
                 "what": str(srv.get("url", "")).split("?")[0]  # a key in the query string stays hidden
                 if kind != "stdio"
                 else " ".join([srv.get("command", ""), *srv.get("args", [])])[:120],
-                "missing": sorted(v for v in needed(srv) if v not in have and v not in os.environ),
+                "missing": sorted(v for v in needed(srv) if v not in have),
             }
         )
     return out

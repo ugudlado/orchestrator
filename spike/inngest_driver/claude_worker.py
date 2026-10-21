@@ -121,6 +121,11 @@ def step_env() -> dict:
     return {k: v for k, v in os.environ.items() if kept(k) and (k in SIGN_IN or not SECRET_ENV.search(k))}
 
 
+def _rule(tool: str, path: str, tree: bool = True) -> str:
+    # Permission rules read "/x" as relative to the settings; an absolute path needs "//x".
+    return f"{tool}({'/' if path.startswith('/') else ''}{path}{'/**' if tree else ''})"
+
+
 def sandbox_settings(result_file: str, hidden: list[str] | None = None) -> dict:
     """Claude Code's Bash sandbox instead of a command allowlist: any test or build
     command runs without a prompt, but writes stay in the worktree, the run's
@@ -128,6 +133,9 @@ def sandbox_settings(result_file: str, hidden: list[str] | None = None) -> dict:
     Fails closed: no bubblewrap/socat means the step errors instead of running bare."""
     domains = [d for d in os.environ.get("ORCH_SANDBOX_DOMAINS", "").split(",") if d]
     deny = DENY_READ + (hidden or [])
+    # The project's MCP secrets and server list: not readable, and not something a step can change.
+    repo = os.environ.get("REPO_ROOT")
+    locked = [f"{repo}/.orchestrator/mcp.env", f"{repo}/.mcp.json"] if repo else []
     return {
         "sandbox": {
             "enabled": True,
@@ -137,12 +145,17 @@ def sandbox_settings(result_file: str, hidden: list[str] | None = None) -> dict:
             "filesystem": {
                 "allowWrite": [os.environ["ORCHESTRATOR_ARTIFACTS_DIR"], str(Path(result_file).parent)],
                 # Ticket text can steer the agent, so Bash must not read the machine's credentials.
-                "denyRead": deny,
+                "denyRead": deny + locked[:1],
+                "denyWrite": locked,
             },
             "network": {"allowedDomains": domains},
         },
         # The sandbox covers Bash only; deny the same paths to Read/Grep/Glob.
-        "permissions": {"deny": [f"Read({d}/**)" for d in deny]},
+        "permissions": {
+            "deny": [_rule("Read", d) for d in deny]
+            + [_rule("Read", f, tree=False) for f in locked[:1]]
+            + [_rule("Edit", f, tree=False) for f in locked]
+        },
     }
 
 

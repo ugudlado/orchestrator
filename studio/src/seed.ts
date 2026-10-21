@@ -1,6 +1,5 @@
 import raw from "./data/workflows.json";
 import { defaultRole } from "./roles";
-import { makeSource } from "./connectors";
 import { decide, fastForward, startRun, type Run } from "./sim/engine";
 import type { Pipeline, Step, Workflow } from "./types";
 
@@ -68,28 +67,28 @@ export const DEV_QUICK = { change_type: "quick", "ux-critique.verdict": "skipped
 export const devAssign = (slug: string): Record<string, string> => (/^HOT/i.test(slug) ? DEV_HOTFIX : /^(QUICK|QK)/i.test(slug) ? DEV_QUICK : /^(BUG|FIX)/i.test(slug) ? DEV_FIX : DEV_FEATURE);
 
 export const SEED_PIPELINES: Pipeline[] = [
-  { id: "p-dev", name: "Dev delivery", workflow: "dev", connector: "linear", event: "Status changed", filter: "status = Ready for dev" },
-  { id: "p-feature", name: "Feature delivery", workflow: "feature", connector: "linear", event: "Issue created", filter: "label = feature" },
-  { id: "p-bugfix", name: "Bug fixes", workflow: "bugfix", connector: "github", event: "Issue opened", filter: "label = bug" },
-  { id: "p-research", name: "Research briefs", workflow: "research", connector: "linear", event: "Status changed", filter: "status = Research" },
+  { id: "p-dev", name: "Dev delivery", workflow: "dev" },
+  { id: "p-feature", name: "Feature delivery", workflow: "feature" },
+  { id: "p-bugfix", name: "Bug fixes", workflow: "bugfix" },
+  { id: "p-research", name: "Research briefs", workflow: "research" },
 ];
 
 export function seedRuns(w: Record<string, Workflow>): Run[] {
   const mk = (name: string, o: Parameters<typeof startRun>[1]) => startRun(w[name], o);
   const uxi = w.dev.steps.findIndex((s) => s.id === "ux-design");
-  const r131 = fastForward(mk("dev", { id: "r131", slug: "ORC-131", title: "Run status feed", pipelineId: "p-dev", source: makeSource("linear", "ORC-131"), startedAgo: "2 min ago", failOnce: ["code-review"], assign: DEV_FEATURE }), w.dev, (r) => r.cursor >= uxi);
-  const hot7 = fastForward(mk("dev", { id: "r-hot7", slug: "HOT-7", title: "Checkout 500 on empty cart", pipelineId: "p-dev", source: makeSource("linear", "HOT-7"), startedAgo: "6 min ago", assign: DEV_HOTFIX }), w.dev, (r) => r.status === "waiting");
-  const orc140 = fastForward(mk("dev", { id: "r-orc140", slug: "ORC-140", title: "Fix typo in billing email", pipelineId: "p-dev", source: makeSource("linear", "ORC-140"), startedAgo: "3 min ago", assign: DEV_QUICK }), w.dev, (r) => r.status === "waiting");
-  const r124 = fastForward(mk("feature", { id: "r124", slug: "ORC-124", title: "Export audit log as CSV", pipelineId: "p-feature", source: makeSource("linear", "ORC-124"), startedAgo: "yesterday", failOnce: ["code-review"] }), w.feature, () => false);
-  const r128 = fastForward(mk("bugfix", { id: "r128", slug: "ORC-128", title: "Coupon stacking double-discounts shipping", pipelineId: "p-bugfix", source: { connector: "github", label: "GitHub #128", url: "https://github.com/ugudlado/orchestrator/issues/128" }, startedAgo: "1 h ago", failAlways: ["code-review"] }), w.bugfix, () => false);
+  const r131 = fastForward(mk("dev", { id: "r131", slug: "ORC-131", title: "Run status feed", pipelineId: "p-dev", startedAgo: "2 min ago", failOnce: ["code-review"], assign: DEV_FEATURE }), w.dev, (r) => r.cursor >= uxi);
+  const hot7 = fastForward(mk("dev", { id: "r-hot7", slug: "HOT-7", title: "Checkout 500 on empty cart", pipelineId: "p-dev", startedAgo: "6 min ago", assign: DEV_HOTFIX }), w.dev, (r) => r.status === "waiting");
+  const orc140 = fastForward(mk("dev", { id: "r-orc140", slug: "ORC-140", title: "Fix typo in billing email", pipelineId: "p-dev", startedAgo: "3 min ago", assign: DEV_QUICK }), w.dev, (r) => r.status === "waiting");
+  const r124 = fastForward(mk("feature", { id: "r124", slug: "ORC-124", title: "Export audit log as CSV", pipelineId: "p-feature", startedAgo: "yesterday", failOnce: ["code-review"] }), w.feature, () => false);
+  const r128 = fastForward(mk("bugfix", { id: "r128", slug: "ORC-128", title: "Coupon stacking double-discounts shipping", pipelineId: "p-bugfix", startedAgo: "1 h ago", failAlways: ["code-review"] }), w.bugfix, () => false);
   const r122 = fastForward(mk("bugfix", { id: "r122", slug: "ORC-122", title: "Null session crash on logout", pipelineId: "p-bugfix", startedAgo: "2 days ago" }), w.bugfix, () => false);
-  const r42 = fastForward(mk("research", { id: "r42", slug: "RES-42", title: "Competitor pricing scan", pipelineId: "p-research", source: makeSource("linear", "RES-42"), startedAgo: "3 days ago", failOnce: ["fact-check"] }), w.research, () => false);
+  const r42 = fastForward(mk("research", { id: "r42", slug: "RES-42", title: "Competitor pricing scan", pipelineId: "p-research", startedAgo: "3 days ago", failOnce: ["fact-check"] }), w.research, () => false);
   return [r131, hot7, orc140, r128, r124, r122, r42];
 }
 
-export const BUG_PIPELINE: Pipeline = { id: "p-bug-intake", name: "Bug intake", workflow: "bug-intake", connector: "slack", event: "Message → Linear ticket", filter: "label = bug" };
+export const BUG_PIPELINE: Pipeline = { id: "p-bug-intake", name: "Bug intake", workflow: "bug-intake" };
 export function bugIntakeRuns(w: Workflow): Run[] {
-  const mk = (id: string, slug: string, title: string, ago: string) => startRun(w, { id, slug, title, pipelineId: BUG_PIPELINE.id, source: makeSource("slack", slug), startedAgo: ago, failOnce: ["code-review"] });
+  const mk = (id: string, slug: string, title: string, ago: string) => startRun(w, { id, slug, title, pipelineId: BUG_PIPELINE.id, startedAgo: ago, failOnce: ["code-review"] });
   const a = fastForward(mk("rb214", "BUG-214", "Avatar upload fails over 5 MB", "just now"), w, (r) => r.cursor >= 2);
   const b = fastForward(mk("rb212", "BUG-212", "Timezone off by one in weekly digest", "8 min ago"), w, (r) => r.status === "waiting");
   const c = fastForward(mk("rb209", "BUG-209", "Search ignores archived filter", "yesterday"), w, () => false);
@@ -108,9 +107,9 @@ export function supportTriageWorkflow(src: Record<string, Workflow>): Workflow {
   ];
   return { name: "support-triage", version: 1, plugin: MINE, inputs: { ticket: { type: "string" } }, steps };
 }
-export const SUPPORT_PIPELINE: Pipeline = { id: "p-support", name: "Support triage", workflow: "support-triage", connector: "zendesk", event: "Ticket created", filter: "priority != urgent" };
+export const SUPPORT_PIPELINE: Pipeline = { id: "p-support", name: "Support triage", workflow: "support-triage" };
 export function supportRuns(w: Workflow): Run[] {
-  const mk = (id: string, slug: string, title: string, ago: string) => startRun(w, { id, slug, title, pipelineId: SUPPORT_PIPELINE.id, source: makeSource("zendesk", slug), startedAgo: ago });
+  const mk = (id: string, slug: string, title: string, ago: string) => startRun(w, { id, slug, title, pipelineId: SUPPORT_PIPELINE.id, startedAgo: ago });
   return [
     fastForward(mk("rz4821", "ZD-4821", "Cannot export invoices to CSV", "just now"), w, (r) => r.status === "waiting"),
     fastForward(mk("rz4818", "ZD-4818", "SSO login loops back to sign-in", "yesterday"), w, () => false),

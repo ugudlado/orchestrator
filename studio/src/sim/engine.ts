@@ -1,4 +1,3 @@
-import type { Source } from "../connectors";
 import { nextIndex, routeLabel } from "../paths";
 import type { LiveRun } from "../live/types";
 import type { Kind, Step, Workflow } from "../types";
@@ -16,7 +15,7 @@ export interface Run {
   id: string; workflow: string; slug: string; title: string; pipelineId: string;
   calls: Call[]; cursor: number; status: RunStatus; tokens: string[];
   retries: Record<string, number>; edges: Record<string, number>;
-  elapsed: number; startedAgo: string; source?: Source;
+  elapsed: number; startedAgo: string;
   script: { failOnce: string[]; failAlways: string[]; assign: Record<string, string> };
   taken: Record<string, number>;
   /** set in live mode: the backend run this was converted from */
@@ -62,10 +61,10 @@ function startCall(run: Run, wf: Workflow, after: { step: string; status: string
   } else run.status = step.kind === "gate" ? "waiting" : "running";
 }
 
-export function startRun(wf: Workflow, o: { id: string; slug: string; title: string; pipelineId: string; startedAgo?: string; source?: Source; failOnce?: string[]; failAlways?: string[]; assign?: Record<string, string> }): Run {
+export function startRun(wf: Workflow, o: { id: string; slug: string; title: string; pipelineId: string; startedAgo?: string; failOnce?: string[]; failAlways?: string[]; assign?: Record<string, string> }): Run {
   const run: Run = {
     id: o.id, workflow: wf.name, slug: o.slug, title: o.title, pipelineId: o.pipelineId, calls: [], cursor: 0, status: "running",
-    tokens: [], retries: {}, edges: {}, elapsed: 0, startedAgo: o.startedAgo ?? "just now", source: o.source,
+    tokens: [], retries: {}, edges: {}, elapsed: 0, startedAgo: o.startedAgo ?? "just now",
     script: { failOnce: o.failOnce ?? [], failAlways: o.failAlways ?? [], assign: o.assign ?? {} }, taken: {},
   };
   if (wf.steps.length) startCall(run, wf, null); else run.status = "done";

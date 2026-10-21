@@ -6,7 +6,6 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { Step, StepState, Workflow } from "../types";
 import { roleById } from "../roles";
-import { bindingsFor } from "../connectors";
 import { forwardEdges, layout, type Layout } from "../paths";
 
 interface NodeData extends Record<string, unknown> { step: Step; state?: StepState; readOnly: boolean; rich: boolean; dim: boolean; off: boolean }
@@ -47,13 +46,11 @@ function StepNode({ data, selected }: NodeProps<SNode>) {
     s.kind === "gate" ? `show ${(s.show ?? []).join(", ") || "nothing"}`
     : s.kind === "judgment" ? `${s.max_turns ?? "?"} turns · ${s.tools?.length ?? 0} tools`
     : `${s.tools?.length ?? 0} tools`;
-  const binds = bindingsFor(s.tools);
   const nr = s.routes?.length ?? 0;
   const chips = (
     <>
       {nr > 0 && <span className="chip chip--route" title={s.routes!.map((r) => (r.when ? `${Object.entries(r.when).map(([k, v]) => `${k} = ${v}`).join(", ")} -> ${r.goto}` : `default -> ${r.goto}`)).join("\n")}><Branch />{nr} route{nr > 1 ? "s" : ""}</span>}
       {s.skip_when_unchanged && <span className="chip chip--skip" title="skip_when_unchanged: the step self-reports skipped when its inputs have not changed">skippable</span>}
-      {binds.map((b) => <span key={b.role} className={`chip chip--bind chip--bind-${b.role}`} title={`${b.role}.* is bound to ${b.provider} via ${b.via}`}>{b.role} → {b.provider}</span>)}
       {s.requires && <span className="chip chip--lock"><Lock />{s.requires}</span>}
       {s.kind === "gate" && s.approve_as && <span className="chip chip--key"><Key />{s.approve_as}</span>}
       {s.max_retries != null && <span className="chip">↻ {s.max_retries}</span>}

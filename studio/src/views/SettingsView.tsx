@@ -4,10 +4,9 @@ import { Button } from "../affectui/button-clean";
 import { ACCOUNT_NAME, type Account, type AccountId } from "../accounts";
 import { ROLES, TIERS, type Tier } from "../roles";
 import { MAIN_PLUGIN, PLUGIN_CATALOG } from "../seed";
-import { ConnectorsView } from "./ConnectorsView";
 
 const TABS: { id: SettingsTab; label: string }[] = [
-  { id: "models", label: "Model accounts" }, { id: "plugins", label: "Plugins" }, { id: "channels", label: "Channels" }, { id: "connectors", label: "Connectors" }, { id: "agents", label: "Agents" },
+  { id: "models", label: "Model accounts" }, { id: "plugins", label: "Plugins" }, { id: "channels", label: "Channels" }, { id: "agents", label: "Agents" },
 ];
 
 export function SettingsView({ app }: { app: AppApi }) {
@@ -21,7 +20,6 @@ export function SettingsView({ app }: { app: AppApi }) {
         {app.settingsTab === "models" && <Models app={app} />}
         {app.settingsTab === "plugins" && <Plugins app={app} />}
         {app.settingsTab === "channels" && <Channels app={app} />}
-        {app.settingsTab === "connectors" && <ConnectorsView app={app} />}
         {app.settingsTab === "agents" && (
           <div className="conns">
             <div><h1>Agents</h1><p className="muted">Roles, model tiers and the steps each role covers are managed on the Agents tab.</p></div>

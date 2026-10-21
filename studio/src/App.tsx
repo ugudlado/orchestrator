@@ -3,7 +3,6 @@ import type { AppApi, View } from "./app";
 import { Button } from "./affectui/button-clean";
 import { SegmentedControl } from "./affectui/segmented-control-clean";
 import { ROLES, type Tier } from "./roles";
-import { SEED_CONNECTORS, makeSource, type Connector } from "./connectors";
 import type { Comment } from "./files";
 import { SettingsView } from "./views/SettingsView";
 import { SEED_ACCOUNTS, SEED_ROUTING, SEED_RUNNER, type Account } from "./accounts";
@@ -21,6 +20,7 @@ import type { LiveHealth } from "./live/types";
 import { AgentsView } from "./views/AgentsView";
 import { ChatPanel } from "./views/ChatPanel";
 import { RunDetail } from "./views/RunDetail";
+import { ProjectsView } from "./views/ProjectsView";
 import { RunsView } from "./views/RunsView";
 import { WorkflowsView } from "./views/WorkflowsView";
 
@@ -46,7 +46,7 @@ export function App() {
   const [speed, setSpeed] = useState(1);
   const [tiers, setTiers] = useState<Record<string, Tier>>(() => Object.fromEntries(ROLES.map((r) => [r.id, r.tier])));
   const [chatOpen, setChatOpen] = useState(false);
-  const [connectors, setConnectors] = useState<Connector[]>(SEED_CONNECTORS);
+  const [projectFilter, setProjectFilter] = useState<string | null>(null);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("models");
   const [accounts, setAccounts] = useState<Account[]>(SEED_ACCOUNTS);
   const [slack, setSlack] = useState<Slack>({ connected: true, tickets: true, updates: true, gates: true });
@@ -157,15 +157,15 @@ export function App() {
       const wf = workflows[workflow];
       const id = `r${Date.now()}`;
       let pipe = pipelines.find((p) => p.workflow === workflow);
-      if (!pipe) { pipe = { id: `p-manual-${workflow}`, name: `${workflow} (manual)`, workflow, connector: "manual", event: "Start run", filter: "" }; const np = pipe; setPipelines((p) => [...p, np]); }
-      const run = startRun(wf, { id, slug, pipelineId: pipe.id, title: opts?.title ?? "New run", source: opts?.source ?? makeSource(pipe.connector === "manual" ? "linear" : pipe.connector, slug), failOnce: workflow === "feature" || workflow === "dev" || workflow === "bug-intake" ? ["code-review"] : [], assign: workflow === "dev" ? devAssign(slug) : undefined });
+      if (!pipe) { pipe = { id: `p-manual-${workflow}`, name: `${workflow} (manual)`, workflow }; const np = pipe; setPipelines((p) => [...p, np]); }
+      const run = startRun(wf, { id, slug, pipelineId: pipe.id, title: opts?.title ?? "New run", failOnce: workflow === "feature" || workflow === "dev" || workflow === "bug-intake" ? ["code-review"] : [], assign: workflow === "dev" ? devAssign(slug) : undefined });
       setRuns((m) => ({ ...m, [id]: run }));
       setRunOrder((o) => [id, ...o]);
       setOpenRunId(id); setView("runs"); setPlaying(true);
       return id;
     },
     closeChatOnPhone: () => { if (window.innerWidth < 900) setChatOpen(false); },
-    connectors, setConnectors, comments, live, health, refreshRuns: pollRuns,
+    projectFilter, setProjectFilter, comments, live, health, refreshRuns: pollRuns,
     settingsTab, setSettingsTab, openSettings: (t) => { setSettingsTab(t); setOpenRunId(null); setView("settings"); },
     runner, setRunner, accounts, setAccounts, routing, setRouting, fallback, setFallback, installedPlugins,
     installPlugin: (id) => {
@@ -200,7 +200,7 @@ export function App() {
         <header className="top">
           <div className="brand"><span className="brand__mark" aria-hidden />Orchestrator Studio</div>
           <SegmentedControl aria-label="Sections" variant="tray" size="md" value={(view === "settings" ? "" : view) as View} onChange={(v) => api.setView(v)}
-            options={[{ value: "workflows", label: "Workflows" }, { value: "runs", label: "Runs", count: needs || undefined }, { value: "agents", label: "Agents" }]} />
+            options={[{ value: "workflows", label: "Workflows" }, { value: "runs", label: "Runs", count: needs || undefined }, ...(live ? [{ value: "projects" as View, label: "Projects" }] : []), { value: "agents", label: "Agents" }]} />
           <div className="top__sp" />
           <Button size="sm" variant={view === "settings" ? "secondary" : "ghost"} onClick={() => api.openSettings(settingsTab)} aria-label="Settings" aria-pressed={view === "settings"}
             icon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="8" cy="8" r="2.2" /><path d="M8 1.5v1.7M8 12.8v1.7M1.5 8h1.7M12.8 8h1.7M3.4 3.4l1.2 1.2M11.4 11.4l1.2 1.2M12.6 3.4l-1.2 1.2M4.6 11.4l-1.2 1.2" /></svg>} />
@@ -210,6 +210,7 @@ export function App() {
         <main className="main">
           {view === "workflows" && <WorkflowsView app={api} />}
           {view === "runs" && (openRun && workflows[openRun.workflow] ? <RunDetail app={api} run={openRun} /> : <RunsView app={api} />)}
+          {view === "projects" && <ProjectsView app={api} />}
           {view === "agents" && <AgentsView app={api} />}
           {view === "settings" && <SettingsView app={api} />}
         </main>

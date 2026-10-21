@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Button } from "../affectui/button-clean";
 import { ROLES, TIERS, roleById } from "../roles";
 import type { Route, Step, Workflow } from "../types";
-import { BINDINGS } from "../connectors";
 import { routeLabel } from "../paths";
 
 const TOOLS = ["fs.read", "fs.write", "fs.list", "shell.run", "shell.test", "git.status", "git.diff", "git.commit", "git.fetch", "git.worktree", "git.push", "net.fetch", "ticket.read", "ticket.write", "forge.pr", "chat.post"];
@@ -103,11 +102,6 @@ export function Inspector({ wf, step: s, index, onChange, onRename, onDelete, on
               })}
             </div>
           </div>
-          {(s.tools ?? []).some((t) => t.split(".")[0] in BINDINGS) && (
-            <div className="bindnote">
-              {[...new Set((s.tools ?? []).map((t) => t.split(".")[0]).filter((r) => r in BINDINGS))].map((r) => <span key={r}><code>{r}.*</code> → {BINDINGS[r].provider} ({BINDINGS[r].via}{BINDINGS[r].command ? ` ${BINDINGS[r].command}` : ""})</span>)}
-            </div>
-          )}
           <div className="field"><span className="field__l">Inputs (artifacts in)</span>{artifacts("in")}</div>
           <div className="field"><span className="field__l">Outputs (artifacts out)</span>{artifacts("out")}</div>
           {enumKeys.length > 0 && (
