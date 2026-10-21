@@ -43,8 +43,8 @@ export function LiveGate({ app, run, wf, openFile }: { app: AppApi; run: Run; wf
       </div>
       {sent === key ? <div className="tl__done" role="status">{SENT}</div> : (
         <>
-          <DecisionInbox key={key} decisions={[{ id: key, title: `Approve ${at.step_id}?`, detail: "Open the files above to review and comment, then approve or ask for changes.", primary: "Approve", secondary: "Request changes" }]}
-            onDecide={(_, a) => { if (a === "primary") setTimeout(() => post({ decision: "approved" }), 1250); else setTimeout(() => setFb(true), 1200); }} />
+          {!fb && <DecisionInbox key={key} decisions={[{ id: key, title: `Approve ${at.step_id}?`, detail: "Open the files above to review and comment, then approve or ask for changes.", primary: "Approve", secondary: "Request changes" }]}
+            onDecide={(_, a) => { if (a === "primary") setTimeout(() => post({ decision: "approved" }), 1250); else setTimeout(() => setFb(true), 1200); }} />}
           {fb && (
             <div className="fbbox">
               <label className="field__l" htmlFor="fb">What should change? Sent to the agent as the review note{n ? `, with ${n} line comment${n > 1 ? "s" : ""}` : ""}.</label>
