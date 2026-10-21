@@ -32,7 +32,17 @@ from slack_bolt.async_app import AsyncApp
 CHANNEL = os.environ["SLACK_CHANNEL"]
 APPROVERS = {u for u in os.environ.get("SLACK_APPROVERS", "").split(",") if u}
 RUNS_ROOT = Path(os.environ.get("ORCH_RUNS_ROOT", "/home/orch/runs"))
-SNIPPET = 2500  # characters of each shown artifact; Slack caps a section at 3000
+SNIPPET = 2500
+# dev.yaml's gates have no on_failure, so a reject without a step to go back to stops the run and
+# asks again. Default to the step that made what the gate shows (as Studio does); SLACK_REWORK
+# (JSON {gate: step}) overrides.
+REWORK = {
+    "design-signoff": "design",
+    "hotfix-signoff": "diagnose",
+    "quick-signoff": "triage",
+    "pr-signoff": "implement",
+    **json.loads(os.environ.get("SLACK_REWORK") or "{}"),
+}  # characters of each shown artifact; Slack caps a section at 3000
 
 client = inngest.Inngest(app_id="orchestrator-slack", is_production=os.environ.get("INNGEST_DEV") != "1")
 # Socket Mode carries no HTTP requests to sign, so there is no signing secret to check.
@@ -68,6 +78,9 @@ def _blocks(d: dict) -> list[dict]:
     blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": TITLES[d["kind"]].format(**d)}}]
     if d["kind"] == "gate":
         blocks += [_artifact(d["artifacts_dir"], n, p) for n, p in (d.get("show") or {}).items()][:8]
+    if d["kind"] == "question" and d.get("reason"):
+        # The engine stopped the run (e.g. retries exhausted): say why rather than show a blank question.
+        blocks.append({"type": "section", "text": {"type": "plain_text", "text": f"Stopped: {d['reason']}"[:2900]}})
     if d["kind"] == "question" and d.get("question"):
         blocks.append({"type": "section", "text": {"type": "plain_text", "text": d["question"][:2900]}})
     # attempt/wait bind a click to this visit of the gate or question; the driver matches on them.
@@ -164,7 +177,8 @@ async def on_approve(ack, body, respond):
     await _close(body, f":white_check_mark: Approved by <@{user}>")
 
 
-def _modal(callback: str, title: str, label: str, meta: dict) -> dict:
+def _modal(callback: str, title: str, label: str, meta: dict, rework: str = "") -> dict:
+    back = {"type": "plain_text_input", "action_id": "v", **({"initial_value": rework} if rework else {})}
     return {
         "type": "modal",
         "callback_id": callback,
@@ -181,9 +195,12 @@ def _modal(callback: str, title: str, label: str, meta: dict) -> dict:
             {
                 "type": "input",
                 "block_id": "reset_to",
-                "optional": True,
-                "label": {"type": "plain_text", "text": "Send back to step (optional, e.g. design)"},
-                "element": {"type": "plain_text_input", "action_id": "v"},
+                "optional": not rework,
+                "label": {
+                    "type": "plain_text",
+                    "text": "Send back to step" if rework else "Send back to step (optional)",
+                },
+                "element": back,
             },
         ],
     }
@@ -195,7 +212,8 @@ async def _open(ack, body, client_, callback: str, title: str, label: str) -> No
     if not _allowed(user):
         return
     meta = {**json.loads(body["actions"][0]["value"]), "channel": body["channel"]["id"], "ts": body["message"]["ts"]}
-    await client_.views_open(trigger_id=body["trigger_id"], view=_modal(callback, title, label, meta))
+    rework = REWORK.get(meta["step_id"], "") if callback == "reject_submit" else ""
+    await client_.views_open(trigger_id=body["trigger_id"], view=_modal(callback, title, label, meta, rework))
 
 
 @slack.action("reject")
