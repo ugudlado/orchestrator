@@ -11,7 +11,8 @@ this worker as a user whose home holds nothing but Codex's sign-in.
 Env: as claude_worker.py, plus ORCH_CODEX_MODEL (default: Codex's configured model)
 and ORCH_CODEX_ARGS (extra CLI args, e.g. `-c model_reasoning_effort=medium`).
 MCP: Codex reads the project's .codex/config.toml itself once the project is trusted in
-~/.codex/config.toml, and its OAuth sign-ins from `codex mcp login`.
+~/.codex/config.toml, and its OAuth sign-ins from `codex mcp login`. The step only runs if
+that file matches the project's HEAD, since Codex's sandbox lets a step rewrite it.
 Prints one JSON line: {model, cost_usd, num_turns, duration_ms, session_id, is_error, tokens}.
 """
 
@@ -24,7 +25,7 @@ import sys
 import time
 from pathlib import Path
 
-from claude_worker import ENV_KEEP, SECRET_ENV, brief
+from claude_worker import ENV_KEEP, SECRET_ENV, as_committed, brief
 
 SIGN_IN = {"OPENAI_API_KEY", "CODEX_API_KEY"}
 KEEP = ENV_KEEP + ["OPENAI_", "CODEX_"]
@@ -44,6 +45,9 @@ def main() -> None:
     payload = json.loads(Path(sys.argv[1]).read_text())
     result_file = sys.argv[2]
     model = os.environ.get("ORCH_CODEX_MODEL", "")
+    # Codex has no switch to skip project config, so a rewritten one stops the step instead.
+    if not as_committed(".codex/config.toml"):
+        sys.exit("orchestrator: .codex/config.toml differs from the project's HEAD; refusing to run its MCP servers")
     argv = [
         "codex",
         "exec",

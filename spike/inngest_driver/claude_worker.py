@@ -156,9 +156,22 @@ def sandbox_settings(result_file: str) -> dict:
     }
 
 
-def mcp_servers() -> list[str]:
+def as_committed(rel: str) -> bool:
+    """Whether the working copy of `rel` matches the project's main checkout at HEAD. MCP servers run
+    outside the sandbox, and exec or Codex steps can write the worktree, so only reviewed config counts."""
+    repo = os.environ.get("REPO_ROOT") or os.getcwd()
+    head = subprocess.run(["git", "-C", repo, "show", f"HEAD:{rel}"], capture_output=True, check=False)
+    here = Path(rel).read_bytes() if Path(rel).is_file() else None
+    return (head.stdout if head.returncode == 0 else None) == here
+
+
+def mcp_servers() -> list[str] | None:
     """Server names in the worktree's .mcp.json, which a headless run loads without asking.
-    It can't ask to use their tools either, so those are allowed up front."""
+    It can't ask to use their tools either, so those are allowed up front. None: the file
+    differs from the committed one, so the step runs with no project servers."""
+    if not as_committed(".mcp.json"):
+        print("orchestrator: .mcp.json differs from the project's HEAD; project MCP servers are off", file=sys.stderr)
+        return None
     try:
         names = json.loads(Path(".mcp.json").read_text()).get("mcpServers") or {}
     except (OSError, ValueError, AttributeError):
@@ -188,6 +201,7 @@ def main() -> None:
         "--permission-mode",
         "acceptEdits",
         *(["--allowedTools", ",".join(f"mcp__{n}" for n in mcp)] if mcp else []),
+        *(["--strict-mcp-config"] if mcp is None else []),
         "--settings",
         json.dumps(sandbox_settings(result_file)),
         *shlex.split(os.environ.get("ORCH_CLAUDE_ARGS", "")),
