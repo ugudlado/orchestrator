@@ -136,7 +136,7 @@ def sandbox_settings(result_file: str) -> dict:
     # Both the given and the real path, so a symlinked checkout can't slip past either matcher.
     dirs = [d for d in (os.getcwd(), os.environ.get("REPO_ROOT")) if d]
     roots = list(dict.fromkeys([*dirs, *map(os.path.realpath, dirs)]))
-    locked = [f"{r}/{f}" for r in roots for f in (".mcp.json", ".codex/config.toml")]
+    locked = [f"{r}/{f}" for r in roots for f in (*PROJECT_CONFIG, ".codex/config.toml")]
     return {
         "sandbox": {
             "enabled": True,
@@ -156,21 +156,46 @@ def sandbox_settings(result_file: str) -> dict:
     }
 
 
+def base_sha() -> str | None:
+    """The project's HEAD when this run's first step started, pinned next to the run's artifacts
+    (a directory steps can't write). Steps can commit, so the live HEAD is not a trust anchor."""
+    repo, art = os.environ.get("REPO_ROOT"), os.environ.get("ORCHESTRATOR_ARTIFACTS_DIR")
+    if not repo or not art:
+        return None
+    pin = Path(art).parent / "base.sha"
+    if pin.is_file():
+        return pin.read_text().strip() or None
+    head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True, check=False)
+    if head.returncode:
+        return None
+    pin.write_text(head.stdout.strip())
+    return head.stdout.strip()
+
+
 def as_committed(rel: str) -> bool:
-    """Whether the working copy of `rel` matches the project's main checkout at HEAD. MCP servers run
-    outside the sandbox, and exec or Codex steps can write the worktree, so only reviewed config counts."""
-    repo = os.environ.get("REPO_ROOT") or os.getcwd()
-    head = subprocess.run(["git", "-C", repo, "show", f"HEAD:{rel}"], capture_output=True, check=False)
-    here = Path(rel).read_bytes() if Path(rel).is_file() else None
-    return (head.stdout if head.returncode == 0 else None) == here
+    """Whether the working copy of `rel` matches the run's pinned base commit. MCP servers and project
+    settings (hooks) run outside the sandbox, and exec or Codex steps can write the worktree, so only
+    reviewed config counts. With no pinned base, only an absent file passes."""
+    sha, here = base_sha(), (Path(rel).read_bytes() if Path(rel).is_file() else None)
+    if not sha:
+        return here is None
+    base = subprocess.run(
+        ["git", "-C", os.environ["REPO_ROOT"], "show", f"{sha}:{rel}"], capture_output=True, check=False
+    )
+    return (base.stdout if base.returncode == 0 else None) == here
+
+
+# Project files the CLI acts on without asking: MCP servers, and settings that can carry hooks.
+PROJECT_CONFIG = (".mcp.json", ".claude/settings.json", ".claude/settings.local.json")
 
 
 def mcp_servers() -> list[str] | None:
     """Server names in the worktree's .mcp.json, which a headless run loads without asking.
-    It can't ask to use their tools either, so those are allowed up front. None: the file
-    differs from the committed one, so the step runs with no project servers."""
-    if not as_committed(".mcp.json"):
-        print("orchestrator: .mcp.json differs from the project's HEAD; project MCP servers are off", file=sys.stderr)
+    It can't ask to use their tools either, so those are allowed up front. None: project config
+    differs from the run's base, so the step runs with user settings only and no project servers."""
+    changed = [f for f in PROJECT_CONFIG if not as_committed(f)]
+    if changed:
+        print(f"orchestrator: {', '.join(changed)} differ from the run's base; project config is off", file=sys.stderr)
         return None
     try:
         names = json.loads(Path(".mcp.json").read_text()).get("mcpServers") or {}
@@ -201,7 +226,7 @@ def main() -> None:
         "--permission-mode",
         "acceptEdits",
         *(["--allowedTools", ",".join(f"mcp__{n}" for n in mcp)] if mcp else []),
-        *(["--strict-mcp-config"] if mcp is None else []),
+        *(["--strict-mcp-config", "--setting-sources", "user"] if mcp is None else []),
         "--settings",
         json.dumps(sandbox_settings(result_file)),
         *shlex.split(os.environ.get("ORCH_CLAUDE_ARGS", "")),
