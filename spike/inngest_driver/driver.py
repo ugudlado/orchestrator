@@ -13,6 +13,8 @@ Events:
     orchestrator/run.requested  {workflow, pack, slug, artifacts_dir, repo_root?, ticket?, stub_choices?}
     orchestrator/gate.decided   {slug, gate, decision: approved|rejected, reset_to?, note?}
     orchestrator/input.provided {slug, step_id, answer?, reset_to?}
+Sends, for a chat bridge (slack_bridge.py):
+    orchestrator/attention      {slug, kind: gate|question|finished, step_id, ...} before each wait and at the end
 """
 
 from __future__ import annotations
@@ -216,6 +218,13 @@ async def run_judgment(run: dict, ans: dict, attempt: int, state: dict, extra_en
     concurrency=[inngest.Concurrency(limit=1)],
     retries=2,
 )
+async def _notify(ctx: inngest.Context, label: str, data: dict) -> None:
+    """Tell the chat bridge a person is needed. Memoized like any step, so a replay
+    doesn't post twice. It goes out before the wait opens, and a person's click
+    comes seconds later at the earliest, so the wait has no lookback problem."""
+    await ctx.step.send_event(label, [inngest.Event(name="orchestrator/attention", data=data)])
+
+
 async def drive_workflow(ctx: inngest.Context) -> dict:
     d = ctx.event.data
     run = {k: d.get(k) for k in ("workflow", "pack", "slug", "artifacts_dir", "repo_root")}
@@ -234,6 +243,12 @@ async def drive_workflow(ctx: inngest.Context) -> dict:
     after: dict | None = None
     ans: dict = {}
     last_ready: dict[str, dict] = {}
+    last_summary: dict[str, str] = {}
+    base = {"slug": run["slug"], "workflow": run["workflow"], "artifacts_dir": run["artifacts_dir"]}
+
+    async def finish(n: int, outcome: dict) -> dict:
+        await _notify(ctx, f"notify finished#{n}", {**base, "kind": "finished", "status": outcome["status"]})
+        return outcome
 
     for n in range(MAX_LOOPS):
         label = f"next after {after['step']}#{after['attempt']}" if after else "next (start)"
@@ -243,14 +258,19 @@ async def drive_workflow(ctx: inngest.Context) -> dict:
         state.update({k: v for k, v in patch.items() if k not in ("tokens", "step_history")})
 
         if status == "done":
-            return {"status": "done", "history": history}
+            return await finish(n, {"status": "done", "history": history})
         if status == "error":
             # Engine rejected what we reported; nothing recorded. Surface it.
-            return {"status": "error", "answer": ans, "history": history}
+            return await finish(n, {"status": "error", "answer": ans, "history": history})
 
         step_id = ans["step_id"]
         if status == "needs_you":
-            # Park the run until a person answers (in Slack, later).
+            # Park the run until a person answers.
+            await _notify(
+                ctx,
+                f"notify needs-you {step_id}#{n}",
+                {**base, "kind": "question", "step_id": step_id, "question": last_summary.get(step_id, "")},
+            )
             evt = await ctx.step.wait_for_event(
                 f"needs-you {step_id}#{n}",
                 event="orchestrator/input.provided",
@@ -285,6 +305,11 @@ async def drive_workflow(ctx: inngest.Context) -> dict:
             return {"status": "refused", "step_id": step_id, "missing_token": p["requires"], "history": history}
 
         if kind == "gate":
+            await _notify(
+                ctx,
+                f"notify gate {step_id}#{attempt}",
+                {**base, "kind": "gate", "step_id": step_id, "attempt": attempt, "show": p.get("show") or {}},
+            )
             evt = await ctx.step.wait_for_event(
                 f"gate {step_id}#{attempt}",
                 event="orchestrator/gate.decided",
@@ -329,9 +354,11 @@ async def drive_workflow(ctx: inngest.Context) -> dict:
                 ),
             }
         )
+        if result.get("summary"):
+            last_summary[step_id] = result["summary"]
         after = {k: result[k] for k in ("step", "attempt", "exit_code", "stdout_file", "status", "out") if k in result}
 
-    return {"status": "loop_guard", "last": ans, "history": history}
+    return await finish(MAX_LOOPS, {"status": "loop_guard", "last": ans, "history": history})
 
 
 async def main() -> None:
