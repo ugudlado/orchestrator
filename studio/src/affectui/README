@@ -1,0 +1,4 @@
+affectUI components (clean variants), copied unchanged from https://github.com/flohoeller/affectui
+Copyright (c) 2026 Florian Höller (adfects). MIT License - see ./LICENSE.
+Used: button, segmented-control, tool-call-card, decision-inbox, thinking-loader, notification-stack, message-actions, smart-recommendation.
+Not used: illustrations/agent-team (needs external portrait images; roster avatars are drawn as initials instead).

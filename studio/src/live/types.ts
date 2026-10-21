@@ -1,0 +1,58 @@
+/** Shapes served by spike/inngest_driver/studio_server.py. Keep in step with it. */
+
+export type LiveStatus = "running" | "waiting" | "needs_you" | "done" | "failed";
+
+export interface LiveHistoryEntry {
+  step: string;
+  attempt: number;
+  kind?: "exec" | "judgment" | "gate";
+  /** completed | failed for steps; gates record completed (approved) or failed (rejected) */
+  status: string;
+  route?: string;
+  gate?: "approved" | "rejected" | null;
+  note?: string | null;
+  exit_code?: number;
+  model?: string | null;
+  cost_usd?: number | null;
+  /** the step's own one-line summary of what it did (judgment steps) */
+  summary?: string | null;
+  /** recorded outputs: enum values, artifact paths */
+  outs?: Record<string, unknown>;
+  /** last lines an exec step printed */
+  stdout_tail?: string;
+}
+
+export interface LiveAttention {
+  kind: "gate" | "question";
+  step_id: string;
+  /** gate visit number; a gate decision must echo it */
+  attempt?: number;
+  /** question number; an answer must echo it */
+  wait?: number;
+  /** gate: artifact name -> path relative to the run's artifacts dir */
+  show?: Record<string, string>;
+  question?: string;
+  at: string;
+}
+
+export interface LiveRun {
+  slug: string;
+  workflow: string;
+  title: string;
+  ticket: string;
+  status: LiveStatus;
+  /** what the driver returned when it ended: done, error, gate_timeout, refused, loop_guard */
+  outcome: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  inngest: { run_id: string | null; status: string | null; trace_url: string | null };
+  history: LiveHistoryEntry[];
+  /** the step running right now, if any */
+  current: { step: string; kind: "exec" | "judgment" } | null;
+  attention: LiveAttention | null;
+  tokens: string[];
+  artifacts: { name: string; size: number; mtime: string }[];
+  cost_usd: number;
+}
+
+export interface LiveHealth { ok: boolean; inngest: boolean; ui_url: string; repos: string[]; workflows: string[] }

@@ -1,0 +1,1982 @@
+{
+ "dev": {
+  "name": "dev",
+  "version": 1,
+  "inputs": {
+   "ticket": {
+    "type": "string"
+   }
+  },
+  "steps": [
+   {
+    "id": "check-rerun",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.list"
+    ],
+    "in": {},
+    "out": {
+     "already_completed": "boolean"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "create-worktree",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "shell.run",
+     "git.worktree"
+    ],
+    "in": {},
+    "out": {
+     "created": "boolean",
+     "worktree_path": "string",
+     "branch": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "load-ticket-context",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 15,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "shell.run",
+     "ticket.read"
+    ],
+    "in": {},
+    "out": {
+     "ticket": "ticket-context.md",
+     "ticket_ref": "ticket.json",
+     "ticket_context_status": "enum"
+    },
+    "enums": {
+     "ticket_context_status": [
+      "complete",
+      "await_input"
+     ]
+    },
+    "fail_on": {}
+   },
+   {
+    "id": "triage",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 15,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list"
+    ],
+    "in": {
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "triage": "triage.md",
+     "change_type": "enum"
+    },
+    "enums": {
+     "change_type": [
+      "feature",
+      "fix",
+      "quick",
+      "await_input"
+     ]
+    },
+    "fail_on": {},
+    "skip_when_unchanged": true,
+    "routes": [
+     {
+      "when": {
+       "change_type": "fix"
+      },
+      "goto": "diagnose"
+     },
+     {
+      "when": {
+       "change_type": "quick"
+      },
+      "goto": "quick-signoff"
+     }
+    ]
+   },
+   {
+    "id": "explore",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 30,
+    "tools": [
+     "fs.read",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "discovery": "discovery.md"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "ux-design",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 40,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "discovery": "discovery.md",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "ux_prototype": "ux-prototype.html",
+     "ux_artifacts": "ux-artifacts.yaml",
+     "skipped": "boolean"
+    },
+    "enums": {},
+    "fail_on": {},
+    "routes": [
+     {
+      "goto": "design"
+     }
+    ]
+   },
+   {
+    "id": "diagnose",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 30,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "discovery": "discovery.md",
+     "fix_scope": "enum"
+    },
+    "enums": {
+     "fix_scope": [
+      "standard",
+      "hotfix"
+     ]
+    },
+    "fail_on": {},
+    "routes": [
+     {
+      "when": {
+       "fix_scope": "hotfix"
+      },
+      "goto": "hotfix-signoff"
+     }
+    ]
+   },
+   {
+    "id": "design",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 40,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "discovery": "discovery.md",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "design": "design.md",
+     "tasks": "tasks.yaml",
+     "complexity": "enum"
+    },
+    "enums": {
+     "complexity": [
+      "XS",
+      "S",
+      "M",
+      "L",
+      "XL"
+     ]
+    },
+    "fail_on": {}
+   },
+   {
+    "id": "design-review",
+    "kind": "judgment",
+    "on_failure": "design",
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 25,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "shell.run"
+    ],
+    "in": {
+     "design": "design.md",
+     "tasks": "tasks.yaml"
+    },
+    "out": {
+     "design": "design.md",
+     "verdict": "enum"
+    },
+    "enums": {
+     "verdict": [
+      "pass",
+      "needs_work"
+     ]
+    },
+    "fail_on": {
+     "verdict": [
+      "needs_work"
+     ]
+    }
+   },
+   {
+    "id": "design-signoff",
+    "kind": "gate",
+    "show": [
+     "design",
+     "tasks"
+    ],
+    "approve_as": "impl_token",
+    "routes": [
+     {
+      "goto": "ticket-start"
+     }
+    ]
+   },
+   {
+    "id": "quick-signoff",
+    "kind": "gate",
+    "show": [
+     "triage"
+    ],
+    "approve_as": "impl_token",
+    "routes": [
+     {
+      "goto": "ticket-start"
+     }
+    ]
+   },
+   {
+    "id": "hotfix-signoff",
+    "kind": "gate",
+    "show": [
+     "discovery"
+    ],
+    "approve_as": "impl_token"
+   },
+   {
+    "id": "ticket-start",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 10,
+    "tools": [
+     "fs.read",
+     "shell.run",
+     "ticket.read",
+     "ticket.write"
+    ],
+    "in": {
+     "ticket_ref": "ticket.json"
+    },
+    "out": {
+     "ticket_status_set": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "ux-critique",
+    "kind": "judgment",
+    "on_failure": "ux-design",
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 30,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "ux_prototype": "ux-prototype.html",
+     "ux_artifacts": "ux-artifacts.yaml"
+    },
+    "out": {
+     "ux_artifacts": "ux-artifacts.yaml",
+     "verdict": "enum"
+    },
+    "enums": {
+     "verdict": [
+      "pass",
+      "needs_work",
+      "skipped"
+     ]
+    },
+    "fail_on": {
+     "verdict": [
+      "needs_work"
+     ]
+    }
+   },
+   {
+    "id": "implement",
+    "kind": "judgment",
+    "on_failure": "design",
+    "requires": "impl_token",
+    "max_retries": null,
+    "max_turns": 120,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run",
+     "shell.test",
+     "git.status",
+     "git.diff",
+     "git.commit"
+    ],
+    "in": {
+     "design": "design.md",
+     "tasks": "tasks.yaml",
+     "discovery": "discovery.md",
+     "ticket": "ticket-context.md",
+     "triage": "triage.md"
+    },
+    "out": {
+     "tasks": "tasks.yaml"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "ticket-review",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 10,
+    "tools": [
+     "fs.read",
+     "shell.run",
+     "ticket.read",
+     "ticket.write"
+    ],
+    "in": {
+     "ticket_ref": "ticket.json"
+    },
+    "out": {
+     "ticket_status_set": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "code-review",
+    "kind": "judgment",
+    "on_failure": "implement",
+    "requires": null,
+    "max_retries": 8,
+    "max_turns": 60,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run",
+     "shell.test",
+     "git.status",
+     "git.diff"
+    ],
+    "in": {
+     "tasks": "tasks.yaml",
+     "design": "design.md",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "code_review": "code-review.md",
+     "tasks": "tasks.yaml",
+     "verdict": "enum"
+    },
+    "enums": {
+     "verdict": [
+      "pass",
+      "needs_work",
+      "incomplete_phase"
+     ]
+    },
+    "fail_on": {
+     "verdict": [
+      "needs_work",
+      "incomplete_phase"
+     ]
+    }
+   },
+   {
+    "id": "verify-changes",
+    "kind": "judgment",
+    "on_failure": "implement",
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 40,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run",
+     "shell.test",
+     "git.status",
+     "git.diff",
+     "git.fetch"
+    ],
+    "in": {
+     "design": "design.md",
+     "tasks": "tasks.yaml",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "verification": "verify-changes.md",
+     "verdict": "enum"
+    },
+    "enums": {
+     "verdict": [
+      "pass",
+      "needs_work"
+     ]
+    },
+    "fail_on": {
+     "verdict": [
+      "needs_work"
+     ]
+    }
+   },
+   {
+    "id": "human-review",
+    "kind": "judgment",
+    "on_failure": "implement",
+    "requires": null,
+    "max_retries": 8,
+    "max_turns": 20,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list"
+    ],
+    "in": {
+     "code_review": "code-review.md",
+     "tasks": "tasks.yaml"
+    },
+    "out": {
+     "tasks": "tasks.yaml",
+     "decision": "enum"
+    },
+    "enums": {
+     "decision": [
+      "approved",
+      "rework",
+      "await_input"
+     ]
+    },
+    "fail_on": {
+     "decision": [
+      "rework"
+     ]
+    }
+   },
+   {
+    "id": "ticket-qa",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 10,
+    "tools": [
+     "fs.read",
+     "shell.run",
+     "ticket.read",
+     "ticket.write"
+    ],
+    "in": {
+     "ticket_ref": "ticket.json"
+    },
+    "out": {
+     "ticket_status_set": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "pr-signoff",
+    "kind": "gate",
+    "show": [
+     "design",
+     "tasks",
+     "code_review",
+     "verification"
+    ],
+    "approve_as": "merge_token"
+   },
+   {
+    "id": "mark-change-completed",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.write"
+    ],
+    "in": {},
+    "out": {
+     "marked": "boolean"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "open-pr",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": "merge_token",
+    "max_retries": null,
+    "max_turns": 80,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run",
+     "shell.test",
+     "git.status",
+     "git.diff",
+     "git.fetch",
+     "git.commit",
+     "git.push",
+     "net.fetch",
+     "forge.pr"
+    ],
+    "in": {
+     "design": "design.md",
+     "tasks": "tasks.yaml",
+     "code_review": "code-review.md",
+     "verification": "verify-changes.md",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "pr": "pr.md",
+     "pr_urls": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "pr-merged",
+    "kind": "gate",
+    "show": [
+     "pr"
+    ],
+    "approve_as": "cleanup_token"
+   },
+   {
+    "id": "remove-worktree",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": "cleanup_token",
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "shell.run",
+     "git.worktree"
+    ],
+    "in": {},
+    "out": {
+     "removed": "boolean"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "ticket-done",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": "cleanup_token",
+    "max_retries": null,
+    "max_turns": 10,
+    "tools": [
+     "fs.read",
+     "shell.run",
+     "ticket.read",
+     "ticket.write"
+    ],
+    "in": {
+     "ticket_ref": "ticket.json"
+    },
+    "out": {
+     "ticket_status_set": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "workflow-report",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.list"
+    ],
+    "in": {},
+    "out": {
+     "report": "object"
+    },
+    "enums": {},
+    "fail_on": {}
+   }
+  ]
+ },
+ "feature": {
+  "name": "feature",
+  "version": 7,
+  "inputs": {
+   "ticket": {
+    "type": "string"
+   }
+  },
+  "steps": [
+   {
+    "id": "check-rerun",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.list"
+    ],
+    "in": {},
+    "out": {
+     "already_completed": "boolean"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "create-worktree",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "shell.run",
+     "git.worktree"
+    ],
+    "in": {},
+    "out": {
+     "created": "boolean",
+     "worktree_path": "string",
+     "branch": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "load-ticket-context",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 15,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "shell.run"
+    ],
+    "in": {},
+    "out": {
+     "ticket": "ticket-context.md",
+     "ticket_ref": "ticket.json",
+     "ticket_context_status": "enum"
+    },
+    "enums": {
+     "ticket_context_status": [
+      "complete",
+      "await_input"
+     ]
+    },
+    "fail_on": {}
+   },
+   {
+    "id": "explore",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 30,
+    "tools": [
+     "fs.read",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "discovery": "discovery.md"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "ux-design",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 40,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "discovery": "discovery.md",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "ux_prototype": "ux-prototype.html",
+     "ux_artifacts": "ux-artifacts.yaml",
+     "skipped": "boolean"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "design",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 40,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "discovery": "discovery.md",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "design": "design.md",
+     "tasks": "tasks.yaml",
+     "complexity": "enum"
+    },
+    "enums": {
+     "complexity": [
+      "XS",
+      "S",
+      "M",
+      "L",
+      "XL"
+     ]
+    },
+    "fail_on": {}
+   },
+   {
+    "id": "design-review",
+    "kind": "judgment",
+    "on_failure": "design",
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 25,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "shell.run"
+    ],
+    "in": {
+     "design": "design.md",
+     "tasks": "tasks.yaml"
+    },
+    "out": {
+     "design": "design.md",
+     "verdict": "enum"
+    },
+    "enums": {
+     "verdict": [
+      "pass",
+      "needs_work"
+     ]
+    },
+    "fail_on": {
+     "verdict": [
+      "needs_work"
+     ]
+    }
+   },
+   {
+    "id": "design-signoff",
+    "kind": "gate",
+    "show": [
+     "design",
+     "tasks"
+    ],
+    "approve_as": "impl_token"
+   },
+   {
+    "id": "ticket-start",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 10,
+    "tools": [
+     "fs.read",
+     "shell.run"
+    ],
+    "in": {
+     "ticket_ref": "ticket.json"
+    },
+    "out": {
+     "ticket_status_set": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "ux-critique",
+    "kind": "judgment",
+    "on_failure": "ux-design",
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 30,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "ux_prototype": "ux-prototype.html",
+     "ux_artifacts": "ux-artifacts.yaml"
+    },
+    "out": {
+     "ux_artifacts": "ux-artifacts.yaml",
+     "verdict": "enum"
+    },
+    "enums": {
+     "verdict": [
+      "pass",
+      "needs_work",
+      "skipped"
+     ]
+    },
+    "fail_on": {
+     "verdict": [
+      "needs_work"
+     ]
+    }
+   },
+   {
+    "id": "implement",
+    "kind": "judgment",
+    "on_failure": "design",
+    "requires": "impl_token",
+    "max_retries": null,
+    "max_turns": 120,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run",
+     "shell.test",
+     "git.status",
+     "git.diff",
+     "git.commit"
+    ],
+    "in": {
+     "design": "design.md",
+     "tasks": "tasks.yaml",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "tasks": "tasks.yaml"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "ticket-review",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 10,
+    "tools": [
+     "fs.read",
+     "shell.run"
+    ],
+    "in": {
+     "ticket_ref": "ticket.json"
+    },
+    "out": {
+     "ticket_status_set": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "code-review",
+    "kind": "judgment",
+    "on_failure": "implement",
+    "requires": null,
+    "max_retries": 8,
+    "max_turns": 60,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run",
+     "shell.test",
+     "git.status",
+     "git.diff"
+    ],
+    "in": {
+     "tasks": "tasks.yaml",
+     "design": "design.md",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "code_review": "code-review.md",
+     "tasks": "tasks.yaml",
+     "verdict": "enum"
+    },
+    "enums": {
+     "verdict": [
+      "pass",
+      "needs_work",
+      "incomplete_phase"
+     ]
+    },
+    "fail_on": {
+     "verdict": [
+      "needs_work",
+      "incomplete_phase"
+     ]
+    }
+   },
+   {
+    "id": "verify-changes",
+    "kind": "judgment",
+    "on_failure": "implement",
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 40,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run",
+     "shell.test",
+     "git.status",
+     "git.diff",
+     "git.fetch"
+    ],
+    "in": {
+     "design": "design.md",
+     "tasks": "tasks.yaml",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "verification": "verify-changes.md",
+     "verdict": "enum"
+    },
+    "enums": {
+     "verdict": [
+      "pass",
+      "needs_work"
+     ]
+    },
+    "fail_on": {
+     "verdict": [
+      "needs_work"
+     ]
+    }
+   },
+   {
+    "id": "human-review",
+    "kind": "judgment",
+    "on_failure": "implement",
+    "requires": null,
+    "max_retries": 8,
+    "max_turns": 20,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list"
+    ],
+    "in": {
+     "code_review": "code-review.md",
+     "tasks": "tasks.yaml"
+    },
+    "out": {
+     "tasks": "tasks.yaml",
+     "decision": "enum"
+    },
+    "enums": {
+     "decision": [
+      "approved",
+      "rework",
+      "await_input"
+     ]
+    },
+    "fail_on": {
+     "decision": [
+      "rework"
+     ]
+    }
+   },
+   {
+    "id": "ticket-qa",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 10,
+    "tools": [
+     "fs.read",
+     "shell.run"
+    ],
+    "in": {
+     "ticket_ref": "ticket.json"
+    },
+    "out": {
+     "ticket_status_set": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "pr-signoff",
+    "kind": "gate",
+    "show": [
+     "design",
+     "tasks",
+     "code_review",
+     "verification"
+    ],
+    "approve_as": "merge_token"
+   },
+   {
+    "id": "mark-change-completed",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.write"
+    ],
+    "in": {},
+    "out": {
+     "marked": "boolean"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "open-pr",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": "merge_token",
+    "max_retries": null,
+    "max_turns": 80,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run",
+     "shell.test",
+     "git.status",
+     "git.diff",
+     "git.fetch",
+     "git.commit",
+     "git.push",
+     "net.fetch"
+    ],
+    "in": {
+     "design": "design.md",
+     "tasks": "tasks.yaml",
+     "code_review": "code-review.md",
+     "verification": "verify-changes.md",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "pr": "pr.md",
+     "pr_urls": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "pr-merged",
+    "kind": "gate",
+    "show": [
+     "pr"
+    ],
+    "approve_as": "cleanup_token"
+   },
+   {
+    "id": "remove-worktree",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": "cleanup_token",
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "shell.run",
+     "git.worktree"
+    ],
+    "in": {},
+    "out": {
+     "removed": "boolean"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "ticket-done",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": "cleanup_token",
+    "max_retries": null,
+    "max_turns": 10,
+    "tools": [
+     "fs.read",
+     "shell.run"
+    ],
+    "in": {
+     "ticket_ref": "ticket.json"
+    },
+    "out": {
+     "ticket_status_set": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "workflow-report",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.list"
+    ],
+    "in": {},
+    "out": {
+     "report": "object"
+    },
+    "enums": {},
+    "fail_on": {}
+   }
+  ]
+ },
+ "bugfix": {
+  "name": "bugfix",
+  "version": 4,
+  "inputs": {
+   "ticket": {
+    "type": "string"
+   }
+  },
+  "steps": [
+   {
+    "id": "check-rerun",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.list"
+    ],
+    "in": {},
+    "out": {
+     "already_completed": "boolean"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "create-worktree",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "shell.run",
+     "git.worktree"
+    ],
+    "in": {},
+    "out": {
+     "created": "boolean",
+     "worktree_path": "string",
+     "branch": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "load-ticket-context",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 15,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "shell.run"
+    ],
+    "in": {},
+    "out": {
+     "ticket": "ticket-context.md",
+     "ticket_ref": "ticket.json",
+     "ticket_context_status": "enum"
+    },
+    "enums": {
+     "ticket_context_status": [
+      "complete",
+      "await_input"
+     ]
+    },
+    "fail_on": {}
+   },
+   {
+    "id": "diagnose",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 30,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "discovery": "discovery.md"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "design",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 40,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "discovery": "discovery.md",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "design": "design.md",
+     "tasks": "tasks.yaml",
+     "complexity": "enum"
+    },
+    "enums": {
+     "complexity": [
+      "XS",
+      "S",
+      "M",
+      "L",
+      "XL"
+     ]
+    },
+    "fail_on": {}
+   },
+   {
+    "id": "design-review",
+    "kind": "judgment",
+    "on_failure": "design",
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 25,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "shell.run"
+    ],
+    "in": {
+     "design": "design.md",
+     "tasks": "tasks.yaml"
+    },
+    "out": {
+     "design": "design.md",
+     "verdict": "enum"
+    },
+    "enums": {
+     "verdict": [
+      "pass",
+      "needs_work"
+     ]
+    },
+    "fail_on": {
+     "verdict": [
+      "needs_work"
+     ]
+    }
+   },
+   {
+    "id": "design-signoff",
+    "kind": "gate",
+    "show": [
+     "design",
+     "tasks"
+    ],
+    "approve_as": "impl_token"
+   },
+   {
+    "id": "ticket-start",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 10,
+    "tools": [
+     "fs.read",
+     "shell.run"
+    ],
+    "in": {
+     "ticket_ref": "ticket.json"
+    },
+    "out": {
+     "ticket_status_set": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "implement",
+    "kind": "judgment",
+    "on_failure": "design",
+    "requires": "impl_token",
+    "max_retries": null,
+    "max_turns": 120,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run",
+     "shell.test",
+     "git.status",
+     "git.diff",
+     "git.commit"
+    ],
+    "in": {
+     "design": "design.md",
+     "tasks": "tasks.yaml",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "tasks": "tasks.yaml"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "ticket-review",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 10,
+    "tools": [
+     "fs.read",
+     "shell.run"
+    ],
+    "in": {
+     "ticket_ref": "ticket.json"
+    },
+    "out": {
+     "ticket_status_set": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "code-review",
+    "kind": "judgment",
+    "on_failure": "implement",
+    "requires": null,
+    "max_retries": 8,
+    "max_turns": 60,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run",
+     "shell.test",
+     "git.status",
+     "git.diff"
+    ],
+    "in": {
+     "tasks": "tasks.yaml",
+     "design": "design.md",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "code_review": "code-review.md",
+     "tasks": "tasks.yaml",
+     "verdict": "enum"
+    },
+    "enums": {
+     "verdict": [
+      "pass",
+      "needs_work",
+      "incomplete_phase"
+     ]
+    },
+    "fail_on": {
+     "verdict": [
+      "needs_work",
+      "incomplete_phase"
+     ]
+    }
+   },
+   {
+    "id": "ticket-qa",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 10,
+    "tools": [
+     "fs.read",
+     "shell.run"
+    ],
+    "in": {
+     "ticket_ref": "ticket.json"
+    },
+    "out": {
+     "ticket_status_set": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "pr-signoff",
+    "kind": "gate",
+    "show": [
+     "design",
+     "tasks",
+     "code_review"
+    ],
+    "approve_as": "merge_token"
+   },
+   {
+    "id": "mark-change-completed",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.write"
+    ],
+    "in": {},
+    "out": {
+     "marked": "boolean"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "open-pr",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": "merge_token",
+    "max_retries": null,
+    "max_turns": 80,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run",
+     "shell.test",
+     "git.status",
+     "git.diff",
+     "git.fetch",
+     "git.commit",
+     "git.push",
+     "net.fetch"
+    ],
+    "in": {
+     "design": "design.md",
+     "tasks": "tasks.yaml",
+     "code_review": "code-review.md",
+     "verification": "verify-changes.md",
+     "ticket": "ticket-context.md"
+    },
+    "out": {
+     "pr": "pr.md",
+     "pr_urls": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "pr-merged",
+    "kind": "gate",
+    "show": [
+     "pr"
+    ],
+    "approve_as": "cleanup_token"
+   },
+   {
+    "id": "remove-worktree",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": "cleanup_token",
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "shell.run",
+     "git.worktree"
+    ],
+    "in": {},
+    "out": {
+     "removed": "boolean"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "ticket-done",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": "cleanup_token",
+    "max_retries": null,
+    "max_turns": 10,
+    "tools": [
+     "fs.read",
+     "shell.run"
+    ],
+    "in": {
+     "ticket_ref": "ticket.json"
+    },
+    "out": {
+     "ticket_status_set": "string"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "workflow-report",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.list"
+    ],
+    "in": {},
+    "out": {
+     "report": "object"
+    },
+    "enums": {},
+    "fail_on": {}
+   }
+  ]
+ },
+ "research": {
+  "name": "research",
+  "version": 5,
+  "inputs": {
+   "ticket": {
+    "type": "string"
+   }
+  },
+  "steps": [
+   {
+    "id": "intake-research",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 20,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list"
+    ],
+    "in": {},
+    "out": {
+     "intake": "intake.json",
+     "topic": "topic.md",
+     "intake_status": "enum"
+    },
+    "enums": {
+     "intake_status": [
+      "complete",
+      "await_input"
+     ]
+    },
+    "fail_on": {}
+   },
+   {
+    "id": "source-search",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 40,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "intake": "intake.json",
+     "topic": "topic.md"
+    },
+    "out": {
+     "sources": "sources.md",
+     "source_count": "number"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "synthesize-findings",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 40,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "intake": "intake.json",
+     "topic": "topic.md",
+     "sources": "sources.md"
+    },
+    "out": {
+     "findings": "findings.md"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "fact-check",
+    "kind": "judgment",
+    "on_failure": "synthesize-findings",
+    "requires": null,
+    "max_retries": 2,
+    "max_turns": 45,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "findings": "findings.md",
+     "sources": "sources.md"
+    },
+    "out": {
+     "findings": "findings.md",
+     "verdict": "enum"
+    },
+    "enums": {
+     "verdict": [
+      "pass",
+      "needs_work"
+     ]
+    },
+    "fail_on": {
+     "verdict": [
+      "needs_work"
+     ]
+    }
+   },
+   {
+    "id": "storyline",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 25,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list"
+    ],
+    "in": {
+     "intake": "intake.json",
+     "findings": "findings.md"
+    },
+    "out": {
+     "storyline": "storyline.md"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "storyline-signoff",
+    "kind": "gate",
+    "show": [
+     "storyline",
+     "findings"
+    ],
+    "approve_as": "deck_token"
+   },
+   {
+    "id": "choose-deliverables",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 8,
+    "tools": [
+     "fs.read",
+     "fs.write"
+    ],
+    "in": {
+     "intake": "intake.json",
+     "storyline": "storyline.md"
+    },
+    "out": {
+     "deliverables_choice": "deliverables.json",
+     "options": "string",
+     "choice_status": "enum"
+    },
+    "enums": {
+     "choice_status": [
+      "complete",
+      "await_input"
+     ]
+    },
+    "fail_on": {}
+   },
+   {
+    "id": "deliverables",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": "deck_token",
+    "max_retries": null,
+    "max_turns": 60,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "deliverables_choice": "deliverables.json",
+     "intake": "intake.json",
+     "findings": "findings.md",
+     "storyline": "storyline.md",
+     "sources": "sources.md"
+    },
+    "out": {
+     "deliverables": "string",
+     "formats": "number"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "workflow-report",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.list"
+    ],
+    "in": {},
+    "out": {
+     "report": "object"
+    },
+    "enums": {},
+    "fail_on": {}
+   }
+  ]
+ },
+ "learn": {
+  "name": "learn",
+  "version": 1,
+  "inputs": {},
+  "steps": [
+   {
+    "id": "collect-runs",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.list"
+    ],
+    "in": {},
+    "out": {
+     "runs": "runs.json",
+     "run_count": "number"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "learn",
+    "kind": "judgment",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": 40,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run"
+    ],
+    "in": {
+     "runs": "runs.json"
+    },
+    "out": {
+     "proposed_scenarios": "proposed-scenarios.jsonl"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "persist-learnings",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list",
+     "shell.run",
+     "git.commit"
+    ],
+    "in": {
+     "proposed_scenarios": "proposed-scenarios.jsonl"
+    },
+    "out": {
+     "scenarios_appended": "number"
+    },
+    "enums": {},
+    "fail_on": {}
+   },
+   {
+    "id": "mark-learned",
+    "kind": "exec",
+    "on_failure": null,
+    "requires": null,
+    "max_retries": null,
+    "max_turns": null,
+    "tools": [
+     "fs.read",
+     "fs.write",
+     "fs.list"
+    ],
+    "in": {
+     "runs": "runs.json"
+    },
+    "out": {
+     "marked": "number"
+    },
+    "enums": {},
+    "fail_on": {}
+   }
+  ],
+  "trigger": "Nightly",
+  "summary": "Learns nightly from finished runs: it gathers every run that has not been learned from yet, looks for patterns across them, proposes new test scenarios for the steps that need them, saves those proposals, and marks the runs as done so tomorrow night skips them. It needs no ticket and never waits for a person."
+ }
+}
