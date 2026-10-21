@@ -246,7 +246,13 @@ async def drive_workflow(ctx: inngest.Context) -> dict:
     last_summary: dict[str, str] = {}
     base = {"slug": run["slug"], "workflow": run["workflow"], "artifacts_dir": run["artifacts_dir"]}
 
+    def save_state() -> None:
+        # Exec and judgment steps write the state file before they run; writing it
+        # before each wait and at the end too lets Studio show the full history.
+        _state_path(run).write_text(json.dumps(state, indent=2))
+
     async def finish(n: int, outcome: dict) -> dict:
+        save_state()
         await _notify(ctx, f"notify finished#{n}", {**base, "kind": "finished", "status": outcome["status"]})
         return outcome
 
@@ -266,6 +272,7 @@ async def drive_workflow(ctx: inngest.Context) -> dict:
         step_id = ans["step_id"]
         if status == "needs_you":
             # Park the run until a person answers.
+            save_state()
             await _notify(
                 ctx,
                 f"notify needs-you {step_id}#{n}",
@@ -306,6 +313,7 @@ async def drive_workflow(ctx: inngest.Context) -> dict:
             return {"status": "refused", "step_id": step_id, "missing_token": p["requires"], "history": history}
 
         if kind == "gate":
+            save_state()
             await _notify(
                 ctx,
                 f"notify gate {step_id}#{attempt}",
