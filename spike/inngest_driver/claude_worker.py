@@ -11,8 +11,9 @@ Env: ORCHESTRATOR_CONFIG (pack root), WORKTREE_PATH (cwd), ORCHESTRATOR_ARTIFACT
 ORCHESTRATOR_ATTEMPT, ORCH_USER_DIRECTION, ORCHESTRATOR_USER_ANSWER,
 ORCH_MODEL_OVERRIDE (one model for every step), ORCH_SANDBOX_DOMAINS (comma-separated hosts
 the sandbox may reach; empty by default, and every host listed is a way out for data),
-ORCH_CLAUDE_ARGS (extra CLI args). The project's own MCP servers come from REPO_ROOT's
-.mcp.json (see project_mcp.py); nothing else from the machine is loaded.
+ORCH_CLAUDE_ARGS (extra CLI args), ORCH_STEP_ENV_KEEP (extra variable names for the step,
+e.g. an API key a project MCP server reads through ${VAR}; the agent can see these).
+MCP: Claude Code loads the worktree's .mcp.json itself, as in any headless run.
 Prints one JSON line: {model, cost_usd, num_turns, duration_ms, session_id, is_error}.
 """
 
@@ -20,13 +21,10 @@ import json
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-import project_mcp
 import yaml
 
 PLACEHOLDER = re.compile(r"\{(in|out)\.([A-Za-z0-9_-]+)\}")
@@ -112,13 +110,15 @@ SIGN_IN = {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN
 
 
 def step_env() -> dict:
-    keep = ENV_KEEP + [k for k in os.environ.get("ORCH_STEP_ENV_KEEP", "").split(",") if k]
+    extra = {k for k in os.environ.get("ORCH_STEP_ENV_KEEP", "").split(",") if k}
+    keep = ENV_KEEP + sorted(extra)
 
     def kept(name: str) -> bool:
         return any(name.upper().startswith(k) if k.endswith("_") else name.upper() == k for k in keep)
 
-    # Secret-looking names are dropped even inside a kept prefix; only claude's sign-in is exempt.
-    return {k: v for k, v in os.environ.items() if kept(k) and (k in SIGN_IN or not SECRET_ENV.search(k))}
+    # Secret-looking names are dropped even inside a kept prefix; only claude's sign-in and names
+    # listed in ORCH_STEP_ENV_KEEP on purpose are exempt.
+    return {k: v for k, v in os.environ.items() if kept(k) and (k in SIGN_IN or k in extra or not SECRET_ENV.search(k))}
 
 
 def _rule(tool: str, path: str, tree: bool = True) -> str:
@@ -126,19 +126,17 @@ def _rule(tool: str, path: str, tree: bool = True) -> str:
     return f"{tool}({'/' if path.startswith('/') else ''}{path}{'/**' if tree else ''})"
 
 
-def sandbox_settings(result_file: str, hidden: list[str] | None = None) -> dict:
+def sandbox_settings(result_file: str) -> dict:
     """Claude Code's Bash sandbox instead of a command allowlist: any test or build
     command runs without a prompt, but writes stay in the worktree, the run's
     artifacts and results, and the network reaches only ORCH_SANDBOX_DOMAINS.
     Fails closed: no bubblewrap/socat means the step errors instead of running bare."""
     domains = [d for d in os.environ.get("ORCH_SANDBOX_DOMAINS", "").split(",") if d]
-    deny = DENY_READ + (hidden or [])
-    # The project's MCP secrets and server list: not readable, and not something a step can change.
-    # Both the given and the real path, so a symlinked REPO_ROOT can't slip past either matcher.
-    raw = os.environ.get("REPO_ROOT")
-    roots = list(dict.fromkeys([raw, os.path.realpath(raw)])) if raw else []
-    secrets = [f"{r}/.orchestrator/mcp.env" for r in roots]
-    locked = secrets + [f"{r}/.mcp.json" for r in roots]
+    # A step must not give later steps new MCP servers: the project's server lists stay read-only.
+    # Both the given and the real path, so a symlinked checkout can't slip past either matcher.
+    dirs = [d for d in (os.getcwd(), os.environ.get("REPO_ROOT")) if d]
+    roots = list(dict.fromkeys([*dirs, *map(os.path.realpath, dirs)]))
+    locked = [f"{r}/{f}" for r in roots for f in (".mcp.json", ".codex/config.toml")]
     return {
         "sandbox": {
             "enabled": True,
@@ -148,39 +146,31 @@ def sandbox_settings(result_file: str, hidden: list[str] | None = None) -> dict:
             "filesystem": {
                 "allowWrite": [os.environ["ORCHESTRATOR_ARTIFACTS_DIR"], str(Path(result_file).parent)],
                 # Ticket text can steer the agent, so Bash must not read the machine's credentials.
-                "denyRead": deny + secrets,
+                "denyRead": DENY_READ,
                 "denyWrite": locked,
             },
             "network": {"allowedDomains": domains},
         },
         # The sandbox covers Bash only; deny the same paths to Read/Grep/Glob.
-        "permissions": {
-            "deny": [_rule("Read", d) for d in deny]
-            + [_rule("Read", f, tree=False) for f in secrets]
-            + [_rule("Edit", f, tree=False) for f in locked]
-        },
+        "permissions": {"deny": [_rule("Read", d) for d in DENY_READ] + [_rule("Edit", f, tree=False) for f in locked]},
     }
 
 
-def mcp_config() -> tuple[str | None, list[str]]:
-    """The project's MCP servers, resolved into a private file. The step's Bash and Read are
-    denied that file, since it holds the values the step env leaves out."""
-    found = project_mcp.ready(os.environ.get("REPO_ROOT") or os.getcwd())
-    if not found:
-        return None, []
-    d = tempfile.mkdtemp(prefix="orch-mcp-")  # 0700
-    f = Path(d) / "mcp.json"
-    f.write_text(json.dumps({"mcpServers": found}))
-    f.chmod(0o600)
-    # Headless runs can't ask, so the project's own servers are allowed up front.
-    return d, ["--mcp-config", str(f), "--allowedTools", ",".join(f"mcp__{n}" for n in found)]
+def mcp_servers() -> list[str]:
+    """Server names in the worktree's .mcp.json, which a headless run loads without asking.
+    It can't ask to use their tools either, so those are allowed up front."""
+    try:
+        names = json.loads(Path(".mcp.json").read_text()).get("mcpServers") or {}
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [n for n in names if re.fullmatch(r"[A-Za-z0-9_-]+", n)]
 
 
 def main() -> None:
     payload = json.loads(Path(sys.argv[1]).read_text())
     result_file = sys.argv[2]
     model = pick_model(payload["step_id"])
-    mcp_dir, mcp_args = mcp_config()
+    mcp = mcp_servers()
     argv = [
         "claude",
         "-p",
@@ -197,18 +187,12 @@ def main() -> None:
         str(Path(result_file).parent),
         "--permission-mode",
         "acceptEdits",
-        # Only the project's own MCP servers, never the machine's whole set.
-        "--strict-mcp-config",
-        *mcp_args,
+        *(["--allowedTools", ",".join(f"mcp__{n}" for n in mcp)] if mcp else []),
         "--settings",
-        json.dumps(sandbox_settings(result_file, [mcp_dir] if mcp_dir else None)),
+        json.dumps(sandbox_settings(result_file)),
         *shlex.split(os.environ.get("ORCH_CLAUDE_ARGS", "")),
     ]
-    try:
-        proc = subprocess.run(argv, capture_output=True, text=True, check=False, env=step_env())
-    finally:
-        if mcp_dir:
-            shutil.rmtree(mcp_dir, ignore_errors=True)
+    proc = subprocess.run(argv, capture_output=True, text=True, check=False, env=step_env())
     try:
         r = json.loads(proc.stdout)
     except json.JSONDecodeError:
