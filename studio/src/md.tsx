@@ -9,7 +9,8 @@ type Block =
   | { t: "list"; ordered: boolean; items: { text: string; line: number; kids: Block[] }[]; line: number }
   | { t: "quote"; text: string; line: number }
   | { t: "table"; head: string[]; rows: string[][]; line: number }
-  | { t: "hr"; line: number };
+  | { t: "hr"; line: number }
+  | { t: "meta"; pairs: [string, string][]; line: number };
 
 const LI = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
 const FENCE = /^\s*(```|~~~)/;
@@ -34,6 +35,15 @@ export function parseMd(src: string): Block[] {
   const out: Block[] = [];
   const starts = (l: string, nx?: string) => FENCE.test(l) || HEAD.test(l) || HR.test(l) || /^\s*>/.test(l) || LI.test(l) || (l.includes("|") && !!nx && TSEP.test(nx));
   let i = 0;
+  // YAML front matter: show it as a quiet key/value strip, not as a paragraph between rules.
+  if (lines[0]?.trim() === "---") {
+    const end = lines.indexOf("---", 1);
+    if (end > 0) {
+      const pairs = lines.slice(1, end).map((l) => l.match(/^([\w-]+):\s*(.*)$/)).filter(Boolean).map((m) => [m![1], m![2]] as [string, string]);
+      if (pairs.length) out.push({ t: "meta", pairs, line: 2 });
+      i = end + 1;
+    }
+  }
   while (i < lines.length) {
     const l = lines[i];
     if (!l.trim()) { i++; continue; }
@@ -95,6 +105,7 @@ function view(b: Block, key: number): ReactNode {
     case "p": return <p key={key} data-line={b.line}>{inline(b.text)}</p>;
     case "quote": return <blockquote key={key} data-line={b.line}>{inline(b.text)}</blockquote>;
     case "hr": return <hr key={key} />;
+    case "meta": return <div key={key} className="md-meta" data-line={b.line}>{b.pairs.map(([k, v]) => <span key={k}><em>{k}</em> {v}</span>)}</div>;
     case "code": return <pre key={key} data-line={b.line}><code>{b.text}</code></pre>;
     case "list": {
       const L = b.ordered ? "ol" : "ul";

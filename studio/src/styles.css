@@ -413,3 +413,5 @@ path.be--dim { opacity: 1; }
 .plist button { all: unset; box-sizing: border-box; width: 100%; display: grid; gap: 1px; padding: 5px 8px; border-radius: 6px; background: var(--surface); cursor: pointer; font-size: 12px; } .plist button:disabled { cursor: default; }
 .plist__w { font: 500 11px var(--mono); color: var(--muted); } .plist__q { color: var(--muted); font-style: italic; } .plist__t { color: var(--ink); }
 .lqbox { display: grid; gap: 8px; }
+.md-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); margin: 0 0 12px; }
+.md-meta em { font-style: normal; opacity: .7; }
