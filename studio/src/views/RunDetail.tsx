@@ -162,6 +162,7 @@ export function RunDetail({ app, run }: { app: AppApi; run: Run }) {
               <span className="muted">{roleById(step.role)?.name ?? "agent"} · {roleById(step.role) ? TIERS[roleById(step.role)!.tier] : ""} · max_turns {step.max_turns}</span>
             </div>
           )}
+          {tab === "timeline" && lv && run.status === "queued" && <div className="tl__done" role="status">Queued. The event was accepted; no driver has picked this run up yet.</div>}
           {tab === "timeline" && lv && <FeedbackTray run={run} cm={cm} openFile={setOverlay} />}
           {tab === "timeline" && lv && run.status === "waiting" && attn?.kind === "gate" && <LiveGate key={`${attn.step_id}#${attn.attempt}`} app={app} run={run} wf={wf} cm={cm} openFile={setOverlay} sent={sentKey} setSent={setSentKey} />}
           {tab === "timeline" && lv && run.status === "needs_you" && attn?.kind === "question" && <LiveQuestion key={`${attn.step_id}?${attn.wait}`} app={app} run={run} wf={wf} cm={cm} openFile={setOverlay} sent={sentKey} setSent={setSentKey} />}

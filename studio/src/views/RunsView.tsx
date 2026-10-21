@@ -5,8 +5,8 @@ import { fmtElapsed, type Run } from "../sim/engine";
 import { startLiveRun } from "../live/api";
 import { connKind, connName, triggerText } from "../connectors";
 
-export const STATUS_LABEL: Record<Run["status"], string> = { running: "running", waiting: "waiting on you", needs_you: "needs you", done: "done", failed: "failed" };
-export const Chip = ({ status }: { status: Run["status"] }) => <span className={`schip schip--${status}`}>{status === "running" && <i />}{STATUS_LABEL[status]}</span>;
+export const STATUS_LABEL: Record<Run["status"], string> = { queued: "queued, waiting for the driver", running: "running", waiting: "waiting on you", needs_you: "needs you", done: "done", failed: "failed" };
+export const Chip = ({ status }: { status: Run["status"] }) => <span className={`schip schip--${status}`}>{(status === "running" || status === "queued") && <i />}{STATUS_LABEL[status]}</span>;
 
 export function RunsView({ app }: { app: AppApi }) {
   const [form, setForm] = useState(false);

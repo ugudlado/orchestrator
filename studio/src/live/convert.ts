@@ -18,11 +18,12 @@ export function convertRun(lr: LiveRun, wf: Workflow | undefined): Run {
   const calls: Call[] = lr.history.map((h: LiveHistoryEntry, i) => {
     const s = stepOf(h.step);
     const ok = h.status === "completed";
+    const rejected = !ok && h.gate === "rejected";
     return {
       n: i + 1, step: h.step, kind: h.kind ?? s?.kind ?? "exec", attempt: h.attempt, status: ok ? "success" : "error", ticks: 1, total: 1,
       args: strip({ attempt: h.attempt, route: h.route, model: h.model }),
-      result: strip({ outs: strip(h.outs ?? {}), summary: h.summary, cost_usd: h.cost_usd }),
-      error: ok ? undefined : h.note || (h.exit_code !== undefined ? `exit ${h.exit_code}` : "failed"),
+      result: strip({ outs: strip(h.outs ?? {}), summary: h.summary, cost_usd: h.cost_usd, ...(rejected ? { note: h.note } : {}) }),
+      error: ok ? undefined : rejected ? "changes requested" : h.note || (h.exit_code !== undefined ? `exit ${h.exit_code}` : "failed"),
       role: s?.role,
     };
   });

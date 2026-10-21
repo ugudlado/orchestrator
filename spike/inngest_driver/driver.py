@@ -276,7 +276,15 @@ async def drive_workflow(ctx: inngest.Context) -> dict:
             await _notify(
                 ctx,
                 f"notify needs-you {step_id}#{n}",
-                {**base, "kind": "question", "step_id": step_id, "wait": n, "question": last_summary.get(step_id, "")},
+                {
+                    **base,
+                    "kind": "question",
+                    "step_id": step_id,
+                    "wait": n,
+                    "question": last_summary.get(step_id, ""),
+                    # e.g. "retries exhausted": the engine stopped the run, nobody asked anything
+                    "reason": ans.get("reason"),
+                },
             )
             # `wait` ties an answer to this question: a click on an older message can't answer it.
             evt = await ctx.step.wait_for_event(

@@ -15,7 +15,7 @@ import { startRun, tick } from "./sim/engine";
 import { devAssign } from "./seed";
 import type { Pipeline, Step, Workflow } from "./types";
 import { defaultRole } from "./roles";
-import { getHealth, getRuns, getWorkflows } from "./live/api";
+import { NotStudioServer, getHealth, getRuns, getWorkflows } from "./live/api";
 import { LIVE_PIPELINE, convertRun } from "./live/convert";
 import type { LiveHealth } from "./live/types";
 import { AgentsView } from "./views/AgentsView";
@@ -58,6 +58,9 @@ export function App() {
   const [comments, setComments] = useState<Comment[]>([]);
   const [probed, setProbed] = useState(false);
   const [health, setHealth] = useState<LiveHealth | null>(null);
+  const [bootErr, setBootErr] = useState<string | null>(null);
+  const [inngestErr, setInngestErr] = useState<{ error: string } | null>(null);
+  const [serverErr, setServerErr] = useState<string | null>(null);
   const live = !!health;
   const wfRef = useRef(workflows);
   wfRef.current = workflows;
@@ -71,27 +74,52 @@ export function App() {
     return () => mq?.removeEventListener?.("change", h);
   }, []);
 
+  // Boot: simulation only when there is no Studio server (404, or an answer that is not ours). Any other failure stays live and retries.
   useEffect(() => {
     let off = false;
-    const timeout = new Promise<never>((_, no) => setTimeout(() => no(new Error("timeout")), 4000));
-    Promise.race([getHealth(), timeout]).then(async (h) => {
-      if (!h?.ok) throw new Error("not ok");
-      const raw = await getWorkflows();
-      if (off) return;
-      const wfs: Record<string, Workflow> = {};
-      for (const [k, w] of Object.entries(raw)) wfs[k] = { ...w, name: w.name ?? k, plugin: MAIN_PLUGIN, steps: (w.steps as Step[]).map((x) => ({ ...x, role: defaultRole(x) })) };
-      wfRef.current = wfs;
-      setWorkflows(wfs); setSelWf(wfs.dev ? "dev" : Object.keys(wfs)[0] ?? "dev");
-      setRuns({}); setRunOrder([]); setPipelines([LIVE_PIPELINE]);
-      setHealth(h);
-    }).catch(() => {}).finally(() => { if (!off) setProbed(true); });
-    return () => { off = true; };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attempt = async () => {
+      try {
+        const h = await getHealth(10000);
+        if (!h.ok) throw new Error(h.inngest_error || "the server says it is not ready");
+        const raw = await getWorkflows();
+        if (off) return;
+        const wfs: Record<string, Workflow> = {};
+        for (const [k, w] of Object.entries(raw)) wfs[k] = { ...w, name: w.name ?? k, plugin: MAIN_PLUGIN, steps: (w.steps as Step[]).map((x) => ({ ...x, role: defaultRole(x) })) };
+        wfRef.current = wfs;
+        setWorkflows(wfs); setSelWf(wfs.dev ? "dev" : Object.keys(wfs)[0] ?? "dev");
+        setRuns({}); setRunOrder([]); setPipelines([LIVE_PIPELINE]);
+        setBootErr(null); setHealth(h); setProbed(true);
+      } catch (e) {
+        if (off) return;
+        if (e instanceof NotStudioServer) { setProbed(true); return; }
+        setBootErr((e as Error).message || "unknown error"); setProbed(true);
+        timer = setTimeout(attempt, 5000);
+      }
+    };
+    attempt();
+    return () => { off = true; clearTimeout(timer); };
   }, []);
 
-  const pollRuns = useCallback(() => getRuns().then((l) => {
-    const rs = l.map((x) => convertRun(x, wfRef.current[x.workflow]));
-    setRuns(Object.fromEntries(rs.map((r) => [r.id, r]))); setRunOrder(rs.map((r) => r.id));
-  }).catch(() => {}), []);
+  const polling = useRef(false);
+  const pollRuns = useCallback(async () => {
+    if (polling.current) return;
+    polling.current = true;
+    try { await pollOnce(); } finally { polling.current = false; }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const pollOnce = async () => {
+    const [h, r] = await Promise.allSettled([getHealth(10000), getRuns()]);
+    if (h.status === "fulfilled") { setHealth(h.value); setServerErr(null); }
+    else setServerErr((h.reason as Error).message || "unknown error");
+    if (r.status === "fulfilled") {
+      const rs = r.value.runs.map((x) => convertRun(x, wfRef.current[x.workflow]));
+      setRuns(Object.fromEntries(rs.map((x) => [x.id, x]))); setRunOrder(rs.map((x) => x.id));
+    }
+    const msg = r.status === "rejected" ? (r.reason as Error).message : r.value.stale ? r.value.error : null;
+    if (h.status === "fulfilled" && h.value.inngest === false) setInngestErr({ error: h.value.inngest_error || msg || "unreachable" });
+    else if (h.status === "fulfilled" && (r.status === "rejected" || r.value.stale)) setInngestErr({ error: msg || "unreachable" });
+    else if (h.status === "fulfilled") setInngestErr(null);
+  };
   useEffect(() => {
     if (!live) return;
     pollRuns();
@@ -158,6 +186,14 @@ export function App() {
   const openRun = openRunId ? runs[openRunId] : null;
 
   if (!probed) return <div className="frame" aria-busy="true" />;
+  if (bootErr && !live) return (
+    <div className="frame"><div className="shell">
+      <header className="top"><div className="brand"><span className="brand__mark" aria-hidden />Orchestrator Studio</div></header>
+      <div className="banner" role="alert">Can't reach the Studio server: {bootErr}. Retrying…</div>
+    </div></div>
+  );
+  const banner = !live ? null : serverErr ? `Can't reach the Studio server: ${serverErr}. Retrying…`
+    : inngestErr ? `Inngest isn't responding (${inngestErr.error}); showing ${runOrder.length ? "the last known state" : "no runs yet"}` : null;
   return (
     <div className="frame">
       <div className="shell">
@@ -170,6 +206,7 @@ export function App() {
             icon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="8" cy="8" r="2.2" /><path d="M8 1.5v1.7M8 12.8v1.7M1.5 8h1.7M12.8 8h1.7M3.4 3.4l1.2 1.2M11.4 11.4l1.2 1.2M12.6 3.4l-1.2 1.2M4.6 11.4l-1.2 1.2" /></svg>} />
           <Button size="sm" variant="ghost" onClick={() => { userTheme.current = true; setDark((d) => !d); }} aria-label="Toggle theme">{dark ? "Light" : "Dark"}</Button>
         </header>
+        {banner && <div className="banner" role="alert">{banner}</div>}
         <main className="main">
           {view === "workflows" && <WorkflowsView app={api} />}
           {view === "runs" && (openRun && workflows[openRun.workflow] ? <RunDetail app={api} run={openRun} /> : <RunsView app={api} />)}

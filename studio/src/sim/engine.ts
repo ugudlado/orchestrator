@@ -11,7 +11,7 @@ export interface Call {
   result?: Record<string, unknown>;
   error?: string; durationMs?: number; role?: string | null;
 }
-export type RunStatus = "running" | "waiting" | "needs_you" | "done" | "failed";
+export type RunStatus = "queued" | "running" | "waiting" | "needs_you" | "done" | "failed";
 export interface Run {
   id: string; workflow: string; slug: string; title: string; pipelineId: string;
   calls: Call[]; cursor: number; status: RunStatus; tokens: string[];

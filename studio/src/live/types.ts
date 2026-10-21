@@ -1,6 +1,6 @@
 /** Shapes served by spike/inngest_driver/studio_server.py. Keep in step with it. */
 
-export type LiveStatus = "running" | "waiting" | "needs_you" | "done" | "failed";
+export type LiveStatus = "queued" | "running" | "waiting" | "needs_you" | "done" | "failed";
 
 export interface LiveHistoryEntry {
   step: string;
@@ -32,6 +32,8 @@ export interface LiveAttention {
   /** gate: artifact name -> path relative to the run's artifacts dir */
   show?: Record<string, string>;
   question?: string;
+  /** why the engine stopped here (e.g. retries exhausted on a step); may be all there is when `question` is empty */
+  reason?: string;
   at: string;
 }
 
@@ -55,9 +57,11 @@ export interface LiveRun {
   cost_usd: number;
 }
 
-export interface LiveHealth { ok: boolean; inngest: boolean; ui_url: string; repos: string[]; workflows: string[] }
+export interface LiveHealth { ok: boolean; inngest: boolean; inngest_error?: string | null; ui_url: string; repos: string[]; workflows: string[]; runs_root?: string; pack?: string }
 
-/** A review comment on a run: on a whole artifact (no quote) or a passage of it. Kept by the server until sent with a gate rejection or an answer. */
+export interface LiveRunList { runs: LiveRun[]; stale: boolean; error: string | null }
+
+/** A review comment on a run: on a whole artifact (no quote) or a passage of it. Kept by the server until sent with a gate rejection or an answer, or closed (not sent) by an approval. */
 export interface LiveComment {
   id: string;
   file: string | null;
@@ -65,5 +69,5 @@ export interface LiveComment {
   line: number | null;
   text: string;
   at: string;
-  sent: null | { via: "gate" | "answer"; step: string; attempt?: number; wait?: number; at: string };
+  sent: null | { via: "gate" | "answer" | "approve"; step: string; attempt?: number; wait?: number; at: string };
 }

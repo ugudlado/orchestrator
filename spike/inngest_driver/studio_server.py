@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -61,8 +62,10 @@ PACK = Path(os.environ.get("ORCH_PACK", "/home/orch/workflows/config"))
 REPOS = [r for r in os.environ.get("ORCH_STUDIO_REPOS", "/home/orch/toy").split(",") if r]
 DIST = Path(os.environ.get("ORCH_STUDIO_DIST", str(HERE.parents[1] / "studio" / "dist")))
 PORT = int(os.environ.get("ORCH_STUDIO_PORT", "8790"))
-HOSTS = {"localhost", "127.0.0.1", *(h for h in os.environ.get("ORCH_STUDIO_HOSTS", "").split(",") if h)}
+HOSTS = {"localhost", "127.0.0.1", "::1", *(h for h in os.environ.get("ORCH_STUDIO_HOSTS", "").split(",") if h)}
 LOOKBACK = datetime.timedelta(days=30)
+TIMEOUT = 5  # seconds per Inngest call
+FINISHED = ("Completed", "Failed", "Cancelled")
 SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,63}$")
 TAIL = 1500  # characters of an exec step's stdout shown per call
 
@@ -84,7 +87,7 @@ EXEC_SUMMARY = {
 def _inngest(path: str, params: dict | None = None) -> dict:
     url = f"{API}{path}" + (f"?{urllib.parse.urlencode(params)}" if params else "")
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {SIGNING_KEY}"})
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
         return json.load(r)
 
 
@@ -94,15 +97,24 @@ def send_event(name: str, data: dict) -> None:
         data=json.dumps({"name": name, "data": data}).encode(),
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
         r.read()
 
 
-def _events(name: str) -> list[dict]:
-    """Recent events of one name, newest first. The list endpoint returns
-    nothing without received_after; 100 per name is plenty for one box."""
+def _events(name: str, pages: int = 20) -> list[dict]:
+    """Events of one name from the last LOOKBACK, newest first. The list endpoint
+    returns nothing without received_after, and pages with `cursor` (the last
+    event's internal_id)."""
     since = (datetime.datetime.now(datetime.UTC) - LOOKBACK).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return _inngest("/v1/events", {"name": name, "received_after": since, "limit": 100}).get("data") or []
+    params: dict = {"name": name, "received_after": since, "limit": 100}
+    out: list[dict] = []
+    for _ in range(pages):
+        page = _inngest("/v1/events", params).get("data") or []
+        out += page
+        if len(page) < 100:
+            break
+        params["cursor"] = page[-1]["internal_id"]
+    return out
 
 
 _run_cache: dict[str, dict] = {}  # event id -> finished run (never changes again)
@@ -115,13 +127,16 @@ def _run_for_event(event_id: str) -> dict | None:
     if not runs:
         return None
     run = runs[0]
-    if run.get("status") in ("Completed", "Failed", "Cancelled"):
-        # The per-event list has no output (and ended_at stays null); the run itself has both.
+    if run.get("status") in FINISHED:
+        # The per-event list has no output (and ended_at stays null); the run itself has
+        # both. The two can disagree for a while (the list says Completed, the run still
+        # Running), so cache only once the run itself says it finished.
         try:
             run = {**run, **(_inngest(f"/v1/runs/{run['run_id']}").get("data") or {})}
-        except urllib.error.URLError:
+        except (OSError, ValueError):
             return run
-        _run_cache[event_id] = run
+        if run.get("status") in FINISHED:
+            _run_cache[event_id] = run
     return run
 
 
@@ -153,20 +168,32 @@ def _enrich(entry: dict, results: Path) -> dict:
         e["outs"] = {k: v for k, v in res.items() if k not in ("status", "summary")}
     out = results / f"{stem}.stdout"
     if out.is_file():
-        e["stdout_tail"] = out.read_text(errors="replace")[-TAIL:]
+        with out.open("rb") as f:
+            f.seek(max(0, out.stat().st_size - TAIL * 4))  # a few bytes per character at most
+            e["stdout_tail"] = f.read().decode(errors="replace")[-TAIL:]
     return e
 
 
+MAX_FILES = 500
+
+
 def _artifacts(d: Path) -> list[dict]:
+    """The run's files, top level first (that's where step outputs land), so a tree
+    an agent dumps into a subfolder can't push design.md off the list."""
     if not (d.is_dir() and _under_root(d)):
         return []
     files = []
-    for p in sorted(d.rglob("*")):
-        if p.is_file() and _under_root(p):
-            st = p.stat()
-            mtime = datetime.datetime.fromtimestamp(st.st_mtime, datetime.UTC).isoformat()
-            files.append({"name": str(p.relative_to(d)), "size": st.st_size, "mtime": mtime})
-    return files[:200]
+    for root, dirs, names in os.walk(d):
+        dirs.sort()
+        for n in sorted(names):
+            p = Path(root) / n
+            if p.is_file() and _under_root(p):
+                st = p.stat()
+                mtime = datetime.datetime.fromtimestamp(st.st_mtime, datetime.UTC).isoformat()
+                files.append({"name": str(p.relative_to(d)), "size": st.st_size, "mtime": mtime})
+        if len(files) >= MAX_FILES:
+            break
+    return files[:MAX_FILES]
 
 
 def _waiting(slug: str, attention: list[dict], decided: list[dict], answered: list[dict]) -> dict | None:
@@ -193,13 +220,19 @@ def _waiting(slug: str, attention: list[dict], decided: list[dict], answered: li
         )
     if done:
         return None
-    keys = ("kind", "step_id", "attempt", "wait", "show", "question")
+    keys = ("kind", "step_id", "attempt", "wait", "show", "question", "reason")
     out = {**{k: a[k] for k in keys if a.get(k) is not None}, "at": at}
     if out.get("show") and a.get("artifacts_dir"):
         # The driver names shown files by absolute path; Studio names them relative to the artifacts dir.
         art = Path(a["artifacts_dir"])
-        out["show"] = {n: str(Path(p).relative_to(art)) if Path(p).is_relative_to(art) else p for n, p in out["show"].items()}
+        out["show"] = {
+            n: str(Path(p).relative_to(art)) if Path(p).is_relative_to(art) else p for n, p in out["show"].items()
+        }
     return out
+
+
+_art_dirs: dict[str, Path | None] = {}  # slug -> its artifacts dir (from its run.requested event)
+_finished: dict[str, dict] = {}  # event id -> listing of a finished run (its files no longer change)
 
 
 def list_runs() -> list[dict]:
@@ -215,6 +248,9 @@ def list_runs() -> list[dict]:
         if not slug or slug in seen:
             continue
         seen.add(slug)
+        if ev["id"] in _finished:
+            out.append(_finished[ev["id"]])
+            continue
         art = Path(d.get("artifacts_dir") or RUNS_ROOT / slug / "artifacts")
         base = art.parent if _under_root(art) else None
         run = _run_for_event(ev["id"]) or {}
@@ -242,7 +278,7 @@ def list_runs() -> list[dict]:
         elif istatus in ("Failed", "Cancelled"):
             status = "failed"
         else:
-            status = "running"  # queued: the event is in, the run hasn't started
+            status = "queued"  # the event is in, but no driver has picked the run up yet
         ticket = str(d.get("ticket") or "")
         out.append(
             {
@@ -267,6 +303,9 @@ def list_runs() -> list[dict]:
                 "cost_usd": round(sum(h.get("cost_usd") or 0 for h in history), 4),
             }
         )
+        _art_dirs[slug] = art if base else None
+        if istatus in FINISHED and ev["id"] in _run_cache:
+            _finished[ev["id"]] = out[-1]
     return out
 
 
@@ -277,11 +316,11 @@ def _summary(step_dir: Path, step_id: str, kind: str) -> str | None:
     """One plain sentence for a step: its SKILL.md description up to "Use when"."""
     skill = step_dir / "SKILL.md"
     if skill.is_file():
-        m = re.match(r"---\n(.*?)\n---", skill.read_text(errors="replace"), re.S)
+        m = re.match(r"---\n(.*?)\n---", skill.read_text(errors="replace"), re.DOTALL)
         try:
             desc = (yaml.safe_load(m.group(1)) or {}).get("description") if m else None
         except yaml.YAMLError:  # some frontmatter isn't strict YAML; take the line as written
-            line = re.search(r'^description:\s*"?(.*?)"?\s*$', m.group(1), re.M) if m else None
+            line = re.search(r'^description:\s*"?(.*?)"?\s*$', m.group(1), re.MULTILINE) if m else None
             desc = line.group(1) if line else None
         if desc:
             return re.split(r"\s+Use (?:when|at|after|before)\b", desc)[0].strip()
@@ -355,20 +394,45 @@ def workflows() -> dict:
 
 # --- HTTP ------------------------------------------------------------------
 
-_lock = threading.Lock()
-_runs_cache: tuple[float, list] = (0.0, [])
+log = logging.getLogger("studio")
+_refresh_lock = threading.Lock()
+# What requests read. A background thread refreshes it every 2 s, so a slow or
+# hung Inngest never holds up a request; when a refresh fails, the last good list
+# stays, marked stale, and `error` says why.
+_snap: dict = {"runs": [], "ok": False, "error": "not loaded yet", "at": 0.0}
+
+
+def refresh(quiet: bool = False) -> list[dict]:
+    """Re-read every run. On failure the last good list stays; `quiet` (the poller)
+    logs instead of raising."""
+    with _refresh_lock:
+        try:
+            runs = list_runs()
+        except Exception as e:
+            _snap.update(ok=False, error=f"{type(e).__name__}: {e}")
+            if not quiet:
+                raise
+            log.warning("refresh failed", exc_info=True)
+            return _snap["runs"]
+        _snap.update(runs=runs, ok=True, error=None, at=time.monotonic())
+        return runs
+
+
+def _poll() -> None:
+    while True:
+        refresh(quiet=True)
+        time.sleep(2)
 
 
 def cached_runs() -> list[dict]:
-    """Studio polls every few seconds; one Inngest round per 2 s is enough for every tab."""
-    global _runs_cache
-    with _lock:
-        if time.monotonic() - _runs_cache[0] > 2:
-            _runs_cache = (time.monotonic(), list_runs())
-        return _runs_cache[1]
+    return _snap["runs"]
 
 
 class BadRequest(Exception):
+    pass
+
+
+class AlreadySent(BadRequest):
     pass
 
 
@@ -378,11 +442,28 @@ def _need(body: dict, *keys: str) -> None:
         raise BadRequest(f"missing {', '.join(missing)}")
 
 
-def _run(slug: str) -> dict:
-    run = next((r for r in cached_runs() if r["slug"] == slug), None)
+# Decisions this server sent in the last minute. Inngest's event list can lag a
+# send by a moment, so a second click would otherwise pass the "still open" check.
+_recent: dict[tuple, float] = {}
+
+
+def _once(key: tuple) -> None:
+    now = time.monotonic()
+    for k in [k for k, t in _recent.items() if now - t > 60]:
+        del _recent[k]
+    if key in _recent:
+        raise AlreadySent("already answered; the run will move on in a moment")
+    _recent[key] = now
+
+
+def _run(slug: str, fresh: bool = False) -> dict:
+    """A run from the listing; `fresh` re-reads Inngest first, so a decision is
+    checked against where the run is now, not where it was up to 2 s ago."""
+    run = next((r for r in (refresh() if fresh else cached_runs()) if r["slug"] == slug), None)
     if not run:
         raise BadRequest(f"no run {slug}")
     return run
+
 
 # --- comments --------------------------------------------------------------
 
@@ -449,7 +530,7 @@ def _feedback(typed: str, pending: list[dict]) -> str:
         where = c["file"] or "the run"
         if c.get("quote"):
             q = " ".join(c["quote"].split())
-            where += f', on "{q[:300]}{'…' if len(q) > 300 else ''}"'
+            where += f', on "{q[:300]}{"…" if len(q) > 300 else ""}"'
         elif c["file"]:
             where += " (whole document)"
         if c.get("line"):
@@ -461,19 +542,31 @@ def _feedback(typed: str, pending: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
+def _mark(slug: str, items: list[dict], pending: list[dict], sent_as: dict) -> None:
+    now = datetime.datetime.now(datetime.UTC).isoformat()
+    for c in pending:
+        c["sent"] = {**sent_as, "at": now}
+    _save_comments(slug, items)
+
+
 def _with_comments(slug: str, body: dict, typed: str, send, sent_as: dict) -> None:
     """Send `typed` (plus pending comments when asked) and mark those comments sent,
-    holding the lock so a comment added meanwhile is neither lost nor sent twice."""
+    holding the lock so a comment added meanwhile is neither lost nor sent twice.
+    Inngest refusing the event leaves them pending; a timeout may mean it arrived,
+    so they're marked sent but unconfirmed rather than sent a second time."""
     with _comments_lock:
         items = _load_comments(slug) if body.get("include_comments") else []
         pending = [c for c in items if not c["sent"]]
-        send(_feedback(typed, pending))
+        try:
+            send(_feedback(typed, pending))
+        except urllib.error.HTTPError:
+            raise
+        except OSError:
+            if pending:
+                _mark(slug, items, pending, {**sent_as, "unconfirmed": True})
+            raise
         if pending:
-            now = datetime.datetime.now(datetime.UTC).isoformat()
-            for c in pending:
-                c["sent"] = {**sent_as, "at": now}
-            _save_comments(slug, items)
-
+            _mark(slug, items, pending, sent_as)
 
 
 def start_run(body: dict) -> dict:
@@ -483,8 +576,10 @@ def start_run(body: dict) -> dict:
         raise BadRequest("slug: letters, digits and - only")
     if wf not in workflows():
         raise BadRequest(f"unknown workflow {wf}")
-    if repo not in REPOS:
-        raise BadRequest(f"repo must be one of {', '.join(REPOS)}")
+    if repo not in REPOS or not Path(repo).is_dir():
+        raise BadRequest(
+            f"repo must be one of {', '.join(r for r in REPOS if Path(r).is_dir()) or '(none configured)'}"
+        )
     if (RUNS_ROOT / slug).exists() or any(r["slug"] == slug for r in cached_runs()):
         raise BadRequest(f"a run named {slug} already exists; pick another name")
     data = {
@@ -500,15 +595,45 @@ def start_run(body: dict) -> dict:
 
 
 def decide_gate(slug: str, body: dict) -> dict:
+    key = ("gate", slug, body.get("gate"), body.get("attempt"))
+    try:
+        return _decide_gate(slug, body, key)
+    except AlreadySent:
+        raise
+    except urllib.error.HTTPError:
+        _recent.pop(key, None)  # Inngest refused it: nothing went out, so they can try again
+        raise
+    except OSError:
+        raise  # timed out: it may have arrived, so don't invite a second send
+    except Exception:
+        _recent.pop(key, None)
+        raise
+
+
+def _decide_gate(slug: str, body: dict, key: tuple) -> dict:
     _need(body, "gate", "attempt", "decision")
     if body["decision"] not in ("approved", "rejected"):
         raise BadRequest("decision must be approved or rejected")
-    a = _run(slug).get("attention") or {}
+    a = _run(slug, fresh=True).get("attention") or {}
     if a.get("kind") != "gate" or a.get("step_id") != body["gate"] or a.get("attempt") != body["attempt"]:
         raise BadRequest("this gate is no longer waiting; reload to see where the run is")
-    data = {"slug": slug, "gate": body["gate"], "attempt": body["attempt"], "decision": body["decision"], "by": "studio"}
+    _once(key)
+    data = {
+        "slug": slug,
+        "gate": body["gate"],
+        "attempt": body["attempt"],
+        "decision": body["decision"],
+        "by": "studio",
+    }
     if body["decision"] == "approved":
         send_event("orchestrator/gate.decided", data)
+        # Pending comments don't ride along with an approval (the person was warned);
+        # close them so they don't surface in some later, unrelated review.
+        with _comments_lock:
+            items = _load_comments(slug)
+            pending = [c for c in items if not c["sent"]]
+            if pending:
+                _mark(slug, items, pending, {"via": "approve", "step": body["gate"], "attempt": body["attempt"]})
         return {"ok": True}
     if body.get("reset_to"):
         data["reset_to"] = str(body["reset_to"])
@@ -524,10 +649,27 @@ def decide_gate(slug: str, body: dict) -> dict:
 
 
 def answer(slug: str, body: dict) -> dict:
+    key = ("answer", slug, body.get("step_id"), body.get("wait"))
+    try:
+        return _answer(slug, body, key)
+    except AlreadySent:
+        raise
+    except urllib.error.HTTPError:
+        _recent.pop(key, None)
+        raise
+    except OSError:
+        raise
+    except Exception:
+        _recent.pop(key, None)
+        raise
+
+
+def _answer(slug: str, body: dict, key: tuple) -> dict:
     _need(body, "step_id", "wait")
-    a = _run(slug).get("attention") or {}
+    a = _run(slug, fresh=True).get("attention") or {}
     if a.get("kind") != "question" or a.get("step_id") != body["step_id"] or a.get("wait") != body["wait"]:
         raise BadRequest("this question is no longer open; reload to see where the run is")
+    _once(key)
     data = {"slug": slug, "step_id": body["step_id"], "wait": body["wait"], "by": "studio"}
     if body.get("reset_to"):
         data["reset_to"] = str(body["reset_to"])
@@ -551,6 +693,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        # No framing: a page elsewhere can't overlay Studio to steer a click onto Approve.
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
         self.end_headers()
         self.wfile.write(body)
 
@@ -571,8 +716,13 @@ class Handler(BaseHTTPRequestHandler):
             fn()
         except BadRequest as e:
             self._json(400, {"error": str(e)})
-        except urllib.error.URLError as e:
-            self._json(502, {"error": f"Inngest unreachable: {e}"})
+        except urllib.error.HTTPError as e:
+            self._json(502, {"error": f"Inngest answered {e.code}"})
+        except (OSError, ValueError) as e:  # unreachable, timed out, or not JSON
+            self._json(502, {"error": f"Inngest isn't responding: {e}"})
+        except Exception as e:
+            log.exception("request failed")
+            self._json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_GET(self) -> None:
         self._guard(self._get)
@@ -583,16 +733,27 @@ class Handler(BaseHTTPRequestHandler):
     def _get(self) -> None:
         path = urllib.parse.urlparse(self.path).path
         if path == "/api/health":
-            try:
-                _inngest("/v1/events", {"limit": 1})
-                ok = True
-            except urllib.error.URLError:
-                ok = False
-            self._json(200, {"ok": True, "inngest": ok, "ui_url": UI_URL, "repos": REPOS, "workflows": sorted(workflows())})
+            # Answers from the last poll, so it's fast even when Inngest isn't.
+            self._json(
+                200,
+                {
+                    "ok": True,
+                    "inngest": _snap["ok"],
+                    "inngest_error": _snap["error"],
+                    "ui_url": UI_URL,
+                    "repos": [r for r in REPOS if Path(r).is_dir()],
+                    "workflows": sorted(workflows()),
+                    "runs_root": str(RUNS_ROOT),
+                    "pack": str(PACK),
+                },
+            )
         elif path == "/api/workflows":
             self._json(200, workflows())
         elif path == "/api/runs":
-            self._json(200, {"runs": cached_runs()})
+            if not _snap["ok"] and not _snap["at"]:
+                self._json(502, {"error": f"Inngest isn't responding: {_snap['error']}"})
+            else:
+                self._json(200, {"runs": cached_runs(), "stale": not _snap["ok"], "error": _snap["error"]})
         elif m := re.match(r"^/api/runs/([^/]+)/comments$", path):
             self._json(200, {"comments": _load_comments(m.group(1))})
         elif m := re.match(r"^/api/runs/([^/]+)/artifacts/(.+)$", path):
@@ -602,8 +763,9 @@ class Handler(BaseHTTPRequestHandler):
             if not art or rel not in {a["name"] for a in art["artifacts"]}:
                 self._json(404, {"error": "no such artifact"})
                 return
-            p = RUNS_ROOT / slug / "artifacts" / rel
-            if not (_under_root(p) and p.is_file()):
+            base = _art_dirs.get(slug)
+            p = base / rel if base else None
+            if not (p and _under_root(p) and p.is_file()):
                 self._json(404, {"error": "no such artifact"})
                 return
             self._send(200, p.read_bytes(), "text/plain; charset=utf-8")
@@ -642,8 +804,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._json(404, {"error": "not found"})
             return
-        global _runs_cache
-        _runs_cache = (0.0, [])  # the next poll shows the new state
+        threading.Thread(target=refresh, kwargs={"quiet": True}, daemon=True).start()  # show the new state soon
         self._json(200, res)
 
     def log_message(self, fmt: str, *args) -> None:
@@ -652,6 +813,15 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+    log.info("runs %s · pack %s · repos %s · Inngest %s", RUNS_ROOT, PACK, ", ".join(REPOS) or "(none)", API)
+    for what, path in (("pack", PACK / "workflows"), ("built UI", DIST / "index.html"), ("runs dir", RUNS_ROOT)):
+        if not path.exists():
+            log.warning("%s not found at %s", what, path)
+    for repo in REPOS:
+        if not Path(repo).is_dir():
+            log.warning("repo %s doesn't exist; Studio won't offer it", repo)
+    threading.Thread(target=_poll, daemon=True).start()
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
 
 

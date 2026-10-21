@@ -18,22 +18,24 @@ export const relTime = (iso: string) => {
   if (s < 86400) return `${Math.round(s / 3600)} h ago`;
   return `${Math.round(s / 86400)} d ago`;
 };
-export const sentLabel = (c: LiveComment) => (c.sent ? `Sent with ${c.sent.step}${c.sent.attempt ?? c.sent.wait ? ` #${c.sent.attempt ?? c.sent.wait}` : ""}` : "Pending");
+export const sentLabel = (c: LiveComment) => (c.sent ? (c.sent.via === "approve" ? "Closed with approval (not sent)" : `Sent with ${c.sent.step}${(c.sent.attempt ?? c.sent.wait) ? ` #${c.sent.attempt ?? c.sent.wait}` : ""}`) : "Pending");
 export const clip = (s: string, n = 90) => (s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s);
 
-/** Text of one artifact, reloaded when its mtime changes. */
-export function useArtifactText(run: Run, name: string | null): string | null {
+/** Text of one artifact, reloaded when its mtime changes. While the new text loads, the previous text of the same file stays (stale = true), so a view holding a draft is not unmounted. */
+export function useArtifactView(run: Run, name: string | null): { text: string | null; stale: boolean } {
   const mtime = run.live?.artifacts.find((a) => a.name === name)?.mtime ?? "";
-  const key = name ? `${run.slug}/${name}/${mtime}` : "";
-  const [real, setReal] = useState<{ key: string; text: string } | null>(null);
+  const base = name ? `${run.slug}/${name}` : "";
+  const key = name ? `${base}/${mtime}` : "";
+  const [real, setReal] = useState<{ key: string; base: string; text: string } | null>(null);
   useEffect(() => {
     if (!name) return;
     let off = false;
-    getArtifact(run.slug, name).then((text) => !off && setReal({ key, text })).catch((e: Error) => !off && setReal({ key, text: `Could not load ${name}: ${e.message}` }));
+    getArtifact(run.slug, name).then((text) => !off && setReal({ key, base, text })).catch((e: Error) => !off && setReal({ key, base, text: `Could not load ${name}: ${e.message}` }));
     return () => { off = true; };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
-  return real?.key === key ? real.text : null;
+  return real?.base === base && real ? { text: real.text, stale: real.key !== key } : { text: null, stale: false };
 }
+export const useArtifactText = (run: Run, name: string | null): string | null => useArtifactView(run, name).text;
 
 const BLK = "p,li,h1,h2,h3,h4,h5,h6,pre,td,th,blockquote";
 
@@ -211,7 +213,7 @@ export function DocView({ file, text, cm, wide }: { file: string; text: string; 
       <div className={`dv__grid${margin ? "" : " dv__grid--narrow"}`} ref={gridRef}>
         <div className="dv__doc" ref={docRef} onMouseUp={onSel} onKeyUp={onSel} onMouseOver={(e) => { const m = hit(e); if (m && m.dataset.cid !== focus) setFocus(m.dataset.cid!); }}
           onClick={(e) => { const m = hit(e); if (m) focusCard(m.dataset.cid!); }} aria-label={file}>
-          <Body text={text} md={md} />
+          <Body key={text} text={text} md={md} />
         </div>
         <div className="dv__margin" style={margin ? { height: pos.h } : undefined} aria-label="Comments">
           {cards.map((r) => (
@@ -244,7 +246,18 @@ export function DocView({ file, text, cm, wide }: { file: string; text: string; 
 export function DocOverlay({ app, run, wf, cm, file, setFile, onClose, sent, setSent }: {
   app: AppApi; run: Run; wf: Workflow; cm: LiveComments; file: string; setFile: (f: string) => void; onClose: () => void; sent: string | null; setSent: (k: string | null) => void;
 }) {
-  const text = useArtifactText(run, file);
+  const { text, stale } = useArtifactView(run, file);
+  const [flash, setFlash] = useState(false);
+  const prevText = useRef<string | null>(null);
+  useEffect(() => {
+    const had = prevText.current !== null;
+    prevText.current = text;
+    if (!had || text === null) return;
+    setFlash(true);
+    const t = setTimeout(() => setFlash(false), 4000);
+    return () => clearTimeout(t);
+  }, [text]);
+  useEffect(() => { prevText.current = null; setFlash(false); }, [file]);
   const [send, setSend] = useState(false);
   const arts = run.live!.artifacts;
   const attn = run.live!.attention;
@@ -258,6 +271,7 @@ export function DocOverlay({ app, run, wf, cm, file, setFile, onClose, sent, set
     <div className="ov" role="dialog" aria-modal="true" aria-label={`Review ${file}`}>
       <div className="ov__h">
         <span className="ov__n">{file}</span>
+        {(stale || flash) && <span className="ov__upd" role="status" title={stale ? "The file changed; loading the new text" : "The file changed since you opened it"}>updated{stale ? ", loading…" : ""}</span>}
         <div className="ov__tabs">
           {arts.map((a) => {
             const c = cm.pending.filter((x) => x.file === a.name).length;
