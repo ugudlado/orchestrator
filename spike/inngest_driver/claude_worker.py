@@ -103,13 +103,18 @@ ENV_KEEP = (
 ).split()
 
 
+SECRET_ENV = re.compile(r"TOKEN|SECRET|PASSWORD|KEY", re.I)
+SIGN_IN = {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
+
+
 def step_env() -> dict:
     keep = ENV_KEEP + [k for k in os.environ.get("ORCH_STEP_ENV_KEEP", "").split(",") if k]
 
     def kept(name: str) -> bool:
         return any(name.upper().startswith(k) if k.endswith("_") else name.upper() == k for k in keep)
 
-    return {k: v for k, v in os.environ.items() if kept(k)}
+    # Secret-looking names are dropped even inside a kept prefix; only claude's sign-in is exempt.
+    return {k: v for k, v in os.environ.items() if kept(k) and (k in SIGN_IN or not SECRET_ENV.search(k))}
 
 
 def sandbox_settings(result_file: str) -> dict:
