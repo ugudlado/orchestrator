@@ -8,7 +8,8 @@ connections: an Inngest app (function `Post to Slack`, triggered by
 `orchestrator/attention` from driver.py) and Slack's Socket Mode websocket.
 
 Env: SLACK_BOT_TOKEN (xoxb-, scopes chat:write), SLACK_APP_TOKEN (xapp-, connections:write),
-SLACK_CHANNEL (channel id; invite the bot), SLACK_APPROVERS (optional comma-separated
+SLACK_CHANNEL (channel id; invite the bot), ORCH_RUNS_ROOT (artifacts are read only below it,
+default /home/orch/runs), SLACK_APPROVERS (optional comma-separated
 Slack user ids; when set, only they can decide), plus the INNGEST_* variables the driver uses.
 
 Clicks:
@@ -30,6 +31,7 @@ from slack_bolt.async_app import AsyncApp
 
 CHANNEL = os.environ["SLACK_CHANNEL"]
 APPROVERS = {u for u in os.environ.get("SLACK_APPROVERS", "").split(",") if u}
+RUNS_ROOT = Path(os.environ.get("ORCH_RUNS_ROOT", "/home/orch/runs"))
 SNIPPET = 2500  # characters of each shown artifact; Slack caps a section at 3000
 
 client = inngest.Inngest(app_id="orchestrator-slack", is_production=os.environ.get("INNGEST_DEV") != "1")
@@ -43,14 +45,21 @@ TITLES = {
 }
 
 
+def _read_artifact(artifacts_dir: str, path: str) -> str:
+    """Read a shown artifact, but only from inside RUNS_ROOT: the event names the path,
+    and anyone holding the event key could otherwise post any file to Slack."""
+    root = RUNS_ROOT.resolve()
+    base = Path(artifacts_dir).resolve()
+    p = (base / path).resolve()  # resolve() follows symlinks, so a link out of the root fails the check
+    if not (base.is_relative_to(root) and p.is_relative_to(root) and p.is_file()):
+        return f"(not shown: {Path(path).name} is not a file under {root})"
+    return p.read_text(errors="replace")
+
+
 def _artifact(artifacts_dir: str, name: str, path: str) -> dict:
-    p = Path(path) if Path(path).is_absolute() else Path(artifacts_dir) / path
-    try:
-        text = p.read_text(errors="replace")
-    except OSError:
-        text = f"(not found: {p})"
+    text = _read_artifact(artifacts_dir, path)
     if len(text) > SNIPPET:
-        text = text[:SNIPPET] + f"\n… ({len(text) - SNIPPET} more characters in {p.name})"
+        text = text[:SNIPPET] + f"\n… ({len(text) - SNIPPET} more characters in {Path(path).name})"
     # Artifacts are agent output: show them as code, so Slack renders no links or mentions.
     return {"type": "section", "text": {"type": "mrkdwn", "text": f"*{name}*\n```{text.replace('```', '` ` `')}```"}}
 
@@ -61,7 +70,10 @@ def _blocks(d: dict) -> list[dict]:
         blocks += [_artifact(d["artifacts_dir"], n, p) for n, p in (d.get("show") or {}).items()][:8]
     if d["kind"] == "question" and d.get("question"):
         blocks.append({"type": "section", "text": {"type": "plain_text", "text": d["question"][:2900]}})
-    ref = json.dumps({"slug": d["slug"], "step_id": d.get("step_id")})
+    # attempt/wait bind a click to this visit of the gate or question; the driver matches on them.
+    ref = json.dumps(
+        {"slug": d["slug"], "step_id": d.get("step_id"), "attempt": d.get("attempt"), "wait": d.get("wait")}
+    )
     if d["kind"] == "gate":
         blocks.append(
             {
@@ -140,7 +152,13 @@ async def on_approve(ack, body, respond):
     await client.send(
         inngest.Event(
             name="orchestrator/gate.decided",
-            data={"slug": ref["slug"], "gate": ref["step_id"], "decision": "approved", "by": user},
+            data={
+                "slug": ref["slug"],
+                "gate": ref["step_id"],
+                "attempt": ref["attempt"],
+                "decision": "approved",
+                "by": user,
+            },
         )
     )
     await _close(body, f":white_check_mark: Approved by <@{user}>")
@@ -206,7 +224,14 @@ async def on_reject_submit(ack, body, view):
     await ack()
     meta, user = json.loads(view["private_metadata"]), body["user"]["id"]
     note, reset_to = _values(view)
-    data = {"slug": meta["slug"], "gate": meta["step_id"], "decision": "rejected", "note": note, "by": user}
+    data = {
+        "slug": meta["slug"],
+        "gate": meta["step_id"],
+        "attempt": meta["attempt"],
+        "decision": "rejected",
+        "note": note,
+        "by": user,
+    }
     if reset_to:
         data["reset_to"] = reset_to
     await client.send(inngest.Event(name="orchestrator/gate.decided", data=data))
@@ -220,7 +245,7 @@ async def on_answer_submit(ack, body, view):
     await ack()
     meta, user = json.loads(view["private_metadata"]), body["user"]["id"]
     answer, reset_to = _values(view)
-    data = {"slug": meta["slug"], "step_id": meta["step_id"], "answer": answer, "by": user}
+    data = {"slug": meta["slug"], "step_id": meta["step_id"], "wait": meta["wait"], "answer": answer, "by": user}
     if reset_to:
         data["reset_to"] = reset_to
     await client.send(inngest.Event(name="orchestrator/input.provided", data=data))

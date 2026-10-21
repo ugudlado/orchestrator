@@ -11,8 +11,8 @@ Run (from the orchestrator checkout):
 
 Events:
     orchestrator/run.requested  {workflow, pack, slug, artifacts_dir, repo_root?, ticket?, stub_choices?}
-    orchestrator/gate.decided   {slug, gate, decision: approved|rejected, reset_to?, note?}
-    orchestrator/input.provided {slug, step_id, answer?, reset_to?}
+    orchestrator/gate.decided   {slug, gate, attempt, decision: approved|rejected, reset_to?, note?}
+    orchestrator/input.provided {slug, step_id, wait, answer?, reset_to?}
 Sends, for a chat bridge (slack_bridge.py):
     orchestrator/attention      {slug, kind: gate|question|finished, step_id, ...} before each wait and at the end
 """
@@ -269,12 +269,13 @@ async def drive_workflow(ctx: inngest.Context) -> dict:
             await _notify(
                 ctx,
                 f"notify needs-you {step_id}#{n}",
-                {**base, "kind": "question", "step_id": step_id, "question": last_summary.get(step_id, "")},
+                {**base, "kind": "question", "step_id": step_id, "wait": n, "question": last_summary.get(step_id, "")},
             )
+            # `wait` ties an answer to this question: a click on an older message can't answer it.
             evt = await ctx.step.wait_for_event(
                 f"needs-you {step_id}#{n}",
                 event="orchestrator/input.provided",
-                if_exp=f"async.data.slug == '{run['slug']}' && async.data.step_id == '{step_id}'",
+                if_exp=f"async.data.slug == '{run['slug']}' && async.data.step_id == '{step_id}' && async.data.wait == {n}",
                 timeout=GATE_TIMEOUT,
             )
             if evt is None:
@@ -310,10 +311,14 @@ async def drive_workflow(ctx: inngest.Context) -> dict:
                 f"notify gate {step_id}#{attempt}",
                 {**base, "kind": "gate", "step_id": step_id, "attempt": attempt, "show": p.get("show") or {}},
             )
+            # `attempt` ties a decision to this visit of the gate, so an old message can't approve a later one.
             evt = await ctx.step.wait_for_event(
                 f"gate {step_id}#{attempt}",
                 event="orchestrator/gate.decided",
-                if_exp=f"async.data.slug == '{run['slug']}' && async.data.gate == '{step_id}'",
+                if_exp=(
+                    f"async.data.slug == '{run['slug']}' && async.data.gate == '{step_id}'"
+                    f" && async.data.attempt == {attempt}"
+                ),
                 timeout=GATE_TIMEOUT,
             )
             if evt is None:
