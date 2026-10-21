@@ -75,6 +75,28 @@ Node 20+. On macOS, `brew install redis` keeps parked runs across restarts.
 UI work: `cd studio && npm run dev` serves the UI with hot reload and proxies
 `/api` to the running `studio_server` on 8790.
 
+## Projects and their agent tools
+
+A project is a folder (a git repo) that runs work in. Pass them with `--repo`, or
+`--projects DIR` for every repo under a folder (on the box: `ORCH_STUDIO_REPOS`,
+`ORCH_PROJECTS_ROOT`). The web app has no connectors of its own: a project's
+agents get their tools from the project's `.mcp.json`, the file Claude Code
+already reads, and the Codex worker gets the same servers as `-c mcp_servers.*`.
+
+```json
+{"mcpServers": {"linear": {"command": "npx", "args": ["-y", "<server package>"],
+                           "env": {"LINEAR_API_KEY": "${LINEAR_API_KEY}"}}}}
+```
+
+`${VAR}` comes from `<project>/.orchestrator/mcp.env` (KEY=value, keep it out
+of git), then from the worker's environment. A server with a missing variable is
+left out of the run rather than started blank, and Studio's Projects view says
+which variable it needs. Step agents never see the values: Claude gets the
+resolved servers through a temporary `--mcp-config` file that its Read and Bash
+are denied, plus `--allowedTools mcp__<name>` since a headless step can't ask.
+Codex has no read sandbox and the `-c` values show in `ps`, so run its worker as
+a user of its own.
+
 ## Findings (2026-10-20, Inngest server 1.46.0, Python SDK 0.5.19)
 
 | Test                                                                    | Result                                                                                                         |

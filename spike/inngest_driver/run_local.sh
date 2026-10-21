@@ -2,9 +2,12 @@
 # Run the whole Studio stack on one machine (a laptop): Inngest, the driver
 # worker and Studio. Ctrl-C stops all of it.
 #
-#   spike/inngest_driver/run_local.sh [--stub] [--repo PATH]... [--pack PATH]
+#   spike/inngest_driver/run_local.sh [--stub] [--repo PATH]... [--projects DIR] [--pack PATH]
 #
-#   --repo PATH  a git repo runs may change (repeatable; default: none, so add one)
+#   --repo PATH     a project folder (git repo) runs may change (repeatable)
+#   --projects DIR  every git repo (or folder with a .mcp.json) under DIR is a project too
+#                   A project's .mcp.json gives its agents their tools; secrets for it go in
+#                   <project>/.orchestrator/mcp.env (keep that out of git).
 #   --pack PATH  the workflow pack (default: ../workflows/config next to this checkout)
 #   --stub       judgment steps write placeholder outputs instead of calling Claude Code,
 #                and exec steps are stubbed too; for trying the UI at no cost
@@ -22,12 +25,14 @@ HOME_DIR="${ORCH_LOCAL_HOME:-$HOME/.orchestrator-studio}"
 PACK="$(cd "$ROOT/.." && pwd)/workflows/config"
 STUB=0
 REPOS=()
+PROJECTS_ROOT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --stub) STUB=1 ;;
     --repo) REPOS+=("$(cd "$2" && pwd)"); shift ;;
+    --projects) PROJECTS_ROOT="$(cd "$2" && pwd)"; shift ;;
     --pack) PACK="$(cd "$2" && pwd)"; shift ;;
-    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
     *) echo "unknown option $1 (see --help)" >&2; exit 2 ;;
   esac
   shift
@@ -38,7 +43,7 @@ need uv "https://docs.astral.sh/uv/"
 need npx "install Node.js 20+"
 [ "$STUB" = 1 ] || need claude "install Claude Code and sign in, or pass --stub"
 [ -d "$PACK/workflows" ] || { echo "no workflow pack at $PACK; clone ugudlado/workflows next to this repo or pass --pack" >&2; exit 1; }
-[ ${#REPOS[@]} -gt 0 ] || echo "note: no --repo given; Studio can show runs but not start one" >&2
+[ ${#REPOS[@]} -gt 0 ] || [ -n "$PROJECTS_ROOT" ] || echo "note: no --repo or --projects given; Studio can show runs but not start one" >&2
 
 mkdir -p "$HOME_DIR/runs" "$HOME_DIR/inngest"
 KEYS="$HOME_DIR/keys.env"
@@ -81,7 +86,7 @@ else
 fi
 start "${PY[@]}" -m spike.inngest_driver.driver >"$HOME_DIR/worker.log" 2>&1
 REPO_LIST="$(IFS=,; echo ${REPOS[@]+"${REPOS[*]}"})"
-export ORCH_RUNS_ROOT="$HOME_DIR/runs" ORCH_PACK="$PACK" ORCH_STUDIO_REPOS="$REPO_LIST"
+export ORCH_RUNS_ROOT="$HOME_DIR/runs" ORCH_PACK="$PACK" ORCH_STUDIO_REPOS="$REPO_LIST" ORCH_PROJECTS_ROOT="$PROJECTS_ROOT"
 start "${PY[@]}" -m spike.inngest_driver.studio_server >"$HOME_DIR/studio.log" 2>&1
 
 echo "Studio:    http://localhost:8790"

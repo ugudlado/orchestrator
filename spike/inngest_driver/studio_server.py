@@ -14,13 +14,14 @@ Env: INNGEST_SIGNING_KEY, INNGEST_EVENT_KEY, INNGEST_API_BASE_URL (default
 http://127.0.0.1:8288), INNGEST_UI_URL (where your browser reaches the Inngest
 dashboard, default http://localhost:8288), ORCH_RUNS_ROOT (default
 /home/orch/runs), ORCH_PACK (default /home/orch/workflows/config),
-ORCH_STUDIO_REPOS (comma-separated repo roots a run may target, default
-/home/orch/toy), ORCH_STUDIO_DIST (built UI, default <repo>/studio/dist),
+ORCH_STUDIO_REPOS (comma-separated project folders a run may target, default
+/home/orch/toy), ORCH_PROJECTS_ROOT (optional: each folder under it with a .git or
+.mcp.json is a project too), ORCH_STUDIO_DIST (built UI, default <repo>/studio/dist),
 ORCH_STUDIO_PORT (default 8790), ORCH_STUDIO_HOSTS (extra Host header values
 to accept, comma-separated).
 
 API (JSON; POSTs need `X-Studio: 1`, which a cross-site form can't send):
-    GET  /api/health, /api/workflows, /api/runs, /api/runs/<slug>/artifacts/<path>
+    GET  /api/health (includes projects and their MCP servers), /api/workflows, /api/runs, /api/runs/<slug>/artifacts/<path>
     POST /api/runs                {workflow, slug, ticket, repo}
     GET  /api/runs/<slug>/comments
     POST /api/runs/<slug>/comments               {text, file?, quote?, line?}
@@ -52,6 +53,8 @@ from pathlib import Path
 
 import yaml
 
+from . import project_mcp
+
 HERE = Path(__file__).resolve().parent
 API = os.environ.get("INNGEST_API_BASE_URL", "http://127.0.0.1:8288").rstrip("/")
 UI_URL = os.environ.get("INNGEST_UI_URL", "http://localhost:8288").rstrip("/")
@@ -60,6 +63,7 @@ EVENT_KEY = os.environ.get("INNGEST_EVENT_KEY", "")
 RUNS_ROOT = Path(os.environ.get("ORCH_RUNS_ROOT", "/home/orch/runs")).resolve()
 PACK = Path(os.environ.get("ORCH_PACK", "/home/orch/workflows/config"))
 REPOS = [r for r in os.environ.get("ORCH_STUDIO_REPOS", "/home/orch/toy").split(",") if r]
+PROJECTS_ROOT = os.environ.get("ORCH_PROJECTS_ROOT", "")
 DIST = Path(os.environ.get("ORCH_STUDIO_DIST", str(HERE.parents[1] / "studio" / "dist")))
 PORT = int(os.environ.get("ORCH_STUDIO_PORT", "8790"))
 HOSTS = {"localhost", "127.0.0.1", "::1", *(h for h in os.environ.get("ORCH_STUDIO_HOSTS", "").split(",") if h)}
@@ -284,6 +288,7 @@ def list_runs() -> list[dict]:
             {
                 "slug": slug,
                 "workflow": d.get("workflow"),
+                "repo": d.get("repo_root"),
                 "title": (ticket.strip().splitlines() or [slug])[0][:120],
                 "ticket": ticket,
                 "status": status,
@@ -569,6 +574,31 @@ def _with_comments(slug: str, body: dict, typed: str, send, sent_as: dict) -> No
             _mark(slug, items, pending, sent_as)
 
 
+def project_dirs() -> list[str]:
+    """Project folders: the configured ones plus each repo (or folder with a .mcp.json) under ORCH_PROJECTS_ROOT."""
+    found = [str(Path(r).resolve()) for r in REPOS if Path(r).is_dir()]
+    if PROJECTS_ROOT and Path(PROJECTS_ROOT).is_dir():
+        for d in sorted(Path(PROJECTS_ROOT).iterdir()):
+            if d.is_dir() and not d.name.startswith(".") and ((d / ".git").exists() or (d / ".mcp.json").is_file()):
+                found.append(str(d.resolve()))
+    return list(dict.fromkeys(found))
+
+
+def projects() -> list[dict]:
+    """What Studio shows per project: its MCP servers (names and missing variables, never values)."""
+    return [
+        {
+            "name": Path(d).name,
+            "path": d,
+            "mcp": project_mcp.summary(d),
+            "has_mcp_json": (Path(d) / ".mcp.json").is_file(),
+            "has_mcp_env": (Path(d) / ".orchestrator" / "mcp.env").is_file(),
+            "has_bindings": (Path(d) / ".orchestrator" / "bindings.yaml").is_file(),
+        }
+        for d in project_dirs()
+    ]
+
+
 def start_run(body: dict) -> dict:
     _need(body, "workflow", "slug", "ticket", "repo")
     slug, wf, repo = body["slug"], body["workflow"], body["repo"]
@@ -576,10 +606,10 @@ def start_run(body: dict) -> dict:
         raise BadRequest("slug: letters, digits and - only")
     if wf not in workflows():
         raise BadRequest(f"unknown workflow {wf}")
-    if repo not in REPOS or not Path(repo).is_dir():
-        raise BadRequest(
-            f"repo must be one of {', '.join(r for r in REPOS if Path(r).is_dir()) or '(none configured)'}"
-        )
+    dirs = project_dirs()
+    repo = str(Path(repo).resolve()) if repo else repo
+    if repo not in dirs:
+        raise BadRequest(f"project must be one of {', '.join(dirs) or '(none configured)'}")
     if (RUNS_ROOT / slug).exists() or any(r["slug"] == slug for r in cached_runs()):
         raise BadRequest(f"a run named {slug} already exists; pick another name")
     data = {
@@ -741,7 +771,8 @@ class Handler(BaseHTTPRequestHandler):
                     "inngest": _snap["ok"],
                     "inngest_error": _snap["error"],
                     "ui_url": UI_URL,
-                    "repos": [r for r in REPOS if Path(r).is_dir()],
+                    "repos": project_dirs(),
+                    "projects": projects(),
                     "workflows": sorted(workflows()),
                     "runs_root": str(RUNS_ROOT),
                     "pack": str(PACK),
@@ -814,7 +845,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    log.info("runs %s · pack %s · repos %s · Inngest %s", RUNS_ROOT, PACK, ", ".join(REPOS) or "(none)", API)
+    log.info("runs %s · pack %s · repos %s · Inngest %s", RUNS_ROOT, PACK, ", ".join(project_dirs()) or "(none)", API)
     for what, path in (("pack", PACK / "workflows"), ("built UI", DIST / "index.html"), ("runs dir", RUNS_ROOT)):
         if not path.exists():
             log.warning("%s not found at %s", what, path)
