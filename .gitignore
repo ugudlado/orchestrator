@@ -56,5 +56,3 @@ node_modules/
 *.duckdb.bak-*
 
 # Studio build output
-studio/node_modules/
-studio/dist/
