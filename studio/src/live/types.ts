@@ -56,3 +56,14 @@ export interface LiveRun {
 }
 
 export interface LiveHealth { ok: boolean; inngest: boolean; ui_url: string; repos: string[]; workflows: string[] }
+
+/** A review comment on a run: on a whole artifact (no quote) or a passage of it. Kept by the server until sent with a gate rejection or an answer. */
+export interface LiveComment {
+  id: string;
+  file: string | null;
+  quote: string | null;
+  line: number | null;
+  text: string;
+  at: string;
+  sent: null | { via: "gate" | "answer"; step: string; attempt?: number; wait?: number; at: string };
+}

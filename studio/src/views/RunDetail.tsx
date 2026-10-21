@@ -16,7 +16,9 @@ import { FilesPanel } from "./FilesPanel";
 import { filesFor } from "../files";
 import { accountLabel } from "../accounts";
 import { connKind, stepAction } from "../connectors";
-import { LiveGate, LiveQuestion } from "./LiveActions";
+import { FeedbackTray, LiveGate, LiveQuestion } from "./LiveActions";
+import { DocOverlay } from "./DocReview";
+import { useLiveComments } from "../live/useComments";
 
 function phasesFor(s: Step): string[] {
   const p: string[] = [];
@@ -40,6 +42,9 @@ export function RunDetail({ app, run }: { app: AppApi; run: Run }) {
   const attn = lv?.attention ?? null;
   const [tab, setTab] = useState<"timeline" | "files">("timeline");
   const [openFile, setOpenFile] = useState<string | null>(null);
+  const [overlay, setOverlay] = useState<string | null>(null);
+  const [sentKey, setSentKey] = useState<string | null>(null);
+  const cm = useLiveComments(run.slug, !!lv);
   const [fb, setFb] = useState<number | null>(null);
   const [fbText, setFbText] = useState("");
 
@@ -138,7 +143,7 @@ export function RunDetail({ app, run }: { app: AppApi; run: Run }) {
         <div className="rd__tabs"><SegmentedControl size="sm" variant="underline" aria-label="Timeline or files" value={tab} onChange={(v) => { setTab(v); if (v === "timeline") stick.current = true; }}
           options={[{ value: "timeline", label: "Timeline" }, { value: "files", label: "Files", count: filesFor(run, wf).length }]} /></div>
         <div className="rd__tl" ref={scroller} onWheel={(e) => { if (e.deltaY < 0) stick.current = false; }} onTouchMove={() => { stick.current = false; }} onScroll={(e) => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 40) stick.current = true; }}>
-          {tab === "files" && <FilesPanel run={run} wf={wf} openFile={openFile} setOpenFile={setOpenFile} comments={app.comments} addComment={(c) => app.addComment({ ...c, runId: run.id })} />}
+          {tab === "files" && <FilesPanel run={run} wf={wf} openFile={openFile} setOpenFile={setOpenFile} comments={app.comments} addComment={(c) => app.addComment({ ...c, runId: run.id })} cm={cm} expand={setOverlay} />}
           {tab === "timeline" && <div className="tl__h">Timeline · <code>orchestrator next</code> calls</div>}
           {tab === "timeline" && groups.map((g, gi) => {
             const lab = `${g[0].step} → ${g[g.length - 1].step} · ${g.length} step${g.length > 1 ? "s" : ""}`;
@@ -157,8 +162,9 @@ export function RunDetail({ app, run }: { app: AppApi; run: Run }) {
               <span className="muted">{roleById(step.role)?.name ?? "agent"} · {roleById(step.role) ? TIERS[roleById(step.role)!.tier] : ""} · max_turns {step.max_turns}</span>
             </div>
           )}
-          {tab === "timeline" && lv && run.status === "waiting" && attn?.kind === "gate" && <LiveGate key={`${attn.step_id}#${attn.attempt}`} app={app} run={run} wf={wf} openFile={(f) => { setTab("files"); setOpenFile(f); }} />}
-          {tab === "timeline" && lv && run.status === "needs_you" && attn?.kind === "question" && <LiveQuestion key={`${attn.step_id}?${attn.wait}`} app={app} run={run} wf={wf} />}
+          {tab === "timeline" && lv && <FeedbackTray run={run} cm={cm} openFile={setOverlay} />}
+          {tab === "timeline" && lv && run.status === "waiting" && attn?.kind === "gate" && <LiveGate key={`${attn.step_id}#${attn.attempt}`} app={app} run={run} wf={wf} cm={cm} openFile={setOverlay} sent={sentKey} setSent={setSentKey} />}
+          {tab === "timeline" && lv && run.status === "needs_you" && attn?.kind === "question" && <LiveQuestion key={`${attn.step_id}?${attn.wait}`} app={app} run={run} wf={wf} cm={cm} openFile={setOverlay} sent={sentKey} setSent={setSentKey} />}
           {tab === "timeline" && lv && (run.status === "needs_you" || run.status === "failed") && !attn && (
             <div className="tl__done" role="status">{run.status === "failed" ? "Run failed" : "Run needs you"} · outcome: {lv.outcome ?? "unknown"}{lv.inngest.trace_url && <> · <a href={lv.inngest.trace_url} target="_blank" rel="noreferrer">View trace in Inngest ↗</a></>}</div>
           )}
@@ -203,6 +209,7 @@ export function RunDetail({ app, run }: { app: AppApi; run: Run }) {
         </div>
         </div>
       </div>
+      {lv && overlay && <DocOverlay app={app} run={run} wf={wf} cm={cm} file={overlay} setFile={setOverlay} onClose={() => setOverlay(null)} sent={sentKey} setSent={setSentKey} />}
     </div>
   );
 }

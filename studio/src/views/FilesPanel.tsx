@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { getArtifact } from "../live/api";
+import { useState } from "react";
+import type { LiveComments } from "../live/useComments";
+import { DocView, useArtifactText } from "./DocReview";
 import { Button } from "../affectui/button-clean";
 import { contentFor, filesFor, type Comment } from "../files";
 import { roleById } from "../roles";
@@ -9,29 +10,66 @@ import type { Workflow } from "../types";
 const inline = (t: string) =>
   t.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).map((p, i) => (p.startsWith("`") ? <code key={i}>{p.slice(1, -1)}</code> : p.startsWith("**") ? <strong key={i}>{p.slice(2, -2)}</strong> : p));
 
-export function FilesPanel({ run, wf, openFile, setOpenFile, comments, addComment }: {
+export function FilesPanel(p: {
+  run: Run; wf: Workflow; openFile: string | null; setOpenFile: (f: string | null) => void; comments: Comment[]; addComment: (c: Omit<Comment, "id" | "at" | "runId">) => void;
+  cm: LiveComments; expand: (f: string) => void;
+}) {
+  return p.run.live ? <LiveFiles run={p.run} wf={p.wf} openFile={p.openFile} setOpenFile={p.setOpenFile} cm={p.cm} expand={p.expand} /> : <SimFiles {...p} />;
+}
+
+function LiveFiles({ run, wf, openFile, setOpenFile, cm, expand }: { run: Run; wf: Workflow; openFile: string | null; setOpenFile: (f: string | null) => void; cm: LiveComments; expand: (f: string) => void }) {
+  const files = filesFor(run, wf);
+  const info = openFile ? files.find((f) => f.name === openFile) ?? { name: openFile, owner: "", writers: [], version: 1, lastStep: "", lastN: 0 } : undefined;
+  const text = useArtifactText(run, info?.name ?? null);
+  if (!info) {
+    return (
+      <div className="files">
+        <div className="files__cap">Saved in run store · <code>runs/{run.slug}/artifacts/</code></div>
+        {files.length === 0 && <p className="muted">No artifacts yet. Files appear as steps write them.</p>}
+        <div className="files__list">
+          {files.map((f) => {
+            const n = cm.pending.filter((c) => c.file === f.name).length;
+            return (
+              <button key={f.name} className="frow" onClick={() => setOpenFile(f.name)}>
+                <span className="frow__n">{f.name}</span>
+                <span className="frow__s">{f.lastStep ? `written by ${f.lastStep}` : ""}</span>
+                <span className="frow__v">v{f.version}</span>
+                {n > 0 && <span className="frow__c">{n} pending</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="files">
+      <div className="fview__h">
+        <Button size="sm" variant="ghost" onClick={() => setOpenFile(null)}>← Files</Button>
+        <span className="fview__n">{info.name}</span>
+        {info.lastStep && <span className="fview__w">written by {info.lastStep}</span>}
+        <span className="rd__sp" />
+        <Button size="sm" variant="secondary" onClick={() => expand(info.name)}>Expand to review</Button>
+      </div>
+      {text === null ? <p className="muted">Loading…</p> : <DocView key={info.name} file={info.name} text={text} cm={cm} wide={false} />}
+    </div>
+  );
+}
+
+function SimFiles({ run, wf, openFile, setOpenFile, comments, addComment }: {
   run: Run; wf: Workflow; openFile: string | null; setOpenFile: (f: string | null) => void; comments: Comment[]; addComment: (c: Omit<Comment, "id" | "at" | "runId">) => void;
 }) {
   const files = filesFor(run, wf);
   const [sel, setSel] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const mine = comments.filter((c) => c.runId === run.id);
-  const info = files.find((f) => f.name === openFile) ?? (run.live && openFile ? { name: openFile, owner: "", writers: [], version: 1, lastStep: "", lastN: 0 } : undefined);
-  const [real, setReal] = useState<{ key: string; text: string } | null>(null);
-  const liveKey = run.live && info ? `${run.slug}/${info.name}/${run.live.artifacts.find((a) => a.name === info.name)?.mtime ?? ""}` : "";
-  useEffect(() => {
-    if (!run.live || !info) return;
-    let off = false;
-    const key = liveKey;
-    getArtifact(run.slug, info.name).then((text) => !off && setReal({ key, text })).catch((e: Error) => !off && setReal({ key, text: `Could not load ${info.name}: ${e.message}` }));
-    return () => { off = true; };
-  }, [liveKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const info = files.find((f) => f.name === openFile);
   const ownerLabel = (owner: string) => roleById(wf.steps.find((s) => s.id === owner)?.role)?.name ?? owner;
 
   if (!info) {
     return (
       <div className="files">
-        <div className="files__cap">Saved in run store · <code>runs/{run.slug}/{run.live ? "artifacts/" : ""}</code></div>
+        <div className="files__cap">Saved in run store · <code>runs/{run.slug}/</code></div>
         {files.length === 0 && <p className="muted">No artifacts yet. Files appear as steps write them.</p>}
         <div className="files__list">
           {files.map((f) => (
@@ -48,7 +86,7 @@ export function FilesPanel({ run, wf, openFile, setOpenFile, comments, addCommen
     );
   }
 
-  const text = run.live ? (real?.key === liveKey ? real.text : "Loading…") : contentFor(info.name, run, info.version);
+  const text = contentFor(info.name, run, info.version);
   const lines = text.replace(/\n$/, "").split("\n");
   const md = info.name.endsWith(".md");
   let fence = false;
@@ -67,7 +105,7 @@ export function FilesPanel({ run, wf, openFile, setOpenFile, comments, addCommen
         <span className="frow__v">v{info.version}</span>
         {info.lastStep && <span className="fview__w">written by {info.lastStep}</span>}
       </div>
-      <div className="files__cap">Saved in run store · <code>runs/{run.slug}/{run.live ? "artifacts/" : ""}{info.name}</code>. Click a line to comment for the agent.</div>
+      <div className="files__cap">Saved in run store · <code>runs/{run.slug}/{info.name}</code>. Click a line to comment for the agent.</div>
       <div className="fview" role="table" aria-label={info.name}>
         {lines.map((l, i) => {
           const n = i + 1;
