@@ -22,8 +22,16 @@ to accept, comma-separated).
 API (JSON; POSTs need `X-Studio: 1`, which a cross-site form can't send):
     GET  /api/health, /api/workflows, /api/runs, /api/runs/<slug>/artifacts/<path>
     POST /api/runs                {workflow, slug, ticket, repo}
-    POST /api/runs/<slug>/gate    {gate, attempt, decision, note?, reset_to?}
-    POST /api/runs/<slug>/answer  {step_id, wait, answer, reset_to?}
+    GET  /api/runs/<slug>/comments
+    POST /api/runs/<slug>/comments               {text, file?, quote?, line?}
+    POST /api/runs/<slug>/comments/<id>/delete   (pending comments only)
+    POST /api/runs/<slug>/gate    {gate, attempt, decision, note?, reset_to?, include_comments?}
+    POST /api/runs/<slug>/answer  {step_id, wait, answer?, reset_to?, include_comments?}
+
+Comments (on a whole document, or on a highlighted passage of one) are kept in
+<runs>/<slug>/studio-comments.json until sent. With include_comments, a
+rejection or an answer carries every pending comment in its note or answer
+text, which is what the agent reads, and the comments are marked sent.
 """
 
 from __future__ import annotations
@@ -376,6 +384,97 @@ def _run(slug: str) -> dict:
         raise BadRequest(f"no run {slug}")
     return run
 
+# --- comments --------------------------------------------------------------
+
+_comments_lock = threading.Lock()
+
+
+def _comments_path(slug: str) -> Path:
+    if not SLUG_RE.match(slug):
+        raise BadRequest("bad run name")
+    _run(slug)  # only runs Studio knows about
+    return RUNS_ROOT / slug / "studio-comments.json"
+
+
+def _load_comments(slug: str) -> list[dict]:
+    p = _comments_path(slug)
+    return json.loads(p.read_text()) if p.is_file() else []
+
+
+def _save_comments(slug: str, items: list[dict]) -> None:
+    p = _comments_path(slug)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(items, indent=2))
+    tmp.replace(p)
+
+
+def add_comment(slug: str, body: dict) -> dict:
+    text = str(body.get("text") or "").strip()
+    if not text:
+        raise BadRequest("a comment needs text")
+    c = {
+        "id": f"c{time.time_ns()}",
+        "file": str(body["file"]) if body.get("file") else None,
+        "quote": str(body["quote"])[:2000] if body.get("quote") else None,
+        "line": int(body["line"]) if body.get("line") else None,
+        "text": text[:5000],
+        "at": datetime.datetime.now(datetime.UTC).isoformat(),
+        "sent": None,
+    }
+    with _comments_lock:
+        items = _load_comments(slug)
+        items.append(c)
+        _save_comments(slug, items)
+    return c
+
+
+def delete_comment(slug: str, cid: str) -> dict:
+    with _comments_lock:
+        items = _load_comments(slug)
+        c = next((c for c in items if c["id"] == cid), None)
+        if not c:
+            raise BadRequest("no such comment")
+        if c["sent"]:
+            raise BadRequest("this comment was already sent to the run")
+        _save_comments(slug, [x for x in items if x["id"] != cid])
+    return {"ok": True}
+
+
+def _feedback(typed: str, pending: list[dict]) -> str:
+    """The text the agent reads: what the person typed, then each comment with
+    the file and passage it is about."""
+    lines = []
+    for c in pending:
+        where = c["file"] or "the run"
+        if c.get("quote"):
+            q = " ".join(c["quote"].split())
+            where += f', on "{q[:300]}{'…' if len(q) > 300 else ''}"'
+        elif c["file"]:
+            where += " (whole document)"
+        if c.get("line"):
+            where += f" (line {c['line']})"
+        lines.append(f"- {where}: {c['text']}")
+    parts = [typed.strip()] if typed.strip() else []
+    if lines:
+        parts.append("Comments on the run's files:\n" + "\n".join(lines))
+    return "\n\n".join(parts)
+
+
+def _with_comments(slug: str, body: dict, typed: str, send, sent_as: dict) -> None:
+    """Send `typed` (plus pending comments when asked) and mark those comments sent,
+    holding the lock so a comment added meanwhile is neither lost nor sent twice."""
+    with _comments_lock:
+        items = _load_comments(slug) if body.get("include_comments") else []
+        pending = [c for c in items if not c["sent"]]
+        send(_feedback(typed, pending))
+        if pending:
+            now = datetime.datetime.now(datetime.UTC).isoformat()
+            for c in pending:
+                c["sent"] = {**sent_as, "at": now}
+            _save_comments(slug, items)
+
+
 
 def start_run(body: dict) -> dict:
     _need(body, "workflow", "slug", "ticket", "repo")
@@ -408,25 +507,38 @@ def decide_gate(slug: str, body: dict) -> dict:
     if a.get("kind") != "gate" or a.get("step_id") != body["gate"] or a.get("attempt") != body["attempt"]:
         raise BadRequest("this gate is no longer waiting; reload to see where the run is")
     data = {"slug": slug, "gate": body["gate"], "attempt": body["attempt"], "decision": body["decision"], "by": "studio"}
-    if body["decision"] == "rejected":
-        data["note"] = str(body.get("note") or "")
-        if body.get("reset_to"):
-            data["reset_to"] = str(body["reset_to"])
-    send_event("orchestrator/gate.decided", data)
+    if body["decision"] == "approved":
+        send_event("orchestrator/gate.decided", data)
+        return {"ok": True}
+    if body.get("reset_to"):
+        data["reset_to"] = str(body["reset_to"])
+
+    def send(note: str) -> None:
+        if not note:
+            raise BadRequest("say what should change, or leave a comment on a file")
+        send_event("orchestrator/gate.decided", {**data, "note": note})
+
+    sent_as = {"via": "gate", "step": body["gate"], "attempt": body["attempt"]}
+    _with_comments(slug, body, str(body.get("note") or ""), send, sent_as)
     return {"ok": True}
 
 
 def answer(slug: str, body: dict) -> dict:
     _need(body, "step_id", "wait")
-    if not (body.get("answer") or body.get("reset_to")):
-        raise BadRequest("send an answer or a step to go back to")
     a = _run(slug).get("attention") or {}
     if a.get("kind") != "question" or a.get("step_id") != body["step_id"] or a.get("wait") != body["wait"]:
         raise BadRequest("this question is no longer open; reload to see where the run is")
-    data = {"slug": slug, "step_id": body["step_id"], "wait": body["wait"], "answer": str(body.get("answer") or ""), "by": "studio"}
+    data = {"slug": slug, "step_id": body["step_id"], "wait": body["wait"], "by": "studio"}
     if body.get("reset_to"):
         data["reset_to"] = str(body["reset_to"])
-    send_event("orchestrator/input.provided", data)
+
+    def send(text: str) -> None:
+        if not (text or data.get("reset_to")):
+            raise BadRequest("send an answer, a comment, or a step to go back to")
+        send_event("orchestrator/input.provided", {**data, "answer": text})
+
+    sent_as = {"via": "answer", "step": body["step_id"], "wait": body["wait"]}
+    _with_comments(slug, body, str(body.get("answer") or ""), send, sent_as)
     return {"ok": True}
 
 
@@ -481,6 +593,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, workflows())
         elif path == "/api/runs":
             self._json(200, {"runs": cached_runs()})
+        elif m := re.match(r"^/api/runs/([^/]+)/comments$", path):
+            self._json(200, {"comments": _load_comments(m.group(1))})
         elif m := re.match(r"^/api/runs/([^/]+)/artifacts/(.+)$", path):
             slug, rel = m.group(1), urllib.parse.unquote(m.group(2))
             art = next((r for r in cached_runs() if r["slug"] == slug), None)
@@ -519,6 +633,10 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
         if path == "/api/runs":
             res = start_run(body)
+        elif m := re.match(r"^/api/runs/([^/]+)/comments$", path):
+            res = add_comment(m.group(1), body)
+        elif m := re.match(r"^/api/runs/([^/]+)/comments/([^/]+)/delete$", path):
+            res = delete_comment(m.group(1), m.group(2))
         elif m := re.match(r"^/api/runs/([^/]+)/(gate|answer)$", path):
             res = (decide_gate if m.group(2) == "gate" else answer)(m.group(1), body)
         else:
