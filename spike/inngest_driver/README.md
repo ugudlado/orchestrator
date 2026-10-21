@@ -93,8 +93,12 @@ Keys: prefer OAuth servers and sign in once as the worker's user (`/mcp` in
 Claude Code, `codex mcp login`); the tokens stay in `~/.claude` / `~/.codex`,
 which steps can't read. A server that needs an API key gets it through `${VAR}`
 from the step's environment: list the name in `ORCH_STEP_ENV_KEEP`, knowing the
-agent can see it. Steps can't edit `.mcp.json` or `.codex/config.toml`, so a step
-can't add a server for later steps.
+agent can see it. A step only gets the project's servers when the worktree's `.mcp.json` (or
+`.codex/config.toml`) matches the main checkout's HEAD: MCP servers run outside
+the sandbox, and exec or Codex steps can write the worktree. A changed Claude config
+runs the step with no project servers; a changed Codex config stops the step.
+MCP servers the worker's user adds at user level (`~/.claude.json`) load in every
+project, so keep that list empty.
 
 ## Findings (2026-10-20, Inngest server 1.46.0, Python SDK 0.5.19)
 
