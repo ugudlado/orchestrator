@@ -55,6 +55,50 @@ curl -X POST localhost:8288/e/<key> -d '{"name":"orchestrator/gate.decided","dat
 
 Dashboard: http://localhost:8288.
 
+## Studio on your laptop
+
+One command starts Redis (if installed), Inngest, the worker and Studio, all on 127.0.0.1:
+
+```bash
+# workflows pack checked out next to this repo (../workflows), claude signed in
+spike/inngest_driver/run_local.sh --repo ~/code/my-repo
+# try the UI at no cost: stub agents and scripts
+spike/inngest_driver/run_local.sh --stub --repo ~/code/scratch-repo
+```
+
+Open http://localhost:8790. Start a run there, review its files (select text to
+comment), approve or send feedback at gates, answer questions. "View trace" opens
+the Inngest dashboard on :8288. State and generated keys live in
+`~/.orchestrator-studio`; logs are `~/.orchestrator-studio/*.log`. Needs uv and
+Node 20+. On macOS, `brew install redis` keeps parked runs across restarts.
+
+UI work: `cd studio && npm run dev` serves the UI with hot reload and proxies
+`/api` to the running `studio_server` on 8790.
+
+## Projects and their agent tools
+
+A project is a folder (a git repo) that runs work in. Pass them with `--repo`, or
+`--projects DIR` for every repo under a folder (on the box: `ORCH_STUDIO_REPOS`,
+`ORCH_PROJECTS_ROOT`). The web app has no connectors of its own: a project's
+agents get their tools from the project's `.mcp.json`, the file Claude Code
+already reads, and the Codex worker gets the same servers as `-c mcp_servers.*`.
+
+```json
+{"mcpServers": {"linear": {"command": "npx", "args": ["-y", "<server package>"],
+                           "env": {"LINEAR_API_KEY": "${LINEAR_API_KEY}"}}}}
+```
+
+`${VAR}` comes from `<project>/.orchestrator/mcp.env` (KEY=value, keep it out
+of git) and nowhere else, so a `.mcp.json` can't reach the worker's own keys. It
+is read from the project's main checkout, never the run's worktree, so a step
+can't give itself a server. A server with a missing variable is
+left out of the run rather than started blank, and Studio's Projects view says
+which variable it needs. Step agents never see the values: Claude gets the
+resolved servers through a temporary `--mcp-config` file that its Read and Bash
+are denied, plus `--allowedTools mcp__<name>` since a headless step can't ask.
+Codex has no read sandbox and the `-c` values show in `ps`, so run its worker as
+a user of its own.
+
 ## Findings (2026-10-20, Inngest server 1.46.0, Python SDK 0.5.19)
 
 | Test                                                                    | Result                                                                                                         |

@@ -10,6 +10,7 @@ this worker as a user whose home holds nothing but Codex's sign-in.
 
 Env: as claude_worker.py, plus ORCH_CODEX_MODEL (default: Codex's configured model)
 and ORCH_CODEX_ARGS (extra CLI args, e.g. `-c model_reasoning_effort=medium`).
+The project's MCP servers (REPO_ROOT's .mcp.json, see project_mcp.py) go in as `-c` overrides.
 Prints one JSON line: {model, cost_usd, num_turns, duration_ms, session_id, is_error, tokens}.
 """
 
@@ -22,6 +23,7 @@ import sys
 import time
 from pathlib import Path
 
+import project_mcp
 from claude_worker import ENV_KEEP, SECRET_ENV, brief
 
 SIGN_IN = {"OPENAI_API_KEY", "CODEX_API_KEY"}
@@ -58,6 +60,7 @@ def main() -> None:
         "--add-dir",
         str(Path(result_file).parent),
         *(["--model", model] if model else []),
+        *project_mcp.codex_args(os.environ.get("REPO_ROOT") or os.getcwd()),
         *shlex.split(os.environ.get("ORCH_CODEX_ARGS", "")),
         brief(payload, result_file),
     ]

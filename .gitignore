@@ -54,3 +54,7 @@ node_modules/
 .pnpm-store/
 *.duckdb
 *.duckdb.bak-*
+
+# Studio build output
+studio/node_modules/
+studio/dist/
