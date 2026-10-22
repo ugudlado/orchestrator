@@ -18,7 +18,7 @@ def test_defaults(tmp_path):
     assert (c.db, c.runs_root) == (home / "driver.db", home / "runs")
     assert (c.agent, c.agents, c.model_override, c.notify_cmd) == ("claude", {}, "", "")
     assert (c.gate_timeout_days, c.poll_seconds, c.pack, c.projects, c.projects_root) == (7, 0.5, None, (), None)
-    assert (c.sandbox_domains, c.step_env_keep) == ((), ())
+    assert (c.sandbox_domains, c.step_env_keep, c.max_question_reruns) == ((), (), 3)
 
 
 def test_file_and_env_override(tmp_path):
@@ -48,12 +48,23 @@ def test_file_and_env_override(tmp_path):
     c = Config.load(f, env=env)
     assert (c.db, c.agent, c.sandbox_domains, c.poll_seconds) == (Path("/e.db"), "stub", ("c.example",), 2)
     assert c.pack == Path("/p") and c.gate_timeout_days == 2  # untouched keys keep the file's value
+    assert Config.load(f, env={"ORCH_MAX_QUESTION_RERUNS": "0"}).max_question_reruns == 0
     assert Config.load(f, env={"ORCH_DRIVER_CONFIG": str(f)}).agent == "codex"
     assert Config.load(None, env={"ORCHESTRATOR_CONFIG": "/engine/pack"}).pack == Path("/engine/pack")
 
 
 @pytest.mark.parametrize(
-    "bad", [{"agnet": "stub"}, {"agent": "gpt"}, {"agents": {"x": "nope"}}, {"poll_seconds": 0}, {"projects": 3}]
+    "bad",
+    [
+        {"agnet": "stub"},
+        {"agent": "gpt"},
+        {"agents": {"x": "nope"}},
+        {"poll_seconds": 0},
+        {"projects": 3},
+        {"max_question_reruns": -1},
+        {"max_question_reruns": "many"},
+        {"max_question_reruns": 2.5},
+    ],
 )
 def test_bad_config_rejected(tmp_path, bad):
     f = tmp_path / "d.yaml"

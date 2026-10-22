@@ -138,3 +138,17 @@ def test_needs_you_answer_reruns_with_user_answer(env):
     triage = [h for h in loop["state"]["step_history"] if h["step"] == "triage"]
     assert [h["route"] for h in triage][-1] == "await_input" and len(triage) == 2
     assert [h["attempt"] for h in triage] == [1, 2] and loop["attempts"]["triage"] == 2  # counted once per run
+
+
+def test_step_that_keeps_asking_ends_at_question_limit(env):
+    """Every answer re-runs the step; one that asks again each time ends after max_question_reruns (3), not MAX_LOOPS."""
+    env.submit("nag", {"triage": {"change_type": "await_input", "_keep_asking": True}})
+    env.start()
+    for _ in range(3):
+        w = env.wait("nag", lambda r: r["status"] == "needs_you")["waiting"]
+        env.cli("answer", "nag", "triage", w["wait"], "--answer", "go ahead")
+        env.wait("nag", lambda r, n=w["wait"]: r["status"] != "needs_you" or r["waiting"]["wait"] != n)
+    r = env.wait("nag", lambda r: r["status"] == "failed")
+    assert r["outcome"]["status"] == "question_limit" and r["outcome"]["step_id"] == "triage"
+    triage = [h for h in r["loop"]["state"]["step_history"] if h["step"] == "triage"]
+    assert len(triage) == 4  # the first run and three answered re-runs

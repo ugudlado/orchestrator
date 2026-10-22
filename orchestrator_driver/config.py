@@ -27,6 +27,7 @@ ENV = {
     "step_env_keep": "ORCH_STEP_ENV_KEEP",  # comma-separated
     "notify_cmd": "ORCH_NOTIFY_CMD",
     "gate_timeout_days": "ORCH_GATE_TIMEOUT_DAYS",
+    "max_question_reruns": "ORCH_MAX_QUESTION_RERUNS",
     "poll_seconds": "ORCH_POLL_SECONDS",
     "stub_exec": "ORCH_STUB_EXEC",  # 1 or 0
 }
@@ -66,6 +67,7 @@ class Config:
     step_env_keep: tuple[str, ...] = ()
     notify_cmd: str = ""
     gate_timeout_days: float = 7
+    max_question_reruns: int = 3
     poll_seconds: float = 0.5
     stub_exec: bool | None = None  # None: stub the exec scripts only when `agent` is stub
 
@@ -118,6 +120,11 @@ class Config:
             raise ConfigError(f"gate_timeout_days and poll_seconds must be numbers: {e}") from e
         if days <= 0 or poll <= 0:
             raise ConfigError("gate_timeout_days and poll_seconds must be positive")
+        reruns = raw.get("max_question_reruns", d.max_question_reruns)
+        if isinstance(reruns, str) and reruns.strip().isdigit():
+            reruns = int(reruns)
+        if isinstance(reruns, bool) or not isinstance(reruns, int) or reruns < 0:
+            raise ConfigError(f"max_question_reruns must be a whole number, 0 or more, got {reruns!r}")
         stub_exec = raw.get("stub_exec")
         if isinstance(stub_exec, str):
             if stub_exec.strip().lower() not in ("0", "1", "true", "false", "yes", "no"):
@@ -139,6 +146,7 @@ class Config:
             step_env_keep=tuple(_list(raw.get("step_env_keep"))),
             notify_cmd=str(raw.get("notify_cmd") or ""),
             gate_timeout_days=days,
+            max_question_reruns=reruns,
             poll_seconds=poll,
             stub_exec=stub_exec,
         )
