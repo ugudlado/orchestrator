@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 
 import pytest
 
@@ -26,10 +27,9 @@ class FakeSlack:
 
     async def chat_update(self, **kw):
         self.calls.append(("update", kw))
+        if kw["ts"] not in self.msgs:
+            raise RuntimeError("message_not_found")
         self.msgs[kw["ts"]].update(text=kw["text"], blocks=kw["blocks"])
-
-    async def conversations_history(self, **kw):
-        return {"messages": [self.msgs[kw["latest"]]]}
 
     async def conversations_replies(self, **kw):
         return {"messages": [self.msgs[kw["ts"]], *self.replies]}
@@ -81,8 +81,9 @@ def test_click_inserts_the_drivers_own_event_and_a_restart_does_not_repost(env):
     b = bridge(env, web)
     sync(b)
     ref = {"slug": "click", "step_id": "design-signoff", "attempt": g["attempt"], "wait": None}
-    asyncio.run(b.decide(ref, "U1", "approved"))
-    env.at_gate("click", "pr-signoff")  # the worker took the Slack approval like any other
+    assert b.decide(ref, "U1", "approved")
+    env.at_gate("click", "pr-signoff")
+    assert not b.decide(ref, "U1", "approved")  # a late click finds the gate visit settled: nothing sent  # the worker took the Slack approval like any other
     b2 = bridge(env, web)  # a restarted bridge keeps its memory in slack.db
     sync(b2)
     assert sum("design-signoff" in p["text"] for p in web.of("post")) == 1
@@ -143,3 +144,48 @@ async def _build(env):
     from orchestrator_driver.slack import build_app
 
     return build_app(bridge(env, FakeSlack()), "xoxb-test")
+
+
+def test_doc_whose_folder_became_a_link_is_refused(tmp_path, monkeypatch):
+    """The folder check and the open aren't atomic: the opened file's real path is checked too."""
+    root = tmp_path / "runs"
+    (root / "r" / "artifacts").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "design.md").write_text("secret")
+    real_open = os.open
+
+    def swap_then_open(p, *a, **kw):  # the agent swaps the folder for a link between check and open
+        art = root / "r" / "artifacts"
+        if art.is_dir() and not art.is_symlink():
+            art.rmdir()
+            art.symlink_to(outside)
+        return real_open(p, *a, **kw)
+
+    monkeypatch.setattr(os, "open", swap_then_open)
+    assert read_doc(str(root / "r" / "artifacts" / "design.md"), root) is None
+
+
+def test_a_failed_edit_is_not_retried_every_tick(env):
+    env.submit("gone")
+    env.start()
+    g = env.at_gate("gone", "design-signoff")["waiting"]
+    web = FakeSlack()
+    b = bridge(env, web)
+    sync(b)
+    del web.msgs["1"]  # someone deleted the gate message
+    env.cli("decide", "gone", "design-signoff", g["attempt"], "approved")
+    env.at_gate("gone", "pr-signoff")
+    sync(b)
+    sync(b)
+    assert len(web.of("update")) == 1  # tried once, then let go
+
+
+def test_hint_says_cut_when_uploads_are_off(tmp_path):
+    root = tmp_path / "runs"
+    (root / "r").mkdir(parents=True)
+    doc = root / "r" / "design.md"
+    doc.write_text("y" * 3000)
+    w = {"kind": "gate", "step_id": "g", "attempt": 1, "show": {"design": str(doc), "bad": 5}}
+    text = " ".join(bl["text"]["text"] for bl in blocks("r", w, root, uploads=False) if bl["type"] == "section")
+    assert "is in the thread" not in text and "cut" in text and "isn't a readable file" in text

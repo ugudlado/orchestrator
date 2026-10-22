@@ -13,7 +13,8 @@ Reviewing in Slack:
 - A gate message carries the start of each shown document; the whole documents are uploaded as files
   in the message's thread (needs the `files:write` scope; without it the bridge falls back to snippets).
 - Replies in that thread are the review: Reject and Answer open with them filled in as the note or
-  answer (needs `channels:history`, or `groups:history` for a private channel).
+  answer (needs `channels:history`, or `groups:history` for a private channel; without it the form starts empty).
+- A click on a gate or question that was settled meanwhile sends nothing and says so.
 - When a wait closes some other way (Studio, the CLI, a timeout), the message loses its buttons.
 
 Env: SLACK_BOT_TOKEN (xoxb-), SLACK_APP_TOKEN (xapp-, connections:write), SLACK_CHANNEL (channel id;
@@ -66,15 +67,23 @@ def wait_key(slug: str, w: dict) -> str:
 def read_doc(path: str, runs_root: Path, limit: int = FILE_LIMIT) -> str | None:
     """A document a gate shows, only from under the runs root and never through a link (agents write
     these files, and anything the bridge reads goes to Slack). None when it can't or shouldn't be read."""
-    p = Path(path)
     try:
+        p = Path(path)
         if not p.is_absolute() or not p.parent.resolve().is_relative_to(runs_root.resolve()):
             return None
         fd = os.open(p, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
-    except (OSError, ValueError):
+    except (OSError, ValueError, TypeError):
         return None
     with os.fdopen(fd, "rb") as f:
         if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            return None
+        # The check above resolved the folder before the open: a folder swapped for a link in between would
+        # land outside. Check where the open file really is.
+        try:
+            real = Path(os.readlink(f"/proc/self/fd/{f.fileno()}"))
+        except OSError:
+            return None
+        if not real.is_relative_to(runs_root.resolve()):
             return None
         raw = f.read(limit + 1)
     return raw[:limit].decode(errors="replace")
@@ -85,18 +94,23 @@ def _code(text: str) -> str:
     return "```" + text.replace("```", "` ` `") + "```"
 
 
-def blocks(slug: str, w: dict, runs_root: Path) -> list[dict]:
+def blocks(slug: str, w: dict, runs_root: Path, uploads: bool = True) -> list[dict]:
     """The message for an open gate or question: title, what to look at, and the buttons."""
     out: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": TITLES[w["kind"]].format(slug=slug, **w)}}
     ]
     if w["kind"] == "gate":
         for name, path in list((w.get("show") or {}).items())[:8]:
-            text = read_doc(path, runs_root)
+            text, fname = read_doc(path, runs_root), Path(str(path)).name
             if text is None:
-                body = f"*{name}*: (not shown: {Path(path).name} isn't a readable file under the runs folder)"
+                body = f"*{name}*: (not shown: {fname} isn't a readable file under the runs folder)"
             else:
-                more = f"\n… the whole {Path(path).name} is in the thread" if len(text) > SNIPPET else ""
+                cut = len(text) > SNIPPET
+                more = (
+                    (f"\n… the whole {fname} is in the thread" if uploads else f"\n… cut ({fname} is longer)")
+                    if cut
+                    else ""
+                )
                 body = f"*{name}*\n{_code(text[:SNIPPET])}{more}"
             out.append({"type": "section", "text": {"type": "mrkdwn", "text": body[:2900]}})
     else:
@@ -142,22 +156,35 @@ class Posted:
     """The bridge's own memory: which waits it posted (and where), and which finished runs it announced."""
 
     def __init__(self, path: Path):
-        new = not path.exists()
         self.c = sqlite3.connect(path, timeout=10, isolation_level=None)
         self.c.execute("PRAGMA journal_mode=WAL")
         self.c.execute(
-            "CREATE TABLE IF NOT EXISTS posted (key TEXT PRIMARY KEY, slug TEXT, channel TEXT, ts TEXT, open INTEGER)"
+            "CREATE TABLE IF NOT EXISTS posted"
+            " (key TEXT PRIMARY KEY, slug TEXT, channel TEXT, ts TEXT, open INTEGER, blocks TEXT)"
         )
-        self.fresh = new
+        self.c.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)")
+
+    @property
+    def ready(self) -> bool:
+        """False until the first sync has marked the runs that finished before the bridge existed."""
+        return self.c.execute("SELECT 1 FROM meta WHERE k='ready'").fetchone() is not None
+
+    def set_ready(self) -> None:
+        self.c.execute("INSERT OR REPLACE INTO meta VALUES ('ready', '1')")
 
     def has(self, key: str) -> bool:
         return self.c.execute("SELECT 1 FROM posted WHERE key=?", (key,)).fetchone() is not None
 
-    def add(self, key: str, slug: str, channel: str = "", ts: str = "", open_: bool = False) -> None:
-        self.c.execute("INSERT OR REPLACE INTO posted VALUES (?,?,?,?,?)", (key, slug, channel, ts, int(open_)))
+    def add(self, key: str, slug: str, channel: str = "", ts: str = "", open_: bool = False, blocks=None) -> None:
+        row = (key, slug, channel, ts, int(open_), json.dumps(blocks or []))
+        self.c.execute("INSERT OR REPLACE INTO posted VALUES (?,?,?,?,?,?)", row)
 
     def open_posts(self) -> list[tuple[str, str, str, str]]:
         return list(self.c.execute("SELECT key, slug, channel, ts FROM posted WHERE open=1"))
+
+    def blocks(self, channel: str, ts: str) -> list[dict]:
+        r = self.c.execute("SELECT blocks FROM posted WHERE channel=? AND ts=?", (channel, ts)).fetchone()
+        return json.loads(r[0] or "[]") if r else []
 
     def close(self, channel: str, ts: str) -> None:
         self.c.execute("UPDATE posted SET open=0 WHERE channel=? AND ts=?", (channel, ts))
@@ -177,11 +204,11 @@ class Bridge:
     async def sync(self) -> None:
         """Post what newly needs someone, close what no longer does. Called every POLL seconds."""
         runs = self.db.runs()
-        if self.posted.fresh:  # first start: don't announce every run that finished before the bridge existed
+        if not self.posted.ready:  # first start: don't announce every run that finished before the bridge existed
             for r in runs:
                 if r["status"] in ("done", "failed", "stopped"):
                     self.posted.add(f"{r['slug']}|finished", r["slug"])
-            self.posted.fresh = False
+            self.posted.set_ready()
         open_now = set()
         for r in runs:
             w = r["waiting"]
@@ -189,7 +216,7 @@ class Bridge:
                 key = wait_key(r["slug"], w)
                 open_now.add(key)
                 if not self.posted.has(key):
-                    await self.post_wait(key, r, w)
+                    await self.post_wait(key, r, w)  # a failure here is retried next tick: the key isn't recorded
             elif r["status"] in ("done", "failed", "stopped") and not self.posted.has(f"{r['slug']}|finished"):
                 status = (r["outcome"] or {}).get("status") or r["status"]
                 await self.web.chat_postMessage(
@@ -200,11 +227,20 @@ class Bridge:
             if key not in open_now:  # decided in Studio or the CLI, timed out, or the run was stopped
                 await self.update(channel, ts, ":heavy_minus_sign: Closed: this was settled outside Slack.")
 
+    def still_open(self, ref: dict) -> bool:
+        """Whether the gate visit or question a click names is what its run waits for now."""
+        r = self.db.run(ref["slug"])
+        w = r and r["waiting"]
+        if not w or r["status"] not in ("waiting", "needs_you") or w["step_id"] != ref["step_id"]:
+            return False
+        return w.get("attempt") == ref.get("attempt") if w["kind"] == "gate" else w.get("wait") == ref.get("wait")
+
     async def post_wait(self, key: str, run: dict, w: dict) -> None:
         slug = run["slug"]
         text = TITLES[w["kind"]].format(slug=slug, **w)
-        r = await self.web.chat_postMessage(channel=self.channel, text=text, blocks=blocks(slug, w, self.cfg.runs_root))
-        self.posted.add(key, slug, r["channel"], r["ts"], open_=True)
+        msg = blocks(slug, w, self.cfg.runs_root, self.can_upload)
+        r = await self.web.chat_postMessage(channel=self.channel, text=text, blocks=msg)
+        self.posted.add(key, slug, r["channel"], r["ts"], open_=True, blocks=msg)
         if w["kind"] == "gate":
             await self.upload_docs(r["channel"], r["ts"], w.get("show") or {})
 
@@ -220,7 +256,8 @@ class Bridge:
                 await self.web.files_upload_v2(
                     channel=channel, thread_ts=ts, content=text, filename=Path(path).name, title=name
                 )
-            except Exception as e:  # a missing scope must not stop the gate being posted
+            except Exception as e:  # noqa: BLE001 - the gate is posted already; a failed upload must not undo that
+                log(f"upload of {Path(path).name} failed: {e}")
                 if "missing_scope" in str(e):
                     self.can_upload = False
                     await self.web.chat_postMessage(
@@ -229,18 +266,16 @@ class Bridge:
                         text="(Whole documents aren't attached: the Slack app needs the files:write scope.)",
                     )
                     return
-                raise
 
-    async def update(self, channel: str, ts: str, verdict: str) -> None:
-        """Swap a posted wait's buttons for the verdict, and stop tracking it."""
-        hist = await self.web.conversations_history(channel=channel, latest=ts, inclusive=True, limit=1)
-        msgs = hist.get("messages") or []
-        if msgs:
-            m = msgs[0]
-            await self.web.chat_update(
-                channel=channel, ts=ts, text=m.get("text", ""), blocks=closed(m.get("blocks") or [], verdict)
-            )
+    async def update(self, channel: str, ts: str, verdict: str, msg_blocks: list[dict] | None = None) -> None:
+        """Swap a posted wait's buttons for the verdict. The post stops being tracked first, so a failed edit
+        (message deleted, Slack down) is logged once instead of retried every tick."""
         self.posted.close(channel, ts)
+        msg_blocks = msg_blocks if msg_blocks is not None else self.posted.blocks(channel, ts)
+        try:
+            await self.web.chat_update(channel=channel, ts=ts, text=verdict, blocks=closed(msg_blocks, verdict))
+        except Exception as e:  # noqa: BLE001
+            log(f"could not update the message {ts}: {e}")
 
     async def thread_notes(self, channel: str, ts: str) -> str:
         """People's replies in a wait's thread, oldest first, as the review notes to send."""
@@ -256,13 +291,20 @@ class Bridge:
     def allowed(self, user: str) -> bool:
         return not self.approvers or user in self.approvers
 
-    async def decide(self, ref: dict, user: str, decision: str, note: str = "", reset_to: str = "") -> None:
+    def decide(self, ref: dict, user: str, decision: str, note: str = "", reset_to: str = "") -> bool:
+        """Insert the gate decision if the gate visit is still open; False when it was settled meanwhile."""
+        if not self.still_open(ref):
+            return False
         data = {"gate": ref["step_id"], "attempt": ref["attempt"], "decision": decision, "reset_to": reset_to or None}
         self.db.add_event(ref["slug"], "gate.decided", {**data, "note": note or None, "by": f"slack:{user}"})
+        return True
 
-    async def answer(self, ref: dict, user: str, answer: str, reset_to: str = "") -> None:
+    def answer(self, ref: dict, user: str, answer: str, reset_to: str = "") -> bool:
+        if not self.still_open(ref):
+            return False
         data = {"step_id": ref["step_id"], "wait": ref["wait"], "answer": answer, "reset_to": reset_to or None}
         self.db.add_event(ref["slug"], "input.provided", {**data, "by": f"slack:{user}"})
+        return True
 
     def modal(self, callback: str, title: str, label: str, meta: dict, text: str, rework: str) -> dict:
         def field(block_id: str, lab: str, value: str, optional: bool, multiline: bool) -> dict:
@@ -301,19 +343,21 @@ def build_app(bridge: Bridge, bot_token: str):
     # Socket Mode carries no HTTP requests to sign, so there is no signing secret to check.
     app = AsyncApp(token=bot_token, request_verification_enabled=False)
 
-    async def refuse(respond) -> None:
-        await respond(
-            response_type="ephemeral", replace_original=False, text="You're not on the approver list for runs."
-        )
+    async def refuse(respond, text: str = "You're not on the approver list for runs.") -> None:
+        await respond(response_type="ephemeral", replace_original=False, text=text)
+
+    gone = "Already settled (in Studio, the CLI, or it timed out): nothing was sent."
 
     @app.action("approve")
     async def on_approve(ack, body, respond):
         await ack()
-        user = body["user"]["id"]
+        user, channel, msg = body["user"]["id"], body["channel"]["id"], body["message"]
         if not bridge.allowed(user):
             return await refuse(respond)
-        await bridge.decide(json.loads(body["actions"][0]["value"]), user, "approved")
-        await bridge.update(body["channel"]["id"], body["message"]["ts"], f":white_check_mark: Approved by <@{user}>")
+        if not bridge.decide(json.loads(body["actions"][0]["value"]), user, "approved"):
+            return await refuse(respond, gone)
+        # update() untracks the post before its first await, so the next sync can't call it settled elsewhere
+        await bridge.update(channel, msg["ts"], f":white_check_mark: Approved by <@{user}>", msg.get("blocks"))
 
     async def open_form(ack, body, client, respond, callback: str, title: str, label: str) -> None:
         await ack()
@@ -335,25 +379,33 @@ def build_app(bridge: Bridge, bot_token: str):
     async def on_answer(ack, body, client, respond):
         await open_form(ack, body, client, respond, "answer_submit", "Answer", "Your answer")
 
+    async def submit(ack, body, view, send, verdict) -> None:
+        meta, user = json.loads(view["private_metadata"]), body["user"]["id"]
+        text, reset_to = values(view)
+        if not bridge.allowed(user):
+            return await ack(response_action="errors", errors={"text": "You're not on the approver list for runs."})
+        if not send(meta, user, text, reset_to):
+            return await ack(response_action="errors", errors={"text": gone})
+        await ack()
+        back = f", back to *{reset_to}*" if reset_to else ""
+        await bridge.update(meta["channel"], meta["ts"], verdict(user, back, text[:500]))
+
     @app.view("reject_submit")
     async def on_reject_submit(ack, body, view):
-        await ack()
-        meta, user = json.loads(view["private_metadata"]), body["user"]["id"]
-        note, reset_to = values(view)
-        await bridge.decide(meta, user, "rejected", note, reset_to)
-        back = f", back to *{reset_to}*" if reset_to else ""
-        await bridge.update(meta["channel"], meta["ts"], f":x: Rejected by <@{user}>{back}: {note[:500]}")
+        def send(meta, user, note, reset_to):
+            return bridge.decide(meta, user, "rejected", note, reset_to)
+
+        await submit(ack, body, view, send, lambda u, back, t: f":x: Rejected by <@{u}>{back}: {t}")
 
     @app.view("answer_submit")
     async def on_answer_submit(ack, body, view):
-        await ack()
-        meta, user = json.loads(view["private_metadata"]), body["user"]["id"]
-        answer, reset_to = values(view)
-        await bridge.answer(meta, user, answer, reset_to)
-        back = f", back to *{reset_to}*" if reset_to else ""
-        await bridge.update(meta["channel"], meta["ts"], f":speech_balloon: <@{user}> answered{back}: {answer[:500]}")
+        await submit(ack, body, view, bridge.answer, lambda u, back, t: f":speech_balloon: <@{u}> answered{back}: {t}")
 
     return app
+
+
+def log(msg: str) -> None:
+    print(f"{time.strftime('%H:%M:%S')} {msg}", flush=True)
 
 
 async def poll(bridge: Bridge) -> None:
@@ -361,7 +413,7 @@ async def poll(bridge: Bridge) -> None:
         try:
             await bridge.sync()
         except Exception as e:  # noqa: BLE001 - Slack or the database hiccuping must not end the bridge
-            print(f"{time.strftime('%H:%M:%S')} sync failed: {e}", flush=True)
+            log(f"sync failed: {e}")
         await asyncio.sleep(POLL)
 
 
@@ -375,7 +427,7 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = Config.load(a.config)
     env = os.environ
-    approvers = {u for u in env.get("SLACK_APPROVERS", "").split(",") if u}
+    approvers = {u.strip() for u in env.get("SLACK_APPROVERS", "").split(",") if u.strip()}
     rework = json.loads(env.get("SLACK_REWORK") or "{}")
 
     async def run() -> None:

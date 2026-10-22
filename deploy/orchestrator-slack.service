@@ -20,6 +20,7 @@ Restart=on-failure
 RestartSec=5
 
 # Hardening. It reads the runs root and writes events into the driver's database (and its own slack.db beside it).
+# If driver.yaml puts `db:` outside /home/orch/.orchestrator, put that folder in ReadWritePaths instead.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
