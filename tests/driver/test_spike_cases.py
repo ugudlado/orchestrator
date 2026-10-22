@@ -152,3 +152,17 @@ def test_step_that_keeps_asking_ends_at_question_limit(env):
     assert r["outcome"]["status"] == "question_limit" and r["outcome"]["step_id"] == "triage"
     triage = [h for h in r["loop"]["state"]["step_history"] if h["step"] == "triage"]
     assert len(triage) == 4  # the first run and three answered re-runs
+
+
+def test_question_count_restarts_when_step_is_reached_afresh(env):
+    """Asks are counted per visit: after a gate sends the run back to the step, its count starts again."""
+    env.submit("again", {"triage": {"change_type": "await_input"}})
+    env.start()
+    for visit in (1, 2):  # each visit: ask once, answer, the re-run completes
+        w = env.wait("again", lambda r: r["status"] == "needs_you")["waiting"]
+        assert w["step_id"] == "triage"
+        env.cli("answer", "again", "triage", w["wait"], "--answer", "a feature")
+        env.at_gate("again", "design-signoff", visit)
+        assert env.run("again")["loop"]["asks"] == {"triage": 1}  # without the restart this visit would be 2
+        if visit == 1:
+            env.cli("decide", "again", "design-signoff", 1, "rejected", "--reset-to", "triage")

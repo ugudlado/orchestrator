@@ -134,7 +134,8 @@ machine): check one claude step starts before relying on them.
   notification. A question that times out or can't be re-run ends as `question_timeout`.
 - **Question limit.** Each answer re-runs the step that asked. A step that asks again after
   `max_question_reruns` answered re-runs (default 3) ends the run as `question_limit`, with the step and its
-  last question in the outcome. Without it, a step that can never succeed (say it can't push, and every answer is
+  last question in the outcome. The count starts again when the routing reaches the step afresh (say after
+  a gate sends the run back). `0` turns questions off: the first one ends the run. Without it, a step that can never succeed (say it can't push, and every answer is
   "go ahead") re-runs, and costs, until `loop_guard` at 200 loops.
 - **An engine `error`** (say an agent forgot an output file, so `out` is invalid) is reported back once as
   that step `--status failed` with the reason, so its `on_failure` routing and retry limit apply; the run

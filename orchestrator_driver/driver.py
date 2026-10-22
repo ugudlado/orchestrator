@@ -236,6 +236,8 @@ class Worker:
                 "reason": ans.get("reason"),
             }
             return self.open_wait(slug, req, loop, q, "needs_you")
+        # Reached afresh (not the re-run after an answer, which resume dispatches): its questions count from 0.
+        loop.get("asks", {}).pop(step_id, None)
         self.dispatch(slug, req, loop, ans)
 
     def dispatch(self, slug: str, req: dict, loop: dict, ans: dict) -> None:
