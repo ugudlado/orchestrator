@@ -1,0 +1,26 @@
+# systemd unit for the self-hosted driver. Install:
+#   sudo useradd --system --create-home --home-dir /var/lib/orch --shell /usr/sbin/nologin orch
+#   sudo -u orch uv tool install /path/to/orchestrator        # puts orchestrator-driver in ~orch/.local/bin
+#   sudo -u orch claude   # sign in once (and `/mcp` for a project's OAuth servers); keep nothing else in that home
+#   sudo cp driver.example.yaml /etc/orchestrator/driver.yaml # then edit it
+#   sudo cp deploy/orchestrator-driver.service /etc/systemd/system/ && sudo systemctl enable --now orchestrator-driver
+[Unit]
+Description=orchestrator driver (workflow worker)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=orch
+Group=orch
+WorkingDirectory=/var/lib/orch
+ExecStart=/var/lib/orch/.local/bin/orchestrator-driver serve --config /etc/orchestrator/driver.yaml
+# SIGTERM kills the running step's process group and leaves the step marked running;
+# the next start kills any leftover and re-runs it with the same attempt number.
+KillMode=mixed
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

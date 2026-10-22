@@ -1,0 +1,54 @@
+# orchestrator-driver config. Copy to driver.yaml and run:
+#   orchestrator-driver serve --config driver.yaml
+# Every key is optional except `pack` and a project list, which submit needs.
+# Environment variables of the same meaning override the file (name in brackets).
+# Relative paths are relative to this file.
+
+# SQLite file shared by the worker and the CLI.                       [ORCH_DB]
+db: ~/.orchestrator/driver.db
+
+# One folder per run: <runs_root>/<slug>/{state.yaml,results/,artifacts/,base.sha}.  [ORCH_RUNS_ROOT]
+runs_root: ~/.orchestrator/runs
+
+# The workflow pack's config dir (the one holding workflows/ and steps/).
+# Last resort when unset: $ORCHESTRATOR_CONFIG, the engine's own variable.   [ORCH_PACK]
+pack: /srv/workflows/config
+
+# The repos a run may target. List them, or point at a folder and every git repo directly
+# under it counts. `submit --project` takes a listed path or a folder name.
+# [ORCH_PROJECTS, comma-separated] [ORCH_PROJECTS_ROOT]
+projects:
+  - /srv/code/app
+# projects_root: /srv/code
+
+# Which agent runs judgment steps: claude | codex | stub.              [ORCH_AGENT]
+# `stub` does no work and also stubs the exec scripts (a dry run of the routing, no repo changes).
+# With any other agent, exec scripts run for real.
+agent: claude
+
+# Per-step override of `agent` (judgment steps only; exec steps are scripts).
+# Not settable from the environment.
+# agents:
+#   code-review: codex
+
+# One model for every step, instead of the pack's models.yaml.         [ORCH_MODEL_OVERRIDE]
+# model_override: claude-sonnet-5
+
+# Hosts the claude sandbox may reach. Empty means no network from Bash. Every host listed
+# is a way out for data: keep it short, never a paste site or a git host with write access.
+# [ORCH_SANDBOX_DOMAINS, comma-separated]
+sandbox_domains: []
+
+# Extra environment variable names a step may see (the agent can read them), e.g. an API key
+# a project's MCP server reads through ${VAR}.                        [ORCH_STEP_ENV_KEEP, comma-separated]
+step_env_keep: []
+
+# Run before each wait and at finish, with the attention JSON on stdin (a chat bridge's hook).
+# Not run through a shell.                                            [ORCH_NOTIFY_CMD]
+# notify_cmd: /usr/local/bin/notify-chat --channel orchestrator
+
+# A gate or question left unanswered this long ends the run (gate_timeout / question_timeout).  [ORCH_GATE_TIMEOUT_DAYS]
+gate_timeout_days: 7
+
+# How often the worker looks for new work and answers.                [ORCH_POLL_SECONDS]
+poll_seconds: 0.5
