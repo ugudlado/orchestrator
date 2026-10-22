@@ -54,5 +54,9 @@ step_env_keep: []
 # A gate or question left unanswered this long ends the run (gate_timeout / question_timeout).  [ORCH_GATE_TIMEOUT_DAYS]
 gate_timeout_days: 7
 
+# Answered re-runs a step may have. A step that asks again after this many ends the run (question_limit),
+# so a step that can't succeed doesn't re-run until the loop guard.     [ORCH_MAX_QUESTION_RERUNS]
+max_question_reruns: 3
+
 # How often the worker looks for new work and answers.                [ORCH_POLL_SECONDS]
 poll_seconds: 0.5

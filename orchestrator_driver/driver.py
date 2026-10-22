@@ -219,6 +219,15 @@ class Worker:
         loop["ans"] = ans
         step_id = ans["step_id"]
         if ans["status"] == "needs_you":
+            # Each answer re-runs the step. A step that keeps asking (say it can't push, and every answer is
+            # "go ahead") would loop until MAX_LOOPS, paying for every re-run: end the run instead.
+            asks = loop.setdefault("asks", {})
+            asks[step_id] = asks.get(step_id, 0) + 1
+            if asks[step_id] > self.cfg.max_question_reruns:  # this ask comes after that many answered re-runs
+                question = loop["last_summary"].get(step_id, "")
+                return self.finish(
+                    slug, req, loop, {"status": "question_limit", "step_id": step_id, "question": question}
+                )
             q = {
                 "kind": "question",
                 "step_id": step_id,
@@ -227,6 +236,8 @@ class Worker:
                 "reason": ans.get("reason"),
             }
             return self.open_wait(slug, req, loop, q, "needs_you")
+        # Reached afresh (not the re-run after an answer, which resume dispatches): its questions count from 0.
+        loop.get("asks", {}).pop(step_id, None)
         self.dispatch(slug, req, loop, ans)
 
     def dispatch(self, slug: str, req: dict, loop: dict, ans: dict) -> None:

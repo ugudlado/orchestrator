@@ -33,22 +33,23 @@ Every subcommand takes `--config`. Without it: `$ORCH_DRIVER_CONFIG`, then
 `~/.orchestrator/driver.yaml` if it exists, then defaults. Unknown keys are an error. Relative
 paths in the file are relative to the file. An environment variable overrides the file.
 
-| key                 | default                                 | env                                      |
-| ------------------- | --------------------------------------- | ---------------------------------------- |
-| `db`                | `~/.orchestrator/driver.db`             | `ORCH_DB`                                |
-| `runs_root`         | `~/.orchestrator/runs`                  | `ORCH_RUNS_ROOT`                         |
-| `pack`              | none (needed by `submit`, `workflows`)  | `ORCH_PACK`, then `ORCHESTRATOR_CONFIG`  |
-| `projects`          | none                                    | `ORCH_PROJECTS` (comma-separated)        |
-| `projects_root`     | none (every git repo directly under it) | `ORCH_PROJECTS_ROOT`                     |
-| `agent`             | `claude` (`claude`, `codex`, `stub`)    | `ORCH_AGENT`                             |
-| `agents`            | `{}` (step id to agent)                 | none                                     |
-| `model_override`    | none (the pack's `models.yaml`)         | `ORCH_MODEL_OVERRIDE`                    |
-| `sandbox_domains`   | `[]` (no network from Bash)             | `ORCH_SANDBOX_DOMAINS` (comma-separated) |
-| `step_env_keep`     | `[]`                                    | `ORCH_STEP_ENV_KEEP` (comma-separated)   |
-| `notify_cmd`        | none                                    | `ORCH_NOTIFY_CMD`                        |
-| `gate_timeout_days` | `7`                                     | `ORCH_GATE_TIMEOUT_DAYS`                 |
-| `poll_seconds`      | `0.5`                                   | `ORCH_POLL_SECONDS`                      |
-| `stub_exec`         | `true` only if `agent` is `stub`        | `ORCH_STUB_EXEC` (`1` or `0`)            |
+| key                   | default                                 | env                                      |
+| --------------------- | --------------------------------------- | ---------------------------------------- |
+| `db`                  | `~/.orchestrator/driver.db`             | `ORCH_DB`                                |
+| `runs_root`           | `~/.orchestrator/runs`                  | `ORCH_RUNS_ROOT`                         |
+| `pack`                | none (needed by `submit`, `workflows`)  | `ORCH_PACK`, then `ORCHESTRATOR_CONFIG`  |
+| `projects`            | none                                    | `ORCH_PROJECTS` (comma-separated)        |
+| `projects_root`       | none (every git repo directly under it) | `ORCH_PROJECTS_ROOT`                     |
+| `agent`               | `claude` (`claude`, `codex`, `stub`)    | `ORCH_AGENT`                             |
+| `agents`              | `{}` (step id to agent)                 | none                                     |
+| `model_override`      | none (the pack's `models.yaml`)         | `ORCH_MODEL_OVERRIDE`                    |
+| `sandbox_domains`     | `[]` (no network from Bash)             | `ORCH_SANDBOX_DOMAINS` (comma-separated) |
+| `step_env_keep`       | `[]`                                    | `ORCH_STEP_ENV_KEEP` (comma-separated)   |
+| `notify_cmd`          | none                                    | `ORCH_NOTIFY_CMD`                        |
+| `gate_timeout_days`   | `7`                                     | `ORCH_GATE_TIMEOUT_DAYS`                 |
+| `max_question_reruns` | `3`                                     | `ORCH_MAX_QUESTION_RERUNS`               |
+| `poll_seconds`        | `0.5`                                   | `ORCH_POLL_SECONDS`                      |
+| `stub_exec`           | `true` only if `agent` is `stub`        | `ORCH_STUB_EXEC` (`1` or `0`)            |
 
 Other variables: `ORCH_DRIVER_CONFIG` (the config path), `ORCH` (how to call the engine, default
 `<python> -m orchestrator_next`), and, for the claude and codex workers only, `ORCH_CLAUDE_ARGS`,
@@ -129,8 +130,13 @@ machine): check one claude step starts before relying on them.
 - **SIGTERM** (a service stop) kills the child and leaves the step marked running for the next start.
 - `next` calls and steps retry twice in process, 1 s apart; then the run fails with
   `outcome.status: error`. Failure outcomes (`refused`, `gate_timeout`, `question_timeout`,
-  `error`, `loop_guard`) set the run status `failed`, write `state.yaml` and send the finished
+  `question_limit`, `error`, `loop_guard`) set the run status `failed`, write `state.yaml` and send the finished
   notification. A question that times out or can't be re-run ends as `question_timeout`.
+- **Question limit.** Each answer re-runs the step that asked. A step that asks again after
+  `max_question_reruns` answered re-runs (default 3) ends the run as `question_limit`, with the step and its
+  last question in the outcome. The count starts again when the routing reaches the step afresh (say after
+  a gate sends the run back). `0` turns questions off: the first one ends the run. Without it, a step that can never succeed (say it can't push, and every answer is
+  "go ahead") re-runs, and costs, until `loop_guard` at 200 loops.
 - **An engine `error`** (say an agent forgot an output file, so `out` is invalid) is reported back once as
   that step `--status failed` with the reason, so its `on_failure` routing and retry limit apply; the run
   ends `outcome.status: error` only if the engine errors again on that report. The step's history entry is
@@ -183,7 +189,7 @@ CREATE INDEX IF NOT EXISTS events_open ON events (slug) WHERE consumed_at IS NUL
   `model`, `cost_usd`, and `gate`/`note` for gate decisions).
 - `runs.waiting`: `{kind: gate, step_id, attempt, show, opened_at}` or
   `{kind: question, step_id, wait, question, reason, opened_at}`; null unless status is `waiting` or `needs_you`.
-- `runs.outcome`: `{status: done|stopped|error|refused|gate_timeout|question_timeout|loop_guard, history, ...}`.
+- `runs.outcome`: `{status: done|stopped|error|refused|gate_timeout|question_timeout|question_limit|loop_guard, history, ...}`.
 - `events` to write (`data` is JSON):
   - `gate.decided`: `{gate, attempt, decision: approved|rejected, reset_to, note}`
   - `input.provided`: `{step_id, wait, answer, reset_to}`

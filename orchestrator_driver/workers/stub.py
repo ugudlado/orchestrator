@@ -6,7 +6,8 @@ exec:     python -m orchestrator_driver.workers.stub --exec -
     reads the payload from $ORCH_PAYLOAD and prints the engine's stdout protocol line.
 
 Enum values default to the first non-`await_input` value; override per step with
-$ORCH_STUB_CHOICES = {"<step_id>": {"<key>": <value>}}.
+$ORCH_STUB_CHOICES = {"<step_id>": {"<key>": <value>}}. Special keys: `_sleep` (seconds the step takes) and
+`_keep_asking` (keep returning `await_input` after an answer).
 """
 
 import json
@@ -42,7 +43,8 @@ def stub_outputs(payload: dict) -> dict:
     outs = {k: stub_value(v) for k, v in payload.get("out_schema", {}).items() if not v.get("optional")}
     choices = dict(json.loads(os.environ.get("ORCH_STUB_CHOICES") or "{}").get(payload["step_id"], {}))
     time.sleep(choices.pop("_sleep", 0))  # simulate a long step, for crash tests
-    if os.environ.get("ORCHESTRATOR_USER_ANSWER"):  # answered: stop asking
+    keep_asking = choices.pop("_keep_asking", False)  # ask again even when answered (question-limit tests)
+    if os.environ.get("ORCHESTRATOR_USER_ANSWER") and not keep_asking:  # answered: stop asking
         choices = {k: v for k, v in choices.items() if v != "await_input"}
     outs.update(choices)
     return outs
