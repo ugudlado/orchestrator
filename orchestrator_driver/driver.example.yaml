@@ -26,6 +26,10 @@ projects:
 # With any other agent, exec scripts run for real.
 agent: claude
 
+# Whether exec scripts are stubbed. Default: only when agent is stub. `false` with agent: stub runs the
+# pack's real scripts with placeholder judgment steps.                [ORCH_STUB_EXEC]
+# stub_exec: false
+
 # Per-step override of `agent` (judgment steps only; exec steps are scripts).
 # Not settable from the environment.
 # agents:

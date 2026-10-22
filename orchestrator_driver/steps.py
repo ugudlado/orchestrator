@@ -8,12 +8,15 @@ import json
 import os
 import shlex
 import signal
+import stat
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import yaml
 
 from orchestrator_driver.config import Config
+from orchestrator_driver.gitenv import GIT_ENV
 
 # How to call the engine; argv tokens, never one quoted word. $ORCH replaces it (a wrapper, a pinned install).
 ORCH = shlex.split(os.environ.get("ORCH", f"{sys.executable} -m orchestrator_next"))
@@ -41,23 +44,57 @@ def worker_env(cfg: Config) -> dict:
     }
 
 
-def kill_lock(lock: Path) -> None:
-    """Kill the process group a dead worker left in `lock`, if any."""
-    if lock.exists():
-        try:
-            os.killpg(int(lock.read_text()), signal.SIGKILL)
-        except (ValueError, ProcessLookupError, PermissionError):
-            pass
+def write_private(path: Path, text: str, mode: int = 0o600) -> None:
+    """Write a file the driver owns. Never follows a symlink at `path`, so a planted link can't redirect it."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, mode)
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+
+
+def read_result(path: Path, limit: int = 1_000_000) -> dict | None:
+    """The agent's result file: a regular file of at most `limit` bytes, never through a symlink.
+    None if it is missing; raises ValueError if it is not a usable result."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)  # a FIFO must not block the driver
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        raise ValueError(f"result file {path} can't be opened: {e}") from e
+    with os.fdopen(fd, "rb") as f:
+        st = os.fstat(f.fileno())
+        if not stat.S_ISREG(st.st_mode) or st.st_size > limit:
+            raise ValueError(f"result file {path} is not a regular file under {limit} bytes")
+        result = json.loads(f.read(limit + 1))
+    if not isinstance(result, dict):
+        raise TypeError(f"result file {path} is not a JSON object")
+    return result
+
+
+def kill_group(pid: int | None, state_path: Path) -> bool:
+    """Kill the process group a dead worker left behind, if `pid` is still what we started: it leads its own
+    group (not ours, not init's) and its environment carries this run's STATE_YAML_PATH. The pid comes from the
+    DB, but pids get reused, so it is checked before anything is signalled."""
+    if not pid or pid <= 1 or pid == os.getpgrp():
+        return False
+    try:
+        pgrp = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[2])
+        environ = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
+    except (OSError, ValueError, IndexError):
+        return False
+    if pgrp != pid or f"STATE_YAML_PATH={state_path}".encode() not in environ:
+        return False
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except OSError:
+        return False
+    return True
 
 
 async def _sh(
-    argv: list[str], env: dict | None = None, cwd: str | None = None, lock: Path | None = None
+    argv: list[str], env: dict | None = None, cwd: str | None = None, on_pid: Callable[[int], None] | None = None
 ) -> tuple[int, str, str]:
-    """Run argv in its own process group. With `lock`, the group id is kept in
-    that file while it runs: a re-run of the same step (after the worker died) first kills the group the dead worker left behind, so two
-    agents never share a worktree."""
-    if lock:
-        kill_lock(lock)
+    """Run argv in its own process group. `on_pid` gets the group id as soon as it exists (the driver records it in
+    the DB); cancelling the caller kills the group."""
     proc = await asyncio.create_subprocess_exec(
         *argv,
         env={**os.environ, **(env or {})},
@@ -66,15 +103,13 @@ async def _sh(
         stderr=asyncio.subprocess.PIPE,
         start_new_session=True,
     )
-    if lock:
-        lock.write_text(str(proc.pid))
+    if on_pid:
+        on_pid(proc.pid)
     try:
         out, err = await proc.communicate()
     except BaseException:
         os.killpg(proc.pid, signal.SIGKILL)
         raise
-    if lock:
-        lock.unlink(missing_ok=True)
     return proc.returncode, out.decode(), err.decode()
 
 
@@ -111,6 +146,15 @@ def _results_dir(run: dict) -> Path:
     return d
 
 
+def _driver_dir(run: dict) -> Path:
+    """The driver's own files (payloads, stdout). Not in the agent's reach: it is in neither allowWrite
+    nor --add-dir, and only the driver's user can enter it."""
+    d = Path(run["artifacts_dir"]).parent / "driver"
+    d.mkdir(mode=0o700, parents=True, exist_ok=True)
+    d.chmod(0o700)
+    return d
+
+
 def _state_path(run: dict) -> Path:
     # JSON is valid YAML; the pack's scripts read it as STATE_YAML_PATH.
     return Path(run["artifacts_dir"]).parent / "state.yaml"
@@ -143,16 +187,15 @@ def _last_json_line(text: str) -> dict:
     return {}
 
 
-async def run_exec(cfg: Config, run: dict, ans: dict, attempt: int, state: dict, extra_env: dict) -> dict:
+async def run_exec(cfg: Config, run: dict, ans: dict, attempt: int, state: dict, extra_env: dict, on_pid=None) -> dict:
     p, step_id = ans["payload"], ans["step_id"]
-    res = _results_dir(run)
-    stdout_file = res / f"{step_id}-{attempt}.stdout"
-    env = _spawn_env(run, ans, attempt, state, extra_env)
+    stdout_file = _driver_dir(run) / f"{step_id}-{attempt}.stdout"
+    env = {**_spawn_env(run, ans, attempt, state, extra_env), **GIT_ENV}
     # A cloud session sets CLAUDE_CODE_REMOTE, which makes create-worktree a no-op.
     # Clear it for scripts only: Claude Code itself needs it to sign in there.
     env["CLAUDE_CODE_REMOTE"] = ""
-    _state_path(run).write_text(json.dumps(state, indent=2))
-    if cfg.agent == "stub":  # a dry run: exec scripts are stubbed too
+    write_private(_state_path(run), json.dumps(state, indent=2), 0o644)
+    if cfg.exec_stubbed:  # a dry run: exec scripts are stubbed too
         argv = [sys.executable, "-m", "orchestrator_driver.workers.stub", "--exec", "-"]
         env |= {"ORCH_PAYLOAD": json.dumps(p), **worker_env(cfg)}
     else:
@@ -160,8 +203,8 @@ async def run_exec(cfg: Config, run: dict, ans: dict, attempt: int, state: dict,
         argv = [p["run_path"]] if os.access(p["run_path"], os.X_OK) else ["bash", p["run_path"]]
         if step_id == "persist-learnings":  # pack quirk, per its DRIVER.md
             argv += ["--proposed-scenarios", p["in"].get("proposed_scenarios", "")]
-    code, out, err = await _sh(argv, env=env, lock=res / f"{step_id}.lock")
-    stdout_file.write_text(out)
+    code, out, err = await _sh(argv, env=env, on_pid=on_pid)
+    write_private(stdout_file, out)
     return {
         "step": step_id,
         "attempt": attempt,
@@ -174,25 +217,26 @@ async def run_exec(cfg: Config, run: dict, ans: dict, attempt: int, state: dict,
     }
 
 
-async def run_judgment(cfg: Config, run: dict, ans: dict, attempt: int, state: dict, extra_env: dict) -> dict:
+async def run_judgment(
+    cfg: Config, run: dict, ans: dict, attempt: int, state: dict, extra_env: dict, on_pid=None
+) -> dict:
     p, step_id = ans["payload"], ans["step_id"]
-    res_dir = _results_dir(run)
-    payload_file = res_dir / f"{step_id}-{attempt}.payload.json"
-    result_file = res_dir / f"{step_id}-{attempt}.json"
-    payload_file.write_text(json.dumps(p))
+    payload_file = _driver_dir(run) / f"{step_id}-{attempt}.payload.json"
+    result_file = _results_dir(run) / f"{step_id}-{attempt}.json"  # the one file the agent writes
+    write_private(payload_file, json.dumps(p))
     result_file.unlink(missing_ok=True)  # a stale file from a killed attempt is not a result
     env = _spawn_env(run, ans, attempt, state, extra_env)
-    _state_path(run).write_text(json.dumps(state, indent=2))
+    write_private(_state_path(run), json.dumps(state, indent=2), 0o644)
     code, out, err = await _sh(
         [*worker_cmd(cfg, step_id), str(payload_file), str(result_file)],
         env=env | worker_env(cfg),
         cwd=env["WORKTREE_PATH"] or None,
-        lock=res_dir / f"{step_id}.lock",
+        on_pid=on_pid,
     )
-    if not result_file.exists():
+    result = read_result(result_file)
+    if result is None:
         # A missing result file means the step did not finish: let the caller retry it.
         raise RuntimeError(f"worker exited {code} without writing {result_file}: {(out + err)[-800:]}")
-    result = json.loads(result_file.read_text())
     status = result.pop("status", "completed")
     summary = result.pop("summary", None)
     return {

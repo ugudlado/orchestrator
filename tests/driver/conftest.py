@@ -67,7 +67,7 @@ def git_repo(path: Path) -> Path:
 
 
 class Env:
-    def __init__(self, tmp: Path, pack: str):
+    def __init__(self, tmp: Path, pack: str, **cfg):
         self.tmp, self.pack, self.workers = tmp, pack, []
         self.project = git_repo(tmp / "projects" / "app")
         self.config = tmp / "driver.yaml"
@@ -80,10 +80,17 @@ class Env:
                     "projects": [str(self.project)],
                     "agent": "stub",
                     "poll_seconds": 0.1,
+                    **cfg,
                 }
             )
         )
-        self.env = {**os.environ, "ORCH_DRIVER_CONFIG": str(self.config)}
+        self.env = {
+            **os.environ,
+            "ORCH_DRIVER_CONFIG": str(self.config),
+            # the pack's scripts call a bare python3 that must import pyyaml, and put worktrees under tmp
+            "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.environ['PATH']}",
+            "WORKTREE_BASE_DIR": str(tmp / "worktrees"),
+        }
         self.db = DB(tmp / "driver.db")
 
     def cli(self, *args: str) -> None:
@@ -117,6 +124,18 @@ class Env:
     def run(self, slug: str) -> dict:
         return self.db.run(slug)
 
+    def cleanup(self) -> None:
+        for w in self.workers:
+            if w.poll() is None:
+                w.send_signal(signal.SIGKILL)
+                w.wait()
+        for r in self.db.runs():  # no orphaned step processes after a failed test
+            if r["pid"]:
+                try:
+                    os.killpg(r["pid"], signal.SIGKILL)
+                except OSError:
+                    pass
+
     def wait(self, slug: str, pred, timeout: float = 120):
         t0 = time.time()
         while time.time() - t0 < timeout:
@@ -145,16 +164,19 @@ class Env:
 
 
 @pytest.fixture
-def env(tmp_path, pack):
-    e = Env(tmp_path, pack)
-    yield e
-    for w in e.workers:
-        if w.poll() is None:
-            w.send_signal(signal.SIGKILL)
-            w.wait()
-    for r in e.db.runs():  # no orphaned step processes after a failed test
-        if r["pid"]:
-            try:
-                os.killpg(r["pid"], signal.SIGKILL)
-            except OSError:
-                pass
+def make_env(tmp_path, pack):
+    """Env factory: make_env(gate_timeout_days=0.00001, stub_exec=False, ...) sets config keys."""
+    made = []
+
+    def make(**cfg) -> Env:
+        made.append(Env(tmp_path, cfg.pop("pack", pack), **cfg))
+        return made[-1]
+
+    yield make
+    for e in made:
+        e.cleanup()
+
+
+@pytest.fixture
+def env(make_env):
+    return make_env()

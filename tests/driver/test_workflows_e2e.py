@@ -9,9 +9,9 @@ import yaml
 from conftest import pack_dir, pack_workflows
 
 
-def question_step(workflow: str) -> tuple[str, str] | None:
-    """(step, enum key) of the first step in the workflow whose contract can ask a question (await_input)."""
-    pack = pack_dir()
+def question_steps(workflow: str) -> dict[str, str]:
+    """{step: enum key} for every step in the workflow whose contract can ask a question (await_input)."""
+    pack, found = pack_dir(), {}
     for entry in yaml.safe_load((pack / "workflows" / f"{workflow}.yaml").read_text())["steps"]:
         step = entry if isinstance(entry, str) else entry.get("id")
         contract = pack / "steps" / str(step) / "contract.yaml"
@@ -19,11 +19,11 @@ def question_step(workflow: str) -> tuple[str, str] | None:
             continue
         for key, spec in (yaml.safe_load(contract.read_text()).get("out") or {}).items():
             if isinstance(spec, dict) and "await_input" in (spec.get("values") or []):
-                return step, key
-    return None
+                found[step] = key
+    return found
 
 
-CASES = [(w, False) for w in pack_workflows()] + [(w, True) for w in pack_workflows() if question_step(w)]
+CASES = [(w, False) for w in pack_workflows()] + [(w, True) for w in pack_workflows() if question_steps(w)]
 
 
 def drive(env, slug: str, timeout: float = 300) -> dict:
@@ -51,15 +51,18 @@ def drive(env, slug: str, timeout: float = 300) -> dict:
 
 @pytest.mark.parametrize("workflow,ask", CASES or [("<no pack>", False)])
 def test_workflow_runs_to_completion(env, workflow, ask):
-    """ask: the first step able to ask a question does, once, and the run continues from the answer."""
-    step_key = question_step(workflow) if ask else None
-    env.submit(workflow, {step_key[0]: {step_key[1]: "await_input"}} if step_key else None, workflow=workflow)
+    """ask: every step able to ask a question does, once, and the run continues from each answer."""
+    asking = question_steps(workflow) if ask else {}
+    env.submit(workflow, {step: {key: "await_input"} for step, key in asking.items()}, workflow=workflow)
     res = drive(env, workflow)
     r = res["run"]
     assert r["status"] == "done", str(r["outcome"])[:800]
     hist = r["outcome"]["history"]
     assert hist and r["loop"]["state"]["step_history"] == hist
-    assert res["questions"] == ([step_key[0]] if step_key else [])
+    ran = [h["step"] for h in hist if h["step"] in asking]  # a routed-around step never asks
+    assert res["questions"] == list(dict.fromkeys(ran)) and (res["questions"] or not ask)
+    for step in res["questions"]:
+        assert [h["attempt"] for h in hist if h["step"] == step] == [1, 2]
     assert set(res["gates"]) == {h["step"] for h in hist if h.get("gate")}
     assert 0 < len(res["gates"]) <= env.cfg_workflows()[workflow]["gates"]  # a routed-around gate is not opened
     state = env.run_dir(workflow) / "state.yaml"

@@ -29,6 +29,8 @@ from pathlib import Path
 
 import yaml
 
+from orchestrator_driver.gitenv import GIT_ENV
+
 PLACEHOLDER = re.compile(r"\{(in|out)\.([A-Za-z0-9_-]+)\}")
 
 
@@ -129,6 +131,34 @@ def _rule(tool: str, path: str, tree: bool = True) -> str:
     return f"{tool}({'/' if path.startswith('/') else ''}{path}{'/**' if tree else ''})"
 
 
+def git_env() -> dict:
+    """The environment for git calls made outside the sandbox: no hooks, no fsmonitor, no system config."""
+    return {**os.environ, **GIT_ENV}
+
+
+def git_guarded(dirs: list[str]) -> tuple[list[str], list[str]]:
+    """(files, trees) inside the git dirs of `dirs` that run code when the driver or a pack script next
+    uses git outside the sandbox: config (core.hooksPath, core.fsmonitor, ...) and hooks/. The rest of .git
+    stays writable so an agent can commit. Both the given and the real path, as for the MCP files."""
+    files, trees = [], []
+    for d in dirs:
+        r = subprocess.run(
+            ["git", "-C", d, "rev-parse", "--git-dir", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=git_env(),
+        )
+        for gd in dict.fromkeys(r.stdout.split("\n") if r.returncode == 0 else []):
+            if not gd:
+                continue
+            gd = str(Path(d, gd))  # --git-dir may be relative to d
+            for g in dict.fromkeys([gd, os.path.realpath(gd)]):
+                files += [f"{g}/config", f"{g}/config.worktree"]
+                trees.append(f"{g}/hooks")
+    return list(dict.fromkeys(files)), list(dict.fromkeys(trees))
+
+
 def sandbox_settings(result_file: str) -> dict:
     """Claude Code's Bash sandbox instead of a command allowlist: any test or build
     command runs without a prompt, but writes stay in the worktree, the run's
@@ -140,6 +170,7 @@ def sandbox_settings(result_file: str) -> dict:
     dirs = [d for d in (os.getcwd(), os.environ.get("REPO_ROOT")) if d]
     roots = list(dict.fromkeys([*dirs, *map(os.path.realpath, dirs)]))
     locked = [f"{r}/{f}" for r in roots for f in (*PROJECT_CONFIG, ".codex/config.toml")]
+    git_files, git_trees = git_guarded(dirs)
     return {
         "sandbox": {
             "enabled": True,
@@ -150,12 +181,16 @@ def sandbox_settings(result_file: str) -> dict:
                 "allowWrite": [os.environ["ORCHESTRATOR_ARTIFACTS_DIR"], str(Path(result_file).parent)],
                 # Ticket text can steer the agent, so Bash must not read the machine's credentials.
                 "denyRead": DENY_READ,
-                "denyWrite": locked,
+                "denyWrite": [*locked, *git_files, *git_trees],
             },
             "network": {"allowedDomains": domains},
         },
         # The sandbox covers Bash only; deny the same paths to Read/Grep/Glob.
-        "permissions": {"deny": [_rule("Read", d) for d in DENY_READ] + [_rule("Edit", f, tree=False) for f in locked]},
+        "permissions": {
+            "deny": [_rule("Read", d) for d in DENY_READ]
+            + [_rule("Edit", f, tree=False) for f in [*locked, *git_files]]
+            + [_rule("Edit", d) for d in git_trees],
+        },
     }
 
 
@@ -168,7 +203,9 @@ def base_sha() -> str | None:
     pin = Path(art).parent / "base.sha"
     if pin.is_file():
         return pin.read_text().strip() or None
-    head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True, check=False)
+    head = subprocess.run(
+        ["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True, check=False, env=git_env()
+    )
     if head.returncode:
         return None
     pin.write_text(head.stdout.strip())
@@ -183,7 +220,7 @@ def as_committed(rel: str) -> bool:
     if not sha:
         return here is None
     base = subprocess.run(
-        ["git", "-C", os.environ["REPO_ROOT"], "show", f"{sha}:{rel}"], capture_output=True, check=False
+        ["git", "-C", os.environ["REPO_ROOT"], "show", f"{sha}:{rel}"], capture_output=True, check=False, env=git_env()
     )
     return (base.stdout if base.returncode == 0 else None) == here
 

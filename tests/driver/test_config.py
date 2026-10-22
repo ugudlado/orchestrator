@@ -124,3 +124,56 @@ def test_submit_ticket_file_and_workflows(env, capsys, tmp_path):
     assert cli.main(["workflows", "--config", str(env.config)]) == 0
     listed = {w["name"]: w for w in json.loads(capsys.readouterr().out)}
     assert "dev" in listed and listed["dev"]["steps"] > 0 and listed["dev"]["gates"] >= 1
+
+
+def test_agents_keys_must_be_pack_steps(env):
+    ok = Config.load(env.config)
+    ok.check_pack()
+    bad = Config(pack=ok.pack, agents={"code-review": "stub", "not-a-step": "codex"})
+    with pytest.raises(ConfigError, match="not-a-step"):
+        bad.check_pack()
+    Config(pack=ok.pack, agents={"code-review": "stub"}).check_pack()
+    with pytest.raises(ConfigError, match="no pack"):
+        Config().check_pack()
+
+
+def test_stub_exec_default_and_override():
+    assert Config(agent="stub").exec_stubbed and not Config(agent="claude").exec_stubbed
+    assert not Config.load(None, env={"ORCH_AGENT": "stub", "ORCH_STUB_EXEC": "0"}).exec_stubbed
+    assert Config.load(None, env={"ORCH_AGENT": "claude", "ORCH_STUB_EXEC": "1"}).exec_stubbed
+    with pytest.raises(ConfigError):
+        Config.load(None, env={"ORCH_STUB_EXEC": "maybe"})
+
+
+def test_serve_refuses_a_bad_agents_map(env, capsys, tmp_path):
+    f = tmp_path / "bad.yaml"
+    f.write_text(yaml.safe_dump({**yaml.safe_load(env.config.read_text()), "agents": {"typo-step": "stub"}}))
+    assert cli.main(["serve", "--config", str(f)]) == 2
+    assert "typo-step" in capsys.readouterr().err
+
+
+def test_submit_race_is_a_clean_error(env, capsys, monkeypatch):
+    import sqlite3
+
+    from orchestrator_driver import db as dbmod
+
+    def boom(self, request):
+        raise sqlite3.IntegrityError("UNIQUE constraint failed: runs.slug")
+
+    monkeypatch.setattr(dbmod.DB, "add_run", boom)
+    rc = cli.main(
+        [
+            "submit",
+            "--workflow",
+            "dev",
+            "--project",
+            "app",
+            "--slug",
+            "raced",
+            "--ticket",
+            "t",
+            "--config",
+            str(env.config),
+        ]
+    )
+    assert rc == 2 and "already exists" in capsys.readouterr().err

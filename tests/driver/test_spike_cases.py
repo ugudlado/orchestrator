@@ -134,6 +134,7 @@ def test_needs_you_answer_reruns_with_user_answer(env):
     env.cli("answer", "ask", "triage", w["wait"], "--answer", "it is a feature")
     env.at_gate("ask", "design-signoff")
     loop = env.run("ask")["loop"]
-    assert loop["extra_env"]["ORCHESTRATOR_USER_ANSWER"] == "it is a feature"
+    assert "ORCHESTRATOR_USER_ANSWER" not in loop["extra_env"]  # the answer belongs to that one re-run
     triage = [h for h in loop["state"]["step_history"] if h["step"] == "triage"]
     assert [h["route"] for h in triage][-1] == "await_input" and len(triage) == 2
+    assert [h["attempt"] for h in triage] == [1, 2] and loop["attempts"]["triage"] == 2  # counted once per run

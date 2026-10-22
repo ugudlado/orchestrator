@@ -22,5 +22,17 @@ TimeoutStopSec=30
 Restart=on-failure
 RestartSec=5
 
+# Hardening. Paths the worker writes: its home (db, runs, ~/.claude, ~/.codex, ~/.cache, the default worktree
+# dir ~/code), the projects (add any outside /srv/code, and anything under /home) and /tmp.
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/orch /srv/code /tmp
+PrivateTmp=yes
+# NoNewPrivileges=yes is left off on purpose: Claude Code's sandbox runs bubblewrap, and on hosts where bwrap
+# is setuid (no unprivileged user namespaces) that bit is what makes it work. Not tested here (no bwrap on
+# the build machine): turn it on, and check a claude step still starts, once `bwrap --unshare-user true` works
+# as the orch user. ProtectSystem=strict and PrivateTmp are plain mount namespaces and sit under bwrap's own.
+#NoNewPrivileges=yes
+
 [Install]
 WantedBy=multi-user.target

@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS runs (
   loop TEXT NOT NULL DEFAULT '{}',        -- attempts, state, history, after, last_ready, last_summary, extra_env, ...
   waiting TEXT,                           -- {kind: gate|question, step_id, attempt|wait, show, question, reason, opened_at}
   current_step TEXT, pid INTEGER,         -- set while a step runs; still set at startup = it was interrupted
-  created_at REAL, updated_at REAL, outcome TEXT);
+  created_at REAL, updated_at REAL, outcome TEXT,
+  started_at REAL);                       -- when the step process (pid, a process group leader) started
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL,
   name TEXT NOT NULL,                     -- gate.decided|input.provided|stop
@@ -48,6 +49,8 @@ class DB:
         self.c.execute("PRAGMA journal_mode=WAL")
         self.c.execute("PRAGMA busy_timeout=10000")
         self.c.executescript(SCHEMA)
+        if "started_at" not in {r["name"] for r in self.c.execute("PRAGMA table_info(runs)")}:
+            self.c.execute("ALTER TABLE runs ADD COLUMN started_at REAL")  # a DB made before the column existed
 
     def tx(self):
         """`with db.tx():` makes the statements inside one atomic commit."""

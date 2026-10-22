@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -65,7 +66,10 @@ def submit(cfg: Config, db: DB, a: argparse.Namespace) -> dict:
         "ticket_id": a.ticket_id,
         "stub_choices": json.loads(a.stub_choices),
     }
-    db.add_run(request)
+    try:
+        db.add_run(request)
+    except sqlite3.IntegrityError:  # two submits raced past the check above
+        raise ConfigError(f"run {a.slug!r} already exists; slugs are never reused") from None
     return {"slug": a.slug, "run_dir": str(run_dir.resolve()), "artifacts_dir": request["artifacts_dir"]}
 
 
@@ -76,6 +80,7 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "serve":
             from orchestrator_driver.driver import serve
 
+            cfg.check_pack()
             asyncio.run(serve(cfg))
             return 0
         if a.cmd == "workflows":

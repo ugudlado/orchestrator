@@ -16,19 +16,33 @@ import os
 import shlex
 import signal
 import subprocess
+import tempfile
 import time
 
 from orchestrator_driver.config import Config
 from orchestrator_driver.db import DB
-from orchestrator_driver.steps import _results_dir, _state_path, call_next, kill_lock, run_exec, run_judgment
+from orchestrator_driver.steps import _state_path, call_next, kill_group, run_exec, run_judgment, write_private
 
 MAX_LOOPS = 200  # guard against a routing loop the engine's max_retries didn't catch
 RETRIES = 2  # a step that raises is retried twice, 1 s apart
 SKIP = ("tokens", "step_history")  # kept by the driver, never overwritten from a patch or a script
 
 
+NOTIFY_TIMEOUT = 30  # seconds a notify_cmd may run before it is killed
+
+
 class Stopped(Exception):
     pass
+
+
+def _num(v) -> int | None:
+    """An event's attempt or wait as an int, or None if it is not one (events are written by other programs)."""
+    if isinstance(v, bool) or not isinstance(v, (int, str)):
+        return None
+    try:
+        return int(v)
+    except ValueError:
+        return None
 
 
 async def _retry(db: DB, slug: str, fn, *args):
@@ -45,12 +59,14 @@ async def _retry(db: DB, slug: str, fn, *args):
 class Worker:
     def __init__(self, db: DB, cfg: Config):
         self.db, self.cfg = db, cfg
+        self.notifying: list[tuple[subprocess.Popen, float, str]] = []
 
     # --- loop -----------------------------------------------------------------
 
     async def serve(self) -> None:
         self.recover()
         while True:
+            self.reap_notifies()
             self.apply_stops()
             run = self.pick()
             if run is None:
@@ -59,14 +75,14 @@ class Worker:
                 await self.advance(run)
 
     def recover(self) -> None:
-        """A run still marked as running a step lost its worker: kill what the dead
-        worker left in the step's lock. The step itself re-runs from the saved
+        """A run still marked as running a step lost its worker: kill the process group the dead
+        worker recorded (if it is still that step's). The step itself re-runs from the saved
         state, with the same attempt number."""
         for r in self.db.active_runs():
             if r["current_step"]:
-                kill_lock(_results_dir(r["request"]) / f"{r['current_step']}.lock")
-                self.db.log(r["slug"], "recovered", {"step": r["current_step"], "pid": r["pid"]})
-                self.db.update(r["slug"], current_step=None, pid=None)
+                killed = kill_group(r["pid"], _state_path(r["request"]))
+                self.db.log(r["slug"], "recovered", {"step": r["current_step"], "pid": r["pid"], "killed": killed})
+                self.db.update(r["slug"], current_step=None, pid=None, started_at=None)
 
     def pick(self) -> dict | None:
         """The oldest run with something to do."""
@@ -84,12 +100,16 @@ class Worker:
         gate = w["kind"] == "gate"
         name, key, num = ("gate.decided", "gate", "attempt") if gate else ("input.provided", "step_id", "wait")
         for e in self.db.open_events(run["slug"], name):
-            d = e["data"]
-            if d.get(key) != w["step_id"]:
+            d = e["data"] if isinstance(e["data"], dict) else {}
+            n = _num(d.get(num))
+            if n is not None and d.get(key) != w["step_id"]:
                 continue
-            if d.get(num) == w[num]:
+            if n is None:  # garbage in attempt/wait can never match: consume it, don't crash on it
+                self.db.consume(e["id"])
+                self.db.log(run["slug"], "event_stale", {"event": e["id"], "note": f"stale: bad {num}", "data": d})
+            elif n == w[num]:
                 return e
-            if (d.get(num) or 0) < w[num]:
+            elif n < w[num]:
                 self.db.consume(e["id"])
                 self.db.log(
                     run["slug"], "event_stale", {"event": e["id"], **d, "note": f"stale: now at {num} {w[num]}"}
@@ -112,11 +132,11 @@ class Worker:
 
     def stop(self, run: dict) -> None:
         if run["current_step"]:
-            kill_lock(_results_dir(run["request"]) / f"{run['current_step']}.lock")
+            kill_group(run["pid"], _state_path(run["request"]))
+        outcome = {"status": "stopped", "history": (run["loop"].get("state") or {}).get("step_history", [])}
+        self.close(run["slug"], run["request"], run["loop"], outcome)
+        self.db.update(run["slug"], status="stopped", waiting=None, current_step=None, pid=None, outcome=outcome)
         self.db.log(run["slug"], "stopped", {})
-        self.db.update(
-            run["slug"], status="stopped", waiting=None, current_step=None, pid=None, outcome={"status": "stopped"}
-        )
 
     # --- one unit of work -----------------------------------------------------
 
@@ -130,7 +150,18 @@ class Worker:
                 "after": None,
                 "ans": {},
                 "phase": "next",
-                "state": {"tokens": [], "step_history": []},  # the skill's state file
+                "state": {  # the state file the pack's scripts read (docs/pack-driver-notes.md)
+                    "change_id": slug,
+                    "slug": slug,
+                    "schema": req["workflow"],
+                    "status": "active",
+                    "repo_root": req["repo_root"],
+                    "user_input": str(req.get("ticket") or ""),
+                    "ticket_id": str(req.get("ticket_id") or ""),
+                    "workflow_plan": {"main": {"nodes": []}},
+                    "tokens": [],
+                    "step_history": [],
+                },
                 "last_ready": {},
                 "last_summary": {},
                 "extra_env": {
@@ -166,7 +197,25 @@ class Worker:
         if ans["status"] == "done":
             return self.finish(slug, req, loop, {"status": "done"})
         if ans["status"] == "error":  # engine rejected what we reported; nothing recorded
-            return self.finish(slug, req, loop, {"status": "error", "answer": ans})
+            if after is None or after.get("reported_error"):
+                return self.finish(slug, req, loop, {"status": "error", "answer": ans})
+            # Report the step as failed once, so its on_failure routing applies (e.g. an agent forgot a file).
+            self.db.log(slug, "engine_error", {"step": after["step"], "attempt": after["attempt"], "error": ans})
+            for h in reversed(state["step_history"]):
+                if h["step"] == after["step"] and h["attempt"] == after["attempt"]:
+                    h.update(status="failed", engine_error=str(ans.get("error"))[:300])
+                    break
+            loop.update(
+                after={
+                    "step": after["step"],
+                    "attempt": after["attempt"],
+                    "status": "failed",
+                    "out": {"reason": str(ans.get("error"))[:300]},
+                    "reported_error": True,
+                },
+                n=loop["n"] + 1,
+            )
+            return self.db.update(slug, loop=loop)
         loop["ans"] = ans
         step_id = ans["step_id"]
         if ans["status"] == "needs_you":
@@ -200,21 +249,35 @@ class Worker:
         ans, attempt = loop["ans"], loop["attempt"]
         step_id, kind = ans["step_id"], ans["kind"]
         runner = run_exec if kind == "exec" else run_judgment
-        self.db.update(slug, current_step=step_id, pid=None)
+        self.db.update(slug, current_step=step_id, pid=None, started_at=None)
         self.db.log(slug, "step_start", {"step": step_id, "attempt": attempt, "kind": kind, "route": ans["route"]})
         t0 = time.time()
         try:
             result = await self.watch(
                 slug,
-                req,
-                step_id,
-                _retry(self.db, slug, runner, self.cfg, req, ans, attempt, loop["state"], loop["extra_env"]),
+                _retry(
+                    self.db,
+                    slug,
+                    runner,
+                    self.cfg,
+                    req,
+                    ans,
+                    attempt,
+                    loop["state"],
+                    loop["extra_env"],
+                    self.on_pid(slug),
+                ),
             )
         except Stopped:
             return self.stop(self.db.run(slug))
         except Exception as e:  # noqa: BLE001 - a step or engine failure must not kill the worker loop
             self.db.log(slug, "step_error", {"step": step_id, "attempt": attempt, "error": str(e)[-500:]})
             return self.finish(slug, req, loop, {"status": "error", "step_id": step_id, "error": str(e)[-500:]})
+        finally:  # the group is gone (or being killed) whichever way the step ended
+            self.db.update(slug, pid=None, started_at=None)
+        if loop.get("answer_step") == step_id:  # the answer belongs to this one re-run
+            loop["extra_env"].pop("ORCHESTRATOR_USER_ANSWER", None)
+            loop.pop("answer_step")
         state, worker = loop["state"], result.get("worker") or {}
         if kind == "exec":
             state.update({k: v for k, v in result["state"].items() if k not in SKIP})
@@ -251,18 +314,19 @@ class Worker:
         )
         self.db.update(slug, current_step=None, pid=None, loop=loop)
 
-    async def watch(self, slug: str, req: dict, step_id: str, coro):
-        """Await a step while polling for its pid and for a stop. The worker owns the
-        child, so cancelling the task makes `_sh` kill the child's process group."""
+    def on_pid(self, slug: str):
+        """Called with the step's process group id as soon as it exists. Written once per process, not polled."""
+        return lambda pid: self.db.update(slug, pid=pid, started_at=time.time())
+
+    async def watch(self, slug: str, coro):
+        """Await a step while polling for a stop. The worker owns the child, so cancelling
+        the task makes `_sh` kill the child's process group."""
         task = asyncio.ensure_future(coro)
-        lock = _results_dir(req) / f"{step_id}.lock"
         try:
             while True:
                 done, _ = await asyncio.wait({task}, timeout=0.2)
                 if done:
                     return task.result()
-                if lock.exists():
-                    self.db.update(slug, pid=int(lock.read_text() or 0))
                 if self.apply_stops(running=slug):
                     raise Stopped
         finally:  # also on SIGTERM: the child dies, the row keeps saying it was running
@@ -275,7 +339,7 @@ class Worker:
     def open_wait(self, slug: str, req: dict, loop: dict, waiting: dict, status: str) -> None:
         # Exec and judgment steps write the state file before they run; writing it
         # before each wait and at the end too lets Studio show the full history.
-        _state_path(req).write_text(json.dumps(loop["state"], indent=2))
+        write_private(_state_path(req), json.dumps(loop["state"], indent=2), 0o644)
         base = {"slug": slug, "workflow": req["workflow"], "artifacts_dir": req["artifacts_dir"]}
         self.notify({**base, **{k: v for k, v in waiting.items()}})
         waiting["opened_at"] = time.time()
@@ -309,7 +373,7 @@ class Worker:
             )
             loop["n"] += 1
         else:
-            attempt = loop["attempts"][step_id] = loop["attempts"].get(step_id, 0) + 1
+            attempt = loop["attempts"].get(step_id, 0)  # the attempt that asked; dispatch counts the re-run
             after = None
             if d.get("reset_to"):
                 after = {"step": step_id, "attempt": attempt, "status": "failed", "out": {"reset_to": d["reset_to"]}}
@@ -318,6 +382,7 @@ class Worker:
                 # await_input: re-run the same step with the answer, from its last ready answer
                 # (needs_you carries no payload of its own).
                 loop["extra_env"]["ORCHESTRATOR_USER_ANSWER"] = str(d.get("answer", ""))
+                loop["answer_step"] = step_id
                 rerun = {**loop["last_ready"][step_id], "route": "await_input"}
             else:
                 return self.finish(slug, req, loop, {"status": "question_timeout", "step_id": step_id})
@@ -328,9 +393,10 @@ class Worker:
             if rerun:
                 self.dispatch(slug, req, loop, rerun)
 
-    def finish(self, slug: str, req: dict, loop: dict, outcome: dict) -> None:
-        outcome["history"] = loop["state"]["step_history"]
-        _state_path(req).write_text(json.dumps(loop["state"], indent=2))
+    def close(self, slug: str, req: dict, loop: dict, outcome: dict) -> None:
+        """What every ending has in common: the state file, the finished notification, no events left open."""
+        if loop.get("state"):
+            write_private(_state_path(req), json.dumps(loop["state"], indent=2), 0o644)
         self.notify(
             {
                 "slug": slug,
@@ -343,6 +409,10 @@ class Worker:
         for e in self.db.open_events(slug):
             self.db.consume(e["id"])
             self.db.log(slug, "event_stale", {"event": e["id"], "note": "stale: run finished"})
+
+    def finish(self, slug: str, req: dict, loop: dict, outcome: dict) -> None:
+        outcome["history"] = loop["state"]["step_history"]
+        self.close(slug, req, loop, outcome)
         self.db.log(slug, "finished", {"status": outcome["status"]})
         self.db.update(
             slug,
@@ -355,13 +425,37 @@ class Worker:
         )
 
     def notify(self, data: dict) -> None:
-        """Optional: `notify_cmd` gets the attention JSON on stdin before each wait and at finish."""
+        """Optional: `notify_cmd` gets the attention JSON on stdin before each wait and at finish. It runs beside
+        the loop (reaped in `reap_notifies`, killed after NOTIFY_TIMEOUT), so a slow hook never stalls a run."""
         if not self.cfg.notify_cmd:
             return
         try:
-            subprocess.run(shlex.split(self.cfg.notify_cmd), input=json.dumps(data), text=True, timeout=30, check=True)
+            with tempfile.TemporaryFile("w+") as f:
+                f.write(json.dumps(data))
+                f.seek(0)
+                proc = subprocess.Popen(
+                    shlex.split(self.cfg.notify_cmd),
+                    stdin=f,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            self.notifying.append((proc, time.time(), data["slug"]))
         except Exception as e:  # noqa: BLE001 - a step or engine failure must not kill the worker loop
             self.db.log(data["slug"], "notify_error", {"error": str(e)[-300:]})
+
+    def reap_notifies(self) -> None:
+        for item in list(self.notifying):
+            proc, t0, slug = item
+            code = proc.poll()
+            if code is None and time.time() - t0 > NOTIFY_TIMEOUT:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait()
+                code = "timeout"
+            if code is not None:
+                self.notifying.remove(item)
+                if code != 0:
+                    self.db.log(slug, "notify_error", {"error": f"notify_cmd exited {code}"})
 
 
 async def serve(cfg: Config) -> None:

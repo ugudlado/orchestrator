@@ -28,6 +28,7 @@ ENV = {
     "notify_cmd": "ORCH_NOTIFY_CMD",
     "gate_timeout_days": "ORCH_GATE_TIMEOUT_DAYS",
     "poll_seconds": "ORCH_POLL_SECONDS",
+    "stub_exec": "ORCH_STUB_EXEC",  # 1 or 0
 }
 # `agents` (the per-step map) has no environment form.
 
@@ -66,6 +67,7 @@ class Config:
     notify_cmd: str = ""
     gate_timeout_days: float = 7
     poll_seconds: float = 0.5
+    stub_exec: bool | None = None  # None: stub the exec scripts only when `agent` is stub
 
     # --- loading --------------------------------------------------------------
 
@@ -116,6 +118,13 @@ class Config:
             raise ConfigError(f"gate_timeout_days and poll_seconds must be numbers: {e}") from e
         if days <= 0 or poll <= 0:
             raise ConfigError("gate_timeout_days and poll_seconds must be positive")
+        stub_exec = raw.get("stub_exec")
+        if isinstance(stub_exec, str):
+            if stub_exec.strip().lower() not in ("0", "1", "true", "false", "yes", "no"):
+                raise ConfigError(f"stub_exec must be true or false, got {stub_exec!r}")
+            stub_exec = stub_exec.strip().lower() in ("1", "true", "yes")
+        elif stub_exec is not None and not isinstance(stub_exec, bool):
+            raise ConfigError(f"stub_exec must be true or false, got {stub_exec!r}")
         pr = raw.get("projects_root")
         return cls(
             db=_path(raw["db"], base) if raw.get("db") else d.db,
@@ -131,7 +140,12 @@ class Config:
             notify_cmd=str(raw.get("notify_cmd") or ""),
             gate_timeout_days=days,
             poll_seconds=poll,
+            stub_exec=stub_exec,
         )
+
+    @property
+    def exec_stubbed(self) -> bool:
+        return self.agent == "stub" if self.stub_exec is None else self.stub_exec
 
     # --- the pack -------------------------------------------------------------
 
@@ -141,6 +155,22 @@ class Config:
         if not (self.pack / "workflows").is_dir():
             raise ConfigError(f"pack {self.pack} has no workflows/ directory")
         return self.pack.resolve()
+
+    def step_ids(self) -> set[str]:
+        """Every step id any workflow in the pack names."""
+        ids = set()
+        for f in (self.pack_dir() / "workflows").glob("*.yaml"):
+            for s in (yaml.safe_load(f.read_text()) or {}).get("steps") or []:
+                sid = s if isinstance(s, str) else (s.get("id") or s.get("gate") if isinstance(s, dict) else None)
+                if sid:
+                    ids.add(str(sid).split()[0])
+        return ids
+
+    def check_pack(self) -> None:
+        """The pack exists and the `agents` keys name its steps (a typo would silently use the default agent)."""
+        unknown = set(self.agents) - self.step_ids()
+        if unknown:
+            raise ConfigError(f"agents names steps no workflow in {self.pack_dir()} has: {', '.join(sorted(unknown))}")
 
     def workflows(self) -> dict[str, dict]:
         """name -> {steps, gates, file} for each workflow file in the pack."""
