@@ -1,6 +1,8 @@
 # AGENTS.md
 
-Read [`README.md`](README.md) first for what the engine is and how to call it.
+Read [`README.md`](README.md) first for what the engine is and how to call it. The repo also holds a
+self-hosted driver, [`orchestrator_driver/`](orchestrator_driver/README.md); the engine rules below do not
+apply to it, but it may not make the engine depend on anything.
 
 ## The design, in one paragraph
 
@@ -28,10 +30,20 @@ orchestrator_next/
   workflow_steps.py  workflow step-entry normalization
   tests/
 docs/                pack-driver-notes.md (belongs upstream in the pack)
+
+orchestrator_driver/ the self-hosted driver: one worker + SQLite, any workflow in a pack
+  config.py          driver.yaml + env overrides, projects, the pack's workflows
+  db.py              runs / events / log tables (the schema Studio and chat bridges read)
+  driver.py          worker loop: next, steps, waits, recovery, stop
+  steps.py           engine call, exec and judgment runners, process-group lock
+  cli.py             `orchestrator-driver` (serve, submit, decide, answer, stop, show, list, workflows)
+  workers/           claude, codex, stub: one process per judgment step
+tests/driver/        driver tests (stub agent; need the pack, see below)
+deploy/              systemd unit for the driver
 ```
 
-Five modules, ~1,300 lines. If a change makes that meaningfully bigger, check
-whether it belongs in the driver instead.
+The engine is five modules, ~1,300 lines. If a change makes that meaningfully bigger, check
+whether it belongs in the driver instead. The driver takes pyyaml and the stdlib only.
 
 ## Dev
 
@@ -39,11 +51,13 @@ whether it belongs in the driver instead.
 uv sync --extra dev
 python -m orchestrator_next --help
 pytest orchestrator_next/tests/ -q
+pytest tests/driver -q          # needs the pack: ORCH_TEST_PACK, else /home/user/workflows/config
 ```
 
 Tests need a pack. They use the checkout's own `.orchestrator/workflows/` when
 present (gitignored — it is installed, not vendored) and skip otherwise.
-Pre-commit runs ruff, pytest and vulture; don't bypass it.
+Pre-commit runs ruff, pytest and vulture; don't bypass it. Run a workflow end to end with
+`orchestrator-driver` (three commands in the README); `agent: stub` in its config does it without a model.
 
 ## Rules for agents in this codebase
 

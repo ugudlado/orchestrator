@@ -11,10 +11,14 @@ database, no history, no attempt counters, no gate tokens. Everything that
 happens is done by a **driver** — an agent, a script, whatever you like — that
 calls this CLI, does the work it names, and reports back.
 
+This repo has two parts: the **engine** (`orchestrator_next`, `orchestrator`) and a
+self-hosted **driver** (`orchestrator_driver`, `orchestrator-driver`) that loops it for you: one
+worker process, one SQLite file, nothing else to run. See [Run a workflow end to end](#run-a-workflow-end-to-end).
+
 ## Install
 
 ```bash
-uv tool install git+https://github.com/ugudlado/orchestrator.git   # `orchestrator`
+uv tool install git+https://github.com/ugudlado/orchestrator.git   # `orchestrator` and `orchestrator-driver`
 # or, from a checkout:
 python -m orchestrator_next
 ```
@@ -196,7 +200,28 @@ unbound, so the driver or agent falls back to its own detection; the engine does
 not guess. When non-empty, the same dict is in `payload.env` as compact JSON
 `ORCHESTRATOR_BINDINGS`.
 
+## Run a workflow end to end
+
+Install a pack ([ugudlado/workflows](https://github.com/ugudlado/workflows)), copy
+[`orchestrator_driver/driver.example.yaml`](orchestrator_driver/driver.example.yaml) to `driver.yaml`
+and set `pack` and `projects`, then:
+
+```bash
+orchestrator-driver serve --config driver.yaml &                      # 1. the worker
+orchestrator-driver submit --config driver.yaml --workflow feature --project app \
+    --slug add-shout --ticket "add a --shout flag with a test"        # 2. queue a run
+orchestrator-driver decide add-shout design-signoff 1 approved --config driver.yaml   # 3. approve gates as they open
+```
+
+`workflows` lists what the pack offers, `show` says what a run waits for, `answer` replies to a
+question, `stop` kills a run. The driver's config, CLI, SQLite schema, systemd unit and security
+notes are in [`orchestrator_driver/README.md`](orchestrator_driver/README.md).
+[orchestrator-studio](https://github.com/ugudlado/orchestrator-studio) is the web UI over the
+same runs.
+
 ## Driving it
+
+Any driver works; the one above is the supported one.
 
 The protocol is small but has sharp edges (attempt counting, gate tokens,
 worktree paths). The [`orchestrate`](https://github.com/ugudlado/skills/blob/main/workflow/orchestrate/SKILL.md) skill (skills repo) is a skill
