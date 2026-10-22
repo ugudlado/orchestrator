@@ -101,9 +101,9 @@ class Worker:
         name, key, num = ("gate.decided", "gate", "attempt") if gate else ("input.provided", "step_id", "wait")
         for e in self.db.open_events(run["slug"], name):
             d = e["data"] if isinstance(e["data"], dict) else {}
-            n = _num(d.get(num))
-            if n is not None and d.get(key) != w["step_id"]:
+            if d.get(key) != w["step_id"]:  # another step's event: not ours to judge
                 continue
+            n = _num(d.get(num))
             if n is None:  # garbage in attempt/wait can never match: consume it, don't crash on it
                 self.db.consume(e["id"])
                 self.db.log(run["slug"], "event_stale", {"event": e["id"], "note": f"stale: bad {num}", "data": d})

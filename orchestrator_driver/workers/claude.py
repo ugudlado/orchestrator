@@ -29,7 +29,8 @@ from pathlib import Path
 
 import yaml
 
-from orchestrator_driver.gitenv import GIT_ENV
+from orchestrator_driver.gitenv import safe_env
+from orchestrator_driver.steps import write_private
 
 PLACEHOLDER = re.compile(r"\{(in|out)\.([A-Za-z0-9_-]+)\}")
 
@@ -132,16 +133,21 @@ def _rule(tool: str, path: str, tree: bool = True) -> str:
 
 
 def git_env() -> dict:
-    """The environment for git calls made outside the sandbox: no hooks, no fsmonitor, no system config."""
-    return {**os.environ, **GIT_ENV}
+    """The environment for git calls made outside the sandbox: no user or system config, no hooks, pager, ..."""
+    return {**os.environ, **safe_env()}
 
 
 def git_guarded(dirs: list[str]) -> tuple[list[str], list[str]]:
     """(files, trees) inside the git dirs of `dirs` that run code when the driver or a pack script next
-    uses git outside the sandbox: config (core.hooksPath, core.fsmonitor, ...) and hooks/. The rest of .git
-    stays writable so an agent can commit. Both the given and the real path, as for the MCP files."""
+    uses git outside the sandbox: config (core.hooksPath, core.fsmonitor, ...), hooks/ and info/, and the files
+    that say which git dir a checkout uses (the worktree's `.git` pointer, `commondir`, `gitdir`): repointing
+    git at a git dir the agent made would run that dir's config. The rest of .git stays writable so an agent
+    can commit. Both the given and the real path, as for the MCP files."""
     files, trees = [], []
     for d in dirs:
+        dot = Path(d, ".git")
+        if dot.is_file():  # a linked worktree: ".git" is a "gitdir: ..." pointer
+            files += [str(dot), os.path.realpath(dot)]
         r = subprocess.run(
             ["git", "-C", d, "rev-parse", "--git-dir", "--git-common-dir"],
             capture_output=True,
@@ -154,8 +160,8 @@ def git_guarded(dirs: list[str]) -> tuple[list[str], list[str]]:
                 continue
             gd = str(Path(d, gd))  # --git-dir may be relative to d
             for g in dict.fromkeys([gd, os.path.realpath(gd)]):
-                files += [f"{g}/config", f"{g}/config.worktree"]
-                trees.append(f"{g}/hooks")
+                files += [f"{g}/config", f"{g}/config.worktree", f"{g}/commondir", f"{g}/gitdir"]
+                trees += [f"{g}/hooks", f"{g}/info"]
     return list(dict.fromkeys(files)), list(dict.fromkeys(trees))
 
 
@@ -208,7 +214,7 @@ def base_sha() -> str | None:
     )
     if head.returncode:
         return None
-    pin.write_text(head.stdout.strip())
+    write_private(pin, head.stdout.strip())
     return head.stdout.strip()
 
 

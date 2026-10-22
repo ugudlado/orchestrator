@@ -104,9 +104,12 @@ engine's own `payload.env`, and runs in its own process group.
 ## Run as a service
 
 [`deploy/orchestrator-driver.service`](../deploy/orchestrator-driver.service) runs the worker as a dedicated
-user `orch` (`WorkingDirectory=/var/lib/orch`, `ExecStart=… serve --config /etc/orchestrator/driver.yaml`); its
-header lists the install steps. It sets `ProtectSystem=strict`, `ProtectHome=read-only`, `PrivateTmp=yes` and
-`ReadWritePaths` for the worker's home, `/srv/code` and `/tmp`: add the paths of any project outside them.
+user `orch` with home `/home/orch`. One layout for the box: checkouts `/home/orch/orchestrator` (the driver runs
+from its venv: `ExecStart=/home/orch/orchestrator/.venv/bin/orchestrator-driver serve --config
+/etc/orchestrator/driver.yaml`), `/home/orch/orchestrator-studio` and `/home/orch/workflows` (the pack); db
+`/home/orch/.orchestrator/driver.db` and runs `/home/orch/runs` (set `db:` and `runs_root:` in `driver.yaml`).
+The unit's header lists the install steps. It sets `ProtectSystem=strict`, `ProtectHome=read-only`,
+`PrivateTmp=yes` and `ReadWritePaths=/home/orch /tmp`: add the path of any project outside them.
 `NoNewPrivileges` is left off with a comment: Claude Code's sandbox runs bubblewrap, which on some hosts needs
 a setuid helper. That, and the other settings under bubblewrap, are untested here (no bwrap on the build
 machine): check one claude step starts before relying on them.
@@ -212,8 +215,15 @@ CREATE INDEX IF NOT EXISTS events_open ON events (slug) WHERE consumed_at IS NUL
   outside the sandbox, so a hook or `core.hooksPath`/`core.fsmonitor` planted in `.git` would run unsandboxed.
   The claude worker denies writes (sandbox `denyWrite` and the Edit tool) to `config`, `config.worktree` and
   `hooks/` of the worktree's and the repo's git dirs (from `git rev-parse --git-dir --git-common-dir`, given and
-  real paths); the rest of `.git` stays writable so agents can commit. Exec scripts also run with
-  `GIT_CONFIG_NOSYSTEM=1`, `core.hooksPath=/dev/null` and an empty `core.fsmonitor`. The Codex worker has no such
+  real paths); the rest of `.git` stays writable so agents can commit. It also denies the files that choose
+  the git dir: the worktree's `.git` pointer, `commondir`, `gitdir` and `info/`, so git can't be repointed at
+  a git dir the agent made. Exec scripts run with `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1` and
+  overrides for `core.hooksPath`, `core.fsmonitor`, `core.pager`, `core.sshCommand`, `diff.external` (empty:
+  a plain `git diff` errors, use `--no-ext-diff`), `core.editor`, `credential.helper` (cleared: exec steps run
+  no network git, the pack pushes from the sandboxed `open-pr` agent step) and `protocol.ext.allow=never`; your
+  `user.name`/`user.email` are passed as author/committer variables. Before each exec step the driver checks
+  that the worktree's `.git` pointer, its `commondir` and the back-pointer resolve (real paths) into the
+  project's `.git`, and fails the step otherwise. The Codex worker has no such
   deny list (Codex's own sandbox decides what it protects in `.git`): treat a Codex step as able to plant hooks.
 - **Env allowlist.** The agent process gets only PATH/HOME-style basics, `ORCHESTRATOR_*`, the run's
   paths, the agent's sign-in and proxy/CA settings. Names that look secret (`TOKEN`, `SECRET`, `PASSWORD`,
@@ -238,7 +248,7 @@ CREATE INDEX IF NOT EXISTS events_open ON events (slug) WHERE consumed_at IS NUL
 ```text
 orchestrator_driver/
   config.py    the config file, env overrides, projects, the pack's workflows
-  gitenv.py    git settings for processes outside the sandbox (no hooks, no fsmonitor)
+  gitenv.py    git settings for processes outside the sandbox (no user config, hooks, fsmonitor, pager, ...; link check)
   db.py        the SQLite store
   driver.py    the worker loop: next, steps, waits, recovery, stop
   steps.py     engine call, exec and judgment runners, the verified process-group kill

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import signal
@@ -256,6 +257,18 @@ def test_sandbox_denies_git_hooks_and_config(tmp_path, monkeypatch):
     gitdir = os.path.realpath(repo / ".git" / "worktrees" / "wt")
     for want in (f"{common}/config", f"{common}/hooks", f"{gitdir}/config", f"{gitdir}/hooks"):
         assert want in deny, (want, deny)
+    # what tells git which git dir to use: the worktree's .git pointer, commondir, gitdir, info/
+    pointer = os.path.realpath(wt / ".git")
+    for want in (
+        str(wt / ".git"),
+        pointer,
+        f"{gitdir}/commondir",
+        f"{gitdir}/gitdir",
+        f"{gitdir}/info",
+        f"{common}/info",
+    ):
+        assert want in deny, (want, deny)
+    assert any(r == f"Edit({pointer})" or r == f"Edit(/{pointer})" for r in cfg["permissions"]["deny"])
     assert not any(
         d in (common, f"{common}/objects", f"{common}/refs", f"{common}/index") for d in deny
     )  # committing works
@@ -302,3 +315,94 @@ def test_sigkill_recovery_kills_by_db_pid_only(env):
     rec = next(e for e in env.db.tail("crash2", 500) if e["kind"] == "recovered")["data"]
     assert rec["killed"] is True
     assert env.run("crash2")["pid"] != pid
+
+
+def _worktree(tmp_path):
+    from conftest import git_repo
+
+    repo = git_repo(tmp_path / "r")
+    wt = tmp_path / "wt"
+    subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "b", str(wt)], check=True)
+    return repo, wt
+
+
+def test_git_links_accept_a_real_worktree(tmp_path):
+    from orchestrator_driver.gitenv import check_git_links
+
+    repo, wt = _worktree(tmp_path)
+    check_git_links(str(wt), str(repo))
+    check_git_links(str(repo), str(repo))
+
+
+def test_rewritten_git_pointer_is_refused(tmp_path):
+    from orchestrator_driver.gitenv import GitLinkError, check_git_links
+
+    repo, wt = _worktree(tmp_path)
+    evil = tmp_path / "evil.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(evil)], check=True)
+    (wt / ".git").write_text(f"gitdir: {evil}\n")
+    with pytest.raises(GitLinkError, match="outside"):
+        check_git_links(str(wt), str(repo))
+
+
+def test_rewritten_commondir_is_refused(tmp_path):
+    from orchestrator_driver.gitenv import GitLinkError, check_git_links
+
+    repo, wt = _worktree(tmp_path)
+    evil = tmp_path / "evil.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(evil)], check=True)
+    gitdir = repo / ".git" / "worktrees" / "wt"
+    (gitdir / "commondir").write_text(str(evil))
+    with pytest.raises(GitLinkError, match="commondir"):
+        check_git_links(str(wt), str(repo))
+
+
+def test_exec_step_with_rewritten_pointer_fails_before_running(tmp_path):
+    repo, wt = _worktree(tmp_path)
+    (wt / ".git").write_text(f"gitdir: {tmp_path}/elsewhere\n")
+    marker = tmp_path / "ran"
+    script = tmp_path / "s.sh"
+    script.write_text(f"touch {marker}\n")
+    run = {"artifacts_dir": str(tmp_path / "run" / "artifacts"), "repo_root": str(repo), "pack": "p"}
+    ans = {"step_id": "x", "payload": {"env": {}, "run_path": str(script), "in": {}}}
+    cfg = type("C", (), {"exec_stubbed": False})()
+    with pytest.raises(RuntimeError, match="refusing to run git"):
+        asyncio.run(steps.run_exec(cfg, run, ans, 1, {"worktree_path": str(wt)}, {}))
+    assert not marker.exists()
+
+
+def test_planted_pager_and_external_diff_are_ignored(tmp_path):
+    from orchestrator_driver.gitenv import safe_env
+
+    repo, _ = _worktree(tmp_path)
+    marker = tmp_path / "ran"
+    git = ["git", "-C", str(repo)]
+    subprocess.run([*git, "config", "core.pager", f"touch {marker}; cat"], check=True)
+    subprocess.run([*git, "config", "diff.external", f"touch {marker}; true"], check=True)
+    subprocess.run([*git, "config", "core.sshCommand", f"touch {marker}"], check=True)
+    (repo / "README.md").write_text("changed\n")
+    safe = {**os.environ, **safe_env()}
+    # the effective settings are ours, not the planted ones
+    for key, want in (("core.pager", "cat"), ("diff.external", ""), ("core.sshCommand", "ssh")):
+        got = subprocess.run([*git, "config", "--get", key], capture_output=True, text=True, check=False, env=safe)
+        assert got.stdout.strip() == want, (key, got.stdout)
+    # plain `git diff` fails closed on the empty diff.external (it never runs the planted program)
+    subprocess.run([*git, "diff"], check=False, capture_output=True, env=safe)
+    subprocess.run([*git, "diff", "--no-ext-diff"], check=True, capture_output=True, env=safe)
+    assert not marker.exists()
+    # control: without the env the planted external diff does run
+    subprocess.run(
+        [*git, "diff"], capture_output=True, check=False, env={**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null"}
+    )
+    assert marker.exists()
+
+
+def test_unremovable_result_path_fails_the_step(tmp_path):
+    run = {"artifacts_dir": str(tmp_path / "run" / "artifacts"), "repo_root": "", "pack": "p"}
+    results = tmp_path / "run" / "results"
+    (results / "x-1.json").mkdir(parents=True)
+    (results / "x-1.json" / "f").write_text("x")
+    ans = {"step_id": "x", "payload": {"env": {}}}
+    cfg = type("C", (), {"agents": {}, "agent": "stub"})()
+    r = asyncio.run(steps.run_judgment(cfg, run, ans, 1, {}, {}))
+    assert r["status"] == "failed" and "can't be cleared" in r["out"]["reason"]

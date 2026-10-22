@@ -16,7 +16,7 @@ from pathlib import Path
 import yaml
 
 from orchestrator_driver.config import Config
-from orchestrator_driver.gitenv import GIT_ENV
+from orchestrator_driver.gitenv import check_git_links, safe_env
 
 # How to call the engine; argv tokens, never one quoted word. $ORCH replaces it (a wrapper, a pinned install).
 ORCH = shlex.split(os.environ.get("ORCH", f"{sys.executable} -m orchestrator_next"))
@@ -190,7 +190,9 @@ def _last_json_line(text: str) -> dict:
 async def run_exec(cfg: Config, run: dict, ans: dict, attempt: int, state: dict, extra_env: dict, on_pid=None) -> dict:
     p, step_id = ans["payload"], ans["step_id"]
     stdout_file = _driver_dir(run) / f"{step_id}-{attempt}.stdout"
-    env = {**_spawn_env(run, ans, attempt, state, extra_env), **GIT_ENV}
+    env = {**_spawn_env(run, ans, attempt, state, extra_env), **safe_env()}
+    # Unsandboxed git must not be pointed at a git dir the agent made: fail the step, don't run the script.
+    check_git_links(env["WORKTREE_PATH"], env["REPO_ROOT"])
     # A cloud session sets CLAUDE_CODE_REMOTE, which makes create-worktree a no-op.
     # Clear it for scripts only: Claude Code itself needs it to sign in there.
     env["CLAUDE_CODE_REMOTE"] = ""
@@ -224,7 +226,17 @@ async def run_judgment(
     payload_file = _driver_dir(run) / f"{step_id}-{attempt}.payload.json"
     result_file = _results_dir(run) / f"{step_id}-{attempt}.json"  # the one file the agent writes
     write_private(payload_file, json.dumps(p))
-    result_file.unlink(missing_ok=True)  # a stale file from a killed attempt is not a result
+    try:
+        result_file.unlink(missing_ok=True)  # a stale file from a killed attempt is not a result
+    except OSError as e:  # a directory or anything else that can't be removed: the step has no result, so it failed
+        return {
+            "step": step_id,
+            "attempt": attempt,
+            "status": "failed",
+            "out": {"reason": f"result path {result_file} can't be cleared: {e}"[:300]},
+            "summary": "result path is not removable",
+            "worker": {},
+        }
     env = _spawn_env(run, ans, attempt, state, extra_env)
     write_private(_state_path(run), json.dumps(state, indent=2), 0o644)
     code, out, err = await _sh(

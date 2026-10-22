@@ -8,7 +8,7 @@
 db: ~/.orchestrator/driver.db
 
 # One folder per run: <runs_root>/<slug>/{state.yaml,results/,artifacts/,base.sha}.  [ORCH_RUNS_ROOT]
-runs_root: ~/.orchestrator/runs
+runs_root: ~/runs
 
 # The workflow pack's config dir (the one holding workflows/ and steps/).
 # Last resort when unset: $ORCHESTRATOR_CONFIG, the engine's own variable.   [ORCH_PACK]

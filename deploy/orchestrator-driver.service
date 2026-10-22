@@ -1,8 +1,17 @@
-# systemd unit for the self-hosted driver. Install:
-#   sudo useradd --system --create-home --home-dir /var/lib/orch --shell /usr/sbin/nologin orch
-#   sudo -u orch uv tool install /path/to/orchestrator        # puts orchestrator-driver in ~orch/.local/bin
+# systemd unit for the self-hosted driver. Layout on the box (everything under the orch user's home):
+#   /home/orch/orchestrator          this repo; the driver runs from its venv
+#   /home/orch/orchestrator-studio   Studio (see its deploy/README.md)
+#   /home/orch/workflows             the pack
+#   /home/orch/.orchestrator/driver.db   the db (db: in driver.yaml)
+#   /home/orch/runs                  one folder per run (runs_root: in driver.yaml)
+#   /etc/orchestrator/driver.yaml    the config
+# Install:
+#   sudo useradd --create-home --home-dir /home/orch --shell /usr/sbin/nologin orch
+#   sudo -u orch git clone <orchestrator repo> /home/orch/orchestrator
+#   sudo -u orch sh -c 'cd /home/orch/orchestrator && uv sync'   # puts orchestrator-driver in .venv/bin
+#   sudo -u orch git clone <workflows repo> /home/orch/workflows
 #   sudo -u orch claude   # sign in once (and `/mcp` for a project's OAuth servers); keep nothing else in that home
-#   sudo cp driver.example.yaml /etc/orchestrator/driver.yaml # then edit it
+#   sudo cp orchestrator_driver/driver.example.yaml /etc/orchestrator/driver.yaml # then edit it
 #   sudo cp deploy/orchestrator-driver.service /etc/systemd/system/ && sudo systemctl enable --now orchestrator-driver
 [Unit]
 Description=orchestrator driver (workflow worker)
@@ -13,8 +22,8 @@ Wants=network-online.target
 Type=simple
 User=orch
 Group=orch
-WorkingDirectory=/var/lib/orch
-ExecStart=/var/lib/orch/.local/bin/orchestrator-driver serve --config /etc/orchestrator/driver.yaml
+WorkingDirectory=/home/orch
+ExecStart=/home/orch/orchestrator/.venv/bin/orchestrator-driver serve --config /etc/orchestrator/driver.yaml
 # SIGTERM kills the running step's process group and leaves the step marked running;
 # the next start kills any leftover and re-runs it with the same attempt number.
 KillMode=mixed
@@ -22,11 +31,11 @@ TimeoutStopSec=30
 Restart=on-failure
 RestartSec=5
 
-# Hardening. Paths the worker writes: its home (db, runs, ~/.claude, ~/.codex, ~/.cache, the default worktree
-# dir ~/code), the projects (add any outside /srv/code, and anything under /home) and /tmp.
+# Hardening. Paths the worker writes: its home /home/orch (db, runs, the checkouts, ~/.claude, ~/.codex,
+# ~/.cache, the default worktree dir ~/code), /tmp, and any project outside that home (add its path here).
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/var/lib/orch /srv/code /tmp
+ReadWritePaths=/home/orch /tmp
 PrivateTmp=yes
 # NoNewPrivileges=yes is left off on purpose: Claude Code's sandbox runs bubblewrap, and on hosts where bwrap
 # is setuid (no unprivileged user namespaces) that bit is what makes it work. Not tested here (no bwrap on
