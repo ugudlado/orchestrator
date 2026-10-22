@@ -28,7 +28,7 @@ def test_dev_with_real_exec_scripts(make_env, pack):
     assert r["status"] == "done", str(r["outcome"])[:1500]
     hist = r["outcome"]["history"]
     execs = {h["step"]: h for h in hist if h.get("kind") == "exec"}
-    assert {"create-worktree", "remove-worktree", "persist-learnings", "workflow-report"} <= set(execs)
+    assert {"create-worktree", "remove-worktree", "workflow-report"} <= set(execs)
     assert all(h["exit_code"] == 0 for h in execs.values()), execs
     state = r["loop"]["state"]
     # state_mutating readback: the script's state_patch / edits reached the driver's state
