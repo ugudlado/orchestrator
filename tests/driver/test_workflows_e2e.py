@@ -64,7 +64,8 @@ def test_workflow_runs_to_completion(env, workflow, ask):
     for step in res["questions"]:
         assert [h["attempt"] for h in hist if h["step"] == step] == [1, 2]
     assert set(res["gates"]) == {h["step"] for h in hist if h.get("gate")}
-    assert 0 < len(res["gates"]) <= env.cfg_workflows()[workflow]["gates"]  # a routed-around gate is not opened
+    n = env.cfg_workflows()[workflow]["gates"]
+    assert len(res["gates"]) <= n and (res["gates"] or n == 0)  # a routed-around gate is not opened
     state = env.run_dir(workflow) / "state.yaml"
     assert state.exists() and "step_history" in state.read_text()
     print(

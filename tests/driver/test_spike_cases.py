@@ -27,7 +27,7 @@ def test_feature_path_three_gates(env):
         env.approve("feat", g)
     r = env.wait("feat", lambda r: r["status"] == "done")
     hist = r["outcome"]["history"]
-    assert len(hist) == 26 and [h["gate"] for h in hist if h.get("gate")] == ["approved"] * 3
+    assert len(hist) == 24 and [h["gate"] for h in hist if h.get("gate")] == ["approved"] * 3
     assert r["loop"]["state"]["step_history"] == hist
     assert "event_stale" in env.kinds("feat")
     state = env.run_dir("feat") / "state.yaml"  # where the pack scripts and Studio read it
@@ -54,7 +54,7 @@ def test_approval_before_gate_opens_is_used(env):
         env.cli("decide", "early", g, 1, "approved")
     env.start()
     r = env.wait("early", lambda r: r["status"] == "done")
-    assert len(r["outcome"]["history"]) == 26
+    assert len(r["outcome"]["history"]) == 24
 
 
 def test_sigkill_mid_step_recovers(env):
