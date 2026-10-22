@@ -1,0 +1,24 @@
+# Slack app for the orchestrator-slack bridge. Create at https://api.slack.com/apps
+# -> Create New App -> From a manifest -> pick the workspace -> paste this. Then make an app-level token with
+# connections:write (the SLACK_APP_TOKEN) and install the app (the bot token, SLACK_BOT_TOKEN).
+# An existing app: add files:write under OAuth & Permissions and reinstall it.
+display_information:
+  name: Orchestrator
+  description: Workflow gates and questions from the orchestrator driver
+features:
+  bot_user:
+    display_name: orchestrator
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - chat:write # post gates, questions and finished runs
+      - files:write # the whole documents a gate shows, in its thread
+      - channels:history # read thread replies (review notes) in a public channel
+      - groups:history # the same in a private channel
+settings:
+  interactivity:
+    is_enabled: true
+  socket_mode_enabled: true
+  org_deploy_enabled: false
+  token_rotation_enabled: false

@@ -114,6 +114,25 @@ The unit's header lists the install steps. It sets `ProtectSystem=strict`, `Prot
 a setuid helper. That, and the other settings under bubblewrap, are untested here (no bwrap on the build
 machine): check one claude step starts before relying on them.
 
+## Slack
+
+`orchestrator-slack` (install with the `slack` extra: `uv sync --extra slack`) posts every gate and question to one
+Slack channel with buttons, and a click inserts the same `gate.decided` / `input.provided` event the CLI's `decide`
+and `answer` do. It reads the runs table every 2 s, so it needs no hook in the driver, and a wait that opened while
+the bridge was down is posted when it starts. Socket Mode: no inbound port.
+
+- **Reviewing:** a gate message shows the start of each document the gate shows; the whole documents are uploaded
+  as files in the message's thread. Replies in that thread are the review notes: Reject and Answer open with them
+  filled in. A wait that closes some other way (Studio, the CLI, a timeout) loses its buttons in Slack.
+- **Who:** `SLACK_APPROVERS` (comma-separated Slack user ids) limits who can decide; unset, anyone in the channel.
+- **Env:** `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_CHANNEL`, optional `SLACK_APPROVERS` and `SLACK_REWORK`
+  (JSON `{gate: step}`, the step a Reject sends the run back to by default). The driver's config gives the
+  database and runs root. What it posted is kept in `slack.db` beside the driver's database.
+- **Slack app:** [`deploy/slack-app-manifest.yaml`](../deploy/slack-app-manifest.yaml) (scopes `chat:write`,
+  `files:write`, `channels:history`, `groups:history`). Without `files:write` it posts snippets only.
+- **Service:** [`deploy/orchestrator-slack.service`](../deploy/orchestrator-slack.service), as the driver's user
+  (it writes events), tokens in `/etc/orchestrator/slack.env`.
+
 ## Behaviour
 
 - **State is committed after every `next` call and every step.** A crash resumes from the last
@@ -253,6 +272,7 @@ orchestrator_driver/
   driver.py    the worker loop: next, steps, waits, recovery, stop
   steps.py     engine call, exec and judgment runners, the verified process-group kill
   cli.py       the orchestrator-driver command
+  slack.py     the orchestrator-slack bridge (optional `slack` extra)
   workers/     claude.py, codex.py, stub.py: one process per judgment step
 ```
 

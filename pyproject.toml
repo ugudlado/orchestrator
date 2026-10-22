@@ -19,9 +19,16 @@ dev = [
     "vulture>=2.16",
 ]
 
+# The Slack bridge (orchestrator-slack, orchestrator_driver/slack.py): pip install 'orchestrator[slack]'.
+slack = [
+    "slack-bolt>=1.18",
+    "aiohttp>=3.9",
+]
+
 [project.scripts]
 orchestrator = "orchestrator_next.cli:main"
 orchestrator-driver = "orchestrator_driver.cli:main"
+orchestrator-slack = "orchestrator_driver.slack:main"
 
 [build-system]
 requires = ["hatchling"]

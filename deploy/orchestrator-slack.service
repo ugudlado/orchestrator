@@ -1,0 +1,35 @@
+# systemd unit for the Slack bridge (orchestrator_driver/slack.py). Same user and layout as
+# orchestrator-driver.service. Install:
+#   sudo -u orch sh -c 'cd /home/orch/orchestrator && uv sync --extra slack'   # adds orchestrator-slack
+#   sudo install -m 600 /dev/null /etc/orchestrator/slack.env   # then fill in, root-owned:
+#     SLACK_BOT_TOKEN=xoxb-...  SLACK_APP_TOKEN=xapp-...  SLACK_CHANNEL=C...  (optional SLACK_APPROVERS=U...,U...)
+#   sudo cp deploy/orchestrator-slack.service /etc/systemd/system/ && sudo systemctl enable --now orchestrator-slack
+[Unit]
+Description=orchestrator Slack bridge (gates and questions in Slack)
+After=network-online.target orchestrator-driver.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=orch
+Group=orch
+WorkingDirectory=/home/orch
+EnvironmentFile=/etc/orchestrator/slack.env
+ExecStart=/home/orch/orchestrator/.venv/bin/orchestrator-slack --config /etc/orchestrator/driver.yaml
+Restart=on-failure
+RestartSec=5
+
+# Hardening. It reads the runs root and writes events into the driver's database (and its own slack.db beside it).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/orch/.orchestrator
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
