@@ -93,11 +93,8 @@ offline path — no backlog is needed.
 **create-worktree / remove-worktree** — both shell out to a bare `python3` to
 read state, so a `python3` **on PATH** must have `pyyaml` importable;
 `ORCHESTRATOR_PYTHON` is not consulted here. create-worktree's branch is
-`<schema>/<slug>`. Known pack bug: it reads
-state with `IFS=$'\n' read -r a b <<< "$(...)"`, which captures only the first
-line, so `schema` is always empty and the branch is always `feature/<slug>`
-whatever the workflow. Harmless (nothing downstream parses the branch name),
-but do not be surprised by it.
+`<schema>/<slug>` (`bugfix` → `fix/`); dev's `name-branch` step then renames
+`dev/<slug>` to `feature/`, `fix/` or `chore/<slug>` from triage's call.
 
 **persist-learnings** — looks for `proposed-scenarios.jsonl` beside
 `STATE_YAML_PATH` or in `ORCHESTRATOR_WORKFLOW_DIR`, but `learn`'s contract
