@@ -23,12 +23,14 @@ def test_dev_with_real_exec_scripts(make_env, pack):
     """Judgment steps are stubbed; every exec script of the pack runs for real against a git repo."""
     env = make_env(stub_exec=False)
     env.submit("real", workflow="dev")
-    res = drive(env, "real")
+    # The test project has no GitHub origin, so push-pr asks; the answer is a PR opened by hand.
+    res = drive(env, "real", answers={"push-pr": "opened it: https://github.com/o/r/pull/1"})
     r = res["run"]
     assert r["status"] == "done", str(r["outcome"])[:1500]
     hist = r["outcome"]["history"]
     execs = {h["step"]: h for h in hist if h.get("kind") == "exec"}
-    assert {"create-worktree", "remove-worktree", "workflow-report"} <= set(execs)
+    assert {"create-worktree", "fetch-base", "push-pr", "remove-worktree", "workflow-report"} <= set(execs)
+    assert res["questions"] == ["push-pr"] and r["loop"]["state"]["pr_url"] == "https://github.com/o/r/pull/1"
     assert all(h["exit_code"] == 0 for h in execs.values()), execs
     state = r["loop"]["state"]
     # state_mutating readback: the script's state_patch / edits reached the driver's state

@@ -231,8 +231,9 @@ CREATE INDEX IF NOT EXISTS events_open ON events (slug) WHERE consumed_at IS NUL
   commit and runs its committed `.orchestrator/setup.sh` outside the sandbox. Exec scripts run with
   `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1` and
   overrides for `core.hooksPath`, `core.fsmonitor`, `core.pager`, `core.sshCommand`, `diff.external` (empty:
-  a plain `git diff` errors, use `--no-ext-diff`), `core.editor`, `credential.helper` (cleared: exec steps run
-  no network git, the pack pushes from the sandboxed `open-pr` agent step) and `protocol.ext.allow=never`; your
+  a plain `git diff` errors, use `--no-ext-diff`), `core.editor`, `credential.helper` (cleared: the only network git
+  is the pack's `fetch-base` and `push-pr` steps, which read a GitHub token from a file under `~/.config` that no
+  agent step can read, and refuse a repo whose own config could redirect it) and `protocol.ext.allow=never`; your
   `user.name`/`user.email` are passed as author/committer variables. Before each exec step the driver checks
   that the worktree's `.git` pointer, its `commondir` and the back-pointer resolve (real paths) into the
   project's `.git`, and fails the step otherwise. The Codex worker has no such

@@ -26,8 +26,9 @@ def question_steps(workflow: str) -> dict[str, str]:
 CASES = [(w, False) for w in pack_workflows()] + [(w, True) for w in pack_workflows() if question_steps(w)]
 
 
-def drive(env, slug: str, timeout: float = 300) -> dict:
-    """Approve every gate and answer every question as they come, until the run ends."""
+def drive(env, slug: str, timeout: float = 300, answers: dict | None = None) -> dict:
+    """Approve every gate and answer every question as they come, until the run ends.
+    `answers` maps a step id to the answer its questions get, instead of "go ahead"."""
     gates, questions = [], []
     env.start()
     seen = None
@@ -44,7 +45,8 @@ def drive(env, slug: str, timeout: float = 300) -> dict:
                 env.cli("decide", slug, w["step_id"], w["attempt"], "approved")
             else:
                 questions.append(w["step_id"])
-                env.cli("answer", slug, w["step_id"], w["wait"], "--answer", "go ahead")
+                answer = (answers or {}).get(w["step_id"], "go ahead")
+                env.cli("answer", slug, w["step_id"], w["wait"], "--answer", answer)
         time.sleep(0.05)
     raise AssertionError(f"timeout; run is {env.run(slug)['status']}")
 

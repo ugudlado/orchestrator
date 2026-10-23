@@ -3,8 +3,8 @@ git calls).
 
 An agent can write inside the repo's .git and the worktree, so neither its config nor its hooks are trusted: no
 user or system config, no hooks, no fsmonitor, pager, ssh command, external diff or editor, no `ext::`
-transport. Exec steps run no network git (the pack pushes from the sandboxed open-pr agent step), so the
-credential helper is cleared too.
+transport. The credential helper is cleared too: the only network git is the pack's fetch-base and push-pr
+steps, which bring their own token (an Authorization header in GIT_CONFIG_* variables, never a helper).
 
 Config can only be planted if git is pointed at a git dir the agent made, so `check_git_links` also confirms,
 before each exec step, that the worktree's `.git` pointer and `commondir` still lead into the project's own

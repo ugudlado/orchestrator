@@ -31,6 +31,13 @@ def stub_value(spec: dict):
 
 
 def stub_outputs(payload: dict) -> dict:
+    outs = {k: stub_value(v) for k, v in payload.get("out_schema", {}).items() if not v.get("optional")}
+    choices = dict(json.loads(os.environ.get("ORCH_STUB_CHOICES") or "{}").get(payload["step_id"], {}))
+    time.sleep(choices.pop("_sleep", 0))  # simulate a long step, for crash tests
+    keep_asking = choices.pop("_keep_asking", False)  # ask again even when answered (question-limit tests)
+    if os.environ.get("ORCHESTRATOR_USER_ANSWER") and not keep_asking:  # answered: stop asking
+        choices = {k: v for k, v in choices.items() if v != "await_input"}
+    outs.update(choices)
     for path in payload.get("out", {}).values():
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -39,14 +46,9 @@ def stub_outputs(payload: dict) -> dict:
         elif p.suffix in (".yaml", ".yml"):
             p.write_text("stub: true\n")
         else:
-            p.write_text(f"# stub\n\nWritten by the stub worker for {payload['step_id']}.\n")
-    outs = {k: stub_value(v) for k, v in payload.get("out_schema", {}).items() if not v.get("optional")}
-    choices = dict(json.loads(os.environ.get("ORCH_STUB_CHOICES") or "{}").get(payload["step_id"], {}))
-    time.sleep(choices.pop("_sleep", 0))  # simulate a long step, for crash tests
-    keep_asking = choices.pop("_keep_asking", False)  # ask again even when answered (question-limit tests)
-    if os.environ.get("ORCHESTRATOR_USER_ANSWER") and not keep_asking:  # answered: stop asking
-        choices = {k: v for k, v in choices.items() if v != "await_input"}
-    outs.update(choices)
+            # The pack's name-branch reads triage's call from triage.md's heading.
+            head = f"Triage: {outs['change_type']}" if p.name == "triage.md" and "change_type" in outs else "stub"
+            p.write_text(f"# {head}\n\nWritten by the stub worker for {payload['step_id']}.\n")
     return outs
 
 
