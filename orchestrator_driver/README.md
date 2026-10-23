@@ -248,8 +248,13 @@ CREATE INDEX IF NOT EXISTS events_open ON events (slug) WHERE consumed_at IS NUL
 - **Projects are an allowlist.** `submit` rejects any repo the config doesn't list. Anyone who can write to
   the database can start a run, so give the role to the worker's user and Studio only, and keep `database_url`
   (it holds the password) out of world-readable files.
-- Commit signing: if the machine signs commits through a service the sandbox can't reach, an agent's commit
-  fails and the run routes back. Make the signer reachable from the sandbox or skip signing for agent commits.
+- Commit signing: if the machine signs commits through a service the sandbox can't reach (an SSH agent, a
+  signing helper), an agent's commit fails. Make the signer reachable from the sandbox, or turn signing off
+  for that project only: `git -C <project> config commit.gpgsign false` (worktrees share it). With the pack's
+  current `implement` the step then asks instead of failing (`outcome: await_input`).
+- Worktree setup: judgment steps have no network, so a fresh worktree can't install node_modules, a venv or
+  sibling checkouts. Commit a `.orchestrator/setup.sh` in the project; the pack's `create-worktree` runs it
+  in each new worktree, outside the sandbox (see the pack's `DRIVER.md`).
 - `CLAUDE_CODE_REMOTE` is cleared for exec scripts only (it makes `create-worktree` a no-op) and left alone
   for Claude Code, which needs it to sign in in a cloud session.
 
