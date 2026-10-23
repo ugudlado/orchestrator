@@ -444,3 +444,23 @@ def test_unremovable_result_path_fails_the_step(tmp_path):
     cfg = type("C", (), {"agents": {}, "agent": "stub"})()
     r = asyncio.run(steps.run_judgment(cfg, run, ans, 1, {}, {}))
     assert r["status"] == "failed" and "can't be cleared" in r["out"]["reason"]
+
+
+def test_symlinked_main_branch_ref_fails_closed(tmp_path, monkeypatch):
+    """.git is agent-writable: a ref turned into a symlink must not steer the driver's write."""
+    from conftest import git_repo
+
+    repo = git_repo(tmp_path / "r")
+    subprocess.run(["git", "-C", str(repo), "pack-refs", "--all"], check=True)
+    branch = subprocess.run(
+        ["git", "-C", str(repo), "symbolic-ref", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    target = tmp_path / "elsewhere"
+    (repo / ".git" / branch).parent.mkdir(parents=True, exist_ok=True)
+    (repo / ".git" / branch).symlink_to(target)
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+    monkeypatch.setenv("ORCHESTRATOR_ARTIFACTS_DIR", str(tmp_path / "art"))
+    with pytest.raises(SystemExit):
+        claude.sandbox_settings(str(tmp_path / "res" / "x.json"))
+    assert not target.exists()

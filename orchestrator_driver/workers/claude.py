@@ -207,34 +207,33 @@ def base_refs(repo: str | None) -> list[str]:
     not move it (an agent commits on its own run branch, which stays writable)."""
     if not repo:
         return []
-    r = subprocess.run(
-        ["git", "-C", repo, "rev-parse", "--git-common-dir", "--symbolic-full-name", "HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=git_env(),
-    )
-    lines = r.stdout.split("\n") if r.returncode == 0 else []
-    if not lines or not lines[0]:
+
+    def git(*args: str) -> str:
+        r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, check=False, env=git_env())
+        return r.stdout.strip() if r.returncode == 0 else ""
+
+    common = git("rev-parse", "--git-common-dir")
+    if not common:
         return []
-    common = str(Path(repo, lines[0]))
+    common = str(Path(repo, common))
     names = ["HEAD", "packed-refs", "reftable"]  # reftable: that ref store is one tree, so it is denied whole
-    branch = lines[1] if len(lines) > 1 and lines[1].startswith("refs/heads/") else ""
+    # symbolic-ref reads HEAD as written, so a broken branch ref can't hide which branch to guard.
+    branch = git("symbolic-ref", "-q", "HEAD")
+    branch = branch if branch.startswith("refs/heads/") else ""
     if branch:
         # A branch that lives only in packed-refs has no file to deny, and a loose ref written next to it
         # would win. Write it out loose (same commit) first, so the deny has a file to hold.
         loose = Path(common, branch)
-        if not loose.is_file():  # git update-ref skips a no-op, so write the file it would have written
-            sha = subprocess.run(
-                ["git", "-C", repo, "rev-parse", "--verify", "-q", branch],
-                capture_output=True,
-                text=True,
-                check=False,
-                env=git_env(),
-            ).stdout.strip()
+        # .git is agent-writable, so a symlink here could aim this write (or the deny) elsewhere: fail closed.
+        if os.path.realpath(loose) != os.path.join(os.path.realpath(common), branch):
+            raise SystemExit(f"orchestrator: {loose} goes through a symlink; refusing to run the step")
+        if not loose.exists():  # git update-ref skips a no-op, so write the file it would have written
+            sha = git("rev-parse", "--verify", "-q", branch)
             if sha:
                 loose.parent.mkdir(parents=True, exist_ok=True)
-                loose.write_text(sha + "\n")
+                fd = os.open(loose, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+                with os.fdopen(fd, "w") as f:
+                    f.write(sha + "\n")
         names.append(branch)
     return list(dict.fromkeys(f"{g}/{n}" for g in (common, os.path.realpath(common)) for n in names))
 
