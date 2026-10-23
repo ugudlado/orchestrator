@@ -177,6 +177,7 @@ def sandbox_settings(result_file: str) -> dict:
     roots = list(dict.fromkeys([*dirs, *map(os.path.realpath, dirs)]))
     locked = [f"{r}/{f}" for r in roots for f in (*PROJECT_CONFIG, ".codex/config.toml")]
     git_files, git_trees = git_guarded(dirs)
+    git_files += base_refs(os.environ.get("REPO_ROOT"))
     return {
         "sandbox": {
             "enabled": True,
@@ -198,6 +199,27 @@ def sandbox_settings(result_file: str) -> dict:
             + [_rule("Edit", d) for d in git_trees],
         },
     }
+
+
+def base_refs(repo: str | None) -> list[str]:
+    """The refs that say what the project's main checkout is at: its HEAD, its current branch and packed-refs.
+    A later run branches from that commit and runs its committed setup outside the sandbox, so a step must
+    not move it (an agent commits on its own run branch, which stays writable)."""
+    if not repo:
+        return []
+    r = subprocess.run(
+        ["git", "-C", repo, "rev-parse", "--git-common-dir", "--symbolic-full-name", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=git_env(),
+    )
+    lines = r.stdout.split("\n") if r.returncode == 0 else []
+    if not lines or not lines[0]:
+        return []
+    common = str(Path(repo, lines[0]))
+    names = ["HEAD", "packed-refs"] + ([lines[1]] if len(lines) > 1 and lines[1].startswith("refs/heads/") else [])
+    return list(dict.fromkeys(f"{g}/{n}" for g in (common, os.path.realpath(common)) for n in names))
 
 
 def base_sha() -> str | None:

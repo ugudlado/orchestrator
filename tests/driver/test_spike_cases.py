@@ -140,6 +140,14 @@ def test_needs_you_answer_reruns_with_user_answer(env):
     assert [h["attempt"] for h in triage] == [1, 2] and loop["attempts"]["triage"] == 2  # counted once per run
 
 
+def test_question_is_the_steps_own_ask(env):
+    """A step that asks with an `ask` shows that question, not its summary."""
+    env.submit("why", {"triage": {"change_type": "await_input", "ask": "Feature or fix?"}})
+    env.start()
+    r = env.wait("why", lambda r: r["status"] == "needs_you")
+    assert r["waiting"]["question"] == "Feature or fix?"
+
+
 def test_step_that_keeps_asking_ends_at_question_limit(env):
     """Every answer re-runs the step; one that asks again each time ends after max_question_reruns (3), not MAX_LOOPS."""
     env.submit("nag", {"triage": {"change_type": "await_input", "_keep_asking": True}})

@@ -242,6 +242,27 @@ def test_kill_group_checks_what_it_kills(tmp_path):
             p.wait()
 
 
+def test_sandbox_denies_moving_the_main_checkout(tmp_path, monkeypatch):
+    """A later run branches from the main checkout's HEAD and runs its committed setup unsandboxed."""
+    from conftest import git_repo
+
+    repo = git_repo(tmp_path / "r")
+    branch = subprocess.run(
+        ["git", "-C", str(repo), "symbolic-ref", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    wt = tmp_path / "wt"
+    subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "b", str(wt)], check=True)
+    monkeypatch.chdir(wt)
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+    monkeypatch.setenv("ORCHESTRATOR_ARTIFACTS_DIR", str(tmp_path / "art"))
+    cfg = claude.sandbox_settings(str(tmp_path / "res" / "x.json"))
+    deny = cfg["sandbox"]["filesystem"]["denyWrite"]
+    common = os.path.realpath(repo / ".git")
+    for want in (f"{common}/HEAD", f"{common}/packed-refs", f"{common}/{branch}"):
+        assert want in deny, (want, deny)
+    assert f"{common}/refs/heads/b" not in deny  # the run's own branch stays writable
+
+
 def test_sandbox_denies_git_hooks_and_config(tmp_path, monkeypatch):
     from conftest import git_repo
 
