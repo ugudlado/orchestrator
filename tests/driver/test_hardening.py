@@ -263,6 +263,23 @@ def test_sandbox_denies_moving_the_main_checkout(tmp_path, monkeypatch):
     assert f"{common}/refs/heads/b" not in deny  # the run's own branch stays writable
 
 
+def test_packed_main_branch_is_written_loose_before_the_deny(tmp_path, monkeypatch):
+    """A branch only in packed-refs has no file to deny; a loose ref planted next to it would win."""
+    from conftest import git_repo
+
+    repo = git_repo(tmp_path / "r")
+    subprocess.run(["git", "-C", str(repo), "pack-refs", "--all"], check=True)
+    branch = subprocess.run(
+        ["git", "-C", str(repo), "symbolic-ref", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    assert not (repo / ".git" / branch).exists()
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+    monkeypatch.setenv("ORCHESTRATOR_ARTIFACTS_DIR", str(tmp_path / "art"))
+    deny = claude.sandbox_settings(str(tmp_path / "res" / "x.json"))["sandbox"]["filesystem"]["denyWrite"]
+    assert (repo / ".git" / branch).is_file() and os.path.realpath(repo / ".git" / branch) in deny
+
+
 def test_sandbox_denies_git_hooks_and_config(tmp_path, monkeypatch):
     from conftest import git_repo
 

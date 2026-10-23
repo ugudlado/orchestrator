@@ -218,7 +218,24 @@ def base_refs(repo: str | None) -> list[str]:
     if not lines or not lines[0]:
         return []
     common = str(Path(repo, lines[0]))
-    names = ["HEAD", "packed-refs"] + ([lines[1]] if len(lines) > 1 and lines[1].startswith("refs/heads/") else [])
+    names = ["HEAD", "packed-refs", "reftable"]  # reftable: that ref store is one tree, so it is denied whole
+    branch = lines[1] if len(lines) > 1 and lines[1].startswith("refs/heads/") else ""
+    if branch:
+        # A branch that lives only in packed-refs has no file to deny, and a loose ref written next to it
+        # would win. Write it out loose (same commit) first, so the deny has a file to hold.
+        loose = Path(common, branch)
+        if not loose.is_file():  # git update-ref skips a no-op, so write the file it would have written
+            sha = subprocess.run(
+                ["git", "-C", repo, "rev-parse", "--verify", "-q", branch],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=git_env(),
+            ).stdout.strip()
+            if sha:
+                loose.parent.mkdir(parents=True, exist_ok=True)
+                loose.write_text(sha + "\n")
+        names.append(branch)
     return list(dict.fromkeys(f"{g}/{n}" for g in (common, os.path.realpath(common)) for n in names))
 
 

@@ -226,8 +226,10 @@ CREATE INDEX IF NOT EXISTS events_open ON events (slug) WHERE consumed_at IS NUL
   `hooks/` of the worktree's and the repo's git dirs (from `git rev-parse --git-dir --git-common-dir`, given and
   real paths); the rest of `.git` stays writable so agents can commit. It also denies the files that choose
   the git dir: the worktree's `.git` pointer, `commondir`, `gitdir` and `info/`, so git can't be repointed at
-  a git dir the agent made, and the main checkout's `HEAD`, current branch ref and `packed-refs`: the next run
-  branches from that commit and runs its committed `.orchestrator/setup.sh` outside the sandbox. Exec scripts run with `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1` and
+  a git dir the agent made, and the main checkout's `HEAD`, current branch ref (written out loose first if it
+  is only packed) and `packed-refs` (`reftable/` whole, for that ref store): the next run branches from that
+  commit and runs its committed `.orchestrator/setup.sh` outside the sandbox. Exec scripts run with
+  `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1` and
   overrides for `core.hooksPath`, `core.fsmonitor`, `core.pager`, `core.sshCommand`, `diff.external` (empty:
   a plain `git diff` errors, use `--no-ext-diff`), `core.editor`, `credential.helper` (cleared: exec steps run
   no network git, the pack pushes from the sandboxed `open-pr` agent step) and `protocol.ext.allow=never`; your
