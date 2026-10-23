@@ -33,8 +33,7 @@ def test_dev_with_real_exec_scripts(make_env, pack):
     state = r["loop"]["state"]
     # state_mutating readback: the script's state_patch / edits reached the driver's state
     assert state["schema"] == "dev"  # seeded, as the pack's driver notes ask
-    # (the pack's create-worktree reads only the first line of its state query, so its branch is always
-    # feature/<slug> whatever the schema: a known pack bug in docs/pack-driver-notes.md)
+    # (<type>/<slug>: create-worktree names it dev/real, and dev's name-branch renames it after triage)
     assert state["branch"].endswith("/real") and state["worktree_path"] == str(env.tmp / "worktrees" / "real")
     assert not Path(state["worktree_path"]).exists()  # remove-worktree removed it
     wts = subprocess.run(
@@ -242,6 +241,44 @@ def test_kill_group_checks_what_it_kills(tmp_path):
             p.wait()
 
 
+def test_sandbox_denies_moving_the_main_checkout(tmp_path, monkeypatch):
+    """A later run branches from the main checkout's HEAD and runs its committed setup unsandboxed."""
+    from conftest import git_repo
+
+    repo = git_repo(tmp_path / "r")
+    branch = subprocess.run(
+        ["git", "-C", str(repo), "symbolic-ref", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    wt = tmp_path / "wt"
+    subprocess.run(["git", "-C", str(repo), "worktree", "add", "-q", "-b", "b", str(wt)], check=True)
+    monkeypatch.chdir(wt)
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+    monkeypatch.setenv("ORCHESTRATOR_ARTIFACTS_DIR", str(tmp_path / "art"))
+    cfg = claude.sandbox_settings(str(tmp_path / "res" / "x.json"))
+    deny = cfg["sandbox"]["filesystem"]["denyWrite"]
+    common = os.path.realpath(repo / ".git")
+    for want in (f"{common}/HEAD", f"{common}/packed-refs", f"{common}/{branch}"):
+        assert want in deny, (want, deny)
+    assert f"{common}/refs/heads/b" not in deny  # the run's own branch stays writable
+
+
+def test_packed_main_branch_is_written_loose_before_the_deny(tmp_path, monkeypatch):
+    """A branch only in packed-refs has no file to deny; a loose ref planted next to it would win."""
+    from conftest import git_repo
+
+    repo = git_repo(tmp_path / "r")
+    subprocess.run(["git", "-C", str(repo), "pack-refs", "--all"], check=True)
+    branch = subprocess.run(
+        ["git", "-C", str(repo), "symbolic-ref", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    assert not (repo / ".git" / branch).exists()
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+    monkeypatch.setenv("ORCHESTRATOR_ARTIFACTS_DIR", str(tmp_path / "art"))
+    deny = claude.sandbox_settings(str(tmp_path / "res" / "x.json"))["sandbox"]["filesystem"]["denyWrite"]
+    assert (repo / ".git" / branch).is_file() and os.path.realpath(repo / ".git" / branch) in deny
+
+
 def test_sandbox_denies_git_hooks_and_config(tmp_path, monkeypatch):
     from conftest import git_repo
 
@@ -406,3 +443,35 @@ def test_unremovable_result_path_fails_the_step(tmp_path):
     cfg = type("C", (), {"agents": {}, "agent": "stub"})()
     r = asyncio.run(steps.run_judgment(cfg, run, ans, 1, {}, {}))
     assert r["status"] == "failed" and "can't be cleared" in r["out"]["reason"]
+
+
+def test_symlinked_main_branch_ref_fails_closed(tmp_path, monkeypatch):
+    """.git is agent-writable: a ref turned into a symlink must not steer the driver's write."""
+    from conftest import git_repo
+
+    repo = git_repo(tmp_path / "r")
+    subprocess.run(["git", "-C", str(repo), "pack-refs", "--all"], check=True)
+    branch = subprocess.run(
+        ["git", "-C", str(repo), "symbolic-ref", "HEAD"], capture_output=True, text=True, check=True
+    ).stdout.strip()
+    target = tmp_path / "elsewhere"
+    (repo / ".git" / branch).parent.mkdir(parents=True, exist_ok=True)
+    (repo / ".git" / branch).symlink_to(target)
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("REPO_ROOT", str(repo))
+    monkeypatch.setenv("ORCHESTRATOR_ARTIFACTS_DIR", str(tmp_path / "art"))
+    with pytest.raises(SystemExit):
+        claude.sandbox_settings(str(tmp_path / "res" / "x.json"))
+    assert not target.exists()
+
+
+def test_write_nofollow_refuses_a_symlinked_directory(tmp_path):
+    root, elsewhere = tmp_path / "git", tmp_path / "elsewhere"
+    (root / "refs").mkdir(parents=True)
+    elsewhere.mkdir()
+    (root / "refs" / "heads").symlink_to(elsewhere)
+    with pytest.raises(OSError):
+        claude.write_nofollow(str(root), "refs/heads/main", "x\n")
+    assert not (elsewhere / "main").exists()
+    claude.write_nofollow(str(root), "refs/tags/v1", "y\n")
+    assert (root / "refs" / "tags" / "v1").read_text() == "y\n"

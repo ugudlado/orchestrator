@@ -7,7 +7,7 @@ import signal
 import time
 
 FEATURE_GATES = ("design-signoff", "pr-signoff", "pr-merged")
-HOTFIX = {"triage": {"change_type": "fix"}, "diagnose": {"fix_scope": "hotfix"}}
+HOTFIX = {"triage": {"change_type": "fix"}, "name-branch": {"change_type": "fix"}, "diagnose": {"fix_scope": "hotfix"}}
 
 
 def alive(pid: int) -> bool:
@@ -27,7 +27,7 @@ def test_feature_path_three_gates(env):
         env.approve("feat", g)
     r = env.wait("feat", lambda r: r["status"] == "done")
     hist = r["outcome"]["history"]
-    assert len(hist) == 24 and [h["gate"] for h in hist if h.get("gate")] == ["approved"] * 3
+    assert len(hist) == 21 and [h["gate"] for h in hist if h.get("gate")] == ["approved"] * 3
     assert r["loop"]["state"]["step_history"] == hist
     assert "event_stale" in env.kinds("feat")
     state = env.run_dir("feat") / "state.yaml"  # where the pack scripts and Studio read it
@@ -54,7 +54,7 @@ def test_approval_before_gate_opens_is_used(env):
         env.cli("decide", "early", g, 1, "approved")
     env.start()
     r = env.wait("early", lambda r: r["status"] == "done")
-    assert len(r["outcome"]["history"]) == 24
+    assert len(r["outcome"]["history"]) == 21
 
 
 def test_sigkill_mid_step_recovers(env):
@@ -138,6 +138,14 @@ def test_needs_you_answer_reruns_with_user_answer(env):
     triage = [h for h in loop["state"]["step_history"] if h["step"] == "triage"]
     assert [h["route"] for h in triage][-1] == "await_input" and len(triage) == 2
     assert [h["attempt"] for h in triage] == [1, 2] and loop["attempts"]["triage"] == 2  # counted once per run
+
+
+def test_question_is_the_steps_own_ask(env):
+    """A step that asks with an `ask` shows that question, not its summary."""
+    env.submit("why", {"triage": {"change_type": "await_input", "ask": "Feature or fix?"}})
+    env.start()
+    r = env.wait("why", lambda r: r["status"] == "needs_you")
+    assert r["waiting"]["question"] == "Feature or fix?"
 
 
 def test_step_that_keeps_asking_ends_at_question_limit(env):

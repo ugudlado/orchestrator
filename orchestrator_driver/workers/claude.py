@@ -177,6 +177,7 @@ def sandbox_settings(result_file: str) -> dict:
     roots = list(dict.fromkeys([*dirs, *map(os.path.realpath, dirs)]))
     locked = [f"{r}/{f}" for r in roots for f in (*PROJECT_CONFIG, ".codex/config.toml")]
     git_files, git_trees = git_guarded(dirs)
+    git_files += base_refs(os.environ.get("REPO_ROOT"))
     return {
         "sandbox": {
             "enabled": True,
@@ -198,6 +199,61 @@ def sandbox_settings(result_file: str) -> dict:
             + [_rule("Edit", d) for d in git_trees],
         },
     }
+
+
+def write_nofollow(root: str, rel: str, text: str) -> None:
+    """Create root/rel (which must not exist) without following a symlink anywhere below root: each directory
+    is opened relative to the last with O_NOFOLLOW, so a symlink swapped in meanwhile fails the open."""
+    *dirs, name = rel.split("/")
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for d in dirs:
+            try:
+                os.mkdir(d, dir_fd=fd)
+            except FileExistsError:
+                pass
+            nxt = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = nxt
+        out = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=fd)
+        with os.fdopen(out, "w") as f:
+            f.write(text)
+    finally:
+        os.close(fd)
+
+
+def base_refs(repo: str | None) -> list[str]:
+    """The refs that say what the project's main checkout is at: its HEAD, its current branch and packed-refs.
+    A later run branches from that commit and runs its committed setup outside the sandbox, so a step must
+    not move it (an agent commits on its own run branch, which stays writable)."""
+    if not repo:
+        return []
+
+    def git(*args: str) -> str:
+        r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, check=False, env=git_env())
+        return r.stdout.strip() if r.returncode == 0 else ""
+
+    common = git("rev-parse", "--git-common-dir")
+    if not common:
+        return []
+    common = str(Path(repo, common))
+    names = ["HEAD", "packed-refs", "reftable"]  # reftable: that ref store is one tree, so it is denied whole
+    # symbolic-ref reads HEAD as written, so a broken branch ref can't hide which branch to guard.
+    branch = git("symbolic-ref", "-q", "HEAD")
+    branch = branch if branch.startswith("refs/heads/") else ""
+    if branch:
+        # A branch that lives only in packed-refs has no file to deny, and a loose ref written next to it
+        # would win. Write it out loose (same commit) first, so the deny has a file to hold.
+        loose = Path(common, branch)
+        # .git is agent-writable, so a symlink here could aim this write (or the deny) elsewhere: fail closed.
+        if os.path.realpath(loose) != os.path.join(os.path.realpath(common), branch):
+            raise SystemExit(f"orchestrator: {loose} goes through a symlink; refusing to run the step")
+        if not loose.exists():  # git update-ref skips a no-op, so write the file it would have written
+            sha = git("rev-parse", "--verify", "-q", branch)
+            if sha:
+                write_nofollow(os.path.realpath(common), branch, sha + "\n")
+        names.append(branch)
+    return list(dict.fromkeys(f"{g}/{n}" for g in (common, os.path.realpath(common)) for n in names))
 
 
 def base_sha() -> str | None:

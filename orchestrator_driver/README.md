@@ -226,7 +226,10 @@ CREATE INDEX IF NOT EXISTS events_open ON events (slug) WHERE consumed_at IS NUL
   `hooks/` of the worktree's and the repo's git dirs (from `git rev-parse --git-dir --git-common-dir`, given and
   real paths); the rest of `.git` stays writable so agents can commit. It also denies the files that choose
   the git dir: the worktree's `.git` pointer, `commondir`, `gitdir` and `info/`, so git can't be repointed at
-  a git dir the agent made. Exec scripts run with `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1` and
+  a git dir the agent made, and the main checkout's `HEAD`, current branch ref (written out loose first if it
+  is only packed) and `packed-refs` (`reftable/` whole, for that ref store): the next run branches from that
+  commit and runs its committed `.orchestrator/setup.sh` outside the sandbox. Exec scripts run with
+  `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1` and
   overrides for `core.hooksPath`, `core.fsmonitor`, `core.pager`, `core.sshCommand`, `diff.external` (empty:
   a plain `git diff` errors, use `--no-ext-diff`), `core.editor`, `credential.helper` (cleared: exec steps run
   no network git, the pack pushes from the sandboxed `open-pr` agent step) and `protocol.ext.allow=never`; your
@@ -248,8 +251,13 @@ CREATE INDEX IF NOT EXISTS events_open ON events (slug) WHERE consumed_at IS NUL
 - **Projects are an allowlist.** `submit` rejects any repo the config doesn't list. Anyone who can write to
   the database can start a run, so give the role to the worker's user and Studio only, and keep `database_url`
   (it holds the password) out of world-readable files.
-- Commit signing: if the machine signs commits through a service the sandbox can't reach, an agent's commit
-  fails and the run routes back. Make the signer reachable from the sandbox or skip signing for agent commits.
+- Commit signing: if the machine signs commits through a service the sandbox can't reach (an SSH agent, a
+  signing helper), an agent's commit fails. Make the signer reachable from the sandbox, or turn signing off
+  for that project only: `git -C <project> config commit.gpgsign false` (worktrees share it). With the pack's
+  current `implement` the step then asks instead of failing (`outcome: await_input`).
+- Worktree setup: judgment steps have no network, so a fresh worktree can't install node_modules, a venv or
+  sibling checkouts. Commit a `.orchestrator/setup.sh` in the project; the pack's `create-worktree` runs it
+  in each new worktree, outside the sandbox (see the pack's `DRIVER.md`).
 - `CLAUDE_CODE_REMOTE` is cleared for exec scripts only (it makes `create-worktree` a no-op) and left alone
   for Claude Code, which needs it to sign in in a cloud session.
 

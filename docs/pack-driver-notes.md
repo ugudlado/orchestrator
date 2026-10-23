@@ -26,7 +26,7 @@ status: active
 repo_root: <abs repo path> # check-rerun (archive lookup)
 user_input: | # load-ticket-context: brief text, or a ticket id
   <ticket text>
-ticket_id: "" # set = ticket steps sync; "" = they no-op
+ticket_id: "" # check-rerun; the tracker moves tickets itself (no ticket steps)
 workflow_plan: { main: { nodes: [] } } # check-rerun iterates it; must exist
 tokens: [] # yours: gate approvals
 step_history: [] # yours: [{step, status, attempt, route, tier, model}]
@@ -38,7 +38,7 @@ step_history: [] # yours: [{step, status, attempt, route, tier, model}]
 | `schema`                  | create-worktree (branch name)                           |
 | `repo_root`               | check-rerun                                             |
 | `user_input`              | load-ticket-context                                     |
-| `ticket_id`               | ticket-sync (start/review/qa), ticket-done, check-rerun |
+| `ticket_id`               | check-rerun                                             |
 | `workflow_plan`           | check-rerun (crashes if the key is absent)              |
 | `worktree_path`, `branch` | merged from `recorded.state_patch`; become env vars     |
 
@@ -71,18 +71,18 @@ in it:
 | `ORCHESTRATOR_ATTEMPT`                            | scripts that log it                     | your count                                                 |
 | `ORCHESTRATOR_PYTHON`                             | workflow-report, persist-learnings      | an interpreter that can import `pyyaml`                    |
 | `BRANCH`                                          | merge-to-main, remove-worktree, archive | from `state_patch`                                         |
-| `ARCHIVE_PATH`                                    | archive-completed-change, ticket-done   | from mark-change-completed's `state_patch`                 |
+| `ARCHIVE_PATH`                                    | archive-completed-change                | from mark-change-completed's `state_patch`                 |
 | `WORKTREE_BASE_DIR`                               | create-worktree                         | where worktrees go; default `$HOME/code/feature_worktrees` |
-| `BACKLOG_URL`, `BACKLOG_TOKEN`                    | ticket steps                            | **leave unset to run offline**                             |
+| `BACKLOG_URL`, `BACKLOG_TOKEN`                    | load-ticket-context                     | **leave unset to run offline**                             |
 | `CLAUDE_CODE_REMOTE`                              | create-worktree                         | `true` makes it a no-op                                    |
 
 ## Offline ticketing
 
-With `BACKLOG_URL`/`BACKLOG_TOKEN` unset, `backlog_api_ticketing` returns
-empty: every ticket step (`ticket-start`, `ticket-review`, `ticket-qa`,
-`ticket-done`) prints a completed JSON line and exits 0, and
-`load-ticket-context` writes `user_input` to `ticket-context.md` as the brief.
-That is the supported offline path — no backlog is needed.
+The pack has no ticket status steps: the tracker (Linear) moves tickets on
+its own from the branch and PR, so use the ticket id as the slug. With
+`BACKLOG_URL`/`BACKLOG_TOKEN` unset, `load-ticket-context` writes
+`user_input` to `ticket-context.md` as the brief. That is the supported
+offline path — no backlog is needed.
 
 ## Per-step quirks
 
@@ -93,11 +93,8 @@ That is the supported offline path — no backlog is needed.
 **create-worktree / remove-worktree** — both shell out to a bare `python3` to
 read state, so a `python3` **on PATH** must have `pyyaml` importable;
 `ORCHESTRATOR_PYTHON` is not consulted here. create-worktree's branch is
-`<schema>/<slug>`. Known pack bug: it reads
-state with `IFS=$'\n' read -r a b <<< "$(...)"`, which captures only the first
-line, so `schema` is always empty and the branch is always `feature/<slug>`
-whatever the workflow. Harmless (nothing downstream parses the branch name),
-but do not be surprised by it.
+`<schema>/<slug>` (`bugfix` → `fix/`); dev's `name-branch` step then renames
+`dev/<slug>` to `feature/`, `fix/` or `chore/<slug>` from triage's call.
 
 **persist-learnings** — looks for `proposed-scenarios.jsonl` beside
 `STATE_YAML_PATH` or in `ORCHESTRATOR_WORKFLOW_DIR`, but `learn`'s contract
@@ -124,9 +121,9 @@ own `step_history` from state.yaml instead. Upstream needs the same fix.
 judgment step (needs `git push` and `gh`, side effect `write:remote`): it
 rebases onto `origin/HEAD`, runs the repo's full verification, pushes the
 branch and opens a PR with evidence. It never merges; the worktree stays and
-the ticket is left open until the PR merges.
+the tracker closes the ticket when the PR merges.
 
-All five work with **no git remote** and never push. Verified by dry run.
+All four work with **no git remote** and never push. Verified by dry run.
 
 | step                       | env it needs                                              | what it does                                                                                                                                                      |
 | -------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -134,7 +131,6 @@ All five work with **no git remote** and never push. Verified by dry run.
 | `archive-completed-change` | `REPO_ROOT`, `CHANGE_ID`, `WORKTREE_ROOT`, `ARCHIVE_PATH` | moves `spec/changes/<slug>/` → `spec/changes/archive/<slug>/`, commits in the worktree                                                                            |
 | `merge-to-main`            | `REPO_ROOT`, `BRANCH`, `CHANGE_ID`, `STATE_YAML_PATH`     | detects the default branch (`origin/HEAD`, else local `main`/`master`), checks out, `git merge --no-ff`. **Local only — no push.** Aborts on conflict and exits 1 |
 | `remove-worktree`          | `REPO_ROOT`, `BRANCH`, `WORKTREE_PATH`, `STATE_YAML_PATH` | `git worktree remove`; keeps the branch                                                                                                                           |
-| `ticket-done`              | `REPO_ROOT`, `STATE_YAML_PATH`                            | ticket → Done; no-ops offline                                                                                                                                     |
 
 `merge-to-main` runs from `REPO_ROOT`, not the worktree, and checks out the
 default branch there. Run `remove-worktree` after it, not before.
@@ -175,9 +171,8 @@ Found while driving `patch` and `feature` end to end. None are engine bugs.
 6. **`implement/SKILL.md`** carries a dangling COMPLETION template, references
    `prompt.md` paths that no longer exist, and asks the worker for
    `tokens_in`/`tokens_out`/`duration_s` it cannot measure.
-7. **`ticket-sync` no-op is indistinguishable from success** — offline it
-   prints `{"ticket_status_set": "<status>"}` and exits 0 whether or not a
-   ticket was touched, so a misconfigured backlog looks like a working one.
+7. ~~**`ticket-sync` no-op is indistinguishable from success**~~ — gone:
+   the ticket steps were removed (2026-10-23).
 8. **`learn`'s charter says the staging file goes in the state dir**, but its
    contract renders `out.proposed_scenarios` into the artifacts dir, and
    `persist-learnings` reads the state dir. Three places, two answers.

@@ -228,11 +228,13 @@ class Worker:
                 return self.finish(
                     slug, req, loop, {"status": "question_limit", "step_id": step_id, "question": question}
                 )
+            ask = (ans.get("await_input") or {}).get("ask")
             q = {
                 "kind": "question",
                 "step_id": step_id,
                 "wait": loop["n"],
-                "question": loop["last_summary"].get(step_id, ""),
+                # The step's own question, else its summary (a step that asks without an `ask`).
+                "question": ask if isinstance(ask, str) and ask else loop["last_summary"].get(step_id, ""),
                 "reason": ans.get("reason"),
             }
             return self.open_wait(slug, req, loop, q, "needs_you")
