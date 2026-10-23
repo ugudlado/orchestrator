@@ -15,7 +15,7 @@ from orchestrator_driver.config import Config, ConfigError
 def test_defaults(tmp_path):
     c = Config.load(None, env={})
     home = Path.home() / ".orchestrator"
-    assert (c.db, c.runs_root) == (home / "driver.db", home / "runs")
+    assert (c.database_url, c.runs_root) == ("", home / "runs")
     assert (c.agent, c.agents, c.model_override, c.notify_cmd) == ("claude", {}, "", "")
     assert (c.gate_timeout_days, c.poll_seconds, c.pack, c.projects, c.projects_root) == (7, 0.5, None, (), None)
     assert (c.sandbox_domains, c.step_env_keep, c.max_question_reruns) == ((), (), 3)
@@ -26,7 +26,7 @@ def test_file_and_env_override(tmp_path):
     f.write_text(
         yaml.safe_dump(
             {
-                "db": "data/x.db",
+                "database_url": "postgresql://h/file",
                 "pack": "/p",
                 "agent": "codex",
                 "agents": {"explore": "stub"},
@@ -37,20 +37,39 @@ def test_file_and_env_override(tmp_path):
         )
     )
     c = Config.load(f, env={})
-    assert c.db == tmp_path / "data" / "x.db"  # relative paths are relative to the file
+    assert c.database_url == "postgresql://h/file"
     assert (c.agent, c.agents, c.sandbox_domains, c.gate_timeout_days) == (
         "codex",
         {"explore": "stub"},
         ("a.example", "b.example"),
         2,
     )
-    env = {"ORCH_DB": "/e.db", "ORCH_AGENT": "stub", "ORCH_SANDBOX_DOMAINS": "c.example", "ORCH_POLL_SECONDS": "2"}
+    env = {
+        "ORCH_DATABASE_URL": "postgresql://h/env",
+        "ORCH_AGENT": "stub",
+        "ORCH_SANDBOX_DOMAINS": "c.example",
+        "ORCH_POLL_SECONDS": "2",
+    }
     c = Config.load(f, env=env)
-    assert (c.db, c.agent, c.sandbox_domains, c.poll_seconds) == (Path("/e.db"), "stub", ("c.example",), 2)
+    assert (c.database_url, c.agent, c.sandbox_domains, c.poll_seconds) == (
+        "postgresql://h/env",
+        "stub",
+        ("c.example",),
+        2,
+    )
     assert c.pack == Path("/p") and c.gate_timeout_days == 2  # untouched keys keep the file's value
     assert Config.load(f, env={"ORCH_MAX_QUESTION_RERUNS": "0"}).max_question_reruns == 0
     assert Config.load(f, env={"ORCH_DRIVER_CONFIG": str(f)}).agent == "codex"
     assert Config.load(None, env={"ORCHESTRATOR_CONFIG": "/engine/pack"}).pack == Path("/engine/pack")
+
+
+def test_db_key_was_replaced_and_database_url_is_required(tmp_path):
+    f = tmp_path / "d.yaml"
+    f.write_text("db: ~/.orchestrator/driver.db\n")
+    with pytest.raises(ConfigError, match="replaced by `database_url`"):
+        Config.load(f, env={})
+    with pytest.raises(ConfigError, match="database_url"):
+        Config.load(None, env={}).db_url()
 
 
 @pytest.mark.parametrize(
@@ -164,12 +183,10 @@ def test_serve_refuses_a_bad_agents_map(env, capsys, tmp_path):
 
 
 def test_submit_race_is_a_clean_error(env, capsys, monkeypatch):
-    import sqlite3
-
     from orchestrator_driver import db as dbmod
 
     def boom(self, request):
-        raise sqlite3.IntegrityError("UNIQUE constraint failed: runs.slug")
+        raise dbmod.DB.IntegrityError("duplicate key value violates unique constraint")
 
     monkeypatch.setattr(dbmod.DB, "add_run", boom)
     rc = cli.main(

@@ -1,4 +1,4 @@
-"""The driver: one worker process and a SQLite file, around `orchestrator next`.
+"""The driver: one worker process and a Postgres database, around `orchestrator next`.
 
 The engine decides every step; this loop calls it, runs what it names, and waits where it says to. The
 state is a row: after every `next` call and every step the run's loop state is committed, so a crash
@@ -473,6 +473,6 @@ async def serve(cfg: Config) -> None:
     task = asyncio.current_task()
     asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
     try:
-        await Worker(DB(cfg.db), cfg).serve()
+        await Worker(DB(cfg.db_url()), cfg).serve()
     except asyncio.CancelledError:
         pass  # SIGTERM: the child is dead; the step stays marked running for the next start

@@ -5,9 +5,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import sqlite3
 import sys
 from pathlib import Path
+
+import psycopg
 
 from orchestrator_driver.config import Config, ConfigError
 from orchestrator_driver.db import DB
@@ -68,7 +69,7 @@ def submit(cfg: Config, db: DB, a: argparse.Namespace) -> dict:
     }
     try:
         db.add_run(request)
-    except sqlite3.IntegrityError:  # two submits raced past the check above
+    except DB.IntegrityError:  # two submits raced past the check above
         raise ConfigError(f"run {a.slug!r} already exists; slugs are never reused") from None
     return {"slug": a.slug, "run_dir": str(run_dir.resolve()), "artifacts_dir": request["artifacts_dir"]}
 
@@ -86,11 +87,11 @@ def main(argv: list[str] | None = None) -> int:
         if a.cmd == "workflows":
             print(json.dumps([{"name": n, **w} for n, w in cfg.workflows().items()], indent=2))
             return 0
-        db = DB(cfg.db)
+        db = DB(cfg.db_url())
         if a.cmd == "submit":
             print(json.dumps(submit(cfg, db, a), indent=2))
             return 0
-    except (ConfigError, OSError, ValueError) as e:
+    except (ConfigError, OSError, ValueError, psycopg.Error) as e:
         print(f"orchestrator-driver: {e}", file=sys.stderr)
         return 2
     if a.cmd == "list":

@@ -6,12 +6,13 @@ authors = [{ name = "Mahesh", email = "mahesh288@gmail.com" }]
 requires-python = ">=3.12"
 dependencies = [
     "pyyaml>=6.0",
+    "psycopg[binary]>=3.2",
 ]
 
 # The wheel ships the engine and, as its own package, the self-hosted driver
-# (orchestrator_driver, stdlib + pyyaml only: nothing is added to the engine's
-# dependencies, and the engine never imports it). Packs (workflows, step
-# contracts, charters, scripts) are installed separately and passed with --config.
+# (orchestrator_driver, whose Postgres store is the only user of psycopg; the engine
+# never imports it). Packs (workflows, step contracts, charters, scripts) are
+# installed separately and passed with --config.
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",

@@ -31,7 +31,7 @@ orchestrator_next/
   tests/
 docs/                pack-driver-notes.md (belongs upstream in the pack)
 
-orchestrator_driver/ the self-hosted driver: one worker + SQLite, any workflow in a pack
+orchestrator_driver/ the self-hosted driver: one worker + Postgres, any workflow in a pack
   config.py          driver.yaml + env overrides, projects, the pack's workflows
   db.py              runs / events / log tables (the schema Studio and chat bridges read)
   driver.py          worker loop: next, steps, waits, recovery, stop
@@ -43,7 +43,7 @@ deploy/              systemd unit for the driver
 ```
 
 The engine is five modules, ~1,300 lines. If a change makes that meaningfully bigger, check
-whether it belongs in the driver instead. The driver takes pyyaml and the stdlib only.
+whether it belongs in the driver instead. The driver takes pyyaml and psycopg (Postgres) only.
 
 ## Dev
 
@@ -51,7 +51,8 @@ whether it belongs in the driver instead. The driver takes pyyaml and the stdlib
 uv sync --extra dev
 python -m orchestrator_next --help
 pytest orchestrator_next/tests/ -q
-pytest tests/driver -q          # needs the pack: ORCH_TEST_PACK, else /home/user/workflows/config
+pytest tests/driver -q          # needs the pack: ORCH_TEST_PACK, else /home/user/workflows/config,
+                                # and Postgres: ORCH_TEST_DATABASE_URL, else initdb/pg_ctl on PATH
 ```
 
 Tests need a pack. They use the checkout's own `.orchestrator/workflows/` when

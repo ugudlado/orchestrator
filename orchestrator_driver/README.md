@@ -1,10 +1,10 @@
 # orchestrator_driver
 
-The self-hosted driver for the engine: one worker process and one SQLite file. It calls
+The self-hosted driver for the engine: one worker process and a Postgres database. It calls
 `orchestrator next`, runs the step the engine names (an exec script, or a judgment step handed to
 Claude Code or Codex), waits where the engine says a person must decide, and repeats until the
 workflow is done. It works for any workflow in a pack, driven by config. No Inngest, no Redis,
-no network port, nothing else to run. It needs Python 3.12+ and pyyaml, nothing more.
+no network port of its own. It needs Python 3.12+, pyyaml and psycopg, and a Postgres to point at.
 
 The engine stays a pure function ([`../README.md`](../README.md)); everything stateful lives
 here: run history, attempt counts, gate tokens, the process-group record, recovery.
@@ -18,7 +18,7 @@ pip install -e .
 ```
 
 The engine and the driver ship in one wheel, but the engine never imports the driver and the
-driver adds no dependency. You also need a pack (workflows and steps), for example
+driver's only extra dependency is psycopg. You also need a pack (workflows and steps), for example
 [ugudlado/workflows](https://github.com/ugudlado/workflows), and for real work `git`, `claude`
 (or `codex`) on the worker's PATH, and `bwrap` and `socat` for the Claude sandbox.
 
@@ -31,11 +31,14 @@ orchestrator-driver serve --config driver.yaml
 
 Every subcommand takes `--config`. Without it: `$ORCH_DRIVER_CONFIG`, then
 `~/.orchestrator/driver.yaml` if it exists, then defaults. Unknown keys are an error. Relative
-paths in the file are relative to the file. An environment variable overrides the file.
+paths in the file are relative to the file. `database_url` is a Postgres URL: for local dev any
+server will do, e.g. `postgresql://localhost/orchestrator` (`createdb orchestrator`); to keep run history in one place
+across machines, point every worker, CLI and Studio at the same hosted Postgres (Neon, ...). The driver creates its
+tables on connect. `db:` from the SQLite days is an error. An environment variable overrides the file.
 
 | key                   | default                                 | env                                      |
 | --------------------- | --------------------------------------- | ---------------------------------------- |
-| `db`                  | `~/.orchestrator/driver.db`             | `ORCH_DB`                                |
+| `database_url`        | none (required to open the database)    | `ORCH_DATABASE_URL`                      |
 | `runs_root`           | `~/.orchestrator/runs`                  | `ORCH_RUNS_ROOT`                         |
 | `pack`                | none (needed by `submit`, `workflows`)  | `ORCH_PACK`, then `ORCHESTRATOR_CONFIG`  |
 | `projects`            | none                                    | `ORCH_PROJECTS` (comma-separated)        |
@@ -107,8 +110,8 @@ engine's own `payload.env`, and runs in its own process group.
 [`deploy/orchestrator-driver.service`](../deploy/orchestrator-driver.service) runs the worker as a dedicated
 user `orch` with home `/home/orch`. One layout for the box: checkouts `/home/orch/orchestrator` (the driver runs
 from its venv: `ExecStart=/home/orch/orchestrator/.venv/bin/orchestrator-driver serve --config
-/etc/orchestrator/driver.yaml`), `/home/orch/orchestrator-studio` and `/home/orch/workflows` (the pack); db
-`/home/orch/.orchestrator/driver.db` and runs `/home/orch/runs` (set `db:` and `runs_root:` in `driver.yaml`).
+/etc/orchestrator/driver.yaml`), `/home/orch/orchestrator-studio` and `/home/orch/workflows` (the pack); the
+database is any Postgres (`database_url:` in `driver.yaml`), runs go in `/home/orch/runs` (`runs_root:`).
 The unit's header lists the install steps. It sets `ProtectSystem=strict`, `ProtectHome=read-only`,
 `PrivateTmp=yes` and `ReadWritePaths=/home/orch /tmp`: add the path of any project outside them.
 `NoNewPrivileges` is left off with a comment: Claude Code's sandbox runs bubblewrap, which on some hosts needs
@@ -159,8 +162,8 @@ machine): check one claude step starts before relying on them.
 
 ## The database
 
-SQLite, WAL: any other process can read it alongside the worker. Studio or a chat bridge reads
-the tables and writes `events` rows; it does not touch `runs` or `log`.
+Postgres (psycopg 3, autocommit; the worker's one multi-statement transaction is a plain `BEGIN`): any other
+process can read it alongside the worker. Studio or a chat bridge reads the tables and writes `events` rows; it does not touch `runs` or `log`.
 
 ```sql
 CREATE TABLE IF NOT EXISTS runs (
@@ -169,14 +172,14 @@ CREATE TABLE IF NOT EXISTS runs (
   loop TEXT NOT NULL DEFAULT '{}',        -- attempts, state, history, after, last_ready, last_summary, extra_env, ...
   waiting TEXT,                           -- {kind: gate|question, step_id, attempt|wait, show, question, reason, opened_at}
   current_step TEXT, pid INTEGER,         -- set while a step runs; still set at startup = it was interrupted
-  created_at REAL, updated_at REAL, outcome TEXT,
-  started_at REAL);                       -- when the step process (pid, a process group leader) started
+  created_at DOUBLE PRECISION, updated_at DOUBLE PRECISION, outcome TEXT,
+  started_at DOUBLE PRECISION);           -- when the step process (pid, a process group leader) started
 CREATE TABLE IF NOT EXISTS events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL,
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, slug TEXT NOT NULL,
   name TEXT NOT NULL,                     -- gate.decided|input.provided|stop
-  data TEXT NOT NULL DEFAULT '{}', received_at REAL, consumed_at REAL);
+  data TEXT NOT NULL DEFAULT '{}', received_at DOUBLE PRECISION, consumed_at DOUBLE PRECISION);
 CREATE TABLE IF NOT EXISTS log (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL, ts REAL, kind TEXT NOT NULL, data TEXT);
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, slug TEXT NOT NULL, ts DOUBLE PRECISION, kind TEXT NOT NULL, data TEXT);
 CREATE INDEX IF NOT EXISTS log_slug ON log (slug, id);
 CREATE INDEX IF NOT EXISTS events_open ON events (slug) WHERE consumed_at IS NULL;
 ```
@@ -243,7 +246,8 @@ CREATE INDEX IF NOT EXISTS events_open ON events (slug) WHERE consumed_at IS NUL
   in once as the worker's user (`/mcp`, `codex mcp login`); a key-based server gets its key through
   `${VAR}` and `step_env_keep`. Keep user-level MCP servers empty.
 - **Projects are an allowlist.** `submit` rejects any repo the config doesn't list. Anyone who can write to
-  the DB file can start a run, so keep it mode 0600 in a directory only the worker's user and Studio's reach.
+  the database can start a run, so give the role to the worker's user and Studio only, and keep `database_url`
+  (it holds the password) out of world-readable files.
 - Commit signing: if the machine signs commits through a service the sandbox can't reach, an agent's commit
   fails and the run routes back. Make the signer reachable from the sandbox or skip signing for agent commits.
 - `CLAUDE_CODE_REMOTE` is cleared for exec scripts only (it makes `create-worktree` a no-op) and left alone
@@ -255,7 +259,7 @@ CREATE INDEX IF NOT EXISTS events_open ON events (slug) WHERE consumed_at IS NUL
 orchestrator_driver/
   config.py    the config file, env overrides, projects, the pack's workflows
   gitenv.py    git settings for processes outside the sandbox (no user config, hooks, fsmonitor, pager, ...; link check)
-  db.py        the SQLite store
+  db.py        the Postgres store
   driver.py    the worker loop: next, steps, waits, recovery, stop
   steps.py     engine call, exec and judgment runners, the verified process-group kill
   cli.py       the orchestrator-driver command

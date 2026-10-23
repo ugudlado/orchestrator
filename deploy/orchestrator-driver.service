@@ -2,7 +2,6 @@
 #   /home/orch/orchestrator          this repo; the driver runs from its venv
 #   /home/orch/orchestrator-studio   Studio (see its deploy/README.md)
 #   /home/orch/workflows             the pack
-#   /home/orch/.orchestrator/driver.db   the db (db: in driver.yaml)
 #   /home/orch/runs                  one folder per run (runs_root: in driver.yaml)
 #   /etc/orchestrator/driver.yaml    the config
 # Install:

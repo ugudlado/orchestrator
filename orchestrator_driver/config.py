@@ -16,7 +16,7 @@ AGENTS = ("claude", "codex", "stub")
 SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 # key -> environment variable that overrides it
 ENV = {
-    "db": "ORCH_DB",
+    "database_url": "ORCH_DATABASE_URL",
     "runs_root": "ORCH_RUNS_ROOT",
     "pack": "ORCH_PACK",
     "projects": "ORCH_PROJECTS",  # comma-separated
@@ -55,7 +55,7 @@ def _list(v) -> list[str]:
 
 @dataclass(frozen=True)
 class Config:
-    db: Path = field(default_factory=lambda: Path("~/.orchestrator/driver.db").expanduser())
+    database_url: str = ""  # required by the commands that open the DB
     runs_root: Path = field(default_factory=lambda: Path("~/.orchestrator/runs").expanduser())
     pack: Path | None = None
     projects: tuple[Path, ...] = ()
@@ -91,6 +91,10 @@ class Config:
             if not isinstance(raw, dict):
                 raise ConfigError(f"{file}: expected a mapping at the top level")
             base = file.resolve().parent
+        if "db" in raw:
+            raise ConfigError(
+                "`db` was replaced by `database_url` (a Postgres URL, e.g. postgresql://localhost/orchestrator)"
+            )
         unknown = set(raw) - set(ENV) - {"agents"}
         if unknown:
             raise ConfigError(f"unknown config key(s): {', '.join(sorted(unknown))}")
@@ -134,7 +138,7 @@ class Config:
             raise ConfigError(f"stub_exec must be true or false, got {stub_exec!r}")
         pr = raw.get("projects_root")
         return cls(
-            db=_path(raw["db"], base) if raw.get("db") else d.db,
+            database_url=str(raw.get("database_url") or "").strip(),
             runs_root=_path(raw["runs_root"], base) if raw.get("runs_root") else d.runs_root,
             pack=_path(raw["pack"], base) if raw.get("pack") else None,
             projects=tuple(_path(p, base) for p in _list(raw.get("projects"))),
@@ -154,6 +158,11 @@ class Config:
     @property
     def exec_stubbed(self) -> bool:
         return self.agent == "stub" if self.stub_exec is None else self.stub_exec
+
+    def db_url(self) -> str:
+        if not self.database_url:
+            raise ConfigError("no database: set `database_url` in the config (or ORCH_DATABASE_URL)")
+        return self.database_url
 
     # --- the pack -------------------------------------------------------------
 

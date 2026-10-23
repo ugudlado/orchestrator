@@ -1,11 +1,12 @@
 # orchestrator-driver config. Copy to driver.yaml and run:
 #   orchestrator-driver serve --config driver.yaml
-# Every key is optional except `pack` and a project list, which submit needs.
+# Every key is optional except `database_url`, and `pack` and a project list, which submit needs.
 # Environment variables of the same meaning override the file (name in brackets).
 # Relative paths are relative to this file.
 
-# SQLite file shared by the worker and the CLI.                       [ORCH_DB]
-db: ~/.orchestrator/driver.db
+# Postgres shared by the worker, the CLI and Studio. Required; tables are created on connect.
+# Local dev: any server, e.g. postgresql://localhost/orchestrator. Hosted (Neon, ...): its URL.  [ORCH_DATABASE_URL]
+database_url: postgresql://localhost/orchestrator
 
 # One folder per run: <runs_root>/<slug>/{state.yaml,results/,artifacts/,base.sha}.  [ORCH_RUNS_ROOT]
 runs_root: ~/runs
