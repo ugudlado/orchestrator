@@ -464,3 +464,15 @@ def test_symlinked_main_branch_ref_fails_closed(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         claude.sandbox_settings(str(tmp_path / "res" / "x.json"))
     assert not target.exists()
+
+
+def test_write_nofollow_refuses_a_symlinked_directory(tmp_path):
+    root, elsewhere = tmp_path / "git", tmp_path / "elsewhere"
+    (root / "refs").mkdir(parents=True)
+    elsewhere.mkdir()
+    (root / "refs" / "heads").symlink_to(elsewhere)
+    with pytest.raises(OSError):
+        claude.write_nofollow(str(root), "refs/heads/main", "x\n")
+    assert not (elsewhere / "main").exists()
+    claude.write_nofollow(str(root), "refs/tags/v1", "y\n")
+    assert (root / "refs" / "tags" / "v1").read_text() == "y\n"

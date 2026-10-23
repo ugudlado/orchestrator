@@ -201,6 +201,27 @@ def sandbox_settings(result_file: str) -> dict:
     }
 
 
+def write_nofollow(root: str, rel: str, text: str) -> None:
+    """Create root/rel (which must not exist) without following a symlink anywhere below root: each directory
+    is opened relative to the last with O_NOFOLLOW, so a symlink swapped in meanwhile fails the open."""
+    *dirs, name = rel.split("/")
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for d in dirs:
+            try:
+                os.mkdir(d, dir_fd=fd)
+            except FileExistsError:
+                pass
+            nxt = os.open(d, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = nxt
+        out = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644, dir_fd=fd)
+        with os.fdopen(out, "w") as f:
+            f.write(text)
+    finally:
+        os.close(fd)
+
+
 def base_refs(repo: str | None) -> list[str]:
     """The refs that say what the project's main checkout is at: its HEAD, its current branch and packed-refs.
     A later run branches from that commit and runs its committed setup outside the sandbox, so a step must
@@ -230,10 +251,7 @@ def base_refs(repo: str | None) -> list[str]:
         if not loose.exists():  # git update-ref skips a no-op, so write the file it would have written
             sha = git("rev-parse", "--verify", "-q", branch)
             if sha:
-                loose.parent.mkdir(parents=True, exist_ok=True)
-                fd = os.open(loose, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
-                with os.fdopen(fd, "w") as f:
-                    f.write(sha + "\n")
+                write_nofollow(os.path.realpath(common), branch, sha + "\n")
         names.append(branch)
     return list(dict.fromkeys(f"{g}/{n}" for g in (common, os.path.realpath(common)) for n in names))
 
