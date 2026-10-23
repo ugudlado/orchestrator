@@ -33,8 +33,7 @@ def test_dev_with_real_exec_scripts(make_env, pack):
     state = r["loop"]["state"]
     # state_mutating readback: the script's state_patch / edits reached the driver's state
     assert state["schema"] == "dev"  # seeded, as the pack's driver notes ask
-    # (the pack's create-worktree reads only the first line of its state query, so its branch is always
-    # feature/<slug> whatever the schema: a known pack bug in docs/pack-driver-notes.md)
+    # (<type>/<slug>: create-worktree names it dev/real, and dev's name-branch renames it after triage)
     assert state["branch"].endswith("/real") and state["worktree_path"] == str(env.tmp / "worktrees" / "real")
     assert not Path(state["worktree_path"]).exists()  # remove-worktree removed it
     wts = subprocess.run(
