@@ -88,6 +88,9 @@ telemetry vars of any kind.
 
 ### Pack (`ugudlado/workflows`) — separate repo, separate PR
 
+> 2026-10-23: `lib/ticket/ticket-sync.sh` and the `ticket-*` steps have since
+> been removed from the pack; the tracker moves tickets itself.
+
 1. Scripts that `${STATE_YAML_PATH:?}` / grep the state file
    (`lib/ticket/ticket-sync.sh`, `create-worktree`, `load-ticket-context`,
    `merge-to-main`, `remove-worktree`, `archive-completed-change`,

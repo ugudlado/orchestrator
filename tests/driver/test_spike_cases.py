@@ -7,7 +7,7 @@ import signal
 import time
 
 FEATURE_GATES = ("design-signoff", "pr-signoff", "pr-merged")
-HOTFIX = {"triage": {"change_type": "fix"}, "diagnose": {"fix_scope": "hotfix"}}
+HOTFIX = {"triage": {"change_type": "fix"}, "create-worktree": {"change_type": "fix"}, "diagnose": {"fix_scope": "hotfix"}}
 
 
 def alive(pid: int) -> bool:
