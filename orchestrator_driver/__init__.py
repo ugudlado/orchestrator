@@ -1,1 +1,1 @@
-"""Self-hosted driver for the orchestrator engine: one worker process, one SQLite file."""
+"""Self-hosted driver for the orchestrator engine: one worker process, one Postgres database."""

@@ -1,16 +1,25 @@
 """Fixtures: a driver config on the stub agent, a throwaway git project, a real worker process, the CLI.
 
-The pack is the workflows repo: $ORCH_TEST_PACK, else /home/user/workflows/config. Without it the tests skip."""
+The pack is the workflows repo: $ORCH_TEST_PACK, else /home/user/workflows/config. Without it the tests skip.
+The database is Postgres: $ORCH_TEST_DATABASE_URL (any server; each test gets its own database on it), else a
+throwaway cluster started from the local Postgres binaries (initdb, pg_ctl) for the session."""
 
 from __future__ import annotations
 
+import glob
+import itertools
 import os
+import shutil
 import signal
+import socket
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
+import psycopg
 import pytest
 import yaml
 
@@ -43,6 +52,59 @@ def pack() -> str:
     return str(p)
 
 
+def pg_bin() -> Path | None:
+    found = shutil.which("initdb")
+    cands = [Path(found).parent] if found else [Path(d) for d in sorted(glob.glob("/usr/lib/postgresql/*/bin"))[::-1]]
+    return next((d for d in cands if (d / "initdb").exists() and (d / "pg_ctl").exists()), None)
+
+
+@pytest.fixture(scope="session")
+def pg_server():
+    """A server URL (with a maintenance database) to create per-test databases on."""
+    if url := os.environ.get("ORCH_TEST_DATABASE_URL"):
+        yield url
+        return
+    bindir = pg_bin()
+    if bindir is None:
+        pytest.fail(
+            "no Postgres for the tests: set ORCH_TEST_DATABASE_URL (a server where the role may CREATE DATABASE), "
+            "or install Postgres so initdb and pg_ctl are on PATH or in /usr/lib/postgresql/*/bin"
+        )
+    root = Path(tempfile.mkdtemp(prefix="orch-pg-"))
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    # postgres refuses to run as root: then the cluster belongs to the postgres user
+    as_pg = ["runuser", "-u", "postgres", "--"] if os.geteuid() == 0 else []
+    if as_pg:
+        shutil.chown(root, "postgres")
+    data = root / "data"
+    run = lambda *a: subprocess.run([*as_pg, *map(str, a)], check=True, capture_output=True)
+    run(bindir / "initdb", "-D", data, "-U", "postgres", "-A", "trust", "-E", "UTF8")
+    opts = f"-p {port} -c listen_addresses=127.0.0.1 -c unix_socket_directories= -c fsync=off"
+    run(bindir / "pg_ctl", "-D", data, "-w", "-l", root / "log", "-o", opts, "start")
+    try:
+        yield f"postgresql://postgres@127.0.0.1:{port}/postgres"
+    finally:
+        run(bindir / "pg_ctl", "-D", data, "-m", "immediate", "stop")
+        shutil.rmtree(root, ignore_errors=True)
+
+
+_dbs = itertools.count()
+
+
+@pytest.fixture
+def database_url(pg_server):
+    """A fresh, empty database for one test."""
+    name = f"orch_test_{os.getpid()}_{next(_dbs)}"
+    with psycopg.connect(pg_server, autocommit=True) as c:
+        c.execute(f'CREATE DATABASE "{name}"')
+    u = urlsplit(pg_server)
+    yield urlunsplit(u._replace(path=f"/{name}"))
+    with psycopg.connect(pg_server, autocommit=True) as c:
+        c.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+
+
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     """The developer's own ORCH_* settings must not leak into config tests or the worker."""
@@ -67,14 +129,14 @@ def git_repo(path: Path) -> Path:
 
 
 class Env:
-    def __init__(self, tmp: Path, pack: str, **cfg):
+    def __init__(self, tmp: Path, pack: str, database_url: str, **cfg):
         self.tmp, self.pack, self.workers = tmp, pack, []
         self.project = git_repo(tmp / "projects" / "app")
         self.config = tmp / "driver.yaml"
         self.config.write_text(
             yaml.safe_dump(
                 {
-                    "db": str(tmp / "driver.db"),
+                    "database_url": database_url,
                     "runs_root": str(tmp / "runs"),
                     "pack": pack,
                     "projects": [str(self.project)],
@@ -91,7 +153,7 @@ class Env:
             "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.environ['PATH']}",
             "WORKTREE_BASE_DIR": str(tmp / "worktrees"),
         }
-        self.db = DB(tmp / "driver.db")
+        self.db = DB(database_url)
 
     def cli(self, *args: str) -> None:
         assert cli.main([*map(str, args), "--config", str(self.config)]) == 0
@@ -135,6 +197,7 @@ class Env:
                     os.killpg(r["pid"], signal.SIGKILL)
                 except OSError:
                     pass
+        self.db.close()
 
     def wait(self, slug: str, pred, timeout: float = 120):
         t0 = time.time()
@@ -164,12 +227,12 @@ class Env:
 
 
 @pytest.fixture
-def make_env(tmp_path, pack):
+def make_env(tmp_path, pack, database_url):
     """Env factory: make_env(gate_timeout_days=0.00001, stub_exec=False, ...) sets config keys."""
     made = []
 
     def make(**cfg) -> Env:
-        made.append(Env(tmp_path, cfg.pop("pack", pack), **cfg))
+        made.append(Env(tmp_path, cfg.pop("pack", pack), database_url, **cfg))
         return made[-1]
 
     yield make
