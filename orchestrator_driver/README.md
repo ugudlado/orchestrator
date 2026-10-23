@@ -38,7 +38,7 @@ tables on connect. `db:` from the SQLite days is an error. An environment variab
 
 | key                   | default                                 | env                                      |
 | --------------------- | --------------------------------------- | ---------------------------------------- |
-| `database_url`        | none (required to open the database)   | `ORCH_DATABASE_URL`                      |
+| `database_url`        | none (required to open the database)    | `ORCH_DATABASE_URL`                      |
 | `runs_root`           | `~/.orchestrator/runs`                  | `ORCH_RUNS_ROOT`                         |
 | `pack`                | none (needed by `submit`, `workflows`)  | `ORCH_PACK`, then `ORCHESTRATOR_CONFIG`  |
 | `projects`            | none                                    | `ORCH_PROJECTS` (comma-separated)        |
